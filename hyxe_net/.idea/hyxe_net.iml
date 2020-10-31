@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="CPP_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../base64-codec/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../base64-codec/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../base64-codec/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../base64-codec/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../base64/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../base64/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../base64/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../base64/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_user/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_user/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_user/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_user/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_config/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_config/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_config/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_config/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_fs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_fs/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_fs/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_fs/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_crypt/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_crypt/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_crypt/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_crypt/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../quantum_random/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../quantum_random/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../quantum_random/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../quantum_random/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_netdata/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_netdata/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_netdata/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_netdata/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../async_ip/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../async_ip/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../async_ip/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../async_ip/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-mqdss/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-traits/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-kyber/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-dilithium/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-hqc/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-saber/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-ledacryptkem/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-sphincsplus/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-falcon/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-newhope/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-rainbow/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-ntru/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-classicmceliece/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-threebears/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-frodo/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../pqcrypto/pqcrypto-qtesla/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/../async_ip/target" />
+      <excludeFolder url="file://$MODULE_DIR$/../base64-codec/target" />
+      <excludeFolder url="file://$MODULE_DIR$/../base64/target" />
+      <excludeFolder url="file://$MODULE_DIR$/../ez_pqcrypto/target" />
+      <excludeFolder url="file://$MODULE_DIR$/../hyxe_config/target" />
+      <excludeFolder url="file://$MODULE_DIR$/../hyxe_crypt/target" />
+      <excludeFolder url="file://$MODULE_DIR$/../hyxe_fs/target" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/../hyxe_netdata/target" />
+      <excludeFolder url="file://$MODULE_DIR$/../hyxe_user/target" />
+      <excludeFolder url="file://$MODULE_DIR$/../quantum_random/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

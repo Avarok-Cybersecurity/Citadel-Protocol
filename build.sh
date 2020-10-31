@@ -1,0 +1,1 @@
+cargo build --package hyxewave

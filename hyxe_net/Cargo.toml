@@ -1,0 +1,47 @@
+[package]
+name = "hyxe_net"
+version = "0.1.0"
+authors = ["Thomas Braun <tbraun96@gmail.com>"]
+edition = "2018"
+workspace = "../"
+
+[features]
+default = ["single-threaded"]
+single-threaded = []
+multi-threaded = []
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+#futures = { version = "0.3.1", features = ["compat", "async-await"] }
+futures = "0.3.5"
+bstr = "0.2.13"
+log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_info"] }
+#async-std = { version = "1.6.2", features = ["unstable"] }
+async-trait = "0.1.31"
+#base64 = { path = "../base64", version = "0.10.1" }
+#tokio = { path = "../tokio/tokio", version = "0.3.0", features = ["full"] }
+#tokio-util = { path = "../tokio/tokio-util", version = "0.4.0", features = ["udp", "codec"] }
+tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
+tokio = { version = "^0.2.22", features = ["full"] }
+parking_lot = "*"
+zerocopy = "0.3.0"
+bytes = "0.5.6"
+byteorder = "1.3.4"
+nanoserde = "0.1.18"
+rand = "0.7.3"
+atomic = "0.5.0"
+secstr = "0.4.0"
+env_logger = "0.7.1"
+net2 = "0.2.34"
+num = "0.2.1"
+#rsntp = "0.3.1"
+either = "1.5.3"
+bitvec = "0.17.3"
+#futures_codec = { git = "https://github.com/matthunz/futures-codec/", version = "0.4.0"}
+hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0" }
+hyxe_user = { path = "../hyxe_user", version = "0.1.0" }
+hyxe_nat = { path = "../hyxe_nat", version = "0.1.0" }
+ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1" }
+#radix64 = "*"
+#base64-codec = { path = "../base64-codec", version = "0.1.0" }
