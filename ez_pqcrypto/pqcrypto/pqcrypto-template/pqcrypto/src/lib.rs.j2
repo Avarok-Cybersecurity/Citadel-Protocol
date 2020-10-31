@@ -1,0 +1,41 @@
+/// Post-Quantum cryptographic primitives
+///
+/// Packages the [PQClean][pqclean] project as Rust crates
+///
+/// [pqclean]: https://github.com/PQClean/PQClean/
+pub use pqcrypto_traits as traits;
+
+pub mod prelude {
+    pub use pqcrypto_traits::sign::{
+        SecretKey as _,
+        PublicKey as _,
+        SignedMessage as _,
+        DetachedSignature as _,
+    };
+    pub use pqcrypto_traits::kem::{
+        Ciphertext as _,
+        PublicKey as _,
+        SecretKey as _,
+        SharedSecret as _,
+    };
+}
+
+pub mod kem {
+    {% for kem in kems.keys() %}
+    pub use pqcrypto_{{ kem }}::{
+        {% for scheme in kems[kem]['schemes'] %}
+        {{ scheme['name']|nameize }},
+        {% endfor %}
+    };
+    {% endfor %}
+}
+
+pub mod sign {
+    {% for sign in signs.keys() %}
+    pub use pqcrypto_{{ sign }}::{
+        {% for scheme in signs[sign]['schemes'] %}
+        {{ scheme['name']|nameize }},
+        {% endfor %}
+    };
+    {% endfor %}
+}

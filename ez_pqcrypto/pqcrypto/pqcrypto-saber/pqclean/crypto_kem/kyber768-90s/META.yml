@@ -1,0 +1,35 @@
+name: Kyber768-90s
+type: kem
+claimed-nist-level: 3
+claimed-security: IND-CCA2
+length-public-key: 1184
+length-ciphertext: 1088
+length-secret-key: 2400
+length-shared-secret: 32
+nistkat-sha256: 57fa080a0b2295044b128f1e4f7d978a7863ec6c99ebd6239fba747525a3d451
+principal-submitters:
+  - Peter Schwabe
+auxiliary-submitters:
+  - Roberto Avanzi
+  - Joppe Bos
+  - Léo Ducas
+  - Eike Kiltz
+  - Tancrède Lepoint
+  - Vadim Lyubashevsky
+  - John M. Schanck
+  - Gregor Seiler
+  - Damien Stehlé
+implementations:
+    - name: clean
+      version: https://github.com/pq-crystals/kyber/commit/46e283ab575ec92dfe82fb12229ae2d9d6246682
+    - name: avx2
+      version: https://github.com/pq-crystals/kyber/commit/46e283ab575ec92dfe82fb12229ae2d9d6246682
+      supported_platforms:
+        - architecture: x86_64
+          operating_systems:
+            - Linux
+          required_flags:
+              - aes
+              - avx2
+              - bmi2
+              - popcnt

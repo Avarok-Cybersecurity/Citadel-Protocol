@@ -1,0 +1,18 @@
+name: MQDSS-64
+type: signature
+claimed-nist-level: 3
+length-public-key: 64
+length-secret-key: 24
+length-signature: 43728
+nistkat-sha256: 2a50f067babbf4a3eed5197e87820472944d1d79fc03b1d9322a8ad8c245501e
+testvectors-sha256: 1edd33ca64b14f60f153b84dd25c7064cfa9b7dbf1bb5c4296f343377cb0c864
+principal-submitters:
+  - Simona Samardjiska
+auxiliary-submitters:
+  - Ming-Shing Chen
+  - Andreas Hülsing
+  - Joost Rijneveld
+  - Peter Schwabe
+implementations:
+    - name: clean
+      version: https://github.com/joostrijneveld/MQDSS/commit/0c64d4d67a37051c1299a3049a5bb8984ca27ecc

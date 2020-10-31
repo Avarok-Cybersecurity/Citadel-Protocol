@@ -1,0 +1,33 @@
+[package]
+name = "async_mem"
+version = "0.1.0"
+authors = ["Thomas Braun <tbraun96@gmail.com>"]
+edition = "2018"
+workspace = "../"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+exclude = [
+    "./target/*"
+]
+
+[dependencies]
+hashbrown = "0.5.0"
+
+futures-preview = { version= "0.3.0-alpha.19", features = ["async-await", "compat"]}
+future-parking_lot = "0.1.1"
+hyxe_util = { path = "../hyxe_util", version = "0.1.0" }
+hyxe_derive = { path = "../hyxe_derive", version = "0.1.0" }
+bit = "0.1.1"
+
+serde = { version = "1.0.98", features = ["rc"] }
+serde_derive = "1.0.98"
+
+[dev-dependencies]
+criterion = "*"
+
+[profile.bench]
+debug = true
+
+[[bench]]
+name = "benchmarks"
+harness = false

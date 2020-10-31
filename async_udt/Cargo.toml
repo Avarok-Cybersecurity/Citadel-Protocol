@@ -1,0 +1,13 @@
+[package]
+name = "async_udt"
+version = "0.1.0"
+authors = ["Thomas Braun <tbraun96@gmail.com>"]
+edition = "2018"
+workspace = ".."
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "0.2.22", features = ["io-driver", "macros"] }
+udt = { version = "0.2.1", path = "./udt-rs" }
+#mio = "0.6.22"
+#smol = "0.3.3"

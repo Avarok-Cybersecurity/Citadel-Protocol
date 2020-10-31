@@ -1,0 +1,371 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="RUST_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_kcp/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_kcp/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_kcp/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_kcp/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_util/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_util/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_util/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_util/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/kcp-core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/kcp-core/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/kcp-core/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/kcp-core/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/async_mem/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/async_mem/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/async_mem/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/async_mem/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_crypt/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_crypt/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_crypt/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_crypt/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_derive/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_derive/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_derive/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hypervec/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hypervec/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hypervec/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hypervec/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/quantum_random/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quantum_random/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quantum_random/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/quantum_random/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/base64/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/base64/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/base64/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/base64/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/dashmap/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/dashmap/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/dashmap/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/dashmap/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/dashmap/lib/ccl-crossbeam-epoch/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/dashmap/lib/ccl-crossbeam-epoch/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/dashmap/lib/ccl-crossbeam-epoch/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/dashmap/lib/ccl-crossbeam-epoch/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_user/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_user/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_user/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_user/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/net2-rs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/net2-rs/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/net2-rs/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/net2-rs/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_fs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_fs/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_fs/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_fs/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_shared/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_shared/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_shared/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_shared/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_service/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_service/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_service/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_service/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/radio_station/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/radio_station/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/radio_station/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/radio_station/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/quiche_async/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quiche_async/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quiche_async/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/quiche_async/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/sidh-rs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/sidh-rs/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/sidh-rs/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/sidh-rs/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_config/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_config/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_config/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_config/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/rustai/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/rustai/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/rustai/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/rustai/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_db_handler/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_db_handler/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_db_handler/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_db_handler/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_net/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_net/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_net/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_net/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn-h3/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn-h3/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn-h3/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn-h3/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn-proto/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn-proto/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn-proto/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn-proto/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/quinn/quinn/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/base64-codec/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/base64-codec/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/base64-codec/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/base64-codec/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/async_ip/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/async_ip/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/async_ip/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/async_ip/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-falcon/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-traits/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-ntru/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-saber/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-qtesla/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-mqdss/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-kyber/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-dilithium/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-hqc/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-ledacryptkem/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-sphincsplus/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-newhope/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-rainbow/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-classicmceliece/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-threebears/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/pqcrypto/pqcrypto-frodo/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxewave/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/rpassword/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/rpassword/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/rpassword/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/shrust/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/shrust/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/udt_tokio/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/udt_tokio/udt-rs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/udt_tokio/udt-rs/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/udt_tokio/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/udt_tokio/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_nat/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_nat/rust-igd/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_nat/rust-igd/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_nat/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/async_udt/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/async_udt/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/async_udt/udt-rs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/async_udt/udt-rs/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_utp/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_utp/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/aead/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/zk-paillier/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/zk-paillier/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/zk-paillier/curv-0.2.3/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/zk-paillier/curv-0.2.3/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/zk-paillier/rust-paillier/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/zk-paillier/rust-paillier/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/zk-paillier/rust-paillier/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/zk-paillier/curv/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/zk-paillier/curv/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/zk-paillier/rust-gmp/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lusna_ffi/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/oqs-rs/oqs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/ez_pqcrypto/oqs-rs/oqs-sys/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lusna_ffi/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tokio/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tokio/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tokio-macros/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tokio-test/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tokio-test/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tokio-util/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tokio-util/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tests-build/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tests-build/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tests-integration/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio/tests-integration/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/rsntp/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/rsntp/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/cbor/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/cbor/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/cbor/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libc-41a7cac8e2f019ca/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/syn-2775b89b7e13e28c/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/proc-macro2-070982c52bb83d4e/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/bitflags-5633226bf556c011/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/kernel32-sys-31c89888906210a3/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-cbeab11065a84e27/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/ws2_32-sys-834b51aacf3c7c3f/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-f476446e4a35bfdd/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/memchr-9aaa856ec9e34f30/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/pin-project-internal-3a0fdd0902d51308/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/httparse-1d0127ea83c1ac18/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/indexmap-66f75285ba8f1626/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/hashbrown-e718c3c8845e4cb3/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/proc-macro-nested-13a76d40d25c26c2/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/native-tls-6b521bc1100308ff/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/getrandom-9b7064f70244f507/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/mime_guess-820ad90876198dc8/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/unicase-01b37d2aed6ebe47/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/serde-947b169734b2f6a7/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/serde_derive-619d3b749556768e/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/serde_json-db2f28cf9214b9b1/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/ryu-6e20cb0b9b382786/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/encoding_rs-bc84766836eb1d77/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libudt4-sys-d64ea59326a6652d/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/generic-array-0e8751cdbb6f34ef/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/typenum-28f98d028fa98396/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/heapless-693635e65e750ee7/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/byteorder-4172b4815b46ecc3/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/pqcrypto-saber-5b32b79442e2eef9/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-bigint-e8c553f7d7d07190/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-rational-a03d8d8eeb51acfd/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/atomic-14ad03913d90b03f/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/jni-5dafa1dc92a7a636/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/error-chain-2550e2d28a8e9cb5/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libc-eda37ddfba424942/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-e39155fdfed3167e/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-70ef804e5453bae9/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-d1358cbd917c1216/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-b4d36f72d80a16dc/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-886df35e878c3ced/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-551668fa02e1b531/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/syn-f2a0b195437a8730/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-a2ed138d6caafcc3/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-6dd45878c76f65b6/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/memchr-881be14dad9683b7/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/syn-1f191f6febd6e02d/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-ae943da38121d577/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-275efa9310a6aed2/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libudt4-sys-a1f308cbbbb2f554/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/hyxe_net-c45a616d894d0cc2/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/hyxe_net-73413427387f24b1/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-7835777966487613/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/jni-659170b792555e9b/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_agnostic_uds/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_agnostic_uds/tokio-uds-windows/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_agnostic_uds/tokio-uds-windows/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_agnostic_uds/tokio-uds-windows/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/pin-project-internal-eb859e8e680cdc56/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_agnostic_uds/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/tokio_agnostic_uds/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-integer-9e52fe1c6f9034c8/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-iter-3298736bfbfe63e4/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-rational-c3486c971edb6939/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-bigint-68c404d67c8c9ad2/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-complex-41b314703169da9e/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/pqcrypto-saber-a272a9af8c7b4f42/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-8f266fd40a6b3bf2/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libc-1d055faf7ed64b83/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-d0e617d222f93ded/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-a495c72c768177bc/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/ws2_32-sys-2440fd2b52a5cea7/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/kernel32-sys-d246ecef3e8e232a/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/bitflags-8b602a8e6a84c38e/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/proc-macro2-e4ce9145373ee44f/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/syn-8816254cecd99748/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/memchr-55f65f2c7e522e7f/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/mime_guess-816edd253e339339/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/unicase-2ab2dcecbdebf901/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/serde-97c711da3877b2a4/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/serde_derive-7b42956a6747e97e/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/serde_json-4374a80bbe8c289c/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/ryu-27ce48e043ea4f1f/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/native-tls-8bec4c31f4641130/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/getrandom-e7536cd22b1e6f4b/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/pin-project-internal-b928620ded0977f1/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/proc-macro-nested-6c689eca2b36fc17/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/indexmap-aadea3edf798ad15/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/hashbrown-3f19aaa3572f9955/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/httparse-f32720d17668a2c1/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/encoding_rs-0801775291aa86f4/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libudt4-sys-4f93960db06f02e4/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/generic-array-577d83a3662c0583/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/typenum-e619e021288b6d20/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/heapless-9c493b92e3f4b651/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/byteorder-1a8d8c6f987486d9/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/pqcrypto-saber-83313b31370b693d/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-iter-2275eb8ac4148233/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-rational-e2b3d2a275fdac8d/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/hyxe_net-d8d807af504182a6/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/atomic-1b4c7b90b17e7702/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-bigint-f35db618cd53eb17/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-rational-63e9d8fdb111dc63/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/num-complex-d3be6e185c9a094c/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/jni-2a2a9f0cd3b8d5b7/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/error-chain-a2b1dc7a157bf66e/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libc-955fac2fae18e31a/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-40afcade03ecfcad/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-74d87d752e0a70c3/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-036956e1ebfa8c42/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-842d871d05c47a15/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-75042f0603c98320/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-b57e944e00f31367/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-9128c7625a8dab9f/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-31594107b046ad06/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/syn-273b645a8173a5ea/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-94abfe8f36c4a63c/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/log-69378fdff41a40b7/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/syn-5fed1b51188cd606/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libudt4-sys-79f3f3e8ea254cc6/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-3df70a4c091f7bf9/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/jni-67ad7e1c45f94a65/out" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/target" />
+      <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/target" />
+      <excludeFolder url="file://$MODULE_DIR$/async_ip/target" />
+      <excludeFolder url="file://$MODULE_DIR$/async_mem/target" />
+      <excludeFolder url="file://$MODULE_DIR$/base64-codec/target" />
+      <excludeFolder url="file://$MODULE_DIR$/base64/target" />
+      <excludeFolder url="file://$MODULE_DIR$/dashmap/lib/ccl-crossbeam-epoch/target" />
+      <excludeFolder url="file://$MODULE_DIR$/dashmap/target" />
+      <excludeFolder url="file://$MODULE_DIR$/ez_pqcrypto/oqs-rs/target" />
+      <excludeFolder url="file://$MODULE_DIR$/ez_pqcrypto/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hypervec/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_config/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_core/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_crypt/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_db_handler/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_derive/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_fs/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_net/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_service/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_shared/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_user/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxe_util/target" />
+      <excludeFolder url="file://$MODULE_DIR$/hyxewave_net/target" />
+      <excludeFolder url="file://$MODULE_DIR$/kcp-core/target" />
+      <excludeFolder url="file://$MODULE_DIR$/net2-rs/target" />
+      <excludeFolder url="file://$MODULE_DIR$/quantum_random/target" />
+      <excludeFolder url="file://$MODULE_DIR$/quiche_async/target" />
+      <excludeFolder url="file://$MODULE_DIR$/quinn/quinn-h3/target" />
+      <excludeFolder url="file://$MODULE_DIR$/quinn/quinn-proto/target" />
+      <excludeFolder url="file://$MODULE_DIR$/quinn/quinn/target" />
+      <excludeFolder url="file://$MODULE_DIR$/radio_station/target" />
+      <excludeFolder url="file://$MODULE_DIR$/rustai/target" />
+      <excludeFolder url="file://$MODULE_DIR$/sidh-rs/target" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/tokio_kcp/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>
