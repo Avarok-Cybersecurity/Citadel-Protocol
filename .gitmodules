@@ -1,0 +1,7 @@
+[submodule "quantum_random"]
+	path = quantum_random
+	url = https://github.com/tbraun96/quantum_random.git
+
+[submodule "net2-rs"]
+	path = net2-rs
+	url = https://github.com/rust-lang-nursery/net2-rs.git

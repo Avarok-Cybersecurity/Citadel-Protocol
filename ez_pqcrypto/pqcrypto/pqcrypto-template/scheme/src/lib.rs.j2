@@ -1,0 +1,44 @@
+//! # {{ name }}
+//!
+//! This crate provides bindings to and wrappers around the following
+//! implementations from [PQClean][pqc]:
+//!
+{% for scheme in schemes %}//! * {{ scheme.name }} - {{ scheme.implementation }}
+{% endfor %}
+//!
+//! [pqc]: https://github.com/pqclean/pqclean/
+//!
+{% if notes %}//! # Notes
+{% for line in notes|split('\n')|join(' ')|wordwrap(width=70)|split('\n') %}
+//! {{ line }}
+{% endfor %}
+{% endif %}
+
+#![allow(clippy::len_without_is_empty)]
+
+pub mod ffi;
+
+{% for scheme in schemes %}
+pub mod {{ scheme.name|nameize }};
+{% endfor %}
+
+{% for scheme in schemes %}
+{% set scheme_name = scheme.name|nameize %}
+pub use crate::{{ scheme_name }}::{
+    keypair as {{ scheme_name }}_keypair,
+    public_key_bytes as {{ scheme_name }}_public_key_bytes,
+    secret_key_bytes as {{ scheme_name }}_secret_key_bytes,
+    {% if type == "kem" %}
+    encapsulate as {{ scheme_name }}_encapsulate,
+    decapsulate as {{ scheme_name }}_decapsulate,
+    ciphertext_bytes as {{ scheme_name }}_ciphertext_bytes,
+    shared_secret_bytes as {{ scheme_name }}_shared_secret_bytes,
+    {% else %}
+    signature_bytes as {{ scheme_name }}_signature_bytes,
+    sign as {{ scheme_name }}_sign,
+    open as {{ scheme_name }}_open,
+    detached_sign as {{ scheme_name }}_detached_sign,
+    verify_detached_signature as {{ scheme_name }}_verify_detached_signature,
+    {% endif %}
+};
+{% endfor %}

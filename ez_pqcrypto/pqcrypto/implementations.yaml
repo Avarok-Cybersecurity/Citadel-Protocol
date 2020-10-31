@@ -1,0 +1,380 @@
+---
+
+pqcrypto_version: 0.10.0
+traits_version: 0.3.2
+
+kems:
+  kyber:
+    version: 0.6.5
+    avx2_guard: 'cfg(all(not(disable_avx2), not(target_os = "windows"), not(target_os = "macos"), target_arch = "x86_64"))'
+    schemes:
+      - name: kyber512
+        implementation: clean
+        avx2_implementation: avx2
+      - name: kyber768
+        implementation: clean
+        avx2_implementation: avx2
+      - name: kyber1024
+        implementation: clean
+        avx2_implementation: avx2
+      - name: kyber512-90s
+        implementation: clean
+        avx2_implementation: avx2
+      - name: kyber768-90s
+        implementation: clean
+        avx2_implementation: avx2
+      - name: kyber1024-90s
+        implementation: clean
+        avx2_implementation: avx2
+  frodo:
+    version: 0.4.2
+    notes: |
+      If you use it via the FFI interface: The ``clean`` implementation of Frodo
+      needs a lot of stack space, specify env variable `RUST_MIN_STACK` to make
+      sure it has enough stack space in threads.
+
+      This is not relevant for the 'normal' api methods.
+    schemes:
+      - name: frodokem640shake
+        implementation: opt
+        alt_implementations:
+          - clean
+      - name: frodokem640aes
+        implementation: opt
+        alt_implementations:
+          - clean
+      - name: frodokem976aes
+        implementation: opt
+        alt_implementations:
+          - clean
+      - name: frodokem976shake
+        implementation: opt
+        alt_implementations:
+          - clean
+      - name: frodokem1344aes
+        implementation: opt
+        alt_implementations:
+          - clean
+      - name: frodokem1344shake
+        implementation: opt
+        alt_implementations:
+          - clean
+  ntru:
+    version: 0.4.2
+    schemes:
+      - name: ntruhps2048509
+        implementation: clean
+      - name: ntruhps2048677
+        implementation: clean
+      - name: ntruhps4096821
+        implementation: clean
+      - name: ntruhrss701
+        implementation: clean
+  saber:
+    version: 0.1.3
+    schemes:
+      - name: firesaber
+        implementation: clean
+      - name: lightsaber
+        implementation: clean
+      - name: saber
+        implementation: clean
+  ledacryptkem:
+    notes: |
+      This implementation is not constant-time!
+      This means that it is not secure.
+
+      This crate may remove the ``leaktime`` implementation at any point.
+    version: 0.0.3
+    schemes:
+      - name: ledakemlt12
+        implementation: leaktime
+      - name: ledakemlt32
+        implementation: leaktime
+      - name: ledakemlt52
+        implementation: leaktime
+  threebears:
+    version: 0.2.0
+    schemes:
+      - name: babybear
+        implementation: clean
+      - name: mamabear
+        implementation: clean
+      - name: papabear
+        implementation: clean
+      - name: papabear-ephem
+        implementation: clean
+      - name: mamabear-ephem
+        implementation: clean
+      - name: babybear-ephem
+        implementation: clean
+  classicmceliece:
+    version: 0.1.0
+    avx2_guard: 'cfg(all(not(disable_avx2), not(target_os = "windows"), target_arch = "x86_64"))'
+    schemes:
+      - name: mceliece348864
+        implementation: vec
+        avx2_implementation: avx
+        alt_implementations:
+          - clean
+      - name: mceliece348864f
+        implementation: vec
+        avx2_implementation: avx
+        alt_implementations:
+          - clean
+      - name: mceliece460896
+        implementation: vec
+        avx2_implementation: avx
+        alt_implementations:
+          - clean
+      - name: mceliece460896f
+        implementation: vec
+        avx2_implementation: avx
+        alt_implementations:
+          - clean
+      - name: mceliece6688128
+        implementation: vec
+        avx2_implementation: avx
+        alt_implementations:
+          - clean
+      - name: mceliece6688128f
+        implementation: vec
+        avx2_implementation: avx
+        alt_implementations:
+          - clean
+      - name: mceliece6960119
+        implementation: vec
+        avx2_implementation: avx
+        alt_implementations:
+          - clean
+      - name: mceliece6960119f
+        implementation: vec
+        avx2_implementation: avx
+        alt_implementations:
+          - clean
+      - name: mceliece8192128
+        implementation: vec
+        avx2_implementation: avx
+        alt_implementations:
+          - clean
+      - name: mceliece8192128f
+        implementation: vec
+        avx2_implementation: avx
+        alt_implementations:
+          - clean
+  newhope:
+    version: 0.1.2
+    schemes:
+      - name: newhope1024cpa
+        implementation: clean
+      - name: newhope1024cca
+        implementation: clean
+      - name: newhope512cpa
+        implementation: clean
+      - name: newhope512cca
+        implementation: clean
+  hqc:
+    version: 0.0.1
+    notes: |
+      This implementation is not constant-time!
+      This means that it is not secure.
+
+      This crate may remove the ``leaktime`` implementation at any point.
+    schemes:
+      - name: hqc-128-1-cca2
+        implementation: leaktime
+      - name: hqc-192-1-cca2
+        implementation: leaktime
+      - name: hqc-192-2-cca2
+        implementation: leaktime
+      - name: hqc-256-1-cca2
+        implementation: leaktime
+      - name: hqc-256-2-cca2
+        implementation: leaktime
+      - name: hqc-256-3-cca2
+        implementation: leaktime
+
+
+signs:
+  mqdss:
+    version: 0.2.3
+    schemes:
+      - name: mqdss-48
+        implementation: clean
+      - name: mqdss-64
+        implementation: clean
+  dilithium:
+    version: 0.3.1
+    avx2_guard: 'cfg(all(not(disable_avx2), not(target_os = "windows"), target_arch = "x86_64"))'
+    schemes:
+      - name: dilithium2
+        implementation: clean
+        avx2_implementation: avx2
+      - name: dilithium3
+        implementation: clean
+        avx2_implementation: avx2
+      - name: dilithium4
+        implementation: clean
+        avx2_implementation: avx2
+  falcon:
+    version: 0.2.2
+    schemes:
+      - name: falcon-512
+        implementation: clean
+      - name: falcon-1024
+        implementation: clean
+  qtesla:
+    version: 0.1.1
+    schemes:
+      - name: qtesla-p-I
+        implementation: clean
+      - name: qtesla-p-III
+        implementation: clean
+  rainbow:
+    version: 0.1.2
+    notes: |
+      This implementation requires a lot of stack space.
+      You need to specify ``RUST_MIN_STACK=800000000``, probably.
+    schemes:
+      - name: rainbowIIIc-classic
+        implementation: clean
+      - name: rainbowIIIc-cyclic
+        implementation: clean
+      - name: rainbowIIIc-cyclic-compressed
+        implementation: clean
+      - name: rainbowIa-classic
+        implementation: clean
+      - name: rainbowIa-cyclic
+        implementation: clean
+      - name: rainbowIa-cyclic-compressed
+        implementation: clean
+      - name: rainbowVc-classic
+        implementation: clean
+        doctest: no
+      - name: rainbowVc-cyclic
+        implementation: clean
+        doctest: no
+      - name: rainbowVc-cyclic-compressed
+        implementation: clean
+  sphincsplus:
+    version: 0.5.0
+    schemes:
+      - name: sphincs-haraka-128s-simple
+        implementation: clean
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+      - name: sphincs-haraka-128s-robust
+        implementation: clean
+      - name: sphincs-haraka-128f-simple
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+        implementation: clean
+      - name: sphincs-haraka-128f-robust
+        implementation: clean
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+      - name: sphincs-haraka-192s-simple
+        implementation: clean
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+      - name: sphincs-haraka-192s-robust
+        implementation: clean
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+      - name: sphincs-haraka-192f-simple
+        implementation: clean
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+      - name: sphincs-haraka-192f-robust
+        implementation: clean
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+      - name: sphincs-haraka-256s-simple
+        implementation: clean
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+      - name: sphincs-haraka-256s-robust
+        implementation: clean
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+      - name: sphincs-haraka-256f-simple
+        implementation: clean
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+      - name: sphincs-haraka-256f-robust
+        implementation: clean
+        avx2_implementation: aesni
+        avx2_feature: 'aes'
+      - name: sphincs-shake256-128s-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-shake256-128s-robust
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-shake256-128f-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-shake256-128f-robust
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-shake256-192s-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-shake256-192s-robust
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-shake256-192f-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-shake256-192f-robust
+        implementation: clean
+      - name: sphincs-shake256-256s-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-shake256-256s-robust
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-shake256-256f-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-shake256-256f-robust
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-128s-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-128s-robust
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-128f-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-128f-robust
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-192s-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-192s-robust
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-192f-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-192f-robust
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-256s-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-256s-robust
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-256f-simple
+        implementation: clean
+        avx2_implementation: avx2
+      - name: sphincs-sha256-256f-robust
+        implementation: clean
+        avx2_implementation: avx2
+
+#  vim: set ft=yaml ts=2 sw=2 tw=0 et :

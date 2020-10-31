@@ -1,0 +1,682 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="BranchesTreeState">
+    <expand>
+      <path>
+        <item name="ROOT" type="e8cecc67:BranchNodeDescriptor" />
+        <item name="LOCAL_ROOT" type="e8cecc67:BranchNodeDescriptor" />
+      </path>
+      <path>
+        <item name="ROOT" type="e8cecc67:BranchNodeDescriptor" />
+        <item name="REMOTE_ROOT" type="e8cecc67:BranchNodeDescriptor" />
+      </path>
+      <path>
+        <item name="ROOT" type="e8cecc67:BranchNodeDescriptor" />
+        <item name="REMOTE_ROOT" type="e8cecc67:BranchNodeDescriptor" />
+        <item name="GROUP_NODE:origin" type="e8cecc67:BranchNodeDescriptor" />
+      </path>
+    </expand>
+    <select />
+  </component>
+  <component name="CMakeRunConfigurationManager" shouldGenerate="true" shouldDeleteObsolete="true">
+    <generated />
+  </component>
+  <component name="CMakeSettings">
+    <configurations>
+      <configuration PROFILE_NAME="Debug" CONFIG_NAME="Debug" />
+    </configurations>
+  </component>
+  <component name="CargoProjects">
+    <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
+    <cargoProject FILE="$PROJECT_DIR$/hyxe_user/Cargo.toml" />
+    <cargoProject FILE="$PROJECT_DIR$/hyxe_fs/Cargo.toml" />
+    <cargoProject FILE="$PROJECT_DIR$/hyxe_config/Cargo.toml" />
+    <cargoProject FILE="$PROJECT_DIR$/hyxe_net/Cargo.toml" />
+    <cargoProject FILE="$PROJECT_DIR$/hyxe_nat/Cargo.toml" />
+    <cargoProject FILE="$PROJECT_DIR$/async_udt/Cargo.toml" />
+    <cargoProject FILE="$PROJECT_DIR$/async_udt/udt-rs/Cargo.toml" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Progress on hyxe networking">
+      <change afterPath="$PROJECT_DIR$/build-apple.sh" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/hyxewave_mac.rar" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.cargo/config" beforeDir="false" afterPath="$PROJECT_DIR$/.cargo/config" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/hyxe_wave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hyxe_wave.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/DIRECTIONS.txt" beforeDir="false" afterPath="$PROJECT_DIR$/DIRECTIONS.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/async_udt/udt-rs" beforeDir="false" afterPath="$PROJECT_DIR$/async_udt/udt-rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/base64-codec" beforeDir="false" afterPath="$PROJECT_DIR$/base64-codec" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ez_pqcrypto/pqcrypto/pqclean/.gitattributes" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/hyxe_crypt.iml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/hyxe_crypt.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/connect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/connect_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/inner_arg.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/inner_arg.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/app_config.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/app_config.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/kernel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/kernel.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/rsntp" beforeDir="false" afterPath="$PROJECT_DIR$/rsntp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shrust" beforeDir="false" afterPath="$PROJECT_DIR$/shrust" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="CoverageViewManager">
+    <option name="myElementSize" value="258" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Rust File" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+    <option name="ROOT_SYNC" value="DONT_SYNC" />
+  </component>
+  <component name="GitToolBoxStore">
+    <option name="projectConfigVersion" value="2" />
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="CdSiLkPI" />
+  </component>
+  <component name="ProjectId" id="1PYdLUIz3Och3xVYwGRcp62FiWt" />
+  <component name="ProjectLevelVcsManager" settingsEditedManually="true">
+    <ConfirmationsSetting value="2" id="Add" />
+  </component>
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">
+    <property name="ASKED_ADD_EXTERNAL_FILES" value="true" />
+    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
+    <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
+    <property name="SHARE_PROJECT_CONFIGURATION_FILES" value="true" />
+    <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="add_unversioned_files" value="true" />
+    <property name="aspect.path.notification.shown" value="true" />
+    <property name="cf.first.check.clang-format" value="false" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="node.js.detected.package.eslint" value="true" />
+    <property name="node.js.detected.package.tslint" value="true" />
+    <property name="node.js.path.for.package.eslint" value="project" />
+    <property name="node.js.path.for.package.tslint" value="project" />
+    <property name="node.js.selected.package.eslint" value="(autodetect)" />
+    <property name="node.js.selected.package.tslint" value="(autodetect)" />
+    <property name="nodejs_interpreter_path.stuck_in_default_project" value="undefined stuck path" />
+    <property name="nodejs_npm_path_reset_for_default_project" value="true" />
+    <property name="nodejs_package_manager_path" value="npm" />
+    <property name="org.rust.cargo.project.model.PROJECT_DISCOVERY" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/HyperBuf/hyperbuf/src/util.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/base64-codec/src/lib.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxe_crypt/src/encrypt.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxe_crypt/src/encrypted_memory_artifact.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxe_crypt/src/lib.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxe_fs/src/hyxe_file.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxe_user/src/client_account.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxe_user/src/network_account.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxe_user/src/network_map.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxe_user/src/server_config_handler.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxe_user/src/shutdown_hooks.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxewave_net/src/connection/network_map.rs" value="true" />
+    <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/rustai/src/lib.rs" value="true" />
+    <property name="project.structure.last.edited" value="Global Libraries" />
+    <property name="project.structure.proportion" value="0.0" />
+    <property name="project.structure.side.proportion" value="0.2" />
+    <property name="restartRequiresConfirmation" value="false" />
+    <property name="settings.editor.selected.configurable" value="preferences.pluginManager" />
+  </component>
+  <component name="ReadonlyStatusHandler">
+    <option name="SHOW_DIALOG" value="false" />
+  </component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\satori.net\ez_pqcrypto" />
+      <recent name="C:\hyxe_wave\hyxe_net\src\hdp\peer" />
+      <recent name="C:\hyxe_wave\hyxe_nat\src\udp_traversal\linear" />
+      <recent name="C:\hyxe_wave\src\console" />
+      <recent name="C:\hyxe_wave\hyxe_user\src" />
+    </key>
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\hyxe_wave\hyxe_net\backup" />
+    </key>
+  </component>
+  <component name="RunAnythingCache">
+    <option name="myCommands">
+      <command value="cargo install --force --git https://github.com/kbknapp/cargo-outdated" />
+      <command value="cargo-outdated" />
+      <command value="cargo clean" />
+    </option>
+  </component>
+  <component name="RunDashboard">
+    <option name="excludedTypes">
+      <set>
+        <option value="#com.intellij.j2ee.web.jsr45.JSR45ConfigurationFactory" />
+        <option value="#com.intellij.j2ee.web.tomcat.TomcatRunConfigurationFactory" />
+        <option value="GeronimoConfiguration" />
+        <option value="GlassfishConfiguration" />
+        <option value="GoogleAppEngineDevServer" />
+        <option value="JBossConfiguration" />
+        <option value="JettyConfiguration" />
+        <option value="ResinConfigurationType" />
+        <option value="TomeeConfiguration" />
+        <option value="WebLogic Instance" />
+        <option value="WebSphereRunConfigurationType" />
+        <option value="com.intellij.dmserver.run.DMServerRunConfigurationType:id" />
+      </set>
+    </option>
+  </component>
+  <component name="RunManager" selected="Cargo.Build HyxeWave">
+    <configuration name="Build HyxeWave" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="channel" value="NIGHTLY" />
+      <option name="command" value="build --package hyxewave --bin hyxewave" />
+      <option name="allFeatures" value="true" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run client_sym" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="channel" value="NIGHTLY" />
+      <option name="command" value="run --package hyxe_nat --example client_sym" />
+      <option name="allFeatures" value="true" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run client_sym2" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="channel" value="NIGHTLY" />
+      <option name="command" value="run --package hyxe_nat --example client_sym2" />
+      <option name="allFeatures" value="true" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run hyxewave 127.0.0.2" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="channel" value="NIGHTLY" />
+      <option name="command" value="run --package hyxewave --bin hyxewave -- --type pure_server --bind 127.0.0.2" />
+      <option name="allFeatures" value="true" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run misc" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="channel" value="NIGHTLY" />
+      <option name="command" value="run --package hyxe_nat --example misc" />
+      <option name="allFeatures" value="true" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run server_sym2" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="channel" value="NIGHTLY" />
+      <option name="command" value="run --package hyxe_nat --example server_sym2" />
+      <option name="allFeatures" value="true" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test tests::encrypt_decrypt_test (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="channel" value="NIGHTLY" />
+      <option name="command" value="test --package hyxe_fs --test primary tests::encrypt_decrypt_test -- --exact" />
+      <option name="allFeatures" value="true" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="channel" value="NIGHTLY" />
+      <option name="command" value="run" />
+      <option name="allFeatures" value="true" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <list>
+      <item itemvalue="Cargo.Build HyxeWave" />
+      <item itemvalue="Cargo.Run hyxewave 127.0.0.2" />
+      <item itemvalue="Cargo.Run client_sym2" />
+      <item itemvalue="Cargo.Run client_sym" />
+      <item itemvalue="Cargo.Run misc" />
+      <item itemvalue="Cargo.Run server_sym2" />
+      <item itemvalue="Cargo.Test tests::encrypt_decrypt_test (1)" />
+    </list>
+  </component>
+  <component name="RustProjectSettings">
+    <option name="compileAllTargets" value="false" />
+    <option name="externalLinter" value="Clippy" />
+    <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+    <option name="version" value="2" />
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="project-level" UseSingleDictionary="true" transferred="true" />
+  <component name="SvnConfiguration">
+    <configuration>C:\Users\tbrau\AppData\Roaming\Subversion</configuration>
+    <option name="sshConnectionType" value="PRIVATE_KEY" />
+    <option name="sshPort" value="44444" />
+    <option name="sshPrivateKeyPath" value="C:\ssh\def.txt" />
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="" />
+      <created>1566054907722</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1566054907722</updated>
+      <workItem from="1566054910120" duration="734000" />
+      <workItem from="1566056241528" duration="117508000" />
+      <workItem from="1566312154136" duration="1215000" />
+      <workItem from="1566313454905" duration="36732000" />
+      <workItem from="1566406544390" duration="562000" />
+      <workItem from="1566407121979" duration="105000" />
+      <workItem from="1566407335001" duration="108934000" />
+      <workItem from="1566674956182" duration="46269000" />
+      <workItem from="1566752338466" duration="62465000" />
+      <workItem from="1566925608027" duration="83037000" />
+      <workItem from="1567100428916" duration="40812000" />
+      <workItem from="1567186945072" duration="19840000" />
+      <workItem from="1567223514695" duration="18093000" />
+      <workItem from="1567273732420" duration="30019000" />
+      <workItem from="1567363195915" duration="42425000" />
+      <workItem from="1567448042947" duration="26559000" />
+      <workItem from="1567532105054" duration="523000" />
+      <workItem from="1567532903412" duration="6574000" />
+      <workItem from="1567554435003" duration="3870000" />
+      <workItem from="1567558332783" duration="6007000" />
+      <workItem from="1567608140993" duration="9272000" />
+      <workItem from="1567622824494" duration="190076000" />
+      <workItem from="1568047605781" duration="45983000" />
+      <workItem from="1568146583170" duration="95900000" />
+      <workItem from="1568407547531" duration="78000" />
+      <workItem from="1568407640760" duration="96913000" />
+      <workItem from="1568667132996" duration="39971000" />
+      <workItem from="1568745741194" duration="18060000" />
+      <workItem from="1568811513186" duration="16718000" />
+      <workItem from="1568834366138" duration="331000" />
+      <workItem from="1568834716495" duration="79838000" />
+      <workItem from="1569019382393" duration="26475000" />
+      <workItem from="1569107847368" duration="44607000" />
+      <workItem from="1569239076920" duration="38032000" />
+      <workItem from="1569506012119" duration="36049000" />
+      <workItem from="1569589133135" duration="2113000" />
+      <workItem from="1569592219061" duration="536000" />
+      <workItem from="1569597186452" duration="47601000" />
+      <workItem from="1569765033714" duration="34851000" />
+      <workItem from="1569852165146" duration="33805000" />
+      <workItem from="1569933831071" duration="1652000" />
+      <workItem from="1569944284020" duration="34298000" />
+      <workItem from="1570054078088" duration="34956000" />
+      <workItem from="1570162238353" duration="37886000" />
+      <workItem from="1570249569375" duration="52767000" />
+      <workItem from="1570462967711" duration="1596000" />
+      <workItem from="1570465998199" duration="30037000" />
+      <workItem from="1570549567587" duration="32698000" />
+      <workItem from="1570660824098" duration="21000" />
+      <workItem from="1570660857240" duration="47781000" />
+      <workItem from="1570894058119" duration="32316000" />
+      <workItem from="1571005935172" duration="11994000" />
+      <workItem from="1571092838829" duration="1654000" />
+      <workItem from="1571095379847" duration="7008000" />
+      <workItem from="1571139008733" duration="37543000" />
+      <workItem from="1571191558471" duration="4491000" />
+      <workItem from="1571235940836" duration="213000" />
+      <workItem from="1571236279729" duration="6194000" />
+      <workItem from="1571249369570" duration="144000" />
+      <workItem from="1571249531809" duration="88963000" />
+      <workItem from="1571575774081" duration="24000" />
+      <workItem from="1571575814011" duration="14879000" />
+      <workItem from="1571665450411" duration="86565000" />
+      <workItem from="1572026672154" duration="7697000" />
+      <workItem from="1572099267258" duration="463000" />
+      <workItem from="1572099754628" duration="30553000" />
+      <workItem from="1572216342872" duration="4333000" />
+      <workItem from="1573357777962" duration="180000" />
+      <workItem from="1573358071563" duration="743000" />
+      <workItem from="1573930793634" duration="100000" />
+      <workItem from="1573930911584" duration="619000" />
+      <workItem from="1575505510271" duration="75000" />
+      <workItem from="1575505664897" duration="1551000" />
+      <workItem from="1578152613217" duration="562000" />
+      <workItem from="1578153234602" duration="3605000" />
+      <workItem from="1578672843475" duration="25000" />
+      <workItem from="1578672894026" duration="35378000" />
+      <workItem from="1578842364744" duration="41478000" />
+      <workItem from="1579093192377" duration="10397000" />
+      <workItem from="1579137290886" duration="23057000" />
+      <workItem from="1579465239198" duration="44018000" />
+      <workItem from="1579822050254" duration="21000" />
+      <workItem from="1579822083641" duration="2595000" />
+      <workItem from="1579824696716" duration="30245000" />
+      <workItem from="1579969439718" duration="30000" />
+      <workItem from="1579969493586" duration="45367000" />
+      <workItem from="1580222598801" duration="1004000" />
+      <workItem from="1580226129126" duration="565000" />
+      <workItem from="1580226709458" duration="659000" />
+      <workItem from="1580227609017" duration="7000" />
+      <workItem from="1580406603818" duration="71000" />
+      <workItem from="1580406691802" duration="33262000" />
+      <workItem from="1580534092894" duration="56000" />
+      <workItem from="1580534156477" duration="26778000" />
+      <workItem from="1580685383578" duration="10944000" />
+      <workItem from="1580819601886" duration="594000" />
+      <workItem from="1580820614081" duration="295000" />
+      <workItem from="1580820923123" duration="82535000" />
+      <workItem from="1581255061366" duration="68975000" />
+      <workItem from="1581607459862" duration="2718000" />
+      <workItem from="1581613482744" duration="13000" />
+      <workItem from="1581614093431" duration="18286000" />
+      <workItem from="1581689103593" duration="66232000" />
+      <workItem from="1582074362924" duration="43910000" />
+      <workItem from="1582380945429" duration="124000" />
+      <workItem from="1582381085109" duration="31000" />
+      <workItem from="1582381169484" duration="32387000" />
+      <workItem from="1582467288297" duration="8603000" />
+      <workItem from="1582513781960" duration="7441000" />
+      <workItem from="1582644772791" duration="12392000" />
+      <workItem from="1582838525823" duration="1429000" />
+      <workItem from="1593041969490" duration="61000" />
+      <workItem from="1594326395096" duration="55036000" />
+      <workItem from="1594471102608" duration="117743000" />
+      <workItem from="1594735606083" duration="55033000" />
+      <workItem from="1594902531151" duration="66415000" />
+      <workItem from="1595026310000" duration="38961000" />
+      <workItem from="1595123258548" duration="225600000" />
+      <workItem from="1595873202470" duration="175100000" />
+      <workItem from="1596305934953" duration="172728000" />
+      <workItem from="1596644033851" duration="267020000" />
+      <workItem from="1597129060608" duration="110133000" />
+      <workItem from="1597404175075" duration="136079000" />
+      <workItem from="1597861666562" duration="44000" />
+      <workItem from="1597861734055" duration="83000" />
+      <workItem from="1597861846717" duration="19968000" />
+      <workItem from="1599693790563" duration="91894000" />
+      <workItem from="1600532070980" duration="117237000" />
+      <workItem from="1600946594665" duration="10864000" />
+      <workItem from="1600980280233" duration="54625000" />
+      <workItem from="1601315173138" duration="10812000" />
+      <workItem from="1601403549954" duration="195393000" />
+      <workItem from="1601927218190" duration="8598000" />
+      <workItem from="1601941914374" duration="58876000" />
+      <workItem from="1602288803140" duration="4216000" />
+      <workItem from="1603801810090" duration="5096000" />
+      <workItem from="1603845572273" duration="8195000" />
+    </task>
+    <task id="LOCAL-00001" summary="Progress on hyxe_user">
+      <created>1566433001738</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1566433001738</updated>
+    </task>
+    <task id="LOCAL-00002" summary="Progress on hyxe_user">
+      <created>1566433494437</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1566433494437</updated>
+    </task>
+    <task id="LOCAL-00003" summary="Progress on hyxe_user">
+      <created>1566433610790</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1566433610790</updated>
+    </task>
+    <task id="LOCAL-00004" summary="Progress on hyxe_user">
+      <created>1566438230391</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1566438230391</updated>
+    </task>
+    <task id="LOCAL-00005" summary="Progress on hyxe_user">
+      <created>1566438611176</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1566438611176</updated>
+    </task>
+    <task id="LOCAL-00006" summary="Progress on hyxe_user">
+      <created>1566442142949</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1566442142949</updated>
+    </task>
+    <task id="LOCAL-00007" summary="Progress on hyxe_user, hyxe_crypt">
+      <created>1566619184966</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1566619184966</updated>
+    </task>
+    <task id="LOCAL-00008" summary="Progress on hyxe networking">
+      <created>1579186439733</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1579186439733</updated>
+    </task>
+    <task id="LOCAL-00009" summary="Progress on hyxe networking">
+      <created>1580222633251</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1580222633251</updated>
+    </task>
+    <task id="LOCAL-00010" summary="Progress on hyxe networking">
+      <created>1580222906744</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1580222906744</updated>
+    </task>
+    <task id="LOCAL-00011" summary="Progress on hyxe networking">
+      <created>1580222979791</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1580222979791</updated>
+    </task>
+    <option name="localTasksCounter" value="12" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="UpdateCopyrightCheckinHandler">
+    <option name="UPDATE_COPYRIGHT" value="true" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="BRANCHES_LOG">
+          <value>
+            <State />
+          </value>
+        </entry>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+    <option name="oldMeFiltersMigrated" value="true" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <option name="CHECK_CODE_CLEANUP_BEFORE_PROJECT_COMMIT" value="true" />
+    <option name="ADD_EXTERNAL_FILES_SILENTLY" value="true" />
+    <ignored-roots>
+      <path value="$PROJECT_DIR$/dashmap/ccl" />
+      <path value="$PROJECT_DIR$/dashmap/rs-hm-bench" />
+      <path value="$PROJECT_DIR$/dashmap" />
+      <path value="$PROJECT_DIR$/sidh-rs" />
+      <path value="$PROJECT_DIR$/quinn" />
+      <path value="$PROJECT_DIR$/async_ip" />
+      <path value="$PROJECT_DIR$/base64-codec" />
+      <path value="$PROJECT_DIR$/ez_pqcrypto" />
+      <path value="$PROJECT_DIR$/net2-rs" />
+      <path value="$PROJECT_DIR$/pqcrypto" />
+      <path value="$PROJECT_DIR$/pqcrypto/pqclean" />
+      <path value="$PROJECT_DIR$/pqcrypto/pqclean/test/pycparser" />
+      <path value="$PROJECT_DIR$/quantum_random" />
+      <path value="$PROJECT_DIR$/shrust" />
+    </ignored-roots>
+    <MESSAGE value="Progress on hyxe_user" />
+    <MESSAGE value="Progress on hyxe_user, hyxe_crypt" />
+    <MESSAGE value="Progress on hyxe networking" />
+    <option name="LAST_COMMIT_MESSAGE" value="Progress on hyxe networking" />
+    <option name="OPTIMIZE_IMPORTS_BEFORE_PROJECT_COMMIT" value="true" />
+    <option name="REFORMAT_BEFORE_PROJECT_COMMIT" value="true" />
+    <option name="REARRANGE_BEFORE_PROJECT_COMMIT" value="true" />
+  </component>
+  <component name="WindowStateProjectService">
+    <state x="552" y="160" key="#Plugins" timestamp="1597861694461">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="552" y="160" key="#Plugins/0.0.1920.1040@0.0.1920.1040" timestamp="1597861694461" />
+    <state x="591" y="162" key="#com.intellij.execution.impl.EditConfigurationsDialog" timestamp="1601930501543">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="591" y="162" key="#com.intellij.execution.impl.EditConfigurationsDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1601930501543" />
+    <state x="92" y="92" width="1736" height="856" key="#com.intellij.execution.junit2.states.ComparisonFailureState$DiffDialog" timestamp="1600368590445">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="92" y="92" width="1736" height="856" key="#com.intellij.execution.junit2.states.ComparisonFailureState$DiffDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1600368590445" />
+    <state x="765" y="235" key="#com.intellij.ide.util.MemberChooser" timestamp="1601825618398">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="765" y="235" key="#com.intellij.ide.util.MemberChooser/0.0.1920.1040@0.0.1920.1040" timestamp="1601825618398" />
+    <state x="640" y="255" key="#com.intellij.openapi.updateSettings.impl.PluginUpdateInfoDialog" timestamp="1602288470399">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="640" y="255" key="#com.intellij.openapi.updateSettings.impl.PluginUpdateInfoDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1602288470399" />
+    <state x="92" y="92" width="1736" height="856" key="DiffContextDialog" timestamp="1600449679996">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="92" y="92" width="1736" height="856" key="DiffContextDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1600449679996" />
+    <state x="839" y="250" key="EnvironmentVariablesDialog" timestamp="1596458457105">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="839" y="250" key="EnvironmentVariablesDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1596458457105" />
+    <state x="761" y="297" key="ExperimentsDialog" timestamp="1600646288563">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="761" y="297" key="ExperimentsDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1600646288563" />
+    <state x="788" y="343" key="FileChooserDialogImpl" timestamp="1601336319193">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="788" y="343" key="FileChooserDialogImpl/0.0.1920.1040@0.0.1920.1040" timestamp="1601336319193" />
+    <state width="1877" height="243" key="GridCell.Tab.0.bottom" timestamp="1602288502587">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state width="1877" height="243" key="GridCell.Tab.0.bottom/0.0.1920.1040@0.0.1920.1040" timestamp="1602288502587" />
+    <state width="1877" height="243" key="GridCell.Tab.0.center" timestamp="1602288502587">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state width="1877" height="243" key="GridCell.Tab.0.center/0.0.1920.1040@0.0.1920.1040" timestamp="1602288502587" />
+    <state width="1877" height="243" key="GridCell.Tab.0.left" timestamp="1602288502586">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state width="1877" height="243" key="GridCell.Tab.0.left/0.0.1920.1040@0.0.1920.1040" timestamp="1602288502586" />
+    <state width="1877" height="243" key="GridCell.Tab.0.right" timestamp="1602288502587">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state width="1877" height="243" key="GridCell.Tab.0.right/0.0.1920.1040@0.0.1920.1040" timestamp="1602288502587" />
+    <state width="1368" height="348" key="GridCell.Tab.1.bottom" timestamp="1596635574127">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state width="1368" height="348" key="GridCell.Tab.1.bottom/0.0.1920.1040@0.0.1920.1040" timestamp="1596635574127" />
+    <state width="1368" height="348" key="GridCell.Tab.1.center" timestamp="1596635574127">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state width="1368" height="348" key="GridCell.Tab.1.center/0.0.1920.1040@0.0.1920.1040" timestamp="1596635574127" />
+    <state width="1368" height="348" key="GridCell.Tab.1.left" timestamp="1596635574127">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state width="1368" height="348" key="GridCell.Tab.1.left/0.0.1920.1040@0.0.1920.1040" timestamp="1596635574127" />
+    <state width="1368" height="348" key="GridCell.Tab.1.right" timestamp="1596635574127">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state width="1368" height="348" key="GridCell.Tab.1.right/0.0.1920.1040@0.0.1920.1040" timestamp="1596635574127" />
+    <state x="473" y="145" key="SettingsEditor" timestamp="1603802156885">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="473" y="145" key="SettingsEditor/0.0.1920.1040@0.0.1920.1040" timestamp="1603802156885" />
+    <state x="92" y="92" width="1736" height="856" key="com.intellij.history.integration.ui.views.DirectoryHistoryDialog" timestamp="1600449679996">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="92" y="92" width="1736" height="856" key="com.intellij.history.integration.ui.views.DirectoryHistoryDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1600449679996" />
+    <state x="92" y="92" width="1736" height="856" key="com.intellij.history.integration.ui.views.FileHistoryDialog" timestamp="1601668043376">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="92" y="92" width="1736" height="856" key="com.intellij.history.integration.ui.views.FileHistoryDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1601668043376" />
+    <state x="666" y="253" width="607" height="624" key="find.popup" timestamp="1601644972263">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="666" y="253" width="607" height="624" key="find.popup/0.0.1920.1040@0.0.1920.1040" timestamp="1601644972263" />
+    <state x="616" y="240" width="672" height="677" key="run.anything.popup" timestamp="1599944481100">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="616" y="240" width="672" height="677" key="run.anything.popup/0.0.1920.1040@0.0.1920.1040" timestamp="1599944481100" />
+    <state x="623" y="225" width="672" height="678" key="search.everywhere.popup" timestamp="1601653692556">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="623" y="225" width="672" height="678" key="search.everywhere.popup/0.0.1920.1040@0.0.1920.1040" timestamp="1601653692556" />
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
+  </component>
+</project>

@@ -1,0 +1,1070 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyperbuf'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyperbuf"
+                ],
+                "filter": {
+                    "name": "hyperbuf",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'partition_map'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=partition_map",
+                    "--package=hyperbuf"
+                ],
+                "filter": {
+                    "name": "partition_map",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=hyperbuf"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug benchmark 'benchmarks'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=benchmarks",
+                    "--package=hyperbuf"
+                ],
+                "filter": {
+                    "name": "benchmarks",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=hyperbuf_derive"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxe_net'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxe_net"
+                ],
+                "filter": {
+                    "name": "hyxe_net",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'hyxe_net'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=hyxe_net",
+                    "--package=hyxe_net"
+                ],
+                "filter": {
+                    "name": "hyxe_net",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'hyxe_net'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=hyxe_net",
+                    "--package=hyxe_net"
+                ],
+                "filter": {
+                    "name": "hyxe_net",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=hyxe_net"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'base64'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=base64"
+                ],
+                "filter": {
+                    "name": "base64",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'make_tables'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=make_tables",
+                    "--package=base64"
+                ],
+                "filter": {
+                    "name": "make_tables",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in example 'make_tables'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--example=make_tables",
+                    "--package=base64"
+                ],
+                "filter": {
+                    "name": "make_tables",
+                    "kind": "example"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'decode'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=decode",
+                    "--package=base64"
+                ],
+                "filter": {
+                    "name": "decode",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'encode'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=encode",
+                    "--package=base64"
+                ],
+                "filter": {
+                    "name": "encode",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'helpers'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=helpers",
+                    "--package=base64"
+                ],
+                "filter": {
+                    "name": "helpers",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'tests'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=tests",
+                    "--package=base64"
+                ],
+                "filter": {
+                    "name": "tests",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug benchmark 'benchmarks'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=benchmarks",
+                    "--package=base64"
+                ],
+                "filter": {
+                    "name": "benchmarks",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'base64-codec'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=base64-codec"
+                ],
+                "filter": {
+                    "name": "base64-codec",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=base64-codec"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'ez_pqcrypto'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=ez_pqcrypto"
+                ],
+                "filter": {
+                    "name": "ez_pqcrypto",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=ez_pqcrypto"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug benchmark 'benchmarks'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=benchmarks",
+                    "--package=ez_pqcrypto"
+                ],
+                "filter": {
+                    "name": "benchmarks",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxe_crypt'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxe_crypt"
+                ],
+                "filter": {
+                    "name": "hyxe_crypt",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=hyxe_crypt"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug benchmark 'benchmarks'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=benchmarks",
+                    "--package=hyxe_crypt"
+                ],
+                "filter": {
+                    "name": "benchmarks",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'quantum_random'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=quantum_random"
+                ],
+                "filter": {
+                    "name": "quantum_random",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=quantum_random"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxe_user'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxe_user"
+                ],
+                "filter": {
+                    "name": "hyxe_user",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=hyxe_user"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'async_ip'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=async_ip"
+                ],
+                "filter": {
+                    "name": "async_ip",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=async_ip"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxe_config'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxe_config"
+                ],
+                "filter": {
+                    "name": "hyxe_config",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=hyxe_config"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxe_fs'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxe_fs"
+                ],
+                "filter": {
+                    "name": "hyxe_fs",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=hyxe_fs"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxe_netdata'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxe_netdata"
+                ],
+                "filter": {
+                    "name": "hyxe_netdata",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxe_service'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxe_service"
+                ],
+                "filter": {
+                    "name": "hyxe_service",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxe_db_handler'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxe_db_handler"
+                ],
+                "filter": {
+                    "name": "hyxe_db_handler",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'test_main'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=test_main",
+                    "--package=hyxe_db_handler"
+                ],
+                "filter": {
+                    "name": "test_main",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'HyxeWave'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=HyxeWave"
+                ],
+                "filter": {
+                    "name": "HyxeWave",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'HyxeWave'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=HyxeWave",
+                    "--package=HyxeWave"
+                ],
+                "filter": {
+                    "name": "HyxeWave",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'HyxeWave'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=HyxeWave",
+                    "--package=HyxeWave"
+                ],
+                "filter": {
+                    "name": "HyxeWave",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxe_core'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxe_core"
+                ],
+                "filter": {
+                    "name": "hyxe_core",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=hyxe_core"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug benchmark 'benchmarks'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=benchmarks",
+                    "--package=hyxe_core"
+                ],
+                "filter": {
+                    "name": "benchmarks",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'async_mem'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=async_mem"
+                ],
+                "filter": {
+                    "name": "async_mem",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'memtest'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=memtest",
+                    "--package=async_mem"
+                ],
+                "filter": {
+                    "name": "memtest",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug benchmark 'benchmarks'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=benchmarks",
+                    "--package=async_mem"
+                ],
+                "filter": {
+                    "name": "benchmarks",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'primary'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=primary",
+                    "--package=hyxe_derive"
+                ],
+                "filter": {
+                    "name": "primary",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxe_util'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxe_util"
+                ],
+                "filter": {
+                    "name": "hyxe_util",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug benchmark 'benchmarks'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=benchmarks",
+                    "--package=hyxe_util"
+                ],
+                "filter": {
+                    "name": "benchmarks",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'hyxewave_net'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=hyxewave_net"
+                ],
+                "filter": {
+                    "name": "hyxewave_net",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'server'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=server",
+                    "--package=hyxewave_net"
+                ],
+                "filter": {
+                    "name": "server",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug benchmark 'benchmarks'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bench=benchmarks",
+                    "--package=hyxewave_net"
+                ],
+                "filter": {
+                    "name": "benchmarks",
+                    "kind": "bench"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'net2'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=net2"
+                ],
+                "filter": {
+                    "name": "net2",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'all'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=all",
+                    "--package=net2"
+                ],
+                "filter": {
+                    "name": "all",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

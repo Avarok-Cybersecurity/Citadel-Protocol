@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="Statistic">
+    <option name="excludeDotArtifactDirectory" value="true" />
+    <option name="excludedDirectories">
+      <list>
+        <option value="$PROJECT_DIR$/kcp-core" />
+        <option value="$PROJECT_DIR$/net2-rs" />
+        <option value="$PROJECT_DIR$/target" />
+        <option value="$PROJECT_DIR$/resources" />
+        <option value="$PROJECT_DIR$/base64" />
+        <option value="$PROJECT_DIR$/dashmap" />
+        <option value="$PROJECT_DIR$/hyxewave-gui" />
+        <option value="$PROJECT_DIR$/hyxewave_net" />
+        <option value="$PROJECT_DIR$/java" />
+        <option value="$PROJECT_DIR$/net2-rs" />
+        <option value="$PROJECT_DIR$/rpassword" />
+        <option value="$PROJECT_DIR$/pqcrypto" />
+        <option value="$PROJECT_DIR$/shrust" />
+        <option value="$PROJECT_DIR$/rsntp" />
+      </list>
+    </option>
+  </component>
+</project>

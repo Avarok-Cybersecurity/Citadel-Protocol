@@ -1,0 +1,37 @@
+[package]
+name = "hyxe_crypt"
+version = "0.1.0"
+authors = ["Thomas Braun <tbraun96@gmail.com>"]
+edition = "2018"
+workspace = "../"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+exclude = [
+    "./target/*"
+]
+
+[dependencies]
+async-trait = "0.1.24"
+bincode2 = "2.0.1"
+serde = { version="1.0.104", features=["rc", "derive"] }
+serde_derive = "1.0.104"
+#futures-preview = { version = "=0.3.0-alpha.19", features = ["compat", "async-await"]}
+futures = "0.3.5"
+log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_error"] }
+zerocopy = "0.2.8"
+byteorder = "1.3.2"
+bytes = "0.5.4"
+num-integer = "0.1.43"
+rand = "0.7.0"
+as-slice = "0.1.3"
+rayon = "1.3.0"
+secstr = "0.4.0"
+ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1" }
+bitvec = "0.17.4"
+env_logger = "0.7.1"
+parking_lot = "0.11.0"
+bigdecimal = "0.2.0"
+
+[dev-dependencies]
+criterion = "*"

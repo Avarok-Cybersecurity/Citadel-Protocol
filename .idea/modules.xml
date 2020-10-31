@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/hyxe_config/hyxe_config.iml" filepath="$PROJECT_DIR$/hyxe_config/hyxe_config.iml" />
+      <module fileurl="file://$PROJECT_DIR$/hyxe_crypt/hyxe_crypt.iml" filepath="$PROJECT_DIR$/hyxe_crypt/hyxe_crypt.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/hyxe_wave.iml" filepath="$PROJECT_DIR$/.idea/hyxe_wave.iml" />
+    </modules>
+  </component>
+</project>
