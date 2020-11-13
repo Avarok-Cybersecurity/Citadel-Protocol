@@ -69,7 +69,7 @@ pub fn setup_log() {
 
 pub fn setup_shutdown_hook() {
     ctrlc::set_handler(|| {
-        println!("\n\rLusna::Shutdown Hook initiated ...");
+        println!("\n\rLusna::Shutdown Hook initiated ...\n\r");
         shutdown_sequence(-1);
     }).expect("We were unable to setup the system shutdown hooks. Please report this to the developers")
 }

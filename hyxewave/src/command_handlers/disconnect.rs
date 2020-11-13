@@ -22,6 +22,6 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
     // TODO: Handle WAN connection types
     let ticket = ctx.disconnect_session(cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), server_remote)?;
-    printf_ln!(colour::green!("Successfully initiated disconnect sequence for {} (CID: {})", account, cid));
+    printf_ln!(colour::green!("Successfully initiated disconnect sequence for {} (CID: {})\n", account, cid));
     Ok(Some(ticket))
 }

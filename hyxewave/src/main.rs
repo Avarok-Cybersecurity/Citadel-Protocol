@@ -6,13 +6,12 @@ use hyxewave::console::virtual_terminal::INPUT_ROUTER;
 
 #[tokio::main(core_threads = 4)]
 async fn main() -> Result<(), ConsoleError> {
-    colour::green!("Welcome to SatoriNET");
-    colour::red!(" v{}\n", hyxe_net::constants::BUILD_VERSION);
     setup_log();
     setup_shutdown_hook();
 
     match parse_command_line_arguments_into_app_config(None, None).await {
         Ok((cfg, account_manager)) => {
+            print_welcome();
             INPUT_ROUTER.init(cfg.daemon_mode)?;
             log::info!("Obtained information from console. Now beginning instantiation of HdpServer ...");
             execute(cfg, account_manager).await.map_err(|err| ConsoleError::Generic(err.to_string()))
@@ -27,4 +26,10 @@ async fn main() -> Result<(), ConsoleError> {
             Ok(())
         }
     }
+}
+
+fn print_welcome() {
+    colour::green!("Welcome to SatoriNET");
+    colour::red!(" v{}\n", hyxe_net::constants::BUILD_VERSION);
+    print!("\x1B[2J\x1B[1;1H");
 }

@@ -2,8 +2,8 @@ use super::includes::*;
 use bytes::BytesMut;
 
 /// For primary-port packet types. NOT for wave ports
-pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: IpAddr, primary_port: u16, packet: BytesMut) -> PrimaryProcessorResult {
-    let packet = HdpPacket::new_recv(packet, SocketAddr::from((remote_peer, primary_port)), primary_port);
+pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut) -> PrimaryProcessorResult {
+    let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     let (header, payload) = packet.parse()?;
 
     let target_cid = header.target_cid.get();
@@ -48,7 +48,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
 
     match header.cmd_primary {
         packet_flags::cmd::primary::DO_REGISTER => {
-            super::register_packet::process(session, &header, payload, packet.get_remote_socket().ip())
+            super::register_packet::process(session, &header, payload, remote_peer)
         }
 
         packet_flags::cmd::primary::DO_CONNECT => {

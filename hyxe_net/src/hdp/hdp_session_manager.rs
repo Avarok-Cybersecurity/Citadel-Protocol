@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 
 use bytes::{Bytes, BytesMut};
@@ -43,22 +43,20 @@ pub struct HdpSessionManagerInner {
     /// Connections which have no implicated CID go herein. They are strictly expected to be
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [HdpSessionManager] and thereafter placed inside an appropriate session
-    provisional_connections: HashMap<IpAddr, HdpSession>,
+    provisional_connections: HashMap<SocketAddr, HdpSession>,
     kernel_tx: UnboundedSender<HdpServerResult>,
     time_tracker: TimeTracker,
     /// Determines if new incoming connections should be treated as streaming types by default
-    streaming_mode_incoming: bool,
-    local_bind_addr: IpAddr
+    streaming_mode_incoming: bool
 }
 
 impl HdpSessionManager {
     /// Creates a new [SessionManager] which handles individual connections
-    pub fn new(local_bind_addr: IpAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, account_manager: AccountManager, time_tracker: TimeTracker, streaming_mode_incoming: bool) -> Self {
+    pub fn new(local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, account_manager: AccountManager, time_tracker: TimeTracker, streaming_mode_incoming: bool) -> Self {
         let incoming_cxn_count = 0;
         let inner = HdpSessionManagerInner {
             hypernode_peer_layer: Default::default(),
             server_remote: None,
-            local_bind_addr,
             local_node_type,
             sessions: HashMap::new(),
             incoming_cxn_count,
@@ -124,7 +122,7 @@ impl HdpSessionManager {
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection<T: ToSocketAddrs>(&mut self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: IpAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, streaming_mode: Option<bool>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>) -> Result<(), NetworkError> {
+    pub async fn initiate_connection<T: ToSocketAddrs>(&mut self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: SocketAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, streaming_mode: Option<bool>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>) -> Result<(), NetworkError> {
         let session_manager_clone = self.clone();
         let mut this = inner_mut!(self);
         let remote = this.server_remote.clone().unwrap();
@@ -137,10 +135,10 @@ impl HdpSessionManager {
 
         // We must now create a TcpStream towards the peer
         let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
-        let primary_stream = HdpServer::create_tcp_connect_socket(local_bind_addr, (peer_addr, local_bind_addr.port()))
+        let primary_stream = HdpServer::create_tcp_connect_socket(local_bind_addr, peer_addr)
             .map_err(|err| NetworkError::SocketError(err.to_string()))?;
 
-        let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr.ip(), local_node_type, local_bind_addr.port(), this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), peer_addr, this.time_tracker.clone(), implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(false)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
+        let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), peer_addr, this.time_tracker.clone(), implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(false)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
 
         if let Some(_implicated_cid) = implicated_cid {
             // the cid exists which implies registration already occured
@@ -162,7 +160,7 @@ impl HdpSessionManager {
 
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
     /// TODO: Make this code less hacky, and make the removal process cleaner
-    async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: IpAddr, tcp_stream: TcpStream) -> Result<(), NetworkError> {
+    async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, tcp_stream: TcpStream) -> Result<(), NetworkError> {
         match new_session.execute(tcp_stream).await {
             Ok(cid_opt) => {
                 if let Some(cid) = cid_opt {
@@ -256,7 +254,7 @@ impl HdpSessionManager {
 
     /// When the primary port listener receives a new connection, the stream gets sent here for handling
     #[allow(unused_results)]
-    pub async fn process_new_inbound_connection(&self, peer_addr: IpAddr, primary_stream: TcpStream) -> Result<(), NetworkError> {
+    pub fn process_new_inbound_connection(&self, peer_addr: SocketAddr, primary_stream: TcpStream) -> Result<(), NetworkError> {
         let this_dc = self.clone();
         let mut this = inner_mut!(self);
         let remote = this.server_remote.clone().unwrap();
@@ -268,13 +266,11 @@ impl HdpSessionManager {
         // Regardless if the IpAddr existed as a client before, we must treat the connection temporarily as provisional
         // However, two concurrent provisional connections from the same IP cannot be connecting at once
         let local_node_type = this.local_node_type;
-        let primary_port = primary_stream.peer_addr().unwrap().port();
+        let local_bind_addr = primary_stream.local_addr().unwrap();
         let provisional_ticket = Ticket(this.incoming_cxn_count as u64);
         this.incoming_cxn_count += 1;
 
-        let local_bind_ip = this.local_bind_addr;
-
-        let new_session = HdpSession::new_incoming(remote,local_bind_ip, local_node_type, primary_port,this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket, this.streaming_mode_incoming);
+        let new_session = HdpSession::new_incoming(remote, local_bind_addr, local_node_type,this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket, this.streaming_mode_incoming);
         this.provisional_connections.insert(peer_addr.clone(), new_session.clone());
         std::mem::drop(this);
 
@@ -450,9 +446,9 @@ impl HdpSessionManager {
     ///
     /// Adds the internal queues to the hypernode_peer_layer. This function thus MUST be called during the
     /// DO_CONNECT stage
-    pub fn upgrade_connection(&self, ip_addr: IpAddr, implicated_cid: u64) -> bool {
+    pub fn upgrade_connection(&self, socket_addr: SocketAddr, implicated_cid: u64) -> bool {
         let mut this = inner_mut!(self);
-        if let Some(connection) = this.provisional_connections.remove(&ip_addr) {
+        if let Some(connection) = this.provisional_connections.remove(&socket_addr) {
             //let _ = this.hypernode_peer_layer.register_peer(implicated_cid, true);
             if this.sessions.insert(implicated_cid, connection).is_some() {
                 // sometimes (especially on cellular networks), when the network changes due to
@@ -493,7 +489,7 @@ impl HdpSessionManager {
     }
 
     /// When the registration process completes, and before sending the kernel a message, this should be called on BOTH ends
-    pub fn clear_provisional_session(&self, addr: &IpAddr) {
+    pub fn clear_provisional_session(&self, addr: &SocketAddr) {
         //log::info!("Attempting to clear provisional session ...");
         if inner_mut!(self).provisional_connections.remove(addr).is_none() {
             //log::info!("Attempted to remove a connection that wasn't provisional. Check the program logic ...");

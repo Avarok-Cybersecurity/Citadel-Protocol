@@ -5,7 +5,6 @@ use crate::hypernode_account::{CNAC_SERIALIZED_EXTENSION, NAC_SERIALIZED_EXTENSI
 use crate::client_account::ClientNetworkAccountInner;
 use crate::prelude::{ClientNetworkAccount, HyperNodeAccountInformation, NetworkAccountInner};
 use crate::misc::AccountError;
-use std::net::IpAddr;
 use std::collections::HashMap;
 use hyxe_fs::env::{HYXE_NAC_DIR_IMPERSONAL, HYXE_NAC_DIR_PERSONAL, HYXE_SERVER_DIR};
 use crate::server_config_handler::sync_cnacs_and_nac;
@@ -86,13 +85,4 @@ pub async fn load_cnac_from_bytes<T: AsRef<[u8]>>(serialized_bytes: T) -> Result
     let is_personal = inner.is_local_personal;
 
     ClientNetworkAccount::load_safe_from_fs(inner, ClientNetworkAccount::generate_local_save_path(cid, is_personal)).await
-}
-
-
-/// Creates a new network account given an input of a NID and IpAddr. This should be called by the [ServerBridgeHandler].
-///
-/// When a connection is created, it begins with a mere IpAddr. The IpAddr is then mapped to a [ClientNetworkAccount] which
-/// necessarily expects
-pub fn create_nac_from_cxn_info(nid: u64, ip_addr: IpAddr) -> NetworkAccount {
-    (nid, ip_addr).into()
 }
