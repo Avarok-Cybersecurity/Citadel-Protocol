@@ -90,7 +90,7 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
                     let local_node_type = session.local_node_type;
                     let timestamp = session.time_tracker.get_global_time_ns();
                     let ticket = session.kernel_ticket;
-                    let local_bind_addr = session.local_bind_addr;
+                    let local_bind_addr = session.local_bind_addr.ip();
 
                     match LinearUDPHolePuncher::reserve_new_udp_sockets((MULTIPORT_END - MULTIPORT_START) as usize, local_bind_addr.to_string()) {
                         Ok(reserved_sockets) => {
@@ -135,8 +135,8 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
                     let ref new_base_drill = state_container.pre_connect_state.base_toolset_drill.take()?;
                     if let Some((adjacent_node_type, adjacent_unnated_ports)) = validation::pre_connect::validate_stage0(new_base_drill, &cnac, header, payload) {
                         let timestamp = session.time_tracker.get_global_time_ns();
-                        let local_bind_ip = session.local_bind_addr;
-                        let remote_ip = session.remote_peer;
+                        let local_bind_ip = session.local_bind_addr.ip();
+                        let remote_ip = session.remote_peer.ip();
                         let wave_port_count = adjacent_unnated_ports.len();
 
                         if tcp_only {
@@ -204,7 +204,7 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
         packet_flags::cmd::aux::do_preconnect::STAGE1 => {
             log::info!("RECV STAGE 1 PRE_CONNECT PACKET");
             let timestamp = session.time_tracker.get_global_time_ns();
-            let endpoint_ip = session.remote_peer;
+            let endpoint_ip = session.remote_peer.ip();
             let mut state_container = inner_mut!(session.state_container);
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::STAGE1 {
                 if let Some(cnac) = session.cnac.as_ref() {
@@ -313,7 +313,7 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
         packet_flags::cmd::aux::do_preconnect::STAGE_TRY_NEXT => {
             log::info!("RECV STAGE TRY_NEXT PRE CONNECT PACKET");
             let timestamp = session.time_tracker.get_global_time_ns();
-            let remote_ip = session.remote_peer;
+            let remote_ip = session.remote_peer.ip();
             let mut state_container = inner_mut!(session.state_container);
             let cnac = session.cnac.as_ref()?;
 
@@ -349,7 +349,7 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
         packet_flags::cmd::aux::do_preconnect::STAGE_TRY_NEXT_ACK => {
             log::info!("RECV STAGE TRY_NEXT_ACK PRE CONNECT PACKET");
             let timestamp = session.time_tracker.get_global_time_ns();
-            let endpoint_ip = session.remote_peer;
+            let endpoint_ip = session.remote_peer.ip();
             let mut state_container = inner_mut!(session.state_container);
             let cnac = session.cnac.as_ref()?;
 
@@ -397,7 +397,7 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
         packet_flags::cmd::aux::do_preconnect::SUCCESS => {
             log::info!("RECV STAGE SUCCESS PRE CONNECT PACKET");
             let timestamp = session.time_tracker.get_global_time_ns();
-            let remote_ip = session.remote_peer;
+            let remote_ip = session.remote_peer.ip();
             let mut state_container = inner_mut!(session.state_container);
             let cnac = session.cnac.as_ref()?;
 

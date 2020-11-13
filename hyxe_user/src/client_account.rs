@@ -12,14 +12,13 @@ use async_trait::async_trait;
 use crate::hypernode_account::{CNAC_SERIALIZED_EXTENSION, HyperNodeAccountInformation};
 use crate::misc::{AccountError, check_credential_formatting};
 use secstr::SecVec;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::SocketAddr;
 use multimap::MultiMap;
 use hyxe_fs::async_io::AsyncIO;
 use crate::prelude::NetworkAccount;
 use hyxe_fs::system_file_manager::bytes_to_type;
 use crate::network_account::NetworkAccountInner;
 use hyxe_fs::hyxe_crypt::prelude::PostQuantumContainer;
-use std::str::FromStr;
 use log::info;
 
 //use future_parking_lot::rwlock::{RwLock, FutureReadable, FutureWriteable, FutureRawRwLock};
@@ -267,40 +266,6 @@ impl ClientNetworkAccount {
         self.read().username.clone()
     }
 
-    /// Validates an IP address for a new-created client with [PINNED_IP_MODE] in consideration. If
-    /// PIM is enabled, then the new ip address must match the previously held address. If the addresses
-    /// do not match, then this does not update the internal entry and returns FALSE. If PIM is disabled,
-    /// then this inserts the new IP address unconditionally and returns TRUE
-    #[allow(deprecated)]
-    pub async fn validate_ip(&mut self, new_addr: &IpAddr, pinned_ip_mode: bool) -> bool {
-        let nac = self.get_nac();
-        let mut nac = nac.write();
-
-        if pinned_ip_mode {
-            if new_addr.is_ipv4() {
-                // In pinned-ip mode, a client cannot switch from IPv6 to IPv4
-                if let Some(old_addr) = nac.global_ipv4 {
-                    *new_addr == old_addr
-                } else {
-                    false
-                }
-            } else {
-                if let Some(old_addr) = nac.global_ipv6 {
-                    *new_addr == old_addr
-                } else {
-                    false
-                }
-            }
-        } else {
-            if new_addr.is_ipv4() {
-                nac.global_ipv4 = Some(Ipv4Addr::from_str(new_addr.to_string().as_str()).unwrap());
-            } else {
-                nac.global_ipv6 = Some(Ipv6Addr::from_str(new_addr.to_string().as_str()).unwrap());
-            }
-            true
-        }
-    }
-
     /// Returns the [NetworkAccount] associated with the [ClientNetworkAccount]. Before being called,
     /// validate_ip should be ran in order to update the internal IP address for this session
     pub fn get_nac(&self) -> NetworkAccount {
@@ -359,7 +324,7 @@ impl ClientNetworkAccount {
     //pub unsafe fn update_tool
 
     /// Returns the last registered IP address for this client
-    pub fn get_ip(&self) -> Option<IpAddr> {
+    pub fn get_ip(&self) -> Option<SocketAddr> {
         self.read().adjacent_nac.as_ref()?.get_addr(true)
     }
     

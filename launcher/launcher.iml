@@ -35,5 +35,7 @@
         <SOURCES />
       </library>
     </orderEntry>
+    <orderEntry type="library" name="commons-compress-1.20" level="project" />
+    <orderEntry type="library" name="commons-compress-1.18" level="project" />
   </component>
 </module>

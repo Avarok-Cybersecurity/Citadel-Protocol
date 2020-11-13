@@ -1,12 +1,15 @@
 //! Parses the arguments from the initial terminal, used to parse arguments after "hyxewave"
 
-use clap::{App, Arg, AppSettings};
+use clap::{App, Arg, AppSettings, ArgMatches};
 
 use hyxe_user::account_manager::AccountManager;
 
 use crate::app_config::AppConfig;
 use crate::console_error::ConsoleError;
 use crate::ffi::FFIIO;
+use hyxe_net::constants::PRIMARY_PORT;
+use std::str::FromStr;
+use std::net::{SocketAddr, IpAddr};
 
 /// The arguments, if None, will default to std::env::args, with the zeroth element removed (the binary name)
 /// Is some,
@@ -26,17 +29,15 @@ pub async fn parse_command_line_arguments_into_app_config(cmd: Option<String>, f
     app_config.daemon_mode = arg_matches.is_present("daemon");
 
     parsers::parse_all_primary_commands(&arg_matches, &mut app_config)?;
-    let account_manager = AccountManager::new(app_config.bind_addr.clone().unwrap().to_string(), app_config.home_dir.clone()).await.map_err(|err| ConsoleError::Generic(err.to_string()))?;
-    // Clear the console
-    print!("\x1B[2J\x1B[1;1H");
+    let account_manager = AccountManager::new(app_config.local_bind_addr.clone().unwrap(), app_config.home_dir.clone()).await.map_err(|err| ConsoleError::Generic(err.to_string()))?;
 
     Ok((app_config, account_manager))
 }
 
-fn setup_clap() -> App<'static, 'static> {
+fn setup_clap<'a>() -> App<'a, 'a> {
     App::new("Lusna")
         .version(crate::constants::VERSION)
-        .author("Thomas Philip Braun <braun@lusna.net>")
+        .author("Thomas Philip Braun <thomas@satorisocial.com>")
         .about("A CLI for the post-quantum distributed networking protocol")
         .setting(AppSettings::NoBinaryName)
         .arg(Arg::with_name("bind")
@@ -44,7 +45,7 @@ fn setup_clap() -> App<'static, 'static> {
             .short("b")
             .help("Sets local bind address")
             .takes_value(true)
-            .default_value("127.0.0.1"))
+            .required(false))
         .arg(Arg::with_name("daemon")
             .long("daemon")
             .short("d")
@@ -63,7 +64,7 @@ fn setup_clap() -> App<'static, 'static> {
             .takes_value(true)
             .help("Overrides the default home directory for saving critical application files"))
         //.arg(Arg::with_name("command").required(true).index(1))
-        .arg(Arg::with_name("pipe").short("p").long("pipe").takes_value(true).required(false).help("include a locally-running TCP socket address to communicate with local processes. The following argument must be a loopback socket address"))
+        .arg(Arg::with_name("pipe").long("pipe").takes_value(true).required(false).help("include a locally-running TCP socket address to communicate with local processes. The following argument must be a loopback socket address"))
 }
 
 pub mod parsers {
@@ -71,11 +72,12 @@ pub mod parsers {
 
     use clap::ArgMatches;
 
-    use hyxe_net::hdp::hdp_packet_processor::includes::{IpAddr, SocketAddr};
+    use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
 
     use crate::app_config::AppConfig;
     use crate::console_error::ConsoleError;
     use hyxe_net::re_imports::HyperNodeType;
+    use crate::primary_terminal::try_get_local_addr;
 
     pub fn parse_all_primary_commands(matches: &ArgMatches, app_config: &mut AppConfig) -> Result<(), ConsoleError> {
         if let Some(node_type) = matches.value_of("node_type") {
@@ -98,11 +100,8 @@ pub mod parsers {
             app_config.pipe = Some(tcp_socket_addr);
         }
 
-        // unwrap this anyways
-        if let Some(bind_addr) = matches.value_of("bind") {
-            let bind_addr = IpAddr::from_str(bind_addr)?;
-            app_config.bind_addr = Some(bind_addr);
-        }
+        app_config.local_bind_addr = Some(try_get_local_addr(matches)?);
+
 
         if let Some(home_addr) = matches.value_of("home") {
             app_config.home_dir = Some(home_addr.to_string());
@@ -110,5 +109,21 @@ pub mod parsers {
 
 
         Ok(())
+    }
+}
+
+fn try_get_local_addr(matches: &ArgMatches) -> Result<SocketAddr, ConsoleError> {
+    if let Some(target_addr) = matches.value_of("bind") {
+        if target_addr.contains(":") {
+            // custom bind, custom port
+            SocketAddr::from_str(target_addr).map_err(|err| ConsoleError::Generic(err.to_string()))
+        } else {
+            // custom bind, default port
+            let ip_addr = IpAddr::from_str(target_addr)?;
+            Ok(SocketAddr::new(ip_addr, PRIMARY_PORT))
+        }
+    } else {
+        // default bind, default port
+        Ok(SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), PRIMARY_PORT))
     }
 }

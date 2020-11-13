@@ -91,7 +91,7 @@ fn add_to_table(session: &KernelSession, table: &mut Table, cnt: &mut usize) {
 }
 
 fn get_data_from_sess(session: &KernelSession) -> (&String, u64, String, bool, u64) {
-    (&session.username, session.cid, session.ip_addr.to_string(), session.is_personal, session.elapsed_time_seconds())
+    (&session.username, session.cid, session.ip_addr.ip().to_string(), session.is_personal, session.elapsed_time_seconds())
 }
 
 fn handle_ffi(ctx: &ConsoleContext, list_type: ListType) -> KernelResponse {

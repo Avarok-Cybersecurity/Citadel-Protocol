@@ -5,7 +5,7 @@ use hyxe_fs::io::FsError;
 use crate::account_loader::{load_node_nac, load_cnac_files};
 use std::sync::Arc;
 use hyxe_fs::hyxe_crypt::drill::Drill;
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use crate::prelude::HyperNodeAccountInformation;
 use crate::misc::AccountError;
 use hyxe_fs::hyxe_crypt::prelude::PostQuantumContainer;
@@ -32,9 +32,9 @@ impl AccountManager {
     /// `bind_addr`: Required for determining the local save directories for this instance
     /// `home_dir`: Optional. Overrides the default storage location for files
     #[allow(unused_results)]
-    pub async fn new<T: AsRef<str>>(bind_addr: T, home_dir: Option<String>) -> Result<Self, FsError<String>> {
+    pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>) -> Result<Self, FsError<String>> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
-        if !hyxe_fs::env::setup_directories(bind_addr.as_ref(), home_dir) {
+        if !hyxe_fs::env::setup_directories(bind_addr, home_dir) {
             return Err(FsError::IoError("Unable to setup directories".to_string()));
         }
 
@@ -138,7 +138,7 @@ impl AccountManager {
     }
 
     /// Returns a client by IP Address
-    pub fn get_client_by_addr(&self, addr: &IpAddr, prefer_ipv6: bool) -> Option<ClientNetworkAccount> {
+    pub fn get_client_by_addr(&self, addr: &SocketAddr, prefer_ipv6: bool) -> Option<ClientNetworkAccount> {
         let read = self.read_map();
         for (_, cnac) in read.iter() {
             if let Some(ip) = cnac.read().adjacent_nac.as_ref().unwrap().get_addr(prefer_ipv6) {

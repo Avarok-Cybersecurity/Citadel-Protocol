@@ -63,7 +63,7 @@ pub struct HdpSession {
 pub struct HdpSessionInner {
     pub(super) implicated_cid: Arc<Atomic<Option<u64>>>,
     pub(super) kernel_ticket: Ticket,
-    pub(super) remote_peer: IpAddr,
+    pub(super) remote_peer: SocketAddr,
     pub(super) cnac: Option<ClientNetworkAccount>,
     pub(super) wave_socket_loader: Option<tokio::sync::oneshot::Sender<Vec<(UdpSocket, HolePunchedSocketAddr)>>>,
     // Sends results directly to the kernel
@@ -80,10 +80,9 @@ pub struct HdpSessionInner {
     pub(super) time_tracker: TimeTracker,
     pub(super) local_node_type: HyperNodeType,
     pub(super) remote_node_type: Option<HyperNodeType>,
-    pub(super) local_bind_addr: IpAddr,
+    pub(super) local_bind_addr: SocketAddr,
     // if this is enabled, then UDP won't be used
     pub(super) tcp_only: bool,
-    pub(super) primary_port: u16,
     pub(super) hdp_nodelay: bool,
     pub(super) security_level: SecurityLevel,
     pub(super) current_group_id: u64,
@@ -117,7 +116,7 @@ pub enum SessionState {
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub fn new(hdp_remote: HdpServerRemote, pqc_algorithm: Option<u8>, local_bind_addr: IpAddr, local_node_type: HyperNodeType, primary_port: u16, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, remote_peer: IpAddr, time_tracker: TimeTracker, implicated_cid: Option<u64>, kernel_ticket: Ticket, security_level: SecurityLevel, hdp_nodelay: bool, tcp_only: bool) -> Option<Self> {
+    pub fn new(hdp_remote: HdpServerRemote, pqc_algorithm: Option<u8>, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, remote_peer: SocketAddr, time_tracker: TimeTracker, implicated_cid: Option<u64>, kernel_ticket: Ticket, security_level: SecurityLevel, hdp_nodelay: bool, tcp_only: bool) -> Option<Self> {
         let cnac = if let Some(implicated_cid) = implicated_cid {
             if let Some(cnac) = account_manager.get_client_by_cid(implicated_cid) {
                 Some(cnac)
@@ -155,7 +154,6 @@ impl HdpSession {
             local_node_type,
             remote_node_type: None,
             security_level,
-            primary_port,
             kernel_tx: kernel_tx.clone(),
             implicated_cid: Arc::new(Atomic::new(implicated_cid)),
             time_tracker,
@@ -185,7 +183,7 @@ impl HdpSession {
     ///
     /// When this is called, the connection is implied to be in impersonal mode. As such, the calling closure should have a way of incrementing
     /// the provisional ticket.
-    pub fn new_incoming(hdp_remote: HdpServerRemote, local_bind_addr: IpAddr, local_node_type: HyperNodeType, primary_port: u16, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: IpAddr, provisional_ticket: Ticket, hdp_nodelay: bool) -> Self {
+    pub fn new_incoming(hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket, hdp_nodelay: bool) -> Self {
         let timestamp = time_tracker.get_global_time_ns();
 
         let inner = HdpSessionInner {
@@ -198,7 +196,6 @@ impl HdpSession {
             local_node_type,
             remote_node_type: None,
             security_level: SecurityLevel::LOW,
-            primary_port,
             implicated_cid: Arc::new(Atomic::new(None)),
             time_tracker,
             kernel_ticket: provisional_ticket,
@@ -422,7 +419,7 @@ impl HdpSession {
         let borrow = inner!(this_main);
         //let borrow = this_main.inner.borrow();
         let ref remote_peer = borrow.remote_peer.clone();
-        let primary_port = borrow.primary_port;
+        let local_primary_port = borrow.local_bind_addr.port();
         let _kernel_ticket = borrow.kernel_ticket;
         let implicated_cid = borrow.implicated_cid.clone();
         let ref kernel_tx = borrow.kernel_tx.clone();
@@ -446,23 +443,17 @@ impl HdpSession {
 
                 Some(Ok(packet)) => {
                     //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
-                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), primary_port, packet) {
+                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), local_primary_port, packet) {
                         PrimaryProcessorResult::ReplyToSender(return_packet) => {
-                            //this.send_to_primary_stream(None, return_packet);
-                            //tokio::task::yield_now().await;
                             Self::send_to_primary_stream_closure(primary_stream, kernel_tx, return_packet, None);
                         }
 
                         PrimaryProcessorResult::FinalReply(last_packet_of_sess) => {
-                            //this.send_to_primary_stream(None, last_packet_of_sess);
                             Self::send_to_primary_stream_closure(primary_stream, kernel_tx, last_packet_of_sess, None);
-                            //tokio::task::yield_now().await;
                             return Err(NetworkError::InternalError("ending inbound stream"));
                         }
 
                         PrimaryProcessorResult::EndSession(reason) => {
-                            // Removed due to redundancy
-                            //kernel_tx.unbounded_send(HdpServerResult::Disconnect(kernel_ticket, false, reason.to_string())).unwrap();
                             return Err(NetworkError::InternalError(reason));
                         }
 

@@ -1,2 +1,0 @@
-launcher=0
-bin=0

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="JAVA_MODULE" version="4">
+  <component name="NewModuleRootManager" inherit-compiler-output="true">
+    <exclude-output />
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_net/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_net/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_crypt/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_crypt/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_crypt/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/pqcrypto/pqcrypto/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/pqcrypto/pqcrypto/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/pqcrypto/pqcrypto-traits/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../ez_pqcrypto/pqcrypto/pqcrypto-saber/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_user/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_user/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_fs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_fs/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_nat/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_nat/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_nat/rust-igd/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../hyxe_nat/rust-igd/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../rsntp/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/../rsntp/examples" isTestSource="false" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

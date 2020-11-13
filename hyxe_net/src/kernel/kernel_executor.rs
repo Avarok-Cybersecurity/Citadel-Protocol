@@ -7,6 +7,7 @@ use crate::kernel::kernel::Kernel;
 use crate::error::NetworkError;
 use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult};
 use hyxe_nat::hypernode_type::HyperNodeType;
+use tokio::net::ToSocketAddrs;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: Kernel + Send + Sync> {
@@ -18,9 +19,9 @@ pub struct KernelExecutor<K: Kernel + Send + Sync> {
 
 impl<K: Kernel + Send + Sync + 'static> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
-    pub async fn new<T: AsRef<str>>(hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T, primary_port: u16) -> Result<Self, NetworkError> {
+    pub async fn new<T: ToSocketAddrs + std::net::ToSocketAddrs>(hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
-        let server = HdpServer::new(hypernode_type, server_to_kernel_tx, bind_addr, primary_port, account_manager).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let server = HdpServer::new(hypernode_type, server_to_kernel_tx, bind_addr, account_manager).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
         Ok(Self { server, server_remote: None, server_to_kernel_rx: Some(server_to_kernel_rx), kernel })
     }
 

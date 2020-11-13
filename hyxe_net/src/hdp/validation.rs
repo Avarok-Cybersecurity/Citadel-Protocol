@@ -269,7 +269,7 @@ pub(crate) mod group {
 }
 
 pub(crate) mod do_register {
-    use std::net::IpAddr;
+    use std::net::SocketAddr;
 
     use bstr::ByteSlice;
     use secstr::SecVec;
@@ -301,7 +301,7 @@ pub(crate) mod do_register {
     }
 
     /// Returns the decrypted username, password, and full name
-    pub(crate) fn validate_stage4(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], post_quantum: &PostQuantumContainer, peer_addr: IpAddr) -> Option<(ProposedCredentials, NetworkAccount)> {
+    pub(crate) fn validate_stage4(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], post_quantum: &PostQuantumContainer, peer_addr: SocketAddr) -> Option<(ProposedCredentials, NetworkAccount)> {
         let username_len = header.context_info.get() as usize;
         let password_len = header.group.get() as usize;
         let fullname_len = header.wave_id.get() as usize;

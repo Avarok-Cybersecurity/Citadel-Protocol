@@ -1,5 +1,7 @@
 use std::fs::create_dir_all as mkdir;
 use std::sync::Mutex;
+use std::net::SocketAddr;
+
 /// Home directory
 pub const BASE_NAME: &'static str = ".HyxeWave";
 /// The total length of each saved file's name
@@ -88,7 +90,7 @@ fn append_to_path(base: String, addition: &'static str) -> String {
 }
 
 /// Sets up local directories that are pre-requisite to launching either client or server application
-pub fn setup_directories(bind_addr: &str, home_dir: Option<String>) -> bool {
+pub fn setup_directories(bind_addr: SocketAddr, home_dir: Option<String>) -> bool {
     if !setup_directory_w_bind_addr(check_ipv6(bind_addr).as_str(), home_dir) {
         return false
     }
@@ -103,10 +105,12 @@ pub fn setup_directories(bind_addr: &str, home_dir: Option<String>) -> bool {
         mkdir(HYXE_VIRTUAL_DIR.lock().unwrap().as_ref().unwrap().as_str()).is_ok()
 }
 
-fn check_ipv6(bind_addr: &str) -> String {
-    if bind_addr.contains("::") {
-        bind_addr.replace("::", "ipv6")
+fn check_ipv6(bind_addr_sck: SocketAddr) -> String {
+    let port = bind_addr_sck.port();
+    let bind_addr = bind_addr_sck.ip().to_string();
+    if bind_addr_sck.is_ipv6() {
+        format!("{}_{}", bind_addr.replace("::", "ipv6"), port)
     } else {
-        bind_addr.to_string()
+        format!("{}_{}", bind_addr, port)
     }
 }

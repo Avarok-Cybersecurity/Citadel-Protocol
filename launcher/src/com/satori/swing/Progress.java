@@ -7,10 +7,12 @@ import java.awt.*;
 
 public class Progress extends JFrame {
 
-    private static final Dimension SIZE = new Dimension(450, 80);
+    private static final Dimension SIZE = new Dimension(271, 40 + 271); // 450x80 = old
     private static final Color COLOR = new Color(139, 113, 181);
+    private static final Color BAR_BG = new Color(255, 255, 255, 226);
     private static final String TITLE_BASE = "SatoriNET| Launcher";
     private JProgressBar bar;
+    private JLabel description;
 
     private Progress() {
         super();
@@ -18,30 +20,40 @@ public class Progress extends JFrame {
         this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         this.setLayout(null);
         this.setSize(SIZE);
+        this.setUndecorated(true);
         this.setLocationRelativeTo(null);
         this.setAlwaysOnTop(true);
         this.setResizable(false);
         this.setTitle(TITLE_BASE);
         this.setIconImage(new ImageIcon(getClass().getResource("/icon.png")).getImage());
 
+        JLabel zen = new JLabel();
+        zen.setLocation(0,0);
+        zen.setSize(271,271);
+        zen.setIcon(new ImageIcon(getClass().getResource("/zen.png")));
+        this.add(zen);
+
+        description = new JLabel("Connecting ...");
+        this.add(description);
+
         bar = new JProgressBar();
         bar.setIndeterminate(true);
-        bar.setLocation(0,0);
-        bar.setSize(SIZE);
+        bar.setLocation(0,271);
+        bar.setSize(271, 40);
         bar.setForeground(COLOR);
-
+        bar.setBackground(BAR_BG);
         this.add(bar);
 
         this.setVisible(true);
     }
 
-    public static void startInstance() {
+    public static void startInstance(String... args) {
         SwingUtilities.invokeLater(() -> {
             Progress instance = new Progress();
             SwingWorker worker = new SwingWorker<Void, Integer>() {
                 @Override
                 protected Void doInBackground() {
-                    Execute.startUpdater(instance);
+                    Execute.startUpdater(instance, args);
                     return null;
                 }
             };

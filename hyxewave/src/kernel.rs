@@ -12,7 +12,7 @@ use tokio::stream::StreamExt;
 use tokio::time::Instant;
 
 use hyxe_net::error::NetworkError;
-use hyxe_net::hdp::hdp_packet_processor::includes::{IpAddr, SocketAddr};
+use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
 use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
 use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerResult, Ticket};
 use hyxe_net::hdp::peer::channel::PeerChannelSendHalf;
@@ -50,7 +50,7 @@ impl CLIKernel {
         let home_addr = app_config.home_dir.clone();
         let is_ffi = app_config.is_ffi;
         let file_transfer_in_progress = AtomicBool::new(false);
-        Self { file_transfer_in_progress, remote: None, loopback_pipe_addr, console_context: ConsoleContext::new(is_ffi, app_config.bind_addr.clone().unwrap().to_string(), home_addr, account_manager), app_config }
+        Self { file_transfer_in_progress, remote: None, loopback_pipe_addr, console_context: ConsoleContext::new(is_ffi, app_config.local_bind_addr.clone().unwrap().ip().to_string(), home_addr, account_manager), app_config }
     }
 
     /// Returns true if the ticket was removed, false otherwise. If false, the ticket may have expired, or, it was never input
@@ -249,7 +249,7 @@ impl Kernel for CLIKernel {
 
             HdpServerResult::DeRegistration(vconn, ticket, is_personal, status) => {
                 if !is_personal {
-                    printf_ln!(colour::yellow!("Deregistration of {:?} was {}\n", ticket, status.if_eq(true, "successful").if_false("not successful")));
+                    printf_ln!(colour::yellow!("Deregistration of {:?} was {}\n", self.get_username_display(vconn.get_implicated_cid()), status.if_eq(true, "successful").if_false("not successful")));
                 } else {
                     let resp = status.if_eq(true, PeerResponse::Ok(None)).if_false(PeerResponse::Err(None));
                     self.on_ticket_received_opt(ticket, resp);
@@ -436,7 +436,9 @@ impl Kernel for CLIKernel {
             }
         }
 
-        INPUT_ROUTER.print_prompt(false, &self.console_context);
+        if !self.app_config.daemon_mode {
+            INPUT_ROUTER.print_prompt(false, &self.console_context);
+        }
 
         Ok(())
     }
@@ -514,7 +516,7 @@ pub struct KernelSession {
     pub cnac: ClientNetworkAccount,
     pub cid: u64,
     pub username: String,
-    pub ip_addr: IpAddr,
+    pub ip_addr: SocketAddr,
     pub is_personal: bool,
     pub tickets: HashSet<Ticket>,
     pub init_time: Instant,
@@ -531,7 +533,7 @@ pub struct PeerSession {
 }
 
 impl KernelSession {
-    pub fn new(cnac: ClientNetworkAccount, cid: u64, ip_addr: IpAddr, username: String, is_personal: bool, virtual_cxn_type: VirtualConnectionType) -> Self {
+    pub fn new(cnac: ClientNetworkAccount, cid: u64, ip_addr: SocketAddr, username: String, is_personal: bool, virtual_cxn_type: VirtualConnectionType) -> Self {
         let concurrent_peers = HashMap::new();
         Self { cnac, virtual_cxn_type, username, cid, ip_addr, is_personal, tickets: HashSet::new(), init_time: Instant::now(), concurrent_peers }
     }

@@ -362,8 +362,8 @@ impl HdpPacket {
         let header_bytes = self.packet.split_to(HDP_HEADER_BYTE_LEN).freeze();
         let payload_bytes = self.packet;
         let remote_peer = self.remote_peer;
-        let remote_port = self.local_port;
+        let local_port = self.local_port;
 
-        (header_bytes, payload_bytes, remote_peer, remote_port)
+        (header_bytes, payload_bytes, remote_peer, local_port)
     }
 }

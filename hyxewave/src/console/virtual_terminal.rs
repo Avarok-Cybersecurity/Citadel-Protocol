@@ -334,7 +334,7 @@ pub mod clap_commands {
 
     fn setup_register_subcommand() -> App<'static, 'static> {
         SubCommand::with_name("register")
-            .after_help("example: register 192.168.2.1")
+            .after_help("example: register 192.168.2.1 OR register 192.168.2.1:1234")
             .about("Register to a target address using advanced post-quantum cryptography")
             .arg(Arg::with_name("target")
                 .help("Destination address")

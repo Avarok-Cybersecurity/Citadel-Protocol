@@ -41,33 +41,105 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Progress on hyxe networking">
-      <change afterPath="$PROJECT_DIR$/build-apple.sh" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/hyxewave_mac.rar" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.cargo/config" beforeDir="false" afterPath="$PROJECT_DIR$/.cargo/config" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/hyxe_wave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hyxe_wave.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/.idea/compiler.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/.idea/gradle.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/.idea/jarRepositories.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/.idea/uiDesigner.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/gradle/wrapper/gradle-wrapper.jar" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/gradle/wrapper/gradle-wrapper.properties" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/DomainSpecificResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/DomainSpecificResponseType.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/KernelResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/KernelResponseDeserializer.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/KernelResponseType.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/Ticket.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/VirtualConnectionType.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/domain/ConnectResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/domain/DSRParser.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/domain/DisconnectResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/domain/GetAccounts.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/domain/GetActiveSessions.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/domain/PeerList.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/domain/RegisterResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/roottypes/ConfirmationKernelResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/roottypes/DomainSpecificKernelResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/roottypes/ErrorKernelResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/roottypes/HybridKernelResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/roottypes/MessageKernelResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/roottypes/NodeMessageKernelResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/deser/roottypes/TicketKernelResponse.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/util/ByteUtils.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/util/Iterators.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ipc-parser/src/main/java/com/satori/util/Parsers.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/launcher/.idea/libraries/commons_compress_1_18.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/launcher/.idea/libraries/commons_compress_1_20.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/launcher/resources/zen.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/.idea/compiler.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/.idea/gradle.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/.idea/jarRepositories.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/.idea/uiDesigner.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/gradle/wrapper/gradle-wrapper.jar" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/gradle/wrapper/gradle-wrapper.properties" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/libs/ipc-parser-1.0.jar" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/nbproject/project.properties" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/nbproject/project.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/src/main/java/com/Start.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/src/main/java/com/satori/ui/SatoriWindow.form" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/src/main/java/com/satori/ui/SatoriWindow.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/src/main/java/com/satori/util/ImageUtils.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/satori-gui/src/main/resources/network.png" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/DIRECTIONS.txt" beforeDir="false" afterPath="$PROJECT_DIR$/DIRECTIONS.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/async_udt/udt-rs" beforeDir="false" afterPath="$PROJECT_DIR$/async_udt/udt-rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/base64-codec" beforeDir="false" afterPath="$PROJECT_DIR$/base64-codec" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ez_pqcrypto/pqcrypto/pqclean/.gitattributes" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_crypt/hyxe_crypt.iml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/hyxe_crypt.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_fs/src/env.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/src/env.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/connect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/connect_packet.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/register_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/register_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/inner_arg.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/inner_arg.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/account_loader.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/account_loader.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/account_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/account_manager.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/network_account.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/network_account.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave-gui/hyxewave-gui.iml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave-gui/hyxewave-gui.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxewave/src/app_config.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/app_config.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/connect.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/connect.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/disconnect.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/disconnect.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/list_sessions.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/list_sessions.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/register.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/register.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/hdp_initiator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/hdp_initiator.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxewave/src/kernel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/kernel.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/lib.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxewave/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/main.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/java/Lusna/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/java/Lusna/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/java/Lusna/app/src/main/java/com/lusna/util/Iterators.java" beforeDir="false" afterPath="$PROJECT_DIR$/java/Lusna/app/src/main/java/com/lusna/util/Iterators.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/java/Lusna/app/src/main/java/com/lusna/util/Parsers.java" beforeDir="false" afterPath="$PROJECT_DIR$/java/Lusna/app/src/main/java/com/lusna/util/Parsers.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/launcher/launcher.iml" beforeDir="false" afterPath="$PROJECT_DIR$/launcher/launcher.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/launcher/lib/ant-compress-1.2.jar" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/launcher/lib/ant-compress-1.5.jar" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/launcher/out/artifacts/launcher_jar/launcher.jar" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/launcher/out/production/launcher/com/satori/Execute.class" beforeDir="false" afterPath="$PROJECT_DIR$/launcher/out/production/launcher/com/satori/Execute.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/launcher/out/production/launcher/com/satori/swing/Progress$1.class" beforeDir="false" afterPath="$PROJECT_DIR$/launcher/out/production/launcher/com/satori/swing/Progress$1.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/launcher/out/production/launcher/com/satori/swing/Progress.class" beforeDir="false" afterPath="$PROJECT_DIR$/launcher/out/production/launcher/com/satori/swing/Progress.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/launcher/src/com/satori/Execute.java" beforeDir="false" afterPath="$PROJECT_DIR$/launcher/src/com/satori/Execute.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/launcher/src/com/satori/swing/Progress.java" beforeDir="false" afterPath="$PROJECT_DIR$/launcher/src/com/satori/swing/Progress.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/launcher/version.txt" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/rsntp" beforeDir="false" afterPath="$PROJECT_DIR$/rsntp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/shrust" beforeDir="false" afterPath="$PROJECT_DIR$/shrust" afterDir="false" />
     </list>
@@ -150,15 +222,15 @@
     <option name="SHOW_DIALOG" value="false" />
   </component>
   <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\hyxe_wave\hyxe_net\backup" />
+    </key>
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\satori.net\ez_pqcrypto" />
       <recent name="C:\hyxe_wave\hyxe_net\src\hdp\peer" />
       <recent name="C:\hyxe_wave\hyxe_nat\src\udp_traversal\linear" />
       <recent name="C:\hyxe_wave\src\console" />
       <recent name="C:\hyxe_wave\hyxe_user\src" />
-    </key>
-    <key name="CopyFile.RECENT_KEYS">
-      <recent name="C:\hyxe_wave\hyxe_net\backup" />
     </key>
   </component>
   <component name="RunAnythingCache">
@@ -187,6 +259,17 @@
     </option>
   </component>
   <component name="RunManager" selected="Cargo.Build HyxeWave">
+    <configuration default="true" type="ArquillianJUnit" factoryName="" nameIsGenerated="true">
+      <option name="arquillianRunConfiguration">
+        <value>
+          <option name="containerStateName" value="" />
+        </value>
+      </option>
+      <option name="TEST_OBJECT" value="class" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="Build HyxeWave" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="NIGHTLY" />
       <option name="command" value="build --package hyxewave --bin hyxewave" />
@@ -450,6 +533,9 @@
       <workItem from="1602288803140" duration="4216000" />
       <workItem from="1603801810090" duration="5096000" />
       <workItem from="1603845572273" duration="8195000" />
+      <workItem from="1605101301472" duration="1016000" />
+      <workItem from="1605129908586" duration="6500000" />
+      <workItem from="1605215076430" duration="10483000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
@@ -602,14 +688,14 @@
       <screen x="0" y="0" width="1920" height="1040" />
     </state>
     <state x="640" y="255" key="#com.intellij.openapi.updateSettings.impl.PluginUpdateInfoDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1602288470399" />
+    <state x="722" y="436" key="#com.intellij.refactoring.move.MoveHandler.SelectRefactoringDialog" timestamp="1605217559950">
+      <screen x="0" y="0" width="1920" height="1040" />
+    </state>
+    <state x="722" y="436" key="#com.intellij.refactoring.move.MoveHandler.SelectRefactoringDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1605217559950" />
     <state x="92" y="92" width="1736" height="856" key="DiffContextDialog" timestamp="1600449679996">
       <screen x="0" y="0" width="1920" height="1040" />
     </state>
     <state x="92" y="92" width="1736" height="856" key="DiffContextDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1600449679996" />
-    <state x="839" y="250" key="EnvironmentVariablesDialog" timestamp="1596458457105">
-      <screen x="0" y="0" width="1920" height="1040" />
-    </state>
-    <state x="839" y="250" key="EnvironmentVariablesDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1596458457105" />
     <state x="761" y="297" key="ExperimentsDialog" timestamp="1600646288563">
       <screen x="0" y="0" width="1920" height="1040" />
     </state>
@@ -662,18 +748,18 @@
       <screen x="0" y="0" width="1920" height="1040" />
     </state>
     <state x="92" y="92" width="1736" height="856" key="com.intellij.history.integration.ui.views.FileHistoryDialog/0.0.1920.1040@0.0.1920.1040" timestamp="1601668043376" />
-    <state x="666" y="253" width="607" height="624" key="find.popup" timestamp="1601644972263">
+    <state x="666" y="253" width="607" height="624" key="find.popup" timestamp="1605129984955">
       <screen x="0" y="0" width="1920" height="1040" />
     </state>
-    <state x="666" y="253" width="607" height="624" key="find.popup/0.0.1920.1040@0.0.1920.1040" timestamp="1601644972263" />
-    <state x="616" y="240" width="672" height="677" key="run.anything.popup" timestamp="1599944481100">
+    <state x="666" y="253" width="607" height="624" key="find.popup/0.0.1920.1040@0.0.1920.1040" timestamp="1605129984955" />
+    <state x="616" y="240" width="672" height="677" key="run.anything.popup" timestamp="1605102787406">
       <screen x="0" y="0" width="1920" height="1040" />
     </state>
-    <state x="616" y="240" width="672" height="677" key="run.anything.popup/0.0.1920.1040@0.0.1920.1040" timestamp="1599944481100" />
-    <state x="623" y="225" width="672" height="678" key="search.everywhere.popup" timestamp="1601653692556">
+    <state x="616" y="240" width="672" height="677" key="run.anything.popup/0.0.1920.1040@0.0.1920.1040" timestamp="1605102787406" />
+    <state x="623" y="225" width="672" height="678" key="search.everywhere.popup" timestamp="1605218246684">
       <screen x="0" y="0" width="1920" height="1040" />
     </state>
-    <state x="623" y="225" width="672" height="678" key="search.everywhere.popup/0.0.1920.1040@0.0.1920.1040" timestamp="1601653692556" />
+    <state x="623" y="225" width="672" height="678" key="search.everywhere.popup/0.0.1920.1040@0.0.1920.1040" timestamp="1605218246684" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
