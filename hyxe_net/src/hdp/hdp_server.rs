@@ -1,12 +1,11 @@
 use std::fmt::{Display, Formatter, Debug};
 use std::io;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 use nanoserde::{SerBin, DeBin};
 
-use std::net::IpAddr;
+use std::net::SocketAddr;
 use bytes::Bytes;
 use futures::{StreamExt, Sink, SinkExt};
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, SendError};
@@ -46,10 +45,9 @@ define_outer_struct_wrapper!(HdpServer, HdpServerInner);
 /// Inner device for the HdpServer
 pub struct HdpServerInner {
     primary_socket: Option<TcpListener>,
-    primary_port: u16,
-    bind_addr: IpAddr,
     /// Key: cid (to account for multiple clients from the same node)
     session_manager: HdpSessionManager,
+    local_bind_addr: SocketAddr,
     system_engaged: bool,
     to_kernel: UnboundedSender<HdpServerResult>,
     local_node_type: HyperNodeType,
@@ -58,10 +56,10 @@ pub struct HdpServerInner {
 
 impl HdpServer {
     /// Creates a new [HdpServer]
-    pub async fn new<T: AsRef<str>>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, primary_port: u16, account_manager: AccountManager) -> io::Result<Self> {
-        let bind_addr = bind_addr.as_ref();
-        let primary_port_addr = format!("{}:{}", bind_addr, primary_port);
-        let primary_socket = Some(Self::create_tcp_listen_socket(&primary_port_addr).await?);
+    pub async fn new<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager) -> io::Result<Self> {
+        let local_bind_addr = <T as std::net::ToSocketAddrs>::to_socket_addrs(&bind_addr)?.next().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, ""))?;
+        let primary_socket = Some(Self::create_tcp_listen_socket(&local_bind_addr).await?);
+        let primary_port = local_bind_addr.port();
         // Note: on Android/IOS, the below command will fail since sudo access is prohibited
         if let Ok(res) = open_local_firewall_port(FirewallProtocol::TCP(primary_port)) {
             if !res.status.success() {
@@ -69,17 +67,15 @@ impl HdpServer {
             }
         }
 
-        info!("Server established primary TCP port {}", primary_port_addr);
+        info!("Server established on {}", local_bind_addr);
 
         let time_tracker = TimeTracker::new().await?;
-        let bind_addr = IpAddr::from_str(bind_addr).map_err(|err| io::Error::new(io::ErrorKind::AddrNotAvailable, err))?;
-        let session_manager = HdpSessionManager::new(bind_addr, local_node_type,to_kernel.clone(), account_manager, time_tracker.clone(), false);
+        let session_manager = HdpSessionManager::new(local_node_type,to_kernel.clone(), account_manager, time_tracker.clone(), false);
         let inner = HdpServerInner {
             shutdown_signaller: None,
+            local_bind_addr,
             local_node_type,
             primary_socket,
-            bind_addr,
-            primary_port,
             to_kernel,
             session_manager,
             system_engaged: false,
@@ -157,12 +153,11 @@ impl HdpServer {
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
     async fn listen_primary(server: HdpServer, tt: TimeTracker, shutdown_receiver: tokio::sync::oneshot::Receiver<()>, to_kernel: UnboundedSender<HdpServerResult>) -> Result<(), NetworkError> {
         let mut this = inner_mut!(server);
-        let primary_port = this.primary_port;
         let socket = this.primary_socket.take().unwrap();
         let session_manager = this.session_manager.clone();
         std::mem::drop(this);
         let timer_future = Self::primary_timer(shutdown_receiver, to_kernel.clone());
-        let primary_port_future = Self::primary_session_creator_loop(primary_port, to_kernel, session_manager, socket);
+        let primary_port_future = Self::primary_session_creator_loop(to_kernel, session_manager, socket);
         let tt_updater_future = Self::time_tracker_updater(tt);
         // If the timer detects that the server is shutdown, it will return an error, thus causing the try_join to end the future
         try_join!(timer_future, primary_port_future, tt_updater_future).map(|_| ()).map_err(|_| NetworkError::InternalError("Primary listener ended"))
@@ -179,7 +174,7 @@ impl HdpServer {
         Ok(())
     }
 
-    async fn primary_session_creator_loop(_primary_port: u16, to_kernel: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, mut socket: TcpListener) -> Result<(), NetworkError> {
+    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, mut socket: TcpListener) -> Result<(), NetworkError> {
         while let Some(stream) = socket.incoming().next().await {
             match stream {
                 Ok(stream) => {
@@ -189,7 +184,7 @@ impl HdpServer {
                             stream.set_keepalive(None).unwrap();
                             //stream.set_nodelay(true).unwrap();
                             // the below closure spawns a new future on the tokio thread pool
-                            if let Err(err) = session_manager.process_new_inbound_connection(peer_addr.ip(), stream).await {
+                            if let Err(err) = session_manager.process_new_inbound_connection(peer_addr, stream) {
                                 to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, format!("HDP Server dropping connection to {}. Reason: {}", peer_addr, err.to_string())))?;
                             }
 
@@ -219,9 +214,9 @@ impl HdpServer {
 
     async fn outbound_kernel_request_handler(this: HdpServer, to_kernel_tx: UnboundedSender<HdpServerResult>, mut outbound_send_request_rx: UnboundedReceiver<(HdpServerRequest, Ticket)>) -> Result<(), NetworkError> {
         let read = inner!(this);
-        let primary_port = read.primary_port;
+        let primary_port = read.local_bind_addr.port();
         //let port_start = read.multiport_range.start;
-        let local_bind_addr = read.bind_addr.clone();
+        let local_bind_addr = read.local_bind_addr.ip();
         let local_node_type = read.local_node_type;
 
         // We need only the underlying [HdpSessionManager]
@@ -403,13 +398,13 @@ impl Sink<(Ticket, HdpServerRequest)> for HdpServerRemote {
 /// in order for processes sitting above the [Kernel] to know how the request went
 pub enum HdpServerRequest {
     /// Sends a request to the underlying [HdpSessionManager] to begin connecting to a new client
-    RegisterToHypernode(IpAddr, ProposedCredentials, Option<u8>),
+    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<u8>),
     /// A high-level peer command. Can be used to facilitate communications between nodes in the HyperLAN
     PeerCommand(u64, PeerSignal),
     /// For submitting a de-register request
     DeregisterFromHypernode(u64, VirtualConnectionType),
     /// Send data to client. Peer addr, implicated cid, hdp_nodelay, quantum algorithm, tcp only
-    ConnectToHypernode(IpAddr, u64, ProposedCredentials, SecurityLevel, Option<bool>, Option<u8>, Option<bool>),
+    ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, Option<bool>, Option<u8>, Option<bool>),
     /// Updates the drill for the given CID
     UpdateDrill(u64),
     /// Send data to an already existent connection
@@ -437,7 +432,7 @@ pub enum HdpServerResult {
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(VirtualConnectionType, Option<Ticket>, bool, bool),
     /// Connection succeeded for the cid self.0. bool is "is personal"
-    ConnectSuccess(Ticket, u64, IpAddr, bool, VirtualConnectionType, String),
+    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, String),
     /// The connection was a failure
     ConnectFail(Ticket, Option<u64>, String),
     /// The outbound request was rejected

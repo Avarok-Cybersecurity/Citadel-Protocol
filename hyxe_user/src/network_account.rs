@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,9 +33,9 @@ lazy_static! {
 /// Inner device
 pub struct NetworkAccountInner {
     /// The global IPv4 address for this node
-    pub(crate) global_ipv4: Option<Ipv4Addr>,
+    pub(crate) global_ipv4: Option<SocketAddrV4>,
     /// The global IPv6 address for this node
-    pub(crate) global_ipv6: Option<Ipv6Addr>,
+    pub(crate) global_ipv6: Option<SocketAddrV6>,
     /// Contains a list of registered HyperLAN CIDS
     pub cids_registered: HashMap<u64, String>,
     /// Used to determining an unused cid
@@ -67,12 +67,12 @@ impl NetworkAccount {
     }
 
     /// When a new connection is created, this may be called
-    pub fn new_from_recent_connection(nid: u64, addr: IpAddr) -> NetworkAccount {
+    pub fn new_from_recent_connection(nid: u64, addr: SocketAddr) -> NetworkAccount {
         let (global_ipv4, global_ipv6) = {
             if addr.is_ipv4() {
-                (Some(Ipv4Addr::from_str(addr.to_string().as_str()).unwrap()), None)
+                (Some(SocketAddrV4::from_str(addr.to_string().as_str()).unwrap()), None)
             } else {
-                (None, Some(Ipv6Addr::from_str(addr.to_string().as_str()).unwrap()))
+                (None, Some(SocketAddrV6::from_str(addr.to_string().as_str()).unwrap()))
             }
         };
         Self {
@@ -169,18 +169,18 @@ impl NetworkAccount {
 
     /// Returns the IPv4 address which belongs to the NID enclosed herein
     #[deprecated]
-    pub fn get_ipv4_addr(&self) -> Option<IpAddr> {
-        Some(IpAddr::V4(self.read().global_ipv4?))
+    pub fn get_ipv4_addr(&self) -> Option<SocketAddr> {
+        Some(SocketAddr::V4(self.read().global_ipv4?))
     }
 
     /// Returns the IPv6 address which belongs to the NID enclosed herein
-    pub fn get_ipv6_addr(&self) -> Option<IpAddr> {
-        Some(IpAddr::V6(self.read().global_ipv6?))
+    pub fn get_ipv6_addr(&self) -> Option<SocketAddr> {
+        Some(SocketAddr::V6(self.read().global_ipv6?))
     }
 
     /// Returns the IP address which belongs to the NID enclosed herein.
     #[allow(deprecated)]
-    pub fn get_addr(&self, prefer_ipv6: bool) -> Option<IpAddr> {
+    pub fn get_addr(&self, prefer_ipv6: bool) -> Option<SocketAddr> {
         if prefer_ipv6 {
             if let Some(addr) = self.get_ipv6_addr() {
                 Some(addr)
@@ -198,7 +198,7 @@ impl NetworkAccount {
 
     /// Returns the IP address which belongs to the NID enclosed herein.
     #[allow(deprecated)]
-    pub fn get_addr_blocking(&self, prefer_ipv6: bool) -> Option<IpAddr> {
+    pub fn get_addr_blocking(&self, prefer_ipv6: bool) -> Option<SocketAddr> {
         if prefer_ipv6 {
             if let Some(addr) = self.get_ipv6_addr() {
                 Some(addr)
@@ -217,11 +217,11 @@ impl NetworkAccount {
     /// This sets the IP address. This automatically determines if the address is IPv6 or IPv4, and then it places
     /// it inside the correct field of self
     #[allow(unused_results)]
-    pub fn update_ip(&self, new_addr: IpAddr) {
+    pub fn update_ip(&self, new_addr: SocketAddr) {
         if new_addr.is_ipv4() {
-            self.write().global_ipv4.replace(Ipv4Addr::from_str(new_addr.to_string().as_str()).unwrap());
+            self.write().global_ipv4.replace(SocketAddrV4::from_str(new_addr.to_string().as_str()).unwrap());
         } else {
-            self.write().global_ipv6.replace(Ipv6Addr::from_str(new_addr.to_string().as_str()).unwrap());
+            self.write().global_ipv6.replace(SocketAddrV6::from_str(new_addr.to_string().as_str()).unwrap());
         }
     }
 
@@ -249,8 +249,8 @@ impl NetworkAccount {
 }
 
 /// This is called by the [ServerBridgeHandler] when needing to create a new Network account
-impl From<(u64, IpAddr)> for NetworkAccount {
-    fn from(obj: (u64, IpAddr)) -> Self {
+impl From<(u64, SocketAddr)> for NetworkAccount {
+    fn from(obj: (u64, SocketAddr)) -> Self {
         Self::new_from_recent_connection(obj.0, obj.1)
     }
 }

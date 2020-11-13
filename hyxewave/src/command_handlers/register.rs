@@ -1,4 +1,6 @@
 use super::imports::*;
+use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
+use hyxe_net::constants::PRIMARY_PORT;
 
 #[derive(Debug, Serialize)]
 pub enum RegisterResponse {
@@ -7,8 +9,7 @@ pub enum RegisterResponse {
 }
 
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
-    let target_addr = matches.value_of("target").unwrap();
-    let target_addr = IpAddr::from_str(target_addr)?;
+    let target_addr = get_remote_addr(matches)?;
 
     let ffi_mode = matches.is_present("ffi");
     let proposed_credentials = if ffi_mode {
@@ -34,7 +35,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                         colour::green!("You may now login via ");
                         colour::dark_yellow!("connect {}\n", username.as_str());
                         if let Some(welcome_message) = welcome_message_opt {
-                            colour::white_ln!("Hypernode welcome message: {}", &welcome_message);
+                            colour::white_ln!("Hypernode welcome message: {}\n", &welcome_message);
                         }
                     });
                 }
@@ -44,7 +45,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                 if let Some(ref ffi_io) = ffi_io {
                     (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Register(RegisterResponse::Failure(ticket.0, err_opt.unwrap_or(String::from("Register failed"))))))))
                 } else {
-                    colour::dark_red_ln!("Registration failed. Please try again ... ({})", err_opt.unwrap_or(String::from("null")));
+                    colour::dark_red_ln!("Registration failed. Please try again ... ({})\n", err_opt.unwrap_or(String::from("null")));
                 }
             }
 
@@ -52,7 +53,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                 if let Some(ref ffi_io) = ffi_io {
                     (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Register(RegisterResponse::Failure(ticket.0, String::from("Registration failed")))))))
                 } else {
-                    colour::dark_red_ln!("Registration failed. Please try again ...");
+                    colour::dark_red_ln!("Registration failed. Please try again ...\n");
                 }
             }
         }
@@ -75,9 +76,9 @@ fn handle_ffi(matches: &ArgMatches<'_>) -> ProposedCredentials {
     ProposedCredentials::new_unchecked(full_name, username, SecVec::new(password.as_bytes().to_vec()))
 }
 
-fn handle_console(ctx: &ConsoleContext, target_addr: &IpAddr) -> Result<ProposedCredentials, ConsoleError> {
+fn handle_console(ctx: &ConsoleContext, target_addr: &SocketAddr) -> Result<ProposedCredentials, ConsoleError> {
     let mut username = INPUT_ROUTER.read_line(ctx, Some(|| colour::green!("Proposed username: ")));
-    username = username.replace("\n", "");
+    username = username.trim().to_string();
 
     if ctx.account_manager.get_client_by_username(&username).is_some() {
         return Err(ConsoleError::Generic(format!("User {} already exists locally", username)))
@@ -88,14 +89,26 @@ fn handle_console(ctx: &ConsoleContext, target_addr: &IpAddr) -> Result<Proposed
     let password_input_0 = INPUT_ROUTER.read_password(ctx, Some(|| colour::green!("Proposed password: ")));
     let password_input_0 = password_input_0.as_bytes().to_vec();
 
-    let password_input_1 = INPUT_ROUTER.read_password(ctx, Some(|| colour::green!("Verify password: ")));
-    let password_input_1 = password_input_1.as_bytes().to_vec();
+    let password_input_1_str = INPUT_ROUTER.read_password(ctx, Some(|| colour::green!("Verify password: ")));
+    let password_input_1 = password_input_1_str.as_bytes().to_vec();
 
     if password_input_0 != password_input_1 {
         return Err(ConsoleError::Default("Passwords do not match"));
     }
 
+    hyxe_user::misc::check_credential_formatting(&username, &password_input_1_str, &full_name).map_err(|err| ConsoleError::Generic(err.to_string()))?;
+
     printf_ln!(colour::yellow!("Server: {}\nFull name: {}\nUsername: {}\n", target_addr, &full_name, &username));
 
     Ok(ProposedCredentials::new_unchecked(full_name, &username, SecVec::new(password_input_1)))
+}
+
+fn get_remote_addr(matches: &ArgMatches) -> Result<SocketAddr, ConsoleError> {
+    let target_addr = matches.value_of("target").unwrap();
+    if target_addr.contains(":") {
+        SocketAddr::from_str(target_addr).map_err(|err| ConsoleError::Generic(err.to_string()))
+    } else {
+        let ip_addr = IpAddr::from_str(target_addr)?;
+        Ok(SocketAddr::new(ip_addr, PRIMARY_PORT))
+    }
 }

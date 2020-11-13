@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 
 /// This will handle an HDP registration packet
 #[inline]
-pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], remote_addr: IpAddr) -> PrimaryProcessorResult {
+pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], remote_addr: SocketAddr) -> PrimaryProcessorResult {
     let mut session = inner_mut!(session);
     if session.state != SessionState::NeedsRegister {
         if session.state != SessionState::SocketJustOpened {

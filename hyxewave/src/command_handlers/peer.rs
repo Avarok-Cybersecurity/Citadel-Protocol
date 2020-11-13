@@ -322,7 +322,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                         if let Some(ref ffi_io) = ffi_io {
                             (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp))))
                         } else {
-                            printf_ln!(colour::red!("{}", resp));
+                            printf_ln!(colour::red!("{}\n", resp));
                         }
                     }
 
@@ -331,7 +331,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                         if let Some(ref ffi_io) = ffi_io {
                             (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp))))
                         } else {
-                            printf_ln!(colour::red!("{}", resp));
+                            printf_ln!(colour::red!("{}\n", resp));
                         }
                     }
                 }
@@ -559,6 +559,6 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
         Ok(None)
     } else {
-        Err(ConsoleError::Default("No currently active users. Please connect, or use `switch` <user> if already logged-in"))
+        Err(ConsoleError::Default("No currently active users. Please connect, or use 'switch <user>' if already logged-in"))
     }
 }

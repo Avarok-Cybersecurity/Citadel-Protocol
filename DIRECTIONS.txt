@@ -15,3 +15,5 @@ To cross-compile to MAC on linux/WSL:
 https://wapl.es/rust/2019/02/17/rust-cross-compile-linux-to-macos.html
 
 Note: You'll need to do the additional step of setting CC and CCX since pqcrypto requires that
+
+For zk-paillier & building on windows/msvc, download a precompiled lib and bin from https://github.com/ShiftMediaProject/gmp (these are included in the repo in the root directory by default)
