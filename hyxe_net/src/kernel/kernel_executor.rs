@@ -3,21 +3,21 @@ use futures::StreamExt;
 
 use hyxe_user::account_manager::AccountManager;
 
-use crate::kernel::kernel::Kernel;
+use crate::kernel::kernel::NetKernel;
 use crate::error::NetworkError;
 use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult};
 use hyxe_nat::hypernode_type::HyperNodeType;
 use tokio::net::ToSocketAddrs;
 
 /// Creates a [KernelExecutor]
-pub struct KernelExecutor<K: Kernel + Send + Sync> {
+pub struct KernelExecutor<K: NetKernel> {
     server: HdpServer,
     server_remote: Option<HdpServerRemote>,
     server_to_kernel_rx: Option<UnboundedReceiver<HdpServerResult>>,
     kernel: K,
 }
 
-impl<K: Kernel + Send + Sync + 'static> KernelExecutor<K> {
+impl<K: NetKernel + 'static> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
     pub async fn new<T: ToSocketAddrs + std::net::ToSocketAddrs>(hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
@@ -34,6 +34,7 @@ impl<K: Kernel + Send + Sync + 'static> KernelExecutor<K> {
         let kernel = self.kernel;
         log::info!("Obtaining server remote ...");
         // The function in execute only spawns_local, but does not actually run anything until we run run_until with the local set
+        // in multithreaded mode, the below spawns futures onto the executor
         let server_remote = HdpServer::load(server, &runtime).await?;
         log::info!("Done obtaining server remote ...");
 
@@ -57,14 +58,15 @@ impl<K: Kernel + Send + Sync + 'static> KernelExecutor<K> {
         // Load the remote into the kernel
         kernel.on_start(hdp_server_remote).await?;
 
+        let kernel = std::sync::Arc::new(kernel);
+
         while let Some(message) = server_to_kernel_rx.next().await {
-            if !kernel.can_run().await {
+            if !kernel.can_run() {
                 break;
             }
 
-            if let Err(_err) = kernel.on_server_message_received(message).await {
-                break;
-            }
+            let kernel = kernel.clone();
+            let _ = tokio::task::spawn(async move { kernel.on_server_message_received(message).await });
         }
 
         log::info!("Calling kernel on_stop ...");

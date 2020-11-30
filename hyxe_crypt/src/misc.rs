@@ -4,7 +4,7 @@ use byteorder::ByteOrder;
 use crate::drill_update::DrillUpdateObject;
 use rand::{Rng, thread_rng};
 use std::fmt::Formatter;
-//use std::os::raw::c_void;
+use std::os::raw::c_void;
 use rand::prelude::SliceRandom;
 
 /// Default Error type for this crate
@@ -177,33 +177,56 @@ pub(crate) fn get_indices<Rnd: Rng>(count: u8, rng: &mut Rnd) -> ([usize; E_OF_X
     (idx_outer, idx_inner)
 }
 
-/*
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+
+#[cfg(not(target_os = "windows"))]
+#[allow(unused_results)]
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For linux, returns zero if successful
 pub unsafe fn mlock(ptr: *const u8, len: usize) {
-    assert_eq!(libc::mlock(ptr as *const c_void, len), 0);
+    libc::mlock(ptr as *const c_void, len);
+    #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+        libc::madvise(ptr as *mut c_void, len, libc::MADV_NOCORE);
+    #[cfg(target_os = "linux")]
+        libc::madvise(ptr as *mut c_void, len, libc::MADV_DONTDUMP);
 }
 
-#[cfg(any(target_os = "windows"))]
+#[cfg(target_os = "windows")]
+#[allow(unused_results)]
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For windows, returns nonzero if successful
 pub unsafe fn mlock(ptr: *const u8, len: usize) {
-    assert_ne!(kernel32::VirtualLock(ptr as *mut c_void, len as u64), 0);
+    kernel32::VirtualLock(ptr as *mut c_void, len as u64);
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(not(target_os = "windows"))]
+#[allow(unused_results)]
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For linux, returns zero if successful
 pub unsafe fn munlock(ptr: *const u8, len: usize) {
-    assert_eq!(libc::munlock(ptr as *const c_void, len), 0);
+    libc::munlock(ptr as *const c_void, len);
+    #[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+        libc::madvise(ptr as *mut c_void, len, libc::MADV_CORE);
+    #[cfg(target_os = "linux")]
+        libc::madvise(ptr as *mut c_void, len, libc::MADV_DODUMP);
 }
 
-#[cfg(any(target_os = "windows"))]
+#[cfg(target_os = "windows")]
+#[allow(unused_results)]
 /// Locks-down the memory location, preventing it from being read until unlocked
 /// For windows, returns nonzero if successful. Returns 158 if already unlocked.
-/// Windows unlocks a page all at once. Why wouldn't they just make VirtualUnlockAll?
-/// Windows sucks!
+/// Windows unlocks a page all at once
 pub unsafe fn munlock(ptr: *const u8, len: usize) {
-    let _ = kernel32::VirtualUnlock(ptr as *mut c_void, len as u64);
-}*/
+    kernel32::VirtualUnlock(ptr as *mut c_void, len as u64);
+}
+
+/// General `memset`.
+#[inline(never)]
+unsafe fn memset(s: *mut u8, c: u8, n: usize) {
+    core::intrinsics::volatile_set_memory(s, c, n);
+}
+
+/// General `memzero`.
+#[inline]
+pub unsafe fn zeroize(dest: *const u8, n: usize) {
+    memset(dest as *mut u8, 0, n);
+}

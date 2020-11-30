@@ -102,6 +102,10 @@ pub struct ClientNetworkAccountInner {
     #[serde(skip)]
     password_hyxefile: Option<HyxeFile>,
     post_quantum_code: Vec<u8>,
+    /// When the client needs to hash its proposed password for the future, this is required
+    /// When the server needs to serve the role of recovering an account (e.g., if the client loses its local CNAC info),
+    /// this constant password hash will store
+    pub password_hash: Vec<u8>,
     /// Toolset which contains all the drills
     pub toolset: Toolset,
     #[serde(skip)]
@@ -130,14 +134,15 @@ impl ClientNetworkAccount {
     ///
     /// `client_nac`: This is required because it allows the server to keep track of the IP in the case [PINNED_IP_MODE] is engaged
     #[allow(unused_results)]
-    pub(crate) fn new<T: ToString, V: ToString, K: AsRef<[u8]>>(valid_cid: Option<u64>, is_personal: bool, adjacent_nac: NetworkAccount, username: &T, password: SecVec<u8>, full_name: V, post_quantum_container: &PostQuantumContainer, toolset_bytes: Option<K>) -> Result<Self, AccountError<String>> {
+    pub(crate) fn new<T: ToString, V: ToString, K: AsRef<[u8]>>(valid_cid: Option<u64>, is_personal: bool, adjacent_nac: NetworkAccount, username: &T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, post_quantum_container: &PostQuantumContainer, toolset_bytes: Option<K>) -> Result<Self, AccountError<String>> {
 
         info!("Creating valid cid: {:?}", valid_cid);
-        let password = password.unsecure().to_vec();
-        let password = String::from_utf8(password).map_err(|err| AccountError::Generic(err.to_string()))?;
+        //let password = password.unsecure().to_vec();
+        //let password = String::from_utf8(password).map_err(|err| AccountError::Generic(err.to_string()))?;
         let username = username.to_string();
         let full_name = full_name.to_string();
-        check_credential_formatting(&username, &password, &full_name)?;
+        // we no longer check the credential formatting since it's hashed
+        check_credential_formatting::<_, &str, _>(&username, None, &full_name)?;
         let creation_date = get_present_formatted_timestamp();
 
         // if is_client is true, then the password isn't stored. It only exists on the server
@@ -158,7 +163,6 @@ impl ClientNetworkAccount {
         let (password_hyxefile, password_in_ram) = if is_client {
             (None, None)
         } else {
-            let password = SecVec::new(password.into_bytes());
             (Some(HyxeFile::new(full_name.to_string(), cid, "password_file", None)), Some(password))
         };
 
@@ -167,7 +171,7 @@ impl ClientNetworkAccount {
 
         let mutuals = MultiMap::new();
 
-        let inner = ClientNetworkAccountInner { creation_date, post_quantum_code, cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, toolset, password_in_ram };
+        let inner = ClientNetworkAccountInner { password_hash, creation_date, post_quantum_code, cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, toolset, password_in_ram };
         let this = Self::from(inner);
 
         this.blocking_save_to_local_fs()?;
@@ -242,11 +246,11 @@ impl ClientNetworkAccount {
     }
 
     /// Towards the end of the registration phase, the [ClientNetworkAccountInner] gets transmitted to Alice.
-    pub fn new_from_network_personal<T: AsRef<[u8]>, R: ToString, K: ToString>(toolset_bytes: T, username: R, password: SecVec<u8>, full_name: K, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer) -> Result<Self, AccountError<String>> {
+    pub fn new_from_network_personal<T: AsRef<[u8]>, R: ToString, K: ToString>(toolset_bytes: T, username: R, password: SecVec<u8>, full_name: K, password_hash: Vec<u8>, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer) -> Result<Self, AccountError<String>> {
         const IS_PERSONAL: bool = true;
 
         // We supply none to the valid cid
-        Self::new(None, IS_PERSONAL, adjacent_nac, &username, password, full_name, post_quantum_container, Some(toolset_bytes.as_ref()))
+        Self::new(None, IS_PERSONAL, adjacent_nac, &username, password, full_name, password_hash, post_quantum_container, Some(toolset_bytes.as_ref()))
     }
 
     /// Serializes the inner toolset to a vector. Requires exclusive access
@@ -273,7 +277,7 @@ impl ClientNetworkAccount {
     }
 
     /// Checks the credentials for validity. Used for the login process.
-    pub unsafe fn validate_credentials<T: AsRef<[u8]>>(&self, username: T, password: SecVec<u8>) -> Result<(), AccountError<String>> {
+    pub fn validate_credentials<T: AsRef<[u8]>>(&self, username: T, password_hashed: SecVec<u8>) -> Result<(), AccountError<String>> {
         let read = self.read();
         if read.password_in_ram.is_none() {
             //debug_assert!(self.is_personal);
@@ -284,10 +288,12 @@ impl ClientNetworkAccount {
             return Err(AccountError::InvalidUsername);
         }
 
-        let pass = password.unsecure();
-        let pass_real = read.password_in_ram.as_ref().unwrap().unsecure();
-
-        if pass != pass_real {
+        // the password_in_ram is the raw original hashed password computed by the client sent to here (server-side)
+        let pass_hashed_internal = read.password_in_ram.as_ref().unwrap().unsecure();
+        //log::info!("\n\rINTERNAL({}): {:?}", pass_hashed_internal.len(), pass_hashed_internal);
+        //log::info!("\n\rExternal({}): {:?}", password_hashed.unsecure().len(), password_hashed.unsecure());
+        // the client computes the hash of its proposed password and sends it
+        if pass_hashed_internal != password_hashed.unsecure() {
             log::warn!("Invalid password ...");
             Err(AccountError::InvalidPassword)
         } else {

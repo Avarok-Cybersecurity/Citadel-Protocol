@@ -19,7 +19,7 @@ use hyxe_net::hdp::peer::channel::PeerChannelSendHalf;
 use hyxe_net::hdp::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use hyxe_net::hdp::peer::peer_layer::MailboxTransfer;
 use hyxe_net::hdp::state_container::VirtualConnectionType;
-use hyxe_net::kernel::kernel::Kernel;
+use hyxe_net::kernel::kernel::NetKernel;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::{ClientNetworkAccount, MutualPeer};
 
@@ -35,7 +35,7 @@ use crate::ticket_event::TicketQueueHandler;
 use hyxe_net::functional::IfEqConditional;
 
 #[allow(dead_code)]
-pub struct CLIKernel where Self: Send + Sync {
+pub struct CLIKernel {
     remote: Option<HdpServerRemote>,
     loopback_pipe_addr: Option<SocketAddr>,
     app_config: AppConfig,
@@ -108,7 +108,7 @@ impl CLIKernel {
 }
 
 #[async_trait]
-impl Kernel for CLIKernel {
+impl NetKernel for CLIKernel {
     async fn on_start(&mut self, server_remote: HdpServerRemote) -> Result<(), NetworkError> {
         log::info!("CLI/FFI Kernel executed!");
 
@@ -124,7 +124,7 @@ impl Kernel for CLIKernel {
     }
 
     #[allow(unused_variables)]
-    async fn on_server_message_received(&mut self, message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_server_message_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
         // print a line to ensure spaces between event print-outs, even if there's none (to prevent double printout on single line)
         if !self.file_transfer_in_progress.load(std::sync::atomic::Ordering::Relaxed) {
             colour::white_ln!("\r");
@@ -443,11 +443,11 @@ impl Kernel for CLIKernel {
         Ok(())
     }
 
-    async fn can_run(&self) -> bool {
+    fn can_run(&self) -> bool {
         true
     }
 
-    async fn on_stop(&mut self) -> Result<(), NetworkError> {
+    async fn on_stop(&self) -> Result<(), NetworkError> {
         self.console_context.signal_off();
         Ok(())
     }

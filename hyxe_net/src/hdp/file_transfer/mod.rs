@@ -22,6 +22,7 @@ impl VirtualFileMetadata {
 }
 
 #[derive(Debug, Clone)]
+#[allow(variant_size_differences)]
 pub enum FileTransferStatus {
     TransferBeginning,
     ReceptionBeginning(VirtualFileMetadata),

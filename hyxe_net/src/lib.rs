@@ -1,9 +1,7 @@
 #![feature(async_closure, main, try_trait)]
 #![feature(test)]
 //! Core networking components for SatoriNET
-/*
 #![deny(
-missing_docs,
 trivial_numeric_casts,
 unused_extern_crates,
 unused_import_braces,
@@ -11,12 +9,6 @@ variant_size_differences,
 unused_features,
 unused_results,
 warnings
-)]
-*/
-
-#![deny(
-unused_features,
-unused_results
 )]
 
 #[cfg(not(feature = "multi-threaded"))]

@@ -1,4 +1,4 @@
-pub const BUILD_VERSION: usize = 674;
+pub const BUILD_VERSION: usize = 769;
 /// Signal for closing the stream_wrapper
 pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper
@@ -7,6 +7,8 @@ pub const STREAM_RESTART: u8 = 1;
 pub const CONNECTION_HANDLER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1000);
 /// If NoDelay is set, then wave packets are sent outbound immediately
 pub const HDP_NODELAY: bool = false;
+/// by default, TCP_ONLY is true since the MQ-UDP is experimental
+pub const TCP_ONLY: bool = true;
 /// Id HDP_NODELAY is false, then the payload of a wave is sent after HDP_WAVE_PAYLOAD_DELAY time
 pub const HDP_WAVE_PAYLOAD_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 /// For calculating network latency
@@ -43,7 +45,7 @@ pub const DRILL_UPDATE_TIMEOUT_NS: i64 = KEEP_ALIVE_TIMEOUT_NS;
 /// For setting up the GroupReceivers
 pub const GROUP_TIMEOUT_MS: usize = KEEP_ALIVE_INTERVAL_MS as usize;
 ///
-pub const INDIVIDUAL_WAVE_TIMEOUT_MS: usize = (GROUP_TIMEOUT_MS / 2) as usize;
+pub const INDIVIDUAL_WAVE_TIMEOUT_MS: usize = GROUP_TIMEOUT_MS / 2;
 ///
 pub const DO_DEREGISTER_EXPIRE_TIME_NS: i64 = KEEP_ALIVE_TIMEOUT_NS;
 

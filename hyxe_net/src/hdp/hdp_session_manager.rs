@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 use hyxe_crypt::prelude::SecurityLevel;
 use hyxe_user::account_manager::AccountManager;
 
-use crate::constants::HDP_NODELAY;
+use crate::constants::{HDP_NODELAY, TCP_ONLY};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
 use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
@@ -29,6 +29,7 @@ use std::path::PathBuf;
 use crate::hdp::peer::message_group::MessageGroupKey;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState, GroupMemberAlterMode};
 use hyxe_user::client_account::ClientNetworkAccount;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -138,10 +139,10 @@ impl HdpSessionManager {
         let primary_stream = HdpServer::create_tcp_connect_socket(local_bind_addr, peer_addr)
             .map_err(|err| NetworkError::SocketError(err.to_string()))?;
 
-        let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), peer_addr, this.time_tracker.clone(), implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(false)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
+        let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), peer_addr, this.time_tracker.clone(), implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(TCP_ONLY)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
 
         if let Some(_implicated_cid) = implicated_cid {
-            // the cid exists which implies registration already occured
+            // the cid exists which implies registration already occurred
             new_session.store_proposed_credentials(proposed_credentials, packet_flags::cmd::primary::DO_CONNECT);
             this.provisional_connections.insert(peer_addr, new_session.clone());
         } else {
@@ -314,7 +315,7 @@ impl HdpSessionManager {
     }
 */
     /// When the [HdpServer] receives an outbound request, the request flows here. It returns where the packet must be sent to
-    pub fn process_outbound_packet(&self, ticket: Ticket, packet: Bytes, implicated_cid: u64, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
+    pub fn process_outbound_packet(&self, ticket: Ticket, packet: SecBuffer, implicated_cid: u64, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
             existing_session.process_outbound_packet(ticket, packet, virtual_target, security_level)
@@ -395,8 +396,7 @@ impl HdpSessionManager {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
             let sess = inner!(sess);
-            sess.initiate_deregister(connection_type, ticket);
-            true
+            sess.initiate_deregister(connection_type, ticket)
         } else {
             log::error!("Unable to initiate deregister subroutine for {} (not an active session)", implicated_cid);
             false
@@ -611,8 +611,7 @@ impl HdpSessionManager {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
             let sess = inner!(sess);
-            sess.send_to_primary_stream(ticket_opt, packet);
-            true
+            sess.send_to_primary_stream(ticket_opt, packet).is_ok()
         } else {
             false
         }

@@ -6,7 +6,6 @@ use std::sync::atomic::Ordering::SeqCst;
 use nanoserde::{SerBin, DeBin};
 
 use std::net::SocketAddr;
-use bytes::Bytes;
 use futures::{StreamExt, Sink, SinkExt};
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, SendError};
 use futures::try_join;
@@ -36,6 +35,7 @@ use crate::constants::NTP_RESYNC_FREQUENCY;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::kernel::runtime_handler::RuntimeHandler;
 use crate::hdp::file_transfer::FileTransferStatus;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 
 // The HyperNode Datagram Protocol (HDP) manager. We use Rc to allow ensure single-threaded performance
@@ -226,7 +226,7 @@ impl HdpServer {
 
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.next().await {
             match outbound_request {
-                HdpServerRequest::SendData(packet, implicated_cid, virtual_target, security_level) => {
+                HdpServerRequest::SendMessage(packet, implicated_cid, virtual_target, security_level) => {
                     if let Err(err) =  session_manager.process_outbound_packet(ticket_id, packet, implicated_cid, virtual_target, security_level) {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
@@ -408,7 +408,7 @@ pub enum HdpServerRequest {
     /// Updates the drill for the given CID
     UpdateDrill(u64),
     /// Send data to an already existent connection
-    SendData(Bytes, u64, VirtualTargetType, SecurityLevel),
+    SendMessage(SecBuffer, u64, VirtualTargetType, SecurityLevel),
     /// Send a file
     SendFile(PathBuf, Option<usize>, u64, VirtualTargetType),
     /// A group-message related command

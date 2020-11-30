@@ -7,6 +7,8 @@ use termion::raw::IntoRawMode;
 use tokio::sync::mpsc::Sender;
 use std::sync::atomic::AtomicBool;
 
+use hyxe_crypt::prelude::SecString;
+
 use crate::console::console_context::ConsoleContext;
 use crate::console_error::ConsoleError;
 
@@ -21,12 +23,13 @@ fn in_daemon_mode() -> bool {
 /// to be routed to a custom target
 pub struct InputRouterInner {
     destination: TargetDestination,
-    buffer: String,
+    buffer: Option<SecString>,
     // the cursor position w.r.t the buffer above
     inline_cursor_pos: u16,
-    target_custom: Option<std::sync::mpsc::Sender<String>>,
+    // back the internal buffer with a SecVec since this can be used to capture passwords
+    target_custom: Option<std::sync::mpsc::Sender<SecString>>,
     custom_prompt: Option<Box<dyn Fn() + 'static>>,
-    to_clap: Option<Sender<String>>,
+    to_clap: Option<Sender<SecString>>,
     tab_command: Option<String>,
     history: InputHistory,
     #[cfg(not(target_os = "windows"))]
@@ -89,31 +92,17 @@ enum TargetDestination {
 impl InputRouter {
     #[cfg(target_os = "windows")]
     pub const fn new() -> Self {
-        Self { inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: String::new(), target_custom: None, custom_prompt: None, password_mode: false }) }
+        Self { inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: None, target_custom: None, custom_prompt: None, password_mode: false }) }
     }
 
     #[cfg(not(target_os = "windows"))]
     pub const fn new() -> Self {
-        Self { inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: String::new(), target_custom: None, custom_prompt: None, raw_termion: None, password_mode: false }) }
+        Self { inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: None, target_custom: None, custom_prompt: None, raw_termion: None, password_mode: false }) }
     }
 
     #[allow(unused_results)]
-    pub fn register_clap_sender(&self, to_clap: &Sender<String>) {
+    pub fn register_clap_sender(&self, to_clap: &Sender<SecString>) {
         self.inner.write().to_clap.replace(to_clap.clone());
-    }
-
-    pub fn get_buffer(&self) -> String {
-        self.inner.read().buffer.clone()
-    }
-
-    pub fn visit_buffer<J>(&self, visitor: impl Fn(&String) -> J) -> J {
-        let inner = self.inner.read();
-        visitor(&inner.buffer)
-    }
-
-    pub fn visit_buffer_mut<J>(&self, visitor: impl Fn(&mut String) -> J) -> J {
-        let mut inner = self.inner.write();
-        visitor(&mut inner.buffer)
     }
 
     /// Updates the buffer and prints the character, considerate of whether or not PASSWD_MODE is on
@@ -123,8 +112,9 @@ impl InputRouter {
         inner.history.on_key_pressed(None);
         inner.inline_cursor_pos = inner.inline_cursor_pos.saturating_add(1);
         let cursor_pos = inner.inline_cursor_pos as usize;
-        if cursor_pos - 1 == inner.buffer.len() {
-            inner.buffer.push(input);
+        let buffer = inner.buffer.as_mut().unwrap();
+        if cursor_pos - 1 == buffer.len() {
+            buffer.push(input);
             if inner.password_mode {
                 colour::white!("*")
             } else {
@@ -133,43 +123,55 @@ impl InputRouter {
         } else {
             // we are adding data in the middle of the buffer
             let insert_idx = cursor_pos.saturating_sub(1);
-            inner.buffer.insert(insert_idx, input);
+            buffer.insert(insert_idx, input);
+            let new_buffer_len = buffer.len();
             // clear line and print prompt
             Self::clear_line();
             inner.print_prompt_inner(false, ctx);
-            Self::move_cursor((inner.buffer.len() - cursor_pos) as i32 * -1)
+            Self::move_cursor((new_buffer_len - cursor_pos) as i32 * -1)
         }
     }
 
     /// Updates the prompt, keeping into consideration the current prompt
     pub fn backspace(&self, ctx: &ConsoleContext) {
         let mut inner = self.inner.write();
-        if inner.buffer.len() != 0 {
-            //let idx_to_remove = inner.buffer.len() - 1;
-            let idx_to_remove = inner.inline_cursor_pos.saturating_sub(1);
-            inner.buffer.remove(idx_to_remove as usize);
-            inner.history.on_key_pressed(None);
-            inner.inline_cursor_pos = idx_to_remove;
+        let InputRouterInner {
+            buffer,
+            history,
+            inline_cursor_pos,
+            ..
+         } = &mut *inner;
 
+        let buffer = buffer.as_mut().unwrap();
+        if buffer.len() != 0 {
+            //let idx_to_remove = inner.buffer.len() - 1;
+            let idx_to_remove = inline_cursor_pos.saturating_sub(1);
+            buffer.remove(idx_to_remove as usize);
+            history.on_key_pressed(None);
+            *inline_cursor_pos = idx_to_remove;
+
+            let new_buffer_len = buffer.len();
             Self::clear_line();
             inner.print_prompt_inner(false, ctx);
-            Self::move_cursor((inner.buffer.len() - idx_to_remove as usize) as i32 * -1)
+            Self::move_cursor((new_buffer_len - idx_to_remove as usize) as i32 * -1)
         }
     }
 
     pub fn on_delete_key_pressed(&self, ctx: &ConsoleContext) {
         let mut inner = self.inner.write();
-        if inner.buffer.len() != 0 {
+        let idx_to_remove = inner.inline_cursor_pos;
+        let buffer = inner.buffer.as_mut().unwrap();
+        if buffer.len() != 0 {
             //let idx_to_remove = inner.buffer.len() - 1;
-            let idx_to_remove = inner.inline_cursor_pos;
-            if (idx_to_remove as usize) < inner.buffer.len() {
-                inner.buffer.remove(idx_to_remove as usize);
+            if (idx_to_remove as usize) < buffer.len() {
+                buffer.remove(idx_to_remove as usize);
+                let new_buffer_len = buffer.len();
                 inner.history.on_key_pressed(None);
                 //inner.inline_cursor_pos = idx_to_remove;
 
                 Self::clear_line();
                 inner.print_prompt_inner(false, ctx);
-                Self::move_cursor((inner.buffer.len() - idx_to_remove as usize) as i32 * -1)
+                Self::move_cursor((new_buffer_len - idx_to_remove as usize) as i32 * -1)
             }
         }
     }
@@ -178,7 +180,7 @@ impl InputRouter {
     pub fn on_tab_pressed(&self) {
         let mut write = self.inner.write();
         if let Some(cmd) = write.tab_command.take() {
-            write.send_inner(cmd);
+            write.send_inner(SecString::from(cmd));
         }
     }
 
@@ -202,11 +204,14 @@ impl InputRouter {
 
     pub fn on_horizantal_key_pressed(&self, right: bool) {
         let mut inner = self.inner.write();
+        let buffer_len = inner.buffer.as_ref().unwrap().len();
         if right {
-            let proposed_pos = std::cmp::min(inner.inline_cursor_pos.saturating_add(1), inner.buffer.len() as u16);
-            if (proposed_pos as usize - 1) <= inner.buffer.len() {
-                inner.inline_cursor_pos = proposed_pos;
-                Self::move_cursor(1);
+            if buffer_len != 0 {
+                let proposed_pos = std::cmp::min(inner.inline_cursor_pos.saturating_add(1), buffer_len as u16);
+                if (proposed_pos.saturating_sub(1) as usize) <= buffer_len {
+                    inner.inline_cursor_pos = proposed_pos;
+                    Self::move_cursor(1);
+                }
             }
         } else {
             let proposed_pos = std::cmp::max(inner.inline_cursor_pos.saturating_sub(1), 0);
@@ -261,11 +266,12 @@ impl InputRouter {
     /// called after pressing [enter]
     pub fn send_internal_buffer(&self) -> bool {
         let mut inner = self.inner.write();
-        let input = inner.buffer.clone();
-        inner.buffer.clear();
+        let input = inner.buffer.replace(SecString::new()).unwrap();
+        //inner.buffer.clear();
+
         // don't save password to history, ever
         if !inner.password_mode {
-            inner.history.on_key_pressed(Some(input.clone()));
+            inner.history.on_key_pressed(Some(input.as_str().to_string()));
         }
         inner.inline_cursor_pos = 0;
 
@@ -275,7 +281,7 @@ impl InputRouter {
 
     #[allow(unused_results)]
     pub fn execute_command<T: ToString>(&self, cmd: T) {
-        self.inner.write().send_inner(cmd.to_string());
+        self.inner.write().send_inner(SecString::from(cmd.to_string()));
     }
 
     pub fn on_vertical_key_pressed(&self, up: bool, ctx: &ConsoleContext) {
@@ -283,7 +289,7 @@ impl InputRouter {
         let leftover = write.history.on_vertical_direction_pressed(up).unwrap_or(String::new());
         // set the buffer before calling the prompt, but first reset the cursor to the end
         write.inline_cursor_pos = leftover.len() as u16;
-        write.buffer = leftover;
+        write.buffer.replace(SecString::from(leftover));
         // reprint the prompt, clearing the current line first
         Self::clear_line();
         write.print_prompt_inner(false, ctx)
@@ -291,15 +297,15 @@ impl InputRouter {
 
     /// Blocks the thread until data is received. Will reset the source upon completion
     pub fn read_line(&self, ctx: &ConsoleContext, prompt: Option<fn()>) -> String {
-        self.read_line_inner(false, ctx, prompt)
+        self.read_line_inner(false, ctx, prompt).into_buffer()
     }
 
     /// Blocks the thread until data is received. Will reset the source upon completion
     pub fn read_password(&self, ctx: &ConsoleContext, prompt: Option<fn()>) -> String {
-        self.read_line_inner(true, ctx, prompt)
+        self.read_line_inner(true, ctx, prompt).into_buffer()
     }
 
-    fn read_line_inner(&self, password: bool, ctx: &ConsoleContext, prompt: Option<fn()>) -> String {
+    fn read_line_inner(&self, password: bool, ctx: &ConsoleContext, prompt: Option<fn()>) -> SecString {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut inner = self.inner.write();
         if let Some(prompt) = prompt {
@@ -363,6 +369,7 @@ impl InputRouter {
             DAEMON_MODE.store(true, Ordering::Relaxed);
             Ok(())
         } else {
+            self.inner.write().buffer.replace(SecString::new());
             crossterm::terminal::enable_raw_mode().map_err(|err| ConsoleError::Generic(err.to_string()))
         }
     }
@@ -374,7 +381,9 @@ impl InputRouter {
             Ok(())
         } else {
             let raw_terminal = std::io::stdout().into_raw_mode().map_err(|err| ConsoleError::Generic(err.to_string()))?;
-            self.inner.write().raw_termion.replace(raw_terminal);
+            let mut write = self.inner.write();
+            write.raw_termion.replace(raw_terminal);
+            write.buffer.replace(SecString::new());
             Ok(())
         }
     }
@@ -429,7 +438,8 @@ impl InputRouterInner {
             colour::dark_yellow!(" >> ");
         }
 
-        let leftover = self.buffer.as_str();
+        let leftover = self.buffer.as_ref().unwrap();
+        let leftover = leftover.as_str();
         // finally, put whatever is in the buffer
         if self.password_mode {
             colour::white!("{}", (0..leftover.len()).into_iter().map(|_| "*").collect::<String>());
@@ -447,7 +457,7 @@ impl InputRouterInner {
     }
 
     /// This will panic if to_clap hasn't been registered
-    fn send_inner(&mut self, input: String) -> bool {
+    fn send_inner(&mut self, input: SecString) -> bool {
         match self.destination {
             TargetDestination::Clap => {
                 self.to_clap.as_mut().unwrap().try_send(input).is_ok()

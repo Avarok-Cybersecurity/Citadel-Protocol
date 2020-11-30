@@ -13,13 +13,14 @@ use crate::console::input_handler::InputRouter;
 use crate::console::virtual_terminal::clap_commands::setup_clap;
 use crate::console_error::ConsoleError;
 use crate::ffi::{FFIIO, KernelResponse};
+use hyxe_crypt::sec_string::SecString;
 
 lazy_static! {
     pub static ref CLAP_APP: AppThreadSafe = AppThreadSafe(Mutex::new(setup_clap()));
 }
 
 pub async fn terminal_future(server_remote: HdpServerRemote, ctx: ConsoleContext) -> Result<(), ConsoleError> {
-    let (input_tx, mut input_rx) = tokio::sync::mpsc::channel::<String>(2);
+    let (input_tx, mut input_rx) = tokio::sync::mpsc::channel::<SecString>(2);
     INPUT_ROUTER.print_prompt(true, &ctx);
     spawn_input_listener(input_tx, ctx.clone());
 
@@ -46,7 +47,7 @@ pub static INPUT_ROUTER: InputRouter = InputRouter::new();
 
 #[allow(unused_results)]
 #[cfg(target_os = "windows")]
-fn spawn_input_listener(input_tx: tokio::sync::mpsc::Sender<String>, ctx: ConsoleContext) {
+fn spawn_input_listener(input_tx: tokio::sync::mpsc::Sender<SecString>, ctx: ConsoleContext) {
     INPUT_ROUTER.register_clap_sender(&input_tx);
     std::thread::spawn(move || {
         loop {
@@ -90,7 +91,13 @@ fn spawn_input_listener(input_tx: tokio::sync::mpsc::Sender<String>, ctx: Consol
                             }
 
                             crossterm::event::KeyCode::Char(val) => {
-                                INPUT_ROUTER.push(val, &ctx);
+                                if evt.modifiers == crossterm::event::KeyModifiers::CONTROL {
+                                    if val == 'c' || val == 'z' {
+                                        crate::shutdown_sequence(-1);
+                                    }
+                                } else {
+                                    INPUT_ROUTER.push(val, &ctx);
+                                }
                             }
 
                             _ => {}
@@ -106,7 +113,7 @@ fn spawn_input_listener(input_tx: tokio::sync::mpsc::Sender<String>, ctx: Consol
 
 
 #[cfg(not(target_os = "windows"))]
-fn spawn_input_listener(input_tx: tokio::sync::mpsc::Sender<String>, ctx: ConsoleContext) {
+fn spawn_input_listener(input_tx: tokio::sync::mpsc::Sender<SecString>, ctx: ConsoleContext) {
     INPUT_ROUTER.register_clap_sender(&input_tx);
     std::thread::spawn(move || {
         //let stdout = std::io::stdout().into_raw_mode().unwrap();
@@ -152,6 +159,12 @@ fn spawn_input_listener(input_tx: tokio::sync::mpsc::Sender<String>, ctx: Consol
 
                         termion::event::Event::Key(termion::event::Key::BackTab) => {
                             INPUT_ROUTER.on_tab_pressed();
+                        }
+
+                        termion::event::Event::Key(termion::event::Key::Ctrl(val)) => {
+                            if val == 'c' || val == 'z' {
+                                crate::shutdown_sequence(-1);
+                            }
                         }
 
                         termion::event::Event::Key(termion::event::Key::Char(val)) => {
@@ -325,11 +338,11 @@ pub mod clap_commands {
                 .long("password")
                 .takes_value(true)
                 .required(false))
-            .arg(Arg::with_name("tcp_only")
-                .long("tcp")
+            .arg(Arg::with_name("qudp")
+                .long("qudp")
                 .takes_value(false)
                 .required(false)
-                .help("Disables the use of experimental MQ-UDP"))
+                .help("Enables the use of the experimental MQ-UDP for messaging"))
     }
 
     fn setup_register_subcommand() -> App<'static, 'static> {
@@ -448,5 +461,4 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
 pub struct AppThreadSafe(pub Mutex<App<'static, 'static>>) where Self: Send + Sync;
 
 unsafe impl Send for AppThreadSafe {}
-
 unsafe impl Sync for AppThreadSafe {}

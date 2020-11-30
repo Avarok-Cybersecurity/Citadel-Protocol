@@ -10,6 +10,7 @@ pub mod includes {
     pub use std::net::{IpAddr, SocketAddr};
     pub use super::super::state_container::VirtualConnectionType;
     pub use bytes::Bytes;
+    pub use hyxe_crypt::sec_bytes::SecBuffer;
     pub use log::{trace, warn};
     pub use rand::prelude::ThreadRng;
     pub use rand::RngCore;
@@ -113,6 +114,8 @@ impl std::ops::Try for PrimaryProcessorResult {
         v
     }
 }
+
+
 
 impl From<std::option::NoneError> for PrimaryProcessorResult {
     fn from(_: std::option::NoneError) -> Self {

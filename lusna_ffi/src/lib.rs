@@ -93,21 +93,12 @@ fn start_lusnanet(env: &JNIEnv<'static>, clazz: &JClass<'static>, home_dir: Vec<
     let args = format!("--bind 0.0.0.0 --home {}", home_dir);
     log::info!("Will execute the Lusna Kernel with: {}", &args);
 
-    // fire up the kernel
-    let mut runtime = hyxewave::re_exports::Builder::default()
-        .threaded_scheduler().core_threads(4)
-        .enable_all()
-        .build().unwrap();
-
     // spawn a new thread to not block the FFI call
     std::thread::spawn(move || {
         log::info!("Starting thread ...");
-        runtime.block_on(async move {
-            log::info!("Started asynchronous thread ...");
-            if let Err(err) = hyxewave::ffi::ffi_entry::execute_lusna_kernel(args, get_rust_to_native_fn()).await {
-                log::error!("Err executing kernel: {}", err.into_string());
-            }
-        });
+        if let Err(err) = hyxewave::ffi::ffi_entry::execute_lusna_kernel(args, get_rust_to_native_fn()) {
+            log::error!("Err executing kernel: {}", err.into_string());
+        }
     });
 }
 

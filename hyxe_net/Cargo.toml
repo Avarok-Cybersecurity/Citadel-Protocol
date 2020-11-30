@@ -43,5 +43,7 @@ hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0" }
 hyxe_user = { path = "../hyxe_user", version = "0.1.0" }
 hyxe_nat = { path = "../hyxe_nat", version = "0.1.0" }
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1" }
+rust-argon2 = "0.8.3"
+num_cpus = "1.13.0"
 #radix64 = "*"
 #base64-codec = { path = "../base64-codec", version = "0.1.0" }
