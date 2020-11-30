@@ -177,7 +177,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                                 session.state = SessionState::Connected;
 
                                 let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                                session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, format!("Client {} successfully established a connection to the local HyperNode", cid)));
+                                session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, format!("Client {} successfully established a connection to the local HyperNode", cid)))?;
 
                                 PrimaryProcessorResult::ReplyToSender(success_packet)
                             }
@@ -227,7 +227,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                         session.implicated_cid.store(None, Ordering::SeqCst);
                         session.state = SessionState::NeedsConnect;
                         session.needs_close_message.store(false, Ordering::SeqCst);
-                        session.send_to_kernel(HdpServerResult::ConnectFail(kernel_ticket, Some(cid), message));
+                        session.send_to_kernel(HdpServerResult::ConnectFail(kernel_ticket, Some(cid), message))?;
                         PrimaryProcessorResult::EndSession("Failed connecting. Retry again")
                     } else {
                         trace!("An invalid FAILURE packet was received; dropping due to invalid signature");
@@ -274,7 +274,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
                             //session.post_quantum = pqc;
                             let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                            session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, message));
+                            session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, message))?;
 
                             // Now, send keep alives!
                             let timestamp = session.time_tracker.get_global_time_ns();
@@ -283,7 +283,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
                             //finally, if there are any mailbox items, send them to the kernel for processing
                             if let Some(mailbox_delivery) = mailbox_items {
-                                session.send_to_kernel(HdpServerResult::MailboxDelivery(cid, None, mailbox_delivery));
+                                session.send_to_kernel(HdpServerResult::MailboxDelivery(cid, None, mailbox_delivery))?;
                             }
                             //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
 

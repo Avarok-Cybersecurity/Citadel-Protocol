@@ -27,7 +27,6 @@ pub fn load_node_nac(cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount>) -> R
             match read::<NetworkAccountInner, _>(&file_location) {
                 Ok(inner) => {
                     let nac = NetworkAccount::new_from_local_fs(inner);
-                    // We NEED to load the config file
                     sync_cnacs_and_nac(&nac, cnacs_loaded)?;
                     Ok(nac)
                 },
@@ -65,8 +64,10 @@ pub async fn load_cnac_files() -> Result<(u64, HashMap<u64, ClientNetworkAccount
             },
             Err(err) => {
                 log::error!("Error converting CNAC-inner into CNAC: {}. Deleting CNAC from local storage", err.to_string());
-                // delete it
-                hyxe_fs::system_file_manager::delete_file(cnac.1).await?;
+                // delete it. If this doesn't work, it could be because of OS error 13 (bad permissions)
+                if let Err(err) = hyxe_fs::system_file_manager::delete_file(cnac.1).await {
+                    log::warn!("Unable to delete file: {}", err.to_string());
+                }
             }
         }
     }

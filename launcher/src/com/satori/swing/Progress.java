@@ -1,11 +1,12 @@
 package com.satori.swing;
 
+import com.satori.Displayable;
 import com.satori.Execute;
 
 import javax.swing.*;
 import java.awt.*;
 
-public class Progress extends JFrame {
+public class Progress extends JFrame implements Displayable {
 
     private static final Dimension SIZE = new Dimension(271, 40 + 271); // 450x80 = old
     private static final Color COLOR = new Color(139, 113, 181);
@@ -14,7 +15,7 @@ public class Progress extends JFrame {
     private JProgressBar bar;
     private JLabel description;
 
-    private Progress() {
+    public Progress() {
         super();
 
         this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -47,50 +48,39 @@ public class Progress extends JFrame {
         this.setVisible(true);
     }
 
-    public static void startInstance(String... args) {
-        SwingUtilities.invokeLater(() -> {
-            Progress instance = new Progress();
-            SwingWorker worker = new SwingWorker<Void, Integer>() {
-                @Override
-                protected Void doInBackground() {
-                    Execute.startUpdater(instance, args);
-                    return null;
-                }
-            };
-
-            worker.addPropertyChangeListener(event -> {
-                if ("state".equals(event.getPropertyName())
-                        && SwingWorker.StateValue.DONE == event.getNewValue()) {
-                    instance.endInstance();
-                }
-            });
-
-            worker.execute();
-        });
-    }
-
+    @Override
     public void endInstance() {
         this.setVisible(false);
         this.dispose();
     }
 
-    public void endInstanceAndShowDialog(String msg) {
+    @Override
+    public void endInstanceAndShowMessage(String text) {
         this.endInstance();
-        JOptionPane.showMessageDialog(null, msg);
+        JOptionPane.showMessageDialog(null, text);
     }
 
+    @Override
     public void setProgressLength(int length) {
         this.bar.setMaximum(length);
     }
 
+    @Override
     public void tickProgressBar(int newLen) {
         this.bar.setValue(newLen);
     }
 
+    @Override
     public void setProgressIndeterminate(boolean val) {
         this.bar.setIndeterminate(val);
     }
 
+    @Override
+    public boolean isGUI() {
+        return true;
+    }
+
+    @Override
     public void updateTitle(String status) {
         this.setTitle(TITLE_BASE + " (" + status + ") ...");
     }

@@ -64,9 +64,9 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
 
                     PrimaryProcessorResult::ReplyToSender(syn_ack_err)
                 } else {
-                    const ERROR: &str = "CID is not registered to this node";
-                    log::info!("{}", ERROR);
-                    let packet = hdp_packet_crafter::pre_connect::craft_halt(header, ERROR);
+                    let bad_cid = header.session_cid.get();
+                    let error = format!("CID {} is not registered to this node", bad_cid);
+                    let packet = hdp_packet_crafter::pre_connect::craft_halt(header, &error);
                     PrimaryProcessorResult::ReplyToSender(packet)
                 }
             } else {
@@ -481,7 +481,7 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
                     let ticket = state_container.pre_connect_state.ticket.unwrap_or(session.kernel_ticket);
                     std::mem::drop(state_container);
                     session.needs_close_message.store(false, Ordering::SeqCst);
-                    session.send_to_kernel(HdpServerResult::ConnectFail(ticket, Some(cid), "Preconnect stage failed".to_string()));
+                    session.send_to_kernel(HdpServerResult::ConnectFail(ticket, Some(cid), "Preconnect stage failed".to_string()))?;
                     PrimaryProcessorResult::EndSession("Failure packet received")
                 }
             } else {
@@ -516,7 +516,8 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
         packet_flags::cmd::aux::do_preconnect::HALT => {
             let message = String::from_utf8(payload.to_vec()).unwrap_or("INVALID UTF-8".into());
             let ticket = session.kernel_ticket;
-            session.send_to_kernel(HdpServerResult::ConnectFail(ticket, Some(header.session_cid.get()), message));
+            session.send_to_kernel(HdpServerResult::ConnectFail(ticket, Some(header.session_cid.get()), message))?;
+            session.needs_close_message.store(false, Ordering::Relaxed);
             PrimaryProcessorResult::EndSession("Preconnect signalled to halt")
         }
 
@@ -533,6 +534,7 @@ fn handle_nat_traversal_as_receiver(session: HdpSession, drill: Drill, method: N
     spawn!(handle_nat_traversal_as_receiver_inner(session, drill, method, sync_time, endpoints, sockets));
 }
 
+#[allow(unused_results)]
 async fn handle_nat_traversal_as_receiver_inner(session: HdpSession, drill: Drill, method: NatTraversalMethod, sync_time: Instant, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>) {
     tokio::time::delay_until(sync_time).await;
     log::info!("Synchronize time reached. Executing hole punch subroutine ...");
@@ -553,7 +555,10 @@ async fn handle_nat_traversal_as_receiver_inner(session: HdpSession, drill: Dril
                     state_container.pre_connect_state.on_packet_received(); // this is hacky. Just to help prevent a timeout
                     let finished_hole_punch = hdp_packet_crafter::pre_connect::craft_server_finished_hole_punch(&drill, true, timestamp);
                     std::mem::drop(state_container);
-                    sess.send_to_primary_stream(None, finished_hole_punch);
+                    if sess.send_to_primary_stream(None, finished_hole_punch).is_err() {
+                        log::error!("Primary stream disconnected");
+                        sess.shutdown();
+                    }
                 }
 
                 Err(_err) => {
@@ -565,7 +570,9 @@ async fn handle_nat_traversal_as_receiver_inner(session: HdpSession, drill: Dril
                     let failure_packet = hdp_packet_crafter::pre_connect::craft_stage_final(&drill, false, false, timestamp, None);
 
                     std::mem::drop(state_container);
-                    sess.send_to_primary_stream(ticket, failure_packet);
+                    if sess.send_to_primary_stream(ticket, failure_packet).is_err() {
+                        log::error!("Primary stream disconnected");
+                    }
                     sess.shutdown();
                     return;
                 }
@@ -608,6 +615,7 @@ fn handle_nat_traversal_as_initiator(session: HdpSession, drill: Drill, method: 
     spawn!(handle_nat_traversal_as_initiator_inner(session, drill, method, sync_time, endpoints, sockets));
 }
 
+#[allow(unused_results)]
 async fn handle_nat_traversal_as_initiator_inner(session: HdpSession, drill: Drill, method: NatTraversalMethod, sync_time: Option<Instant>, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>) {
     if let Some(sync_time) = sync_time {
         tokio::time::delay_until(sync_time).await;
@@ -629,7 +637,12 @@ async fn handle_nat_traversal_as_initiator_inner(session: HdpSession, drill: Dri
             } else {
                 // if, however, we did use UPnP, then we are ready to send a SUCCESS packet
                 match send_success_as_initiator(set, method, &drill, &mut wrap_inner_mut!(sess)) {
-                    PrimaryProcessorResult::ReplyToSender(packet) => sess.send_to_primary_stream(None, packet),
+                    PrimaryProcessorResult::ReplyToSender(packet) => {
+                        if sess.send_to_primary_stream(None, packet).is_err() {
+                            log::error!("Primary stream disconnected");
+                            sess.shutdown();
+                        }
+                    },
                     PrimaryProcessorResult::EndSession(reason) => {
                         log::error!("{}", reason);
                         sess.shutdown();

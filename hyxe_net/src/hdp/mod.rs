@@ -14,8 +14,6 @@ pub mod hdp_session_manager;
 pub mod hdp_session;
 /// Packet validations. This is not the same as encryption
 pub mod validation;
-/// Provides the methods for encryption
-pub mod security;
 /// For creating specific packet types
 pub mod hdp_packet_crafter;
 /// ~!

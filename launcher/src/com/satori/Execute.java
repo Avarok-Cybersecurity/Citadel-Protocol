@@ -34,7 +34,7 @@ public class Execute {
     private static final String VERSION_FILE = "version.txt";
     private static final String LAUNCHER_VERS_PREFIX = "launcher=";
     private static final String BIN_VERS_PREFIX = "bin=";
-    private static final String ARGS = " --bind 0.0.0.0";
+    private static final String ARGS = " --launcher";
 
     private static final String ARCHIVE_SAVE = "/tmp.zip";
     private static final String LOCK_FILE = "fs.lock";
@@ -60,10 +60,10 @@ public class Execute {
     }
 
     public static void main(String... args) {
-        Progress.startInstance(args);
+        Displayable.startInstance(args);
     }
 
-    public static void startUpdater(Progress ui, String... args) {
+    public static void startUpdater(Displayable ui, String... args) {
         String user_home = System.getProperty("user.home");
         Path base_dir = FileSystems.getDefault().getPath(user_home, ".HyxeWave");
 
@@ -72,7 +72,7 @@ public class Execute {
                 Files.createDirectory(base_dir);
                 System.out.println("First-run init success");
             } catch (IOException e) {
-                ui.endInstanceAndShowDialog("Unable to create base directory. Check permissions");
+                ui.endInstanceAndShowMessage("Unable to create base directory. Check permissions");
                 return;
             }
         }
@@ -81,13 +81,13 @@ public class Execute {
 
         try {
             if (!lock.createNewFile()) {
-                ui.endInstanceAndShowDialog("Launcher already running");
+                ui.endInstanceAndShowMessage("Launcher already running");
                 System.exit(-1);
             }
 
             lock.deleteOnExit();
         } catch (Exception e) {
-            ui.endInstanceAndShowDialog("Unable to create lockfile @ " + lock.toString() + ". Reason: " + e.toString());
+            ui.endInstanceAndShowMessage("Unable to create lockfile @ " + lock.toString() + ". Reason: " + e.toString());
             System.exit(-1);
         }
 
@@ -102,10 +102,10 @@ public class Execute {
                     execute(user_home, base_dir.toString(), ui, args);
                     ui.endInstance();
                 } else {
-                    ui.endInstanceAndShowDialog("Unable to extract image. Please check permissions");
+                    ui.endInstanceAndShowMessage("Unable to extract image. Please check permissions");
                 }
             } else {
-                ui.endInstanceAndShowDialog("Unable to download image. Please try again later");
+                ui.endInstanceAndShowMessage("Unable to download image. Please try again later");
             }
         } else {
             System.out.println("No updates needed. Executing ...");
@@ -115,7 +115,7 @@ public class Execute {
     }
 
     /// Checks to see if updating is required
-    private static boolean needsUpdate(String base_dir, Progress ui) {
+    private static boolean needsUpdate(String base_dir, Displayable ui) {
         File bin = Paths.get(base_dir, BINARY).toFile();
         if (!bin.exists()) {
             System.out.println("Binary does not exist. Downloading ...");
@@ -123,7 +123,7 @@ public class Execute {
                 int len = downloadSilent(VERSION_URL, Paths.get(base_dir, VERSION_FILE).toFile());
                 System.out.println("[Version] downloaded remote file. Total bytes: " + len);
             } catch (Exception e) {
-                ui.endInstanceAndShowDialog("Unable to download version file. Reason: " + e.toString());
+                ui.endInstanceAndShowMessage("Unable to download version file. Reason: " + e.toString());
                 System.exit(-1);
             }
 
@@ -173,7 +173,7 @@ public class Execute {
             int newBinVersion = Integer.parseInt(linesNew.get(1).replace(BIN_VERS_PREFIX, ""));
             System.out.println("Newest launcher version: " + newLauncherVersion + ", Newest binary version: " + newBinVersion);
             if (newLauncherVersion != localLauncherVersion) {
-                ui.endInstanceAndShowDialog("Your launcher is out of date. Will now redirect you to the following link upon exit\n" + LAUNCHER_URL);
+                ui.endInstanceAndShowMessage("Your launcher is out of date. Will now redirect you to the following link upon exit\n" + LAUNCHER_URL);
                 openWebpage(new URL(LAUNCHER_URL));
                 System.exit(-1);
             }
@@ -181,7 +181,7 @@ public class Execute {
             return newBinVersion != localBinVersion;
         } catch (Exception e) {
             e.printStackTrace();
-            ui.endInstanceAndShowDialog("Unable to check version. Reason: " + e.toString());
+            ui.endInstanceAndShowMessage("Unable to check version. Reason: " + e.toString());
             System.exit(-1);
         }
 
@@ -247,7 +247,7 @@ public class Execute {
         return len;
     }
 
-    private static boolean download(String url, String dest, Progress progress) {
+    private static boolean download(String url, String dest, Displayable progress) {
         try {
             progress.updateTitle("connecting");
             URLConnection connection = connect(url);
@@ -273,7 +273,7 @@ public class Execute {
             in.close();
             return true;
         } catch (Exception e) {
-            progress.endInstanceAndShowDialog("Error downloading: " + e.toString());
+            progress.endInstanceAndShowMessage("Error downloading: " + e.toString());
             return false;
         }
     }
@@ -291,7 +291,7 @@ public class Execute {
     }
 
     /// Linux/mac will need to chmod
-    private static void execute(String user_home, String home, Progress ui, String... args) {
+    private static void execute(String user_home, String home, Displayable ui, String... args) {
         try {
             if (SystemUtils.IS_OS_WINDOWS) {
                 String bin = home + "\\" + BINARY_WINDOWS + ARGS;
@@ -306,17 +306,15 @@ public class Execute {
 
                 if (Runtime.getRuntime().exec(new String[] {"chmod", "+x" , home + "/" + BINARY_LINUX_MAC}).waitFor() == 0) {
                     if (SystemUtils.IS_OS_LINUX) {
-                        tryExecLinux(user_home, bin, args);
+                        tryExecLinux(home, bin, !ui.isGUI(), args);
                     } else {
                         // first, we need to strip the unidentified metadata from the binary with:
                         // xattr -dr com.apple.quarantine "unidentified_thirdparty.app"
-                        if (Runtime.getRuntime().exec(new String[] {"xattr", "-dr", "com.apple.quarantine", "\"" + binPath + "\""}).waitFor() != 0) {
-                            System.out.println("Unable to strip com.apple.quarantine from binary metadata. Will still proceed, although file may not run w/o manual whitelisting");
-                        }
+                        Runtime.getRuntime().exec(new String[] {"xattr", "-dr", "com.apple.quarantine", "\"" + binPath + "\""}).waitFor();
                         // osascript -e 'tell app "Terminal" to do script "CMD"'
                         // we need to embed the args inside the command here
                         //String macCmd = "'tell app \"Terminal\" to do script \"" + bin + " " + String.join(" ", args != null? args : new String[]{}) + "\" with administrator privileges'";
-                        execMac(user_home, binPath, args);
+                        execMac(home, binPath, args);
                     }
                 } else {
                     throw new IOException("Unable to chmod");
@@ -325,7 +323,7 @@ public class Execute {
                 throw new IOException("Operating system not supported");
             }
         } catch (Exception e) {
-            ui.endInstanceAndShowDialog("Unable to execute binary. Reason: " + e.toString());
+            ui.endInstanceAndShowMessage("Unable to execute binary. Reason: " + e.toString());
         }
     }
 
@@ -334,19 +332,23 @@ public class Execute {
     }
 
     // or xterm or konsole as drop-in replacements for gnome-terminal. Try them all
-    private static void tryExecLinux(String home, String bin, String... args) throws Exception {
+    private static void tryExecLinux(String home, String bin, boolean noGUI, String... args) throws Exception {
         // "shopt -u huponexit; java -jar myjar.jar"
         System.out.println("Trying to exec ...");
-        String terminalCmd = getConsoleCommand().map(cmd -> cmd + " -e pkexec " + bin).orElse(bin) + (args.length != 0 ? " " + String.join(" ", args) : "");
+        String terminalCmd = getConsoleCommand().map(cmd -> cmd + " -e pkexec " + bin).orElse("sudo " + bin) + (args.length != 0 ? " " + String.join(" ", args) : "");
         System.out.println("sh: " + terminalCmd);
-        Path file = writeLinesToFile(home,"start.sh", "shopt -u huponexit", terminalCmd);
+        Path file = noGUI ? writeLinesToFile(home, "start.sh", terminalCmd) : writeLinesToFile(home,"start.sh", "shopt -u huponexit", terminalCmd);
         chmod(file);
 
-        Runtime.getRuntime().exec(new String[] {"sh", file.toString()}).waitFor();
+        if (noGUI) {
+            new ProcessBuilder("sh", file.toString()).inheritIO().start().waitFor();
+        } else {
+            Runtime.getRuntime().exec(new String[] {"sh", file.toString()}).waitFor();
+        }
     }
 
     private static Optional<String> getConsoleCommand() {
-        String[][] cmds = new String[][] {new String[] {"gnome-terminal", "--help"}, new String[] {"konsole", "--help"}, new String[] {"xterm", "--help"}};
+        final String[][] cmds = new String[][] {new String[] {"gnome-terminal", "--help"}, new String[] {"konsole", "--help"}, new String[] {"xterm", "--help"}};
 
         for (String[] cmd : cmds) {
             try {
@@ -357,7 +359,7 @@ public class Execute {
             }
         }
 
-        System.out.println("No suitable commands found");
+        //System.out.println("No suitable commands found");
         return Optional.empty();
     }
 
@@ -369,12 +371,12 @@ public class Execute {
         }
     }
 
-    private static void execMac(String user_home, String bin, String... args) {
+    private static void execMac(String home, String bin, String... args) {
         try {
-            Path file = writeLinesToFile(user_home, "start.sh","tput reset", "open -F -b com.apple.terminal " + bin + String.join(" ", args));
+            Path file = writeLinesToFile(home, "start.command","#!/usr/bin/env bash", "", "echo \"Authorized\"", "#tput reset", "sudo " + bin + (args.length != 0 ? " " + String.join(" ", args) : ""));
             chmod(file);
             //Runtime.getRuntime().exec(new String[] {"osascript", "-e", "'tell application \"Terminal\" to do shell script \"" + file + "\" with administrator privileges'"}).waitFor();
-            Runtime.getRuntime().exec(new String[] {"open", "-F", "-b", "com.apple.terminal", file.toString()}).waitFor();
+            Runtime.getRuntime().exec(new String[] {"open", "-F", file.toString()}).waitFor();
             //Runtime.getRuntime().exec(new String[] {"rm", "~/start.sh"}).waitFor();
         } catch (InterruptedException | IOException e) {
             e.printStackTrace();

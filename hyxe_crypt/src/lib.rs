@@ -19,6 +19,8 @@ pub mod prelude {
     pub use crate::random::HyperRandom;
     pub use crate::misc::CryptError;
     pub use crate::drill_algebra::PacketVector;
+    pub use crate::sec_string::SecString;
+    pub use crate::sec_bytes::SecBuffer;
     pub use ::async_trait::async_trait;
     pub use ez_pqcrypto::{PostQuantumContainer, algorithm_dictionary};
     pub use zerocopy::{ByteSlice, ByteSliceMut};
@@ -56,6 +58,7 @@ pub mod aes_gcm;
 
 /// Error type
 pub mod misc;
-
-/// If debug is on, then instead of spending time downloading new bytes each time, a thread-local rng is executed to fill the empty byte array. TURN OFF for production
-pub const DEBUG: bool = true;
+/// A secure mutable string type
+pub mod sec_string;
+///
+pub mod sec_bytes;

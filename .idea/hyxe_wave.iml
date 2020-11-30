@@ -329,6 +329,8 @@
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libudt4-sys-79f3f3e8ea254cc6/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/winapi-3df70a4c091f7bf9/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/jni-67ad7e1c45f94a65/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libc-b19fe58621b3c2ec/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libc-0b7a02b532051c67/out" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/target" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/target" />
       <excludeFolder url="file://$MODULE_DIR$/async_ip/target" />

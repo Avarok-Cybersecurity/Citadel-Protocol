@@ -194,7 +194,7 @@ fn deregister_from_hyperlan_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(i
 
     // This ensures no further packets are processed
     session.state = SessionState::NeedsRegister;
-    session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), ticket, false, success));
+    session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), ticket, false, success))?;
     session.needs_close_message.store(false, Ordering::SeqCst);
 
     ret
@@ -226,7 +226,7 @@ fn deregister_from_hyperlan_peer<K: ExpectedInnerTargetMut<HdpSessionInner>>(imp
     };
 
     session.state = SessionState::NeedsRegister;
-    session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid), ticket, false, success));
+    session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid), ticket, false, success))?;
     session.needs_close_message.store(false, Ordering::SeqCst);
 
     ret
@@ -249,7 +249,7 @@ fn deregister_from_hyperlan_server_as_client<K: ExpectedInnerTargetMut<HdpSessio
         (PrimaryProcessorResult::EndSession("Session ended after unsuccessful deregistration"), false)
     };
 
-    session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), ticket, true, success));
+    session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), ticket, true, success))?;
     session.needs_close_message.store(false, Ordering::SeqCst);
 
     ret
@@ -274,7 +274,7 @@ fn deregister_from_hyperlan_peer_as_client<K: ExpectedInnerTargetMut<HdpSessionI
         (PrimaryProcessorResult::EndSession("Session ended after unsuccessful deregistration"), false)
     };
 
-    session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid), ticket, true, success));
+    session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid), ticket, true, success))?;
     session.needs_close_message.store(false, Ordering::SeqCst);
     ret
 }

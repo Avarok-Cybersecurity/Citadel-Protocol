@@ -7,6 +7,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     if do_purge {
         let value = INPUT_ROUTER.read_line(ctx, Some(|| colour::white!("Are you sure you wish to purge all users? [y/n]: ")));
         let value = value.to_lowercase();
+
         if value.contains("y") {
             printfs!({
                 colour::red_ln!("Disconnecting and purging all local personal/impersonal users ...");

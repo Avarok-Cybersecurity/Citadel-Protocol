@@ -73,7 +73,7 @@ fn handle_ffi(matches: &ArgMatches<'_>) -> ProposedCredentials {
 
     let username = username.replace("\n", "");
 
-    ProposedCredentials::new_unchecked(full_name, username, SecVec::new(password.as_bytes().to_vec()))
+    ProposedCredentials::new_unchecked(full_name, username, SecVec::new(password.as_bytes().to_vec()), None)
 }
 
 fn handle_console(ctx: &ConsoleContext, target_addr: &SocketAddr) -> Result<ProposedCredentials, ConsoleError> {
@@ -96,11 +96,11 @@ fn handle_console(ctx: &ConsoleContext, target_addr: &SocketAddr) -> Result<Prop
         return Err(ConsoleError::Default("Passwords do not match"));
     }
 
-    hyxe_user::misc::check_credential_formatting(&username, &password_input_1_str, &full_name).map_err(|err| ConsoleError::Generic(err.to_string()))?;
+    hyxe_user::misc::check_credential_formatting(&username, Some(&password_input_1_str), &full_name).map_err(|err| ConsoleError::Generic(err.to_string()))?;
 
     printf_ln!(colour::yellow!("Server: {}\nFull name: {}\nUsername: {}\n", target_addr, &full_name, &username));
 
-    Ok(ProposedCredentials::new_unchecked(full_name, &username, SecVec::new(password_input_1)))
+    Ok(ProposedCredentials::new_unchecked(full_name, &username, SecVec::new(password_input_1), None))
 }
 
 fn get_remote_addr(matches: &ArgMatches) -> Result<SocketAddr, ConsoleError> {

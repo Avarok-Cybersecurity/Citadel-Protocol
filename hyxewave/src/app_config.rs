@@ -12,11 +12,12 @@ pub struct AppConfig {
     pub ffi_io: Option<FFIIO>,
     pub is_ffi: bool,
     pub home_dir: Option<String>,
+    pub kernel_threads: Option<usize>,
     pub daemon_mode: bool
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self { daemon_mode: false, home_dir: None, is_ffi: false, ffi_io: None, local_bind_addr: None, pipe: None, hypernode_type: None }
+        Self { kernel_threads: None, daemon_mode: false, home_dir: None, is_ffi: false, ffi_io: None, local_bind_addr: None, pipe: None, hypernode_type: None }
     }
 }
