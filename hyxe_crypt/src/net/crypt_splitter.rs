@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use bitvec::vec::BitVec;
@@ -14,6 +14,7 @@ use crate::drill_algebra::{generate_packet_coordinates_inv, generate_packet_vect
 use crate::prelude::{CryptError, PostQuantumContainer, SecurityLevel};
 use rayon::prelude::*;
 use rayon::iter::IndexedParallelIterator;
+use std::sync::Arc;
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;
@@ -72,8 +73,7 @@ pub struct PacketCoordinate {
 
 /// header_size_bytes: This size (in bytes) of each packet's header
 #[allow(unused_results)]
-pub fn scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: SecurityLevel, drill: &Drill, quantum_container: &PostQuantumContainer, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
-    let quantum_container = AssertSendSyncSafe::wrap(quantum_container);
+pub fn scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: SecurityLevel, drill: &Drill, quantum_container: &Arc<PostQuantumContainer>, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
     let plain_text = plain_text.as_ref();
     let max_packet_payload_size = get_max_packet_size(MAX_WAVEFORM_PACKET_SIZE, security_level);
     let max_packets_per_wave = drill.get_multiport_width();
@@ -118,7 +118,7 @@ pub fn scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: Sec
     }
 
     let packets = plain_text.chunks(max_plaintext_bytes_per_wave).enumerate().map(|(wave_idx, bytes_to_encrypt_for_this_wave)| {
-        let mut packets = drill.aes_gcm_encrypt(calculate_nonce_version(wave_idx, group_id), quantum_container.for_ref(), bytes_to_encrypt_for_this_wave).unwrap()
+        let mut packets = drill.aes_gcm_encrypt(calculate_nonce_version(wave_idx, group_id), quantum_container, bytes_to_encrypt_for_this_wave).unwrap()
             .chunks(max_packet_payload_size).enumerate().map(|(relative_packet_idx, ciphertext_packet_bytes)| {
             debug_assert_ne!(ciphertext_packet_bytes.len(), 0);
             let mut packet = BytesMut::with_capacity(ciphertext_packet_bytes.len() + header_size_bytes);
@@ -139,49 +139,10 @@ pub fn scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: Sec
     Ok(GroupSenderDevice::new(group_receiver_config, packets))
 }
 
-/// Asserts an entity is safe to share and send between threads
-pub struct AssertSendSyncSafe<T> {
-    inner: T
-}
-
-unsafe impl<T> Send for AssertSendSyncSafe<T> {}
-unsafe impl<T> Sync for AssertSendSyncSafe<T> {}
-
-impl<T> Deref for AssertSendSyncSafe<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T> DerefMut for AssertSendSyncSafe<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-impl<T> AssertSendSyncSafe<T> {
-    /// Wraps the entity T
-    pub fn wrap(inner: T) -> Self {
-        Self { inner }
-    }
-
-    /// Obtains a ref of the object
-    pub fn for_ref(&self) -> &T {
-        &self.inner
-    }
-    /// Obtains a mut ref of the object
-    pub fn for_mut(&mut self) -> &mut T {
-        &mut self.inner
-    }
-}
-
 /// header_size_bytes: This size (in bytes) of each packet's header
 /// the feed order into the header_inscriber is first the target_cid, and then the object ID
 #[allow(unused_results)]
-pub fn par_scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: SecurityLevel, drill: &Drill, quantum_container: &PostQuantumContainer, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
-    let quantum_container = AssertSendSyncSafe::wrap(quantum_container);
+pub fn par_scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: SecurityLevel, drill: &Drill, quantum_container: &Arc<PostQuantumContainer>, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
     let plain_text = plain_text.as_ref();
     let max_packet_payload_size = get_max_packet_size(1024*8, security_level);
     let max_packets_per_wave = drill.get_multiport_width();
@@ -226,7 +187,7 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level:
     }
 
     let packets = plain_text.par_chunks(max_plaintext_bytes_per_wave).enumerate().map(|(wave_idx, bytes_to_encrypt_for_this_wave)| {
-        let mut packets = drill.aes_gcm_encrypt(calculate_nonce_version(wave_idx, group_id), quantum_container.for_ref(), bytes_to_encrypt_for_this_wave).unwrap()
+        let mut packets = drill.aes_gcm_encrypt(calculate_nonce_version(wave_idx, group_id), quantum_container, bytes_to_encrypt_for_this_wave).unwrap()
             .chunks(max_packet_payload_size).enumerate().map(|(relative_packet_idx, ciphertext_packet_bytes)| {
             debug_assert_ne!(ciphertext_packet_bytes.len(), 0);
             let mut packet = BytesMut::with_capacity(ciphertext_packet_bytes.len() + header_size_bytes);

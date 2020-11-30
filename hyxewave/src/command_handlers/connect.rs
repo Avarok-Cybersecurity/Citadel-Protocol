@@ -12,7 +12,7 @@ pub enum ConnectResponse {
 #[allow(unused_results)]
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let username = matches.value_of("username").unwrap();
-    let tcp_only = matches.is_present("tcp_only");
+    let tcp_only = !matches.is_present("qudp");
     let security_level = parse_security_level(matches)?;
     let peer_cnac = ctx.account_manager.get_client_by_username(username).ok_or(ConsoleError::Default("Username does not map to a local account. Please consider registering first"))?;
 
@@ -30,8 +30,8 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let full_name = read.full_name.clone();
     let adjacent_nac = read.adjacent_nac.as_ref().ok_or(ConsoleError::Default("Adjacent NAC missing from CNAC. Corrupt. Please remove CNAC"))?;
     let adjacent_socket = adjacent_nac.get_addr_blocking(true).ok_or(ConsoleError::Default("Adjacent NAC does not have an IP address. Corrupt. Please remove CNAC"))?;
-
-    let proposed_credentials = get_proposed_credentials(matches, ctx, username, adjacent_socket.ip(), security_level, cid, full_name)?;
+    let nonce = read.password_hash.as_slice();
+    let proposed_credentials = get_proposed_credentials(matches, ctx, username, nonce,adjacent_socket.ip(), security_level, cid, full_name)?;
 
     let request = HdpServerRequest::ConnectToHypernode(adjacent_socket, cid, proposed_credentials, security_level, None, None, Some(tcp_only));
     let ticket = server_remote.unbounded_send(request);
@@ -89,7 +89,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                 if let Some(ref ffi_io) = ffi_io {
                     (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Connect(ConnectResponse::Failure(ticket.0, cid, err_opt.unwrap_or(String::from("Unable to connect"))))))))
                 } else {
-                    printf_ln!(colour::red!("Connection failed: {}\n", err_opt.unwrap_or(String::from("Please try again later"))))
+                    printf_ln!(colour::red!("\nConnection failed: {}\n", err_opt.unwrap_or(String::from("Please try again later"))))
                 }
             }
 
@@ -97,7 +97,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                 if let Some(ref ffi_io) = ffi_io {
                     (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Connect(ConnectResponse::Failure(ticket.0, cid, String::from("Unable to connect")))))))
                 } else {
-                    printf_ln!(colour::red!("Connection failed. Please try again ...\n\n"));
+                    printf_ln!(colour::red!("\nConnection failed. Please try again ...\n\n"));
                 }
             }
         }
@@ -108,10 +108,10 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
 }
 
-fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext, username: &str, adjacent_ip: IpAddr, security_level: SecurityLevel, cid: u64, full_name: String) -> Result<ProposedCredentials, ConsoleError> {
+fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext, username: &str, nonce: &[u8], adjacent_ip: IpAddr, security_level: SecurityLevel, cid: u64, full_name: String) -> Result<ProposedCredentials, ConsoleError> {
     if matches.is_present("ffi") {
         let password = matches.value_of("password").unwrap();
-        Ok(ProposedCredentials::new_unchecked(full_name, username, SecVec::new(Vec::from(password))))
+        Ok(ProposedCredentials::new_unchecked(full_name, username, SecVec::new(Vec::from(password)), Some(nonce)))
     } else {
         colour::yellow!("\n{} ", &full_name);
         colour::white!("attempting to connect to ");
@@ -128,8 +128,8 @@ fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext, user
             colour::white!("Enter password: ");
         }));
 
-        let password_input = password_input.as_bytes().to_vec();
-        let proposed_credentials = ProposedCredentials::new_unchecked(&full_name, username, SecVec::new(password_input));
+        let password_input = password_input.into_bytes();
+        let proposed_credentials = ProposedCredentials::new_unchecked(&full_name, username, SecVec::new(password_input), Some(nonce));
         colour::white_ln!("Attempting to connect to HyperNode ...");
         Ok(proposed_credentials)
     }

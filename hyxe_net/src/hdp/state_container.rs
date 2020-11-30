@@ -37,6 +37,7 @@ use futures::task::Waker;
 use crate::hdp::file_transfer::{VirtualFileMetadata, FileTransferStatus};
 use tokio::io::{BufWriter, AsyncWriteExt};
 use tokio::stream::StreamExt;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 define_outer_struct_wrapper!(StateContainer, StateContainerInner);
 
@@ -126,7 +127,7 @@ pub(crate) struct VirtualConnection {
     pub(crate) connection_type: VirtualConnectionType,
     pub(crate) is_active: Arc<AtomicBool>,
     // this is Some for server, None for endpoints
-    pub(crate) sender: Option<(OutboundUdpSender, UnboundedSender<Bytes>)>,
+    pub(crate) sender: Option<(Option<OutboundUdpSender>, UnboundedSender<Bytes>)>,
     // this is None for server, Some for endpoints
     pub(crate) endpoint_container: Option<EndpointChannelContainer>
 }
@@ -481,20 +482,22 @@ impl StateContainerInner {
 
     /// Note: the `endpoint_crypto` container needs to be Some in order for transfer to occur between peers w/o encryption/decryption at the center point
     /// GROUP packets and PEER_CMD::CHANNEL packets bypass the central node's encryption/decryption phase
-    pub fn insert_new_virtual_connection(&mut self, target_cid: u64, connection_type: VirtualConnectionType, target_udp_sender: OutboundUdpSender, target_tcp_sender: UnboundedSender<Bytes>) {
+    pub fn insert_new_virtual_connection(&mut self, target_cid: u64, connection_type: VirtualConnectionType, target_udp_sender: Option<OutboundUdpSender>, target_tcp_sender: UnboundedSender<Bytes>) {
         let val = VirtualConnection { endpoint_container: None, sender: Some((target_udp_sender, target_tcp_sender)), connection_type, is_active: Arc::new(AtomicBool::new(true)) };
         if self.active_virtual_connections.insert(target_cid, val).is_some() {
             log::warn!("Inserted a virtual connection. but overwrote one in the process. Report to developers");
         }
+
+        log::info!("Vconn {} -> {} established", connection_type.get_implicated_cid(), target_cid);
     }
 
     /// Checks to see that the vconn is valid, then sends a request through it
     #[allow(unused_results)]
-    pub fn send_data_to_hyperlan_vconn(&self, target_cid: u64, security_level: SecurityLevel, data: Bytes) -> bool {
+    pub fn send_data_to_hyperlan_vconn(&self, target_cid: u64, security_level: SecurityLevel, data: SecBuffer) -> bool {
         // when the `target_cid` disconnects, it will remove its entry from this vconn table
         if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
             let conn_type = vconn.connection_type;
-            self.hdp_server_remote.unbounded_send(HdpServerRequest::SendData(data, target_cid, conn_type, security_level));
+            self.hdp_server_remote.unbounded_send(HdpServerRequest::SendMessage(data, target_cid, conn_type, security_level));
             true
         } else {
             false
@@ -561,7 +564,7 @@ impl StateContainerInner {
             } else {
                 self.network_stats.last_keep_alive.replace(current_timestamp_ns);
                 // We subtract two keep alive intervals, since it pauses that long on each end. We multiply by 1 million to convert ms to ns
-                const PROCESS_TIME_NS: i64 = (2 * KEEP_ALIVE_INTERVAL_MS as i64 * 1_000_000) as i64;
+                const PROCESS_TIME_NS: i64 = 2 * KEEP_ALIVE_INTERVAL_MS as i64 * 1_000_000;
                 self.network_stats.rtt_ns.replace(current_timestamp_ns - last_ka - PROCESS_TIME_NS);
                 true
             }
@@ -740,7 +743,7 @@ impl StateContainerInner {
         if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
             outbound_container.waves_in_current_window = next_window.clone().unwrap_or(0..=0).count();
             if object_id != 0 || next_window.is_none() {
-                // file-transfer, or TCP only mode. Use TCP
+                // file-transfer, or TCP only mode since next_window is none. Use TCP
                 if let Some(transmitter) = outbound_container.burst_transmitter.as_mut() {
                     return transmitter.transmit_tcp_file_transfer(tcp_sender);
                 } else {
@@ -1067,7 +1070,7 @@ impl StateContainerInner {
                         // group was transferring at. To do that, take the window from the previous, and copy it into the inbound file container
                         let window = group_receiver_final.current_window;
                         let window_len = window.end() - window.start();
-                        let mb_per_s = (chunk_size as f32/1_000_000f32)/inbound_file_container.last_group_finish_time.elapsed().as_secs_f32() as f32;
+                        let mb_per_s = (chunk_size as f32/1_000_000f32)/inbound_file_container.last_group_finish_time.elapsed().as_secs_f32();
 
                         inbound_file_container.last_group_window_len = window_len as usize;
                         inbound_file_container.last_group_finish_time = Instant::now();

@@ -2,7 +2,7 @@ use std::net::IpAddr;
 //use async_std::prelude::*;
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt, Future, Stream};
-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel};
+use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
@@ -44,6 +44,7 @@ use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 use atomic::{Atomic, Ordering};
 use std::sync::atomic::AtomicBool;
 use crate::inner_arg::{InnerParameterMut, ExpectedInnerTargetMut};
+use hyxe_crypt::sec_bytes::SecBuffer;
 //use crate::define_struct;
 
 // Defines the primary structure which wraps the inner device
@@ -435,7 +436,7 @@ impl HdpSession {
 
                     let error = err.raw_os_error().unwrap_or(-1);
                     if error != WINDOWS_FORCE_SHUTDOWN && error != RST {
-                        log::error!("primary port reader error: {}", err.to_string());
+                        log::error!("primary port reader error {}: {}", error, err.to_string());
                     }
 
                     return Err(NetworkError::Generic(err.to_string()));
@@ -700,7 +701,10 @@ impl HdpSession {
                         let mut sess = inner_mut!(this);
                         // We manually send the header. The tails get sent automatically
                         log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
-                        sess.send_to_primary_stream(Some(ticket), transmitter.generate_group_header(virtual_target));
+                        if let Err(err) = sess.send_to_primary_stream(Some(ticket), transmitter.generate_group_header(virtual_target)) {
+                            log::error!("Unable to send through primary stream: {}", err.to_string());
+                            return;
+                        }
                         let group_byte_len = transmitter.get_total_plaintext_bytes();
                         sess.transfer_stats += TransferStats::new(timestamp, group_byte_len as isize);
 
@@ -775,7 +779,7 @@ impl HdpSession {
     ///
     /// This will send the group header too
     #[allow(unused_results)]
-    pub fn process_outbound_packet(&self, ticket: Ticket, packet: Bytes, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
+    pub fn process_outbound_packet(&self, ticket: Ticket, packet: SecBuffer, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let mut this = inner_mut!(self);
         if this.state != SessionState::Connected {
             Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}, len: {}) outbound, but the session is not connected", ticket, packet.len())))
@@ -823,11 +827,11 @@ impl HdpSession {
                 }
             };
 
-
+            // TODO: implement FAST-SEND if TCP detected to reduce from 2 back-and-forths to 1
             // We manually send the header. The tails get sent automatically
             log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
             let group_len = transmitter.get_total_plaintext_bytes();
-            this.send_to_primary_stream(Some(ticket), transmitter.generate_group_header(virtual_target));
+            this.send_to_primary_stream(Some(ticket), transmitter.generate_group_header(virtual_target))?;
             this.transfer_stats += TransferStats::new(timestamp, group_len as isize);
             let outbound_container = OutboundTransmitterContainer::new(None,transmitter, group_len, 1, 0, ticket);
             // The payload packets won't be sent until a GROUP_HEADER_ACK is received
@@ -999,8 +1003,19 @@ impl HdpSession {
                         // check for the existence of the vconn
                         let state_container = inner!(this.state_container);
                         if let Some(peer_vconn) = state_container.active_virtual_connections.get(&target_cid) {
-                            if !peer_vconn.sender.as_ref().unwrap().0.unbounded_send(packet.into_packet()) {
-                                log::error!("Unable to proxy WAVE packet (TrySendError)");
+                            let senders = peer_vconn.sender.as_ref().unwrap();
+                            if let Some(peer_udp_sender) = senders.0.as_ref() {
+                                // in this case, we can complete the movement all the way through w/ UDP
+                                if !peer_udp_sender.unbounded_send(packet.into_packet()) {
+                                    log::error!("[UDP] Unable to proxy WAVE packet from {} to {} (TrySendError)", this_implicated_cid, target_cid);
+                                    return Ok(())
+                                }
+                            } else {
+                                // in this case, while we can route from A -> S w/ UDP, going from S -> B will require TCP
+                                if let Err(_) = senders.1.unbounded_send(packet.into_packet()) {
+                                    log::error!("[TCP] Unable to proxy WAVE packet from {} to {} (TrySendError)", this_implicated_cid, target_cid);
+                                    return Ok(())
+                                }
                             }
                             // now that the packet was forwarded, we automatically switch into the outer branch and return Ok(());
                         } else {
@@ -1026,12 +1041,12 @@ impl HdpSession {
                 packet_flags::cmd::primary::GROUP_PACKET => {
                     match hdp_packet_processor::wave_group_packet::process(&mut wrap_inner_mut!(this), v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
                         GroupProcessorResult::SendToKernel(ticket, concatenated_packet) => {
-                            this.send_to_kernel(HdpServerResult::DataDelivery(ticket, this_implicated_cid.unwrap(), concatenated_packet));
+                            this.send_to_kernel(HdpServerResult::DataDelivery(ticket, this_implicated_cid.unwrap(), concatenated_packet))?;
                             Ok(())
                         }
 
                         GroupProcessorResult::ReplyToSender(return_packet) => {
-                            this.send_to_primary_stream(None, return_packet);
+                            this.send_to_primary_stream(None, return_packet)?;
                             Ok(())
                         }
 
@@ -1041,11 +1056,11 @@ impl HdpSession {
                         }
 
                         GroupProcessorResult::Error(err) => {
-                            this.send_to_kernel(HdpServerResult::InternalServerError(Some(header.context_info.get().into()), err));
+                            this.send_to_kernel(HdpServerResult::InternalServerError(Some(header.context_info.get().into()), err))?;
                             Ok(())
                         }
                         GroupProcessorResult::ShutdownSession(err) => {
-                            this.send_to_kernel(HdpServerResult::InternalServerError(Some(header.context_info.get().into()), err));
+                            this.send_to_kernel(HdpServerResult::InternalServerError(Some(header.context_info.get().into()), err))?;
                             Err(NetworkError::InternalError("Session signalled to shutdown. Reason sent to kernel"))
                         }
                     }
@@ -1118,13 +1133,16 @@ impl HdpSession {
     pub fn store_proposed_credentials(&self, proposed_credentials: ProposedCredentials, stage_for: u8) {
         let this = inner_mut!(self);
         let mut state_container = inner_mut!(this.state_container);
+        let nonce = proposed_credentials.nonce.clone();
         match stage_for {
             packet_flags::cmd::primary::DO_REGISTER => {
                 state_container.register_state.proposed_credentials = Some(proposed_credentials);
+                state_container.register_state.nonce = Some(nonce);
             }
 
             packet_flags::cmd::primary::DO_CONNECT => {
                 state_container.connect_state.proposed_credentials = Some(proposed_credentials);
+                // we don't need to store the nonce here
             }
 
             _ => {
@@ -1137,11 +1155,11 @@ impl HdpSession {
 impl HdpSessionInner {
     /// When a successful login occurs, this function gets called. Must return any AsRef<[u8]> type
     pub(super) fn create_welcome_message(&self, cid: u64) -> String {
-        format!("HDP login::success. Welcome to the Post-quantum network. Implicated CID: {}", cid)
+        format!("SatoriNET login::success. Welcome to the Post-quantum network. Implicated CID: {}", cid)
     }
 
     pub(super) fn create_register_success_message(&self) -> String {
-        format!("HDP register::success. Welcome to your new post-quantum HyperLAN! Login to interact with your new network")
+        format!("SatoriNET register::success. Welcome to your new post-quantum network! Login to interact with your new network")
     }
 
     /// If the previous state was not a login fail, then the unwrap_or case will occur
@@ -1159,17 +1177,27 @@ impl HdpSessionInner {
     }
 
     /// This will panic if cannot be sent
-    #[allow(unused_results)]
-    pub fn send_to_kernel(&self, msg: HdpServerResult) {
-        self.kernel_tx.unbounded_send(msg);
+    #[inline]
+    pub fn send_to_kernel(&self, msg: HdpServerResult) -> Result<(), TrySendError<HdpServerResult>> {
+        self.kernel_tx.unbounded_send(msg)
     }
 
     /// Will send the message to the primary stream, and will alert the kernel if the stream's connector is full
-    pub fn send_to_primary_stream(&self, ticket: Option<Ticket>, msg: Bytes) {
+    pub fn send_to_primary_stream(&self, ticket: Option<Ticket>, msg: Bytes) -> Result<(), NetworkError> {
         if let Some(tx) = self.to_primary_stream.as_ref() {
-            if let Err(err) = tx.unbounded_send(msg) {
-                self.send_to_kernel(HdpServerResult::InternalServerError(ticket, err.to_string()))
+            match tx.unbounded_send(msg) {
+                Ok(_) => {
+                    Ok(())
+                }
+
+                Err(err) => {
+                    self.send_to_kernel(HdpServerResult::InternalServerError(ticket, err.to_string()))
+                        .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    Err(NetworkError::InternalError("Unable to send through primary stream"))
+                }
             }
+        } else {
+            Err(NetworkError::InternalError("Primary stream sender absent"))
         }
     }
 
@@ -1206,7 +1234,7 @@ impl HdpSessionInner {
         HdpSession::send_to_primary_stream_closure(to_primary_stream, kernel_tx, stage0_packet, ticket);
     }
 
-    pub(crate) fn initiate_deregister(&self, virtual_connection_type: VirtualConnectionType, ticket: Ticket) {
+    pub(crate) fn initiate_deregister(&self, virtual_connection_type: VirtualConnectionType, ticket: Ticket) -> bool {
         log::info!("Initiating deregister process ...");
         let timestamp = self.time_tracker.get_global_time_ns();
         let cnac = self.cnac.as_ref().unwrap();
@@ -1216,7 +1244,7 @@ impl HdpSessionInner {
         let mut state_container = inner_mut!(self.state_container);
         state_container.deregister_state.on_init(virtual_connection_type, timestamp,  ticket);
         std::mem::drop(state_container);
-        self.send_to_primary_stream(Some(ticket), stage0_packet);
+        self.send_to_primary_stream(Some(ticket), stage0_packet).is_ok()
     }
 
     fn get_and_increment_group_id(&mut self) -> u64 {

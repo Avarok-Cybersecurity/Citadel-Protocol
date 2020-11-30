@@ -16,7 +16,6 @@ use crate::mail::ConsoleSessionMail;
 use crate::console_error::ConsoleError;
 use hyxe_net::hdp::peer::channel::PeerChannel;
 use futures_util::StreamExt;
-use bytes::Bytes;
 use hyxe_net::hdp::hdp_packet_processor::includes::SecurityLevel;
 use tokio::time::Instant;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
@@ -24,6 +23,7 @@ use futures_util::core_reexport::sync::atomic::AtomicUsize;
 use crate::ffi::KernelResponse;
 use crate::command_handlers::group::MessageGroupContainer;
 use crate::console::virtual_terminal::INPUT_ROUTER;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 #[derive(Clone)]
 pub struct ConsoleContext {
@@ -178,7 +178,7 @@ impl ConsoleContext {
         }
     }
 
-    pub fn send_message_to_peer_channel(&self, cid: u64, peer_cid: u64, security_level: SecurityLevel, message: Bytes) -> Result<(), ConsoleError> {
+    pub fn send_message_to_peer_channel(&self, cid: u64, peer_cid: u64, security_level: SecurityLevel, message: SecBuffer) -> Result<(), ConsoleError> {
         let mut write = self.sessions.write();
         if let Some(sess) = write.get_mut(&cid) {
             if let Some(peer_sess) = sess.concurrent_peers.get_mut(&peer_cid) {

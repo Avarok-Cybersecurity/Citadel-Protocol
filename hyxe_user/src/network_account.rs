@@ -145,7 +145,7 @@ impl NetworkAccount {
     ///
     /// Note: If the local node is the server node, then nac_other should be the client's NAC. This should always be made at a server anyways
     #[allow(unused_results)]
-    pub fn create_client_account<T: ToString, V: ToString, K: AsRef<[u8]>>(&self, reserved_cid: u64, nac_other: Option<NetworkAccount>, username: T, password: SecVec<u8>, full_name: V, post_quantum_container: &PostQuantumContainer, toolset_bytes: Option<K>) -> Result<ClientNetworkAccount, AccountError<String>> {
+    pub fn create_client_account<T: ToString, V: ToString, K: AsRef<[u8]>>(&self, reserved_cid: u64, nac_other: Option<NetworkAccount>, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, post_quantum_container: &PostQuantumContainer, toolset_bytes: Option<K>) -> Result<ClientNetworkAccount, AccountError<String>> {
         if nac_other.is_none() {
             info!("WARNING: You are using debug mode. The supplied NAC is none, and will receive THIS nac in its place (unit tests only)");
         }
@@ -161,7 +161,7 @@ impl NetworkAccount {
             return Err(AccountError::Generic(format!("Username {} already exists!", &username)))
         }
 
-        let cnac = ClientNetworkAccount::new(Some(reserved_cid), false, nac_other.unwrap_or_else(|| self.clone()), &username, password, full_name, post_quantum_container, toolset_bytes)?;
+        let cnac = ClientNetworkAccount::new(Some(reserved_cid), false, nac_other.unwrap_or_else(|| self.clone()), &username, password, full_name, password_hash, post_quantum_container, toolset_bytes)?;
         // So long as the CNAC creation succeeded, we can confidently add the CID into the config
         self.register_cid(reserved_cid, username);
         Ok(cnac)

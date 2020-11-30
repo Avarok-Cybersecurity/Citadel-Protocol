@@ -3,7 +3,6 @@ use hyxe_crypt::drill::SecurityLevel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::error::NetworkError;
-use bytes::Bytes;
 use crate::hdp::state_container::VirtualConnectionType;
 use futures::channel::mpsc::UnboundedReceiver;
 use futures::{Sink, Stream};
@@ -14,6 +13,7 @@ use crate::hdp::peer::peer_layer::PeerConnectionType;
 use tokio::io::AsyncWrite;
 use futures::io::Error;
 use std::ops::Deref;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.
 // This thus bypasses the kernel.
@@ -95,13 +95,13 @@ pub struct PeerChannelSendHalf {
 }
 
 impl PeerChannelSendHalf {
-    fn send_unchecked(&self, data: Bytes) -> Result<(), NetworkError> {
-        let request = HdpServerRequest::SendData(data, self.implicated_cid, self.vconn_type, self.security_level);
+    fn send_unchecked(&self, data: SecBuffer) -> Result<(), NetworkError> {
+        let request = HdpServerRequest::SendMessage(data, self.implicated_cid, self.vconn_type, self.security_level);
         self.server_remote.send_with_custom_ticket(self.channel_id, request);
         Ok(())
     }
 
-    pub fn send_unbounded(&self, data: Bytes) -> Result<(), NetworkError> {
+    pub fn send_unbounded(&self, data: SecBuffer) -> Result<(), NetworkError> {
         if self.is_alive.load(Ordering::SeqCst) {
             self.send_unchecked(data)
         } else {
@@ -114,7 +114,7 @@ impl PeerChannelSendHalf {
     }
 }
 
-impl Sink<Bytes> for PeerChannelSendHalf {
+impl Sink<SecBuffer> for PeerChannelSendHalf {
     type Error = NetworkError;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -125,7 +125,7 @@ impl Sink<Bytes> for PeerChannelSendHalf {
         }
     }
 
-    fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: SecBuffer) -> Result<(), Self::Error> {
         self.send_unchecked(item)
     }
 
@@ -191,7 +191,7 @@ unsafe impl Send for PeerChannel {}
 
 impl AsyncWrite for PeerChannelSendHalf {
     fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
-        self.deref().send_unbounded(Bytes::copy_from_slice(buf))
+        self.deref().send_unbounded(SecBuffer::from(buf))
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))?;
 
         Poll::Ready(Ok(buf.len()))

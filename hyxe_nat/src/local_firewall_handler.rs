@@ -80,8 +80,7 @@ fn linux(protocol: FirewallProtocol) -> std::io::Result<Output> {
     let protocol_arg = format!("{}", protocol);
     let port_arg = format!("{}", port);
 
-    std::process::Command::new("sudo")
-        .arg("iptables")
+    std::process::Command::new("iptables")
         .arg("-A")
         .arg("INPUT")
         .arg("-p")
@@ -136,8 +135,7 @@ fn linux_remove(protocol: FirewallProtocol) -> std::io::Result<Output> {
     let protocol_arg = format!("{}", protocol);
     let port_arg = format!("{}", port);
 
-    std::process::Command::new("sudo")
-        .arg("iptables")
+    std::process::Command::new("iptables")
         .arg("-D")
         .arg("INPUT")
         .arg("-p")

@@ -16,6 +16,7 @@ use std::ops::RangeInclusive;
 use crate::hdp::state_container::{VirtualTargetType, GroupSender};
 use std::sync::Arc;
 use futures::SinkExt;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 /// Sends the header (manual!) and tail (auto!) packets through the primary stream directly, and
 /// the rest of the packets (the payload packets) get streamed to the [HdpServer] layer
@@ -79,7 +80,7 @@ impl GroupTransmitter {
         }
     }
     /// Creates a new stream for a request
-    pub fn new(object_id: u32, target_cid: u64, drill: Drill, pqc: &Arc<PostQuantumContainer>, input_packet: Bytes, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
+    pub fn new(object_id: u32, target_cid: u64, drill: Drill, pqc: &Arc<PostQuantumContainer>, input_packet: SecBuffer, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
         // Gets the latest drill version by default for this operation
         log::trace!("Will use drill v{} to encrypt group {}", drill.get_version(), group_id);
 
@@ -208,7 +209,7 @@ impl GroupTransmitter {
     #[allow(unused_results)]
     pub fn transmit_tcp_file_transfer(&self, to_primary_stream: &UnboundedSender<Bytes>) -> bool {
         let packets_needed = self.group_config.packets_needed;
-        log::info!("[Q-TCP] [FILE] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
+        log::info!("[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
         let transmitter = self.group_transmitter.clone();
         let mut to_primary_stream = to_primary_stream.clone();
         spawn!(async move {
@@ -533,9 +534,7 @@ pub(crate) mod do_connect {
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
     #[allow(unused_results)]
     pub(crate) fn craft_stage2_packet(proposed_credentials: ProposedCredentials, pqc: &PostQuantumContainer, drill: &Drill, timestamp: i64) -> Bytes {
-        let (username, password, _full_name) = proposed_credentials.decompose();
-        let username = username.as_bytes();
-        let password = password.unsecure();
+        let (username, password) = proposed_credentials.decompose_credentials();
 
         let encrypted_len = hyxe_crypt::net::crypt_splitter::calculate_aes_gcm_output_length(username.len() + username.len());
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + encrypted_len);

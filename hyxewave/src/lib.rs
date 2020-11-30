@@ -54,6 +54,7 @@ pub mod mail;
 pub mod ffi;
 
 pub fn shutdown_sequence(exit_status: i32) {
+    println!("\n\rSatoriNET::Shutdown Hook initiated ...\n\r");
     if let Err(_) = crate::console::virtual_terminal::INPUT_ROUTER.deinit() {
         std::process::exit(-2)
     } else {
@@ -69,7 +70,6 @@ pub fn setup_log() {
 
 pub fn setup_shutdown_hook() {
     ctrlc::set_handler(|| {
-        println!("\n\rLusna::Shutdown Hook initiated ...\n\r");
         shutdown_sequence(-1);
     }).expect("We were unable to setup the system shutdown hooks. Please report this to the developers")
 }

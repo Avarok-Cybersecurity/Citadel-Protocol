@@ -343,17 +343,17 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
                                         let mut this_sess_state_container = inner_mut!(this_sess.state_container);
                                         let mut peer_sess_state_container = inner_mut!(peer_sess.state_container);
 
-                                        if let Some(this_udp_sender) = this_sess_state_container.udp_sender.clone() {
-                                            if let Some(peer_udp_sender) = peer_sess_state_container.udp_sender.clone() {
+                                        // The UDP senders may not exist (e.g., TCP only mode)
+                                        let this_udp_sender = this_sess_state_container.udp_sender.clone();
+                                        let peer_udp_sender = peer_sess_state_container.udp_sender.clone();
                                                 // rel to this local sess, the key = target_cid, then (implicated_cid, target_cid)
-                                                let virtual_conn_relative_to_this = VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid);
-                                                let virtual_conn_relative_to_peer = VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
-                                                this_sess_state_container.insert_new_virtual_connection(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender);
-                                                peer_sess_state_container.insert_new_virtual_connection(implicated_cid, virtual_conn_relative_to_peer, this_udp_sender, this_tcp_sender);
-                                                log::info!("Virtual connection between {} <-> {} forged", implicated_cid, target_cid);
-                                                // TODO: Ensure that, upon disconnect, the the corresponding entry gets dropped in the connection table of not the dropped peer
-                                            }
-                                        }
+                                        let virtual_conn_relative_to_this = VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid);
+                                        let virtual_conn_relative_to_peer = VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
+                                        this_sess_state_container.insert_new_virtual_connection(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender);
+                                        peer_sess_state_container.insert_new_virtual_connection(implicated_cid, virtual_conn_relative_to_peer, this_udp_sender, this_tcp_sender);
+                                        log::info!("Virtual connection between {} <-> {} forged", implicated_cid, target_cid);
+                                        // TODO: Ensure that, upon disconnect, the the corresponding entry gets dropped in the connection table of not the dropped peer
+
                                     }
                                 }
                         })

@@ -106,7 +106,7 @@ pub(crate) mod do_connect {
             Err(NetworkError::InvalidPacket("Packet has an oob username/password split index. Dropping"))
         } else {
             let (username, password) = payload.split_at(split_idx);
-            unsafe { cnac.validate_credentials(username, SecVec::new(Vec::from(password))).map_err(|err| NetworkError::Generic(err.to_string()))? };
+            cnac.validate_credentials(username, SecVec::new(Vec::from(password))).map_err(|err| NetworkError::Generic(err.to_string()))?;
             log::info!("Success validating credentials!");
             Ok(())
         }
@@ -321,7 +321,7 @@ pub(crate) mod do_register {
             let (full_name, username) = (full_name.trim(), username.trim());
             let password = password.trim();
 
-            let proposed_credentials = ProposedCredentials::new_unchecked(full_name, username, SecVec::new(password.to_vec()));
+            let proposed_credentials = ProposedCredentials::new_from_hashed(full_name, username, SecVec::new(password.to_vec()), nonce.clone());
             let adjacent_nid = header.session_cid.get();
             let adjacent_nac = NetworkAccount::new_from_recent_connection(adjacent_nid, peer_addr);
             Some((proposed_credentials, adjacent_nac))

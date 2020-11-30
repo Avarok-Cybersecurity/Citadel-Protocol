@@ -60,9 +60,8 @@ const ASCII_ONLY: bool = false;
 
 /// Used to determine if the desired credentials have a valid format, length, etc. This alone DOES NOT imply whether or not the
 /// credentials are available
-pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(username: &T, password: &R, full_name: &V) -> Result<(), AccountError<String>> {
+pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(username: &T, password: Option<&R>, full_name: &V) -> Result<(), AccountError<String>> {
     let username = username.as_ref();
-    let password = password.as_ref();
     let full_name = full_name.as_ref();
     
     if ASCII_ONLY {
@@ -70,8 +69,10 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
             return Err(AccountError::Generic("Username contains non-ascii characters".to_string()));
         }
 
-        if !password.is_ascii() {
-            return Err(AccountError::Generic("Password contains non-ascii characters".to_string()));
+        if let Some(password) = password {
+            if !password.as_ref().is_ascii() {
+                return Err(AccountError::Generic("Password contains non-ascii characters".to_string()));
+            }
         }
 
         if !full_name.is_ascii() {
@@ -83,8 +84,11 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
         return Err(AccountError::Generic(format!("Username must be between {} and {} characters", MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH)));
     }
 
-    if password.len() < MIN_PASSWORD_LENGTH || password.len() > MAX_PASSWORD_LENGTH {
-        return Err(AccountError::Generic(format!("Password must be between {} and {} characters", MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH)));
+    if let Some(password) = password {
+        let password = password.as_ref();
+        if password.len() < MIN_PASSWORD_LENGTH || password.len() > MAX_PASSWORD_LENGTH {
+            return Err(AccountError::Generic(format!("Password must be between {} and {} characters", MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH)));
+        }
     }
 
     if full_name.len() < MIN_NAME_LENGTH || full_name.len() > MAX_NAME_LENGTH {

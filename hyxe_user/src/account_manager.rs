@@ -56,8 +56,8 @@ impl AccountManager {
 
     /// Once a valid and decrypted stage 4 packet gets received by the server (Bob), this function should be called
     /// to create the new CNAC. The generated CNAC will be assumed to be an impersonal hyperlan client
-    pub fn register_impersonal_hyperlan_client_network_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: NetworkAccount, username: T, password: SecVec<u8>, full_name: V, post_quantum_container: &PostQuantumContainer) -> Result<ClientNetworkAccount, AccountError<String>> {
-        let new_cnac = self.local_nac.create_client_account::<_,_,&[u8]>(reserved_cid, Some(nac_other), username, password, full_name, post_quantum_container, None)?;
+    pub fn register_impersonal_hyperlan_client_network_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: NetworkAccount, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, post_quantum_container: &PostQuantumContainer) -> Result<ClientNetworkAccount, AccountError<String>> {
+        let new_cnac = self.local_nac.create_client_account::<_,_,&[u8]>(reserved_cid, Some(nac_other), username, password, full_name, password_hash, post_quantum_container, None)?;
         // By using the local nac to create the CNAC, we ensured a unique CID and ensured that the config has been updated
         // What remains is to update the internal graph
         // To conclude the registration process, we need to:
@@ -70,13 +70,13 @@ impl AccountManager {
 
     /// whereas the HyperLAN server (Bob) runs `register_impersonal_hyperlan_client_network_account`, the registering
     /// HyperLAN Client (Alice) runs this function below
-    pub fn register_personal_hyperlan_server<T: AsRef<[u8]>, R: ToString + Display, V: ToString + Display>(&self, toolset_bytes: T, username: R, full_name: V, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>) -> Result<ClientNetworkAccount, AccountError<String>> {
-        let cnac = ClientNetworkAccount::new_from_network_personal(toolset_bytes, &username, password, &full_name, adjacent_nac, post_quantum_container)?;
+    pub fn register_personal_hyperlan_server<T: AsRef<[u8]>, R: ToString + Display, V: ToString + Display>(&self, toolset_bytes: T, username: R, full_name: V, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>, password_hash: Vec<u8>) -> Result<ClientNetworkAccount, AccountError<String>> {
+        let cnac = ClientNetworkAccount::new_from_network_personal(toolset_bytes, &username, password, &full_name, password_hash, adjacent_nac, post_quantum_container)?;
         self.local_nac.register_cid(cnac.get_id(), &username);
 
         let mut map = self.write_map();
         if let Some(_prev) = map.insert(cnac.get_id(), cnac.clone()) {
-            panic!("CID collision occurred. This must be fixed before release");
+            panic!("CID collision occurred. This must be fixed before release. PLEASE report to developers!");
         } else {
             log::info!("Successfully added CID to AccountManager Hashmap");
         }

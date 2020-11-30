@@ -172,7 +172,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                 }
                                 std::mem::drop(state_container);
 
-                                session.send_to_kernel(HdpServerResult::OutboundRequestRejected(ticket.into(), message_opt));
+                                session.send_to_kernel(HdpServerResult::OutboundRequestRejected(ticket.into(), message_opt))?;
                                 PrimaryProcessorResult::Void
                             }
 
@@ -307,7 +307,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                     } else {
                         // send to kernel
                         let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
-                        session.send_to_kernel(HdpServerResult::DataDelivery(ticket, implicated_cid, reconstructed_packet));
+                        session.send_to_kernel(HdpServerResult::DataDelivery(ticket, implicated_cid, reconstructed_packet))?;
                         PrimaryProcessorResult::Void
                     }
                 }

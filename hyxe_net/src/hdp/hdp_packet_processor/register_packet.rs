@@ -77,6 +77,8 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
             let mut state_container = inner_mut!(session.state_container);
             if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE0 {
                 let algorithm = header.algorithm;
+                let nonce = state_container.register_state.nonce.clone()?;
+
                 // pqc is stored in the register state container for now
                 //debug_assert!(session.post_quantum.is_none());
                 if let Some(post_quantum) = state_container.register_state.pqc.as_mut() {
@@ -84,9 +86,10 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
                     match post_quantum.alice_on_receive_ciphertext(ciphertext) {
                         Ok(_) => {
                             // At this point, the shared secrets are synchronized! Now, transmit the NONCE
-                            let mut nonce: [u8; AES_GCM_NONCE_LEN_BYTES] = [0u8; AES_GCM_NONCE_LEN_BYTES];
-                            ThreadRng::default().fill_bytes(&mut nonce);
-                            log::info!("Generated NONCE: {:?}", &nonce);
+                            //let mut nonce: [u8; AES_GCM_NONCE_LEN_BYTES] = [0u8; AES_GCM_NONCE_LEN_BYTES];
+                            //ThreadRng::default().fill_bytes(&mut nonce);
+                            //log::info!("Generated NONCE: {:?}", &nonce);
+
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let local_nid = session.account_manager.get_local_nid();
 
@@ -95,7 +98,7 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
                             let reserved_true_cid = header.group.get();
 
                             state_container.register_state.proposed_cid = Some(reserved_true_cid);
-                            state_container.register_state.nonce = Some(nonce);
+                            //state_container.register_state.nonce = Some(nonce);
                             state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE2;
                             state_container.register_state.on_register_packet_received();
 
@@ -171,6 +174,7 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
 
                     let post_quantum = state_container.register_state.pqc.as_ref()?;
                     let nonce = state_container.register_state.nonce.as_ref()?;
+                    // alice just sends the username, full name, and hashed password over
                     let proposed_credentials = state_container.register_state.proposed_credentials.as_ref()?;
                     log::info!("Sending stage 4 packet");
                     let stage4_packet = hdp_packet_crafter::do_register::craft_stage4(nonce, algorithm, local_nid, timestamp, post_quantum, proposed_credentials);
@@ -200,16 +204,16 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
                         if let Some((obtained_credentials, adjacent_nac)) = validation::do_register::validate_stage4(header, payload, nonce, post_quantum, remote_addr) {
                             // At this point, we either send a SUCCESS or FAILURE packet
                             log::info!("Proposed credentials: {:?}", &obtained_credentials);
-                            let (username, password, full_name) = obtained_credentials.decompose();
+                            let (username, password, full_name, nonce) = obtained_credentials.decompose();
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let local_nid = session.account_manager.get_local_nid();
                             // pub async fn register_impersonal_hyperlan_client_network_account<T: ToString, R: ToString, V: ToString>(&self, nac_other: NetworkAccount, is_hyperwan_server: bool, username: T, password: R, full_name: V, post_quantum_container: &PostQuantumContainer) -> Result<ClientNetworkAccount, AccountError<String>>
 
-                            match session.account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid.unwrap(), adjacent_nac, &username, password, full_name, post_quantum) {
+                            match session.account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid.unwrap(), adjacent_nac, &username, password, full_name, Vec::from(&nonce as &[u8]), post_quantum) {
                                 Ok(peer_cnac) => {
                                     log::info!("Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_id());
                                     let success_message = session.create_register_success_message();
-                                    let packet = hdp_packet_crafter::do_register::craft_success(&peer_cnac, algorithm, local_nid, timestamp, post_quantum, nonce, success_message);
+                                    let packet = hdp_packet_crafter::do_register::craft_success(&peer_cnac, algorithm, local_nid, timestamp, post_quantum, &nonce, success_message);
                                     std::mem::drop(state_borrow);
                                     let mut state_container = inner_mut!(session.state_container);
                                     state_container.register_state.on_success(timestamp);
@@ -281,17 +285,17 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
 
                         //let mut state_container = inner_mut!(session.state_container);
                         let credentials = state_container.register_state.proposed_credentials.take()?;
-                        let (username, password, full_name) = credentials.decompose();
+                        let (username, password, full_name, nonce) = credentials.decompose();
                         let timestamp = session.time_tracker.get_global_time_ns();
 
                         // &self, cnac_inner_bytes: T, username: R, full_name: V, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>
-                        match session.account_manager.register_personal_hyperlan_server(toolset_bytes, username, full_name, adjacent_nac, &post_quantum, password) {
+                        match session.account_manager.register_personal_hyperlan_server(toolset_bytes, username, full_name, adjacent_nac, &post_quantum, password, Vec::from(&nonce as &[u8])) {
                             Ok(new_cnac) => {
                                 // Finally, alert the higher-level kernel about the success
                                 state_container.register_state.on_success(timestamp);
                                 std::mem::drop(state_container);
                                 //session.session_manager.clear_provisional_session(&remote_addr);
-                                session.send_to_kernel(HdpServerResult::RegisterOkay(session.kernel_ticket, new_cnac, success_message));
+                                session.send_to_kernel(HdpServerResult::RegisterOkay(session.kernel_ticket, new_cnac, success_message))?;
                                 // now, reposition the pqc
                                 session.post_quantum = Some(Arc::new(post_quantum));
                             }
@@ -300,7 +304,7 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
                                 state_container.register_state.on_fail(timestamp);
                                 std::mem::drop(state_container);
                                 //session.session_manager.clear_provisional_session(&remote_addr);
-                                session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, err.to_string()));
+                                session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, err.to_string()))?;
                             }
                         }
                         inner_mut!(session.state_container).register_state.on_register_packet_received();
@@ -328,7 +332,7 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
             // A failure can be sent at any stage greater than the zeroth
             if inner!(session.state_container).register_state.last_stage > packet_flags::cmd::aux::do_register::STAGE0 {
                 if let Some(error_message) = validation::do_register::validate_failure(header, payload) {
-                    session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, String::from_utf8(error_message).unwrap_or("Non-UTF8 error message".to_string())));
+                    session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, String::from_utf8(error_message).unwrap_or("Non-UTF8 error message".to_string())))?;
                     //session.session_manager.clear_provisional_session(&remote_addr);
                     inner_mut!(session.state_container).register_state.on_register_packet_received();
                     session.needs_close_message.store(false, Ordering::SeqCst);

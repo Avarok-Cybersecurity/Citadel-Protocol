@@ -1,5 +1,6 @@
 use super::imports::*;
 use hyxe_user::client_account::HYPERLAN_IDX;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
@@ -90,9 +91,9 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
             let target_cid = get_peer_cid_from_cnac(cnac, target_cid)?;
 
-            let message = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
+            let message: String = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
             // now, use the console context to send the message
-            ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, Bytes::copy_from_slice(message.as_bytes()))?;
+            ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, SecBuffer::from(message))?;
             printf_ln!(colour::white!("Message sent through peer channel w/ {:?} security\n", security_level));
             return Ok(None)
         }
@@ -121,7 +122,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
                     PeerResponse::Err(err) => {
                         printfs!({
-                            colour::red_ln!("\rUnable to fully disconnect from {}. However, the local session will require re-connection to send/receive information");
+                            colour::red_ln!("\rUnable to fully disconnect from {}. However, the local session will require re-connection to send/receive information", target_cid);
                             if let Some(err) = err {
                                 colour::red_ln!("Message: {}", &err);
                             }
