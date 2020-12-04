@@ -1,12 +1,11 @@
-use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use bytes::Bytes;
-use futures::Sink;
-use futures::task::{Context, Poll};
 //use futures::channel::mpsc::{UnboundedSender, SendError};
 use tokio::sync::mpsc::UnboundedSender;
+use bytes::Bytes;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use futures::Sink;
+use futures::task::{Context, Poll};
+use std::pin::Pin;
 
 /// For keeping the firewall open
 pub static KEEP_ALIVE: Bytes = Bytes::from_static(b"ACK");
@@ -16,7 +15,6 @@ pub struct OutboundUdpSender {
     sender: UnboundedSender<(usize, Bytes)>,
     total_local_ports: usize,
     rolling_idx: Arc<AtomicUsize>
-
 }
 
 unsafe impl Send for OutboundUdpSender {}

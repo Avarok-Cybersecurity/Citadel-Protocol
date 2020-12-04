@@ -1,10 +1,9 @@
-use std::io::Write;
 use std::iter::FromIterator;
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
+use std::io::Write;
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use bytes::BufMut;
 use tokio::net::UdpSocket;
 use tokio::stream::StreamExt;
 use tokio::time::Duration;
@@ -13,6 +12,7 @@ use crate::error::FirewallError;
 use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use crate::udp_traversal::linear::{LinearUdpHolePunchImpl, RelativeNodeType};
 use crate::udp_traversal::linear::nat_payloads::{SYN, SYN_ACK};
+use bytes::BufMut;
 
 /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL
 // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf

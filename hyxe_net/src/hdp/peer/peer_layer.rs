@@ -1,21 +1,19 @@
-use std::collections::{HashMap, VecDeque};
-use std::fmt::{Display, Formatter};
-use std::pin::Pin;
-
-use futures::Stream;
-use futures::task::{Context, Poll, Waker};
-use nanoserde::{DeBin, SerBin};
-use tokio::time::Duration;
+use std::collections::{VecDeque, HashMap};
+use nanoserde::{SerBin, DeBin};
+use crate::hdp::file_transfer::VirtualFileMetadata;
+use crate::hdp::hdp_server::Ticket;
 use tokio::time::error::Error;
 use tokio_util::time::{delay_queue, DelayQueue};
-
 use crate::constants::PEER_EVENT_MAILBOX_SIZE;
 use crate::error::NetworkError;
-use crate::hdp::file_transfer::VirtualFileMetadata;
-use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::hdp::hdp_server::Ticket;
-use crate::hdp::peer::message_group::{MessageGroup, MessageGroupKey, MessageGroupPeer};
+use std::pin::Pin;
+use futures::task::{Context, Poll, Waker};
+use tokio::time::Duration;
+use futures::Stream;
 use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
+use std::fmt::{Display, Formatter};
+use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer};
+use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 
 #[derive(Default)]
 /// When HyperLAN client A needs to send a POST_REGISTER signal to HyperLAN client B (who is disconnected),

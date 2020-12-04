@@ -1,5 +1,3 @@
-use std::sync::atomic::Ordering;
-
 use tokio::net::UdpSocket;
 
 use hyxe_crypt::drill_update::DrillUpdateObject;
@@ -12,6 +10,7 @@ use crate::constants::{DEFAULT_PQC_ALGORITHM, HOLE_PUNCH_SYNC_TIME_MULTIPLIER, M
 use crate::hdp::nat_handler::determine_initial_nat_method;
 
 use super::includes::*;
+use std::sync::atomic::Ordering;
 
 /// Handles preconnect packets. Handles the NAT traversal
 /// TODO: Note to future programmers. This source file is not the cleanest, and in my opinion the dirtiest file in the entire codebase.
@@ -96,7 +95,7 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
                     if tcp_only {
                         let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_base_drill, local_node_type, &Vec::with_capacity(0), timestamp);
                         state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                        let _ = session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!"));
+                        let _ =session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!"));
                         let _ = session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!1"));
                         let _ = session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!2"));
                         // test

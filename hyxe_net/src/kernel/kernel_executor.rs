@@ -1,13 +1,13 @@
-use futures::StreamExt;
-use tokio::net::ToSocketAddrs;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use futures::StreamExt;
 
-use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_user::account_manager::AccountManager;
 
+use crate::kernel::kernel::NetKernel;
 use crate::error::NetworkError;
 use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult};
-use crate::kernel::kernel::NetKernel;
+use hyxe_nat::hypernode_type::HyperNodeType;
+use tokio::net::ToSocketAddrs;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
@@ -66,6 +66,7 @@ impl<K: NetKernel + 'static> KernelExecutor<K> {
             }
 
             let kernel = kernel.clone();
+            // Ensure that we don't block further calls to next().await, and offload the task to the tokio runtime
             let _ = tokio::task::spawn(async move { kernel.on_server_message_received(message).await });
         }
 

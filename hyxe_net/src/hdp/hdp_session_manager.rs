@@ -1,35 +1,35 @@
 use std::collections::HashMap;
-use std::hint::black_box;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
-use std::path::PathBuf;
-use std::sync::atomic::Ordering;
 
 use bytes::{Bytes, BytesMut};
-use futures::StreamExt;
+use crate::re_imports::UnboundedSender;
 use tokio::net::TcpStream;
 
-use ez_pqcrypto::PostQuantumContainer;
 use hyxe_crypt::prelude::SecurityLevel;
-use hyxe_crypt::sec_bytes::SecBuffer;
-use hyxe_nat::hypernode_type::HyperNodeType;
-use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
-use hyxe_user::client_account::ClientNetworkAccount;
 
 use crate::constants::{HDP_NODELAY, TCP_ONLY};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
-use crate::hdp::hdp_packet_processor::includes::{Drill, Duration, HyperNodeAccountInformation};
-use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, GroupMemberAlterMode, MemberState};
-use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerRequest, HdpServerResult, Ticket};
+use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
 use crate::hdp::hdp_session::HdpSession;
-use crate::hdp::outbound_sender::OutboundUdpSender;
-use crate::hdp::peer::message_group::MessageGroupKey;
-use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal};
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::proposed_credentials::ProposedCredentials;
-use crate::re_imports::UnboundedSender;
+use hyxe_nat::hypernode_type::HyperNodeType;
+use hyxe_nat::time_tracker::TimeTracker;
+use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, PeerSignal, MailboxTransfer, PeerConnectionType, PeerResponse};
+use crate::hdp::outbound_sender::OutboundUdpSender;
+use crate::hdp::hdp_packet_processor::includes::{Duration, Drill, HyperNodeAccountInformation};
+use ez_pqcrypto::PostQuantumContainer;
+use futures::StreamExt;
+use std::sync::atomic::Ordering;
+use std::hint::black_box;
+use std::path::PathBuf;
+use crate::hdp::peer::message_group::MessageGroupKey;
+use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState, GroupMemberAlterMode};
+use hyxe_user::client_account::ClientNetworkAccount;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -136,7 +136,7 @@ impl HdpSessionManager {
 
         // We must now create a TcpStream towards the peer
         let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
-        let primary_stream = HdpServer::create_tcp_connect_socket(local_bind_addr, peer_addr)
+        let primary_stream = HdpServer::create_tcp_connect_socket(peer_addr)
             .map_err(|err| NetworkError::SocketError(err.to_string()))?;
 
         let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), peer_addr, this.time_tracker.clone(), implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(TCP_ONLY)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;

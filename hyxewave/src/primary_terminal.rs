@@ -44,6 +44,11 @@ fn setup_clap<'a>() -> App<'a, 'a> {
             .help("Sets local bind address")
             .takes_value(true)
             .required(false))
+        .arg(Arg::with_name("ipv6")
+            .long("ipv6")
+            .help("Enables IPv6 mode (shorthand for --bind [::]")
+            .takes_value(false)
+            .required(false))
         .arg(Arg::with_name("daemon")
             .long("daemon")
             .short("d")
@@ -130,21 +135,54 @@ pub mod parsers {
 fn try_get_local_addr(matches: &ArgMatches) -> Result<SocketAddr, ConsoleError> {
     // if bind is specified, this will override the --launcher flag, allowing users running the launcher to specify custom bind addrs
     if let Some(target_addr) = matches.value_of("bind") {
-        if target_addr.contains(":") {
-            // custom bind, custom port
-            SocketAddr::from_str(target_addr).map_err(|err| ConsoleError::Generic(err.to_string()))
-        } else {
-            // custom bind, default port
-            let ip_addr = IpAddr::from_str(target_addr)?;
-            Ok(SocketAddr::new(ip_addr, PRIMARY_PORT))
-        }
+        parse_custom_addr(target_addr)
     } else {
         // if the --launcher flag is passed, default to 0.0.0.0
+        // global
         if matches.is_present("launcher") || matches.is_present("public") {
-            Ok(SocketAddr::new(IpAddr::from_str("0.0.0.0").unwrap(), PRIMARY_PORT))
+            if matches.is_present("ipv6") {
+                Ok(SocketAddr::new(IpAddr::from_str("::").unwrap(), PRIMARY_PORT))
+            } else {
+                Ok(SocketAddr::new(IpAddr::from_str("0.0.0.0").unwrap(), PRIMARY_PORT))
+            }
         } else {
-            // default bind, default port
-            Ok(SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), PRIMARY_PORT))
+            // local
+            if matches.is_present("ipv6") {
+                Ok(SocketAddr::new(IpAddr::from_str("::1").unwrap(), PRIMARY_PORT))
+            } else {
+                Ok(SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), PRIMARY_PORT))
+            }
+        }
+    }
+}
+
+pub fn parse_custom_addr<T: AsRef<str>>(target_addr: T) -> Result<SocketAddr, ConsoleError> {
+    // try ipv6
+    let target_addr = target_addr.as_ref();
+    if target_addr.contains("::") {
+        if target_addr.eq("[::]") || target_addr.eq("::") {
+            // [ipv6] custom bind, default port
+            Ok(SocketAddr::new(IpAddr::from_str("::").unwrap(), PRIMARY_PORT))
+        } else {
+            // user may type: [::1], in which case, we have custom bind, default port
+            // thus, we need another check
+            if target_addr.contains("]:") {
+                // [ipv6] custom bind, custom port
+                SocketAddr::from_str(target_addr).map_err(|err| ConsoleError::Generic(err.to_string()))
+            } else {
+                // [ipv4] custom bind, default port. User may type: [::1] OR ::1
+                let ip_addr = IpAddr::from_str(&*target_addr.replace("[", "").replace("]", ""))?;
+                Ok(SocketAddr::new(ip_addr, PRIMARY_PORT))
+            }
+        }
+    } else {
+        if target_addr.contains(":") {
+            // [ipv4] custom bind, custom port
+            SocketAddr::from_str(target_addr).map_err(|err| ConsoleError::Generic(err.to_string()))
+        } else {
+            // [ipv4] custom bind, default port
+            let ip_addr = IpAddr::from_str(target_addr)?;
+            Ok(SocketAddr::new(ip_addr, PRIMARY_PORT))
         }
     }
 }

@@ -1,8 +1,6 @@
-use atomic::Ordering;
-
-use crate::hdp::state_container::VirtualConnectionType;
-
 use super::includes::*;
+use crate::hdp::state_container::VirtualConnectionType;
+use atomic::Ordering;
 
 /// Stage 0: Alice sends Bob a DO_DISCONNECT request packet
 /// Stage 1: Bob sends Alice an encrypted nonce

@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::hint::black_box;
 use std::pin::Pin;
-use std::sync::atomic::AtomicBool;
 
 use async_trait::async_trait;
+use std::sync::atomic::AtomicBool;
 use futures_util::future::Future;
 use futures_util::stream::FuturesUnordered;
 use futures_util::TryStreamExt;
@@ -12,7 +12,6 @@ use tokio::stream::StreamExt;
 use tokio::time::Instant;
 
 use hyxe_net::error::NetworkError;
-use hyxe_net::functional::IfEqConditional;
 use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
 use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
 use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerResult, Ticket};
@@ -33,6 +32,7 @@ use crate::constants::INVALID_UTF8;
 use crate::ffi::{DomainResponse, FFIIO, KernelResponse};
 use crate::mail::IncomingPeerRequest;
 use crate::ticket_event::TicketQueueHandler;
+use hyxe_net::functional::IfEqConditional;
 
 #[allow(dead_code)]
 pub struct CLIKernel {
@@ -215,7 +215,7 @@ impl NetKernel for CLIKernel {
 
             // FFI Handled below
             HdpServerResult::InternalServerError(ticket, err) => {
-                printf_ln!(colour::red!("Internal Server Error: {}\n", err));
+                printf_ln!(colour::red!("\nInternal Server Error: {}\n", err));
                 self.on_ticket_received_opt(ticket, PeerResponse::Err(Some(err.clone())));
                 //return Err(NetworkError::Generic(err))
 
@@ -286,20 +286,19 @@ impl NetKernel for CLIKernel {
                     colour::red!(" REJECTED!\n\n");
                 });
 
-                let resp = if let Some(reason) = reason_opt {
-                    PeerResponse::Err(Some(String::from_utf8(reason).unwrap_or(String::from(INVALID_UTF8))))
-                } else {
-                    PeerResponse::Err(None)
-                };
+                let resp = reason_opt.map(|reason|
+                    PeerResponse::Err(Some(String::from_utf8(reason).unwrap_or(String::from(INVALID_UTF8)))))
+                    .unwrap_or(PeerResponse::Err(None));
+
 
                 self.on_ticket_received(ticket, resp);
             }
 
             // FFI Handled below
-            HdpServerResult::DataDelivery(ticket, cid, data) => {
+            HdpServerResult::MessageDelivery(ticket, cid, data) => {
                 // NOTE: This data should only be delivered if sent if there is n=1 hop. Otherwise,
                 // channels are used
-                let message = String::from_utf8(data).unwrap_or(String::from(INVALID_UTF8));
+                let message = String::from_utf8(data.into_buffer()).unwrap_or(String::from(INVALID_UTF8));
                 if self.console_context.is_ffi {
                     self.console_context.proxy_to_ffi(KernelResponse::NodeMessage(ticket.0, cid, 0, 0, message));
                 } else {

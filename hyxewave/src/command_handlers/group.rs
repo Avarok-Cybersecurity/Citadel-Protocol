@@ -1,6 +1,5 @@
-use hyxe_net::hdp::peer::message_group::MessageGroupKey;
-
 use super::imports::*;
+use hyxe_net::hdp::peer::message_group::MessageGroupKey;
 
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let ctx_cid = ctx.get_active_cid();

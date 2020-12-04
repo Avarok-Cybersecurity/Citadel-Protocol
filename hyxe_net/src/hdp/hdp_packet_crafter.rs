@@ -1,6 +1,3 @@
-use std::ops::RangeInclusive;
-use std::sync::Arc;
-
 use bytes::Bytes;
 use num::Integer;
 
@@ -8,15 +5,17 @@ use ez_pqcrypto::PostQuantumContainer;
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::net::crypt_splitter::{GroupReceiverConfig, scramble_encrypt_group};
 use hyxe_crypt::prelude::Drill;
-use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_nat::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::hdp::hdp_packet_crafter::group::craft_wave_payload_packet_into;
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::outbound_sender::OutboundUdpSender;
-use crate::hdp::state_container::{GroupSender, VirtualTargetType};
 use crate::re_imports::UnboundedSender;
+use std::ops::RangeInclusive;
+use crate::hdp::state_container::{VirtualTargetType, GroupSender};
+use std::sync::Arc;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 /// Sends the header (manual!) and tail (auto!) packets through the primary stream directly, and
 /// the rest of the packets (the payload packets) get streamed to the [HdpServer] layer
@@ -122,6 +121,16 @@ impl GroupTransmitter {
     /// and the wave ports are what receive the packet stream, this should be ran BEFORE streaming self
     pub fn generate_group_header(&mut self, virtual_target: VirtualTargetType) -> Bytes {
         group::craft_group_header_packet(self, virtual_target)
+    }
+
+    /// Sometimes, we only need a single packet to represent the data. When this happens, we don't scramble
+    /// and instead place the ciphertext into the payload of the GROUP_HEADER
+    pub(super) fn get_fast_message_payload(&mut self) -> Option<Bytes> {
+        if self.group_config.packets_needed == 1 {
+            Some(inner_mut!(self.group_transmitter).get_next_packet().unwrap().packet)
+        } else {
+            None
+        }
     }
 
     /// Determines how many packets are in the current wave
@@ -238,7 +247,6 @@ impl GroupTransmitter {
 }
 
 pub(crate) mod group {
-    use std::ops::RangeInclusive;
 
     use bytes::{BufMut, Bytes, BytesMut};
     use zerocopy::{I64, U32, U64};
@@ -249,14 +257,14 @@ pub(crate) mod group {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
     use crate::hdp::hdp_packet::packet_sizes;
-    use crate::hdp::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
     use crate::hdp::hdp_packet_crafter::GroupTransmitter;
-    use crate::hdp::hdp_server::Ticket;
+    use std::ops::RangeInclusive;
     use crate::hdp::state_container::VirtualTargetType;
+    use crate::hdp::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
+    use crate::hdp::hdp_server::Ticket;
 
     // TODO: all GROUP packets require a target_cid. If target_cid != 0, then the packet will get proxied
     pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType) -> Bytes {
-        let ref pqc = processor.pqc;
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER,
@@ -274,9 +282,24 @@ pub(crate) mod group {
         let serialized_vt = virtual_target.serialize();
         let mut packet = BytesMut::with_capacity(packet_sizes::GROUP_HEADER_BASE_LEN + serialized_vt.len());
         header.inscribe_into(&mut packet);
-        processor.group_config.inscribe_into(&mut packet);
-        packet.put(serialized_vt.as_slice());
+        // first byte in the payload goes to the bool "fast_msg"
+        if let Some(fast_msg_payload) = processor.get_fast_message_payload() {
+            // we need to parse just the payload of the wave packet
+            let fast_msg_payload = &fast_msg_payload[(HDP_HEADER_BYTE_LEN + 1 + 1)..];
+            // in this case, we do not attach the group config. The other end will decrypt payload with wave_idx = 0, group_id = group_id in header
+            packet.put_u8(1);
+            packet.put_u64(fast_msg_payload.len() as u64);
+            packet.put(fast_msg_payload);
+            packet.put(serialized_vt.as_slice());
 
+            log::info!("[FAST] len: {} | {:?}", fast_msg_payload.len(), fast_msg_payload);
+        } else {
+            packet.put_u8(0);
+            processor.group_config.inscribe_into(&mut packet);
+            packet.put(serialized_vt.as_slice());
+        }
+
+        let ref pqc = processor.pqc;
         processor.drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
         packet.freeze()
@@ -284,11 +307,14 @@ pub(crate) mod group {
 
     /// `initial_wave_window` should be set the Some if this node is ready to begin receiving the data
     /// `message`: Is appended to the end of the payload
-    /// TODO: object ID <=> wave id
+    /// `fast_msg`: If this is true, then that implies the receiver already got the message. The initiator that gets the header ack
+    /// needs to only delete the outbound container
     #[allow(unused_results)]
-    pub(crate) fn craft_group_header_ack<T: AsRef<[u8]>>(pqc: &PostQuantumContainer, object_id: u32, group_id: u64, target_cid: u64, ticket: Ticket, drill: &Drill, initial_wave_window: Option<RangeInclusive<u32>>, message: Option<T>, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_group_header_ack(pqc: &PostQuantumContainer, object_id: u32, group_id: u64, target_cid: u64, ticket: Ticket, drill: &Drill, initial_wave_window: Option<RangeInclusive<u32>>, fast_msg: bool, timestamp: i64) -> Bytes {
         const SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
         log::info!("Creating header ACK with session_cid of {}", drill.get_cid());
+        let fast_msg = if fast_msg { 1 } else { 0 };
+
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER_ACK,
@@ -303,26 +329,18 @@ pub(crate) mod group {
             target_cid: U64::new(target_cid)
         };
 
-        let ciphertext_len = if let Some(msg) = message.as_ref() {
-            msg.as_ref().len()
-        } else {
-            0
-        };
-
-        let mut packet = BytesMut::with_capacity(GROUP_HEADER_ACK_LEN + ciphertext_len);
+        let mut packet = BytesMut::with_capacity(GROUP_HEADER_ACK_LEN);
         header.inscribe_into(&mut packet);
         if let Some(initial_wave_window) = initial_wave_window {
             packet.put_u8(1);
+            packet.put_u8(fast_msg);
             packet.put_u32(*initial_wave_window.start());
             packet.put_u32(*initial_wave_window.end());
         } else {
             packet.put_u8(0);
+            packet.put_u8(fast_msg);
             packet.put_u32(0);
             packet.put_u32(0);
-        }
-
-        if ciphertext_len != 0 {
-            packet.put(message.unwrap().as_ref())
         }
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
@@ -350,8 +368,8 @@ pub(crate) mod group {
         header.inscribe_into(buffer);
         let src_port = coords.local_port;
         let remote_port = coords.remote_port;
-        assert!(src_port <= drill.get_multiport_width() as u16);
-        assert!(remote_port <= drill.get_multiport_width() as u16);
+        debug_assert!(src_port <= drill.get_multiport_width() as u16);
+        debug_assert!(remote_port <= drill.get_multiport_width() as u16);
         buffer.put_u8(src_port as u8);
         buffer.put_u8(remote_port as u8)
     }
@@ -449,7 +467,6 @@ pub(crate) mod group {
 
 pub(crate) mod do_connect {
     use bytes::{BufMut, Bytes, BytesMut};
-    use nanoserde::SerBin;
     use zerocopy::{I64, U32, U64};
 
     use ez_pqcrypto::PostQuantumContainer;
@@ -458,12 +475,13 @@ pub(crate) mod do_connect {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
-    use crate::hdp::peer::peer_layer::MailboxTransfer;
     use crate::proposed_credentials::ProposedCredentials;
+    use nanoserde::SerBin;
+    use crate::hdp::peer::peer_layer::MailboxTransfer;
 
     /// This goes from Alice to Bob. This returns a drill to ensure that it may stored for client/registration persistence
-                    ///
-                    /// /// This returns a drill in hopes that it gets stored in Alice's container
+                ///
+                /// /// This returns a drill in hopes that it gets stored in Alice's container
     #[allow(unused_results)]
     pub(crate) fn craft_stage0_packet<T: AsRef<[u8]>>(drill: &Drill, public_key: T, algorithm: u8, timestamp: i64) -> Option<Bytes> {
         let public_key = public_key.as_ref();
@@ -624,11 +642,11 @@ pub(crate) mod keep_alive {
     use bytes::Bytes;
     use zerocopy::{I64, U32, U64};
 
-    use ez_pqcrypto::PostQuantumContainer;
     use hyxe_crypt::prelude::Drill;
 
-    use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
+    use ez_pqcrypto::PostQuantumContainer;
+    use crate::constants::HDP_HEADER_BYTE_LEN;
 
     pub(crate) fn craft_keep_alive_packet(drill: &Drill, pqc: &PostQuantumContainer, timestamp: i64) -> Bytes {
         let header = HdpHeader {
@@ -664,10 +682,10 @@ pub(crate) mod do_register {
     use crate::proposed_credentials::ProposedCredentials;
 
     /// At this stage, the drill does not exist. There is no verifying such packets. The payload contains Alice's public key.
-                    ///
-                    /// Since this is sent over TCP, the size of the packet can be up to ~64k bytes
-                    ///
-                    /// We also use the NID in place of the CID because the CID only exists AFTER registration completes
+                ///
+                /// Since this is sent over TCP, the size of the packet can be up to ~64k bytes
+                ///
+                /// We also use the NID in place of the CID because the CID only exists AFTER registration completes
     pub(crate) fn craft_stage0<T: AsRef<[u8]>>(algorithm: u8, timestamp: i64, local_nid: u64, alice_public_key: T, potential_cid_alice: u64) -> Bytes {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
@@ -1289,9 +1307,8 @@ pub(crate) mod do_deregister {
 
 pub(crate) mod pre_connect {
     use bytes::{BufMut, Bytes, BytesMut};
-    use zerocopy::{I64, LayoutVerified, U32, U64};
+    use zerocopy::{I64, U32, U64, LayoutVerified};
 
-    use ez_pqcrypto::PostQuantumContainer;
     use hyxe_crypt::drill::Drill;
     use hyxe_nat::hypernode_type::HyperNodeType;
     use hyxe_nat::udp_traversal::NatTraversalMethod;
@@ -1299,6 +1316,7 @@ pub(crate) mod pre_connect {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags, packet_sizes};
     use crate::hdp::hdp_packet::packet_flags::payload_identifiers;
+    use ez_pqcrypto::PostQuantumContainer;
 
     pub(crate) fn craft_syn(latest_local_drill: &Drill, tcp_only: bool, timestamp: i64) -> Bytes {
         let tcp_only = if tcp_only {
@@ -1590,19 +1608,17 @@ pub(crate) mod pre_connect {
 }
 
 pub(crate) mod peer_cmd {
-    use bytes::{BufMut, Bytes, BytesMut};
-    use nanoserde::SerBin;
-    use zerocopy::{I64, U32, U64};
-
-    use ez_pqcrypto::PostQuantumContainer;
     use hyxe_crypt::drill::Drill;
-    use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
-
-    use crate::constants::HDP_HEADER_BYTE_LEN;
+    use bytes::{Bytes, BytesMut, BufMut};
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
-    use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+    use zerocopy::{U64, U32, I64};
     use crate::hdp::hdp_server::Ticket;
+    use crate::constants::HDP_HEADER_BYTE_LEN;
+    use ez_pqcrypto::PostQuantumContainer;
+    use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
+    use nanoserde::SerBin;
     use crate::hdp::peer::peer_layer::ChannelPacket;
+    use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 
     pub(crate) const ENDPOINT_ENCRYPTION_OFF: u64 = 0;
     /*
@@ -1692,16 +1708,14 @@ pub(crate) mod peer_cmd {
 }
 
 pub(crate) mod file {
-    use bytes::{BufMut, Bytes, BytesMut};
-    use zerocopy::{I64, U32, U64};
-
-    use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
-
-    use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::hdp::file_transfer::VirtualFileMetadata;
-    use crate::hdp::hdp_packet_processor::includes::{Drill, HdpHeader, packet_flags, PostQuantumContainer, SecurityLevel};
+    use crate::hdp::hdp_packet_processor::includes::{Drill, PostQuantumContainer, SecurityLevel, HdpHeader, packet_flags};
     use crate::hdp::hdp_server::Ticket;
     use crate::hdp::state_container::VirtualTargetType;
+    use crate::hdp::file_transfer::VirtualFileMetadata;
+    use zerocopy::{U64, U32, I64};
+    use bytes::{BytesMut, BufMut, Bytes};
+    use crate::constants::HDP_HEADER_BYTE_LEN;
+    use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
 
     pub(crate) fn craft_file_header_packet(group_start: u64, drill: &Drill, pqc: &PostQuantumContainer, ticket: Ticket, security_level: SecurityLevel, virtual_target: VirtualTargetType, file_metadata: VirtualFileMetadata, timestamp: i64) -> Bytes {
         let metadata_serialized = file_metadata.serialize();

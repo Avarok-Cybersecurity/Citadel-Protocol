@@ -354,7 +354,6 @@ impl From<hyper::http::uri::InvalidUri> for SearchError {
         SearchError::InvalidUri(err)
     }
 }
-
 #[cfg(feature = "aio")]
 impl From<tokio::time::error::Elapsed> for SearchError {
     fn from(_err: tokio::time::error::Elapsed) -> SearchError {

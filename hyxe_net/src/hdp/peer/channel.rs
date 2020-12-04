@@ -1,33 +1,30 @@
-use std::fmt::Debug;
-use std::ops::Deref;
+use crate::hdp::hdp_server::{HdpServerRemote, Ticket, HdpServerRequest};
+use hyxe_crypt::drill::SecurityLevel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-
-use futures::{Sink, Stream};
-use futures::io::Error;
-use futures::task::{Context, Poll, Waker};
-use tokio::io::AsyncWrite;
-use tokio::macros::support::Pin;
-use tokio::sync::mpsc::UnboundedReceiver;
-
-use hyxe_crypt::drill::SecurityLevel;
-use hyxe_crypt::sec_bytes::SecBuffer;
-
 use crate::error::NetworkError;
-use crate::hdp::hdp_server::{HdpServerRemote, HdpServerRequest, Ticket};
-use crate::hdp::peer::peer_layer::PeerConnectionType;
 use crate::hdp::state_container::VirtualConnectionType;
+use tokio::sync::mpsc::UnboundedReceiver;
+use futures::{Sink, Stream};
+use futures::task::{Context, Poll, Waker};
+use tokio::macros::support::Pin;
+use std::fmt::Debug;
+use crate::hdp::peer::peer_layer::PeerConnectionType;
+use tokio::io::AsyncWrite;
+use futures::io::Error;
+use std::ops::Deref;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.
 // This thus bypasses the kernel.
 #[derive(Debug)]
 pub struct PeerChannel {
     send_half: PeerChannelSendHalf,
-    recv_half: PeerChannelRecvHalf,
+    recv_half: PeerChannelRecvHalf
 }
 
 impl PeerChannel {
-    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<Vec<u8>>) -> (Self, tokio::sync::oneshot::Receiver<Waker>) {
+    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>) -> (Self, tokio::sync::oneshot::Receiver<Waker>) {
         let (waker_send, waker_recv) = tokio::sync::oneshot::channel();
         let implicated_cid = vconn_type.get_implicated_cid();
         let send_half = PeerChannelSendHalf {
@@ -146,16 +143,16 @@ impl Unpin for PeerChannelRecvHalf {}
 #[derive(Debug)]
 pub struct PeerChannelRecvHalf {
     // when the state container removes the vconn, this will get closed
-    receiver: UnboundedReceiver<Vec<u8>>,
+    receiver: UnboundedReceiver<SecBuffer>,
     target_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
     is_alive: Arc<AtomicBool>,
-    waker_send: Option<tokio::sync::oneshot::Sender<Waker>>,
+    waker_send: Option<tokio::sync::oneshot::Sender<Waker>>
 }
 
 impl Stream for PeerChannelRecvHalf {
-    type Item = Vec<u8>;
+    type Item = SecBuffer;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if !self.is_alive.load(Ordering::SeqCst) {

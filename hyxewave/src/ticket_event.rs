@@ -1,24 +1,21 @@
-use std::collections::HashMap;
-use std::pin::Pin;
-use std::sync::Arc;
-
-use futures_util::task::{Context, Poll, Waker};
-use parking_lot::Mutex;
-use tokio::stream::Stream;
-use tokio::time::Duration;
-use tokio_util::time::{delay_queue, DelayQueue};
-
 use hyxe_net::hdp::hdp_server::Ticket;
-use hyxe_net::hdp::peer::peer_layer::PeerResponse;
-
+use tokio_util::time::{delay_queue, DelayQueue};
+use tokio::time::Duration;
+use std::pin::Pin;
 use crate::console::console_context::ConsoleContext;
+use hyxe_net::hdp::peer::peer_layer::PeerResponse;
+use futures_util::task::{Poll, Context, Waker};
+use tokio::stream::Stream;
+use std::sync::Arc;
+use parking_lot::Mutex;
+use std::collections::HashMap;
 
 pub struct TrackedTicket {
     pub ticket: Ticket,
     pub key: delay_queue::Key,
     pub lifetime: Duration,
     pub implicated_cid: u64,
-    pub fx: Pin<Box<dyn Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static>>,
+    pub fx: Pin<Box<dyn Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static>>
 }
 
 unsafe impl Send for TrackedTicket {}

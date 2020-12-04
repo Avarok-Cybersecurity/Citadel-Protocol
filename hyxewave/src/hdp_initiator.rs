@@ -1,11 +1,9 @@
-use tokio::runtime::Runtime;
-
-use hyxe_net::error::NetworkError;
-use hyxe_net::kernel::kernel_executor::KernelExecutor;
-use hyxe_user::account_manager::AccountManager;
-
 use crate::app_config::AppConfig;
+use hyxe_user::account_manager::AccountManager;
+use hyxe_net::kernel::kernel_executor::KernelExecutor;
 use crate::kernel::CLIKernel;
+use hyxe_net::error::NetworkError;
+use tokio::runtime::Runtime;
 
 /// This function will BLOCK the calling thread until the runtime is done executing
 pub fn execute(config: AppConfig) -> Result<(), NetworkError> {

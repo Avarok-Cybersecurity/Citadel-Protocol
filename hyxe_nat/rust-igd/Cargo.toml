@@ -22,9 +22,9 @@ url = "2"
 log = "0.4"
 futures = { version = "0.3", optional = true }
 #tokio = { version = "0.2", optional = true, features = [ "udp", "macros" ]}
-tokio = { version = "0.3.4", path = "../../../tokio/tokio", optional = true, features = ["net", "macros"] }
+tokio = { version = "0.3.4", path = "../../../tokio/tokio", optional = true, features = [ "net", "macros" ]}
 bytes = { version = "0.5", optional = true }
-http = { version = "0.2", optional = true }
+http = {version = "0.2", optional = true }
 
 [dependencies.hyper]
 version = "0.13"

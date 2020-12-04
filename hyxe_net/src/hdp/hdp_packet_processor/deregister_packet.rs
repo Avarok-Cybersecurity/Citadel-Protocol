@@ -1,6 +1,5 @@
-use atomic::Ordering;
-
 use super::includes::*;
+use atomic::Ordering;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
 #[inline]

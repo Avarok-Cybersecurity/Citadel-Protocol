@@ -1,12 +1,12 @@
 use std::net::IpAddr;
 //use async_std::prelude::*;
 use bytes::{Bytes, BytesMut};
-use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt, Future, Stream};
-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
+use futures::{SinkExt, StreamExt, TryStreamExt, Future, Stream};
+//use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, channel, error::SendError};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
-use tokio_util::udp::UdpFramed;
 
 use ez_pqcrypto::prelude::*;
 use hyxe_crypt::drill::SecurityLevel;
@@ -236,12 +236,12 @@ impl HdpSession {
         let framed = LengthDelimitedCodec::builder()
             .length_field_offset(0) // default value
             .length_field_length(2)
-            .length_adjustment(0)   // default value
+            .length_adjustment(0) // default value
             // `num_skip` is not needed, the default is to skip
             .new_framed(tcp_stream);
         let (writer, reader) = framed.split();
 
-        let (primary_outbound_tx, primary_outbound_rx) = unbounded();
+        let (primary_outbound_tx, primary_outbound_rx) = unbounded_channel();
 
         let mut this_ref = inner_mut!(this);
 
@@ -297,7 +297,7 @@ impl HdpSession {
             if needs_close_message {
                 let result = HdpServerResult::Disconnect(ticket, cid.unwrap_or(0), false, None, reason);
                 // false indicates a D/C caused by a non-dc subroutine
-                let _ = to_kernel_tx_clone.unbounded_send(result);
+                let _ = to_kernel_tx_clone.send(result);
             }
 
             (err, cid)
@@ -317,7 +317,7 @@ impl HdpSession {
                 let alice_public_key = new_pqc.get_public_key();
 
                 let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(DEFAULT_PQC_ALGORITHM, timestamp, local_nid, alice_public_key, potential_cid_alice);
-                if let Err(err) = to_outbound.unbounded_send(stage0_register_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
+                if let Err(err) = to_outbound.send(stage0_register_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
                     return Err(err);
                 }
 
@@ -335,7 +335,7 @@ impl HdpSession {
                 let mut state_container = inner_mut!(session_ref.state_container);
                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
 
-                if let Err(err) = to_outbound.unbounded_send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
+                if let Err(err) = to_outbound.send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
                     return Err(err);
                 }
 
@@ -368,7 +368,7 @@ impl HdpSession {
 
         //log::info!("[Oneshot channel] received sockets. Now loading ...");
         let mut sinks = Vec::with_capacity(sockets.len());
-        let (outbound_sender_tx, outbound_sender_rx) = unbounded();
+        let (outbound_sender_tx, outbound_sender_rx) = unbounded_channel();
         let udp_sender = OutboundUdpSender::new(outbound_sender_tx, sockets.len());
 
         sess.to_wave_ports = Some(udp_sender.clone());
@@ -385,7 +385,9 @@ impl HdpSession {
             let local_bind_addr = socket.local_addr().unwrap();
 
             let codec = super::codec::BytesCodec::new(CODEC_BUFFER_CAPACITY);
-            let framed = UdpFramed::new(socket, codec);
+            //let framed = UdpFramed::new(socket, codec);
+            //let framed = tokio_util::codec::Framed::new(socket, codec);
+            let framed = crate::hdp::udp_framed::UdpFramed::new(socket, codec);
             let (writer, reader) = framed.split();
 
             unordered_futures.push(Self::listen_wave_port(this.clone(), to_kernel.clone(), hole_punched_addr_ip, local_bind_addr.port(), reader));
@@ -405,12 +407,17 @@ impl HdpSession {
     }
 
     async fn outbound_stream<S: SinkExt<Bytes> + Unpin>(mut primary_outbound_rx: UnboundedReceiver<Bytes>, mut writer: S) -> Result<(), NetworkError> {
+        log::info!("Executing outbound stream");
+
         while let Some(outbound_packet) = primary_outbound_rx.next().await {
-            //log::info!("outbound_stream sending object w/ {} bytes to TCP stream (using LengthDelimitedCodec)", outbound_packet.len());
+            log::info!("outbound_stream sending object w/ {} bytes to TCP stream (using LengthDelimitedCodec)", outbound_packet.len());
             if let Err(err) = writer.send(outbound_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")).await {
+                log::error!("Err: {:?}", &err);
                 return Err(err);
             }
         }
+
+        log::error!("Ending outbound stream");
 
         Err(NetworkError::InternalError("Ending"))
     }
@@ -443,9 +450,10 @@ impl HdpSession {
                 }
 
                 Some(Ok(packet)) => {
-                    //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
+                    log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
                     match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), local_primary_port, packet) {
                         PrimaryProcessorResult::ReplyToSender(return_packet) => {
+                            log::info!("Running ReplyToSender w/ packet of {} bytes", return_packet.len());
                             Self::send_to_primary_stream_closure(primary_stream, kernel_tx, return_packet, None);
                         }
 
@@ -472,8 +480,8 @@ impl HdpSession {
     }
 
     fn send_to_primary_stream_closure(to_primary_stream: &UnboundedSender<Bytes>, kernel_tx: &UnboundedSender<HdpServerResult>, msg: Bytes, ticket: Option<Ticket>) {
-        if let Err(err) = to_primary_stream.unbounded_send(msg) {
-            kernel_tx.unbounded_send(HdpServerResult::InternalServerError(ticket, err.to_string())).expect("Unable to send message to kernel ...");
+        if let Err(err) = to_primary_stream.send(msg) {
+            kernel_tx.send(HdpServerResult::InternalServerError(ticket, err.to_string())).expect("Unable to send message to kernel ...");
         }
     }
 
@@ -565,7 +573,7 @@ impl HdpSession {
                 let timestamp = this.time_tracker.get_global_time_ns();
                 let to_primary_stream = this.to_primary_stream.clone().unwrap();
                 let (group_sender, mut group_sender_rx) = channel::<GroupSenderDevice>(5);
-                let (stop_tx, stop_rx) = futures::channel::oneshot::channel();
+                let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
                 // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
 
                 log::info!("Transmit file name: {}", &file_name);
@@ -652,11 +660,11 @@ impl HdpSession {
                 // on its end to take into account
 
                 // send the FILE_HEADER
-                to_primary_stream.unbounded_send(file_header).map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
+                to_primary_stream.send(file_header).map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
                 // create the outbound file container
                 let mut state_container = inner_mut!(this.state_container);
-                let (next_gs_alerter, mut next_gs_alerter_rx) = unbounded();
-                let (start, start_rx) = futures::channel::oneshot::channel();
+                let (next_gs_alerter, mut next_gs_alerter_rx) = unbounded_channel();
+                let (start, start_rx) = tokio::sync::oneshot::channel();
                 let outbound_file_transfer_container = OutboundFileTransfer {
                     stop_tx: Some(stop_tx),
                     object_id,
@@ -889,7 +897,7 @@ impl HdpSession {
                 }
             };
 
-            to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
+            to_primary_stream.send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
         })
     }
 
@@ -915,7 +923,7 @@ impl HdpSession {
                                 if packet != KEEP_ALIVE {
                                     let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
                                     if let Err(err) = this.process_inbound_packet_wave(packet) {
-                                        to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
+                                        to_kernel.send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
                                         log::error!("The session manager returned a critical error. Aborting system");
                                         return Err(err);
                                     }
@@ -934,7 +942,7 @@ impl HdpSession {
             } else {
                 let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
                 if let Err(err) = this.process_inbound_packet_wave(packet) {
-                    to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
+                    to_kernel.send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
                     log::error!("The session manager returned a critical error. Aborting system");
                     return Err(err);
                 }
@@ -961,7 +969,7 @@ impl HdpSession {
                 log::trace!("About to send packet w/len {} through UDP sink idx: {} | Dest: {:?}", packet.len(), idx, &send_addr);
 
                 if let Err(_err) = sink.send((packet, send_addr)).await {
-                    to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(None, format!("Sink Error on idx {}", idx))).unwrap();
+                    to_kernel_tx.send(HdpServerResult::InternalServerError(None, format!("Sink Error on idx {}", idx))).unwrap();
                 }
             } else {
                 log::error!("Invalid idx: {}", idx);
@@ -1006,13 +1014,13 @@ impl HdpSession {
                             let senders = peer_vconn.sender.as_ref().unwrap();
                             if let Some(peer_udp_sender) = senders.0.as_ref() {
                                 // in this case, we can complete the movement all the way through w/ UDP
-                                if !peer_udp_sender.unbounded_send(packet.into_packet()) {
+                                if !peer_udp_sender.send(packet.into_packet()) {
                                     log::error!("[UDP] Unable to proxy WAVE packet from {} to {} (TrySendError)", this_implicated_cid, target_cid);
                                     return Ok(())
                                 }
                             } else {
                                 // in this case, while we can route from A -> S w/ UDP, going from S -> B will require TCP
-                                if let Err(_) = senders.1.unbounded_send(packet.into_packet()) {
+                                if let Err(_) = senders.1.send(packet.into_packet()) {
                                     log::error!("[TCP] Unable to proxy WAVE packet from {} to {} (TrySendError)", this_implicated_cid, target_cid);
                                     return Ok(())
                                 }
@@ -1041,7 +1049,7 @@ impl HdpSession {
                 packet_flags::cmd::primary::GROUP_PACKET => {
                     match hdp_packet_processor::wave_group_packet::process(&mut wrap_inner_mut!(this), v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
                         GroupProcessorResult::SendToKernel(ticket, concatenated_packet) => {
-                            this.send_to_kernel(HdpServerResult::DataDelivery(ticket, this_implicated_cid.unwrap(), concatenated_packet))?;
+                            this.send_to_kernel(HdpServerResult::MessageDelivery(ticket, this_implicated_cid.unwrap(), concatenated_packet))?;
                             Ok(())
                         }
 
@@ -1178,14 +1186,14 @@ impl HdpSessionInner {
 
     /// This will panic if cannot be sent
     #[inline]
-    pub fn send_to_kernel(&self, msg: HdpServerResult) -> Result<(), TrySendError<HdpServerResult>> {
-        self.kernel_tx.unbounded_send(msg)
+    pub fn send_to_kernel(&self, msg: HdpServerResult) -> Result<(), SendError<HdpServerResult>> {
+        self.kernel_tx.send(msg)
     }
 
     /// Will send the message to the primary stream, and will alert the kernel if the stream's connector is full
     pub fn send_to_primary_stream(&self, ticket: Option<Ticket>, msg: Bytes) -> Result<(), NetworkError> {
         if let Some(tx) = self.to_primary_stream.as_ref() {
-            match tx.unbounded_send(msg) {
+            match tx.send(msg) {
                 Ok(_) => {
                     Ok(())
                 }

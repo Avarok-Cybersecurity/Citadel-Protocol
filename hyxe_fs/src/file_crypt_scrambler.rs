@@ -1,21 +1,21 @@
-use std::io::{BufReader, Read};
 use std::sync::Arc;
-use std::task::Poll;
 
 use bytes::BytesMut;
 use futures::{Stream, StreamExt};
+use tokio::sync::mpsc::Sender as GroupChanneler;
+use tokio::sync::oneshot::Receiver;
 use futures::task::Context;
 use num::Integer;
 use serde::export::PhantomData;
+use std::io::{BufReader, Read};
 use tokio::macros::support::Pin;
-use tokio::sync::mpsc::Sender as GroupChanneler;
-use tokio::sync::oneshot::Receiver;
 
 use hyxe_crypt::drill::{Drill, SecurityLevel};
 use hyxe_crypt::net::crypt_splitter::{GroupSenderDevice, par_scramble_encrypt_group};
 use hyxe_crypt::prelude::{PacketVector, PostQuantumContainer};
 
 use crate::io::FsError;
+use std::task::Poll;
 
 /// The max file size is 100Mb (1024 bytes per Kb, 1024 kb per Mb, times 100)
 pub const MAX_FILE_SIZE: usize = 1024 * 1024 * 100;
@@ -85,7 +85,7 @@ async fn stopper(stop: Receiver<()>) -> Result<(), ()> {
 async fn file_streamer<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, R: Read>(group_sender: GroupChanneler<GroupSenderDevice>, mut file_scrambler: AsyncCryptScrambler<'_, F, R>) -> Result<(), ()> {
     //file_scrambler.map(Ok).forward(group_sender).await.map_err(|_| ())?;
     while let Some(sender) = file_scrambler.next().await {
-        group_sender.send(sender).await.map_err(|_| ())?;
+        group_sender.send(sender).await.map_err(|_|())?;
     }
 
     Err(())

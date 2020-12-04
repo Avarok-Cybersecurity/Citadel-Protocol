@@ -1,13 +1,12 @@
-use hyxe_crypt::sec_bytes::SecBuffer;
-use hyxe_user::client_account::HYPERLAN_IDX;
-
 use super::imports::*;
+use hyxe_user::client_account::HYPERLAN_IDX;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
     cids: Vec<u64>,
     is_onlines: Vec<bool>,
-    ticket: u64,
+    ticket: u64
 }
 
 impl From<Ticket> for PeerList {

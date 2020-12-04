@@ -1,13 +1,10 @@
-use std::convert::TryFrom;
-
-use tokio::runtime::Handle;
-
 use hyxe_net::hdp::hdp_server::HdpServerRemote;
-
 use crate::console::console_context::ConsoleContext;
-use crate::console::virtual_terminal::handle;
 use crate::console_error::ConsoleError;
-use crate::ffi::{FFIIO, KernelResponse};
+use crate::console::virtual_terminal::handle;
+use tokio::runtime::Handle;
+use crate::ffi::{KernelResponse, FFIIO};
+use std::convert::TryFrom;
 
 /// This will immediately return an answer to the caller. Any future answers will be returned
 /// via the FFI_STATIC's FFIIO

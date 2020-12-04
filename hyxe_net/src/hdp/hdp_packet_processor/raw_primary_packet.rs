@@ -1,6 +1,5 @@
-use bytes::BytesMut;
-
 use super::includes::*;
+use bytes::BytesMut;
 
 /// For primary-port packet types. NOT for wave ports
 pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut) -> PrimaryProcessorResult {

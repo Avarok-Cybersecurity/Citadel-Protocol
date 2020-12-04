@@ -1,6 +1,5 @@
-use std::pin::Pin;
-
 use futures::Future;
+use std::pin::Pin;
 use futures::task::{Context, Poll};
 
 /// Used at each HyperNode
@@ -21,7 +20,7 @@ pub mod hdp_packet_crafter;
 pub mod time;
 /// For keeping track of the stages of different processes
 pub mod state_container;
-/// Tokio codec
+/// For the custom BytesCodec that doesn't overflow
 pub mod codec;
 /// framed (temporary - only while we wait for UdpFramed for tokio_util)
 pub mod udp_framed;

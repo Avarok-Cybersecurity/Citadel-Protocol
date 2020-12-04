@@ -1,4 +1,4 @@
-#![feature(async_closure, main, try_trait)]
+#![feature(async_closure, main, try_trait, ip)]
 #![feature(test)]
 //! Core networking components for SatoriNET
 #![deny(
@@ -197,8 +197,8 @@ pub mod re_imports {
     pub use async_trait::*;
     pub use bstr::ByteSlice;
     pub use bytes::BufMut;
-    pub use futures::future::try_join3;
     pub use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+    pub use futures::future::try_join3;
 
     pub use hyxe_nat::hypernode_type::HyperNodeType;
 }

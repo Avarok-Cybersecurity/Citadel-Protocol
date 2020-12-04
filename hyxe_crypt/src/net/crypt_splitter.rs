@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bitvec::vec::BitVec;
@@ -8,12 +7,13 @@ use byteorder::{BigEndian, ReadBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
-use rayon::iter::IndexedParallelIterator;
-use rayon::prelude::*;
 
 use crate::drill::Drill;
 use crate::drill_algebra::{generate_packet_coordinates_inv, generate_packet_vector, PacketVector};
 use crate::prelude::{CryptError, PostQuantumContainer, SecurityLevel};
+use rayon::prelude::*;
+use rayon::iter::IndexedParallelIterator;
+use std::sync::Arc;
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;
@@ -50,8 +50,8 @@ pub fn calculate_aes_gcm_plaintext_length_from_ciphertext_length(ciphertext_leng
 ///
 /// Use Szudzik's function: a >= b ? a * a + a + b : a + b * b;  where a, b >= 0
 ///
-/// This doesn't actually do the job, thus TODO: Find
-fn calculate_nonce_version(a: usize, b: u64) -> usize {
+/// a = wave_id, b= group id
+pub fn calculate_nonce_version(a: usize, b: u64) -> usize {
     let b = b as usize;
     if a < b {
         a + (b * b)

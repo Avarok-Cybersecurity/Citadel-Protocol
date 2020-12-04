@@ -1,15 +1,12 @@
-use std::sync::Arc;
-
-use atomic::Ordering;
-use nanoserde::{DeBin, SerBin};
-
-use crate::functional::IfEqConditional;
-use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
-use crate::hdp::hdp_server::Ticket;
-use crate::hdp::peer::message_group::MessageGroupKey;
-use crate::inner_arg::{ExpectedInnerTarget, InnerParameter};
-
 use super::super::includes::*;
+use nanoserde::{SerBin, DeBin};
+use crate::hdp::peer::message_group::MessageGroupKey;
+use std::sync::Arc;
+use crate::hdp::hdp_server::Ticket;
+use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
+use atomic::Ordering;
+use crate::inner_arg::{InnerParameter, ExpectedInnerTarget};
+use crate::functional::IfEqConditional;
 
 #[derive(SerBin, DeBin, Debug, Clone)]
 pub enum GroupBroadcast {

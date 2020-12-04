@@ -16,10 +16,10 @@ pub const KEP_ACCEPT_REKEY: u8 = 3;
 pub enum KeyExchangeProcess {
     // alice sends public key
     Stage0(Vec<u8>),
-    // Bob sends ciphertext, and encrypted nonce
-    Stage1(Vec<u8>, Vec<u8>),
+    // Bob sends ciphertext, encrypted nonce, addr
+    Stage1(Vec<u8>, Vec<u8>, Option<String>),
     // Alice sends encrypted toolset over
-    Stage2(Vec<u8>),
+    Stage2(Vec<u8>, Option<String>),
     // Bob sends ACK
     Stage3,
     // Re-key. Should be done periodically, handled by the channel layer

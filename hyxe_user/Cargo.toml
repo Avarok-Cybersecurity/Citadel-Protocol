@@ -9,11 +9,11 @@ workspace = "../"
 
 [dependencies]
 #futures-preview = { version = "=0.3.0-alpha.19", features = ["compat", "async-await"]}
-serde = { version = "1.0.104", features = ["rc", "derive"] }
+serde = { version = "1.0.104", features=["rc", "derive"] }
 #async-std = "1.6.0-beta.2"
 #tokio = "0.2.21"
 #tokio = {version = "^0.2.22", features=["rt-core"] }
-tokio = { version = "0.3.4", path = "../../tokio/tokio", features = ["rt"] }
+tokio = {version = "0.3.4", path = "../../tokio/tokio", features=["rt"] }
 random = "0.12.2"
 async-trait = "0.1.11"
 crossbeam-utils = "0.7.2"

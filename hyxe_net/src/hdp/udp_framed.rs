@@ -1,12 +1,11 @@
+use tokio::{net::UdpSocket, stream::Stream};
+use tokio_util::codec::{Encoder, Decoder};
+use bytes::{BufMut, BytesMut};
+use futures::sink::Sink;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-
-use bytes::{BufMut, BytesMut};
-use futures::sink::Sink;
-use tokio::{net::UdpSocket, stream::Stream};
-use tokio_util::codec::{Decoder, Encoder};
 
 /// A unified `Stream` and `Sink` interface to an underlying `UdpSocket`, using
 /// the `Encoder` and `Decoder` traits to encode and decode frames.
