@@ -152,6 +152,7 @@ impl ConsoleContext {
             // this task will automatically be dropped once the underlying virtual-conn in the state container gets dropped
             // it receives an empty vec upon drop
             while let Some(message) = peer_channel_rx.next().await {
+                let message = message.into_buffer();
                 if message.is_empty() {
                     break;
                 }

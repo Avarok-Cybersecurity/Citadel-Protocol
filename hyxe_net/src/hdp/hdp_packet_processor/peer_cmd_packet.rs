@@ -7,6 +7,7 @@ use crate::hdp::peer::peer_crypt::{KEP_STAGE1, KeyExchangeProcess, PeerSessionCr
 use hyxe_crypt::toolset::Toolset;
 use crate::constants::DEFAULT_PQC_ALGORITHM;
 use crate::macros::SessionBorrow;
+use std::str::FromStr;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
@@ -34,11 +35,11 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
             if !session.is_server {
                 // forward the signal to the kernel, with some exceptions.
                 match &signal {
-                    // the connection was mutually accepted. Now, we must begin the KEM subroutine
                     PeerSignal::PostConnect(conn,_, resp) => {
                         if let Some(resp) = resp {
+                            // the connection was mutually accepted. Now, we must begin the KEM subroutine
                             match resp {
-                                // the accept
+                                // the accept case
                                 PeerResponse::Accept(_) => {
                                     match conn {
                                         PeerConnectionType::HyperLANPeerToHyperLANPeer(original_implicated_cid, original_target_cid) => {
@@ -101,7 +102,7 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
                                 ThreadRng::default().fill_bytes(&mut nonce);
                                 // store the toolset + pqc inside the state container's vconn for later use
                                 let nonce_transfer = Vec::from(&nonce as &[u8]);
-                                let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage1(bob_ciphertext, nonce_transfer));
+                                let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage1(bob_ciphertext, nonce_transfer, None));
 
                                 let mut state_container_kem = PeerKemStateContainer::default();
                                 state_container_kem.pqc = Some(bob_pqc);
@@ -119,7 +120,7 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
                                 PrimaryProcessorResult::ReplyToSender(stage1_kem)
                             }
 
-                            KeyExchangeProcess::Stage1(bob_ciphertext, nonce) => {
+                            KeyExchangeProcess::Stage1(bob_ciphertext, nonce, Some(bob_public_addr)) => {
                                 // Here, we finalize the creation of the pqc for alice, and then, generate the new toolset
                                 // The toolset gets encrypted to ensure the central server doesn't see the toolset. This is
                                 // to combat a "chinese communist hijack" scenario wherein a rogue government takes over our
@@ -142,7 +143,9 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
                                 // now, register the loaded PQC + toolset into the virtual conn
                                 let peer_crypto = PeerSessionCrypto::new(pqc, toolset);
                                 let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
-                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(security_level, ticket, peer_cid, vconn_type, peer_crypto);
+                                let bob_socket_addr = SocketAddr::from_str(bob_public_addr.as_str()).ok()?;
+                                log::info!("[STUN] Peer public addr: {:?}", &bob_socket_addr);
+                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(bob_socket_addr, security_level, ticket, peer_cid, vconn_type, peer_crypto);
                                 // dont send the channel until the other end creates it. When the other end gets it, it will send an ACK.
                                 // Even if they send data while the ACK is in transit, the channel's receiver will get enqueued
                                 kem_state.channel = Some(channel);
@@ -150,7 +153,7 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
                                 log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
 
                                 // now that the virtual connection is created on this end, we need to do the same to the other end
-                                let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage2(encrypted_toolset));
+                                let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage2(encrypted_toolset, None));
                                 std::mem::drop(state_container);
                                 let pqc = session.post_quantum.as_ref()?;
                                 let latest_drill = session.cnac.as_ref()?.get_drill(None)?;
@@ -159,7 +162,7 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
                                 PrimaryProcessorResult::ReplyToSender(stage2_kem_packet)
                             }
 
-                            KeyExchangeProcess::Stage2(encrypted_toolset) => {
+                            KeyExchangeProcess::Stage2(encrypted_toolset, Some(alice_public_addr)) => {
                                 // In order to get the toolset's bytes, we need to decrypt it using the pqc we have stored in our state container
                                 log::info!("RECV STAGE 2 PEER KEM");
                                 let peer_cid = conn.get_original_implicated_cid();
@@ -180,7 +183,9 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
                                 let peer_crypto = PeerSessionCrypto::new(bob_pqc, toolset);
                                 // create an endpoint vconn
                                 let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
-                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(security_level, ticket, peer_cid, vconn_type, peer_crypto);
+                                let alice_socket_addr = SocketAddr::from_str(alice_public_addr.as_str()).ok()?;
+                                log::info!("[STUN] Peer public addr: {:?}", &alice_socket_addr);
+                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(alice_socket_addr, security_level, ticket, peer_cid, vconn_type, peer_crypto);
 
                                 log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
                                 // send ack. But first, send the channel to the kernel to the kernel
@@ -237,7 +242,18 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
 #[inline]
 fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: PeerSignal, ticket: Ticket, session: InnerParameterMut<K, HdpSessionInner>, drill: Drill, _header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64) -> PrimaryProcessorResult {
     match signal {
-        PeerSignal::Kem(conn, kep) => {
+        PeerSignal::Kem(conn, mut kep) => {
+            // before just routing the signals, we also need to add socket information into intercepted stage1 and stage2 signals
+            // to allow for STUN-like NAT traversal
+            let socket_addr = session.remote_peer.to_string();
+            match &mut kep {
+                KeyExchangeProcess::Stage1(_, _, val) | KeyExchangeProcess::Stage2(_, val)=> {
+                    *val = Some(socket_addr);
+                }
+
+                 _ => {}
+            }
+
             // since this is the server, we just need to route this to the target_cid
             let sess_mgr = inner!(session.session_manager);
             let signal_to = PeerSignal::Kem(conn, kep);
@@ -346,7 +362,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
                                         // The UDP senders may not exist (e.g., TCP only mode)
                                         let this_udp_sender = this_sess_state_container.udp_sender.clone();
                                         let peer_udp_sender = peer_sess_state_container.udp_sender.clone();
-                                                // rel to this local sess, the key = target_cid, then (implicated_cid, target_cid)
+                                        // rel to this local sess, the key = target_cid, then (implicated_cid, target_cid)
                                         let virtual_conn_relative_to_this = VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid);
                                         let virtual_conn_relative_to_peer = VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
                                         this_sess_state_container.insert_new_virtual_connection(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender);

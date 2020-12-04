@@ -164,7 +164,7 @@ pub(crate) mod group {
     use zerocopy::LayoutVerified;
 
     use ez_pqcrypto::PostQuantumContainer;
-    use hyxe_crypt::net::crypt_splitter::GROUP_RECEIVER_INSCRIBE_LEN;
+    use hyxe_crypt::net::crypt_splitter::{GROUP_RECEIVER_INSCRIBE_LEN, calculate_nonce_version};
     use hyxe_crypt::net::crypt_splitter::GroupReceiverConfig;
     use hyxe_crypt::prelude::Drill;
 
@@ -172,8 +172,9 @@ pub(crate) mod group {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::error::NetworkError;
     use crate::hdp::hdp_packet::{HdpHeader, packet_sizes};
-    use crate::hdp::hdp_packet::packet_sizes::{GROUP_HEADER_ACK_LEN, GROUP_HEADER_PAYLOAD_LEN};
+    use crate::hdp::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
     use crate::hdp::state_container::VirtualTargetType;
+    use hyxe_crypt::sec_bytes::SecBuffer;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
     pub(crate) fn validate<'a, 'b: 'a>(drill: &Drill, pqc: &PostQuantumContainer, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
@@ -183,26 +184,58 @@ pub(crate) mod group {
         Some(payload.freeze())
     }
 
-    pub(crate) fn validate_header(_header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(GroupReceiverConfig, VirtualTargetType)> {
-        if payload.len() < GROUP_HEADER_PAYLOAD_LEN {
+    pub(crate) enum GroupHeader {
+        Standard(GroupReceiverConfig, VirtualTargetType),
+        FastMessage(SecBuffer, VirtualTargetType)
+    }
+
+    pub(crate) fn validate_header(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], drill: &Drill, pqc: &PostQuantumContainer) -> Option<GroupHeader> {
+        if payload.len() < 1 {
             None
         } else {
-            let start_idx = 0;
-            let end_idx = start_idx + GROUP_RECEIVER_INSCRIBE_LEN;
-            let group_receiver_config = GroupReceiverConfig::try_from_bytes(&payload[start_idx..end_idx])?;
-            if group_receiver_config.plaintext_length > hyxe_user::prelude::MAX_BYTES_PER_GROUP {
-                log::error!("The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");
-                None
+            let mut reader = payload.reader();
+            let fast_msg = reader.read_u8().ok()? == 1;
+            if fast_msg {
+                log::info!("FAST");
+                let message_len = reader.read_u64::<BigEndian>().ok()? as usize;
+                //let payload = reader.into_inner();
+                // are there enough remaining bytes in the payload?
+                if payload.len().saturating_sub(1 + 8) > message_len {
+                    let message_end_idx = 1 + 8 + message_len;
+                    let message_ciphertext = &payload[(1 + 8)..message_end_idx];
+                    log::info!("[FAST] len: {} | {:?}", message_len, message_ciphertext);
+                    let plaintext = drill.aes_gcm_decrypt(calculate_nonce_version(0, header.group.get()), pqc, message_ciphertext).ok()?;
+                    let vconn = VirtualTargetType::deserialize_from(&payload[message_end_idx..])?;
+
+                    Some(GroupHeader::FastMessage(SecBuffer::from(plaintext), vconn))
+                } else {
+                    // bad packet
+                    log::warn!("Bad FAST_MSG header");
+                    return None;
+                }
+
             } else {
-                // Now, get the virtual target
-                let target = VirtualTargetType::deserialize_from(&payload[end_idx..])?;
-                Some((group_receiver_config, target))
+                let start_idx = 1;
+                let end_idx = start_idx + GROUP_RECEIVER_INSCRIBE_LEN;
+                if end_idx < payload.len() {
+                    let group_receiver_config = GroupReceiverConfig::try_from_bytes(&payload[start_idx..end_idx])?;
+                    if group_receiver_config.plaintext_length > hyxe_user::prelude::MAX_BYTES_PER_GROUP {
+                        log::error!("The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");
+                        None
+                    } else {
+                        // Now, get the virtual target
+                        let vconn = VirtualTargetType::deserialize_from(&payload[end_idx..])?;
+                        Some(GroupHeader::Standard(group_receiver_config, vconn))
+                    }
+                } else {
+                    None
+                }
             }
         }
     }
 
     /// Returns None if the packet is invalid. Returns Some(is_ready_to_accept) if the packet is valid
-    pub(crate) fn validate_header_ack(payload: &[u8]) -> Option<(bool, RangeInclusive<u32>, Option<Vec<u8>>)> {
+    pub(crate) fn validate_header_ack(payload: &[u8]) -> Option<(bool, RangeInclusive<u32>, bool)> {
         if payload.len() < GROUP_HEADER_ACK_LEN - HDP_HEADER_BYTE_LEN {
             log::error!("Invalid HEADER ACK payload len");
             return None;
@@ -210,19 +243,11 @@ pub(crate) mod group {
 
         let mut reader = payload.reader();
         let ready_to_accept = reader.read_u8().ok()? == 1;
+        let fast_msg = reader.read_u8().ok()? == 1;
         let window_start = reader.read_u32::<BigEndian>().ok()?;
         let window_end = reader.read_u32::<BigEndian>().ok()?;
 
-        // up to this point, all the previous bytes are assured.
-        // note: the reader's into_inner returns a pointer that has moved w.r.t. the original payload ptr
-        let remaining_payload = reader.into_inner();
-        let message_opt = if remaining_payload.len() != 0 {
-            Some(remaining_payload.to_vec())
-        } else {
-            None
-        };
-
-        Some((ready_to_accept, window_start..=window_end, message_opt))
+        Some((ready_to_accept, window_start..=window_end, fast_msg))
     }
 
     pub(crate) fn validate_window_tail(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<RangeInclusive<u32>> {

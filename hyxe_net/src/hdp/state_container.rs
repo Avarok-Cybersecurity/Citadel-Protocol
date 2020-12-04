@@ -18,7 +18,7 @@ use crate::error::NetworkError;
 use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::GroupTransmitter;
-use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
+use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr};
 use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
 use crate::hdp::outbound_sender::OutboundUdpSender;
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
@@ -132,11 +132,13 @@ pub(crate) struct VirtualConnection {
     pub(crate) endpoint_container: Option<EndpointChannelContainer>
 }
 
+#[allow(dead_code)]
 pub(crate) struct EndpointChannelContainer {
     pub(crate) endpoint_crypto: PeerSessionCrypto,
-    to_channel: UnboundedSender<Vec<u8>>,
+    to_channel: UnboundedSender<SecBuffer>,
     waker_recv: tokio::sync::oneshot::Receiver<Waker>,
     waker: Option<Waker>,
+    pub(crate) peer_socket_addr: SocketAddr,
     pub(crate) rolling_group_id: u64,
     pub(crate) rolling_object_id: u32
 }
@@ -159,7 +161,7 @@ impl Drop for VirtualConnection {
         if let Some(mut endpoint_container) = self.endpoint_container.take() {
             // next, since the is_active field is false, send an empty vec through the channel
             // in order to wake the receiving end, thus causing a poll, thus ending it
-            if let Err(_) = endpoint_container.to_channel.unbounded_send(Vec::with_capacity(0)) {}
+            if let Err(_) = endpoint_container.to_channel.unbounded_send(SecBuffer::empty()) {}
             // and close the sender half
             endpoint_container.to_channel.close_channel();
             // finally, wake to ensure the receiving end stops it async subroutine
@@ -452,7 +454,7 @@ impl StateContainerInner {
     }
 
     #[allow(unused_results)]
-    pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, security_level: SecurityLevel, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto) -> PeerChannel {
+    pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, peer_socket_addr: SocketAddr, security_level: SecurityLevel, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let is_alive = Arc::new(AtomicBool::new(true));
 
@@ -464,6 +466,7 @@ impl StateContainerInner {
             to_channel: channel_tx,
             waker_recv,
             waker: None,
+            peer_socket_addr,
             rolling_object_id: 1,
             rolling_group_id: 0
         });
@@ -504,7 +507,7 @@ impl StateContainerInner {
         }
     }
 
-    pub fn forward_data_to_channel_as_endpoint(&mut self, peer_cid: u64, data: Vec<u8>) -> bool {
+    pub fn forward_data_to_channel_as_endpoint(&mut self, peer_cid: u64, data: SecBuffer) -> bool {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(channel) = vconn.endpoint_container.as_mut() {
                 return match channel.to_channel.unbounded_send(data) {
@@ -973,7 +976,7 @@ impl StateContainerInner {
     ///
     /// `v_src_port` and `v_local_port`: the relative index, not the actual port
     #[allow(unused_results)]
-    pub fn on_group_payload_packet_received(&mut self, v_src_port: u16, v_local_port: u16, pqc: &PostQuantumContainer, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], time_tracker: &TimeTracker, to_primary_stream: &UnboundedSender<Bytes>, drill: &Drill) -> Result<Option<(Ticket, VirtualTargetType, SecurityLevel, Vec<u8>)>, NetworkError> {
+    pub fn on_group_payload_packet_received(&mut self, v_src_port: u16, v_local_port: u16, pqc: &PostQuantumContainer, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], time_tracker: &TimeTracker, to_primary_stream: &UnboundedSender<Bytes>, drill: &Drill) -> Result<Option<(Ticket, VirtualTargetType, SecurityLevel, SecBuffer)>, NetworkError> {
         log::trace!("State container is processing group payload packet. Required drill v{} | given: v{}", header.drill_version.get(), drill.get_version());
 
         // using the same logic described in on_window_tail_received:
@@ -1086,7 +1089,7 @@ impl StateContainerInner {
                 Ok(None)
             } else {
                 // a group singleton (a message)
-                Ok(Some((group_receiver_final.ticket, group_receiver_final.virtual_target, group_receiver_final.security_level, group_receiver_final.receiver.finalize())))
+                Ok(Some((group_receiver_final.ticket, group_receiver_final.virtual_target, group_receiver_final.security_level, group_receiver_final.receiver.finalize().into())))
             }
         } else {
             Ok(None)

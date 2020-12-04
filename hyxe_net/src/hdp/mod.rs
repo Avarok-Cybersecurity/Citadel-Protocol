@@ -20,7 +20,7 @@ pub mod hdp_packet_crafter;
 pub mod time;
 /// For keeping track of the stages of different processes
 pub mod state_container;
-/// Tokio codec
+/// For the custom BytesCodec that doesn't overflow
 pub mod codec;
 /// For organizing the stage containers
 pub mod state_subcontainers;

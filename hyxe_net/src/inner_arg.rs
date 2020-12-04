@@ -43,6 +43,8 @@ pub struct InnerParameter<'a, T: 'a + ?Sized, K> {
 
 pub trait ExpectedInnerTarget<K> where Self: Deref<Target=K> {}
 
+impl<K> ExpectedInnerTarget<K> for std::cell::Ref<'_, K> {}
+impl<K> ExpectedInnerTarget<K> for parking_lot::RwLockReadGuard<'_, K> {}
 impl<K> ExpectedInnerTarget<K> for std::cell::RefMut<'_, K> {}
 impl<K> ExpectedInnerTarget<K> for parking_lot::RwLockWriteGuard<'_, K> {}
 

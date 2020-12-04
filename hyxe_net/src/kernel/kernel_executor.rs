@@ -66,6 +66,7 @@ impl<K: NetKernel + 'static> KernelExecutor<K> {
             }
 
             let kernel = kernel.clone();
+            // Ensure that we don't block further calls to next().await, and offload the task to the tokio runtime
             let _ = tokio::task::spawn(async move { kernel.on_server_message_received(message).await });
         }
 

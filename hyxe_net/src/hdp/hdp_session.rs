@@ -1041,7 +1041,7 @@ impl HdpSession {
                 packet_flags::cmd::primary::GROUP_PACKET => {
                     match hdp_packet_processor::wave_group_packet::process(&mut wrap_inner_mut!(this), v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
                         GroupProcessorResult::SendToKernel(ticket, concatenated_packet) => {
-                            this.send_to_kernel(HdpServerResult::DataDelivery(ticket, this_implicated_cid.unwrap(), concatenated_packet))?;
+                            this.send_to_kernel(HdpServerResult::MessageDelivery(ticket, this_implicated_cid.unwrap(), concatenated_packet))?;
                             Ok(())
                         }
 

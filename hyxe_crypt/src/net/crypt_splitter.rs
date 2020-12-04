@@ -51,8 +51,8 @@ pub fn calculate_aes_gcm_plaintext_length_from_ciphertext_length(ciphertext_leng
 ///
 /// Use Szudzik's function: a >= b ? a * a + a + b : a + b * b;  where a, b >= 0
 ///
-/// This doesn't actually do the job, thus TODO: Find
-fn calculate_nonce_version(a: usize, b: u64) -> usize {
+/// a = wave_id, b= group id
+pub fn calculate_nonce_version(a: usize, b: u64) -> usize {
     let b = b as usize;
     if a < b {
         a + (b * b)

@@ -144,10 +144,8 @@ pub(crate) mod packet_sizes {
     use crate::constants::HDP_HEADER_BYTE_LEN;
 
     /// Group packets
-        /// 20 bytes are added for a u64, u64, and u32 security parameter
-    pub(crate) const GROUP_HEADER_PAYLOAD_LEN: usize = hyxe_crypt::net::crypt_splitter::GROUP_RECEIVER_INSCRIBE_LEN;
-    pub(crate) const GROUP_HEADER_BASE_LEN: usize = HDP_HEADER_BYTE_LEN + GROUP_HEADER_PAYLOAD_LEN;
-    pub(crate) const GROUP_HEADER_ACK_LEN: usize = HDP_HEADER_BYTE_LEN + 1 + 4;
+    pub(crate) const GROUP_HEADER_BASE_LEN: usize = HDP_HEADER_BYTE_LEN + 1;
+    pub(crate) const GROUP_HEADER_ACK_LEN: usize = HDP_HEADER_BYTE_LEN + 1 + 1 + 4 + 4;
     /// + 16 bytes for an 8-byte, 4-byte security parameter, and the end of the window
     pub(crate) const GROUP_WINDOW_TAIL_LEN: usize = HDP_HEADER_BYTE_LEN + 4;
 

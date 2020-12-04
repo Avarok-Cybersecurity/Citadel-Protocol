@@ -124,6 +124,16 @@ impl GroupTransmitter {
         group::craft_group_header_packet(self, virtual_target)
     }
 
+    /// Sometimes, we only need a single packet to represent the data. When this happens, we don't scramble
+    /// and instead place the ciphertext into the payload of the GROUP_HEADER
+    pub(super) fn get_fast_message_payload(&mut self) -> Option<Bytes> {
+        if self.group_config.packets_needed == 1 {
+            Some(inner_mut!(self.group_transmitter).get_next_packet().unwrap().packet)
+        } else {
+            None
+        }
+    }
+
     /// Determines how many packets are in the current wave
     pub fn get_packets_in_current_wave(&self) -> usize {
         self.group_config.get_packet_count_in_wave(self.current_wave)
@@ -216,16 +226,31 @@ impl GroupTransmitter {
             let mut transmitter = inner_mut!(transmitter);
             if let Some(packets) = transmitter.get_next_packets(packets_needed) {
                 std::mem::drop(transmitter);
+                /*
                 debug_assert_eq!(packets.len(), packets_needed);
                 if let Err(_) = to_primary_stream.send_all(&mut tokio::stream::iter(packets.into_iter().map(|packet| Ok(packet.packet)).collect::<Vec<Result<Bytes, futures::channel::mpsc::SendError>>>())).await {
                     log::error!("Unable to send_all stream through TCP channel");
+                }*/
+                if !to_primary_stream.is_closed() {
+                    for packet in packets {
+                        if let Err(_) = to_primary_stream.start_send(packet.packet) {
+                            log::error!("[TCP] [FILE] Unable to send_all stream through TCP channel");
+                            break;
+                        }
+                    }
+
+                    if let Err(_) = to_primary_stream.flush().await {
+                        log::error!("[TCP] [FILE] Unable to flush stream through TCP channel");
+                    }
+                } else {
+                    log::error!("[TCP] [FILE] Primary stream closed");
                 }
             } else {
                 log::error!("Unable to load all packets");
             }
         });
 
-        log::info!("Group {} has been transmitted", self.group_id);
+        log::info!("Group {} has begun transmission", self.group_id);
         true
     }
 }
@@ -249,7 +274,6 @@ pub(crate) mod group {
 
     // TODO: all GROUP packets require a target_cid. If target_cid != 0, then the packet will get proxied
     pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType) -> Bytes {
-        let ref pqc = processor.pqc;
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER,
@@ -267,9 +291,24 @@ pub(crate) mod group {
         let serialized_vt = virtual_target.serialize();
         let mut packet = BytesMut::with_capacity(packet_sizes::GROUP_HEADER_BASE_LEN + serialized_vt.len());
         header.inscribe_into(&mut packet);
-        processor.group_config.inscribe_into(&mut packet);
-        packet.put(serialized_vt.as_slice());
+        // first byte in the payload goes to the bool "fast_msg"
+        if let Some(fast_msg_payload) = processor.get_fast_message_payload() {
+            // we need to parse just the payload of the wave packet
+            let fast_msg_payload = &fast_msg_payload[(HDP_HEADER_BYTE_LEN + 1 + 1)..];
+            // in this case, we do not attach the group config. The other end will decrypt payload with wave_idx = 0, group_id = group_id in header
+            packet.put_u8(1);
+            packet.put_u64(fast_msg_payload.len() as u64);
+            packet.put(fast_msg_payload);
+            packet.put(serialized_vt.as_slice());
 
+            log::info!("[FAST] len: {} | {:?}", fast_msg_payload.len(), fast_msg_payload);
+        } else {
+            packet.put_u8(0);
+            processor.group_config.inscribe_into(&mut packet);
+            packet.put(serialized_vt.as_slice());
+        }
+
+        let ref pqc = processor.pqc;
         processor.drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
         packet.freeze()
@@ -277,11 +316,14 @@ pub(crate) mod group {
 
     /// `initial_wave_window` should be set the Some if this node is ready to begin receiving the data
     /// `message`: Is appended to the end of the payload
-    /// TODO: object ID <=> wave id
+    /// `fast_msg`: If this is true, then that implies the receiver already got the message. The initiator that gets the header ack
+    /// needs to only delete the outbound container
     #[allow(unused_results)]
-    pub(crate) fn craft_group_header_ack<T: AsRef<[u8]>>(pqc: &PostQuantumContainer, object_id: u32, group_id: u64, target_cid: u64, ticket: Ticket, drill: &Drill, initial_wave_window: Option<RangeInclusive<u32>>, message: Option<T>, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_group_header_ack(pqc: &PostQuantumContainer, object_id: u32, group_id: u64, target_cid: u64, ticket: Ticket, drill: &Drill, initial_wave_window: Option<RangeInclusive<u32>>, fast_msg: bool, timestamp: i64) -> Bytes {
         const SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
         log::info!("Creating header ACK with session_cid of {}", drill.get_cid());
+        let fast_msg = if fast_msg { 1 } else { 0 };
+
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER_ACK,
@@ -296,26 +338,18 @@ pub(crate) mod group {
             target_cid: U64::new(target_cid)
         };
 
-        let ciphertext_len = if let Some(msg) = message.as_ref() {
-            msg.as_ref().len()
-        } else {
-            0
-        };
-
-        let mut packet = BytesMut::with_capacity(GROUP_HEADER_ACK_LEN + ciphertext_len);
+        let mut packet = BytesMut::with_capacity(GROUP_HEADER_ACK_LEN);
         header.inscribe_into(&mut packet);
         if let Some(initial_wave_window) = initial_wave_window {
             packet.put_u8(1);
+            packet.put_u8(fast_msg);
             packet.put_u32(*initial_wave_window.start());
             packet.put_u32(*initial_wave_window.end());
         } else {
             packet.put_u8(0);
+            packet.put_u8(fast_msg);
             packet.put_u32(0);
             packet.put_u32(0);
-        }
-
-        if ciphertext_len != 0 {
-            packet.put(message.unwrap().as_ref())
         }
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
@@ -343,8 +377,8 @@ pub(crate) mod group {
         header.inscribe_into(buffer);
         let src_port = coords.local_port;
         let remote_port = coords.remote_port;
-        assert!(src_port <= drill.get_multiport_width() as u16);
-        assert!(remote_port <= drill.get_multiport_width() as u16);
+        debug_assert!(src_port <= drill.get_multiport_width() as u16);
+        debug_assert!(remote_port <= drill.get_multiport_width() as u16);
         buffer.put_u8(src_port as u8);
         buffer.put_u8(remote_port as u8)
     }
