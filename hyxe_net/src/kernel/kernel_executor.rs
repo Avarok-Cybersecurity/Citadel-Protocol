@@ -1,13 +1,13 @@
-use futures::channel::mpsc::{unbounded, UnboundedReceiver};
 use futures::StreamExt;
+use tokio::net::ToSocketAddrs;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 
+use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_user::account_manager::AccountManager;
 
-use crate::kernel::kernel::NetKernel;
 use crate::error::NetworkError;
 use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult};
-use hyxe_nat::hypernode_type::HyperNodeType;
-use tokio::net::ToSocketAddrs;
+use crate::kernel::kernel::NetKernel;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
@@ -20,7 +20,7 @@ pub struct KernelExecutor<K: NetKernel> {
 impl<K: NetKernel + 'static> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
     pub async fn new<T: ToSocketAddrs + std::net::ToSocketAddrs>(hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T) -> Result<Self, NetworkError> {
-        let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
+        let (server_to_kernel_tx, server_to_kernel_rx) = unbounded_channel();
         let server = HdpServer::new(hypernode_type, server_to_kernel_tx, bind_addr, account_manager).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
         Ok(Self { server, server_remote: None, server_to_kernel_rx: Some(server_to_kernel_rx), kernel })
     }

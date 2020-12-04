@@ -29,7 +29,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         let write = ctx.sessions.write();
         if write.contains_key(&cid) {
             let request = HdpServerRequest::DeregisterFromHypernode(cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(cid));
-            let ticket = server_remote.unbounded_send(request);
+            let ticket = server_remote.send(request);
             std::mem::drop(write);
             let username = username.to_string();
 

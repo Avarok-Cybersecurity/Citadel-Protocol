@@ -197,8 +197,8 @@ pub mod re_imports {
     pub use async_trait::*;
     pub use bstr::ByteSlice;
     pub use bytes::BufMut;
-    pub use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
     pub use futures::future::try_join3;
+    pub use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
     pub use hyxe_nat::hypernode_type::HyperNodeType;
 }

@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::hint::black_box;
 use std::pin::Pin;
+use std::sync::atomic::AtomicBool;
 
 use async_trait::async_trait;
-use futures_util::core_reexport::sync::atomic::AtomicBool;
 use futures_util::future::Future;
 use futures_util::stream::FuturesUnordered;
 use futures_util::TryStreamExt;
@@ -12,6 +12,7 @@ use tokio::stream::StreamExt;
 use tokio::time::Instant;
 
 use hyxe_net::error::NetworkError;
+use hyxe_net::functional::IfEqConditional;
 use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
 use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
 use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerResult, Ticket};
@@ -32,7 +33,6 @@ use crate::constants::INVALID_UTF8;
 use crate::ffi::{DomainResponse, FFIIO, KernelResponse};
 use crate::mail::IncomingPeerRequest;
 use crate::ticket_event::TicketQueueHandler;
-use hyxe_net::functional::IfEqConditional;
 
 #[allow(dead_code)]
 pub struct CLIKernel {
@@ -551,7 +551,7 @@ async fn loopback_future(tcp_addr: Option<SocketAddr>) -> Result<(), ConsoleErro
     if let Some(tcp_addr) = tcp_addr {
         printf_ln!(colour::yellow!("Creating loopback address on {}:{}", tcp_addr.ip(), tcp_addr.port()));
         let mut listener = TcpListener::bind(tcp_addr).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-        while let Some(inbound) = listener.incoming().next().await {
+        while let Some(inbound) = listener.next().await {
             match inbound {
                 Ok(_stream) => {
                     // TODO: When data comes inbound, figure out a way to universally parse it. Then, send it as a command, get the ticket, and correlate the ticket

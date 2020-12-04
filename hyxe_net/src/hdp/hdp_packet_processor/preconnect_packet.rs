@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 use tokio::net::UdpSocket;
 
 use hyxe_crypt::drill_update::DrillUpdateObject;
@@ -10,7 +12,6 @@ use crate::constants::{DEFAULT_PQC_ALGORITHM, HOLE_PUNCH_SYNC_TIME_MULTIPLIER, M
 use crate::hdp::nat_handler::determine_initial_nat_method;
 
 use super::includes::*;
-use std::sync::atomic::Ordering;
 
 /// Handles preconnect packets. Handles the NAT traversal
 /// TODO: Note to future programmers. This source file is not the cleanest, and in my opinion the dirtiest file in the entire codebase.
@@ -92,28 +93,33 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
                     let ticket = session.kernel_ticket;
                     let local_bind_addr = session.local_bind_addr.ip();
 
-                    match LinearUDPHolePuncher::reserve_new_udp_sockets((MULTIPORT_END - MULTIPORT_START) as usize, local_bind_addr.to_string()) {
-                        Ok(reserved_sockets) => {
-                            let ref reserved_local_wave_ports = reserved_sockets.iter().map(|sck| sck.local_addr().unwrap().port()).collect::<Vec<u16>>();
+                    if tcp_only {
+                        let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_base_drill, local_node_type, &Vec::with_capacity(0), timestamp);
+                        state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
+                        let _ = session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!"));
+                        let _ = session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!1"));
+                        let _ = session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!2"));
+                        // test
+                        PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet)
+                    } else {
+                        match LinearUDPHolePuncher::reserve_new_udp_sockets((MULTIPORT_END - MULTIPORT_START) as usize, local_bind_addr.to_string()) {
+                            Ok(reserved_sockets) => {
+                                let ref reserved_local_wave_ports = reserved_sockets.iter().map(|sck| sck.local_addr().unwrap().port()).collect::<Vec<u16>>();
 
-                            let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_base_drill, local_node_type, reserved_local_wave_ports, timestamp);
-
-                            if tcp_only {
-                                state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                            } else {
+                                let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_base_drill, local_node_type, reserved_local_wave_ports, timestamp);
                                 // store these sockets for later use
                                 state_container.pre_connect_state.reserved_sockets = Some(reserved_sockets);
                                 state_container.pre_connect_state.ticket = Some(ticket);
                                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::STAGE1;
                                 state_container.pre_connect_state.on_packet_received();
+
+                                PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet)
                             }
 
-                            PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet)
-                        }
-
-                        Err(err) => {
-                            log::error!("Unable to reserve local sockets. Reason: {}", err.to_string());
-                            PrimaryProcessorResult::EndSession("Unable to reserve local sockets")
+                            Err(err) => {
+                                log::error!("Unable to reserve local sockets. Reason: {}", err.to_string());
+                                PrimaryProcessorResult::EndSession("Unable to reserve local sockets")
+                            }
                         }
                     }
                 } else {
@@ -536,7 +542,7 @@ fn handle_nat_traversal_as_receiver(session: HdpSession, drill: Drill, method: N
 
 #[allow(unused_results)]
 async fn handle_nat_traversal_as_receiver_inner(session: HdpSession, drill: Drill, method: NatTraversalMethod, sync_time: Instant, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>) {
-    tokio::time::delay_until(sync_time).await;
+    tokio::time::sleep_until(sync_time).await;
     log::info!("Synchronize time reached. Executing hole punch subroutine ...");
     let mut hole_puncher = LinearUDPHolePuncher::new_receiver(inner!(session).local_node_type);
 
@@ -618,7 +624,7 @@ fn handle_nat_traversal_as_initiator(session: HdpSession, drill: Drill, method: 
 #[allow(unused_results)]
 async fn handle_nat_traversal_as_initiator_inner(session: HdpSession, drill: Drill, method: NatTraversalMethod, sync_time: Option<Instant>, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>) {
     if let Some(sync_time) = sync_time {
-        tokio::time::delay_until(sync_time).await;
+        tokio::time::sleep_until(sync_time).await;
     }
 
     log::info!("Synchronize time reached. Executing hole punch subroutine ...");

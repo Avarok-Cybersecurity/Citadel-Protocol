@@ -1,0 +1,3001 @@
+Index: rsntp/src/lib.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/rsntp/src/lib.rs b/rsntp/src/lib.rs
+--- a/rsntp/src/lib.rs	(date 1607014575089)
++++ b/rsntp/src/lib.rs	(date 1607014575089)
+@@ -241,7 +241,7 @@
+     ) -> Result<SynchronizationResult, SynchroniztationError> {
+         let mut receive_buffer = [0; Packet::ENCODED_LEN];
+ 
+-        let mut socket = tokio::net::UdpSocket::bind(self.bind_address).await?;
++        let socket = tokio::net::UdpSocket::bind(self.bind_address).await?;
+         socket
+             .connect(server_address.to_server_addrs(SNTP_PORT))
+             .await?;
+Index: rsntp/Cargo.toml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/rsntp/Cargo.toml b/rsntp/Cargo.toml
+--- a/rsntp/Cargo.toml	(date 1607013956708)
++++ b/rsntp/Cargo.toml	(date 1607013956708)
+@@ -17,4 +17,5 @@
+ 
+ [dependencies]
+ chrono = "^0.4.10"
+-tokio = { version = "0.2.22", features = ["udp", "dns", "time"], optional = true }
+\ No newline at end of file
++#tokio = { version = "0.2.22", features = ["udp", "dns", "time"], optional = true }
++tokio = { version = "^0.3.5", features = ["net", "time"], optional = true }
+\ No newline at end of file
+Index: hyxe_fs/src/file_crypt_scrambler.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_fs/src/file_crypt_scrambler.rs b/hyxe_fs/src/file_crypt_scrambler.rs
+--- a/hyxe_fs/src/file_crypt_scrambler.rs	(date 1607022983507)
++++ b/hyxe_fs/src/file_crypt_scrambler.rs	(date 1607022983507)
+@@ -1,9 +1,9 @@
+ use std::sync::Arc;
+ 
+ use bytes::BytesMut;
+-use futures::{SinkExt, Stream, StreamExt};
+-use futures::channel::mpsc::Sender as GroupChanneler;
+-use futures::channel::oneshot::Receiver;
++use futures::{Stream, StreamExt};
++use tokio::sync::mpsc::Sender as GroupChanneler;
++use tokio::sync::oneshot::Receiver;
+ use futures::task::Context;
+ use num::Integer;
+ use serde::export::PhantomData;
+@@ -82,8 +82,12 @@
+     Err(())
+ }
+ 
+-async fn file_streamer<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, R: Read>(group_sender: GroupChanneler<GroupSenderDevice>, file_scrambler: AsyncCryptScrambler<'_, F, R>) -> Result<(), ()> {
+-    file_scrambler.map(Ok).forward(group_sender.sink_map_err(|_| ())).await.map_err(|_| ())?;
++async fn file_streamer<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, R: Read>(group_sender: GroupChanneler<GroupSenderDevice>, mut file_scrambler: AsyncCryptScrambler<'_, F, R>) -> Result<(), ()> {
++    //file_scrambler.map(Ok).forward(group_sender).await.map_err(|_| ())?;
++    while let Some(sender) = file_scrambler.next().await {
++        group_sender.send(sender).await.map_err(|_|())?;
++    }
++
+     Err(())
+ }
+ 
+Index: hyxe_fs/Cargo.toml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_fs/Cargo.toml b/hyxe_fs/Cargo.toml
+--- a/hyxe_fs/Cargo.toml	(date 1607034920094)
++++ b/hyxe_fs/Cargo.toml	(date 1607034920094)
+@@ -20,11 +20,12 @@
+ chrono = "0.4.7"
+ rand = "0.7.0"
+ zerocopy = "0.2.8"
+-bytes = "0.5.4"
++bytes = "0.6.0"
+ futures = "0.3.5"
+ #futures-preview = { version = "=0.3.0-alpha.19", features = ["compat", "async-await"]}
+ log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_error"] }
+-tokio = { version = "^0.2.22", features = ["fs", "rt-threaded", "macros"] }
++#tokio = { version = "^0.2.22", features = ["fs", "rt-threaded", "macros"] }
++tokio = { version = "^0.3.5", features = ["fs", "rt", "macros"] }
+ env_logger = "0.7.1"
+ hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0" }
+ 
+Index: hyxe_nat/src/udp_traversal/linear/method3.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_nat/src/udp_traversal/linear/method3.rs b/hyxe_nat/src/udp_traversal/linear/method3.rs
+--- a/hyxe_nat/src/udp_traversal/linear/method3.rs	(date 1607016287298)
++++ b/hyxe_nat/src/udp_traversal/linear/method3.rs	(date 1607016287298)
+@@ -1,10 +1,9 @@
+-use std::io::Write;
+ use std::iter::FromIterator;
+ use std::net::SocketAddr;
+ 
+ use async_trait::async_trait;
++use std::io::Write;
+ use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
+-use bytes::buf::BufMutExt;
+ use tokio::net::UdpSocket;
+ use tokio::stream::StreamExt;
+ use tokio::time::Duration;
+@@ -13,6 +12,7 @@
+ use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
+ use crate::udp_traversal::linear::{LinearUdpHolePunchImpl, RelativeNodeType};
+ use crate::udp_traversal::linear::nat_payloads::{SYN, SYN_ACK};
++use bytes::BufMut;
+ 
+ /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL
+ // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf
+@@ -148,7 +148,7 @@
+         // to finish its side of processing
+         if !endpoints[0].ip().is_global() {
+             log::info!("Delaying for initiator in a non-global network environment ...");
+-            tokio::time::delay_for(Duration::from_millis(100)).await;
++            tokio::time::sleep(Duration::from_millis(100)).await;
+         }
+ 
+         Ok(hole_punched_addrs)
+Index: hyxe_nat/rust-igd/src/errors.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_nat/rust-igd/src/errors.rs b/hyxe_nat/rust-igd/src/errors.rs
+--- a/hyxe_nat/rust-igd/src/errors.rs	(date 1607014681652)
++++ b/hyxe_nat/rust-igd/src/errors.rs	(date 1607014681652)
+@@ -70,8 +70,8 @@
+ }
+ 
+ #[cfg(feature = "aio")]
+-impl From<tokio::time::Error> for RequestError {
+-    fn from(_err: tokio::time::Error) -> RequestError {
++impl From<tokio::time::error::Error> for RequestError {
++    fn from(_err: tokio::time::error::Error) -> RequestError {
+         RequestError::IoError(io::Error::new(io::ErrorKind::TimedOut, "timer failed"))
+     }
+ }
+@@ -355,8 +355,8 @@
+     }
+ }
+ #[cfg(feature = "aio")]
+-impl From<tokio::time::Elapsed> for SearchError {
+-    fn from(_err: tokio::time::Elapsed) -> SearchError {
++impl From<tokio::time::error::Elapsed> for SearchError {
++    fn from(_err: tokio::time::error::Elapsed) -> SearchError {
+         SearchError::IoError(io::Error::new(io::ErrorKind::TimedOut, "search timed out"))
+     }
+ }
+Index: hyxe_nat/rust-igd/Cargo.toml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_nat/rust-igd/Cargo.toml b/hyxe_nat/rust-igd/Cargo.toml
+--- a/hyxe_nat/rust-igd/Cargo.toml	(date 1607013956691)
++++ b/hyxe_nat/rust-igd/Cargo.toml	(date 1607013956691)
+@@ -21,7 +21,8 @@
+ url = "2"
+ log = "0.4"
+ futures = { version = "0.3", optional = true }
+-tokio = { version = "0.2", optional = true, features = [ "udp", "macros" ]}
++#tokio = { version = "0.2", optional = true, features = [ "udp", "macros" ]}
++tokio = { version = "^0.3.5", optional = true, features = [ "net", "macros" ]}
+ bytes = { version = "0.5", optional = true }
+ http = {version = "0.2", optional = true }
+ 
+Index: hyxe_nat/Cargo.toml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_nat/Cargo.toml b/hyxe_nat/Cargo.toml
+--- a/hyxe_nat/Cargo.toml	(date 1607014906814)
++++ b/hyxe_nat/Cargo.toml	(date 1607014906814)
+@@ -9,10 +9,11 @@
+ 
+ [dependencies]
+ igd = { path = "./rust-igd", features = ["aio"] }
+-tokio = { version = "^0.2.22", features = ["macros", "rt-util", "time", "net"] }
++#tokio = { version = "^0.2.22", features = ["macros", "rt-util", "time", "net"] }
++tokio = { version = "^0.3.5", features = ["macros", "rt", "time", "net"] }
+ futures = "0.3.5"
+ async-trait = "0.1.36"
+-bytes = "0.5.6"
++bytes = "0.6.0"
+ byteorder = "1.3.4"
+ rsntp = { path = "../rsntp", features = ["async"], version = "1.0.1" }
+ whoami = "0.9.0"
+Index: hyxe_net/src/hdp/peer/channel.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/peer/channel.rs b/hyxe_net/src/hdp/peer/channel.rs
+--- a/hyxe_net/src/hdp/peer/channel.rs	(date 1607025562229)
++++ b/hyxe_net/src/hdp/peer/channel.rs	(date 1607025562229)
+@@ -4,7 +4,7 @@
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use crate::error::NetworkError;
+ use crate::hdp::state_container::VirtualConnectionType;
+-use futures::channel::mpsc::UnboundedReceiver;
++use tokio::sync::mpsc::UnboundedReceiver;
+ use futures::{Sink, Stream};
+ use futures::task::{Context, Poll, Waker};
+ use tokio::macros::support::Pin;
+@@ -170,15 +170,14 @@
+                     Poll::Pending
+                 }
+             } else {
+-                match self.receiver.try_next() {
+-                    Ok(Some(data)) => Poll::Ready(Some(data)),
++                match self.receiver.try_recv() {
++                    Ok(data) => Poll::Ready(Some(data)),
+                     Err(_) => {
+                         // when the stream yields Some, it will get polled again.
+                         // when that occurs, try_next likely returns None and
+                         // we need to signal for Pending to be awoken again
+                         Poll::Pending
+                     }
+-                    _ => Poll::Pending
+                 }
+             }
+         }
+Index: hyxe_net/src/hdp/peer/peer_layer.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/peer/peer_layer.rs b/hyxe_net/src/hdp/peer/peer_layer.rs
+--- a/hyxe_net/src/hdp/peer/peer_layer.rs	(date 1607016541855)
++++ b/hyxe_net/src/hdp/peer/peer_layer.rs	(date 1607016541855)
+@@ -2,7 +2,8 @@
+ use nanoserde::{SerBin, DeBin};
+ use crate::hdp::file_transfer::VirtualFileMetadata;
+ use crate::hdp::hdp_server::Ticket;
+-use tokio::time::{delay_queue, DelayQueue, Error};
++use tokio::time::error::Error;
++use tokio_util::time::{delay_queue, DelayQueue};
+ use crate::constants::PEER_EVENT_MAILBOX_SIZE;
+ use crate::error::NetworkError;
+ use std::pin::Pin;
+Index: hyxe_net/src/hdp/mod.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/mod.rs b/hyxe_net/src/hdp/mod.rs
+--- a/hyxe_net/src/hdp/mod.rs	(date 1607018149213)
++++ b/hyxe_net/src/hdp/mod.rs	(date 1607018149213)
+@@ -22,6 +22,8 @@
+ pub mod state_container;
+ /// For the custom BytesCodec that doesn't overflow
+ pub mod codec;
++/// framed (temporary - only while we wait for UdpFramed for tokio_util)
++pub mod udp_framed;
+ /// For organizing the stage containers
+ pub mod state_subcontainers;
+ /// A cloneable handle for sending data through UDP ports
+Index: hyxe_net/src/hdp/hdp_server.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_server.rs b/hyxe_net/src/hdp/hdp_server.rs
+--- a/hyxe_net/src/hdp/hdp_server.rs	(date 1607025726365)
++++ b/hyxe_net/src/hdp/hdp_server.rs	(date 1607025726365)
+@@ -6,8 +6,8 @@
+ use nanoserde::{SerBin, DeBin};
+ 
+ use std::net::SocketAddr;
+-use futures::{StreamExt, Sink, SinkExt};
+-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, SendError};
++use futures::{StreamExt, Sink};
++use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, error::SendError};
+ use futures::try_join;
+ use log::info;
+ use net2::TcpStreamExt;
+@@ -104,7 +104,7 @@
+         write.shutdown_signaller = Some(shutdown_signaller);
+ 
+ 
+-        let (outbound_send_request_tx, outbound_send_request_rx) = unbounded(); // for the Hdp remote
++        let (outbound_send_request_tx, outbound_send_request_rx) = unbounded_channel(); // for the Hdp remote
+         // Load the writer
+         load_into_runtime!(handle, Self::outbound_kernel_request_handler(this.clone(), kernel_tx.clone(), outbound_send_request_rx));
+         let remote = HdpServerRemote::new(outbound_send_request_tx);
+@@ -157,18 +157,19 @@
+         Ok(())
+     }
+ 
++    /// This is where incoming connections begin their processing
+     async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, mut socket: TcpListener) -> Result<(), NetworkError> {
+-        while let Some(stream) = socket.incoming().next().await {
++        while let Some(stream) = socket.next().await {
+             match stream {
+                 Ok(stream) => {
+                     match stream.peer_addr() {
+                         Ok(peer_addr) => {
+                             stream.set_linger(Some(tokio::time::Duration::from_secs(0))).unwrap();
+-                            stream.set_keepalive(None).unwrap();
++                            //stream.set_keepalive(None).unwrap();
+                             //stream.set_nodelay(true).unwrap();
+                             // the below closure spawns a new future on the tokio thread pool
+                             if let Err(err) = session_manager.process_new_inbound_connection(peer_addr, stream) {
+-                                to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, format!("HDP Server dropping connection to {}. Reason: {}", peer_addr, err.to_string())))?;
++                                to_kernel.send(HdpServerResult::InternalServerError(None, format!("HDP Server dropping connection to {}. Reason: {}", peer_addr, err.to_string())))?;
+                             }
+ 
+                         }
+@@ -211,7 +212,7 @@
+             match outbound_request {
+                 HdpServerRequest::SendMessage(packet, implicated_cid, virtual_target, security_level) => {
+                     if let Err(err) =  session_manager.process_outbound_packet(ticket_id, packet, implicated_cid, virtual_target, security_level) {
+-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
++                        if let Err(_) = to_kernel_tx.send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
+                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                         }
+                     }
+@@ -219,7 +220,7 @@
+ 
+                 HdpServerRequest::GroupBroadcastCommand(implicated_cid, cmd) => {
+                     if let Err(err) =  session_manager.process_outbound_broadcast_command(ticket_id, implicated_cid, cmd) {
+-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
++                        if let Err(_) = to_kernel_tx.send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
+                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                         }
+                     }
+@@ -227,7 +228,7 @@
+ 
+                 HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm) => {
+                     if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, SecurityLevel::LOW, None, quantum_algorithm, None).await {
+-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
++                        if let Err(_) = to_kernel_tx.send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
+                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                         }
+                     }
+@@ -235,7 +236,7 @@
+ 
+                 HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, hdp_nodelay, quantum_algorithm, tcp_only) => {
+                     if let Err(err) = session_manager.initiate_connection(local_node_type,(local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, hdp_nodelay, quantum_algorithm, tcp_only).await {
+-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
++                        if let Err(_) = to_kernel_tx.send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
+                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                         }
+                     }
+@@ -243,7 +244,7 @@
+ 
+                 HdpServerRequest::DisconnectFromHypernode(implicated_cid, target) => {
+                     if let Err(err) = session_manager.initiate_disconnect(implicated_cid, target, ticket_id) {
+-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
++                        if let Err(_) = to_kernel_tx.send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
+                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                         }
+                     }
+@@ -251,7 +252,7 @@
+ 
+                 HdpServerRequest::UpdateDrill(implicated_cid) => {
+                     if !session_manager.initiate_update_drill_subroutine(implicated_cid, ticket_id) {
+-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
++                        if let Err(_) = to_kernel_tx.send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
+                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                         }
+                     }
+@@ -259,7 +260,7 @@
+ 
+                 HdpServerRequest::DeregisterFromHypernode(implicated_cid, virtual_connection_type) => {
+                     if !session_manager.initiate_deregistration_subroutine(implicated_cid, virtual_connection_type, ticket_id) {
+-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
++                        if let Err(_) = to_kernel_tx.send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
+                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                         }
+                     }
+@@ -267,7 +268,7 @@
+ 
+                 HdpServerRequest::PeerCommand(implicated_cid, peer_command) => {
+                     if !session_manager.dispatch_peer_command(implicated_cid, ticket_id, peer_command) {
+-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
++                        if let Err(_) = to_kernel_tx.send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
+                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                         }
+                     }
+@@ -275,7 +276,7 @@
+ 
+                 HdpServerRequest::SendFile(path, chunk_size, implicated_cid, virtual_target) => {
+                     if let Err(err) = session_manager.process_outbound_file(ticket_id, chunk_size, path, implicated_cid, virtual_target, SecurityLevel::LOW) {
+-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
++                        if let Err(_) = to_kernel_tx.send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
+                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                         }
+                     }
+@@ -322,22 +323,24 @@
+     /// Sends a request to the HDP server. This should always be used to communicate with the server
+     /// in order to obtain a ticket
+     /// TODO: get rid of the unwrap
+-    pub fn unbounded_send(&self, request: HdpServerRequest) -> Ticket {
++    #[allow(unused_must_use)]
++    pub fn send(&self, request: HdpServerRequest) -> Ticket {
+         let ticket = self.get_next_ticket();
+-        self.outbound_send_request_tx.unbounded_send((request, ticket)).unwrap();
++        self.outbound_send_request_tx.send((request, ticket));
+         ticket
+     }
+ 
+     /// Especially used to keep track of a conversation (b/c a certain ticket number may be expected)
++    #[allow(unused_must_use)]
+     pub fn send_with_custom_ticket(&self, ticket: Ticket, request: HdpServerRequest) {
+-        self.outbound_send_request_tx.unbounded_send((request, ticket)).unwrap()
++        self.outbound_send_request_tx.send((request, ticket));
+     }
+ 
+     /// Safely shutsdown the internal server
+     pub fn shutdown(&self) -> io::Result<()> {
+         let ticket = self.get_next_ticket();
+-        let _ = self.outbound_send_request_tx.unbounded_send((HdpServerRequest::Shutdown, ticket));
+-        Ok(())
++        self.outbound_send_request_tx.send((HdpServerRequest::Shutdown, ticket))
++            .map_err(|_err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Network disconnected"))
+     }
+ 
+     pub fn is_closed(&self) -> bool {
+@@ -352,10 +355,10 @@
+ impl Unpin for HdpServerRemote {}
+ 
+ impl Sink<(Ticket, HdpServerRequest)> for HdpServerRemote {
+-    type Error = SendError;
++    type Error = SendError<(Ticket, HdpServerRequest)>;
+ 
+-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+-        self.get_mut().outbound_send_request_tx.poll_ready_unpin(cx)
++    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
++        Poll::Ready(Ok(()))
+     }
+ 
+     fn start_send(self: Pin<&mut Self>, item: (Ticket, HdpServerRequest)) -> Result<(), Self::Error> {
+Index: hyxe_net/src/hdp/udp_framed.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/udp_framed.rs b/hyxe_net/src/hdp/udp_framed.rs
+new file mode 100644
+--- /dev/null	(date 1607018474423)
++++ b/hyxe_net/src/hdp/udp_framed.rs	(date 1607018474423)
+@@ -0,0 +1,179 @@
++use tokio::{net::UdpSocket, stream::Stream};
++use tokio_util::codec::{Encoder, Decoder};
++use bytes::{BufMut, BytesMut};
++use futures::sink::Sink;
++use std::io;
++use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
++use std::pin::Pin;
++use std::task::{Context, Poll};
++
++/// A unified `Stream` and `Sink` interface to an underlying `UdpSocket`, using
++/// the `Encoder` and `Decoder` traits to encode and decode frames.
++///
++/// Raw UDP sockets work with datagrams, but higher-level code usually wants to
++/// batch these into meaningful chunks, called "frames". This method layers
++/// framing on top of this socket by using the `Encoder` and `Decoder` traits to
++/// handle encoding and decoding of messages frames. Note that the incoming and
++/// outgoing frame types may be distinct.
++///
++/// This function returns a *single* object that is both `Stream` and `Sink`;
++/// grouping this into a single object is often useful for layering things which
++/// require both read and write access to the underlying object.
++///
++/// If you want to work more directly with the streams and sink, consider
++/// calling `split` on the `UdpFramed` returned by this method, which will break
++/// them into separate objects, allowing them to interact more easily.
++#[must_use = "sinks do nothing unless polled"]
++#[cfg_attr(docsrs, doc(all(feature = "codec", feature = "udp")))]
++#[derive(Debug)]
++pub struct UdpFramed<C> {
++    socket: UdpSocket,
++    codec: C,
++    rd: BytesMut,
++    wr: BytesMut,
++    out_addr: SocketAddr,
++    flushed: bool,
++}
++
++impl<C: Decoder + Unpin> Stream for UdpFramed<C> {
++    type Item = Result<(C::Item, SocketAddr), C::Error>;
++
++    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
++        let pin = self.get_mut();
++
++        pin.rd.reserve(INITIAL_RD_CAPACITY);
++
++        let (_n, addr) = unsafe {
++            // Read into the buffer without having to initialize the memory.
++            //
++            // safety: we know tokio::net::UdpSocket never reads from the memory
++            // during a recv
++            let res = {
++                let bytes = &mut *(pin.rd.bytes_mut() as *mut _ as *mut [u8]);
++                //futures::ready!(Pin::new(&mut pin.socket).poll_recv_from(cx, bytes))
++                pin.socket.try_recv_from(bytes)
++            };
++
++            let (n, addr) = res?;
++            pin.rd.advance_mut(n);
++            (n, addr)
++        };
++
++        let frame_res = pin.codec.decode(&mut pin.rd);
++        pin.rd.clear();
++        let frame = frame_res?;
++        let result = frame.map(|frame| Ok((frame, addr))); // frame -> (frame, addr)
++
++        Poll::Ready(result)
++    }
++}
++
++impl<I, C: Encoder<I> + Unpin> Sink<(I, SocketAddr)> for UdpFramed<C> {
++    type Error = C::Error;
++
++    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
++        if !self.flushed {
++            match self.poll_flush(cx)? {
++                Poll::Ready(()) => {}
++                Poll::Pending => return Poll::Pending,
++            }
++        }
++
++        Poll::Ready(Ok(()))
++    }
++
++    fn start_send(self: Pin<&mut Self>, item: (I, SocketAddr)) -> Result<(), Self::Error> {
++        let (frame, out_addr) = item;
++
++        let pin = self.get_mut();
++
++        pin.codec.encode(frame, &mut pin.wr)?;
++        pin.out_addr = out_addr;
++        pin.flushed = false;
++
++        Ok(())
++    }
++
++    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
++        if self.flushed {
++            return Poll::Ready(Ok(()));
++        }
++
++        let Self {
++            ref mut socket,
++            ref mut out_addr,
++            ref mut wr,
++            ..
++        } = *self;
++
++        let n = futures::ready!(socket.poll_send_to(cx, &wr, &out_addr))?;
++
++        let wrote_all = n == self.wr.len();
++        self.wr.clear();
++        self.flushed = true;
++
++        let res = if wrote_all {
++            Ok(())
++        } else {
++            Err(io::Error::new(
++                io::ErrorKind::Other,
++                "failed to write entire datagram to socket",
++            )
++                .into())
++        };
++
++        Poll::Ready(res)
++    }
++
++    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
++        futures::ready!(self.poll_flush(cx))?;
++        Poll::Ready(Ok(()))
++    }
++}
++
++const INITIAL_RD_CAPACITY: usize = 64 * 1024;
++const INITIAL_WR_CAPACITY: usize = 8 * 1024;
++
++impl<C> UdpFramed<C> {
++    /// Create a new `UdpFramed` backed by the given socket and codec.
++    ///
++    /// See struct level documentation for more details.
++    pub fn new(socket: UdpSocket, codec: C) -> UdpFramed<C> {
++        UdpFramed {
++            socket,
++            codec,
++            out_addr: SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)),
++            rd: BytesMut::with_capacity(INITIAL_RD_CAPACITY),
++            wr: BytesMut::with_capacity(INITIAL_WR_CAPACITY),
++            flushed: true,
++        }
++    }
++
++    /// Returns a reference to the underlying I/O stream wrapped by `Framed`.
++    ///
++    /// # Note
++    ///
++    /// Care should be taken to not tamper with the underlying stream of data
++    /// coming in as it may corrupt the stream of frames otherwise being worked
++    /// with.
++    pub fn get_ref(&self) -> &UdpSocket {
++        &self.socket
++    }
++
++    /// Returns a mutable reference to the underlying I/O stream wrapped by
++    /// `Framed`.
++    ///
++    /// # Note
++    ///
++    /// Care should be taken to not tamper with the underlying stream of data
++    /// coming in as it may corrupt the stream of frames otherwise being worked
++    /// with.
++    pub fn get_mut(&mut self) -> &mut UdpSocket {
++        &mut self.socket
++    }
++
++    /// Consumes the `Framed`, returning its underlying I/O stream.
++    pub fn into_inner(self) -> UdpSocket {
++        self.socket
++    }
++}
+\ No newline at end of file
+Index: hyxe_net/src/hdp/validation.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/validation.rs b/hyxe_net/src/hdp/validation.rs
+--- a/hyxe_net/src/hdp/validation.rs	(date 1607016819047)
++++ b/hyxe_net/src/hdp/validation.rs	(date 1607016819047)
+@@ -159,8 +159,7 @@
+     use std::ops::RangeInclusive;
+ 
+     use byteorder::{BigEndian, ByteOrder, ReadBytesExt};
+-    use bytes::{Bytes, BytesMut};
+-    use bytes::buf::BufExt;
++    use bytes::{Buf, Bytes, BytesMut};
+     use zerocopy::LayoutVerified;
+ 
+     use ez_pqcrypto::PostQuantumContainer;
+Index: hyxe_net/src/hdp/hdp_session.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_session.rs b/hyxe_net/src/hdp/hdp_session.rs
+--- a/hyxe_net/src/hdp/hdp_session.rs	(date 1607037486131)
++++ b/hyxe_net/src/hdp/hdp_session.rs	(date 1607037486131)
+@@ -1,12 +1,12 @@
+ use std::net::IpAddr;
+ //use async_std::prelude::*;
+ use bytes::{Bytes, BytesMut};
+-use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt, Future, Stream};
+-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
++use futures::{SinkExt, StreamExt, TryStreamExt, Future, Stream};
++//use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
++use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, channel, error::SendError};
+ use tokio::net::{TcpStream, UdpSocket};
+ use tokio::time::Instant;
+ use tokio_util::codec::LengthDelimitedCodec;
+-use tokio_util::udp::UdpFramed;
+ 
+ use ez_pqcrypto::prelude::*;
+ use hyxe_crypt::drill::SecurityLevel;
+@@ -241,7 +241,7 @@
+             .new_framed(tcp_stream);
+         let (writer, reader) = framed.split();
+ 
+-        let (primary_outbound_tx, primary_outbound_rx) = unbounded();
++        let (primary_outbound_tx, primary_outbound_rx) = unbounded_channel();
+ 
+         let mut this_ref = inner_mut!(this);
+ 
+@@ -297,7 +297,7 @@
+             if needs_close_message {
+                 let result = HdpServerResult::Disconnect(ticket, cid.unwrap_or(0), false, None, reason);
+                 // false indicates a D/C caused by a non-dc subroutine
+-                let _ = to_kernel_tx_clone.unbounded_send(result);
++                let _ = to_kernel_tx_clone.send(result);
+             }
+ 
+             (err, cid)
+@@ -317,7 +317,7 @@
+                 let alice_public_key = new_pqc.get_public_key();
+ 
+                 let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(DEFAULT_PQC_ALGORITHM, timestamp, local_nid, alice_public_key, potential_cid_alice);
+-                if let Err(err) = to_outbound.unbounded_send(stage0_register_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
++                if let Err(err) = to_outbound.send(stage0_register_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
+                     return Err(err);
+                 }
+ 
+@@ -335,7 +335,7 @@
+                 let mut state_container = inner_mut!(session_ref.state_container);
+                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
+ 
+-                if let Err(err) = to_outbound.unbounded_send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
++                if let Err(err) = to_outbound.send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
+                     return Err(err);
+                 }
+ 
+@@ -368,7 +368,7 @@
+ 
+         //log::info!("[Oneshot channel] received sockets. Now loading ...");
+         let mut sinks = Vec::with_capacity(sockets.len());
+-        let (outbound_sender_tx, outbound_sender_rx) = unbounded();
++        let (outbound_sender_tx, outbound_sender_rx) = unbounded_channel();
+         let udp_sender = OutboundUdpSender::new(outbound_sender_tx, sockets.len());
+ 
+         sess.to_wave_ports = Some(udp_sender.clone());
+@@ -385,7 +385,9 @@
+             let local_bind_addr = socket.local_addr().unwrap();
+ 
+             let codec = super::codec::BytesCodec::new(CODEC_BUFFER_CAPACITY);
+-            let framed = UdpFramed::new(socket, codec);
++            //let framed = UdpFramed::new(socket, codec);
++            //let framed = tokio_util::codec::Framed::new(socket, codec);
++            let framed = crate::hdp::udp_framed::UdpFramed::new(socket, codec);
+             let (writer, reader) = framed.split();
+ 
+             unordered_futures.push(Self::listen_wave_port(this.clone(), to_kernel.clone(), hole_punched_addr_ip, local_bind_addr.port(), reader));
+@@ -405,13 +407,22 @@
+     }
+ 
+     async fn outbound_stream<S: SinkExt<Bytes> + Unpin>(mut primary_outbound_rx: UnboundedReceiver<Bytes>, mut writer: S) -> Result<(), NetworkError> {
++        log::info!("Executing outbound stream");
++        /*writer.send_all(&mut primary_outbound_rx.map(|res| Ok(res)).into_stream()).await.map_err(|_err| {
++            log::error!("ERR OUS");
++            NetworkError::InternalError("Outbound stream died")
++        })?;*/
++        use futures::TryFutureExt;
+         while let Some(outbound_packet) = primary_outbound_rx.next().await {
+-            //log::info!("outbound_stream sending object w/ {} bytes to TCP stream (using LengthDelimitedCodec)", outbound_packet.len());
++            log::info!("outbound_stream sending object w/ {} bytes to TCP stream (using LengthDelimitedCodec)", outbound_packet.len());
+             if let Err(err) = writer.send(outbound_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")).await {
++                log::error!("Err: {:?}", &err);
+                 return Err(err);
+             }
+         }
+ 
++        log::error!("Ending outbound stream");
++
+         Err(NetworkError::InternalError("Ending"))
+     }
+ 
+@@ -443,9 +454,10 @@
+                 }
+ 
+                 Some(Ok(packet)) => {
+-                    //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
++                    log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
+                     match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), local_primary_port, packet) {
+                         PrimaryProcessorResult::ReplyToSender(return_packet) => {
++                            log::info!("Running ReplyToSender w/ packet of {} bytes", return_packet.len());
+                             Self::send_to_primary_stream_closure(primary_stream, kernel_tx, return_packet, None);
+                         }
+ 
+@@ -472,8 +484,8 @@
+     }
+ 
+     fn send_to_primary_stream_closure(to_primary_stream: &UnboundedSender<Bytes>, kernel_tx: &UnboundedSender<HdpServerResult>, msg: Bytes, ticket: Option<Ticket>) {
+-        if let Err(err) = to_primary_stream.unbounded_send(msg) {
+-            kernel_tx.unbounded_send(HdpServerResult::InternalServerError(ticket, err.to_string())).expect("Unable to send message to kernel ...");
++        if let Err(err) = to_primary_stream.send(msg) {
++            kernel_tx.send(HdpServerResult::InternalServerError(ticket, err.to_string())).expect("Unable to send message to kernel ...");
+         }
+     }
+ 
+@@ -565,7 +577,7 @@
+                 let timestamp = this.time_tracker.get_global_time_ns();
+                 let to_primary_stream = this.to_primary_stream.clone().unwrap();
+                 let (group_sender, mut group_sender_rx) = channel::<GroupSenderDevice>(5);
+-                let (stop_tx, stop_rx) = futures::channel::oneshot::channel();
++                let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+                 // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
+ 
+                 log::info!("Transmit file name: {}", &file_name);
+@@ -652,11 +664,11 @@
+                 // on its end to take into account
+ 
+                 // send the FILE_HEADER
+-                to_primary_stream.unbounded_send(file_header).map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
++                to_primary_stream.send(file_header).map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
+                 // create the outbound file container
+                 let mut state_container = inner_mut!(this.state_container);
+-                let (next_gs_alerter, mut next_gs_alerter_rx) = unbounded();
+-                let (start, start_rx) = futures::channel::oneshot::channel();
++                let (next_gs_alerter, mut next_gs_alerter_rx) = unbounded_channel();
++                let (start, start_rx) = tokio::sync::oneshot::channel();
+                 let outbound_file_transfer_container = OutboundFileTransfer {
+                     stop_tx: Some(stop_tx),
+                     object_id,
+@@ -889,7 +901,7 @@
+                 }
+             };
+ 
+-            to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
++            to_primary_stream.send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
+         })
+     }
+ 
+@@ -915,7 +927,7 @@
+                                 if packet != KEEP_ALIVE {
+                                     let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
+                                     if let Err(err) = this.process_inbound_packet_wave(packet) {
+-                                        to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
++                                        to_kernel.send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
+                                         log::error!("The session manager returned a critical error. Aborting system");
+                                         return Err(err);
+                                     }
+@@ -934,7 +946,7 @@
+             } else {
+                 let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
+                 if let Err(err) = this.process_inbound_packet_wave(packet) {
+-                    to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
++                    to_kernel.send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
+                     log::error!("The session manager returned a critical error. Aborting system");
+                     return Err(err);
+                 }
+@@ -961,7 +973,7 @@
+                 log::trace!("About to send packet w/len {} through UDP sink idx: {} | Dest: {:?}", packet.len(), idx, &send_addr);
+ 
+                 if let Err(_err) = sink.send((packet, send_addr)).await {
+-                    to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(None, format!("Sink Error on idx {}", idx))).unwrap();
++                    to_kernel_tx.send(HdpServerResult::InternalServerError(None, format!("Sink Error on idx {}", idx))).unwrap();
+                 }
+             } else {
+                 log::error!("Invalid idx: {}", idx);
+@@ -1006,13 +1018,13 @@
+                             let senders = peer_vconn.sender.as_ref().unwrap();
+                             if let Some(peer_udp_sender) = senders.0.as_ref() {
+                                 // in this case, we can complete the movement all the way through w/ UDP
+-                                if !peer_udp_sender.unbounded_send(packet.into_packet()) {
++                                if !peer_udp_sender.send(packet.into_packet()) {
+                                     log::error!("[UDP] Unable to proxy WAVE packet from {} to {} (TrySendError)", this_implicated_cid, target_cid);
+                                     return Ok(())
+                                 }
+                             } else {
+                                 // in this case, while we can route from A -> S w/ UDP, going from S -> B will require TCP
+-                                if let Err(_) = senders.1.unbounded_send(packet.into_packet()) {
++                                if let Err(_) = senders.1.send(packet.into_packet()) {
+                                     log::error!("[TCP] Unable to proxy WAVE packet from {} to {} (TrySendError)", this_implicated_cid, target_cid);
+                                     return Ok(())
+                                 }
+@@ -1178,14 +1190,14 @@
+ 
+     /// This will panic if cannot be sent
+     #[inline]
+-    pub fn send_to_kernel(&self, msg: HdpServerResult) -> Result<(), TrySendError<HdpServerResult>> {
+-        self.kernel_tx.unbounded_send(msg)
++    pub fn send_to_kernel(&self, msg: HdpServerResult) -> Result<(), SendError<HdpServerResult>> {
++        self.kernel_tx.send(msg)
+     }
+ 
+     /// Will send the message to the primary stream, and will alert the kernel if the stream's connector is full
+     pub fn send_to_primary_stream(&self, ticket: Option<Ticket>, msg: Bytes) -> Result<(), NetworkError> {
+         if let Some(tx) = self.to_primary_stream.as_ref() {
+-            match tx.unbounded_send(msg) {
++            match tx.send(msg) {
+                 Ok(_) => {
+                     Ok(())
+                 }
+Index: hyxe_net/src/hdp/outbound_sender.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/outbound_sender.rs b/hyxe_net/src/hdp/outbound_sender.rs
+--- a/hyxe_net/src/hdp/outbound_sender.rs	(date 1607025662876)
++++ b/hyxe_net/src/hdp/outbound_sender.rs	(date 1607025662876)
+@@ -1,8 +1,9 @@
+-use futures::channel::mpsc::{UnboundedSender, SendError};
++//use futures::channel::mpsc::{UnboundedSender, SendError};
++use tokio::sync::mpsc::UnboundedSender;
+ use bytes::Bytes;
+ use std::sync::Arc;
+ use std::sync::atomic::{AtomicUsize, Ordering};
+-use futures::{Sink, SinkExt};
++use futures::Sink;
+ use futures::task::{Context, Poll};
+ use std::pin::Pin;
+ 
+@@ -27,13 +28,13 @@
+ 
+     #[inline]
+     pub fn send_with_idx(&self, idx: usize, packet: Bytes) -> bool {
+-        self.sender.unbounded_send((idx, packet)).is_ok()
++        self.sender.send((idx, packet)).is_ok()
+     }
+ 
+     /// Automatically handles the port rotations
+     ///
+     /// returns false if the channel is closed, true is success
+-    pub fn unbounded_send(&self, packet: Bytes) -> bool {
++    pub fn send(&self, packet: Bytes) -> bool {
+         let idx = self.get_and_increment_idx();
+         self.send_with_idx(idx, packet)
+     }
+@@ -60,22 +61,22 @@
+ 
+ 
+ impl Sink<Bytes> for OutboundUdpSender {
+-    type Error = SendError;
++    type Error = ();
+ 
+-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+-        self.sender.poll_ready(cx)
++    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
++        Poll::Ready(Ok(()))
+     }
+ 
+-    fn start_send(mut self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
++    fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
+         let idx = self.get_and_increment_idx();
+-        self.sender.start_send((idx, item))
++        self.sender.send((idx, item)).map_err(|_| ())
+     }
+ 
+-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+-        self.sender.poll_close_unpin(cx)
++    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
++        Poll::Ready(Ok(()))
+     }
+ 
+-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+-        self.sender.poll_close_unpin(cx)
++    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
++        Poll::Ready(Ok(()))
+     }
+ }
+\ No newline at end of file
+Index: hyxe_net/src/hdp/state_container.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/state_container.rs b/hyxe_net/src/hdp/state_container.rs
+--- a/hyxe_net/src/hdp/state_container.rs	(date 1607024866716)
++++ b/hyxe_net/src/hdp/state_container.rs	(date 1607024866716)
+@@ -4,7 +4,8 @@
+ use std::sync::Arc;
+ 
+ use bytes::Bytes;
+-use futures::channel::mpsc::{UnboundedSender, unbounded};
++//use futures::channel::mpsc::{UnboundedSender, unbounded};
++use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+ use zerocopy::LayoutVerified;
+ 
+ use ez_pqcrypto::PostQuantumContainer;
+@@ -104,9 +105,9 @@
+     // for alerting the group sender to begin sending the next group
+     pub next_gs_alerter: UnboundedSender<()>,
+     // for alerting the async task to begin creating GroupSenders
+-    pub start: Option<futures::channel::oneshot::Sender<bool>>,
++    pub start: Option<tokio::sync::oneshot::Sender<bool>>,
+     // This sends a shutdown signal to the async cryptscambler
+-    pub stop_tx: Option<futures::channel::oneshot::Sender<()>>
++    pub stop_tx: Option<tokio::sync::oneshot::Sender<()>>
+ }
+ 
+ impl GroupKey {
+@@ -161,9 +162,9 @@
+         if let Some(mut endpoint_container) = self.endpoint_container.take() {
+             // next, since the is_active field is false, send an empty vec through the channel
+             // in order to wake the receiving end, thus causing a poll, thus ending it
+-            if let Err(_) = endpoint_container.to_channel.unbounded_send(SecBuffer::empty()) {}
++            if let Err(_) = endpoint_container.to_channel.send(SecBuffer::empty()) {}
+             // and close the sender half
+-            endpoint_container.to_channel.close_channel();
++            //endpoint_container.to_channel.cl
+             // finally, wake to ensure the receiving end stops it async subroutine
+             if let Some(waker) = endpoint_container.waker.take() {
+                 waker.wake()
+@@ -455,7 +456,7 @@
+ 
+     #[allow(unused_results)]
+     pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, peer_socket_addr: SocketAddr, security_level: SecurityLevel, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto) -> PeerChannel {
+-        let (channel_tx, channel_rx) = unbounded();
++        let (channel_tx, channel_rx) = unbounded_channel();
+         let is_alive = Arc::new(AtomicBool::new(true));
+ 
+ 
+@@ -500,7 +501,7 @@
+         // when the `target_cid` disconnects, it will remove its entry from this vconn table
+         if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
+             let conn_type = vconn.connection_type;
+-            self.hdp_server_remote.unbounded_send(HdpServerRequest::SendMessage(data, target_cid, conn_type, security_level));
++            self.hdp_server_remote.send(HdpServerRequest::SendMessage(data, target_cid, conn_type, security_level));
+             true
+         } else {
+             false
+@@ -510,7 +511,7 @@
+     pub fn forward_data_to_channel_as_endpoint(&mut self, peer_cid: u64, data: SecBuffer) -> bool {
+         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
+             if let Some(channel) = vconn.endpoint_container.as_mut() {
+-                return match channel.to_channel.unbounded_send(data) {
++                return match channel.to_channel.send(data) {
+                     Ok(_) => {
+                         // now, check to see if the wake is loaded, and if not, try receiving the waker
+                         // if the waker is not present, that means that the sender half has not yet began to poll
+@@ -637,7 +638,7 @@
+         let ticket = header.context_info.get().into();
+ 
+         if !self.inbound_files.contains_key(&key) {
+-            let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
++            let (stream_to_hd, stream_to_hd_rx) = unbounded_channel::<Vec<u8>>();
+             let name = metadata.name.clone();
+             let save_location = hyxe_user::re_imports::HYXE_VIRTUAL_DIR.lock().unwrap().clone().unwrap();
+             let save_location = format!("{}{}", save_location, name);
+@@ -649,7 +650,7 @@
+                 // the HdpServer's single thread. This will end once a None signal is sent through
+                 tokio::spawn(async move {
+                     let mut writer = BufWriter::new(file);
+-                    let mut reader = tokio::io::stream_reader(stream_to_hd_rx.map(|r| Ok(std::io::Cursor::new(r))));
++                    let mut reader = tokio_util::io::StreamReader::new(stream_to_hd_rx.map(|r| Ok(std::io::Cursor::new(r)) as Result<std::io::Cursor<Vec<u8>>, std::io::Error>));
+ 
+                     if let Err(err) = tokio::io::copy(&mut reader, &mut writer).await {
+                         log::error!("Error while copying from reader to writer: {}", err);
+@@ -680,7 +681,7 @@
+                 self.inbound_files.insert(key, entry);
+                 // finally, alert the kernel (receiver)
+                 let status = FileTransferStatus::ReceptionBeginning(metadata);
+-                let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferStatus(header.target_cid.get(), key, ticket, status));
++                let _ = self.kernel_tx.send(HdpServerResult::FileTransferStatus(header.target_cid.get(), key, ticket, status));
+                 true
+             } else {
+                 log::error!("Unable to obtain file handle to {}", &save_location);
+@@ -714,7 +715,7 @@
+                 // start the async task pulling from the async cryptscrambler
+                 file_transfer.start.take()?.send(true).ok()?;
+                 // alert the kernel that file transfer has begun
+-                self.kernel_tx.unbounded_send(HdpServerResult::FileTransferStatus(implicated_cid, key, ticket, FileTransferStatus::TransferBeginning)).ok()?;
++                self.kernel_tx.send(HdpServerResult::FileTransferStatus(implicated_cid, key, ticket, FileTransferStatus::TransferBeginning)).ok()?;
+             } else {
+                 log::error!("Attempted to obtain OutboundFileTransfer for {:?}, but it didn't exist", key);
+             }
+@@ -823,7 +824,7 @@
+                 let _ = spawn!(async move {
+                     let wait_time = Duration::from_nanos(wait_time as u64);
+                     log::trace!("ASYNC task waiting for {} nanos = {} millis", wait_time.as_nanos(), wait_time.as_millis());
+-                    tokio::time::delay_for(wait_time).await;
++                    tokio::time::sleep(wait_time).await;
+                     // now, we can safely use the state container
+                     let mut state_container = inner_mut!(state_container_ref);
+                     if let Some(group_receiver) = state_container.inbound_groups.get_mut(&key) {
+@@ -836,7 +837,7 @@
+                             .map(|packet_vectors| crate::hdp::hdp_packet_crafter::group::craft_wave_do_retransmission(&pqc, object_id, resp_target_cid, group, packet_vectors[0].wave_id, &packet_vectors, &drill, timestamp))
+                             .try_for_each(|packet| {
+                                 //log::warn!("Sending DO_RETRANSMISSION packet");
+-                                to_primary_stream.unbounded_send(packet)
++                                to_primary_stream.send(packet)
+                             }).is_ok();
+ 
+                         group_receiver.on_retransmission_needed();
+@@ -889,7 +890,7 @@
+                     log::info!("Transmitter received final wave ack. Alerting local node to continue transmission of next group");
+                     // if there is n=1 waves, then the below must be ran. The other use of object notifier in this function only applies for multiple waves
+                     if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
+-                        let _ = next_group_notifier.unbounded_send(());
++                        let _ = next_group_notifier.send(());
+                         // alert kernel (transmitter side)
+                         log::warn!("Notified object sender to begin sending the next group");
+                     }
+@@ -898,10 +899,10 @@
+ 
+                     if relative_group_id as usize != transmitter_container.parent_object_total_groups - 1 {
+                         let status = FileTransferStatus::TransferTick(relative_group_id as usize, transmitter_container.parent_object_total_groups, rate_mb_per_s);
+-                        let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferStatus(implicated_cid, file_key, ticket, status));
++                        let _ = self.kernel_tx.send(HdpServerResult::FileTransferStatus(implicated_cid, file_key, ticket, status));
+                     } else {
+                         let status = FileTransferStatus::TransferComplete;
+-                        let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferStatus(implicated_cid, file_key, ticket, status));
++                        let _ = self.kernel_tx.send(HdpServerResult::FileTransferStatus(implicated_cid, file_key, ticket, status));
+                     }
+                     delete_group = true;
+                 }
+@@ -912,7 +913,7 @@
+                 // may have expired. Thus, in order to fix this, we should designate a flag `has_begun`, similar to the receiving side
+                 if transmitter.is_atleast_fifty_percent_done() {
+                     if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
+-                        let _ = next_group_notifier.unbounded_send(());
++                        let _ = next_group_notifier.send(());
+                         log::warn!("Notified object sender to begin sending the next group");
+                     }
+                 }
+@@ -931,7 +932,7 @@
+ 
+                 if transmitter.is_atleast_fifty_percent_done() {
+                     if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
+-                        let _ = next_group_notifier.unbounded_send(());
++                        let _ = next_group_notifier.send(());
+                         log::warn!("Notified object sender to begin sending the next group");
+                     }
+                 }
+@@ -1002,7 +1003,7 @@
+                         GroupReceiverStatus::GROUP_COMPLETE(last_wave_id) => {
+                             log::info!("Group {} finished!", group);
+                             let wave_ack = crate::hdp::hdp_packet_crafter::group::craft_wave_ack(pqc, object_id, resp_target_cid, group, last_wave_id, time_tracker.get_global_time_ns(), None, drill);
+-                            to_primary_stream.unbounded_send(wave_ack).unwrap();
++                            to_primary_stream.send(wave_ack).unwrap();
+                             finished = true;
+                         }
+ 
+@@ -1020,7 +1021,7 @@
+                                 crate::hdp::hdp_packet_crafter::group::craft_wave_ack(pqc, object_id, resp_target_cid, group, wave_id, time_tracker.get_global_time_ns(), None, drill)
+                             };
+ 
+-                            to_primary_stream.unbounded_send(wave_ack).unwrap();
++                            to_primary_stream.send(wave_ack).unwrap();
+                         }
+ 
+                         // Common
+@@ -1053,7 +1054,7 @@
+                 if let Some(mut inbound_file_container) = self.inbound_files.get_mut(&key) {
+                     let group_chunk = group_receiver_final.receiver.finalize();
+                     let chunk_size = group_chunk.len();
+-                    if let Err(_) = inbound_file_container.stream_to_hd.unbounded_send(group_chunk) {
++                    if let Err(_) = inbound_file_container.stream_to_hd.send(group_chunk) {
+                         log::error!("Unable to send data to HD");
+                     }
+                     // increment the counter, and check to see if completed. If complete, send a None signal to turn off the async task
+@@ -1063,10 +1064,11 @@
+                     return if inbound_file_container.groups_rendered == inbound_file_container.total_groups {
+                         // complete
+                         log::info!("FILE streaming COMPLETE! Ending related asynchronous tasks ...");
+-                        inbound_file_container.stream_to_hd.close_channel();
++                        // channel automatically closes when tx count == 0
++                        // inbound_file_container.stream_to_hd.close_channel();
+                         // tell the kernel
+                         let status = FileTransferStatus::ReceptionComplete;
+-                        let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferStatus(cid, key, ticket, status));
++                        let _ = self.kernel_tx.send(HdpServerResult::FileTransferStatus(cid, key, ticket, status));
+                         Ok(None)
+                     } else {
+                         // there are more groups to render. However, we need to ensure the next group transfers at the rate this just finished
+@@ -1079,7 +1081,7 @@
+                         inbound_file_container.last_group_finish_time = Instant::now();
+ 
+                         let status = FileTransferStatus::TransferTick(inbound_file_container.groups_rendered, inbound_file_container.total_groups, mb_per_s);
+-                        let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferStatus(cid, key, ticket, status));
++                        let _ = self.kernel_tx.send(HdpServerResult::FileTransferStatus(cid, key, ticket, status));
+                         Ok(None)
+                     }
+                 } else {
+@@ -1114,7 +1116,7 @@
+                 let iter = missing_packets.into_iter();
+                 let udp_sender = self.udp_sender.as_ref().unwrap();
+                 for missing_packet in iter {
+-                    udp_sender.unbounded_send(missing_packet.packet);
++                    udp_sender.send(missing_packet.packet);
+                 }
+             } else {
+                 log::info!("Invalid WAVE_DO_RETRANSMISSION from wave {} of group {}", wave_id, group_id);
+@@ -1204,7 +1206,7 @@
+             // Cut the window in half
+ 
+             let retransmission_packet = crate::hdp::hdp_packet_crafter::group::craft_wave_do_retransmission(pqc,*group_id, wave_to_check, vectors_missing, drill, time);
+-            if let Err(_) = to_primary_stream.unbounded_send(retransmission_packet) {}
++            if let Err(_) = to_primary_stream.send(retransmission_packet) {}
+         }
+     }*/
+ }
+\ No newline at end of file
+Index: hyxe_net/src/hdp/hdp_packet_processor/peer/group_broadcast.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_packet_processor/peer/group_broadcast.rs b/hyxe_net/src/hdp/hdp_packet_processor/peer/group_broadcast.rs
+--- a/hyxe_net/src/hdp/hdp_packet_processor/peer/group_broadcast.rs	(date 1607023371388)
++++ b/hyxe_net/src/hdp/hdp_packet_processor/peer/group_broadcast.rs	(date 1607023371388)
+@@ -213,7 +213,7 @@
+ 
+ fn send_to_kernel<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter<K, HdpSessionInner>, ticket: Ticket, broadcast: GroupBroadcast) -> PrimaryProcessorResult {
+     let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
+-    session.kernel_tx.unbounded_send((implicated_cid, ticket, broadcast).into())?;
++    session.kernel_tx.send((implicated_cid, ticket, broadcast).into())?;
+     PrimaryProcessorResult::Void
+ }
+ 
+Index: hyxe_net/src/hdp/hdp_packet_processor/mod.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_packet_processor/mod.rs b/hyxe_net/src/hdp/hdp_packet_processor/mod.rs
+--- a/hyxe_net/src/hdp/hdp_packet_processor/mod.rs	(date 1607023499012)
++++ b/hyxe_net/src/hdp/hdp_packet_processor/mod.rs	(date 1607023499012)
+@@ -1,6 +1,6 @@
+ use bytes::Bytes;
+ use crate::hdp::hdp_server::Ticket;
+-use futures::channel::mpsc::TrySendError;
++use tokio::sync::mpsc::error::{TrySendError, SendError};
+ use ez_pqcrypto::prelude::Error;
+ use hyxe_user::misc::AccountError;
+ use crate::hdp::hdp_packet_processor::includes::SecBuffer;
+@@ -129,6 +129,12 @@
+         PrimaryProcessorResult::EndSession("Outbound sender disconnected")
+     }
+ }
++
++impl<T> From<SendError<T>> for PrimaryProcessorResult {
++    fn from(_: SendError<T>) -> Self {
++        PrimaryProcessorResult::EndSession("Outbound sender disconnected")
++    }
++}
+ 
+ impl From<Error> for PrimaryProcessorResult {
+     fn from(_: Error) -> Self {
+Index: hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs b/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs
+--- a/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs	(date 1607023371356)
++++ b/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs	(date 1607023371356)
+@@ -189,7 +189,7 @@
+ 
+                                 log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
+                                 // send ack. But first, send the channel to the kernel to the kernel
+-                                state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
++                                state_container.kernel_tx.send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
+                                 let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage3);
+                                 std::mem::drop(state_container);
+ 
+@@ -206,7 +206,7 @@
+                                 let mut state_container = inner_mut!(session.state_container);
+                                 let kem_state_container = state_container.peer_kem_states.remove(&conn.get_original_implicated_cid())?;
+                                 let channel = kem_state_container.channel?;
+-                                state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
++                                state_container.kernel_tx.send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
+                                 PrimaryProcessorResult::Void
+                             }
+ 
+@@ -221,7 +221,7 @@
+                 }
+ 
+                 log::info!("Forwarding PEER signal to kernel ...");
+-                session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(signal, ticket))?;
++                session.kernel_tx.send(HdpServerResult::PeerEvent(signal, ticket))?;
+                 PrimaryProcessorResult::Void
+             } else {
+                 process_signal_command_as_server(signal, ticket, wrap_inner_mut!(session), drill, header, timestamp)
+@@ -468,12 +468,12 @@
+ 
+         PeerSignal::SignalError(ticket, err) => {
+             // in this case, we delegate the error to the higher-level kernel to determine what to do
+-            session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalError(ticket, err), ticket))?;
++            session.kernel_tx.send(HdpServerResult::PeerEvent(PeerSignal::SignalError(ticket, err), ticket))?;
+             PrimaryProcessorResult::Void
+         }
+ 
+         PeerSignal::SignalReceived(ticket) => {
+-            session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(signal, ticket))?;
++            session.kernel_tx.send(HdpServerResult::PeerEvent(signal, ticket))?;
+             PrimaryProcessorResult::Void
+         }
+     }
+@@ -507,7 +507,7 @@
+         // on timeout, run this
+         log::warn!("Running timeout closure. Sending error message to {}", implicated_cid);
+         let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&pqc2, &drill2, stale_signal, ticket, timestamp);
+-        let _ = to_primary_stream.unbounded_send(error_packet);
++        let _ = to_primary_stream.send(error_packet);
+     });
+ 
+     // Then, we tell the implicated_cid's node that we have handled the message. However, the peer has yet to respond
+Index: hyxe_net/src/hdp/hdp_packet_processor/deregister_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_packet_processor/deregister_packet.rs b/hyxe_net/src/hdp/hdp_packet_processor/deregister_packet.rs
+--- a/hyxe_net/src/hdp/hdp_packet_processor/deregister_packet.rs	(date 1607023371505)
++++ b/hyxe_net/src/hdp/hdp_packet_processor/deregister_packet.rs	(date 1607023371505)
+@@ -147,7 +147,7 @@
+                         state_container.deregister_state.on_fail();
+                         std::mem::drop(state_container);
+                         let cid = session.implicated_cid.load(Ordering::Relaxed)?;
+-                        session.kernel_tx.unbounded_send(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), ticket, true, false))?;
++                        session.kernel_tx.send(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), ticket, true, false))?;
+                         log::error!("Unable to locally purge account {}. Please report this to the HyperLAN Server admin", cid);
+                         PrimaryProcessorResult::EndSession("Deregistration failure. Closing connection anyways")
+                     } else {
+Index: hyxe_net/src/hdp/hdp_packet_processor/disconnect_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_packet_processor/disconnect_packet.rs b/hyxe_net/src/hdp/hdp_packet_processor/disconnect_packet.rs
+--- a/hyxe_net/src/hdp/hdp_packet_processor/disconnect_packet.rs	(date 1607023371476)
++++ b/hyxe_net/src/hdp/hdp_packet_processor/disconnect_packet.rs	(date 1607023371476)
+@@ -162,7 +162,7 @@
+                         VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => {
+                             // End the session
+                             let message = message.unwrap_or("Disconnect from HyperLAN server success".as_bytes().to_vec());
+-                            state_container.kernel_tx.unbounded_send(HdpServerResult::Disconnect(ticket, implicated_cid, true, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
++                            state_container.kernel_tx.send(HdpServerResult::Disconnect(ticket, implicated_cid, true, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
+                             state_container.disconnect_state.reset();
+                             std::mem::drop(state_container);
+ 
+@@ -173,7 +173,7 @@
+                         VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+                             // Tell the kernel, and remove the virtual connection
+                             let message = message.unwrap_or("Disconnect from HyperLAN client success".as_bytes().to_vec());
+-                            state_container.kernel_tx.unbounded_send(HdpServerResult::Disconnect(ticket, implicated_cid, true, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
++                            state_container.kernel_tx.send(HdpServerResult::Disconnect(ticket, implicated_cid, true, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
+                             assert!(state_container.active_virtual_connections.remove(&target_cid).is_some());
+                             state_container.disconnect_state.reset();
+ 
+@@ -212,7 +212,7 @@
+                         VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => {
+                             // End the session
+                             let message = message.unwrap_or("Disconnect from HyperLAN server failure".as_bytes().to_vec());
+-                            state_container.kernel_tx.unbounded_send(HdpServerResult::Disconnect(ticket, implicated_cid, false, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
++                            state_container.kernel_tx.send(HdpServerResult::Disconnect(ticket, implicated_cid, false, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
+                             session.needs_close_message.store(false, Ordering::SeqCst);
+                             PrimaryProcessorResult::EndSession("Disconnect from HyperLAN failure. Still shutting down")
+                         }
+@@ -220,7 +220,7 @@
+                         VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+                             // Tell the kernel, and remove the virtual connection
+                             let message = message.unwrap_or("Disconnect from HyperLAN client failure. Still removing connection".as_bytes().to_vec());
+-                            state_container.kernel_tx.unbounded_send(HdpServerResult::Disconnect(ticket, implicated_cid, false, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
++                            state_container.kernel_tx.send(HdpServerResult::Disconnect(ticket, implicated_cid, false, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
+                             assert!(state_container.active_virtual_connections.remove(&target_cid).is_some());
+                             PrimaryProcessorResult::Void
+                         }
+Index: hyxe_net/src/hdp/hdp_packet_processor/keep_alive_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_packet_processor/keep_alive_packet.rs b/hyxe_net/src/hdp/hdp_packet_processor/keep_alive_packet.rs
+--- a/hyxe_net/src/hdp/hdp_packet_processor/keep_alive_packet.rs	(date 1607023371379)
++++ b/hyxe_net/src/hdp/hdp_packet_processor/keep_alive_packet.rs	(date 1607023371379)
+@@ -29,9 +29,9 @@
+             spawn!(async move {
+                     // ever since creating the anti-replay attack, we can no longer withold packets; they must be sent outbound
+                     // immediately, otherwise other packets will fail, invalidating the session
+-                    tokio::time::delay_for(Duration::from_millis(KEEP_ALIVE_INTERVAL_MS)).await;
++                    tokio::time::sleep(Duration::from_millis(KEEP_ALIVE_INTERVAL_MS)).await;
+                     let next_ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&drill, &pqc, current_timestamp_ns + DELTA_NS);
+-                    if let Err(_) = to_primary_stream.unbounded_send(next_ka) {
++                    if let Err(_) = to_primary_stream.send(next_ka) {
+                         black_box(())
+                     }
+                 });
+Index: hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs b/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs
+--- a/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs	(date 1607037282841)
++++ b/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs	(date 1607037282841)
+@@ -92,28 +92,33 @@
+                     let ticket = session.kernel_ticket;
+                     let local_bind_addr = session.local_bind_addr.ip();
+ 
+-                    match LinearUDPHolePuncher::reserve_new_udp_sockets((MULTIPORT_END - MULTIPORT_START) as usize, local_bind_addr.to_string()) {
+-                        Ok(reserved_sockets) => {
+-                            let ref reserved_local_wave_ports = reserved_sockets.iter().map(|sck| sck.local_addr().unwrap().port()).collect::<Vec<u16>>();
++                    if tcp_only {
++                        let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_base_drill, local_node_type, &Vec::with_capacity(0), timestamp);
++                        state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
++                        let _ =session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!"));
++                        let _ = session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!1"));
++                        let _ = session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!2"));
++                        // test
++                        PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet)
++                    } else {
++                        match LinearUDPHolePuncher::reserve_new_udp_sockets((MULTIPORT_END - MULTIPORT_START) as usize, local_bind_addr.to_string()) {
++                            Ok(reserved_sockets) => {
++                                let ref reserved_local_wave_ports = reserved_sockets.iter().map(|sck| sck.local_addr().unwrap().port()).collect::<Vec<u16>>();
+ 
+-                            let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_base_drill, local_node_type, reserved_local_wave_ports, timestamp);
+-
+-                            if tcp_only {
+-                                state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
+-                            } else {
++                                let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_base_drill, local_node_type, reserved_local_wave_ports, timestamp);
+                                 // store these sockets for later use
+                                 state_container.pre_connect_state.reserved_sockets = Some(reserved_sockets);
+                                 state_container.pre_connect_state.ticket = Some(ticket);
+                                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::STAGE1;
+                                 state_container.pre_connect_state.on_packet_received();
+-                            }
+ 
+-                            PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet)
+-                        }
++                                PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet)
++                            }
+ 
+-                        Err(err) => {
+-                            log::error!("Unable to reserve local sockets. Reason: {}", err.to_string());
+-                            PrimaryProcessorResult::EndSession("Unable to reserve local sockets")
++                            Err(err) => {
++                                log::error!("Unable to reserve local sockets. Reason: {}", err.to_string());
++                                PrimaryProcessorResult::EndSession("Unable to reserve local sockets")
++                            }
+                         }
+                     }
+                 } else {
+@@ -536,7 +541,7 @@
+ 
+ #[allow(unused_results)]
+ async fn handle_nat_traversal_as_receiver_inner(session: HdpSession, drill: Drill, method: NatTraversalMethod, sync_time: Instant, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>) {
+-    tokio::time::delay_until(sync_time).await;
++    tokio::time::sleep_until(sync_time).await;
+     log::info!("Synchronize time reached. Executing hole punch subroutine ...");
+     let mut hole_puncher = LinearUDPHolePuncher::new_receiver(inner!(session).local_node_type);
+ 
+@@ -618,7 +623,7 @@
+ #[allow(unused_results)]
+ async fn handle_nat_traversal_as_initiator_inner(session: HdpSession, drill: Drill, method: NatTraversalMethod, sync_time: Option<Instant>, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>) {
+     if let Some(sync_time) = sync_time {
+-        tokio::time::delay_until(sync_time).await;
++        tokio::time::sleep_until(sync_time).await;
+     }
+ 
+     log::info!("Synchronize time reached. Executing hole punch subroutine ...");
+Index: hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs b/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs
+--- a/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs	(date 1607023371437)
++++ b/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs	(date 1607023371437)
+@@ -28,7 +28,7 @@
+                 let state_container = inner!(sess.state_container);
+                 if let Some(peer_vconn) = state_container.active_virtual_connections.get(&target_cid) {
+                     // into_packet is a cheap operation the freezes the internal packet; we attain zero-copy through proxying here
+-                    if let Err(_err) = peer_vconn.sender.as_ref().unwrap().1.unbounded_send(packet.into_packet()) {
++                    if let Err(_err) = peer_vconn.sender.as_ref().unwrap().1.send(packet.into_packet()) {
+                         log::error!("Proxy TrySendError to {}", target_cid);
+                     }
+                 } else {
+Index: hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs b/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs
+--- a/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs	(date 1607025596896)
++++ b/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs	(date 1607025596896)
+@@ -73,9 +73,9 @@
+                                                             if group.object_id != 0 {
+                                                                 // belongs to a file. Delete file; stop transmission
+                                                                 let key = FileKey::new(peer_cid, group.object_id);
+-                                                                if let Some(file) = state_container.inbound_files.remove(&key) {
++                                                                if let Some(_file) = state_container.inbound_files.remove(&key) {
+                                                                     // stop the stream to the HD
+-                                                                    file.stream_to_hd.close_channel();
++                                                                    // let _ = file.stream_to_hd.send(Vec::with_capacity(0));
+                                                                     // TODO: Create file FIN
+                                                                 }
+                                                             }
+Index: hyxe_net/src/hdp/hdp_packet_crafter.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_packet_crafter.rs b/hyxe_net/src/hdp/hdp_packet_crafter.rs
+--- a/hyxe_net/src/hdp/hdp_packet_crafter.rs	(date 1607025619165)
++++ b/hyxe_net/src/hdp/hdp_packet_crafter.rs	(date 1607025619165)
+@@ -15,7 +15,6 @@
+ use std::ops::RangeInclusive;
+ use crate::hdp::state_container::{VirtualTargetType, GroupSender};
+ use std::sync::Arc;
+-use futures::SinkExt;
+ use hyxe_crypt::sec_bytes::SecBuffer;
+ 
+ /// Sends the header (manual!) and tail (auto!) packets through the primary stream directly, and
+@@ -174,7 +173,7 @@
+             // for debugging purposes (the >= 0 part), can easily check WAVE_DO_RETRANSMISSIONS by setting the value to > 0
+             if packet.vector.true_sequence >= 0 {
+                 log::info!("[Q-UDP] Sending packet {}", packet.vector.true_sequence);
+-                if !udp_sender.unbounded_send(packet.packet) {
++                if !udp_sender.send(packet.packet) {
+                     Err(())
+                 } else {
+                     Ok(())
+@@ -190,7 +189,7 @@
+         }
+ 
+         let window_tail = group::craft_window_tail(pqc, drill, object_id, target_cid, group_id, wave_window.clone(), time_tracker.get_global_time_ns());
+-        if let Err(_) = to_primary_stream.unbounded_send(window_tail) {
++        if let Err(_) = to_primary_stream.send(window_tail) {
+             log::error!("TCP send failed");
+             return false;
+         }
+@@ -207,7 +206,7 @@
+         let ref mut transmitter = inner_mut!(self.group_transmitter);
+         while let Some(ret) = transmitter.get_next_packet() {
+             self.packets_sent += 1;
+-            if to_primary_stream.unbounded_send(ret.packet).is_err() {
++            if to_primary_stream.send(ret.packet).is_err() {
+                 return false;
+             }
+         }
+@@ -221,14 +220,21 @@
+         let packets_needed = self.group_config.packets_needed;
+         log::info!("[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
+         let transmitter = self.group_transmitter.clone();
+-        let mut to_primary_stream = to_primary_stream.clone();
++        let to_primary_stream = to_primary_stream.clone();
+         spawn!(async move {
+             let mut transmitter = inner_mut!(transmitter);
+             if let Some(packets) = transmitter.get_next_packets(packets_needed) {
+                 std::mem::drop(transmitter);
+                 debug_assert_eq!(packets.len(), packets_needed);
++                /*
+                 if let Err(_) = to_primary_stream.send_all(&mut tokio::stream::iter(packets.into_iter().map(|packet| Ok(packet.packet)).collect::<Vec<Result<Bytes, futures::channel::mpsc::SendError>>>())).await {
+                     log::error!("Unable to send_all stream through TCP channel");
++                }*/
++                for packet in packets {
++                    if let Err(err) = to_primary_stream.send(packet.packet) {
++                        log::error!("Unable to send_all stream through TCP channel ({:?})", err);
++                        break;
++                    }
+                 }
+             } else {
+                 log::error!("Unable to load all packets");
+Index: hyxe_net/src/hdp/hdp_session_manager.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/hdp_session_manager.rs b/hyxe_net/src/hdp/hdp_session_manager.rs
+--- a/hyxe_net/src/hdp/hdp_session_manager.rs	(date 1607023371324)
++++ b/hyxe_net/src/hdp/hdp_session_manager.rs	(date 1607023371324)
+@@ -3,7 +3,7 @@
+ use std::net::ToSocketAddrs;
+ 
+ use bytes::{Bytes, BytesMut};
+-use futures::channel::mpsc::UnboundedSender;
++use crate::re_imports::UnboundedSender;
+ use tokio::net::TcpStream;
+ 
+ use hyxe_crypt::prelude::SecurityLevel;
+@@ -87,7 +87,7 @@
+                 remote.send_with_custom_ticket(ticket, request);
+                 None
+             } else {
+-                Some(remote.unbounded_send(request))
++                Some(remote.send(request))
+             }
+         } else {
+             None
+@@ -428,7 +428,7 @@
+                         return cnac.borrow_drill(None, move |drill_opt| {
+                             if let Some(drill) = drill_opt {
+                                 let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(pqc, drill, peer_command, ticket, timestamp);
+-                                to_primary_stream.unbounded_send(packet).is_ok()
++                                to_primary_stream.send(packet).is_ok()
+                             } else {
+                                 false
+                             }
+@@ -629,7 +629,7 @@
+                         return cnac.borrow_drill(None, |drill| {
+                             if let Some(drill) = drill {
+                                 let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(pqc, drill, signal, ticket, timestamp);
+-                                to_primary_stream.unbounded_send(packet).is_ok()
++                                to_primary_stream.send(packet).is_ok()
+                             } else {
+                                 false
+                             }
+@@ -706,7 +706,7 @@
+                 });
+ 
+                 if let Some(packet) = packet_opt {
+-                    to_primary.unbounded_send(packet).map_err(|err| err.to_string())
++                    to_primary.send(packet).map_err(|err| err.to_string())
+                 } else {
+                     Err("Unable to obtain peer drill".to_string())
+                 }
+@@ -745,7 +745,7 @@
+                         if let Some(peer_latest_drill) = drill_opt {
+                             log::info!("Routing packet through primary stream ({} -> {})", implicated_cid, target_cid);
+                             let packet = packet(target_pqc, &peer_latest_drill);
+-                            peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
++                            peer_sender.send(packet).map_err(|err| err.to_string())
+                         } else {
+                             Err(format!("Unable to acquire peer drill for {}", target_cid))
+                         }
+@@ -792,7 +792,7 @@
+                 peer_cnac.borrow_drill(None, |peer_latest_drill_opt| {
+                     if let Some(peer_latest_drill) = peer_latest_drill_opt {
+                         let packet = packet(target_pqc, peer_latest_drill);
+-                        peer_sender.unbounded_send(packet).map_err(|err| err.to_string()).map(|_| (ret, tracked_posting))
++                        peer_sender.send(packet).map_err(|err| err.to_string()).map(|_| (ret, tracked_posting))
+                     } else {
+                         Err(format!("Unable to acquire peer drill for {}", target_cid))
+                     }
+@@ -818,7 +818,7 @@
+             peer_cnac.borrow_drill(None, |latest_peer_drill_opt| {
+                 if let Some(peer_latest_drill) = latest_peer_drill_opt {
+                     let packet = packet(peer_pqc, peer_latest_drill);
+-                    peer_sender.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
++                    peer_sender.send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
+                 } else {
+                     Err(NetworkError::InternalError("Peer drill absent"))
+                 }
+Index: hyxe_net/src/hdp/session_queue_handler.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/hdp/session_queue_handler.rs b/hyxe_net/src/hdp/session_queue_handler.rs
+--- a/hyxe_net/src/hdp/session_queue_handler.rs	(date 1607016541855)
++++ b/hyxe_net/src/hdp/session_queue_handler.rs	(date 1607016541855)
+@@ -1,7 +1,8 @@
+ use futures::Stream;
+ use std::task::{Poll, Context, Waker};
+ use std::pin::Pin;
+-use tokio::time::{delay_queue, DelayQueue, Error};
++use tokio::time::error::Error;
++use tokio_util::time::{delay_queue, DelayQueue};
+ use std::collections::HashMap;
+ use crate::hdp::hdp_session::{HdpSession, HdpSessionInner, SessionState};
+ use crate::hdp::hdp_packet_processor::includes::Duration;
+Index: hyxe_net/src/kernel/kernel_executor.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/kernel/kernel_executor.rs b/hyxe_net/src/kernel/kernel_executor.rs
+--- a/hyxe_net/src/kernel/kernel_executor.rs	(date 1607023371418)
++++ b/hyxe_net/src/kernel/kernel_executor.rs	(date 1607023371418)
+@@ -1,4 +1,4 @@
+-use futures::channel::mpsc::{unbounded, UnboundedReceiver};
++use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+ use futures::StreamExt;
+ 
+ use hyxe_user::account_manager::AccountManager;
+@@ -20,7 +20,7 @@
+ impl<K: NetKernel + 'static> KernelExecutor<K> {
+     /// Creates a new [KernelExecutor]. Panics if the server cannot start
+     pub async fn new<T: ToSocketAddrs + std::net::ToSocketAddrs>(hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T) -> Result<Self, NetworkError> {
+-        let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
++        let (server_to_kernel_tx, server_to_kernel_rx) = unbounded_channel();
+         let server = HdpServer::new(hypernode_type, server_to_kernel_tx, bind_addr, account_manager).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+         Ok(Self { server, server_remote: None, server_to_kernel_rx: Some(server_to_kernel_rx), kernel })
+     }
+Index: hyxe_net/src/lib.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/lib.rs b/hyxe_net/src/lib.rs
+--- a/hyxe_net/src/lib.rs	(date 1607022170327)
++++ b/hyxe_net/src/lib.rs	(date 1607022170327)
+@@ -197,7 +197,7 @@
+     pub use async_trait::*;
+     pub use bstr::ByteSlice;
+     pub use bytes::BufMut;
+-    pub use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
++    pub use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+     pub use futures::future::try_join3;
+ 
+     pub use hyxe_nat::hypernode_type::HyperNodeType;
+Index: hyxe_net/src/constants.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/src/constants.rs b/hyxe_net/src/constants.rs
+--- a/hyxe_net/src/constants.rs	(date 1607037499115)
++++ b/hyxe_net/src/constants.rs	(date 1607037499115)
+@@ -1,4 +1,4 @@
+-pub const BUILD_VERSION: usize = 814;
++pub const BUILD_VERSION: usize = 888;
+ /// Signal for closing the stream_wrapper
+ pub const STREAM_SHUTDOWN: u8 = 0;
+ /// Signal for restarting the stream_wrapper
+Index: hyxe_net/Cargo.toml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_net/Cargo.toml b/hyxe_net/Cargo.toml
+--- a/hyxe_net/Cargo.toml	(date 1607035022471)
++++ b/hyxe_net/Cargo.toml	(date 1607035022471)
+@@ -14,7 +14,7 @@
+ 
+ [dependencies]
+ #futures = { version = "0.3.1", features = ["compat", "async-await"] }
+-futures = "0.3.5"
++futures = "0.3.8"
+ bstr = "0.2.13"
+ log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_info"] }
+ #async-std = { version = "1.6.2", features = ["unstable"] }
+@@ -22,11 +22,13 @@
+ #base64 = { path = "../base64", version = "0.10.1" }
+ #tokio = { path = "../tokio/tokio", version = "0.3.0", features = ["full"] }
+ #tokio-util = { path = "../tokio/tokio-util", version = "0.4.0", features = ["udp", "codec"] }
+-tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
+-tokio = { version = "^0.2.22", features = ["full"] }
++##best: tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
++tokio-util = { version = "0.5.0", features = ["codec", "time", "io"] }
++#tokio = { version = "^0.2.22", features = ["full"] }
++tokio = { version = "^0.3.5",features = ["full"] }
+ parking_lot = "*"
+ zerocopy = "0.3.0"
+-bytes = "0.5.6"
++bytes = "0.6.0"
+ byteorder = "1.3.4"
+ nanoserde = "0.1.18"
+ rand = "0.7.3"
+@@ -44,6 +46,4 @@
+ hyxe_nat = { path = "../hyxe_nat", version = "0.1.0" }
+ ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1" }
+ rust-argon2 = "0.8.3"
+-num_cpus = "1.13.0"
+-#radix64 = "*"
+-#base64-codec = { path = "../base64-codec", version = "0.1.0" }
+\ No newline at end of file
++num_cpus = "1.13.0"
+\ No newline at end of file
+Index: hyxewave/src/ffi/command_handler.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/ffi/command_handler.rs b/hyxewave/src/ffi/command_handler.rs
+--- a/hyxewave/src/ffi/command_handler.rs	(date 1607035127828)
++++ b/hyxewave/src/ffi/command_handler.rs	(date 1607035127828)
+@@ -1,10 +1,10 @@
+ use hyxe_net::hdp::hdp_server::HdpServerRemote;
+ use crate::console::console_context::ConsoleContext;
+ use crate::console_error::ConsoleError;
+-use futures_util::core_reexport::convert::TryFrom;
+ use crate::console::virtual_terminal::handle;
+ use tokio::runtime::Handle;
+ use crate::ffi::{KernelResponse, FFIIO};
++use std::convert::TryFrom;
+ 
+ /// This will immediately return an answer to the caller. Any future answers will be returned
+ /// via the FFI_STATIC's FFIIO
+@@ -30,9 +30,8 @@
+ 
+             // The following function MUST be called with a tokio context. If it does not, MIO registrations
+             // will fail since they require Handle::current(), resulting in a panic
+-            rt_handle.enter(|| {
+-                handle(clap.0.lock(), parts, server_remote, ctx, Some(ffi_io))
+-            })
++            let _guard = rt_handle.enter();
++            handle(clap.0.lock(), parts, server_remote, ctx, Some(ffi_io))
+         }
+     }
+ }
+Index: hyxewave/src/lib.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/lib.rs b/hyxewave/src/lib.rs
+--- a/hyxewave/src/lib.rs	(date 1607025792975)
++++ b/hyxewave/src/lib.rs	(date 1607025792975)
+@@ -23,7 +23,7 @@
+ 
+ 
+ pub mod re_exports {
+-    pub use hyxe_net::re_imports::{UnboundedSender, UnboundedReceiver, BufMut, unbounded};
++    pub use hyxe_net::re_imports::{UnboundedSender, UnboundedReceiver, BufMut, unbounded_channel};
+     pub use tokio::task::spawn;
+     pub use parking_lot::{Mutex, const_mutex};
+     pub use hyxe_net::hdp::ThreadSafeFuture;
+Index: hyxewave/src/console/console_context.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/console/console_context.rs b/hyxewave/src/console/console_context.rs
+--- a/hyxewave/src/console/console_context.rs	(date 1607035227423)
++++ b/hyxewave/src/console/console_context.rs	(date 1607035227423)
+@@ -1,6 +1,6 @@
+ use std::sync::Arc;
+ use parking_lot::RwLock;
+-use std::sync::atomic::{AtomicU64, Ordering, AtomicBool};
++use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering, AtomicBool};
+ use std::collections::HashMap;
+ use crate::ticket_event::{CallbackStatus, TicketQueueHandler};
+ use crate::kernel::{KernelSession, PeerSession};
+@@ -19,7 +19,6 @@
+ use hyxe_net::hdp::hdp_packet_processor::includes::SecurityLevel;
+ use tokio::time::Instant;
+ use hyxe_net::hdp::peer::message_group::MessageGroupKey;
+-use futures_util::core_reexport::sync::atomic::AtomicUsize;
+ use crate::ffi::KernelResponse;
+ use crate::command_handlers::group::MessageGroupContainer;
+ use crate::console::virtual_terminal::INPUT_ROUTER;
+@@ -277,7 +276,7 @@
+ 
+     /// `username` should be some if resetting the print prompt is expected (should be Some when disconnecting from hypernodes over peers)
+     fn send_disconnect_request(&self, cid: u64, username: Option<String>, virt_cxn_type: VirtualConnectionType, server_remote: &HdpServerRemote) -> Ticket {
+-        let ticket = server_remote.unbounded_send(HdpServerRequest::DisconnectFromHypernode(cid, virt_cxn_type));
++        let ticket = server_remote.send(HdpServerRequest::DisconnectFromHypernode(cid, virt_cxn_type));
+         let queue = self.ticket_queue.as_ref().unwrap();
+         queue.register_ticket(ticket, DISCONNECT_TIMEOUT, cid, move |ctx,_, response| {
+             match response {
+Index: hyxewave/src/kernel.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/kernel.rs b/hyxewave/src/kernel.rs
+--- a/hyxewave/src/kernel.rs	(date 1607035199067)
++++ b/hyxewave/src/kernel.rs	(date 1607035199067)
+@@ -3,7 +3,7 @@
+ use std::pin::Pin;
+ 
+ use async_trait::async_trait;
+-use futures_util::core_reexport::sync::atomic::AtomicBool;
++use std::sync::atomic::AtomicBool;
+ use futures_util::future::Future;
+ use futures_util::stream::FuturesUnordered;
+ use futures_util::TryStreamExt;
+@@ -550,7 +550,7 @@
+     if let Some(tcp_addr) = tcp_addr {
+         printf_ln!(colour::yellow!("Creating loopback address on {}:{}", tcp_addr.ip(), tcp_addr.port()));
+         let mut listener = TcpListener::bind(tcp_addr).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+-        while let Some(inbound) = listener.incoming().next().await {
++        while let Some(inbound) = listener.next().await {
+             match inbound {
+                 Ok(_stream) => {
+                     // TODO: When data comes inbound, figure out a way to universally parse it. Then, send it as a command, get the ticket, and correlate the ticket
+Index: hyxewave/src/ticket_event.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/ticket_event.rs b/hyxewave/src/ticket_event.rs
+--- a/hyxewave/src/ticket_event.rs	(date 1607020272703)
++++ b/hyxewave/src/ticket_event.rs	(date 1607020272703)
+@@ -1,8 +1,8 @@
+ use hyxe_net::hdp::hdp_server::Ticket;
+-use tokio::time::{Duration, DelayQueue};
++use tokio_util::time::{delay_queue, DelayQueue};
++use tokio::time::Duration;
+ use std::pin::Pin;
+ use crate::console::console_context::ConsoleContext;
+-use tokio::time::delay_queue;
+ use hyxe_net::hdp::peer::peer_layer::PeerResponse;
+ use futures_util::task::{Poll, Context, Waker};
+ use tokio::stream::Stream;
+@@ -92,7 +92,7 @@
+         }
+     }
+ 
+-    fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), tokio::time::Error>> {
++    fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), tokio::time::error::Error>> {
+         let mut this = self.inner.lock();
+         if this.waker.is_none() {
+             this.waker = Some(cx.waker().clone());
+Index: hyxewave/src/command_handlers/peer.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/command_handlers/peer.rs b/hyxewave/src/command_handlers/peer.rs
+--- a/hyxewave/src/command_handlers/peer.rs	(date 1607025793038)
++++ b/hyxewave/src/command_handlers/peer.rs	(date 1607025793038)
+@@ -112,7 +112,7 @@
+             let signal = PeerSignal::Disconnect(removed_conn.cxn_type, None);
+             let request = HdpServerRequest::PeerCommand(ctx_user, signal);
+ 
+-            let ticket = server_remote.unbounded_send(request);
++            let ticket = server_remote.send(request);
+ 
+             ctx.register_ticket(ticket, DISCONNECT_TIMEOUT, ctx_user, move |_ctx, _ticket, response| {
+                 match response {
+@@ -147,7 +147,7 @@
+ 
+             let signal = PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid));
+             let request = HdpServerRequest::PeerCommand(ctx_user, signal);
+-            let ticket = server_remote.unbounded_send(request);
++            let ticket = server_remote.send(request);
+ 
+             // the below is safe to unwrap since the existence is implies by the get_peer_cid_from_cnac
+             let _ = cnac.remove_hyperlan_peer(target_cid).unwrap();
+@@ -210,14 +210,14 @@
+             }
+ 
+             let request = HdpServerRequest::SendFile(path, chunk_size, ctx_user, vconn_type);
+-            let ticket = server_remote.unbounded_send(request);
++            let ticket = server_remote.send(request);
+ 
+             return Ok(Some(KernelResponse::ResponseTicket(ticket.0)));
+         }
+ 
+         if let Some(_matches) = matches.subcommand_matches("list") {
+             let list_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetRegisteredPeers(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None));
+-            let ticket = server_remote.unbounded_send(list_request);
++            let ticket = server_remote.send(list_request);
+             ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |_, ticket, response| {
+                 match response {
+                     PeerResponse::RegisteredCids(cids, online_status) => {
+@@ -276,7 +276,7 @@
+ 
+         if let Some(_matches) = matches.subcommand_matches("mutuals") {
+             let get_consented_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None));
+-            let ticket = server_remote.unbounded_send(get_consented_request);
++            let ticket = server_remote.send(get_consented_request);
+             ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |ctx, ticket, success| {
+                 match success {
+                     PeerResponse::RegisteredCids(cids, online_status) => {
+@@ -380,7 +380,7 @@
+             }
+ 
+             let post_register_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), username, None, None));
+-            let ticket = server_remote.unbounded_send(post_register_request);
++            let ticket = server_remote.send(post_register_request);
+             ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, target_cid, move |ctx, ticket, response| {
+                 match response {
+                     PeerResponse::ServerReceivedRequest => {
+@@ -442,7 +442,7 @@
+             }
+ 
+             let post_connect_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), None, None));
+-            let ticket = server_remote.unbounded_send(post_connect_request);
++            let ticket = server_remote.send(post_connect_request);
+             ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, ctx_user, move |_ctx, ticket, response| {
+                 match response {
+                     PeerResponse::Accept(welcome_message_opt) => {
+Index: hyxewave/src/command_handlers/send.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/command_handlers/send.rs b/hyxewave/src/command_handlers/send.rs
+--- a/hyxewave/src/command_handlers/send.rs	(date 1607025792960)
++++ b/hyxewave/src/command_handlers/send.rs	(date 1607025792960)
+@@ -10,7 +10,7 @@
+         let security_level = parse_security_level(matches)?;
+         let target_type = VirtualTargetType::HyperLANPeerToHyperLANServer(cid);
+         let request = HdpServerRequest::SendMessage(SecBuffer::from(message), cid, target_type, security_level);
+-        let ticket = server_remote.unbounded_send(request);
++        let ticket = server_remote.send(request);
+         //session.tickets.insert(ticket);
+         Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
+     } else {
+Index: hyxewave/src/command_handlers/group.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/command_handlers/group.rs b/hyxewave/src/command_handlers/group.rs
+--- a/hyxewave/src/command_handlers/group.rs	(date 1607025793006)
++++ b/hyxewave/src/command_handlers/group.rs	(date 1607025793006)
+@@ -50,7 +50,7 @@
+     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
+     let signal = GroupBroadcast::LeaveRoom(key.key);
+     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
+-    let ticket = server_remote.unbounded_send(request);
++    let ticket = server_remote.send(request);
+ 
+     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, move |_ctx, _ticket, peer_response| {
+         match peer_response {
+@@ -161,7 +161,7 @@
+     let signal = GroupBroadcast::Create(target_cids);
+     let request = HdpServerRequest::GroupBroadcastCommand(ctx_cid, signal);
+ 
+-    let ticket = server_remote.unbounded_send(request);
++    let ticket = server_remote.send(request);
+     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, ctx_cid, move |ctx, _ticket, signal| {
+         match signal {
+             PeerResponse::Group(broadcast_signal) => {
+@@ -212,7 +212,7 @@
+     let signal = GroupBroadcast::End(key.key);
+     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
+ 
+-    let ticket = server_remote.unbounded_send(request);
++    let ticket = server_remote.send(request);
+     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
+         match signal {
+             PeerResponse::Group(broadcast_signal) => {
+@@ -259,7 +259,7 @@
+     let signal = GroupBroadcast::Add(key.key, target_cids);
+     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
+ 
+-    let ticket = server_remote.unbounded_send(request);
++    let ticket = server_remote.send(request);
+     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
+         match signal {
+             PeerResponse::Group(broadcast_signal) => {
+@@ -311,7 +311,7 @@
+     let signal = GroupBroadcast::Kick(key.key, target_cids);
+     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
+ 
+-    let ticket = server_remote.unbounded_send(request);
++    let ticket = server_remote.send(request);
+     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
+         match signal {
+             PeerResponse::Group(broadcast_signal) => {
+@@ -376,7 +376,7 @@
+     let signal = GroupBroadcast::Message(username.clone(), key.key, message.clone());
+     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
+ 
+-    let ticket = server_remote.unbounded_send(request);
++    let ticket = server_remote.send(request);
+ 
+     // once the server broadcasts the message, the console will print-out the data
+     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, move |_ctx, _ticket, signal| {
+Index: hyxewave/src/command_handlers/connect.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/command_handlers/connect.rs b/hyxewave/src/command_handlers/connect.rs
+--- a/hyxewave/src/command_handlers/connect.rs	(date 1607025792991)
++++ b/hyxewave/src/command_handlers/connect.rs	(date 1607025792991)
+@@ -34,7 +34,7 @@
+     let proposed_credentials = get_proposed_credentials(matches, ctx, username, nonce,adjacent_socket.ip(), security_level, cid, full_name)?;
+ 
+     let request = HdpServerRequest::ConnectToHypernode(adjacent_socket, cid, proposed_credentials, security_level, None, None, Some(tcp_only));
+-    let ticket = server_remote.unbounded_send(request);
++    let ticket = server_remote.send(request);
+ 
+     let tx = parking_lot::Mutex::new(None);
+     if ffi_io.is_none() {
+Index: hyxewave/src/command_handlers/register.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/command_handlers/register.rs b/hyxewave/src/command_handlers/register.rs
+--- a/hyxewave/src/command_handlers/register.rs	(date 1607025793053)
++++ b/hyxewave/src/command_handlers/register.rs	(date 1607025793053)
+@@ -22,7 +22,7 @@
+     let username = proposed_credentials.username.clone();
+ 
+     let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, None);
+-    let ticket = server_remote.unbounded_send(request);
++    let ticket = server_remote.send(request);
+     ctx.register_ticket(ticket, DO_REGISTER_EXPIRE_TIME_MS, 0, move |_ctx, _, response| {
+         match response {
+             PeerResponse::Ok(welcome_message_opt) => {
+Index: hyxewave/src/command_handlers/deregister.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/command_handlers/deregister.rs b/hyxewave/src/command_handlers/deregister.rs
+--- a/hyxewave/src/command_handlers/deregister.rs	(date 1607025793022)
++++ b/hyxewave/src/command_handlers/deregister.rs	(date 1607025793022)
+@@ -29,7 +29,7 @@
+         let write = ctx.sessions.write();
+         if write.contains_key(&cid) {
+             let request = HdpServerRequest::DeregisterFromHypernode(cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(cid));
+-            let ticket = server_remote.unbounded_send(request);
++            let ticket = server_remote.send(request);
+             std::mem::drop(write);
+             let username = username.to_string();
+ 
+Index: hyxewave/src/hdp_initiator.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/src/hdp_initiator.rs b/hyxewave/src/hdp_initiator.rs
+--- a/hyxewave/src/hdp_initiator.rs	(date 1607020353712)
++++ b/hyxewave/src/hdp_initiator.rs	(date 1607020353712)
+@@ -10,7 +10,7 @@
+     // CLAP will ensure this value always have Some
+     let bind_addr = config.local_bind_addr.clone().unwrap();
+     let hypernode_type = config.hypernode_type.unwrap();
+-    let mut rt = build_rt(config.kernel_threads)?;
++    let rt = build_rt(config.kernel_threads)?;
+     rt.block_on(async move {
+         let account_manager = get_account_manager(&config).await?;
+         let kernel = CLIKernel::new(config, account_manager.clone()).await;
+@@ -35,17 +35,24 @@
+ 
+ fn build_rt(core_threads: Option<usize>) -> Result<Runtime, NetworkError> {
+     if let Some(core_threads) = core_threads {
+-        tokio::runtime::Builder::new()
+-            .threaded_scheduler()
++        get_builder(core_threads)
+             .enable_all()
+-            .core_threads(core_threads)
+             .build()
+             .map_err(|err| NetworkError::Generic(err.to_string()))
+     } else {
+-        tokio::runtime::Builder::new()
+-            .threaded_scheduler()
++        tokio::runtime::Builder::new_multi_thread()
+             .enable_all()
+             .build()
+             .map_err(|err| NetworkError::Generic(err.to_string()))
+     }
++}
++
++fn get_builder(core_count: usize) -> tokio::runtime::Builder {
++    if core_count < 2 {
++        tokio::runtime::Builder::new_current_thread()
++    } else {
++        let mut ret = tokio::runtime::Builder::new_multi_thread();
++        ret.worker_threads(core_count);
++        ret
++    }
+ }
+\ No newline at end of file
+Index: hyxewave/Cargo.toml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxewave/Cargo.toml b/hyxewave/Cargo.toml
+--- a/hyxewave/Cargo.toml	(date 1607036996597)
++++ b/hyxewave/Cargo.toml	(date 1607036996597)
+@@ -10,10 +10,12 @@
+ serde_json = "1.0.57"
+ serde = { version = "1.0.100", features = ["derive"] }
+ clap = "2.33.1"
+-bytes = "0.5.5"
++bytes = "0.6.0"
+ env_logger = "0.7.1"
+ log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_trace"] }
+-tokio = { version = "0.2.22", features = ["full"] }
++#tokio = { version = "0.2.22", features = ["full"] }
++tokio = { version = "^0.3.5", features = ["full"] }
++tokio-util = { version = "0.5.0", features = ["codec", "time", "io"] }
+ futures-util = "0.3.5"
+ hyxe_net = { path = "../hyxe_net", version = "0.1.0" }
+ hyxe_user = { path = "../hyxe_user", version = "0.1.0" }
+Index: hyxe_user/Cargo.toml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_user/Cargo.toml b/hyxe_user/Cargo.toml
+--- a/hyxe_user/Cargo.toml	(date 1607013956684)
++++ b/hyxe_user/Cargo.toml	(date 1607013956684)
+@@ -12,7 +12,8 @@
+ serde = { version = "1.0.104", features=["rc", "derive"] }
+ #async-std = "1.6.0-beta.2"
+ #tokio = "0.2.21"
+-tokio = {version = "^0.2.22", features=["rt-core"] }
++#tokio = {version = "^0.2.22", features=["rt-core"] }
++tokio = {version = "^0.3.5", features=["rt"] }
+ random = "0.12.2"
+ async-trait = "0.1.11"
+ crossbeam-utils = "0.7.2"
+Index: Cargo.lock
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/Cargo.lock b/Cargo.lock
+--- a/Cargo.lock	(date 1607036997456)
++++ b/Cargo.lock	(date 1607036997456)
+@@ -161,9 +161,9 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6e1a4a2f97ce50c9d0282c1468816208588441492b40d813b2e0419c22c05e7f"
+ dependencies = [
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
+  "quote 1.0.7",
+- "syn 1.0.39",
++ "syn 1.0.53",
+ ]
+ 
+ [[package]]
+@@ -171,14 +171,14 @@
+ version = "0.1.0"
+ dependencies = [
+  "reqwest",
+- "tokio",
++ "tokio 0.2.22",
+ ]
+ 
+ [[package]]
+ name = "async_udt"
+ version = "0.1.0"
+ dependencies = [
+- "tokio",
++ "tokio 0.2.22",
+  "udt",
+ ]
+ 
+@@ -357,6 +357,12 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "0e4cec68f03f32e44924783795810fa50a7035d8c8ebe78580ad7e6c703fba38"
+ 
++[[package]]
++name = "bytes"
++version = "0.6.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e0dcbc35f504eb6fc275a6d20e4ebcda18cf50d40ba6fabff8c711fa16cb3b16"
++
+ [[package]]
+ name = "cast"
+ version = "0.2.3"
+@@ -484,9 +490,9 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "8aa333852c744df9b867733c71889e5120b55117b25ddc8a2d88dc5d9df5edea"
+ dependencies = [
+- "bytes",
++ "bytes 0.5.6",
+  "memchr",
+- "pin-project-lite",
++ "pin-project-lite 0.1.10",
+ ]
+ 
+ [[package]]
+@@ -631,7 +637,7 @@
+  "crossterm_winapi",
+  "lazy_static",
+  "libc",
+- "mio 0.7.2",
++ "mio 0.7.6",
+  "parking_lot 0.11.0",
+  "signal-hook",
+  "winapi 0.3.9",
+@@ -784,7 +790,7 @@
+ version = "0.1.1"
+ dependencies = [
+  "aes-gcm-siv",
+- "bytes",
++ "bytes 0.6.0",
+  "chacha20poly1305",
+  "circular-queue",
+  "nanoserde",
+@@ -809,9 +815,9 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "aa4da3c766cd7a0db8242e326e9e4e081edd567072893ed320008189715366a4"
+ dependencies = [
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
+  "quote 1.0.7",
+- "syn 1.0.39",
++ "syn 1.0.53",
+  "synstructure 0.12.4",
+ ]
+ 
+@@ -860,9 +866,9 @@
+ 
+ [[package]]
+ name = "futures"
+-version = "0.3.5"
++version = "0.3.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1e05b85ec287aac0dc34db7d4a569323df697f9c55b99b15d6b4ef8cde49f613"
++checksum = "9b3b0c040a1fe6529d30b3c5944b280c7f0dcb2930d2c3062bca967b602583d0"
+ dependencies = [
+  "futures-channel",
+  "futures-core",
+@@ -875,9 +881,9 @@
+ 
+ [[package]]
+ name = "futures-channel"
+-version = "0.3.5"
++version = "0.3.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f366ad74c28cca6ba456d95e6422883cfb4b252a83bed929c83abfdbbf2967d5"
++checksum = "4b7109687aa4e177ef6fe84553af6280ef2778bdb7783ba44c9dc3399110fe64"
+ dependencies = [
+  "futures-core",
+  "futures-sink",
+@@ -885,15 +891,15 @@
+ 
+ [[package]]
+ name = "futures-core"
+-version = "0.3.5"
++version = "0.3.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "59f5fff90fd5d971f936ad674802482ba441b6f09ba5e15fd8b39145582ca399"
++checksum = "847ce131b72ffb13b6109a221da9ad97a64cbe48feb1028356b836b47b8f1748"
+ 
+ [[package]]
+ name = "futures-executor"
+-version = "0.3.5"
++version = "0.3.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "10d6bb888be1153d3abeb9006b11b02cf5e9b209fda28693c31ae1e4e012e314"
++checksum = "4caa2b2b68b880003057c1dd49f1ed937e38f22fcf6c212188a121f08cf40a65"
+ dependencies = [
+  "futures-core",
+  "futures-task",
+@@ -902,42 +908,42 @@
+ 
+ [[package]]
+ name = "futures-io"
+-version = "0.3.5"
++version = "0.3.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "de27142b013a8e869c14957e6d2edeef89e97c289e69d042ee3a49acd8b51789"
++checksum = "611834ce18aaa1bd13c4b374f5d653e1027cf99b6b502584ff8c9a64413b30bb"
+ 
+ [[package]]
+ name = "futures-macro"
+-version = "0.3.5"
++version = "0.3.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d0b5a30a4328ab5473878237c447333c093297bded83a4983d10f4deea240d39"
++checksum = "77408a692f1f97bcc61dc001d752e00643408fbc922e4d634c655df50d595556"
+ dependencies = [
+  "proc-macro-hack",
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
+  "quote 1.0.7",
+- "syn 1.0.39",
++ "syn 1.0.53",
+ ]
+ 
+ [[package]]
+ name = "futures-sink"
+-version = "0.3.5"
++version = "0.3.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3f2032893cb734c7a05d85ce0cc8b8c4075278e93b24b66f9de99d6eb0fa8acc"
++checksum = "f878195a49cee50e006b02b93cf7e0a95a38ac7b776b4c4d9cc1207cd20fcb3d"
+ 
+ [[package]]
+ name = "futures-task"
+-version = "0.3.5"
++version = "0.3.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "bdb66b5f09e22019b1ab0830f7785bcea8e7a42148683f99214f73f8ec21a626"
++checksum = "7c554eb5bf48b2426c4771ab68c6b14468b6e76cc90996f528c3338d761a4d0d"
+ dependencies = [
+  "once_cell",
+ ]
+ 
+ [[package]]
+ name = "futures-util"
+-version = "0.3.5"
++version = "0.3.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8764574ff08b701a084482c3c7031349104b07ac897393010494beaa18ce32c6"
++checksum = "d304cff4a7b99cfb7986f7d43fbe93d175e72e704a8860787cc95e9ffd85cbd2"
+ dependencies = [
+  "futures-channel",
+  "futures-core",
+@@ -946,7 +952,7 @@
+  "futures-sink",
+  "futures-task",
+  "memchr",
+- "pin-project",
++ "pin-project 1.0.2",
+  "pin-utils",
+  "proc-macro-hack",
+  "proc-macro-nested",
+@@ -1010,7 +1016,7 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "993f9e0baeed60001cf565546b0d3dbe6a6ad23f2bd31644a133c641eccf6d53"
+ dependencies = [
+- "bytes",
++ "bytes 0.5.6",
+  "fnv",
+  "futures-core",
+  "futures-sink",
+@@ -1018,8 +1024,8 @@
+  "http",
+  "indexmap",
+  "slab",
+- "tokio",
+- "tokio-util",
++ "tokio 0.2.22",
++ "tokio-util 0.3.1",
+  "tracing",
+ ]
+ 
+@@ -1074,7 +1080,7 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "28d569972648b2c512421b5f2a405ad6ac9666547189d0c5477a3f200f3e02f9"
+ dependencies = [
+- "bytes",
++ "bytes 0.5.6",
+  "fnv",
+  "itoa",
+ ]
+@@ -1085,7 +1091,7 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "13d5ff830006f7646652e057693569bfe0d51760c0085a071769d142a205111b"
+ dependencies = [
+- "bytes",
++ "bytes 0.5.6",
+  "http",
+ ]
+ 
+@@ -1110,7 +1116,7 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3e68a8dd9716185d9e64ea473ea6ef63529252e3e27623295a0378a19665d5eb"
+ dependencies = [
+- "bytes",
++ "bytes 0.5.6",
+  "futures-channel",
+  "futures-core",
+  "futures-util",
+@@ -1119,10 +1125,10 @@
+  "http-body",
+  "httparse",
+  "itoa",
+- "pin-project",
++ "pin-project 0.4.25",
+  "socket2",
+  "time",
+- "tokio",
++ "tokio 0.2.22",
+  "tower-service",
+  "tracing",
+  "want",
+@@ -1134,10 +1140,10 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d979acc56dcb5b8dddba3917601745e877576475aa046df3226eabdecef78eed"
+ dependencies = [
+- "bytes",
++ "bytes 0.5.6",
+  "hyper",
+  "native-tls",
+- "tokio",
++ "tokio 0.2.22",
+  "tokio-tls",
+ ]
+ 
+@@ -1147,7 +1153,7 @@
+ dependencies = [
+  "env_logger",
+  "log 0.4.11",
+- "tokio",
++ "tokio 0.2.22",
+ ]
+ 
+ [[package]]
+@@ -1160,7 +1166,7 @@
+  "bincode2",
+  "bitvec",
+  "byteorder",
+- "bytes",
++ "bytes 0.6.0",
+  "criterion",
+  "env_logger",
+  "ez_pqcrypto",
+@@ -1186,7 +1192,7 @@
+  "async-trait",
+  "bincode2",
+  "byteorder",
+- "bytes",
++ "bytes 0.6.0",
+  "chrono",
+  "dirs-2",
+  "env_logger",
+@@ -1196,10 +1202,10 @@
+  "log 0.4.11",
+  "num 0.3.0",
+  "num-bigint 0.3.0",
+- "pin-project",
++ "pin-project 0.4.25",
+  "rand 0.7.3",
+  "serde",
+- "tokio",
++ "tokio 0.3.5",
+  "zerocopy 0.2.8",
+ ]
+ 
+@@ -1210,14 +1216,14 @@
+  "arc-swap",
+  "async-trait",
+  "byteorder",
+- "bytes",
++ "bytes 0.6.0",
+  "env_logger",
+  "futures",
+  "igd",
+  "log 0.4.11",
+  "net2",
+  "rsntp",
+- "tokio",
++ "tokio 0.3.5",
+  "whoami",
+ ]
+ 
+@@ -1230,7 +1236,7 @@
+  "bitvec",
+  "bstr",
+  "byteorder",
+- "bytes",
++ "bytes 0.6.0",
+  "either",
+  "env_logger",
+  "ez_pqcrypto",
+@@ -1247,8 +1253,8 @@
+  "rand 0.7.3",
+  "rust-argon2",
+  "secstr",
+- "tokio",
+- "tokio-util",
++ "tokio 0.3.5",
++ "tokio-util 0.5.0",
+  "zerocopy 0.3.0",
+ ]
+ 
+@@ -1268,7 +1274,7 @@
+  "random",
+  "secstr",
+  "serde",
+- "tokio",
++ "tokio 0.3.5",
+ ]
+ 
+ [[package]]
+@@ -1276,7 +1282,7 @@
+ version = "0.1.0"
+ dependencies = [
+  "async-trait",
+- "bytes",
++ "bytes 0.6.0",
+  "clap",
+  "colour",
+  "crossterm 0.18.0",
+@@ -1294,7 +1300,8 @@
+  "serde",
+  "serde_json",
+  "termion",
+- "tokio",
++ "tokio 0.3.5",
++ "tokio-util 0.5.0",
+ ]
+ 
+ [[package]]
+@@ -1313,14 +1320,14 @@
+ version = "0.11.1"
+ dependencies = [
+  "attohttpc",
+- "bytes",
++ "bytes 0.5.6",
+  "futures",
+  "http",
+  "hyper",
+  "log 0.4.11",
+  "rand 0.7.3",
+  "simplelog",
+- "tokio",
++ "tokio 0.3.5",
+  "url",
+  "xmltree",
+ ]
+@@ -1567,28 +1574,16 @@
+ 
+ [[package]]
+ name = "mio"
+-version = "0.7.2"
++version = "0.7.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "6d5fc35678fa91ff960494e4bd72a0e1f8e72e035460887a2005de51915993cd"
++checksum = "f33bc887064ef1fd66020c9adfc45bb9f33d75a42096c81e7c56c65b75dd1a8b"
+ dependencies = [
+  "libc",
+  "log 0.4.11",
+- "miow 0.3.5",
++ "miow 0.3.6",
+  "ntapi",
+  "winapi 0.3.9",
+ ]
+-
+-[[package]]
+-name = "mio-named-pipes"
+-version = "0.1.7"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0840c1c50fd55e521b247f949c241c9997709f23bd7f023b9762cd561e935656"
+-dependencies = [
+- "log 0.4.11",
+- "mio 0.6.22",
+- "miow 0.3.5",
+- "winapi 0.3.9",
+-]
+ 
+ [[package]]
+ name = "mio-uds"
+@@ -1630,9 +1625,9 @@
+ 
+ [[package]]
+ name = "miow"
+-version = "0.3.5"
++version = "0.3.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "07b88fb9795d4d36d62a012dfbf49a8f5cf12751f36d31a9dbe66d528e58979e"
++checksum = "5a33c1b55807fbed163481b5ba66db4b2fa6cde694a5027be10fb724206c5897"
+ dependencies = [
+  "socket2",
+  "winapi 0.3.9",
+@@ -1977,7 +1972,16 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "2b9e280448854bd91559252582173b3bd1f8e094a0e644791c0628ca9b1f144f"
+ dependencies = [
+- "pin-project-internal",
++ "pin-project-internal 0.4.25",
++]
++
++[[package]]
++name = "pin-project"
++version = "1.0.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9ccc2237c2c489783abd8c4c80e5450fc0e98644555b1364da68cc29aa151ca7"
++dependencies = [
++ "pin-project-internal 1.0.2",
+ ]
+ 
+ [[package]]
+@@ -1986,9 +1990,20 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "c8c8b352676bc6a4c3d71970560b913cea444a7a921cc2e2d920225e4b91edaa"
+ dependencies = [
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
++ "quote 1.0.7",
++ "syn 1.0.53",
++]
++
++[[package]]
++name = "pin-project-internal"
++version = "1.0.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f8e8d2bf0b23038a4424865103a4df472855692821aab4e4f5c3312d461d9e5f"
++dependencies = [
++ "proc-macro2 1.0.24",
+  "quote 1.0.7",
+- "syn 1.0.39",
++ "syn 1.0.53",
+ ]
+ 
+ [[package]]
+@@ -1997,6 +2012,12 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "e555d9e657502182ac97b539fb3dae8b79cda19e3e4f8ffb5e8de4f18df93c95"
+ 
++[[package]]
++name = "pin-project-lite"
++version = "0.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6b063f57ec186e6140e2b8b6921e5f1bd89c7356dda5b33acc5401203ca6131c"
++
+ [[package]]
+ name = "pin-utils"
+ version = "0.1.0"
+@@ -2084,9 +2105,9 @@
+ 
+ [[package]]
+ name = "proc-macro-hack"
+-version = "0.5.18"
++version = "0.5.19"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "99c605b9a0adc77b7211c6b1f722dcb613d68d66859a44f3d485a6da332b0598"
++checksum = "dbf0c48bc1d91375ae5c3cd81e3722dff1abcf81a30960240640d223f59fe0e5"
+ 
+ [[package]]
+ name = "proc-macro-nested"
+@@ -2105,9 +2126,9 @@
+ 
+ [[package]]
+ name = "proc-macro2"
+-version = "1.0.19"
++version = "1.0.24"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "04f5f085b5d71e2188cb8271e5da0161ad52c3f227a661a3c135fdf28e258b12"
++checksum = "1e0704ee1a7e00d7bb417d0770ea303c1bccbabf0ef1667dae92b5967f5f8a71"
+ dependencies = [
+  "unicode-xid 0.2.1",
+ ]
+@@ -2133,7 +2154,7 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "aa563d17ecb180e500da1cfd2b028310ac758de548efdd203e18f283af693f37"
+ dependencies = [
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
+ ]
+ 
+ [[package]]
+@@ -2332,7 +2353,7 @@
+ checksum = "e9eaa17ac5d7b838b7503d118fa16ad88f440498bf9ffe5424e621f93190d61e"
+ dependencies = [
+  "base64 0.12.3",
+- "bytes",
++ "bytes 0.5.6",
+  "encoding_rs",
+  "futures-core",
+  "futures-util",
+@@ -2348,10 +2369,10 @@
+  "mime_guess",
+  "native-tls",
+  "percent-encoding",
+- "pin-project-lite",
++ "pin-project-lite 0.1.10",
+  "serde",
+  "serde_urlencoded",
+- "tokio",
++ "tokio 0.2.22",
+  "tokio-tls",
+  "url",
+  "wasm-bindgen",
+@@ -2365,7 +2386,7 @@
+ version = "4.0.5"
+ dependencies = [
+  "libc",
+- "tokio",
++ "tokio 0.2.22",
+  "winapi 0.3.9",
+ ]
+ 
+@@ -2374,7 +2395,7 @@
+ version = "1.0.1"
+ dependencies = [
+  "chrono",
+- "tokio",
++ "tokio 0.3.5",
+ ]
+ 
+ [[package]]
+@@ -2513,9 +2534,9 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "609feed1d0a73cc36a0182a840a9b37b4a82f0b1150369f0536a9e3f2a31dc48"
+ dependencies = [
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
+  "quote 1.0.7",
+- "syn 1.0.39",
++ "syn 1.0.53",
+ ]
+ 
+ [[package]]
+@@ -2549,7 +2570,7 @@
+ dependencies = [
+  "libc",
+  "mio 0.6.22",
+- "mio 0.7.2",
++ "mio 0.7.6",
+  "signal-hook-registry",
+ ]
+ 
+@@ -2588,11 +2609,11 @@
+ 
+ [[package]]
+ name = "socket2"
+-version = "0.3.12"
++version = "0.3.17"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "03088793f677dce356f3ccc2edb1b314ad191ab702a5de3faf49304f7e104918"
++checksum = "2c29947abdee2a218277abeca306f25789c938e500ea5a9d4b12a5a504466902"
+ dependencies = [
+- "cfg-if 0.1.10",
++ "cfg-if 1.0.0",
+  "libc",
+  "redox_syscall",
+  "winapi 0.3.9",
+@@ -2639,11 +2660,11 @@
+ 
+ [[package]]
+ name = "syn"
+-version = "1.0.39"
++version = "1.0.53"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "891d8d6567fe7c7f8835a3a98af4208f3846fba258c1bc3c31d6e506239f11f9"
++checksum = "8833e20724c24de12bbaba5ad230ea61c3eafb05b881c7c9d3cfe8638b187e68"
+ dependencies = [
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
+  "quote 1.0.7",
+  "unicode-xid 0.2.1",
+ ]
+@@ -2666,9 +2687,9 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b834f2d66f734cb897113e34aaff2f1ab4719ca946f9a7358dba8f8064148701"
+ dependencies = [
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
+  "quote 1.0.7",
+- "syn 1.0.39",
++ "syn 1.0.53",
+  "unicode-xid 0.2.1",
+ ]
+ 
+@@ -2779,7 +2800,7 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "5d34ca54d84bf2b5b4d7d31e901a8464f7b60ac145a284fba25ceb801f2ddccd"
+ dependencies = [
+- "bytes",
++ "bytes 0.5.6",
+  "fnv",
+  "futures-core",
+  "iovec",
+@@ -2787,13 +2808,31 @@
+  "libc",
+  "memchr",
+  "mio 0.6.22",
+- "mio-named-pipes",
+  "mio-uds",
++ "pin-project-lite 0.1.10",
++ "slab",
++ "tokio-macros 0.2.5",
++]
++
++[[package]]
++name = "tokio"
++version = "0.3.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a12a3eb39ee2c231be64487f1fcbe726c8f2514876a55480a5ab8559fc374252"
++dependencies = [
++ "autocfg",
++ "bytes 0.6.0",
++ "futures-core",
++ "lazy_static",
++ "libc",
++ "memchr",
++ "mio 0.7.6",
+  "num_cpus",
+- "pin-project-lite",
++ "parking_lot 0.11.0",
++ "pin-project-lite 0.2.0",
+  "signal-hook-registry",
+  "slab",
+- "tokio-macros",
++ "tokio-macros 0.3.1",
+  "winapi 0.3.9",
+ ]
+ 
+@@ -2803,9 +2842,20 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f0c3acc6aa564495a0f2e1d59fab677cd7f81a19994cfc7f3ad0e64301560389"
+ dependencies = [
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
++ "quote 1.0.7",
++ "syn 1.0.53",
++]
++
++[[package]]
++name = "tokio-macros"
++version = "0.3.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "21d30fdbb5dc2d8f91049691aa1a9d4d4ae422a21c334ce8936e5886d30c5c45"
++dependencies = [
++ "proc-macro2 1.0.24",
+  "quote 1.0.7",
+- "syn 1.0.39",
++ "syn 1.0.53",
+ ]
+ 
+ [[package]]
+@@ -2815,7 +2865,7 @@
+ checksum = "9a70f4fcd7b3b24fb194f837560168208f669ca8cb70d0c4b862944452396343"
+ dependencies = [
+  "native-tls",
+- "tokio",
++ "tokio 0.2.22",
+ ]
+ 
+ [[package]]
+@@ -2824,28 +2874,43 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "be8242891f2b6cbef26a2d7e8605133c2c554cd35b3e4948ea892d6d68436499"
+ dependencies = [
+- "bytes",
++ "bytes 0.5.6",
++ "futures-core",
++ "futures-sink",
++ "log 0.4.11",
++ "pin-project-lite 0.1.10",
++ "tokio 0.2.22",
++]
++
++[[package]]
++name = "tokio-util"
++version = "0.5.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "73af76301319bcacf00d26d3c75534ef248dcad7ceaf36d93ec902453c3b1706"
++dependencies = [
++ "bytes 0.6.0",
+  "futures-core",
+  "futures-sink",
+  "log 0.4.11",
+- "pin-project-lite",
+- "tokio",
++ "pin-project-lite 0.1.10",
++ "slab",
++ "tokio 0.3.5",
+ ]
+ 
+ [[package]]
+ name = "tokio_agnostic_uds"
+ version = "0.1.0"
+ dependencies = [
+- "bytes",
++ "bytes 0.5.6",
+  "futures",
+  "iovec",
+  "log 0.4.11",
+  "mio 0.6.22",
+  "mio-uds-windows",
+- "pin-project",
++ "pin-project 0.4.25",
+  "tempfile",
+- "tokio",
+- "tokio-util",
++ "tokio 0.2.22",
++ "tokio-util 0.3.1",
+ ]
+ 
+ [[package]]
+@@ -3041,9 +3106,9 @@
+  "bumpalo",
+  "lazy_static",
+  "log 0.4.11",
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
+  "quote 1.0.7",
+- "syn 1.0.39",
++ "syn 1.0.53",
+  "wasm-bindgen-shared",
+ ]
+ 
+@@ -3075,9 +3140,9 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "841a6d1c35c6f596ccea1f82504a192a60378f64b3bb0261904ad8f2f5657556"
+ dependencies = [
+- "proc-macro2 1.0.19",
++ "proc-macro2 1.0.24",
+  "quote 1.0.7",
+- "syn 1.0.39",
++ "syn 1.0.53",
+  "wasm-bindgen-backend",
+  "wasm-bindgen-shared",
+ ]
+@@ -3218,8 +3283,8 @@
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d498dbd1fd7beb83c86709ae1c33ca50942889473473d287d56ce4770a18edfb"
+ dependencies = [
+- "proc-macro2 1.0.19",
+- "syn 1.0.39",
++ "proc-macro2 1.0.24",
++ "syn 1.0.53",
+  "synstructure 0.12.4",
+ ]
+ 
+Index: hyxe_crypt/src/net/crypt_splitter.rs
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_crypt/src/net/crypt_splitter.rs b/hyxe_crypt/src/net/crypt_splitter.rs
+--- a/hyxe_crypt/src/net/crypt_splitter.rs	(date 1607016726790)
++++ b/hyxe_crypt/src/net/crypt_splitter.rs	(date 1607016726790)
+@@ -5,7 +5,6 @@
+ use bitvec::vec::BitVec;
+ use byteorder::{BigEndian, ReadBytesExt};
+ use bytes::{Buf, BufMut, Bytes, BytesMut};
+-use bytes::buf::BufExt;
+ use num_integer::Integer;
+ use rand::prelude::{SliceRandom, ThreadRng};
+ 
+Index: hyxe_crypt/Cargo.toml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/hyxe_crypt/Cargo.toml b/hyxe_crypt/Cargo.toml
+--- a/hyxe_crypt/Cargo.toml	(date 1607016658668)
++++ b/hyxe_crypt/Cargo.toml	(date 1607016658668)
+@@ -21,7 +21,7 @@
+ log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_error"] }
+ zerocopy = "0.2.8"
+ byteorder = "1.3.2"
+-bytes = "0.5.4"
++bytes = "0.6.0"
+ num-integer = "0.1.43"
+ rand = "0.7.0"
+ as-slice = "0.1.3"
+Index: ez_pqcrypto/Cargo.toml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/ez_pqcrypto/Cargo.toml b/ez_pqcrypto/Cargo.toml
+--- a/ez_pqcrypto/Cargo.toml	(date 1607016699344)
++++ b/ez_pqcrypto/Cargo.toml	(date 1607016699344)
+@@ -26,6 +26,6 @@
+ rand = "0.7.3"
+ aes-gcm-siv = { version = "0.5.0", features = ["heapless"], optional = true }
+ chacha20poly1305 = { version = "*", features = ["heapless", "xchacha20poly1305"], optional = true }
+-bytes = "0.5.6"
++bytes = "0.6.0"
+ circular-queue = { version = "*", optional = true }
+ parking_lot = { version = "0.11.0", optional = true }
+\ No newline at end of file

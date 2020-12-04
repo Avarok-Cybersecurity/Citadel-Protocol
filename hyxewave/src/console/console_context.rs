@@ -1,29 +1,31 @@
-use std::sync::Arc;
-use parking_lot::RwLock;
-use std::sync::atomic::{AtomicU64, Ordering, AtomicBool};
 use std::collections::HashMap;
-use crate::ticket_event::{CallbackStatus, TicketQueueHandler};
-use crate::kernel::{KernelSession, PeerSession};
-use hyxe_net::hdp::hdp_server::{Ticket, HdpServerRemote, HdpServerRequest};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
+
+use futures_util::StreamExt;
+use parking_lot::RwLock;
+use tokio::time::Instant;
+
+use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_net::hdp::hdp_packet_processor::includes::SecurityLevel;
+use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerRequest, Ticket};
+use hyxe_net::hdp::peer::channel::PeerChannel;
+use hyxe_net::hdp::peer::message_group::MessageGroupKey;
+use hyxe_net::hdp::peer::peer_layer::PeerResponse;
+use hyxe_net::hdp::state_container::VirtualConnectionType;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
-use hyxe_net::hdp::state_container::VirtualConnectionType;
-use crate::constants::DISCONNECT_TIMEOUT;
-use std::time::Duration;
-use hyxe_net::hdp::peer::peer_layer::PeerResponse;
-use crate::mail::ConsoleSessionMail;
-use crate::console_error::ConsoleError;
-use hyxe_net::hdp::peer::channel::PeerChannel;
-use futures_util::StreamExt;
-use hyxe_net::hdp::hdp_packet_processor::includes::SecurityLevel;
-use tokio::time::Instant;
-use hyxe_net::hdp::peer::message_group::MessageGroupKey;
-use futures_util::core_reexport::sync::atomic::AtomicUsize;
-use crate::ffi::KernelResponse;
+
 use crate::command_handlers::group::MessageGroupContainer;
 use crate::console::virtual_terminal::INPUT_ROUTER;
-use hyxe_crypt::sec_bytes::SecBuffer;
+use crate::console_error::ConsoleError;
+use crate::constants::DISCONNECT_TIMEOUT;
+use crate::ffi::KernelResponse;
+use crate::kernel::{KernelSession, PeerSession};
+use crate::mail::ConsoleSessionMail;
+use crate::ticket_event::{CallbackStatus, TicketQueueHandler};
 
 #[derive(Clone)]
 pub struct ConsoleContext {
@@ -276,7 +278,7 @@ impl ConsoleContext {
 
     /// `username` should be some if resetting the print prompt is expected (should be Some when disconnecting from hypernodes over peers)
     fn send_disconnect_request(&self, cid: u64, username: Option<String>, virt_cxn_type: VirtualConnectionType, server_remote: &HdpServerRemote) -> Ticket {
-        let ticket = server_remote.unbounded_send(HdpServerRequest::DisconnectFromHypernode(cid, virt_cxn_type));
+        let ticket = server_remote.send(HdpServerRequest::DisconnectFromHypernode(cid, virt_cxn_type));
         let queue = self.ticket_queue.as_ref().unwrap();
         queue.register_ticket(ticket, DISCONNECT_TIMEOUT, cid, move |ctx,_, response| {
             match response {

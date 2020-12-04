@@ -70,8 +70,8 @@ impl From<FromUtf8Error> for RequestError {
 }
 
 #[cfg(feature = "aio")]
-impl From<tokio::time::Error> for RequestError {
-    fn from(_err: tokio::time::Error) -> RequestError {
+impl From<tokio::time::error::Error> for RequestError {
+    fn from(_err: tokio::time::error::Error) -> RequestError {
         RequestError::IoError(io::Error::new(io::ErrorKind::TimedOut, "timer failed"))
     }
 }
@@ -354,9 +354,10 @@ impl From<hyper::http::uri::InvalidUri> for SearchError {
         SearchError::InvalidUri(err)
     }
 }
+
 #[cfg(feature = "aio")]
-impl From<tokio::time::Elapsed> for SearchError {
-    fn from(_err: tokio::time::Elapsed) -> SearchError {
+impl From<tokio::time::error::Elapsed> for SearchError {
+    fn from(_err: tokio::time::error::Elapsed) -> SearchError {
         SearchError::IoError(io::Error::new(io::ErrorKind::TimedOut, "search timed out"))
     }
 }

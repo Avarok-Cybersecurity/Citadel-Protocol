@@ -1,10 +1,12 @@
-use futures::channel::mpsc::{UnboundedSender, SendError};
-use bytes::Bytes;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use futures::{Sink, SinkExt};
+
+use bytes::Bytes;
+use futures::Sink;
 use futures::task::{Context, Poll};
-use std::pin::Pin;
+//use futures::channel::mpsc::{UnboundedSender, SendError};
+use tokio::sync::mpsc::UnboundedSender;
 
 /// For keeping the firewall open
 pub static KEEP_ALIVE: Bytes = Bytes::from_static(b"ACK");
@@ -28,13 +30,13 @@ impl OutboundUdpSender {
 
     #[inline]
     pub fn send_with_idx(&self, idx: usize, packet: Bytes) -> bool {
-        self.sender.unbounded_send((idx, packet)).is_ok()
+        self.sender.send((idx, packet)).is_ok()
     }
 
     /// Automatically handles the port rotations
     ///
     /// returns false if the channel is closed, true is success
-    pub fn unbounded_send(&self, packet: Bytes) -> bool {
+    pub fn send(&self, packet: Bytes) -> bool {
         let idx = self.get_and_increment_idx();
         self.send_with_idx(idx, packet)
     }
@@ -61,22 +63,22 @@ impl OutboundUdpSender {
 
 
 impl Sink<Bytes> for OutboundUdpSender {
-    type Error = SendError;
+    type Error = ();
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.sender.poll_ready(cx)
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 
-    fn start_send(mut self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
         let idx = self.get_and_increment_idx();
-        self.sender.start_send((idx, item))
+        self.sender.send((idx, item)).map_err(|_| ())
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.sender.poll_close_unpin(cx)
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.sender.poll_close_unpin(cx)
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 }

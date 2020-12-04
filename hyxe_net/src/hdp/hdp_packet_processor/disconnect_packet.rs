@@ -1,6 +1,8 @@
-use super::includes::*;
-use crate::hdp::state_container::VirtualConnectionType;
 use atomic::Ordering;
+
+use crate::hdp::state_container::VirtualConnectionType;
+
+use super::includes::*;
 
 /// Stage 0: Alice sends Bob a DO_DISCONNECT request packet
 /// Stage 1: Bob sends Alice an encrypted nonce
@@ -162,7 +164,7 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
                         VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                             // End the session
                             let message = message.unwrap_or("Disconnect from HyperLAN server success".as_bytes().to_vec());
-                            state_container.kernel_tx.unbounded_send(HdpServerResult::Disconnect(ticket, implicated_cid, true, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
+                            state_container.kernel_tx.send(HdpServerResult::Disconnect(ticket, implicated_cid, true, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
                             state_container.disconnect_state.reset();
                             std::mem::drop(state_container);
 
@@ -173,7 +175,7 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
                         VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                             // Tell the kernel, and remove the virtual connection
                             let message = message.unwrap_or("Disconnect from HyperLAN client success".as_bytes().to_vec());
-                            state_container.kernel_tx.unbounded_send(HdpServerResult::Disconnect(ticket, implicated_cid, true, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
+                            state_container.kernel_tx.send(HdpServerResult::Disconnect(ticket, implicated_cid, true, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
                             assert!(state_container.active_virtual_connections.remove(&target_cid).is_some());
                             state_container.disconnect_state.reset();
 
@@ -212,7 +214,7 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
                         VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                             // End the session
                             let message = message.unwrap_or("Disconnect from HyperLAN server failure".as_bytes().to_vec());
-                            state_container.kernel_tx.unbounded_send(HdpServerResult::Disconnect(ticket, implicated_cid, false, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
+                            state_container.kernel_tx.send(HdpServerResult::Disconnect(ticket, implicated_cid, false, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
                             session.needs_close_message.store(false, Ordering::SeqCst);
                             PrimaryProcessorResult::EndSession("Disconnect from HyperLAN failure. Still shutting down")
                         }
@@ -220,7 +222,7 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
                         VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                             // Tell the kernel, and remove the virtual connection
                             let message = message.unwrap_or("Disconnect from HyperLAN client failure. Still removing connection".as_bytes().to_vec());
-                            state_container.kernel_tx.unbounded_send(HdpServerResult::Disconnect(ticket, implicated_cid, false, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
+                            state_container.kernel_tx.send(HdpServerResult::Disconnect(ticket, implicated_cid, false, Some(virtual_connection_type), String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string())))?;
                             assert!(state_container.active_virtual_connections.remove(&target_cid).is_some());
                             PrimaryProcessorResult::Void
                         }

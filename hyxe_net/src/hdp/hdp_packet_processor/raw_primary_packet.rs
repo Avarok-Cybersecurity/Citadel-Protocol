@@ -1,5 +1,6 @@
-use super::includes::*;
 use bytes::BytesMut;
+
+use super::includes::*;
 
 /// For primary-port packet types. NOT for wave ports
 pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut) -> PrimaryProcessorResult {
@@ -28,7 +29,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
                 let state_container = inner!(sess.state_container);
                 if let Some(peer_vconn) = state_container.active_virtual_connections.get(&target_cid) {
                     // into_packet is a cheap operation the freezes the internal packet; we attain zero-copy through proxying here
-                    if let Err(_err) = peer_vconn.sender.as_ref().unwrap().1.unbounded_send(packet.into_packet()) {
+                    if let Err(_err) = peer_vconn.sender.as_ref().unwrap().1.send(packet.into_packet()) {
                         log::error!("Proxy TrySendError to {}", target_cid);
                     }
                 } else {

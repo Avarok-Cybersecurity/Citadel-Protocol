@@ -1,5 +1,6 @@
-use super::includes::*;
 use atomic::Ordering;
+
+use super::includes::*;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
 #[inline]
@@ -147,7 +148,7 @@ pub fn process(session_main: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
                         state_container.deregister_state.on_fail();
                         std::mem::drop(state_container);
                         let cid = session.implicated_cid.load(Ordering::Relaxed)?;
-                        session.kernel_tx.unbounded_send(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), ticket, true, false))?;
+                        session.kernel_tx.send(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), ticket, true, false))?;
                         log::error!("Unable to locally purge account {}. Please report this to the HyperLAN Server admin", cid);
                         PrimaryProcessorResult::EndSession("Deregistration failure. Closing connection anyways")
                     } else {

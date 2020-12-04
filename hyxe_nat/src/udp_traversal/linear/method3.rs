@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use bytes::buf::BufMutExt;
+use bytes::BufMut;
 use tokio::net::UdpSocket;
 use tokio::stream::StreamExt;
 use tokio::time::Duration;
@@ -148,7 +148,7 @@ impl LowHighTTLHolePunch {
         // to finish its side of processing
         if !endpoints[0].ip().is_global() {
             log::info!("Delaying for initiator in a non-global network environment ...");
-            tokio::time::delay_for(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         Ok(hole_punched_addrs)

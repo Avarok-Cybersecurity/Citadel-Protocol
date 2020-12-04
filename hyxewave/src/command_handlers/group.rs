@@ -1,5 +1,6 @@
-use super::imports::*;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
+
+use super::imports::*;
 
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let ctx_cid = ctx.get_active_cid();
@@ -50,7 +51,7 @@ fn handle_leave<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
     let signal = GroupBroadcast::LeaveRoom(key.key);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request);
 
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, move |_ctx, _ticket, peer_response| {
         match peer_response {
@@ -161,7 +162,7 @@ fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemot
     let signal = GroupBroadcast::Create(target_cids);
     let request = HdpServerRequest::GroupBroadcastCommand(ctx_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request);
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, ctx_cid, move |ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -212,7 +213,7 @@ fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let signal = GroupBroadcast::End(key.key);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request);
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -259,7 +260,7 @@ fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let signal = GroupBroadcast::Add(key.key, target_cids);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request);
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -311,7 +312,7 @@ fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote,
     let signal = GroupBroadcast::Kick(key.key, target_cids);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request);
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -376,7 +377,7 @@ fn handle_send<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote,
     let signal = GroupBroadcast::Message(username.clone(), key.key, message.clone());
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request);
 
     // once the server broadcasts the message, the console will print-out the data
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, move |_ctx, _ticket, signal| {

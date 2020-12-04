@@ -1,31 +1,33 @@
 use bytes::Bytes;
-use crate::hdp::hdp_server::Ticket;
-use futures::channel::mpsc::TrySendError;
+use tokio::sync::mpsc::error::{SendError, TrySendError};
+
 use ez_pqcrypto::prelude::Error;
 use hyxe_user::misc::AccountError;
 
+use crate::hdp::hdp_packet_processor::includes::SecBuffer;
+use crate::hdp::hdp_server::Ticket;
+
 pub mod includes {
-    pub use crate::inner_arg::{InnerParameterMut, ExpectedInnerTargetMut};
     pub use std::cell::RefMut;
     pub use std::net::{IpAddr, SocketAddr};
-    pub use super::super::state_container::VirtualConnectionType;
+
     pub use bytes::Bytes;
-    pub use hyxe_crypt::sec_bytes::SecBuffer;
     pub use log::{trace, warn};
     pub use rand::prelude::ThreadRng;
     pub use rand::RngCore;
+    pub use secstr::SecVec;
     pub use tokio::time::{Duration, Instant};
     pub use zerocopy::LayoutVerified;
-    pub use hyxe_crypt::drill::SecurityLevel;
-    pub use secstr::SecVec;
 
     pub use ez_pqcrypto::PostQuantumContainer;
     pub use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
     pub use hyxe_crypt::drill::Drill;
+    pub use hyxe_crypt::drill::SecurityLevel;
+    pub use hyxe_crypt::sec_bytes::SecBuffer;
+    pub use hyxe_user::client_account::ClientNetworkAccount;
     pub use hyxe_user::hypernode_account::HyperNodeAccountInformation;
     pub use hyxe_user::misc::AccountError;
     pub use hyxe_user::network_account::NetworkAccount;
-    pub use hyxe_user::client_account::ClientNetworkAccount;
 
     pub use crate::constants::KEEP_ALIVE_INTERVAL_MS;
     pub use crate::hdp::{hdp_packet_crafter, validation};
@@ -33,9 +35,11 @@ pub mod includes {
     pub(crate) use crate::hdp::hdp_packet::packet_flags;
     pub use crate::hdp::hdp_server::HdpServerResult;
     pub use crate::hdp::hdp_session::{HdpSession, HdpSessionInner, SessionState};
+    pub use crate::inner_arg::{ExpectedInnerTargetMut, InnerParameterMut};
 
     pub use super::GroupProcessorResult;
     pub use super::PrimaryProcessorResult;
+    pub use super::super::state_container::VirtualConnectionType;
 }
 
 ///
@@ -116,7 +120,6 @@ impl std::ops::Try for PrimaryProcessorResult {
 }
 
 
-
 impl From<std::option::NoneError> for PrimaryProcessorResult {
     fn from(_: std::option::NoneError) -> Self {
         PrimaryProcessorResult::Void
@@ -125,6 +128,12 @@ impl From<std::option::NoneError> for PrimaryProcessorResult {
 
 impl<T> From<TrySendError<T>> for PrimaryProcessorResult {
     fn from(_: TrySendError<T>) -> Self {
+        PrimaryProcessorResult::EndSession("Outbound sender disconnected")
+    }
+}
+
+impl<T> From<SendError<T>> for PrimaryProcessorResult {
+    fn from(_: SendError<T>) -> Self {
         PrimaryProcessorResult::EndSession("Outbound sender disconnected")
     }
 }

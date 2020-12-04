@@ -148,8 +148,8 @@ pub(crate) mod keep_alive {
     use crate::hdp::hdp_packet::HdpHeader;
 
     /// Returns Ok(false) if expired.
-            /// Returns Ok(true) if valid
-            /// Return Err(_) if getting the drill failed or the security params were false
+                /// Returns Ok(true) if valid
+                /// Return Err(_) if getting the drill failed or the security params were false
     pub(crate) fn validate_keep_alive<'a, 'b: 'a>(cnac: &ClientNetworkAccount, pqc: &PostQuantumContainer, header: &'b Bytes, payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, Drill)> {
         super::aead::validate(cnac, pqc, header, payload)
     }
@@ -159,20 +159,20 @@ pub(crate) mod group {
     use std::ops::RangeInclusive;
 
     use byteorder::{BigEndian, ByteOrder, ReadBytesExt};
-    use bytes::{Bytes, BytesMut};
-    use bytes::buf::BufExt;
+    use bytes::{Buf, Bytes, BytesMut};
     use zerocopy::LayoutVerified;
 
     use ez_pqcrypto::PostQuantumContainer;
-    use hyxe_crypt::net::crypt_splitter::GROUP_RECEIVER_INSCRIBE_LEN;
+    use hyxe_crypt::net::crypt_splitter::{calculate_nonce_version, GROUP_RECEIVER_INSCRIBE_LEN};
     use hyxe_crypt::net::crypt_splitter::GroupReceiverConfig;
     use hyxe_crypt::prelude::Drill;
+    use hyxe_crypt::sec_bytes::SecBuffer;
 
     //use crate::hdp::file_transfer::MAX_GROUP_PLAINTEXT_LEN;
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::error::NetworkError;
     use crate::hdp::hdp_packet::{HdpHeader, packet_sizes};
-    use crate::hdp::hdp_packet::packet_sizes::{GROUP_HEADER_ACK_LEN, GROUP_HEADER_PAYLOAD_LEN};
+    use crate::hdp::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
     use crate::hdp::state_container::VirtualTargetType;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM

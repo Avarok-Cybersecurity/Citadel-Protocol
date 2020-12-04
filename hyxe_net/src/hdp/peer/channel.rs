@@ -1,26 +1,29 @@
-use crate::hdp::hdp_server::{HdpServerRemote, Ticket, HdpServerRequest};
-use hyxe_crypt::drill::SecurityLevel;
+use std::fmt::Debug;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use crate::error::NetworkError;
-use crate::hdp::state_container::VirtualConnectionType;
-use futures::channel::mpsc::UnboundedReceiver;
+
 use futures::{Sink, Stream};
-use futures::task::{Context, Poll, Waker};
-use tokio::macros::support::Pin;
-use std::fmt::Debug;
-use crate::hdp::peer::peer_layer::PeerConnectionType;
-use tokio::io::AsyncWrite;
 use futures::io::Error;
-use std::ops::Deref;
+use futures::task::{Context, Poll, Waker};
+use tokio::io::AsyncWrite;
+use tokio::macros::support::Pin;
+use tokio::sync::mpsc::UnboundedReceiver;
+
+use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::sec_bytes::SecBuffer;
+
+use crate::error::NetworkError;
+use crate::hdp::hdp_server::{HdpServerRemote, HdpServerRequest, Ticket};
+use crate::hdp::peer::peer_layer::PeerConnectionType;
+use crate::hdp::state_container::VirtualConnectionType;
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.
 // This thus bypasses the kernel.
 #[derive(Debug)]
 pub struct PeerChannel {
     send_half: PeerChannelSendHalf,
-    recv_half: PeerChannelRecvHalf
+    recv_half: PeerChannelRecvHalf,
 }
 
 impl PeerChannel {
@@ -148,7 +151,7 @@ pub struct PeerChannelRecvHalf {
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
     is_alive: Arc<AtomicBool>,
-    waker_send: Option<tokio::sync::oneshot::Sender<Waker>>
+    waker_send: Option<tokio::sync::oneshot::Sender<Waker>>,
 }
 
 impl Stream for PeerChannelRecvHalf {
@@ -170,15 +173,14 @@ impl Stream for PeerChannelRecvHalf {
                     Poll::Pending
                 }
             } else {
-                match self.receiver.try_next() {
-                    Ok(Some(data)) => Poll::Ready(Some(data)),
+                match self.receiver.try_recv() {
+                    Ok(data) => Poll::Ready(Some(data)),
                     Err(_) => {
                         // when the stream yields Some, it will get polled again.
                         // when that occurs, try_next likely returns None and
                         // we need to signal for Pending to be awoken again
                         Poll::Pending
                     }
-                    _ => Poll::Pending
                 }
             }
         }

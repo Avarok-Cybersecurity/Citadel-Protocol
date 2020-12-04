@@ -1,20 +1,19 @@
 use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bitvec::vec::BitVec;
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use bytes::buf::BufExt;
 use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
+use rayon::iter::IndexedParallelIterator;
+use rayon::prelude::*;
 
 use crate::drill::Drill;
 use crate::drill_algebra::{generate_packet_coordinates_inv, generate_packet_vector, PacketVector};
 use crate::prelude::{CryptError, PostQuantumContainer, SecurityLevel};
-use rayon::prelude::*;
-use rayon::iter::IndexedParallelIterator;
-use std::sync::Arc;
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;

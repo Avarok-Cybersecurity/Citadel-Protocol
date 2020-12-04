@@ -1,12 +1,13 @@
-use super::imports::*;
-use hyxe_user::client_account::HYPERLAN_IDX;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_user::client_account::HYPERLAN_IDX;
+
+use super::imports::*;
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
     cids: Vec<u64>,
     is_onlines: Vec<bool>,
-    ticket: u64
+    ticket: u64,
 }
 
 impl From<Ticket> for PeerList {
@@ -112,7 +113,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             let signal = PeerSignal::Disconnect(removed_conn.cxn_type, None);
             let request = HdpServerRequest::PeerCommand(ctx_user, signal);
 
-            let ticket = server_remote.unbounded_send(request);
+            let ticket = server_remote.send(request);
 
             ctx.register_ticket(ticket, DISCONNECT_TIMEOUT, ctx_user, move |_ctx, _ticket, response| {
                 match response {
@@ -147,7 +148,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
             let signal = PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid));
             let request = HdpServerRequest::PeerCommand(ctx_user, signal);
-            let ticket = server_remote.unbounded_send(request);
+            let ticket = server_remote.send(request);
 
             // the below is safe to unwrap since the existence is implies by the get_peer_cid_from_cnac
             let _ = cnac.remove_hyperlan_peer(target_cid).unwrap();
@@ -210,14 +211,14 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             }
 
             let request = HdpServerRequest::SendFile(path, chunk_size, ctx_user, vconn_type);
-            let ticket = server_remote.unbounded_send(request);
+            let ticket = server_remote.send(request);
 
             return Ok(Some(KernelResponse::ResponseTicket(ticket.0)));
         }
 
         if let Some(_matches) = matches.subcommand_matches("list") {
             let list_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetRegisteredPeers(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None));
-            let ticket = server_remote.unbounded_send(list_request);
+            let ticket = server_remote.send(list_request);
             ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |_, ticket, response| {
                 match response {
                     PeerResponse::RegisteredCids(cids, online_status) => {
@@ -276,7 +277,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
         if let Some(_matches) = matches.subcommand_matches("mutuals") {
             let get_consented_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None));
-            let ticket = server_remote.unbounded_send(get_consented_request);
+            let ticket = server_remote.send(get_consented_request);
             ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |ctx, ticket, success| {
                 match success {
                     PeerResponse::RegisteredCids(cids, online_status) => {
@@ -380,7 +381,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             }
 
             let post_register_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), username, None, None));
-            let ticket = server_remote.unbounded_send(post_register_request);
+            let ticket = server_remote.send(post_register_request);
             ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, target_cid, move |ctx, ticket, response| {
                 match response {
                     PeerResponse::ServerReceivedRequest => {
@@ -442,7 +443,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             }
 
             let post_connect_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), None, None));
-            let ticket = server_remote.unbounded_send(post_connect_request);
+            let ticket = server_remote.send(post_connect_request);
             ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, ctx_user, move |_ctx, ticket, response| {
                 match response {
                     PeerResponse::Accept(welcome_message_opt) => {

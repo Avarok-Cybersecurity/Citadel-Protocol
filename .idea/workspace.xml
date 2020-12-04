@@ -40,17 +40,57 @@
     <cargoProject FILE="$PROJECT_DIR$/async_udt/udt-rs/Cargo.toml" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Progress on hyxe networking">
-      <change afterPath="$PROJECT_DIR$/.idea/codeStyles/Project.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/hyxe_crypt/src/sec_string.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/launcher/out/artifacts/launcher_jar/launcher.jar" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/launcher/out/production/launcher/com/satori/Displayable$1.class" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/launcher/out/production/launcher/com/satori/Displayable.class" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/launcher/out/production/launcher/com/satori/console/Console.class" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/launcher/src/com/satori/Displayable.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/launcher/src/com/satori/console/Console.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/hyxe_wave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hyxe_wave.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+    <list default="true" id="9ba86fcb-f55c-4698-a5ca-e0aac968b922" name="local history tokio0.3.5" comment="">
+      <change afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/udp_framed.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/local_history.patch" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/net/crypt_splitter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/net/crypt_splitter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_fs/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_fs/src/file_crypt_scrambler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/src/file_crypt_scrambler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/rust-igd/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/errors.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/errors.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/method3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/method3.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/deregister_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/deregister_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/disconnect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/disconnect_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/keep_alive_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/keep_alive_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/group_broadcast.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/group_broadcast.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/outbound_sender.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/outbound_sender.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/session_queue_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/session_queue_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/deregister.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/deregister.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/group.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/group.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/send.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/send.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/console_context.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/console_context.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/command_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/ffi/command_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/hdp_initiator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/hdp_initiator.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/kernel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/kernel.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/ticket_event.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/ticket_event.rs" afterDir="false" />
+    </list>
+    <list id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Progress on hyxe networking">
+      <change afterPath="$PROJECT_DIR$/launcher/.idea/libraries/commons_configuration2_2_7.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/launcher/.idea/libraries/commons_configuration_1_10.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/codeStyles/Project.xml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/async_udt/udt-rs" beforeDir="false" afterPath="$PROJECT_DIR$/async_udt/udt-rs" afterDir="false" />
@@ -145,6 +185,223 @@
   <component name="GitToolBoxStore">
     <option name="projectConfigVersion" value="2" />
   </component>
+  <component name="LineStatusTrackerManager">
+    <file path="$PROJECT_DIR$/hyxewave/src/console/console_context.rs">
+      <ranges>
+        <range start1="2" end1="3" start2="2" end2="3" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="21" end1="22" start2="21" end2="21" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="154" end1="154" start2="153" end2="154" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="278" end1="279" start2="278" end2="279" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs">
+      <ranges>
+        <range start1="5" end1="6" start2="5" end2="6" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="89" end1="90" start2="89" end2="90" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="138" end1="139" start2="138" end2="139" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="430" end1="431" start2="430" end2="431" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="631" end1="632" start2="631" end2="632" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="708" end1="709" start2="708" end2="709" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="747" end1="748" start2="747" end2="748" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="794" end1="795" start2="794" end2="795" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="820" end1="821" start2="820" end2="821" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_crypt/src/net/crypt_splitter.rs">
+      <ranges>
+        <range start1="7" end1="8" start2="7" end2="7" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="53" end1="55" start2="52" end2="54" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs">
+      <ranges>
+        <range start1="9" end1="9" start2="9" end2="10" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="36" end1="37" start2="37" end2="37" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="39" end1="39" start2="39" end2="40" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="40" end1="41" start2="41" end2="42" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="103" end1="104" start2="104" end2="105" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="121" end1="122" start2="122" end2="123" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="144" end1="145" start2="145" end2="148" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="152" end1="153" start2="155" end2="156" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="161" end1="162" start2="164" end2="165" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="182" end1="183" start2="185" end2="188" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="186" end1="187" start2="191" end2="192" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="203" end1="204" start2="208" end2="209" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="218" end1="219" start2="223" end2="224" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="239" end1="240" start2="244" end2="256" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="348" end1="349" start2="364" end2="365" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="454" end1="455" start2="470" end2="471" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="459" end1="460" start2="475" end2="476" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="493" end1="494" start2="509" end2="510" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs">
+      <ranges>
+        <range start1="161" end1="163" start2="161" end2="162" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="166" end1="167" start2="165" end2="166" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="174" end1="175" start2="173" end2="174" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="176" end1="176" start2="175" end2="176" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="185" end1="187" start2="185" end2="192" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="189" end1="199" start2="194" end2="231" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="204" end1="205" start2="236" end2="237" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="212" end1="212" start2="244" end2="245" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="215" end1="225" start2="248" end2="249" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs">
+      <ranges>
+        <range start1="0" end1="1" start2="0" end2="1" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="22" end1="23" start2="22" end2="23" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="68" end1="68" start2="68" end2="69" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxewave/src/kernel.rs">
+      <ranges>
+        <range start1="5" end1="6" start2="5" end2="6" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="217" end1="218" start2="217" end2="218" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="288" end1="293" start2="288" end2="292" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="298" end1="299" start2="297" end2="298" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="301" end1="302" start2="300" end2="301" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="553" end1="554" start2="552" end2="553" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs">
+      <ranges>
+        <range start1="6" end1="6" start2="6" end2="7" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="23" end1="24" start2="24" end2="25" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="34" end1="35" start2="35" end2="36" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="42" end1="51" start2="43" end2="53" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="52" end1="69" start2="54" end2="55" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="70" end1="74" start2="56" end2="56" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="75" end1="77" start2="57" end2="57" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="84" end1="85" start2="64" end2="65" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="95" end1="96" start2="75" end2="76" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="97" end1="98" start2="77" end2="78" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="117" end1="121" start2="97" end2="120" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="122" end1="129" start2="121" end2="129" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="135" end1="143" start2="135" end2="144" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="144" end1="159" start2="145" end2="160" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="161" end1="162" start2="162" end2="163" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="164" end1="166" start2="165" end2="165" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="174" end1="175" start2="173" end2="179" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="203" end1="204" start2="207" end2="208" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="224" end1="225" start2="228" end2="229" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="288" end1="296" start2="292" end2="300" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="297" end1="313" start2="301" end2="317" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="314" end1="316" start2="318" end2="320" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="332" end1="333" start2="336" end2="337" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="336" end1="337" start2="340" end2="341" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="345" end1="345" start2="349" end2="378" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/mod.rs">
+      <ranges>
+        <range start1="22" end1="23" start2="22" end2="23" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="24" end1="24" start2="24" end2="26" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs">
+      <ranges>
+        <range start1="17" end1="18" start2="17" end2="17" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="126" end1="126" start2="125" end2="135" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="166" end1="167" start2="175" end2="176" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="182" end1="183" start2="191" end2="192" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="199" end1="200" start2="208" end2="209" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="213" end1="214" start2="222" end2="223" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="219" end1="219" start2="228" end2="229" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="221" end1="221" start2="231" end2="237" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="251" end1="252" start2="267" end2="267" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="269" end1="271" start2="284" end2="300" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="272" end1="272" start2="301" end2="302" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="279" end1="280" start2="309" end2="311" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="281" end1="282" start2="312" end2="313" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="284" end1="284" start2="315" end2="317" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="298" end1="305" start2="331" end2="332" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="308" end1="308" start2="335" end2="336" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="312" end1="312" start2="340" end2="341" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="316" end1="320" start2="345" end2="345" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="345" end1="347" start2="370" end2="372" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs">
+      <ranges>
+        <range start1="6" end1="7" start2="6" end2="8" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="20" end1="21" start2="21" end2="22" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="106" end1="107" start2="107" end2="108" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="108" end1="109" start2="109" end2="110" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="134" end1="134" start2="135" end2="136" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="136" end1="137" start2="138" end2="139" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="139" end1="139" start2="141" end2="142" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="161" end1="162" start2="164" end2="165" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="163" end1="164" start2="166" end2="167" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="454" end1="456" start2="457" end2="459" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="466" end1="466" start2="469" end2="470" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="499" end1="500" start2="503" end2="504" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="506" end1="507" start2="510" end2="511" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="509" end1="510" start2="513" end2="514" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="636" end1="637" start2="640" end2="641" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="648" end1="649" start2="652" end2="653" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="679" end1="680" start2="683" end2="684" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="713" end1="714" start2="717" end2="718" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="822" end1="823" start2="826" end2="827" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="835" end1="836" start2="839" end2="840" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="888" end1="889" start2="892" end2="893" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="897" end1="898" start2="901" end2="902" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="900" end1="901" start2="904" end2="905" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="911" end1="912" start2="915" end2="916" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="930" end1="931" start2="934" end2="935" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="975" end1="976" start2="979" end2="980" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="1001" end1="1002" start2="1005" end2="1006" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="1019" end1="1020" start2="1023" end2="1024" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="1052" end1="1053" start2="1056" end2="1057" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="1062" end1="1063" start2="1066" end2="1068" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="1065" end1="1066" start2="1070" end2="1071" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="1078" end1="1079" start2="1083" end2="1084" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="1088" end1="1089" start2="1093" end2="1094" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="1113" end1="1114" start2="1118" end2="1119" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="1203" end1="1204" start2="1208" end2="1209" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/outbound_sender.rs">
+      <ranges>
+        <range start1="0" end1="1" start2="0" end2="2" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="4" end1="5" start2="5" end2="6" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="16" end1="17" start2="17" end2="17" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="30" end1="31" start2="30" end2="31" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="36" end1="37" start2="36" end2="37" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="63" end1="64" start2="63" end2="64" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="65" end1="67" start2="65" end2="67" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="69" end1="70" start2="69" end2="70" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="71" end1="72" start2="71" end2="72" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="74" end1="76" start2="74" end2="76" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="78" end1="80" start2="78" end2="80" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs">
+      <ranges>
+        <range start1="2" end1="3" start2="2" end2="3" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="5" end1="5" start2="5" end2="6" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="93" end1="94" start2="94" end2="95" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="127" end1="127" start2="128" end2="134" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs">
+      <ranges>
+        <range start1="6" end1="7" start2="6" end2="7" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="26" end1="27" start2="26" end2="27" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="145" end1="146" start2="145" end2="146" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="154" end1="155" start2="154" end2="155" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="172" end1="174" start2="172" end2="174" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+        <range start1="180" end1="181" start2="180" end2="180" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+      </ranges>
+    </file>
+    <file path="$PROJECT_DIR$/hyxe_net/src/lib.rs">
+      <ranges>
+        <range start1="0" end1="1" start2="0" end2="1" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
+        <range start1="199" end1="200" start2="199" end2="200" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
+      </ranges>
+    </file>
+  </component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="CdSiLkPI" />
   </component>
@@ -165,7 +422,7 @@
     <property name="add_unversioned_files" value="true" />
     <property name="aspect.path.notification.shown" value="true" />
     <property name="cf.first.check.clang-format" value="false" />
-    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$/local_history_tokio0.3.5.patch" />
     <property name="node.js.detected.package.eslint" value="true" />
     <property name="node.js.detected.package.tslint" value="true" />
     <property name="node.js.path.for.package.eslint" value="project" />
@@ -381,6 +638,7 @@
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
       <changelist id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="" />
+      <changelist id="9ba86fcb-f55c-4698-a5ca-e0aac968b922" name="local history tokio0.3.5" comment="" />
       <created>1566054907722</created>
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
@@ -535,6 +793,8 @@
       <workItem from="1606438272923" duration="8858000" />
       <workItem from="1606505541873" duration="589000" />
       <workItem from="1606510793997" duration="67620000" />
+      <workItem from="1606756377281" duration="36168000" />
+      <workItem from="1607002112859" duration="34549000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
@@ -662,6 +922,7 @@
     <MESSAGE value="Progress on hyxe_user, hyxe_crypt" />
     <MESSAGE value="Progress on hyxe networking" />
     <option name="LAST_COMMIT_MESSAGE" value="Progress on hyxe networking" />
+    <option name="MAKE_NEW_CHANGELIST_ACTIVE" value="true" />
     <option name="OPTIMIZE_IMPORTS_BEFORE_PROJECT_COMMIT" value="true" />
     <option name="REFORMAT_BEFORE_PROJECT_COMMIT" value="true" />
     <option name="REARRANGE_BEFORE_PROJECT_COMMIT" value="true" />

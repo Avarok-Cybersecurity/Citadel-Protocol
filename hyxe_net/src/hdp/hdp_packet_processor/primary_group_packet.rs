@@ -1,9 +1,13 @@
-use super::includes::*;
-use crate::hdp::state_container::{StateContainerInner, GroupKey, FileKey};
+use std::sync::Arc;
+
+use atomic::Ordering;
+
 use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::hdp::session_queue_handler::QueueWorkerResult;
-use std::sync::Arc;
-use atomic::Ordering;
+use crate::hdp::state_container::{FileKey, GroupKey, StateContainerInner};
+use crate::hdp::validation::group::GroupHeader;
+
+use super::includes::*;
 
 /// This will handle an inbound primary group packet
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
@@ -93,9 +97,9 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                                             if group.object_id != 0 {
                                                                 // belongs to a file. Delete file; stop transmission
                                                                 let key = FileKey::new(peer_cid, group.object_id);
-                                                                if let Some(file) = state_container.inbound_files.remove(&key) {
+                                                                if let Some(_file) = state_container.inbound_files.remove(&key) {
                                                                     // stop the stream to the HD
-                                                                    file.stream_to_hd.close_channel();
+                                                                    // let _ = file.stream_to_hd.send(Vec::with_capacity(0));
                                                                     // TODO: Create file FIN
                                                                 }
                                                             }

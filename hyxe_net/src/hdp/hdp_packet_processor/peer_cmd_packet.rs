@@ -1,12 +1,15 @@
+use std::str::FromStr;
+
+use hyxe_crypt::toolset::Toolset;
+
+use crate::constants::DEFAULT_PQC_ALGORITHM;
 use crate::hdp::hdp_server::Ticket;
+use crate::hdp::peer::peer_crypt::{KEP_STAGE1, KeyExchangeProcess, PeerSessionCrypto};
 use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal};
+use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
+use crate::macros::SessionBorrow;
 
 use super::includes::*;
-use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
-use crate::hdp::peer::peer_crypt::{KEP_STAGE1, KeyExchangeProcess, PeerSessionCrypto};
-use hyxe_crypt::toolset::Toolset;
-use crate::constants::DEFAULT_PQC_ALGORITHM;
-use crate::macros::SessionBorrow;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
@@ -184,7 +187,7 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
 
                                 log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
                                 // send ack. But first, send the channel to the kernel to the kernel
-                                state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
+                                state_container.kernel_tx.send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
                                 let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage3);
                                 std::mem::drop(state_container);
 
@@ -201,7 +204,7 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
                                 let mut state_container = inner_mut!(session.state_container);
                                 let kem_state_container = state_container.peer_kem_states.remove(&conn.get_original_implicated_cid())?;
                                 let channel = kem_state_container.channel?;
-                                state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
+                                state_container.kernel_tx.send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
                                 PrimaryProcessorResult::Void
                             }
 
@@ -216,7 +219,7 @@ pub fn process(session: &HdpSession, aux_cmd: u8, packet: HdpPacket) -> PrimaryP
                 }
 
                 log::info!("Forwarding PEER signal to kernel ...");
-                session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(signal, ticket))?;
+                session.kernel_tx.send(HdpServerResult::PeerEvent(signal, ticket))?;
                 PrimaryProcessorResult::Void
             } else {
                 process_signal_command_as_server(signal, ticket, wrap_inner_mut!(session), drill, header, timestamp)
@@ -241,7 +244,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
             // since this is the server, we just need to route this to the target_cid
             let sess_mgr = inner!(session.session_manager);
             let signal_to = PeerSignal::Kem(conn, kep);
-            let res = sess_mgr.send_signal_to_peer_direct(conn.get_original_target_cid(),move |peer_pqc, peer_drill| {
+            let res = sess_mgr.send_signal_to_peer_direct(conn.get_original_target_cid(), move |peer_pqc, peer_drill| {
                 hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_pqc, peer_drill, signal_to, ticket, timestamp)
             });
 
@@ -452,12 +455,12 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
 
         PeerSignal::SignalError(ticket, err) => {
             // in this case, we delegate the error to the higher-level kernel to determine what to do
-            session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalError(ticket, err), ticket))?;
+            session.kernel_tx.send(HdpServerResult::PeerEvent(PeerSignal::SignalError(ticket, err), ticket))?;
             PrimaryProcessorResult::Void
         }
 
         PeerSignal::SignalReceived(ticket) => {
-            session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(signal, ticket))?;
+            session.kernel_tx.send(HdpServerResult::PeerEvent(signal, ticket))?;
             PrimaryProcessorResult::Void
         }
     }
@@ -491,7 +494,7 @@ fn route_signal_and_register_ticket_forwards<K: ExpectedInnerTargetMut<HdpSessio
         // on timeout, run this
         log::warn!("Running timeout closure. Sending error message to {}", implicated_cid);
         let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&pqc2, &drill2, stale_signal, ticket, timestamp);
-        let _ = to_primary_stream.unbounded_send(error_packet);
+        let _ = to_primary_stream.send(error_packet);
     });
 
     // Then, we tell the implicated_cid's node that we have handled the message. However, the peer has yet to respond

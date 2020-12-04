@@ -1,35 +1,35 @@
 use std::collections::HashMap;
+use std::hint::black_box;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 
 use bytes::{Bytes, BytesMut};
-use futures::channel::mpsc::UnboundedSender;
+use futures::StreamExt;
 use tokio::net::TcpStream;
 
+use ez_pqcrypto::PostQuantumContainer;
 use hyxe_crypt::prelude::SecurityLevel;
+use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_nat::hypernode_type::HyperNodeType;
+use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
+use hyxe_user::client_account::ClientNetworkAccount;
 
 use crate::constants::{HDP_NODELAY, TCP_ONLY};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
-use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
+use crate::hdp::hdp_packet_processor::includes::{Drill, Duration, HyperNodeAccountInformation};
+use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, GroupMemberAlterMode, MemberState};
+use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerRequest, HdpServerResult, Ticket};
 use crate::hdp::hdp_session::HdpSession;
+use crate::hdp::outbound_sender::OutboundUdpSender;
+use crate::hdp::peer::message_group::MessageGroupKey;
+use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal};
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::proposed_credentials::ProposedCredentials;
-use hyxe_nat::hypernode_type::HyperNodeType;
-use hyxe_nat::time_tracker::TimeTracker;
-use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, PeerSignal, MailboxTransfer, PeerConnectionType, PeerResponse};
-use crate::hdp::outbound_sender::OutboundUdpSender;
-use crate::hdp::hdp_packet_processor::includes::{Duration, Drill, HyperNodeAccountInformation};
-use ez_pqcrypto::PostQuantumContainer;
-use futures::StreamExt;
-use std::sync::atomic::Ordering;
-use std::hint::black_box;
-use std::path::PathBuf;
-use crate::hdp::peer::message_group::MessageGroupKey;
-use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState, GroupMemberAlterMode};
-use hyxe_user::client_account::ClientNetworkAccount;
-use hyxe_crypt::sec_bytes::SecBuffer;
+use crate::re_imports::UnboundedSender;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -87,7 +87,7 @@ impl HdpSessionManager {
                 remote.send_with_custom_ticket(ticket, request);
                 None
             } else {
-                Some(remote.unbounded_send(request))
+                Some(remote.send(request))
             }
         } else {
             None
@@ -428,7 +428,7 @@ impl HdpSessionManager {
                         return cnac.borrow_drill(None, move |drill_opt| {
                             if let Some(drill) = drill_opt {
                                 let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(pqc, drill, peer_command, ticket, timestamp);
-                                to_primary_stream.unbounded_send(packet).is_ok()
+                                to_primary_stream.send(packet).is_ok()
                             } else {
                                 false
                             }
@@ -629,7 +629,7 @@ impl HdpSessionManager {
                         return cnac.borrow_drill(None, |drill| {
                             if let Some(drill) = drill {
                                 let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(pqc, drill, signal, ticket, timestamp);
-                                to_primary_stream.unbounded_send(packet).is_ok()
+                                to_primary_stream.send(packet).is_ok()
                             } else {
                                 false
                             }
@@ -706,7 +706,7 @@ impl HdpSessionManager {
                 });
 
                 if let Some(packet) = packet_opt {
-                    to_primary.unbounded_send(packet).map_err(|err| err.to_string())
+                    to_primary.send(packet).map_err(|err| err.to_string())
                 } else {
                     Err("Unable to obtain peer drill".to_string())
                 }
@@ -745,7 +745,7 @@ impl HdpSessionManagerInner {
                         if let Some(peer_latest_drill) = drill_opt {
                             log::info!("Routing packet through primary stream ({} -> {})", implicated_cid, target_cid);
                             let packet = packet(target_pqc, &peer_latest_drill);
-                            peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
+                            peer_sender.send(packet).map_err(|err| err.to_string())
                         } else {
                             Err(format!("Unable to acquire peer drill for {}", target_cid))
                         }
@@ -792,7 +792,7 @@ impl HdpSessionManagerInner {
                 peer_cnac.borrow_drill(None, |peer_latest_drill_opt| {
                     if let Some(peer_latest_drill) = peer_latest_drill_opt {
                         let packet = packet(target_pqc, peer_latest_drill);
-                        peer_sender.unbounded_send(packet).map_err(|err| err.to_string()).map(|_| (ret, tracked_posting))
+                        peer_sender.send(packet).map_err(|err| err.to_string()).map(|_| (ret, tracked_posting))
                     } else {
                         Err(format!("Unable to acquire peer drill for {}", target_cid))
                     }
@@ -818,7 +818,7 @@ impl HdpSessionManagerInner {
             peer_cnac.borrow_drill(None, |latest_peer_drill_opt| {
                 if let Some(peer_latest_drill) = latest_peer_drill_opt {
                     let packet = packet(peer_pqc, peer_latest_drill);
-                    peer_sender.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
+                    peer_sender.send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
                 } else {
                     Err(NetworkError::InternalError("Peer drill absent"))
                 }

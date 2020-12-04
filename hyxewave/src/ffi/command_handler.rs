@@ -1,10 +1,13 @@
-use hyxe_net::hdp::hdp_server::HdpServerRemote;
-use crate::console::console_context::ConsoleContext;
-use crate::console_error::ConsoleError;
-use futures_util::core_reexport::convert::TryFrom;
-use crate::console::virtual_terminal::handle;
+use std::convert::TryFrom;
+
 use tokio::runtime::Handle;
-use crate::ffi::{KernelResponse, FFIIO};
+
+use hyxe_net::hdp::hdp_server::HdpServerRemote;
+
+use crate::console::console_context::ConsoleContext;
+use crate::console::virtual_terminal::handle;
+use crate::console_error::ConsoleError;
+use crate::ffi::{FFIIO, KernelResponse};
 
 /// This will immediately return an answer to the caller. Any future answers will be returned
 /// via the FFI_STATIC's FFIIO
@@ -30,9 +33,8 @@ fn handle_ffi_payload(server_remote: &HdpServerRemote, ctx: &ConsoleContext, ffi
 
             // The following function MUST be called with a tokio context. If it does not, MIO registrations
             // will fail since they require Handle::current(), resulting in a panic
-            rt_handle.enter(|| {
-                handle(clap.0.lock(), parts, server_remote, ctx, Some(ffi_io))
-            })
+            let _guard = rt_handle.enter();
+            handle(clap.0.lock(), parts, server_remote, ctx, Some(ffi_io))
         }
     }
 }

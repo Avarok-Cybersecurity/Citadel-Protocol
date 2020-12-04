@@ -1,21 +1,24 @@
-use hyxe_net::hdp::hdp_server::Ticket;
-use tokio::time::{Duration, DelayQueue};
-use std::pin::Pin;
-use crate::console::console_context::ConsoleContext;
-use tokio::time::delay_queue;
-use hyxe_net::hdp::peer::peer_layer::PeerResponse;
-use futures_util::task::{Poll, Context, Waker};
-use tokio::stream::Stream;
-use std::sync::Arc;
-use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use futures_util::task::{Context, Poll, Waker};
+use parking_lot::Mutex;
+use tokio::stream::Stream;
+use tokio::time::Duration;
+use tokio_util::time::{delay_queue, DelayQueue};
+
+use hyxe_net::hdp::hdp_server::Ticket;
+use hyxe_net::hdp::peer::peer_layer::PeerResponse;
+
+use crate::console::console_context::ConsoleContext;
 
 pub struct TrackedTicket {
     pub ticket: Ticket,
     pub key: delay_queue::Key,
     pub lifetime: Duration,
     pub implicated_cid: u64,
-    pub fx: Pin<Box<dyn Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static>>
+    pub fx: Pin<Box<dyn Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static>>,
 }
 
 unsafe impl Send for TrackedTicket {}
@@ -92,7 +95,7 @@ impl TicketQueueHandler {
         }
     }
 
-    fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), tokio::time::Error>> {
+    fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), tokio::time::error::Error>> {
         let mut this = self.inner.lock();
         if this.waker.is_none() {
             this.waker = Some(cx.waker().clone());
