@@ -1,4 +1,4 @@
-#![feature(async_closure, main, try_trait)]
+#![feature(async_closure, main, try_trait, ip)]
 #![feature(test)]
 //! Core networking components for SatoriNET
 #![deny(

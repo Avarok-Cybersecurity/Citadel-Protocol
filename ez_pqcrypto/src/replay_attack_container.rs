@@ -18,7 +18,6 @@ pub mod ordered {
         /// Returns true if the value is valid, false otherwise
         #[inline]
         pub fn on_pid_received(&self, pid: u64) -> bool {
-            //println!("PREV: {} | RECV: {}", self.in_counter.load(Ordering::Relaxed), pid);
             self.in_counter.compare_and_swap(pid, pid + 1, Ordering::SeqCst) == pid
         }
     }

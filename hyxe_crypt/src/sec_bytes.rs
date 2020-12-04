@@ -1,4 +1,6 @@
 use crate::sec_string::SecString;
+use std::fmt::Debug;
+use serde::export::Formatter;
 
 /// A memory-secure wrapper for shipping around Bytes
 #[derive(Clone)]
@@ -10,6 +12,11 @@ impl SecBuffer {
     /// Creates a new SecBytes container
     pub fn new() -> Self {
         Self::from(Vec::new())
+    }
+
+    /// Creates an unlocked, empty buffer
+    pub fn empty() -> Self {
+        Self { inner: Vec::with_capacity(0) }
     }
 
     /// Returns the inner element without dropping the memory
@@ -60,5 +67,17 @@ impl Drop for SecBuffer {
     fn drop(&mut self) {
         self.unlock();
         self.zeroize();
+    }
+}
+
+impl Debug for SecBuffer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "***SECRET***")
+    }
+}
+
+impl<T: AsRef<[u8]>> PartialEq<T> for SecBuffer {
+    fn eq(&self, other: &T) -> bool {
+        self.as_ref() == other.as_ref()
     }
 }

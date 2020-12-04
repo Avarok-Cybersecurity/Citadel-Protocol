@@ -24,7 +24,7 @@ pub struct PeerChannel {
 }
 
 impl PeerChannel {
-    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<Vec<u8>>) -> (Self, tokio::sync::oneshot::Receiver<Waker>) {
+    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>) -> (Self, tokio::sync::oneshot::Receiver<Waker>) {
         let (waker_send, waker_recv) = tokio::sync::oneshot::channel();
         let implicated_cid = vconn_type.get_implicated_cid();
         let send_half = PeerChannelSendHalf {
@@ -143,7 +143,7 @@ impl Unpin for PeerChannelRecvHalf {}
 #[derive(Debug)]
 pub struct PeerChannelRecvHalf {
     // when the state container removes the vconn, this will get closed
-    receiver: UnboundedReceiver<Vec<u8>>,
+    receiver: UnboundedReceiver<SecBuffer>,
     target_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
@@ -152,7 +152,7 @@ pub struct PeerChannelRecvHalf {
 }
 
 impl Stream for PeerChannelRecvHalf {
-    type Item = Vec<u8>;
+    type Item = SecBuffer;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if !self.is_alive.load(Ordering::SeqCst) {

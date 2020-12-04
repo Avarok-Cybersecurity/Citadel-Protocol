@@ -136,7 +136,7 @@ impl HdpSessionManager {
 
         // We must now create a TcpStream towards the peer
         let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
-        let primary_stream = HdpServer::create_tcp_connect_socket(local_bind_addr, peer_addr)
+        let primary_stream = HdpServer::create_tcp_connect_socket(peer_addr)
             .map_err(|err| NetworkError::SocketError(err.to_string()))?;
 
         let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), peer_addr, this.time_tracker.clone(), implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(TCP_ONLY)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;

@@ -14,7 +14,6 @@ pub struct OutboundUdpSender {
     sender: UnboundedSender<(usize, Bytes)>,
     total_local_ports: usize,
     rolling_idx: Arc<AtomicUsize>
-
 }
 
 unsafe impl Send for OutboundUdpSender {}
