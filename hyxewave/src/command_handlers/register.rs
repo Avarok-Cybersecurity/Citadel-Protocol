@@ -1,6 +1,6 @@
 use super::imports::*;
 use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
-use hyxe_net::constants::PRIMARY_PORT;
+use crate::primary_terminal::parse_custom_addr;
 
 #[derive(Debug, Serialize)]
 pub enum RegisterResponse {
@@ -103,12 +103,8 @@ fn handle_console(ctx: &ConsoleContext, target_addr: &SocketAddr) -> Result<Prop
     Ok(ProposedCredentials::new_unchecked(full_name, &username, SecVec::new(password_input_1), None))
 }
 
+/// Now works with ipv6 AND ipv4
 fn get_remote_addr(matches: &ArgMatches) -> Result<SocketAddr, ConsoleError> {
     let target_addr = matches.value_of("target").unwrap();
-    if target_addr.contains(":") {
-        SocketAddr::from_str(target_addr).map_err(|err| ConsoleError::Generic(err.to_string()))
-    } else {
-        let ip_addr = IpAddr::from_str(target_addr)?;
-        Ok(SocketAddr::new(ip_addr, PRIMARY_PORT))
-    }
+    parse_custom_addr(target_addr)
 }

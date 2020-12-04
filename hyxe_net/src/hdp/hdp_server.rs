@@ -10,7 +10,7 @@ use futures::{StreamExt, Sink, SinkExt};
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, SendError};
 use futures::try_join;
 use log::info;
-use net2::TcpBuilder;
+use net2::TcpStreamExt;
 use tokio::net::{TcpListener, TcpStream};
 use std::net::ToSocketAddrs;
 
@@ -38,7 +38,7 @@ use crate::hdp::file_transfer::FileTransferStatus;
 use hyxe_crypt::sec_bytes::SecBuffer;
 
 
-// The HyperNode Datagram Protocol (HDP) manager. We use Rc to allow ensure single-threaded performance
+// The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
 define_outer_struct_wrapper!(HdpServer, HdpServerInner);
 
@@ -63,7 +63,8 @@ impl HdpServer {
         // Note: on Android/IOS, the below command will fail since sudo access is prohibited
         if let Ok(res) = open_local_firewall_port(FirewallProtocol::TCP(primary_port)) {
             if !res.status.success() {
-                log::warn!("We were unable to ensure that the primary port, {}, be open. Reason: {}", primary_port, String::from_utf8(res.stdout).unwrap_or_default());
+                let data = if res.stdout.is_empty() { res.stderr } else { res.stdout };
+                log::warn!("We were unable to ensure that the primary port, {}, be open. Reason: {}", primary_port, String::from_utf8(data).unwrap_or_default());
             }
         }
 
@@ -119,29 +120,11 @@ impl HdpServer {
         tokio::net::TcpListener::bind(full_bind_addr).await
     }
 
-    pub(crate) fn create_tcp_connect_socket<T: ToSocketAddrs, R: ToSocketAddrs>(full_bind_addr: T, remote: R) -> io::Result<TcpStream> {
-        let full_bind_addr = full_bind_addr.to_socket_addrs()?.next().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, ""))?;
-        let remote = remote.to_socket_addrs()?.next().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, ""))?;
-        let tcp_sock_res = if full_bind_addr.is_ipv4() {
-            TcpBuilder::new_v4()
-        } else {
-            TcpBuilder::new_v6()
-        };
-
-        let full_bind_addr = std::net::SocketAddr::new(full_bind_addr.ip(), 0);
-        log::info!("full_bind_addr: {:?}. Attempting to connect to: {:?}", &full_bind_addr, &remote);
-
-        tcp_sock_res?
-            .reuse_address(true)?
-            .bind(full_bind_addr)?
-            .connect(remote)
-            .map(|std_stream| {
-                let ret = tokio::net::TcpStream::from_std(std_stream).unwrap();
-                ret.set_linger(Some(tokio::time::Duration::from_secs(0))).unwrap();
-                ret.set_keepalive(None).unwrap();
-                //ret.set_nodelay(true).unwrap();
-                ret
-            })
+    pub(crate) fn create_tcp_connect_socket<R: ToSocketAddrs>(remote: R) -> io::Result<TcpStream> {
+        let stream = std::net::TcpStream::connect(remote)?;
+        stream.set_linger(Some(tokio::time::Duration::from_secs(0)))?;
+        stream.set_keepalive(None)?;
+        Ok(tokio::net::TcpStream::from_std(stream)?)
     }
 
     /// In impersonal mode, each hypernode needs to check for incoming connections on the primary port.
@@ -336,11 +319,6 @@ impl HdpServerRemote {
         Self { ticket_counter: Arc::new(AtomicUsize::new(1)), outbound_send_request_tx }
     }
 
-    /// Starts the server
-    pub async fn start() -> io::Result<()> {
-        Ok(())
-    }
-
     /// Sends a request to the HDP server. This should always be used to communicate with the server
     /// in order to obtain a ticket
     /// TODO: get rid of the unwrap
@@ -442,7 +420,7 @@ pub enum HdpServerResult {
     /// Data has been delivered for implicated cid self.0. The original outbound send request's ticket
     /// will be returned in the delivery, thus enabling higher-level abstractions to listen for data
     /// returns
-    DataDelivery(Ticket, u64, Vec<u8>),
+    MessageDelivery(Ticket, u64, SecBuffer),
     /// Mailbox
     MailboxDelivery(u64, Option<Ticket>, MailboxTransfer),
     /// Peer result

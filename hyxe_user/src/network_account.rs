@@ -196,24 +196,6 @@ impl NetworkAccount {
         }
     }
 
-    /// Returns the IP address which belongs to the NID enclosed herein.
-    #[allow(deprecated)]
-    pub fn get_addr_blocking(&self, prefer_ipv6: bool) -> Option<SocketAddr> {
-        if prefer_ipv6 {
-            if let Some(addr) = self.get_ipv6_addr() {
-                Some(addr)
-            } else {
-                self.get_ipv4_addr()
-            }
-        } else {
-            if let Some(addr) = self.get_ipv4_addr() {
-                Some(addr)
-            } else {
-                self.get_ipv6_addr()
-            }
-        }
-    }
-
     /// This sets the IP address. This automatically determines if the address is IPv6 or IPv4, and then it places
     /// it inside the correct field of self
     #[allow(unused_results)]

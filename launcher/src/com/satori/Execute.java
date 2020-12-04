@@ -335,7 +335,8 @@ public class Execute {
     private static void tryExecLinux(String home, String bin, boolean noGUI, String... args) throws Exception {
         // "shopt -u huponexit; java -jar myjar.jar"
         System.out.println("Trying to exec ...");
-        String terminalCmd = getConsoleCommand().map(cmd -> cmd + " -e pkexec " + bin).orElse("sudo " + bin) + (args.length != 0 ? " " + String.join(" ", args) : "");
+        // String terminalCmd = getConsoleCommand().map(cmd -> cmd + " -e pkexec " + bin).orElse("sudo " + bin) + (args.length != 0 ? " " + String.join(" ", args) : "");
+        String terminalCmd = getConsoleCommand().map(cmd -> cmd + " -e " + bin).orElse(bin) + (args.length != 0 ? " " + String.join(" ", args) : "");
         System.out.println("sh: " + terminalCmd);
         Path file = noGUI ? writeLinesToFile(home, "start.sh", terminalCmd) : writeLinesToFile(home,"start.sh", "shopt -u huponexit", terminalCmd);
         chmod(file);
@@ -373,7 +374,8 @@ public class Execute {
 
     private static void execMac(String home, String bin, String... args) {
         try {
-            Path file = writeLinesToFile(home, "start.command","#!/usr/bin/env bash", "", "echo \"Authorized\"", "#tput reset", "sudo " + bin + (args.length != 0 ? " " + String.join(" ", args) : ""));
+            //Path file = writeLinesToFile(home, "start.command","#!/usr/bin/env bash", "", "echo \"Authorized\"", "#tput reset", "sudo " + bin + (args.length != 0 ? " " + String.join(" ", args) : ""));
+            Path file = writeLinesToFile(home, "start.command","#!/usr/bin/env bash", "", bin + (args.length != 0 ? " " + String.join(" ", args) : ""));
             chmod(file);
             //Runtime.getRuntime().exec(new String[] {"osascript", "-e", "'tell application \"Terminal\" to do shell script \"" + file + "\" with administrator privileges'"}).waitFor();
             Runtime.getRuntime().exec(new String[] {"open", "-F", file.toString()}).waitFor();
@@ -384,7 +386,7 @@ public class Execute {
 
     }
 
-    private static Path writeLinesToFile(String base_dir, String filename, String... lines) throws IOException {
+    public static Path writeLinesToFile(String base_dir, String filename, String... lines) throws IOException {
         Path file = FileSystems.getDefault().getPath(base_dir, filename);
         Files.write(file, Arrays.asList(lines), StandardCharsets.UTF_8);
         return file;

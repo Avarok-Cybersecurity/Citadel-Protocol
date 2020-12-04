@@ -3,6 +3,7 @@ use crate::hdp::hdp_server::Ticket;
 use futures::channel::mpsc::TrySendError;
 use ez_pqcrypto::prelude::Error;
 use hyxe_user::misc::AccountError;
+use crate::hdp::hdp_packet_processor::includes::SecBuffer;
 
 pub mod includes {
     pub use crate::inner_arg::{InnerParameterMut, ExpectedInnerTargetMut};
@@ -91,7 +92,7 @@ pub enum GroupProcessorResult {
     /// Send an error to the kernel level
     Error(String),
     /// Send a reconstructed packet to the kernel
-    SendToKernel(Ticket, Vec<u8>)
+    SendToKernel(Ticket, SecBuffer)
 }
 
 impl std::ops::Try for PrimaryProcessorResult {

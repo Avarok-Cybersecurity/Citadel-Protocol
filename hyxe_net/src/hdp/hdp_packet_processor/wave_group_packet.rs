@@ -36,7 +36,7 @@ pub fn process<K: ExpectedInnerTargetMut<HdpSessionInner>>(session: &mut InnerPa
                                         // GOOD. Now, we can reroute the packet
                                         // NOTE: This form of routing is less efficient than proxying with a nonzero target_cid in the packet headers.
                                         // However, it ensures that a packet's trajectory cannot be discerned, thus hiding a "who" in the conversation
-                                        let reroute_request = HdpServerRequest::SendMessage(SecBuffer::from(reconstructed_packet), target_cid, virtual_target, security_level);
+                                        let reroute_request = HdpServerRequest::SendMessage(reconstructed_packet, target_cid, virtual_target, security_level);
                                         let _ = session.session_manager.send_local_server_request(Some(ticket), reroute_request);
                                         GroupProcessorResult::Void
                                     } else {

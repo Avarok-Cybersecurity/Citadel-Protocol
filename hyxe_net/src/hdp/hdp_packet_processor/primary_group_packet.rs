@@ -4,6 +4,7 @@ use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::hdp::session_queue_handler::QueueWorkerResult;
 use std::sync::Arc;
 use atomic::Ordering;
+use crate::hdp::validation::group::GroupHeader;
 
 /// This will handle an inbound primary group packet
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
@@ -21,7 +22,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
         return PrimaryProcessorResult::Void;
     }
 
-    // Group payloads are not validated in the same way the primary packets are
+    // Group payloads are not validated in the same way the primary packets are (with the exception of FAST_MSG's in GROUP_HEADERS)
     // While group payloads are typically processed by the wave ports, it is possible
     // that TCP_ONLY mode is engaged, in which case, the packets are funneled through here
     if cmd_aux != packet_flags::cmd::aux::group::GROUP_PAYLOAD {
@@ -32,7 +33,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
         // get the proper pqc
         let header_bytes = &header[..];
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
-        let (pqc, drill) = get_proper_pqc_and_drill(header.drill_version.get(), cnac_sess, pqc_sess, & wrap_inner_mut!(state_container), proxy_cid_info)?;
+        let (pqc, drill) = get_proper_pqc_and_drill(header.drill_version.get(), cnac_sess, pqc_sess, &wrap_inner_mut!(state_container), proxy_cid_info)?;
 
         match validation::group::validate(&drill, &pqc, header_bytes, payload) {
             Some(payload) => {
@@ -40,41 +41,20 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                     packet_flags::cmd::aux::group::GROUP_HEADER => {
                         log::info!("RECV GROUP HEADER");
                         // keep in mind: The group header is a packet with a standard header containing the ticket in the context_info, but with a payload len in the 8-byte "payload"
-                        match validation::group::validate_header(&header, &payload) {
-                            Some((group_receiver_config, virtual_target)) => {
-                                // First, check to make sure the virtual target can accept
-                                let object_id = header.wave_id.get();
-                                let ticket = header.context_info.get().into();
-                                let timestamp = session.time_tracker.get_global_time_ns();
-                                let sess_implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
-                                let target_cid_header = header.target_cid.get();
-                                // for HyperLAN conns, this is true
+                        if let Some(group_header) = validation::group::validate_header(&header, &payload, &drill, &pqc) {
+                            match group_header {
+                                GroupHeader::Standard(group_receiver_config, virtual_target) => {
+                                    // First, check to make sure the virtual target can accept
+                                    let object_id = header.wave_id.get();
+                                    let ticket = header.context_info.get().into();
+                                    let timestamp = session.time_tracker.get_global_time_ns();
+                                    //let sess_implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
+                                    //let target_cid_header = header.target_cid.get();
+                                    // for HyperLAN conns, this is true
 
-                                //let mut state_container = session.state_container.borrow_mut();
-                                let (recipient_valid, resp_target_cid) = match virtual_target {
-                                    VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                                        // by logic of the network, target_cid must equal this node's CID
-                                        // since we have entered this process function
-                                        debug_assert_eq!(sess_implicated_cid, target_cid);
-                                        debug_assert_eq!(target_cid_header, target_cid);
-                                        // the current node must be in a virtual connection with the original implicated_cid
-                                        // the resp_target_cid will be the original sender of this packet, being `implicated_cid`
-                                        // of the deserialized vconn type (order did not flip)
-                                        (state_container.active_virtual_connections.contains_key(&implicated_cid), implicated_cid)
-                                    }
-
-                                    VirtualConnectionType::HyperLANPeerToHyperLANServer(_implicated_cid) => {
-                                        // Since this is the receiving node, and we are already in a valid connection, return true
-                                        (true, 0) // ZERO, since we don't need proxying
-                                    }
-
-                                    _ => {
-                                        unimplemented!("HyperWAN functionality is not yet implemented")
-                                    }
-                                };
+                                    let resp_target_cid = recipient_valid_gate(&virtual_target, wrap_inner_mut!(state_container))?;
 
 
-                                let group_header_ack = if recipient_valid {
                                     // the below will return None if not ready to accept
                                     let initial_wave_window = state_container.on_group_header_received(&header, &drill, group_receiver_config, virtual_target);
                                     if initial_wave_window.is_some() {
@@ -82,7 +62,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                         std::mem::drop(state_container);
                                         let group_id = header.group.get();
                                         let peer_cid = header.session_cid.get();
-                                        session.queue_worker.insert_ordinary(group_id as usize, peer_cid,GROUP_EXPIRE_TIME_MS, move |sess| {
+                                        session.queue_worker.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |sess| {
                                             let mut state_container = inner_mut!(sess.state_container);
                                             let key = GroupKey::new(peer_cid, group_id);
                                             if let Some(group) = state_container.inbound_groups.get(&key) {
@@ -115,55 +95,74 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                             }
                                         })
                                     }
-                                    hdp_packet_crafter::group::craft_group_header_ack::<&[u8]>(&pqc, object_id, header.group.get(), resp_target_cid, ticket, &drill, initial_wave_window, None, timestamp)
-                                } else {
-                                    hdp_packet_crafter::group::craft_group_header_ack(&pqc, object_id, header.group.get(), resp_target_cid, ticket, &drill, None, Some("Requested peer is not connected"), timestamp)
-                                };
+                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&pqc, object_id, header.group.get(), resp_target_cid, ticket, &drill, initial_wave_window, false, timestamp);
+                                    PrimaryProcessorResult::ReplyToSender(group_header_ack)
+                                }
 
-                                PrimaryProcessorResult::ReplyToSender(group_header_ack)
-                            }
+                                GroupHeader::FastMessage(plaintext, virtual_target) => {
+                                    // Here, we do not go through all the fiasco like above. We just forward the message to the kernel, then send an ACK
+                                    // so that the sending side can be notified of a successful send
+                                    let resp_target_cid = recipient_valid_gate(&virtual_target, wrap_inner_mut!(state_container))?;
+                                    let object_id = header.wave_id.get();
+                                    let ticket = header.context_info.get().into();
+                                    let timestamp = session.time_tracker.get_global_time_ns();
 
-                            None => {
-                                log::error!("Error validating GROUP HEADER");
-                                PrimaryProcessorResult::Void
+                                    if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
+                                        // send to channel
+                                        if !state_container.forward_data_to_channel_as_endpoint(original_implicated_cid, plaintext) {
+                                            log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
+                                            return PrimaryProcessorResult::Void;
+                                        }
+                                    } else {
+                                        // send to kernel
+                                        let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
+                                        session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, plaintext))?;
+                                    }
+
+                                    // finally, return a GROUP_HEADER_ACK
+                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&pqc, object_id, header.group.get(), resp_target_cid, ticket, &drill, None, true, timestamp);
+                                    PrimaryProcessorResult::ReplyToSender(group_header_ack)
+                                }
                             }
+                        } else {
+                            log::error!("Invalid GROUP_HEADER");
+                            PrimaryProcessorResult::Void
                         }
                     }
 
                     packet_flags::cmd::aux::group::GROUP_HEADER_ACK => {
                         log::info!("RECV GROUP HEADER ACK");
                         match validation::group::validate_header_ack(&payload) {
-                            Some((true, initial_wave_window, _message)) => {
-                                // valid and ready to accept!
-                                let tcp_only = session.tcp_only;
-                                let initial_wave_window = if tcp_only {
-                                    None
-                                } else {
-                                    Some(initial_wave_window)
-                                };
-
-                                let to_primary_stream = session.to_primary_stream.as_ref()?;
-                                // A weird exception for obj_id location .. usually in context info, but in wave if for this unique case
-                                let peer_cid = header.session_cid.get();
-                                //let mut state_container = session.state_container.borrow_mut();
-                                let object_id = header.wave_id.get();
-                                let group_id = header.group.get();
-                                if !state_container.on_group_header_ack_received(object_id, peer_cid,group_id, initial_wave_window, to_primary_stream) {
-                                    if !tcp_only {
-                                        PrimaryProcessorResult::EndSession("UDP sockets disconnected")
+                            Some((true, initial_wave_window, _)) => {
+                                    // we need to begin sending the data
+                                    // valid and ready to accept!
+                                    let tcp_only = session.tcp_only;
+                                    let initial_wave_window = if tcp_only {
+                                        None
                                     } else {
-                                        PrimaryProcessorResult::EndSession("TCP sockets disconnected")
+                                        Some(initial_wave_window)
+                                    };
+
+                                    let to_primary_stream = session.to_primary_stream.as_ref()?;
+                                    // A weird exception for obj_id location .. usually in context info, but in wave if for this unique case
+                                    let peer_cid = header.session_cid.get();
+                                    //let mut state_container = session.state_container.borrow_mut();
+                                    let object_id = header.wave_id.get();
+                                    let group_id = header.group.get();
+                                    if !state_container.on_group_header_ack_received(object_id, peer_cid, group_id, initial_wave_window, to_primary_stream) {
+                                        if tcp_only {
+                                            PrimaryProcessorResult::EndSession("TCP sockets disconnected")
+                                        } else {
+                                            PrimaryProcessorResult::EndSession("UDP sockets disconnected")
+                                        }
+                                    } else {
+                                        PrimaryProcessorResult::Void
                                     }
-                                } else {
-                                    PrimaryProcessorResult::Void
-                                }
                             }
 
-                            Some((false, _, message_opt)) => {
+                            Some((false, _, fast_msg)) => {
                                 // valid but not ready to accept.
                                 // Possible reasons: too large, target not valid (e.g., not registered, not connected, etc)
-                                let ticket = header.context_info.get();
-                                log::info!("Header ACK was valid, but the receiving end is not receiving the packet at this time. Clearing local memory ...");
                                 //let mut state_container = session.state_container.borrow_mut();
                                 let group = header.group.get();
                                 let key = GroupKey::new(header.session_cid.get(), group);
@@ -172,7 +171,12 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                 }
                                 std::mem::drop(state_container);
 
-                                session.send_to_kernel(HdpServerResult::OutboundRequestRejected(ticket.into(), message_opt))?;
+                                if !fast_msg {
+                                    let ticket = header.context_info.get();
+                                    log::info!("Header ACK was valid, but the receiving end is not receiving the packet at this time. Clearing local memory ...");
+                                    session.send_to_kernel(HdpServerResult::OutboundRequestRejected(ticket.into(), Some(Vec::from("Adjacent node unable to accept request"))))?;
+                                }
+
                                 PrimaryProcessorResult::Void
                             }
 
@@ -201,7 +205,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                             Some(waves_in_window) => {
                                 let to_primary_stream = session.to_primary_stream.as_ref()?;
                                 let ref state_container_ref = session.state_container;
-                                match state_container.on_window_tail_received(&pqc,state_container_ref, &header, &drill, waves_in_window, &session.time_tracker, to_primary_stream) {
+                                match state_container.on_window_tail_received(&pqc, state_container_ref, &header, &drill, waves_in_window, &session.time_tracker, to_primary_stream) {
                                     true => {
                                         PrimaryProcessorResult::Void
                                     }
@@ -222,7 +226,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                     // This node is being told to retransmit a set of packets (this node is Alice)
                     packet_flags::cmd::aux::group::WAVE_DO_RETRANSMISSION => {
                         log::info!("RECV WAVE DO RETRANSMISSION");
-                        match validation::group::validate_wave_do_retransmission( &payload) {
+                        match validation::group::validate_wave_do_retransmission(&payload) {
                             Ok(_) => {
                                 // The internal session timer will handle the outbound dispatch of packets
                                 // once
@@ -286,34 +290,34 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
     } else {
         //log::info!("RECV [TCP] GROUP PAYLOAD");
         let (header, payload) = packet.parse()?;
-            if payload.len() < 2 {
-                log::error!("sub-2-length wave packet payload; dropping");
-                return PrimaryProcessorResult::Void;
-            }
-            //log::info!("[TCP-WAVE] Packet received has {} bytes", payload.len());
-            let v_src_port = payload[0] as u16;
-            let v_recv_port = payload[1] as u16;
-            let payload = &payload[2..];
+        if payload.len() < 2 {
+            log::error!("sub-2-length wave packet payload; dropping");
+            return PrimaryProcessorResult::Void;
+        }
+        //log::info!("[TCP-WAVE] Packet received has {} bytes", payload.len());
+        let v_src_port = payload[0] as u16;
+        let v_recv_port = payload[1] as u16;
+        let payload = &payload[2..];
 
-            match super::wave_group_packet::process(&mut wrap_inner_mut!(session), v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
-                GroupProcessorResult::SendToKernel(ticket, reconstructed_packet) => {
-                    if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
-                        // send to channel
-                        let mut state_container = inner_mut!(session.state_container);
-                        if !state_container.forward_data_to_channel_as_endpoint(original_implicated_cid, reconstructed_packet) {
-                            log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
-                        }
-                        PrimaryProcessorResult::Void
-                    } else {
-                        // send to kernel
-                        let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
-                        session.send_to_kernel(HdpServerResult::DataDelivery(ticket, implicated_cid, reconstructed_packet))?;
-                        PrimaryProcessorResult::Void
+        match super::wave_group_packet::process(&mut wrap_inner_mut!(session), v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
+            GroupProcessorResult::SendToKernel(ticket, reconstructed_packet) => {
+                if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
+                    // send to channel
+                    let mut state_container = inner_mut!(session.state_container);
+                    if !state_container.forward_data_to_channel_as_endpoint(original_implicated_cid, reconstructed_packet) {
+                        log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
                     }
+                    PrimaryProcessorResult::Void
+                } else {
+                    // send to kernel
+                    let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
+                    session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, reconstructed_packet))?;
+                    PrimaryProcessorResult::Void
                 }
-
-                res => res.into()
             }
+
+            res => res.into()
+        }
     }
 }
 
@@ -330,16 +334,45 @@ pub(super) fn get_proper_pqc_and_drill<K: ExpectedInnerTargetMut<StateContainerI
                 Some((pqc, drill))
             } else {
                 log::error!("Unable to find endpoint container for vconn {}", &vconn.connection_type);
-                return None
+                return None;
             }
         } else {
             log::error!("Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
-            return None
+            return None;
         }
     } else {
         // since this was not proxied, use the ordinary pqc and drill
 
         let drill = sess_cnac.get_drill(Some(header_drill_vers))?;
         Some((sess_pqc.clone(), drill))
+    }
+}
+
+/// returns the relative `resp_target_cid`
+pub fn recipient_valid_gate<K: ExpectedInnerTargetMut<StateContainerInner>>(virtual_target: &VirtualConnectionType, state_container: InnerParameterMut<K, StateContainerInner>) -> Option<u64> {
+    match virtual_target {
+        VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => {
+            // by logic of the network, target_cid must equal this node's CID
+            // since we have entered this process function
+            //debug_assert_eq!(sess_implicated_cid, target_cid);
+            //debug_assert_eq!(target_cid_header, target_cid);
+            // the current node must be in a virtual connection with the original implicated_cid
+            // the resp_target_cid will be the original sender of this packet, being `implicated_cid`
+            // of the deserialized vconn type (order did not flip)
+            if state_container.active_virtual_connections.contains_key(implicated_cid) {
+                Some(*implicated_cid)
+            } else {
+                None
+            }
+        }
+
+        VirtualConnectionType::HyperLANPeerToHyperLANServer(_implicated_cid) => {
+            // Since this is the receiving node, and we are already in a valid connection, return true
+            Some(0) // ZERO, since we don't need proxying
+        }
+
+        _ => {
+            unimplemented!("HyperWAN functionality is not yet implemented")
+        }
     }
 }
