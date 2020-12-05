@@ -6,7 +6,7 @@ edition = "2018"
 workspace = "../"
 
 [features]
-default = ["single-threaded"]
+default = ["multi-threaded"]
 single-threaded = []
 multi-threaded = []
 

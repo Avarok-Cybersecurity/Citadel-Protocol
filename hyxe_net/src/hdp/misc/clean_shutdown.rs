@@ -5,7 +5,7 @@ use std::pin::Pin;
 use tokio::prelude::{AsyncWrite, AsyncRead};
 use tokio_util::codec::{Framed, Encoder, Decoder};
 use std::ops::{Deref, DerefMut};
-use futures::{StreamExt, SinkExt};
+use futures::StreamExt;
 
 struct CleanFramedShutdownInner<S, U, I> {
     sink: Option<SplitSink<Framed<S, U>, I>>,
