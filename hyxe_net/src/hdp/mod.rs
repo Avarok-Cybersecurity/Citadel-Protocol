@@ -37,19 +37,21 @@ pub(crate) mod session_queue_handler;
 pub mod misc;
 
 /// For denoting to the compiler that running the future is thread-safe
-pub struct ThreadSafeFuture<'a, Out: 'a>(Pin<Box<dyn Future<Output=Out> + 'a>>);
+/// It is up to the caller to ensure the supplied future is not going to be called
+/// from multiple threads concurrently. IF there is a single instance of the task, then
+/// use this. If there will be multiple, use the safer version in misc::ThreadSafeFuture
+pub struct AssertThreadSafeFuture<'a, Out: 'a>(Pin<Box<dyn Future<Output=Out> + 'a>>);
 
-unsafe impl<'a, Out: 'a> Send for ThreadSafeFuture<'a, Out> {}
-unsafe impl<'a, Out: 'a> Sync for ThreadSafeFuture<'a, Out> {}
+unsafe impl<'a, Out: 'a> Send for AssertThreadSafeFuture<'a, Out> {}
 
-impl<'a, Out: 'a> ThreadSafeFuture<'a, Out> {
+impl<'a, Out: 'a> AssertThreadSafeFuture<'a, Out> {
     /// Wraps a future, asserting it is safe to use in a multithreaded context at the possible cost of race conditions, locks, etc
     pub unsafe fn new(fx: impl Future<Output=Out> + 'a) -> Self {
         Self(Box::pin(fx))
     }
 }
 
-impl<'a, Out: 'a> Future for ThreadSafeFuture<'a, Out> {
+impl<'a, Out: 'a> Future for AssertThreadSafeFuture<'a, Out> {
     type Output = Out;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
