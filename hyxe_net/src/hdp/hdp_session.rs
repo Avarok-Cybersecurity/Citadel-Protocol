@@ -384,10 +384,15 @@ impl HdpSession {
         for (socket, hole_punched_addr) in sockets {
             let local_bind_addr = socket.local_addr().unwrap();
 
-            let codec = super::codec::BytesCodec::new(CODEC_BUFFER_CAPACITY);
+            //let codec = super::codec::BytesCodec::new(CODEC_BUFFER_CAPACITY);
+            let codec = LengthDelimitedCodec::builder()
+                .length_field_offset(0) // default value
+                .length_field_length(2)
+                .length_adjustment(0)
+                .new_codec();
             //let framed = UdpFramed::new(socket, codec);
             //let framed = tokio_util::codec::Framed::new(socket, codec);
-            let framed = crate::hdp::udp_framed::UdpFramed::new(socket, codec);
+            let framed = tokio_util::udp::UdpFramed::new(socket, codec);
             let (writer, reader) = framed.split();
 
             unordered_futures.push(Self::listen_wave_port(this.clone(), to_kernel.clone(), hole_punched_addr_ip, local_bind_addr.port(), reader));
@@ -406,6 +411,7 @@ impl HdpSession {
         })
     }
 
+    #[allow(unreachable_code)]
     async fn outbound_stream<S: SinkExt<Bytes> + Unpin>(mut primary_outbound_rx: UnboundedReceiver<Bytes>, mut writer: S) -> Result<(), NetworkError> {
         log::info!("Executing outbound stream");
 
@@ -415,7 +421,30 @@ impl HdpSession {
                 log::error!("Err: {:?}", &err);
                 return Err(err);
             }
-        }
+        }*/
+
+            loop {
+                log::info!("LOOP");
+                match primary_outbound_rx.try_recv() {
+                    Ok(outbound_packet) => {
+                        log::info!("outbound_stream sending object w/ {} bytes to TCP stream (using LengthDelimitedCodec)", outbound_packet.len());
+                        if let Err(err) = writer.send(outbound_packet).await.map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
+                            log::error!("Err: {:?}", &err);
+                            return Err(err);
+                        }
+                    }
+
+                    Err(err) => {
+                        log::error!("TryRecvError ({})", err.to_string());
+                    }
+                }
+
+                // we get here, but no further per loop. I'm using an arbitrary sleep here to see what may be affecting the code
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                // We DON'T make it this far. After editing the source code for tokio's abstraction returned from sleep(), I noticed
+                // that drop does NOT get called. Despite this, the loop continues but never makes it here
+                log::info!("Done sleep!");
+            }
 
         log::error!("Ending outbound stream");
 
