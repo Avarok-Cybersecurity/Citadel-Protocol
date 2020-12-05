@@ -7,7 +7,7 @@ use nanoserde::{SerBin, DeBin};
 
 use std::net::SocketAddr;
 use futures::{StreamExt, Sink, SinkExt};
-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, SendError};
+use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::try_join;
 use log::info;
 use net2::TcpStreamExt;
@@ -322,22 +322,24 @@ impl HdpServerRemote {
     /// Sends a request to the HDP server. This should always be used to communicate with the server
     /// in order to obtain a ticket
     /// TODO: get rid of the unwrap
-    pub fn unbounded_send(&self, request: HdpServerRequest) -> Ticket {
+    pub fn unbounded_send(&self, request: HdpServerRequest) -> Result<Ticket, NetworkError> {
         let ticket = self.get_next_ticket();
-        self.outbound_send_request_tx.unbounded_send((request, ticket)).unwrap();
-        ticket
+        self.outbound_send_request_tx.unbounded_send((request, ticket))
+            .map(|_| ticket)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     /// Especially used to keep track of a conversation (b/c a certain ticket number may be expected)
-    pub fn send_with_custom_ticket(&self, ticket: Ticket, request: HdpServerRequest) {
-        self.outbound_send_request_tx.unbounded_send((request, ticket)).unwrap()
+    pub fn send_with_custom_ticket(&self, ticket: Ticket, request: HdpServerRequest) -> Result<(), NetworkError> {
+        self.outbound_send_request_tx.unbounded_send((request, ticket))
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     /// Safely shutsdown the internal server
-    pub fn shutdown(&self) -> io::Result<()> {
+    pub fn shutdown(&self) -> Result<(), NetworkError> {
         let ticket = self.get_next_ticket();
-        let _ = self.outbound_send_request_tx.unbounded_send((HdpServerRequest::Shutdown, ticket));
-        Ok(())
+        self.outbound_send_request_tx.unbounded_send((HdpServerRequest::Shutdown, ticket))
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     pub fn is_closed(&self) -> bool {
@@ -352,23 +354,25 @@ impl HdpServerRemote {
 impl Unpin for HdpServerRemote {}
 
 impl Sink<(Ticket, HdpServerRequest)> for HdpServerRemote {
-    type Error = SendError;
+    type Error = NetworkError;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.get_mut().outbound_send_request_tx.poll_ready_unpin(cx)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: (Ticket, HdpServerRequest)) -> Result<(), Self::Error> {
-        self.get_mut().send_with_custom_ticket(item.0, item.1);
-        Ok(())
+        self.get_mut().send_with_custom_ticket(item.0, item.1)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.get_mut().outbound_send_request_tx.poll_flush_unpin(cx)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.get_mut().outbound_send_request_tx.poll_close_unpin(cx)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 }
 

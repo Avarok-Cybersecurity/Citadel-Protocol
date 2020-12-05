@@ -5,8 +5,9 @@ use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt, Future, Stream};
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::Instant;
-use tokio_util::codec::LengthDelimitedCodec;
+use tokio_util::codec::{LengthDelimitedCodec, Framed};
 use tokio_util::udp::UdpFramed;
+use futures::stream::{SplitSink, SplitStream};
 
 use ez_pqcrypto::prelude::*;
 use hyxe_crypt::drill::SecurityLevel;
@@ -45,6 +46,7 @@ use atomic::{Atomic, Ordering};
 use std::sync::atomic::AtomicBool;
 use crate::inner_arg::{InnerParameterMut, ExpectedInnerTargetMut};
 use hyxe_crypt::sec_bytes::SecBuffer;
+use crate::hdp::misc::clean_shutdown::{CleanFramedShutdown, CleanTcpShutdownStream, CleanTcpShutdownSink};
 //use crate::define_struct;
 
 // Defines the primary structure which wraps the inner device
@@ -261,9 +263,10 @@ impl HdpSession {
         let (socket_loader_tx, socket_loader_rx) = tokio::sync::oneshot::channel();
         this_ref.wave_socket_loader = Some(socket_loader_tx);
 
+        let stream_recovery = CleanFramedShutdown::new();
         // Ensure the tx forwards to the writer
-        let writer_future = Self::outbound_stream(primary_outbound_rx, writer);
-        let reader_future = Self::execute_inbound_stream(reader, this_inbound);
+        let writer_future = Self::outbound_stream(primary_outbound_rx, writer, stream_recovery.clone());
+        let reader_future = Self::execute_inbound_stream(reader, this_inbound, stream_recovery);
         //let timer_future = Self::execute_timer(this.clone());
         let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
         let socket_loader_future = Self::socket_loader(this_socket_loader, to_kernel_tx_clone.clone(), socket_loader_rx);
@@ -404,7 +407,8 @@ impl HdpSession {
         })
     }
 
-    async fn outbound_stream<S: SinkExt<Bytes> + Unpin>(mut primary_outbound_rx: UnboundedReceiver<Bytes>, mut writer: S) -> Result<(), NetworkError> {
+    async fn outbound_stream(mut primary_outbound_rx: UnboundedReceiver<Bytes>, writer: SplitSink<Framed<TcpStream, LengthDelimitedCodec>, Bytes>, tcp_recovery: CleanFramedShutdown<TcpStream, LengthDelimitedCodec, Bytes>) -> Result<(), NetworkError> {
+        let mut writer = CleanTcpShutdownSink::new(writer, tcp_recovery);
         while let Some(outbound_packet) = primary_outbound_rx.next().await {
             //log::info!("outbound_stream sending object w/ {} bytes to TCP stream (using LengthDelimitedCodec)", outbound_packet.len());
             if let Err(err) = writer.send(outbound_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")).await {
@@ -415,7 +419,7 @@ impl HdpSession {
         Err(NetworkError::InternalError("Ending"))
     }
 
-    async fn execute_inbound_stream<S: Stream<Item=Result<BytesMut, std::io::Error>> + Unpin>(mut reader: S, ref this_main: HdpSession) -> Result<(), NetworkError> {
+    async fn execute_inbound_stream(reader: SplitStream<Framed<TcpStream, LengthDelimitedCodec>>, ref this_main: HdpSession, tcp_recovery: CleanFramedShutdown<TcpStream, LengthDelimitedCodec, Bytes>) -> Result<(), NetworkError> {
         log::info!("HdpSession async inbound-stream subroutine executed");
         let borrow = inner!(this_main);
         //let borrow = this_main.inner.borrow();
@@ -427,10 +431,12 @@ impl HdpSession {
         let ref mut primary_stream = borrow.to_primary_stream.clone().unwrap();
 
         std::mem::drop(borrow);
+        let mut reader = CleanTcpShutdownStream::new(reader, tcp_recovery);
 
         loop {
             match reader.next().await {
                 Some(Err(err)) => {
+
                     const WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
                     const RST: i32 = 104;
 

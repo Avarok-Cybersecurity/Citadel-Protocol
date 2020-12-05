@@ -500,8 +500,7 @@ impl StateContainerInner {
         // when the `target_cid` disconnects, it will remove its entry from this vconn table
         if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
             let conn_type = vconn.connection_type;
-            self.hdp_server_remote.unbounded_send(HdpServerRequest::SendMessage(data, target_cid, conn_type, security_level));
-            true
+            self.hdp_server_remote.unbounded_send(HdpServerRequest::SendMessage(data, target_cid, conn_type, security_level)).is_ok()
         } else {
             false
         }
