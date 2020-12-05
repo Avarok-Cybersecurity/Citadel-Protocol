@@ -22,7 +22,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let username = proposed_credentials.username.clone();
 
     let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, None);
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.unbounded_send(request)?;
     ctx.register_ticket(ticket, DO_REGISTER_EXPIRE_TIME_MS, 0, move |_ctx, _, response| {
         match response {
             PeerResponse::Ok(welcome_message_opt) => {

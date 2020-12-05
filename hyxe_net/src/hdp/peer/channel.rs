@@ -97,8 +97,7 @@ pub struct PeerChannelSendHalf {
 impl PeerChannelSendHalf {
     fn send_unchecked(&self, data: SecBuffer) -> Result<(), NetworkError> {
         let request = HdpServerRequest::SendMessage(data, self.implicated_cid, self.vconn_type, self.security_level);
-        self.server_remote.send_with_custom_ticket(self.channel_id, request);
-        Ok(())
+        self.server_remote.send_with_custom_ticket(self.channel_id, request)
     }
 
     pub fn send_unbounded(&self, data: SecBuffer) -> Result<(), NetworkError> {

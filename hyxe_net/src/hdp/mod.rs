@@ -34,6 +34,7 @@ pub mod nat_handler;
 pub mod peer;
 
 pub(crate) mod session_queue_handler;
+pub mod misc;
 
 /// For denoting to the compiler that running the future is thread-safe
 pub struct ThreadSafeFuture<'a, Out: 'a>(Pin<Box<dyn Future<Output=Out> + 'a>>);

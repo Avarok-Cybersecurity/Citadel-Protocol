@@ -244,11 +244,11 @@ impl ConsoleContext {
             match cxn_type {
                 VirtualConnectionType::HyperLANPeerToHyperLANServer(target_cid) => {
                     debug_assert_eq!(cid, target_cid);
-                    Ok(self.send_disconnect_request(cid, Some(username), cxn_type, server_remote))
+                    self.send_disconnect_request(cid, Some(username), cxn_type, server_remote)
                 }
                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(_implicated_cid, peer_cid) => {
                     debug_assert_ne!(cid, peer_cid);
-                    Ok(self.send_disconnect_request(cid, Some(username),cxn_type, server_remote))
+                    self.send_disconnect_request(cid, Some(username),cxn_type, server_remote)
                 }
                 VirtualConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, _target_cid) => {
                     unimplemented!()
@@ -262,7 +262,7 @@ impl ConsoleContext {
         }
     }
 
-    #[allow(unused_results)]
+    #[allow(unused_results, unused_must_use)]
     pub fn disconnect_all(&self, server_remote: &HdpServerRemote, shutdown_sequence: bool) {
         let mut write = self.sessions.write();
         for (cid, session) in write.drain() {
@@ -276,8 +276,8 @@ impl ConsoleContext {
     }
 
     /// `username` should be some if resetting the print prompt is expected (should be Some when disconnecting from hypernodes over peers)
-    fn send_disconnect_request(&self, cid: u64, username: Option<String>, virt_cxn_type: VirtualConnectionType, server_remote: &HdpServerRemote) -> Ticket {
-        let ticket = server_remote.unbounded_send(HdpServerRequest::DisconnectFromHypernode(cid, virt_cxn_type));
+    fn send_disconnect_request(&self, cid: u64, username: Option<String>, virt_cxn_type: VirtualConnectionType, server_remote: &HdpServerRemote) -> Result<Ticket, ConsoleError> {
+        let ticket = server_remote.unbounded_send(HdpServerRequest::DisconnectFromHypernode(cid, virt_cxn_type))?;
         let queue = self.ticket_queue.as_ref().unwrap();
         queue.register_ticket(ticket, DISCONNECT_TIMEOUT, cid, move |ctx,_, response| {
             match response {
@@ -300,7 +300,7 @@ impl ConsoleContext {
             CallbackStatus::TaskComplete
         });
 
-        ticket
+        Ok(ticket)
     }
 
     pub fn can_run(&self) -> bool {
