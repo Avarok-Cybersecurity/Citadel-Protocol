@@ -1,5 +1,6 @@
 #![feature(async_closure, main, try_trait, ip)]
 #![feature(test)]
+#![feature(associated_type_bounds)]
 //! Core networking components for SatoriNET
 #![deny(
 trivial_numeric_casts,
