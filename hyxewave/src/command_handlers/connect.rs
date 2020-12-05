@@ -34,7 +34,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let proposed_credentials = get_proposed_credentials(matches, ctx, username, nonce,adjacent_socket.ip(), security_level, cid, full_name)?;
 
     let request = HdpServerRequest::ConnectToHypernode(adjacent_socket, cid, proposed_credentials, security_level, None, None, Some(tcp_only));
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.unbounded_send(request)?;
 
     let tx = parking_lot::Mutex::new(None);
     if ffi_io.is_none() {

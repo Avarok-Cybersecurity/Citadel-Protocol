@@ -84,10 +84,10 @@ impl HdpSessionManager {
         let this = inner!(self);
         if let Some(remote) = this.server_remote.as_ref() {
             if let Some(ticket) = ticket {
-                remote.send_with_custom_ticket(ticket, request);
-                None
+                remote.send_with_custom_ticket(ticket, request).ok()
+                    .map(|_| ticket)
             } else {
-                Some(remote.unbounded_send(request))
+                remote.unbounded_send(request).ok()
             }
         } else {
             None
@@ -282,38 +282,6 @@ impl HdpSessionManager {
         Ok(())
     }
 
-    /*
-    pub fn clear_provisional_tracker(&self, ticket: Ticket) {
-        let mut this = inner_mut!(self);
-        if let Some(_) = this.hypernode_peer_layer.remove_provisional_posting(ticket.0, ticket) {
-            log::info!("Successfully removed provisional tracker");
-        } else {
-            log::error!("Unable to clear provisional tracker");
-        }
-    }
-
-    /// When a connection starts, this should be called in order to cleanup any lingering failed connections
-    pub fn insert_provisional_expiration(&self, ip_addr: IpAddr, ticket: Ticket) {
-        let on_timeout_this = self.clone();
-        let mut this = inner_mut!(self);
-
-            if !this.hypernode_peer_layer.insert_provisional_posting(ticket.0, LOGIN_EXPIRATION_TIME,ticket, PeerSignal::SignalReceived(ticket),
-            move |_signal|{
-                // if this closure gets triggered, it implies that the login has lingered. In this case, remove it
-                log::warn!("A provisional connection has timed out. Please try logging-in again");
-                // try borrow, as we don't want to interrupt if the borrow is being used in the middle of a implicated process
-                if let Ok(mut this) = on_timeout_this.inner.try_borrow_mut() {
-                    if let None = this.provisional_connections.remove(&ip_addr) {
-                        //log::warn!("Unable to clear the provisional connection")
-                    }
-                }
-            }) {
-                log::error!("Unable to insert provisional expiration monitor");
-            }
-
-
-    }
-*/
     /// When the [HdpServer] receives an outbound request, the request flows here. It returns where the packet must be sent to
     pub fn process_outbound_packet(&self, ticket: Ticket, packet: SecBuffer, implicated_cid: u64, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let this = inner!(self);
