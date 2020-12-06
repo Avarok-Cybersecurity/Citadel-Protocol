@@ -14,7 +14,7 @@ use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 
-use crate::constants::{CODEC_BUFFER_CAPACITY, DEFAULT_PQC_ALGORITHM, INITIAL_RECONNECT_LOCKOUT_TIME_NS, LOGIN_EXPIRATION_TIME, DRILL_UPDATE_FREQUENCY_LOW_BASE, KEEP_ALIVE_INTERVAL_MS, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN};
+use crate::constants::{DEFAULT_PQC_ALGORITHM, INITIAL_RECONNECT_LOCKOUT_TIME_NS, LOGIN_EXPIRATION_TIME, DRILL_UPDATE_FREQUENCY_LOW_BASE, KEEP_ALIVE_INTERVAL_MS, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
 use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter};
@@ -385,7 +385,12 @@ impl HdpSession {
         for (socket, hole_punched_addr) in sockets {
             let local_bind_addr = socket.local_addr().unwrap();
 
-            let codec = super::codec::BytesCodec::new(CODEC_BUFFER_CAPACITY);
+            //let codec = super::codec::BytesCodec::new(CODEC_BUFFER_CAPACITY);
+            let codec = LengthDelimitedCodec::builder()
+                .length_field_offset(0) // default value
+                .length_field_length(2)
+                .length_adjustment(0)   // default value
+                .new_codec();
             let framed = UdpFramed::new(socket, codec);
             let (writer, reader) = framed.split();
 

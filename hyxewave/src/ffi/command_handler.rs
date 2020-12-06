@@ -1,7 +1,7 @@
 use hyxe_net::hdp::hdp_server::HdpServerRemote;
 use crate::console::console_context::ConsoleContext;
 use crate::console_error::ConsoleError;
-use futures_util::core_reexport::convert::TryFrom;
+use std::convert::TryFrom;
 use crate::console::virtual_terminal::handle;
 use tokio::runtime::Handle;
 use crate::ffi::{KernelResponse, FFIIO};
