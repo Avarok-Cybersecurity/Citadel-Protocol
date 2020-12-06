@@ -3,7 +3,7 @@ use std::hint::black_box;
 use std::pin::Pin;
 
 use async_trait::async_trait;
-use futures_util::core_reexport::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicBool;
 use futures_util::future::Future;
 use futures_util::stream::FuturesUnordered;
 use futures_util::TryStreamExt;
