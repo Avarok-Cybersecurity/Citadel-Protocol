@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 //use async_std::prelude::*;
 use bytes::{Bytes, BytesMut};
-use futures::{SinkExt, StreamExt, TryStreamExt, Future, Stream};
+use futures::{SinkExt, StreamExt, TryStreamExt, Future, Stream, TryFutureExt};
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender, channel, error::SendError};
 use tokio::net::{TcpStream, UdpSocket};
@@ -14,7 +14,7 @@ use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 
-use crate::constants::{CODEC_BUFFER_CAPACITY, DEFAULT_PQC_ALGORITHM, INITIAL_RECONNECT_LOCKOUT_TIME_NS, LOGIN_EXPIRATION_TIME, DRILL_UPDATE_FREQUENCY_LOW_BASE, KEEP_ALIVE_INTERVAL_MS, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN};
+use crate::constants::{DEFAULT_PQC_ALGORITHM, INITIAL_RECONNECT_LOCKOUT_TIME_NS, LOGIN_EXPIRATION_TIME, DRILL_UPDATE_FREQUENCY_LOW_BASE, KEEP_ALIVE_INTERVAL_MS, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
 use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter};
@@ -277,12 +277,13 @@ impl HdpSession {
         session_future.push(Box::pin(queue_worker_future));
         // TODO: if local node type is pure_server, don't add the below
         session_future.push(Box::pin(socket_loader_future));
-
+        //let _ = tokio::task::spawn(unsafe { crate::hdp::ThreadSafeFuture::new(reader_future) });
         //let session_future = futures::future::try_join4(writer_future, reader_future, timer_future, socket_loader_future);
         if let Err(err) = handle_zero_state.await {
             log::error!("Unable to proceed past session zero-state. Stopping session");
             return Err((err, implicated_cid.load(Ordering::SeqCst)));
         }
+
 
         session_future.try_collect::<Vec<()>>().await.map(|_| {
             implicated_cid.load(Ordering::SeqCst)
@@ -412,9 +413,12 @@ impl HdpSession {
     }
 
     #[allow(unreachable_code)]
-    async fn outbound_stream<S: SinkExt<Bytes> + Unpin>(mut primary_outbound_rx: UnboundedReceiver<Bytes>, mut writer: S) -> Result<(), NetworkError> {
+    async fn outbound_stream<S: SinkExt<Bytes> + Unpin>(primary_outbound_rx: UnboundedReceiver<Bytes>, mut writer: S) -> Result<(), NetworkError>
+        where <S as futures::sink::Sink<Bytes>>::Error: std::fmt::Display {
         log::info!("Executing outbound stream");
-
+        use futures::TryFutureExt;
+        writer.send_all(&mut primary_outbound_rx.map(Ok)).map_err(|err| NetworkError::Generic(err.to_string())).await?;
+        /*
         while let Some(outbound_packet) = primary_outbound_rx.next().await {
             log::info!("outbound_stream sending object w/ {} bytes to TCP stream (using LengthDelimitedCodec)", outbound_packet.len());
             if let Err(err) = writer.send(outbound_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")).await {
@@ -422,29 +426,6 @@ impl HdpSession {
                 return Err(err);
             }
         }*/
-
-            loop {
-                log::info!("LOOP");
-                match primary_outbound_rx.try_recv() {
-                    Ok(outbound_packet) => {
-                        log::info!("outbound_stream sending object w/ {} bytes to TCP stream (using LengthDelimitedCodec)", outbound_packet.len());
-                        if let Err(err) = writer.send(outbound_packet).await.map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
-                            log::error!("Err: {:?}", &err);
-                            return Err(err);
-                        }
-                    }
-
-                    Err(err) => {
-                        log::error!("TryRecvError ({})", err.to_string());
-                    }
-                }
-
-                // we get here, but no further per loop. I'm using an arbitrary sleep here to see what may be affecting the code
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                // We DON'T make it this far. After editing the source code for tokio's abstraction returned from sleep(), I noticed
-                // that drop does NOT get called. Despite this, the loop continues but never makes it here
-                log::info!("Done sleep!");
-            }
 
         log::error!("Ending outbound stream");
 
@@ -465,6 +446,7 @@ impl HdpSession {
         std::mem::drop(borrow);
 
         loop {
+            println!("INBOUND/AWAIT");
             match reader.next().await {
                 Some(Err(err)) => {
                     const WINDOWS_FORCE_SHUTDOWN: i32 = 10054;

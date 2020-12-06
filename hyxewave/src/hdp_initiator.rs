@@ -36,12 +36,14 @@ async fn get_account_manager(app_config: &AppConfig) -> Result<AccountManager, N
 fn build_rt(core_threads: Option<usize>) -> Result<Runtime, NetworkError> {
     if let Some(core_threads) = core_threads {
         get_builder(core_threads)
-            .enable_all()
+            .enable_io()
+            .enable_time()
             .build()
             .map_err(|err| NetworkError::Generic(err.to_string()))
     } else {
         tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
+            .enable_io()
+            .enable_time()
             .build()
             .map_err(|err| NetworkError::Generic(err.to_string()))
     }

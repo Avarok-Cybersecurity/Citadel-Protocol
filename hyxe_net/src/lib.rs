@@ -10,6 +10,7 @@ unused_features,
 unused_results,
 warnings
 )]
+#![allow(unused_results, unused_imports, unused_variables)]
 
 #[cfg(not(feature = "multi-threaded"))]
 #[macro_use]

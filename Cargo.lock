@@ -2403,7 +2403,7 @@ name = "rsntp"
 version = "1.0.1"
 dependencies = [
  "chrono",
- "tokio 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tokio 0.3.5",
 ]
 
 [[package]]
@@ -2847,28 +2847,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a12a3eb39ee2c231be64487f1fcbe726c8f2514876a55480a5ab8559fc374252"
-dependencies = [
- "autocfg",
- "bytes 0.6.0",
- "futures-core",
- "lazy_static",
- "libc",
- "memchr",
- "mio 0.7.6",
- "num_cpus",
- "parking_lot 0.11.1",
- "pin-project-lite 0.2.0",
- "signal-hook-registry",
- "slab",
- "tokio-macros 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "winapi 0.3.9",
-]
-
-[[package]]
 name = "tokio-macros"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2882,17 +2860,6 @@ dependencies = [
 [[package]]
 name = "tokio-macros"
 version = "0.3.1"
-dependencies = [
- "proc-macro2 1.0.24",
- "quote 1.0.7",
- "syn 1.0.53",
-]
-
-[[package]]
-name = "tokio-macros"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21d30fdbb5dc2d8f91049691aa1a9d4d4ae422a21c334ce8936e5886d30c5c45"
 dependencies = [
  "proc-macro2 1.0.24",
  "quote 1.0.7",

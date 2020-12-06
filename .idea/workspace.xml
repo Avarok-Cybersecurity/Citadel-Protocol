@@ -46,13 +46,13 @@
       <change beforePath="$PROJECT_DIR$/async_udt/udt-rs" beforeDir="false" afterPath="$PROJECT_DIR$/async_udt/udt-rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/base64-codec" beforeDir="false" afterPath="$PROJECT_DIR$/base64-codec" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_fs/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/rust-igd/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/lib.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxewave/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/hdp_initiator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/hdp_initiator.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/rsntp" beforeDir="false" afterPath="$PROJECT_DIR$/rsntp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/rsntp/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/rsntp/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/shrust" beforeDir="false" afterPath="$PROJECT_DIR$/shrust" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -74,6 +74,7 @@
     </option>
   </component>
   <component name="Git.Settings">
+    <option name="PREVIEW_PUSH_PROTECTED_ONLY" value="true" />
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
         <entry key="$PROJECT_DIR$" value="tokio02" />
@@ -201,19 +202,21 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Expand hyxe_crypt::sec_bytes [udt]">
+  <component name="RunManager" selected="Cargo.Run hyxewave">
     <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
-    <configuration default="true" type="ArquillianJUnit" factoryName="" nameIsGenerated="true">
+    <configuration default="true" type="ArquillianTestNG" factoryName="" nameIsGenerated="true">
       <option name="arquillianRunConfiguration">
         <value>
           <option name="containerStateName" value="" />
         </value>
       </option>
-      <option name="TEST_OBJECT" value="class" />
+      <option name="TEST_OBJECT" value="CLASS" />
+      <properties />
+      <listeners />
       <method v="2">
         <option name="Make" enabled="true" />
       </method>
@@ -242,21 +245,9 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Expand hyxe_crypt::sec_string [udt]" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="channel" value="DEFAULT" />
-      <option name="command" value="expand --lib --color=always --theme=GitHub --tests sec_string" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="backtrace" value="SHORT" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_crypt" />
-      <envs />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
     <configuration name="Run hyxewave 127.0.0.2" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="channel" value="NIGHTLY" />
-      <option name="command" value="run --package hyxewave --bin hyxewave -- --type pure_server --bind 127.0.0.2" />
+      <option name="command" value="run --package hyxewave --bin hyxewave -- --bind 127.0.0.2" />
       <option name="allFeatures" value="true" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
@@ -266,13 +257,25 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Run server_sym2" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+    <configuration name="Run hyxewave (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
       <option name="channel" value="NIGHTLY" />
-      <option name="command" value="run --package hyxe_nat --example server_sym2" />
+      <option name="command" value="run --package hyxewave --bin hyxewave" />
       <option name="allFeatures" value="true" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
+      <envs />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Run hyxewave" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="channel" value="NIGHTLY" />
+      <option name="command" value="run --package hyxewave --bin hyxewave -- --bind 127.0.0.2" />
+      <option name="allFeatures" value="true" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <envs />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
@@ -317,19 +320,19 @@
     <list>
       <item itemvalue="Cargo.Build HyxeWave" />
       <item itemvalue="Cargo.Run hyxewave 127.0.0.2" />
-      <item itemvalue="Cargo.Expand hyxe_crypt::sec_string [udt]" />
-      <item itemvalue="Cargo.Run server_sym2" />
       <item itemvalue="Cargo.Test tests::encrypt_decrypt_test (1)" />
       <item itemvalue="Cargo.Test tests::secstring" />
       <item itemvalue="Cargo.Expand hyxe_crypt::sec_bytes [udt]" />
+      <item itemvalue="Cargo.Run hyxewave" />
+      <item itemvalue="Cargo.Run hyxewave (1)" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Cargo.Run hyxewave" />
+        <item itemvalue="Cargo.Run hyxewave (1)" />
         <item itemvalue="Cargo.Expand hyxe_crypt::sec_bytes [udt]" />
         <item itemvalue="Cargo.Test tests::secstring" />
         <item itemvalue="Cargo.Test tests::encrypt_decrypt_test (1)" />
-        <item itemvalue="Cargo.Run server_sym2" />
-        <item itemvalue="Cargo.Expand hyxe_crypt::sec_string [udt]" />
       </list>
     </recent_temporary>
   </component>
@@ -350,7 +353,6 @@
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
       <changelist id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="" />
-      <changelist id="9ba86fcb-f55c-4698-a5ca-e0aac968b922" name="local history tokio0.3.5" comment="" />
       <created>1566054907722</created>
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
@@ -507,6 +509,7 @@
       <workItem from="1606510793997" duration="67620000" />
       <workItem from="1606756377281" duration="36168000" />
       <workItem from="1607002112859" duration="34549000" />
+      <workItem from="1607263102897" duration="9216000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
@@ -585,14 +588,18 @@
       <option name="project" value="LOCAL" />
       <updated>1580222979791</updated>
     </task>
-    <option name="localTasksCounter" value="12" />
+    <task id="LOCAL-00012" summary="Progress on hyxe networking">
+      <created>1607260095140</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1607260095140</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
-  </component>
-  <component name="UpdateCopyrightCheckinHandler">
-    <option name="UPDATE_COPYRIGHT" value="true" />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
     <option name="TAB_STATES">
@@ -612,7 +619,8 @@
     <option name="oldMeFiltersMigrated" value="true" />
   </component>
   <component name="VcsManagerConfiguration">
-    <option name="CHECK_CODE_CLEANUP_BEFORE_PROJECT_COMMIT" value="true" />
+    <option name="CHECK_CODE_SMELLS_BEFORE_PROJECT_COMMIT" value="false" />
+    <option name="CHECK_NEW_TODO" value="false" />
     <option name="ADD_EXTERNAL_FILES_SILENTLY" value="true" />
     <ignored-roots>
       <path value="$PROJECT_DIR$/dashmap/ccl" />
@@ -635,9 +643,6 @@
     <MESSAGE value="Progress on hyxe networking" />
     <option name="LAST_COMMIT_MESSAGE" value="Progress on hyxe networking" />
     <option name="MAKE_NEW_CHANGELIST_ACTIVE" value="true" />
-    <option name="OPTIMIZE_IMPORTS_BEFORE_PROJECT_COMMIT" value="true" />
-    <option name="REFORMAT_BEFORE_PROJECT_COMMIT" value="true" />
-    <option name="REARRANGE_BEFORE_PROJECT_COMMIT" value="true" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

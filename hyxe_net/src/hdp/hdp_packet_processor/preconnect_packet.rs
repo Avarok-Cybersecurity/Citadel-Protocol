@@ -95,10 +95,6 @@ pub fn process(session_orig: &HdpSession, header: &LayoutVerified<&[u8], HdpHead
                     if tcp_only {
                         let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_base_drill, local_node_type, &Vec::with_capacity(0), timestamp);
                         state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                        let _ =session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!"));
-                        let _ = session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!1"));
-                        let _ = session.to_primary_stream.as_ref().unwrap().send(Bytes::from_static(b"Hello, world!2"));
-                        // test
                         PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet)
                     } else {
                         match LinearUDPHolePuncher::reserve_new_udp_sockets((MULTIPORT_END - MULTIPORT_START) as usize, local_bind_addr.to_string()) {
