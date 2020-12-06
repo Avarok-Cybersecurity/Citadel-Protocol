@@ -19,7 +19,7 @@ use futures_util::StreamExt;
 use hyxe_net::hdp::hdp_packet_processor::includes::SecurityLevel;
 use tokio::time::Instant;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
-use futures_util::core_reexport::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicUsize;
 use crate::ffi::KernelResponse;
 use crate::command_handlers::group::MessageGroupContainer;
 use crate::console::virtual_terminal::INPUT_ROUTER;
