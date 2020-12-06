@@ -10,7 +10,7 @@ workspace = ".."
 [dependencies]
 igd = { path = "./rust-igd", features = ["aio"] }
 #tokio = { version = "^0.2.22", features = ["macros", "rt-util", "time", "net"] }
-tokio = { version = "0.3.4", path = "../../tokio/tokio", features = ["macros", "rt", "time", "net"] }
+tokio = { version = "0.3.5", path = "../../tokio/tokio", features = ["macros", "rt", "time", "net"] }
 futures = "0.3.5"
 async-trait = "0.1.36"
 bytes = "0.6.0"

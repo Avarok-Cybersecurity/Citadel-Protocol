@@ -40,19 +40,19 @@
     <cargoProject FILE="$PROJECT_DIR$/async_udt/udt-rs/Cargo.toml" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="9ba86fcb-f55c-4698-a5ca-e0aac968b922" name="local history tokio0.3.5" comment="local history tokio0.3.5&#10;This has some subtle bugs that need to be addressed (connection does not work; suspect problem with tokio03. For now, we won't use this version">
+    <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_crypt/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
-    </list>
-    <list id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Progress on hyxe networking">
       <change beforePath="$PROJECT_DIR$/async_udt/udt-rs" beforeDir="false" afterPath="$PROJECT_DIR$/async_udt/udt-rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/base64-codec" beforeDir="false" afterPath="$PROJECT_DIR$/base64-codec" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_fs/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/rust-igd/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/rsntp" beforeDir="false" afterPath="$PROJECT_DIR$/rsntp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/rsntp/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/rsntp/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/shrust" beforeDir="false" afterPath="$PROJECT_DIR$/shrust" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -110,17 +110,6 @@
   </component>
   <component name="KotlinMultiplatform">
     <allAvailableExecutables />
-  </component>
-  <component name="LineStatusTrackerManager">
-    <file path="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs">
-      <ranges>
-        <range start1="386" end1="387" start2="386" end2="392" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
-        <range start1="389" end1="390" start2="394" end2="395" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
-        <range start1="408" end1="408" start2="413" end2="414" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
-        <range start1="411" end1="411" start2="417" end2="418" changelist="0501a0c8-9cbe-42c6-af13-f5bb287722a6" />
-        <range start1="417" end1="418" start2="424" end2="448" changelist="9ba86fcb-f55c-4698-a5ca-e0aac968b922" />
-      </ranges>
-    </file>
   </component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="CdSiLkPI" />
