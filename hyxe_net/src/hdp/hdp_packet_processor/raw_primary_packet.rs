@@ -68,15 +68,15 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
         }
 
         packet_flags::cmd::primary::DO_DRILL_UPDATE => {
-            super::drill_update_packet::process(session, &header, payload)
+            super::drill_update_packet::process(session, packet)
         }
 
         packet_flags::cmd::primary::DO_DEREGISTER =>  {
-            super::deregister_packet::process(session, &header, payload)
+            super::deregister_packet::process(session, packet)
         }
 
         packet_flags::cmd::primary::DO_PRE_CONNECT => {
-            super::preconnect_packet::process(session, &header, payload)
+            super::preconnect_packet::process(session, packet, remote_peer)
         }
 
         packet_flags::cmd::primary::PEER_CMD => {

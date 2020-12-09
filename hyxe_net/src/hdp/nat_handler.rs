@@ -24,7 +24,8 @@ pub fn determine_initial_nat_method(local_node_type: HyperNodeType, remote_node_
         HyperNodeType::BehindResidentialNAT => {
             match remote_node_type {
                 HyperNodeType::GloballyReachable => {
-                    NatTraversalMethod::UPnP
+                    //NatTraversalMethod::UPnP (UPnP lacks ipv6 support)
+                    NatTraversalMethod::Method3
                 },
 
                 HyperNodeType::BehindResidentialNAT => {

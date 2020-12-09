@@ -10,7 +10,7 @@ unused_results,
 warnings
 )]
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use reqwest::Client;
 use std::str::FromStr;
 
@@ -33,6 +33,31 @@ pub async fn get_ip(prefer_ipv6: bool, client: Option<Client>) -> Result<IpAddr,
     let resp = client.get(url).send().await.map_err(|err| IpRetrieveError::Error(err.to_string()))?;
     let text = resp.text().await.map_err(|err| IpRetrieveError::Error(err.to_string()))?;
     IpAddr::from_str(text.as_str()).map_err(|err| IpRetrieveError::Error(err.to_string()))
+}
+
+/// Gets the internal IP address using DNS
+pub async fn get_internal_ip(ipv6: bool) -> Option<IpAddr> {
+    if ipv6 {
+        get_internal_ipv6().await
+    } else {
+        get_internal_ipv4().await
+    }
+}
+
+async fn get_internal_ipv4() -> Option<IpAddr> {
+    let socket = tokio::net::UdpSocket::bind(addr("0.0.0.0:0")?).await.ok()?;
+    socket.connect(addr("8.8.8.8:80")?).await.ok()?;
+    socket.local_addr().ok().map(|sck| sck.ip())
+}
+
+async fn get_internal_ipv6() -> Option<IpAddr> {
+    let socket = tokio::net::UdpSocket::bind(addr("[::]:0")?).await.ok()?;
+    socket.connect(addr("[2001:4860:4860::8888]:80")?).await.ok()?;
+    socket.local_addr().ok().map(|sck| sck.ip())
+}
+
+fn addr(addr: &str) -> Option<SocketAddr> {
+    SocketAddr::from_str(addr).ok()
 }
 
 /// The default error type for this crate

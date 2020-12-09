@@ -12,6 +12,7 @@ license-file = "LICENSE"
 
 [dependencies]
 reqwest = "0.10.1"
+tokio = { version = "0.2.22", features = ["udp"] }
 
 [dev-dependencies]
-tokio = "0.2.11"
+tokio = "0.2.22"

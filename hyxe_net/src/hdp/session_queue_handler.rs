@@ -9,6 +9,7 @@ use std::hash::{Hasher, BuildHasher};
 use byteorder::{BigEndian, ByteOrder};
 use crate::inner_arg::InnerParameterMut;
 use crate::macros::SessionBorrow;
+use crate::error::NetworkError;
 
 /// any index below 10 are reserved for the session. Inbound GROUP timeouts will begin at 10 or high
 pub const QUEUE_WORKER_RESERVED_INDEX: usize = 10;
@@ -75,7 +76,7 @@ impl SessionQueueWorker {
 
     #[allow(unused_results)]
     fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        //log::info!("poll");
+        //log::info!("poll_purge");
         let mut this = inner_mut!(self);
         if this.waker.is_none() {
             this.waker = Some(cx.waker().clone());
@@ -86,6 +87,7 @@ impl SessionQueueWorker {
         if sess.state != SessionState::Disconnected {
             while let Some(res) = futures::ready!(this.expirations.poll_expired(cx)) {
                 let entry: QueueWorkerTicket = res?.into_inner();
+                //log::info!("POLL_EXPIRED: {:?}", &entry);
                 match entry {
                     QueueWorkerTicket::Oneshot(_, _) => {
                         // already removed from expiration; now, just remove from hashmap
@@ -106,7 +108,11 @@ impl SessionQueueWorker {
                             QueueWorkerResult::Complete => {
                                 // nothing to do here since already removed entry
                                 //this.expirations.remove(&key2);
-                                return Poll::Ready(Ok(()))
+                                this.entries.remove(&entry);
+                                // the below line was to fix a bug where the queue wouldn't be polled if ANY
+                                // task returned Complete
+                                this.waker.as_ref().unwrap().wake_by_ref();
+                                return Poll::Pending;
                             }
 
                             QueueWorkerResult::EndSession => {
@@ -120,6 +126,7 @@ impl SessionQueueWorker {
                                 // if incomplete, and is periodic, reset it
                                 let duration = duration.clone();
                                 this.expirations.insert(entry, duration)
+                                // since we re-inserted the item, we need to schedule it to be awaken again
                             }
                         };
                         let (_fx, key, _duration) = this.entries.get_mut(&entry).unwrap();
@@ -150,6 +157,17 @@ impl Stream for SessionQueueWorker {
             Err(_) => {
                 Poll::Ready(None)
             }
+        }
+    }
+}
+
+impl futures::Future for SessionQueueWorker {
+    type Output = Result<(), NetworkError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match futures::ready!(self.poll_next(cx)) {
+            Some(_) => Poll::Pending,
+            None => Poll::Ready(Err(NetworkError::InternalError("Queue handler signalled shutdown")))
         }
     }
 }
