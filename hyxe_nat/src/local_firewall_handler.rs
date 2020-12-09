@@ -54,7 +54,7 @@ pub fn open_local_firewall_port(protocol: FirewallProtocol) -> std::io::Result<O
 #[allow(unused)]
 fn windows(protocol: FirewallProtocol) -> std::io::Result<Output> {
     let port = protocol.get_port();
-    let arg_name = format!("name=\"Lusna{}\"", port);
+    let arg_name = format!("name=\"SatoriNET{}\"", port);
     let arg_protocol = format!("protocol={}", protocol);
     let arg_end = format!("localport={}", port);
 
@@ -111,7 +111,7 @@ pub fn remove_firewall_rule(protocol: FirewallProtocol) -> std::io::Result<Outpu
 #[allow(unused)]
 fn windows_remove(protocol: FirewallProtocol) -> std::io::Result<Output> {
     let port = protocol.get_port();
-    let arg_name = format!("name=\"Lusna{}\"", port);
+    let arg_name = format!("name=\"SatoriNET{}\"", port);
     let arg_protocol = format!("protocol={}", protocol);
     let arg_end = format!("localport={}", port);
 

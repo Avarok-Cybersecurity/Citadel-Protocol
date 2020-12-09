@@ -32,7 +32,6 @@ use hyxe_nat::time_tracker::TimeTracker;
 use futures::stream::FuturesUnordered;
 use std::pin::Pin;
 use crate::hdp::session_queue_handler::{SessionQueueWorker, QueueWorkerTicket, PROVISIONAL_CHECKER, QueueWorkerResult, DRILL_REKEY_WORKER, KEEP_ALIVE_CHECKER, FIREWALL_KEEP_ALIVE};
-use std::hint::black_box;
 use crate::hdp::state_subcontainers::drill_update_container::calculate_update_frequency;
 use std::sync::Arc;
 use hyxe_user::re_imports::scramble_encrypt_file;
@@ -64,6 +63,8 @@ pub struct HdpSession {
 #[allow(unused)]
 pub struct HdpSessionInner {
     pub(super) implicated_cid: Arc<Atomic<Option<u64>>>,
+    // the external IP of the local node with respect to the outside world. May or may not be natted
+    pub(super) external_addr: Arc<Atomic<Option<SocketAddr>>>,
     pub(super) kernel_ticket: Ticket,
     pub(super) remote_peer: SocketAddr,
     pub(super) cnac: Option<ClientNetworkAccount>,
@@ -142,6 +143,7 @@ impl HdpSession {
             //Some(Rc::new(PostQuantumContainer::new_alice(Some(DEFAULT_PQC_ALGORITHM))))
             None
         } else {
+            // load the old pqc
             Some(Arc::new(cnac.as_ref().unwrap().get_post_quantum_container().unwrap()))
         };
 
@@ -157,6 +159,7 @@ impl HdpSession {
             remote_node_type: None,
             security_level,
             kernel_tx: kernel_tx.clone(),
+            external_addr: Arc::new(Atomic::new(None)),
             implicated_cid: Arc::new(Atomic::new(implicated_cid)),
             time_tracker,
             kernel_ticket,
@@ -199,6 +202,7 @@ impl HdpSession {
             remote_node_type: None,
             security_level: SecurityLevel::LOW,
             implicated_cid: Arc::new(Atomic::new(None)),
+            external_addr: Arc::new(Atomic::new(None)),
             time_tracker,
             kernel_ticket: provisional_ticket,
             remote_peer,
@@ -331,14 +335,13 @@ impl HdpSession {
                 let session_ref = inner!(session);
                 let tcp_only = session_ref.tcp_only;
                 let timestamp = session_ref.time_tracker.get_global_time_ns();
-                let ref latest_local_drill = cnac.unwrap().get_drill(None).unwrap();
-                let syn = hdp_packet_crafter::pre_connect::craft_syn(latest_local_drill, tcp_only, timestamp);
+                let ref static_aux_drill = unsafe { cnac.unwrap().get_static_auxiliary_drill() };
+                let old_pqc = session_ref.post_quantum.as_ref().unwrap();
+                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_drill, old_pqc, tcp_only, timestamp);
                 let mut state_container = inner_mut!(session_ref.state_container);
                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
 
-                if let Err(err) = to_outbound.unbounded_send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
-                    return Err(err);
-                }
+                to_outbound.unbounded_send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
 
                 log::info!("Successfully sent SYN pre-connect packet");
             }
@@ -410,15 +413,8 @@ impl HdpSession {
         })
     }
 
-    async fn outbound_stream(mut primary_outbound_rx: UnboundedReceiver<Bytes>, mut writer: CleanTcpShutdownSink<TcpStream, LengthDelimitedCodec, Bytes>) -> Result<(), NetworkError> {
-        while let Some(outbound_packet) = primary_outbound_rx.next().await {
-            //log::info!("outbound_stream sending object w/ {} bytes to TCP stream (using LengthDelimitedCodec)", outbound_packet.len());
-            if let Err(err) = writer.send(outbound_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")).await {
-                return Err(err);
-            }
-        }
-
-        Err(NetworkError::InternalError("Ending"))
+    async fn outbound_stream(primary_outbound_rx: UnboundedReceiver<Bytes>, mut writer: CleanTcpShutdownSink<TcpStream, LengthDelimitedCodec, Bytes>) -> Result<(), NetworkError> {
+        writer.send_all(&mut primary_outbound_rx.map(Ok)).map_err(|err| NetworkError::Generic(err.to_string())).await
     }
 
     async fn execute_inbound_stream(mut reader: CleanTcpShutdownStream<TcpStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession) -> Result<(), NetworkError> {
@@ -452,11 +448,11 @@ impl HdpSession {
                     //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
                     match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), local_primary_port, packet) {
                         PrimaryProcessorResult::ReplyToSender(return_packet) => {
-                            Self::send_to_primary_stream_closure(primary_stream, kernel_tx, return_packet, None);
+                            Self::send_to_primary_stream_closure(primary_stream, kernel_tx, return_packet, None)?;
                         }
 
                         PrimaryProcessorResult::FinalReply(last_packet_of_sess) => {
-                            Self::send_to_primary_stream_closure(primary_stream, kernel_tx, last_packet_of_sess, None);
+                            Self::send_to_primary_stream_closure(primary_stream, kernel_tx, last_packet_of_sess, None)?;
                             return Err(NetworkError::InternalError("ending inbound stream"));
                         }
 
@@ -477,9 +473,12 @@ impl HdpSession {
         }
     }
 
-    fn send_to_primary_stream_closure(to_primary_stream: &UnboundedSender<Bytes>, kernel_tx: &UnboundedSender<HdpServerResult>, msg: Bytes, ticket: Option<Ticket>) {
+    fn send_to_primary_stream_closure(to_primary_stream: &UnboundedSender<Bytes>, kernel_tx: &UnboundedSender<HdpServerResult>, msg: Bytes, ticket: Option<Ticket>) -> Result<(), NetworkError>{
         if let Err(err) = to_primary_stream.unbounded_send(msg) {
-            kernel_tx.unbounded_send(HdpServerResult::InternalServerError(ticket, err.to_string())).expect("Unable to send message to kernel ...");
+            kernel_tx.unbounded_send(HdpServerResult::InternalServerError(ticket, err.to_string())).map_err(|err| NetworkError::Generic(err.to_string()))?;
+            Err(NetworkError::InternalError("Primary stream closed"))
+        } else {
+            Ok(())
         }
     }
 
@@ -487,7 +486,7 @@ impl HdpSession {
         log::info!("HdpSession async timer subroutine executed");
         //let this_interval = this_main.clone();
         let borrow = inner!(this_main);
-        let mut queue_worker = borrow.queue_worker.clone();
+        let queue_worker = borrow.queue_worker.clone();
         queue_worker.load_session(&this_main);
         let is_server = borrow.is_server;
         std::mem::drop(borrow);
@@ -511,8 +510,12 @@ impl HdpSession {
                     let security_level = sess.security_level;
                     let transfer_stats = sess.transfer_stats.clone();
                     let mut state_container = inner_mut!(sess.state_container);
-                    sess.initiate_drill_update(timestamp, &mut wrap_inner_mut!(state_container), Some(ticket));
-                    QueueWorkerResult::AdjustPeriodicity(calculate_update_frequency(security_level.value(), &transfer_stats))
+                    if let Ok(_) = sess.initiate_drill_update(timestamp, &mut wrap_inner_mut!(state_container), Some(ticket)) {
+                        QueueWorkerResult::AdjustPeriodicity(calculate_update_frequency(security_level.value(), &transfer_stats))
+                    } else {
+                        log::error!("initiate_drill_update subroutine signalled failure");
+                        QueueWorkerResult::EndSession
+                    }
                 } else {
                     QueueWorkerResult::Incomplete
                 }
@@ -550,11 +553,7 @@ impl HdpSession {
             QueueWorkerResult::Incomplete
         });
 
-        while let Some(_) = queue_worker.next().await {
-            black_box(())
-        }
-
-        Err(NetworkError::InternalError("Queue Handler signalled shutdown"))
+        queue_worker.await
     }
 
     /// Similar to process_outbound_packet, but optimized to handle files
@@ -833,7 +832,7 @@ impl HdpSession {
                 }
             };
 
-            // TODO: implement FAST-SEND if TCP detected to reduce from 2 back-and-forths to 1
+
             // We manually send the header. The tails get sent automatically
             log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
             let group_len = transmitter.get_total_plaintext_bytes();
@@ -1105,7 +1104,7 @@ impl HdpSession {
                         log::info!("Successfully found the active virtual connection to HyperLAN peer {}. Now initiating disconnect response with HyperLAN server", target_cid);
                         let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(target, &drill, ticket, timestamp);
                         state_container.disconnect_state.ticket = ticket;
-                        Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket));
+                        Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket))?;
                         Ok(true)
                     } else {
                         log::error!("Target CID {} is not a HyperLAN Peer -> HyperLAN Peer type", target_cid);
@@ -1121,7 +1120,7 @@ impl HdpSession {
                 log::info!("Now initiating disconnect response with HyperLAN server {}", implicated_cid);
                 state_container.disconnect_state.ticket = ticket;
                 let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(target, &drill, ticket, timestamp);
-                Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket));
+                Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket))?;
                 Ok(true)
             }
 
@@ -1224,29 +1223,29 @@ impl HdpSessionInner {
         }
     }
 
-    pub(crate) fn initiate_drill_update<K: ExpectedInnerTargetMut<StateContainerInner>>(&self, timestamp: i64, state_container: &mut InnerParameterMut<K, StateContainerInner>, ticket: Option<Ticket>)
+    pub(crate) fn initiate_drill_update<K: ExpectedInnerTargetMut<StateContainerInner>>(&self, timestamp: i64, state_container: &mut InnerParameterMut<K, StateContainerInner>, ticket: Option<Ticket>) -> Result<(), NetworkError>
      {
-        //log::info!("Initiating drill update process ...");
-
         // begin update process by immediately setting semaphore
         state_container.drill_update_state.on_begin_update_subroutine(timestamp, ticket);
         //std::mem::drop(state_container);
         let cnac = self.cnac.as_ref().unwrap();
+         let pqc = self.post_quantum.as_ref().unwrap();
         let latest_drill = cnac.get_drill(None).unwrap();
 
-        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(&latest_drill, timestamp);
+        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(&latest_drill, pqc, timestamp);
         let to_primary_stream = self.to_primary_stream.as_ref().unwrap();
         let kernel_tx = &self.kernel_tx;
-        HdpSession::send_to_primary_stream_closure(to_primary_stream, kernel_tx, stage0_packet, ticket);
+        HdpSession::send_to_primary_stream_closure(to_primary_stream, kernel_tx, stage0_packet, ticket)
     }
 
     pub(crate) fn initiate_deregister(&self, virtual_connection_type: VirtualConnectionType, ticket: Ticket) -> bool {
         log::info!("Initiating deregister process ...");
         let timestamp = self.time_tracker.get_global_time_ns();
         let cnac = self.cnac.as_ref().unwrap();
+        let pqc = self.post_quantum.as_ref().unwrap();
         let ref drill = cnac.get_drill(None).unwrap();
 
-        let stage0_packet = hdp_packet_crafter::do_deregister::craft_stage0(drill, timestamp, virtual_connection_type);
+        let stage0_packet = hdp_packet_crafter::do_deregister::craft_stage0(drill, pqc, timestamp, virtual_connection_type);
         let mut state_container = inner_mut!(self.state_container);
         state_container.deregister_state.on_init(virtual_connection_type, timestamp,  ticket);
         std::mem::drop(state_container);
