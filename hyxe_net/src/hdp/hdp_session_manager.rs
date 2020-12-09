@@ -345,17 +345,15 @@ impl HdpSessionManager {
     }
 
     /// Returns true if the process continued successfully
-    pub fn initiate_update_drill_subroutine(&self, implicated_cid: u64, ticket: Ticket) -> bool {
+    pub fn initiate_update_drill_subroutine(&self, implicated_cid: u64, ticket: Ticket) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
             let sess = inner!(sess);
             let timestamp = sess.time_tracker.get_global_time_ns();
             let mut state_container = inner_mut!(sess.state_container);
-            sess.initiate_drill_update(timestamp, &mut wrap_inner_mut!(state_container), Some(ticket));
-            true
+            sess.initiate_drill_update(timestamp, &mut wrap_inner_mut!(state_container), Some(ticket))
         } else {
-            log::error!("Unable to initiate drill update subroutine for {} (not an active session)", implicated_cid);
-            false
+            Err(NetworkError::Generic(format!("Unable to initiate drill update subroutine for {} (not an active session)", implicated_cid)))
         }
     }
 
@@ -374,12 +372,7 @@ impl HdpSessionManager {
     ///
     pub fn check_online_status(&self, users: &Vec<u64>) -> Vec<bool> {
         let this = inner!(self);
-        let mut ret = Vec::with_capacity(users.len());
-        for user in users {
-            ret.push(this.sessions.contains_key(user));
-        }
-
-        ret
+        users.iter().map(|user| this.sessions.contains_key(user)).collect()
     }
 
     /// Sends the command outbound. Returns true if sent, false otherwise

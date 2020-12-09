@@ -245,6 +245,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
         PeerSignal::Kem(conn, mut kep) => {
             // before just routing the signals, we also need to add socket information into intercepted stage1 and stage2 signals
             // to allow for STUN-like NAT traversal
+            // this gives peer A the socket of peer B and vice versa
             let socket_addr = session.remote_peer.to_string();
             match &mut kep {
                 KeyExchangeProcess::Stage1(_, _, val) | KeyExchangeProcess::Stage2(_, val)=> {

@@ -250,8 +250,8 @@ impl HdpServer {
                 }
 
                 HdpServerRequest::UpdateDrill(implicated_cid) => {
-                    if !session_manager.initiate_update_drill_subroutine(implicated_cid, ticket_id) {
-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
+                    if let Err(err) = session_manager.initiate_update_drill_subroutine(implicated_cid, ticket_id) {
+                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
                         }
                     }

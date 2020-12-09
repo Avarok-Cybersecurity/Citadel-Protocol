@@ -82,11 +82,6 @@ pub(crate) mod packet_flags {
             pub(crate) mod do_deregister {
                 /// request
                 pub(crate) const STAGE0: u8 = 0;
-                /// nonce
-                pub(crate) const STAGE1: u8 = 1;
-                /// challenge
-                pub(crate) const STAGE2: u8 = 2;
-                /// perform action on both ends
                 pub(crate) const SUCCESS: u8 = 3;
                 pub(crate) const FAILURE: u8 = 4;
             }
@@ -165,21 +160,8 @@ pub(crate) mod packet_sizes {
         use crate::constants::HDP_HEADER_BYTE_LEN;
         use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
 
-        pub(crate) const STAGE0: usize = HDP_HEADER_BYTE_LEN;
         pub(crate) const STAGE1: usize = HDP_HEADER_BYTE_LEN + AES_GCM_NONCE_LEN_BYTES;
         pub(crate) const STAGE3: usize = HDP_HEADER_BYTE_LEN + hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD + AES_GCM_NONCE_LEN_BYTES;
-        pub(crate) const STAGE_FINAL: usize = HDP_HEADER_BYTE_LEN;
-    }
-
-    pub(crate) mod do_deregister {
-        use crate::constants::HDP_HEADER_BYTE_LEN;
-        use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
-
-        //nonce
-        pub(crate) const STAGE1: usize = HDP_HEADER_BYTE_LEN + AES_GCM_NONCE_LEN_BYTES;
-        // low subdrill challenge
-        pub(crate) const STAGE2: usize = HDP_HEADER_BYTE_LEN + hyxe_crypt::drill::BYTES_IN_LOW + hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
-        pub(crate) const STAGE_FINAL: usize = HDP_HEADER_BYTE_LEN;
     }
 
     pub(crate) mod do_preconnect {
@@ -189,7 +171,6 @@ pub(crate) mod packet_sizes {
         // +8 for the i64 sync_time
         pub(crate) const STAGE_TRY_NEXT_ACK: usize = HDP_HEADER_BYTE_LEN + 8;
         pub(crate) const STAGE_SUCCESS_ACK: usize = HDP_HEADER_BYTE_LEN;
-        pub(crate) const STAGE_SERVER_DONE: usize = HDP_HEADER_BYTE_LEN;
     }
 }
 

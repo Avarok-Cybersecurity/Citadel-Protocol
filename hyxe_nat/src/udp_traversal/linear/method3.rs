@@ -16,12 +16,12 @@ use crate::udp_traversal::linear::nat_payloads::{SYN, SYN_ACK};
 
 /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL
 // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf
-pub struct LowHighTTLHolePunch {
+pub struct Method3 {
     this_node_type: RelativeNodeType
 }
 
 
-impl LowHighTTLHolePunch {
+impl Method3 {
     /// Make sure to complete the pre-process stage before calling this
     /// NOTE: Socket should have SO_REUSEADDR=true
     pub fn new(this_node_type: RelativeNodeType) -> Self {
@@ -203,7 +203,7 @@ impl LowHighTTLHolePunch {
 }
 
 #[async_trait]
-impl LinearUdpHolePunchImpl for LowHighTTLHolePunch {
+impl LinearUdpHolePunchImpl for Method3 {
     async fn execute(&self, sockets: &mut Vec<UdpSocket>, endpoints: &Vec<SocketAddr>) -> Result<Vec<HolePunchedSocketAddr>, FirewallError> {
         match self.this_node_type {
             RelativeNodeType::Initiator => {

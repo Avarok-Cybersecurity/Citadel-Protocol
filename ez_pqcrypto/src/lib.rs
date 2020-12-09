@@ -40,7 +40,7 @@ pub struct PostQuantumContainer {
     pub(crate) algorithm: u8,
     pub(crate) data: Box<dyn PostQuantumType>,
     pub(crate) anti_replay_attack: AntiReplayAttackContainerOrdered,
-    pub(crate) aes_gcm_key: Option<AeadKey>,
+    pub(crate) shared_secret: Option<AeadKey>,
     pub(crate) node: PQNode
 }
 
@@ -57,7 +57,6 @@ pub enum PQNode {
     Bob,
 }
 
-
 impl PostQuantumContainer {
     /// Creates a new [PostQuantumContainer] for Alice. This will panic if the algorithm is
     /// invalid
@@ -70,7 +69,7 @@ impl PostQuantumContainer {
 
         let data = Self::get_new_alice(algorithm);
         let aes_gcm_key = None;
-        Self { algorithm, data, aes_gcm_key, anti_replay_attack: AntiReplayAttackContainerOrdered::default(), node: PQNode::Alice }
+        Self { algorithm, data, shared_secret: aes_gcm_key, anti_replay_attack: AntiReplayAttackContainerOrdered::default(), node: PQNode::Alice }
     }
 
     /// Creates a new [PostQuantumContainer] for Bob. This will panic if the algorithm is
@@ -87,12 +86,12 @@ impl PostQuantumContainer {
 
         let aes_gcm_key = Some(AeadKey::new(&key));
 
-        Ok(Self { algorithm, aes_gcm_key, data, anti_replay_attack: AntiReplayAttackContainerOrdered::default(), node: PQNode::Bob })
+        Ok(Self { algorithm, shared_secret: aes_gcm_key, data, anti_replay_attack: AntiReplayAttackContainerOrdered::default(), node: PQNode::Bob })
     }
 
     /// This should always be called after deserialization
     fn load_aes_gcm_key(&mut self) {
-        self.aes_gcm_key = Some(AeadKey::new(&GenericArray::clone_from_slice(self.get_shared_secret().unwrap())))
+        self.shared_secret = Some(AeadKey::new(&GenericArray::clone_from_slice(self.get_shared_secret().unwrap())))
     }
 
     /// Internally creates shared key after bob sends a response back to Alice
@@ -100,7 +99,7 @@ impl PostQuantumContainer {
         //debug_assert_eq!(self.node, PQNode::Alice);
         self.data.alice_on_receive_ciphertext(ciphertext)?;
         let ss = self.data.get_shared_secret().unwrap();
-        self.aes_gcm_key = Some(AeadKey::new(&GenericArray::clone_from_slice(ss)));
+        self.shared_secret = Some(AeadKey::new(&GenericArray::clone_from_slice(ss)));
         Ok(())
     }
     /// Gets the public key
@@ -152,7 +151,7 @@ impl PostQuantumContainer {
 
         // if the shared secret is loaded, the AES GCM abstraction should too.
 
-        if let Some(aes_gcm_key) = self.aes_gcm_key.as_ref() {
+        if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
             match aes_gcm_key.encrypt(nonce, input) {
                 Err(_) => {
                     Err(EzError::AesGcmEncryptionFailure)
@@ -178,7 +177,7 @@ impl PostQuantumContainer {
         let payload_len = payload.len();
 
         let mut in_place_payload = InPlaceBytesMut::new(&mut payload, 0..payload_len).ok_or_else(|| EzError::Generic("Bad window range"))?;
-        if let Some(aes_gcm_key) = self.aes_gcm_key.as_ref() {
+        if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
             aes_gcm_key.encrypt_in_place(nonce, &header[0..header_len], &mut in_place_payload).map_err(|_| EzError::AesGcmEncryptionFailure)?;
             header.unsplit(payload);
             Ok(())
@@ -195,7 +194,7 @@ impl PostQuantumContainer {
         let payload_len = payload.len();
 
         let mut in_place_payload = InPlaceBytesMut::new(&mut payload, 0..payload_len).ok_or_else(|| EzError::Generic("Bad window range"))?;
-        if let Some(aes_gcm_key) = self.aes_gcm_key.as_ref() {
+        if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
             aes_gcm_key.decrypt_in_place(nonce, header, &mut in_place_payload).map_err(|_| EzError::AesGcmDecryptionFailure)
                 .and_then(|_| {
                     // get the last 8 bytes of the payload
@@ -227,7 +226,7 @@ impl PostQuantumContainer {
         let nonce = GenericArray::from_slice(nonce);
         // if the shared secret is loaded, the AES GCM abstraction should too.
 
-        if let Some(aes_gcm_key) = self.aes_gcm_key.as_ref() {
+        if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
             match aes_gcm_key.decrypt(nonce, input) {
                 Err(_) => {
                     Err(EzError::AesGcmDecryptionFailure)
