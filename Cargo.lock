@@ -368,9 +368,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.59"
+version = "1.0.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66120af515773fb005778dc07c261bd201ec8ce50bd6e7144c927753fe013381"
+checksum = "4c0496836a84f8d0495758516b8621a622beb77c0fed418570e50764093ced48"
 dependencies = [
  "jobserver",
 ]
@@ -674,7 +674,7 @@ version = "3.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0b676fa23f995faf587496dcd1c80fead847ed58d2da52ac1caca9a72790dd2"
 dependencies = [
- "nix",
+ "nix 0.17.0",
  "winapi 0.3.9",
 ]
 
@@ -789,7 +789,8 @@ dependencies = [
  "circular-queue",
  "nanoserde",
  "parking_lot 0.11.0",
- "pqcrypto",
+ "pqcrypto-saber 0.1.5",
+ "pqcrypto-traits 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.3",
 ]
 
@@ -1162,17 +1163,14 @@ dependencies = [
  "byteorder",
  "bytes",
  "criterion",
- "env_logger",
  "ez_pqcrypto",
  "futures",
  "kernel32-sys",
  "libc",
  "log 0.4.11",
  "num-integer",
- "parking_lot 0.11.0",
  "rand 0.7.3",
  "rayon",
- "secstr",
  "serde",
  "serde_derive",
  "zerocopy 0.2.8",
@@ -1189,7 +1187,6 @@ dependencies = [
  "bytes",
  "chrono",
  "dirs-2",
- "env_logger",
  "futures",
  "hyxe_crypt",
  "lazy_static",
@@ -1232,7 +1229,6 @@ dependencies = [
  "byteorder",
  "bytes",
  "either",
- "env_logger",
  "ez_pqcrypto",
  "futures",
  "hyxe_crypt",
@@ -1257,15 +1253,12 @@ name = "hyxe_user"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "bstr",
  "crossbeam-utils 0.7.2",
- "env_logger",
  "hyxe_fs",
  "lazy_static",
  "log 0.4.11",
  "multimap",
  "rand 0.7.3",
- "random",
  "secstr",
  "serde",
  "tokio",
@@ -1289,10 +1282,12 @@ dependencies = [
  "hyxe_user",
  "lazy_static",
  "log 0.4.11",
+ "nix 0.19.1",
  "parking_lot 0.11.0",
  "prettytable-rs",
  "serde",
  "serde_json",
+ "shutdown_hooks",
  "termion",
  "tokio",
 ]
@@ -1705,6 +1700,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nix"
+version = "0.19.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2ccba0cfe4fdf15982d1674c69b1fd80bad427d293849982668dfe454bd61f2"
+dependencies = [
+ "bitflags 1.2.1",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
+]
+
+[[package]]
 name = "nodrop"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1866,9 +1873,9 @@ checksum = "1ab52be62400ca80aa00285d25253d7f7c437b7375c4de678f5405d3afe82ca5"
 
 [[package]]
 name = "once_cell"
-version = "1.4.1"
+version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "260e51e7efe62b592207e9e13a68e43692a7a279171d6ba57abd208bf23645ad"
+checksum = "13bd41f508810a131401606d54ac32a467c97172d74ba7662562ebba5ad07fa0"
 
 [[package]]
 name = "oorandom"
@@ -2070,8 +2077,8 @@ checksum = "c36fa947111f5c62a733b652544dd0016a43ce89619538a8ef92724a6f501a20"
 name = "pqcrypto"
 version = "0.10.0"
 dependencies = [
- "pqcrypto-saber",
- "pqcrypto-traits",
+ "pqcrypto-saber 0.1.3",
+ "pqcrypto-traits 0.3.3",
 ]
 
 [[package]]
@@ -2081,12 +2088,30 @@ dependencies = [
  "cc",
  "glob",
  "libc",
- "pqcrypto-traits",
+ "pqcrypto-traits 0.3.3",
+]
+
+[[package]]
+name = "pqcrypto-saber"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee6a61104f400a102a00d80469d466cb2637d7dc4b77023f5f90e9b6d8bef42f"
+dependencies = [
+ "cc",
+ "glob",
+ "libc",
+ "pqcrypto-traits 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "pqcrypto-traits"
 version = "0.3.3"
+
+[[package]]
+name = "pqcrypto-traits"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4e1563eff60a9ae869cacee0a33fa5c4ba27861fec6e3e23de95eb0ae805e4b"
 
 [[package]]
 name = "prettytable-rs"
@@ -2230,12 +2255,6 @@ checksum = "ca3129af7b92a17112d59ad498c6f81eaf463253766b90396d39ea7a39d6613c"
 dependencies = [
  "rand_core 0.5.1",
 ]
-
-[[package]]
-name = "random"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97d13a3485349981c90c79112a11222c3e6e75de1d52b87a7525b3bf5361420f"
 
 [[package]]
 name = "rayon"
@@ -2560,6 +2579,12 @@ dependencies = [
  "serde",
  "url",
 ]
+
+[[package]]
+name = "shutdown_hooks"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6057adedbec913419c92996f395ba69931acbd50b7d56955394cd3f7bedbfa45"
 
 [[package]]
 name = "signal-hook"

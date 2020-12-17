@@ -12,8 +12,6 @@ pub const CNAC_SERIALIZED_EXTENSION: &'static str = "hca";
 pub trait HyperNodeAccountInformation {
     /// Returns either the CID or NID
     fn get_id(&self) -> u64;
-    /// Clones the underlying path from where the object was deserialized from
-    async fn get_filesystem_location(&self) -> PathBuf;
     /// Saves the account to memory
     async fn async_save_to_local_fs(self) -> Result<(), AccountError<String>>;
 }

@@ -55,6 +55,8 @@ pub mod ffi;
 
 pub fn shutdown_sequence(exit_status: i32) {
     println!("\n\rSatoriNET::Shutdown Hook initiated ...\n\r");
+    #[cfg(target_os= "windows")]
+        hyxe_net::hdp::hdp_server::atexit();
     if let Err(_) = crate::console::virtual_terminal::INPUT_ROUTER.deinit() {
         std::process::exit(-2)
     } else {
@@ -71,5 +73,10 @@ pub fn setup_log() {
 pub fn setup_shutdown_hook() {
     ctrlc::set_handler(|| {
         shutdown_sequence(-1);
-    }).expect("We were unable to setup the system shutdown hooks. Please report this to the developers")
+    }).expect("We were unable to setup the system shutdown hooks. Please report this to the developers");
+
+    // finally, setup shutdown hooks
+    if !shutdown_hooks::add_shutdown_hook(hyxe_net::hdp::hdp_server::atexit) {
+        log::error!("Unable to set shutdown hook subroutine");
+    }
 }

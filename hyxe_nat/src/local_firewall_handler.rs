@@ -80,7 +80,7 @@ fn linux(protocol: FirewallProtocol) -> std::io::Result<Output> {
     let protocol_arg = format!("{}", protocol);
     let port_arg = format!("{}", port);
 
-    std::process::Command::new("iptables")
+    let res_v4 = std::process::Command::new("iptables")
         .arg("-A")
         .arg("INPUT")
         .arg("-p")
@@ -92,7 +92,21 @@ fn linux(protocol: FirewallProtocol) -> std::io::Result<Output> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map(|res| res.wait_with_output().unwrap())
+        .map(|res| res.wait_with_output().unwrap());
+
+    std::process::Command::new("ip6tables")
+        .arg("-A")
+        .arg("INPUT")
+        .arg("-p")
+        .arg(protocol_arg.as_str())
+        .arg("--dport")
+        .arg(port_arg.as_str())
+        .arg("-j")
+        .arg("ACCEPT")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map(|res| res.wait_with_output().unwrap()).and(res_v4)
 }
 
 #[allow(unused)]
@@ -135,7 +149,7 @@ fn linux_remove(protocol: FirewallProtocol) -> std::io::Result<Output> {
     let protocol_arg = format!("{}", protocol);
     let port_arg = format!("{}", port);
 
-    std::process::Command::new("iptables")
+    let res_v4 = std::process::Command::new("iptables")
         .arg("-D")
         .arg("INPUT")
         .arg("-p")
@@ -147,7 +161,21 @@ fn linux_remove(protocol: FirewallProtocol) -> std::io::Result<Output> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map(|res| res.wait_with_output().unwrap())
+        .map(|res| res.wait_with_output().unwrap());
+
+    std::process::Command::new("ip6tables")
+        .arg("-D")
+        .arg("INPUT")
+        .arg("-p")
+        .arg(protocol_arg.as_str())
+        .arg("--dport")
+        .arg(port_arg.as_str())
+        .arg("-j")
+        .arg("ACCEPT")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map(|res| res.wait_with_output().unwrap()).and(res_v4)
 }
 
 /// Will exit if the permissions are not valid

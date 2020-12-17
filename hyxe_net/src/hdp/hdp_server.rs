@@ -10,7 +10,6 @@ use futures::{StreamExt, Sink, SinkExt};
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::try_join;
 use log::info;
-use net2::TcpStreamExt;
 use tokio::net::{TcpListener, TcpStream};
 use std::net::ToSocketAddrs;
 
@@ -22,7 +21,7 @@ use crate::error::NetworkError;
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType, FileKey};
 use crate::proposed_credentials::ProposedCredentials;
-use hyxe_nat::local_firewall_handler::{open_local_firewall_port, FirewallProtocol};
+use hyxe_nat::local_firewall_handler::{open_local_firewall_port, remove_firewall_rule, FirewallProtocol};
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::time_tracker::TimeTracker;
 use crate::hdp::peer::peer_layer::{PeerSignal, MailboxTransfer};
@@ -30,13 +29,24 @@ use std::task::{Context, Poll};
 use std::pin::Pin;
 use crate::hdp::peer::channel::PeerChannel;
 use std::path::PathBuf;
-use crate::hdp::hdp_packet_processor::includes::Instant;
-use crate::constants::NTP_RESYNC_FREQUENCY;
+use crate::hdp::hdp_packet_processor::includes::{Instant, Duration};
+use crate::constants::{NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::kernel::runtime_handler::RuntimeHandler;
 use crate::hdp::file_transfer::FileTransferStatus;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use parking_lot::Mutex;
 
+/// ports which were opened that must be closed atexit
+static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
+
+pub extern fn atexit() {
+    log::info!("Cleaning up firewall ports ...");
+    let lock = OPENED_PORTS.lock();
+    for port in lock.iter() {
+        HdpServer::close_tcp_port(*port);
+    }
+}
 
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
@@ -57,16 +67,10 @@ pub struct HdpServerInner {
 impl HdpServer {
     /// Creates a new [HdpServer]
     pub async fn new<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager) -> io::Result<Self> {
-        let local_bind_addr = <T as std::net::ToSocketAddrs>::to_socket_addrs(&bind_addr)?.next().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, ""))?;
-        let primary_socket = Some(Self::create_tcp_listen_socket(&local_bind_addr).await?);
+        let (primary_socket, local_bind_addr) = Self::create_tcp_listen_socket(&bind_addr)?;
         let primary_port = local_bind_addr.port();
         // Note: on Android/IOS, the below command will fail since sudo access is prohibited
-        if let Ok(res) = open_local_firewall_port(FirewallProtocol::TCP(primary_port)) {
-            if !res.status.success() {
-                let data = if res.stdout.is_empty() { res.stderr } else { res.stdout };
-                log::warn!("We were unable to ensure that the primary port, {}, be open. Reason: {}", primary_port, String::from_utf8(data).unwrap_or_default());
-            }
-        }
+        Self::open_tcp_port(primary_port);
 
         info!("Server established on {}", local_bind_addr);
 
@@ -76,7 +80,7 @@ impl HdpServer {
             shutdown_signaller: None,
             local_bind_addr,
             local_node_type,
-            primary_socket,
+            primary_socket: Some(primary_socket),
             to_kernel,
             session_manager,
             system_engaged: false,
@@ -116,15 +120,93 @@ impl HdpServer {
         Ok(remote)
     }
 
-    pub(crate) async fn create_tcp_listen_socket<T: tokio::net::ToSocketAddrs>(full_bind_addr: T) -> io::Result<TcpListener> {
-        tokio::net::TcpListener::bind(full_bind_addr).await
+    fn open_tcp_port(port: u16) {
+        if let Ok(res) = open_local_firewall_port(FirewallProtocol::TCP(port)) {
+            if !res.status.success() {
+                let data = if res.stdout.is_empty() { res.stderr } else { res.stdout };
+                log::warn!("We were unable to ensure that port {}, be open. Reason: {}", port, String::from_utf8(data).unwrap_or_default());
+            } else {
+                OPENED_PORTS.lock().push(port);
+            }
+        }
     }
 
-    pub(crate) fn create_tcp_connect_socket<R: ToSocketAddrs>(remote: R) -> io::Result<TcpStream> {
-        let stream = std::net::TcpStream::connect(remote)?;
-        stream.set_linger(Some(tokio::time::Duration::from_secs(0)))?;
-        stream.set_keepalive(None)?;
-        Ok(tokio::net::TcpStream::from_std(stream)?)
+    fn close_tcp_port(port: u16) {
+        if let Ok(res) = remove_firewall_rule(FirewallProtocol::TCP(port)) {
+            if !res.status.success() {
+                let data = if res.stdout.is_empty() { res.stderr } else { res.stdout };
+                log::warn!("We were unable to ensure that port {}, be CLOSED. Reason: {}", port, String::from_utf8(data).unwrap_or_default());
+            } else {
+                log::info!("Successfully shutdown port {}", port);
+            }
+        }
+    }
+
+    pub(crate) fn create_tcp_listen_socket<T: ToSocketAddrs>(full_bind_addr: T) -> io::Result<(TcpListener, SocketAddr)> {
+        let bind: SocketAddr = full_bind_addr.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
+        if bind.is_ipv4() {
+            let ref builder = net2::TcpBuilder::new_v4()?;
+            Self::bind_defaults(builder, bind, 1024)
+        } else {
+            let builder = net2::TcpBuilder::new_v6()?;
+            Self::bind_defaults(builder.only_v6(false)?, bind, 1024)
+        }
+    }
+
+    fn bind_defaults(builder: &net2::TcpBuilder, bind: SocketAddr, backlog: i32) -> io::Result<(TcpListener, SocketAddr)> {
+        builder
+            .reuse_address(true)?
+            .bind(bind)?
+            .listen(backlog) //default
+            .map(tokio::net::TcpListener::from_std)?
+            .and_then(|listener| {
+                Ok((listener, bind))
+            })
+    }
+
+    /// Returns a TcpStream to the remote addr, as well as a local TcpListener on the same bind addr going to remote
+    /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
+    pub(crate) async fn create_init_tcp_connect_socket<R: ToSocketAddrs>(remote: R) -> io::Result<(TcpListener, TcpStream)> {
+        let stream = Self::create_reuse_tcp_connect_socket(remote, None).await?;
+
+        let stream_bind_addr = stream.local_addr()?;
+
+        let (p2p_listener, _stream_bind_addr) = if stream_bind_addr.is_ipv4() {
+            let ref builder = net2::TcpBuilder::new_v4()?;
+            Self::bind_defaults(builder, stream_bind_addr, 16)?
+        } else {
+            let builder = net2::TcpBuilder::new_v6()?;
+            Self::bind_defaults(builder.only_v6(false)?, stream_bind_addr, 16)?
+        };
+        Self::open_tcp_port(stream_bind_addr.port());
+
+        Ok((p2p_listener, stream))
+    }
+
+    pub(crate) async fn create_reuse_tcp_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>) -> io::Result<TcpStream> {
+        let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
+        Self::connect_defaults(timeout, remote).await
+    }
+
+    async fn connect_defaults(timeout: Option<Duration>, remote: SocketAddr) -> io::Result<tokio::net::TcpStream> {
+        tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), tokio::task::spawn_blocking(move || {
+            let std_stream = if remote.is_ipv4() {
+                net2::TcpBuilder::new_v4()?
+                    .reuse_address(true)?
+                    .connect(remote)?
+            } else {
+                net2::TcpBuilder::new_v6()?
+                    .only_v6(false)?
+                    .reuse_address(true)?
+                    .connect(remote)?
+            };
+
+            let stream = tokio::net::TcpStream::from_std(std_stream)?;
+            stream.set_linger(Some(tokio::time::Duration::from_secs(0)))?;
+            stream.set_keepalive(None)?;
+
+            Ok(stream)
+        })).await??
     }
 
     /// In impersonal mode, each hypernode needs to check for incoming connections on the primary port.

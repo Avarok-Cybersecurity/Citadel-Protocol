@@ -2,13 +2,12 @@ use std::collections::HashMap;
 use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::sync::Arc;
 use async_trait::async_trait;
 //use future_parking_lot::rwlock::{FutureReadable, FutureWriteable, RwLock};
 use log::info;
-use rand::{random, RngCore};
+use rand::random;
 use secstr::SecVec;
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +19,6 @@ use crate::client_account::ClientNetworkAccount;
 use crate::hypernode_account::HyperNodeAccountInformation;
 use crate::misc::AccountError;
 use crate::server_config_handler::username_has_invalid_symbols;
-use rand::prelude::ThreadRng;
 use crossbeam_utils::sync::{ShardedLock, ShardedLockWriteGuard, ShardedLockReadGuard};
 use std::ops::Deref;
 
@@ -38,18 +36,15 @@ pub struct NetworkAccountInner {
     pub(crate) global_ipv6: Option<SocketAddrV6>,
     /// Contains a list of registered HyperLAN CIDS
     pub cids_registered: HashMap<u64, String>,
-    /// Used to determining an unused cid
-    pub max_cid_id: AtomicU64,
     /// The NID
     nid: u64,
 }
 
 /// Thread-safe handle
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct NetworkAccount {
     /// the inner device
-    pub inner: Arc<ShardedLock<NetworkAccountInner>>,
-    nid: u64,
+    inner: Arc<(u64, ShardedLock<NetworkAccountInner>)>
 }
 
 unsafe impl Send for NetworkAccount {}
@@ -63,7 +58,14 @@ impl NetworkAccount {
         let (global_ipv4, global_ipv6) = (None, None);
         let local_save_path = get_pathbuf(NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().as_ref().unwrap());
         info!("Attempting to create a NAC at {}", local_save_path.to_str().unwrap());
-        Ok(Self { nid, inner: Arc::new(ShardedLock::new(NetworkAccountInner { max_cid_id: AtomicU64::new(ThreadRng::default().next_u32() as u64), cids_registered: HashMap::new(), nid, global_ipv4, global_ipv6})) })
+        Ok(Self { inner: Arc::new((nid, ShardedLock::new(NetworkAccountInner { cids_registered: HashMap::new(), nid, global_ipv4, global_ipv6}))) })
+    }
+
+    /// Saves the file to the local FS
+    #[allow(unused_results)]
+    pub fn spawn_save_task_on_threadpool(&self) {
+        let this = self.clone();
+        tokio::task::spawn(this.async_save_to_local_fs());
     }
 
     /// When a new connection is created, this may be called
@@ -76,53 +78,59 @@ impl NetworkAccount {
             }
         };
         Self {
-            nid,
-            inner: Arc::new(ShardedLock::new(NetworkAccountInner {
+            inner: Arc::new((nid, ShardedLock::new(NetworkAccountInner {
                 cids_registered: HashMap::new(),
-                max_cid_id: AtomicU64::new(0),
                 nid,
                 global_ipv4,
                 global_ipv6
-            })),
+            }))),
         }
     }
 
     /// Once the [NetworkAccountInner] is loaded, this should be called. It internally updates the save path
     pub fn new_from_local_fs(inner: NetworkAccountInner) -> Self {
-        Self { nid: inner.nid, inner: Arc::new(ShardedLock::new(inner)) }
+        Self { inner: Arc::new((inner.nid, ShardedLock::new(inner))) }
     }
 
     /// When a CNAC loads its internally encrypted [NetworkAccount]
     pub fn new_from_cnac(inner: NetworkAccountInner) -> Self {
-        Self { nid: inner.nid, inner: Arc::new(ShardedLock::new(inner)) }
+        Self { inner: Arc::new((inner.nid, ShardedLock::new(inner))) }
     }
 
-    /// Sets the highest cid internally. Must be consistent with the data loaded with the set of CNACS.
-    ///
-    /// Will only set the value if the highest cid provided is greater than the stored internal value
-    pub fn set_highest_cid(&self, highest_cid: u64) {
-        let write = self.write();
-        if highest_cid > write.max_cid_id.load(Ordering::Relaxed) {
-            // only update the value if the highest obtained CID is greater than what's stored in max_cid_id
-            // If this is the case, it tells us that the NAC wasn't synced to the storage device (i.e, no safe shutdown).
-            // No biggie; just ensure that all future calls to reserve_cid guarantee that the number isn't taken
-            write.max_cid_id.store(highest_cid, Ordering::Relaxed)
+    /// This should be called during the registration phase. It generates a list of CIDs that are available
+    pub fn generate_possible_cids(&self) -> Vec<u64> {
+        let read = self.read();
+        let mut ret = Vec::with_capacity(10);
+        loop {
+            let possible = rand::random::<u64>();
+            if !read.cids_registered.contains_key(&possible) {
+                ret.push(possible);
+                if ret.len() == 10 {
+                    return ret;
+                }
+            }
         }
     }
 
-    /// This should be called during the registration phase. The incrementing mechanism ensures the CID is unique
-    ///
-    /// this is a get and increment mechanism that is atomic-safe
-    pub fn reserve_cid(&self) -> u64 {
+    /// Scans a list for a valid CID
+    pub fn find_first_valid_cid<T: AsRef<[u64]>>(&self, possible_cids: T) -> Option<u64> {
         let read = self.read();
-        // We add 1 to ensure there is no zero CID (reserved)
-        1 + read.max_cid_id.fetch_add(1, Ordering::SeqCst)
+        let possible_cids = possible_cids.as_ref();
+        possible_cids.iter().find(|res| !read.cids_registered.contains_key(*res))
+            .cloned()
     }
 
     /// This should be called after registration occurs
-    pub fn register_cid<T: ToString>(&self, cid: u64, username: T) {
+    #[allow(unused_results)]
+    pub fn register_cid<T: ToString>(&self, cid: u64, username: T) -> Result<(), AccountError<String>>{
         let mut write = self.write();
-        assert!(write.cids_registered.insert(cid, username.to_string()).is_none())
+        if write.cids_registered.contains_key(&cid) {
+            log::error!("Overwrote pre-existing account that lingered in the NID list. Report to developers");
+            Err(AccountError::ClientExists(cid))
+        } else {
+            write.cids_registered.insert(cid, username.to_string());
+            Ok(())
+        }
     }
 
     /// Determines if a username exists
@@ -161,10 +169,12 @@ impl NetworkAccount {
             return Err(AccountError::Generic(format!("Username {} already exists!", &username)))
         }
 
+        log::info!("Received password: {:?}", password.unsecure());
+
         let cnac = ClientNetworkAccount::new(Some(reserved_cid), false, nac_other.unwrap_or_else(|| self.clone()), &username, password, full_name, password_hash, post_quantum_container, toolset_bytes)?;
         // So long as the CNAC creation succeeded, we can confidently add the CID into the config
-        self.register_cid(reserved_cid, username);
-        Ok(cnac)
+        self.register_cid(reserved_cid, username)
+            .and_then(|_| Ok(cnac))
     }
 
     /// Returns the IPv4 address which belongs to the NID enclosed herein
@@ -209,12 +219,12 @@ impl NetworkAccount {
 
     /// Reads futures-style
     pub fn read(&self) -> ShardedLockReadGuard<NetworkAccountInner> {
-        self.inner.read().unwrap()
+        self.inner.1.read().unwrap()
     }
 
     /// Reads futures-style
     pub fn write(&self) -> ShardedLockWriteGuard<NetworkAccountInner> {
-        self.inner.write().unwrap()
+        self.inner.1.write().unwrap()
     }
 
     /// blocking version of async_save_to_local_fs
@@ -240,11 +250,7 @@ impl From<(u64, SocketAddr)> for NetworkAccount {
 #[async_trait]
 impl HyperNodeAccountInformation for NetworkAccount {
     fn get_id(&self) -> u64 {
-        self.nid
-    }
-
-    async fn get_filesystem_location(&self) -> PathBuf {
-        get_pathbuf(NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().as_ref().unwrap())
+        self.inner.0
     }
 
     async fn async_save_to_local_fs(self) -> Result<(), AccountError<String>> where NetworkAccountInner: SyncIO {
@@ -255,11 +261,5 @@ impl HyperNodeAccountInformation for NetworkAccount {
         let inner_nac = self.write();
         // Save the NAC
         inner_nac.deref().serialize_to_local_fs(path).map_err(|err| AccountError::IoError(err.to_string()))
-    }
-}
-
-impl Clone for NetworkAccount {
-    fn clone(&self) -> Self {
-        Self { nid: self.nid, inner: self.inner.clone() }
     }
 }

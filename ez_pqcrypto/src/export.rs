@@ -22,29 +22,9 @@ impl From<&'_ PostQuantumContainer> for PostQuantumExport {
         };
 
         let public_key = container.get_public_key().to_vec();
-        let secret_key = {
-            if let Ok(secret_key) = container.get_secret_key() {
-                Some(secret_key.to_vec())
-            } else {
-                None
-            }
-        };
-
-        let ciphertext = {
-            if let Ok(ciphertext) = container.get_ciphertext() {
-                Some(ciphertext.to_vec())
-            } else {
-                None
-            }
-        };
-
-        let shared_secret = {
-            if let Ok(shared_secret) = container.get_shared_secret() {
-                Some(shared_secret.to_vec())
-            } else {
-                None
-            }
-        };
+        let secret_key = container.get_secret_key().map(|res| res.to_vec()).ok();
+        let ciphertext = container.get_ciphertext().map(|res| res.to_vec()).ok();
+        let shared_secret = container.get_shared_secret().map(|res| res.to_vec()).ok();
 
         Self { algorithm, public_key, secret_key, ciphertext, shared_secret, node }
     }

@@ -294,8 +294,6 @@ pub(crate) mod group {
 
 pub(crate) mod do_register {
     use std::net::SocketAddr;
-
-    use bstr::ByteSlice;
     use secstr::SecVec;
     use zerocopy::LayoutVerified;
 
@@ -305,6 +303,33 @@ pub(crate) mod do_register {
 
     use crate::hdp::hdp_packet::HdpHeader;
     use crate::proposed_credentials::ProposedCredentials;
+    use byteorder::{BigEndian, ByteOrder};
+
+    pub(crate) fn validate_stage0(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(PostQuantumContainer, Vec<u64>)> {
+        let cids_to_get = header.context_info.get() as usize;
+        if cids_to_get > 10 {
+            log::error!("Too many CIDs provided");
+        }
+
+        let cids_byte_len = cids_to_get * 8;
+        if payload.len() < cids_byte_len {
+            log::error!("Bad payload size");
+            return None;
+        }
+
+        let mut cids = Vec::with_capacity(cids_to_get);
+        for x in 0..cids_to_get {
+            let start = x*8;
+            let end = start + 8;
+            cids.push(BigEndian::read_u64(&payload[start..end]));
+        }
+
+        let remaining_bytes = &payload[cids_to_get*8..];
+
+        log::info!("Possible CIDs obtained: {:?}", &cids);
+        let quantum_container = PostQuantumContainer::new_bob(header.algorithm, remaining_bytes).ok()?;
+        Some((quantum_container, cids))
+    }
 
     pub(crate) fn validate_stage2(_header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<[u8; AES_GCM_NONCE_LEN_BYTES]> {
         if payload.len() != AES_GCM_NONCE_LEN_BYTES {
@@ -342,8 +367,8 @@ pub(crate) mod do_register {
             let full_name = String::from_utf8(full_name.to_vec()).ok()?;
             let username = String::from_utf8(username.to_vec()).ok()?;
 
-            let (full_name, username) = (full_name.trim(), username.trim());
-            let password = password.trim();
+            //let (full_name, username) = (full_name.trim(), username.trim());
+            // let password = password.trim(); DO NOT trim the password
 
             let proposed_credentials = ProposedCredentials::new_from_hashed(full_name, username, SecVec::new(password.to_vec()), nonce.clone());
             let adjacent_nid = header.session_cid.get();
@@ -877,6 +902,7 @@ pub(crate) mod peer_cmd {
     use crate::hdp::hdp_packet_processor::includes::{Bytes, PostQuantumContainer};
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
+    #[allow(dead_code)]
     pub(crate) fn validate<'a, 'b: 'a>(cnac: &ClientNetworkAccount, pqc: &PostQuantumContainer, header: &'b Bytes, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, Drill)> {
         let bytes = &header[..];
         let header = LayoutVerified::new(bytes)? as LayoutVerified<&[u8], HdpHeader>;

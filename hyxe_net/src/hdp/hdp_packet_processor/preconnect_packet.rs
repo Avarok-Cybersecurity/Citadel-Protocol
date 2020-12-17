@@ -47,7 +47,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: SocketAd
                     }
 
                     log::info!("Synchronizing toolsets. TCP only? {}", tcp_only);
-                    // TODO: Rate limiting to prevent flooding
+                    // TODO: Rate limiting to prevent SYN flooding
                     let timestamp = session.time_tracker.get_global_time_ns();
 
                     //let toolset = cnac.serialize_toolset_to_vec_blocking()?;
@@ -103,21 +103,23 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: SocketAd
                     let ticket = session.kernel_ticket;
                     let local_bind_addr = session.local_bind_addr.ip();
 
+                    if tcp_only {
+                        let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_base_drill, pqc, local_node_type, &Vec::with_capacity(0), timestamp, peer_addr);
+                        state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
+                        return PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet);
+                    }
+
                     match LinearUDPHolePuncher::reserve_new_udp_sockets((MULTIPORT_END - MULTIPORT_START) as usize, local_bind_addr) {
                         Ok(reserved_sockets) => {
                             let ref reserved_local_wave_ports = reserved_sockets.iter().map(|sck| sck.local_addr().unwrap().port()).collect::<Vec<u16>>();
 
                             let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_base_drill, pqc, local_node_type, reserved_local_wave_ports, timestamp, peer_addr);
 
-                            if tcp_only {
-                                state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                            } else {
-                                // store these sockets for later use
-                                state_container.pre_connect_state.reserved_sockets = Some(reserved_sockets);
-                                state_container.pre_connect_state.ticket = Some(ticket);
-                                state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::STAGE1;
-                                state_container.pre_connect_state.on_packet_received();
-                            }
+                            // store these sockets for later use
+                            state_container.pre_connect_state.reserved_sockets = Some(reserved_sockets);
+                            state_container.pre_connect_state.ticket = Some(ticket);
+                            state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::STAGE1;
+                            state_container.pre_connect_state.on_packet_received();
 
                             PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet)
                         }
@@ -567,7 +569,7 @@ async fn handle_nat_traversal_as_receiver_inner(session_orig: HdpSession, drill:
                     let mut state_container = inner_mut!(sess.state_container);
                     state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
                     state_container.pre_connect_state.on_packet_received(); // this is hacky. Just to help prevent a timeout
-                    let finished_hole_punch = hdp_packet_crafter::pre_connect::craft_server_finished_hole_punch(&drill, pqc,true, timestamp);
+                    let finished_hole_punch = hdp_packet_crafter::pre_connect::craft_server_finished_hole_punch(&drill, pqc, true, timestamp);
                     std::mem::drop(state_container);
                     if sess.send_to_primary_stream(None, finished_hole_punch).is_err() {
                         log::error!("Primary stream disconnected");
@@ -752,7 +754,7 @@ fn generate_hole_punch_crypt_container(drill: Drill, pqc: Arc<PostQuantumContain
 }
 
 /// Returns the instant in time when the sync_time happens, and the inscribable i64 thereof
-fn calculate_sync_time(current: i64, header: i64) -> (Instant, i64) {
+pub fn calculate_sync_time(current: i64, header: i64) -> (Instant, i64) {
     let ping = i64::abs(current - header) as u64;
     let delta = HOLE_PUNCH_SYNC_TIME_MULTIPLIER * (ping as f64);
     let delta = delta as i64;

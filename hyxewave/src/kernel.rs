@@ -375,7 +375,6 @@ impl NetKernel for CLIKernel {
                                 PeerResponse::Disconnected(dc_msg) => {
                                     printf_ln!(colour::yellow!("Peer disconnected: {}\n", &dc_msg));
                                     // finally, remove the connection
-                                    // NOTE: While a sporadic DC properly sends the right order, the custom one does not since
                                     let peer_conn = peer_conn.reverse();
                                     match peer_conn {
                                         PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {

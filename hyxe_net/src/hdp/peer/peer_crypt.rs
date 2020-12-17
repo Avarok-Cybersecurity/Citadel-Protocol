@@ -20,8 +20,18 @@ pub enum KeyExchangeProcess {
     Stage1(Vec<u8>, Vec<u8>, Option<String>),
     // Alice sends encrypted toolset over
     Stage2(Vec<u8>, Option<String>),
-    // Bob sends ACK
-    Stage3,
+    // Bob sends ACK w/ init time to begin hole-punch attempt
+    Stage3(i64),
+    // Sends a signal to the other side validating that it established a connection
+    // However, the other side must thereafter receiving prove that it's who they claim it is
+    // to prevent MITM attacks
+    HolePunchEstablished,
+    // once the adjacent side confirms that they are who they claim they are, then the local node
+    // can update its endpoint container to allow exhange of information
+    // the bool determines whether or not the connection was upgraded
+    HolePunchEstablishedVerified(bool),
+    // The hole-punch failed
+    HolePunchFailed,
     // Re-key. Should be done periodically, handled by the channel layer
     // contains the DOU
     PerformReKey(Vec<u8>),
@@ -59,5 +69,10 @@ impl PeerSessionCrypto {
         let cur_vers = self.latest_drill_version_commited;
         let next_vers = cur_vers.wrapping_add(1);
         self.latest_drill_version_commited = next_vers;
+    }
+
+    pub fn get_pqc_and_drill(&self, drill_version: Option<u32>) -> Option<(Arc<PostQuantumContainer>, Drill)> {
+        self.get_drill(drill_version)
+            .map(|drill| (self.pqc.clone(), drill.clone()))
     }
 }

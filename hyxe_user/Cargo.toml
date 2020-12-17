@@ -13,7 +13,6 @@ serde = { version = "1.0.104", features=["rc", "derive"] }
 #async-std = "1.6.0-beta.2"
 #tokio = "0.2.21"
 tokio = {version = "^0.2.22", features=["rt-core"] }
-random = "0.12.2"
 async-trait = "0.1.11"
 crossbeam-utils = "0.7.2"
 #future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
@@ -21,8 +20,6 @@ secstr = "0.4.0"
 rand = "0.7.0"
 lazy_static = "1.4.0"
 multimap = "0.8.1"
-env_logger = "0.7.1"
-bstr = "0.2.13"
 
 log = { version = "0.4.8", features = ["max_level_info", "release_max_level_info"] }
 
