@@ -17,11 +17,13 @@ use crate::hdp::state_container::{VirtualTargetType, GroupSender};
 use std::sync::Arc;
 use futures::SinkExt;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use crate::error::NetworkError;
 
 /// Sends the header (manual!) and tail (auto!) packets through the primary stream directly, and
 /// the rest of the packets (the payload packets) get streamed to the [HdpServer] layer
 pub struct GroupTransmitter {
     pqc: Arc<PostQuantumContainer>,
+    to_primary_stream: UnboundedSender<Bytes>,
     // Handles the encryption and scrambling asynchronously. Also manages missing packets
     group_transmitter: GroupSender,
     /// Contained within Self::group_transmitter, but is here for convenience
@@ -59,13 +61,14 @@ pub enum WavePacketType {
 }
 
 impl GroupTransmitter {
-    pub fn new_from_group_sender(group_sender: GroupSender, pqc: Arc<PostQuantumContainer>, drill: Drill, object_id: u32, target_cid: u64, ticket: Ticket, security_level: SecurityLevel, time_tracker: TimeTracker) -> Self {
+    pub fn new_from_group_sender(to_primary_stream: UnboundedSender<Bytes>, group_sender: GroupSender, pqc: Arc<PostQuantumContainer>, drill: Drill, object_id: u32, target_cid: u64, ticket: Ticket, security_level: SecurityLevel, time_tracker: TimeTracker) -> Self {
         let cfg = inner!(group_sender).get_receiver_config();
         let group_id = cfg.group_id as u64;
         let bytes_encrypted = cfg.plaintext_length;
         Self {
             pqc,
             group_transmitter: group_sender,
+            to_primary_stream,
             group_config: cfg,
             object_id,
             group_id,
@@ -80,7 +83,7 @@ impl GroupTransmitter {
         }
     }
     /// Creates a new stream for a request
-    pub fn new(object_id: u32, target_cid: u64, drill: Drill, pqc: &Arc<PostQuantumContainer>, input_packet: SecBuffer, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
+    pub fn new(to_primary_stream: UnboundedSender<Bytes>, object_id: u32, target_cid: u64, drill: Drill, pqc: &Arc<PostQuantumContainer>, input_packet: SecBuffer, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
         // Gets the latest drill version by default for this operation
         log::trace!("Will use drill v{} to encrypt group {}", drill.get_version(), group_id);
 
@@ -98,6 +101,7 @@ impl GroupTransmitter {
                     pqc: pqc.clone(),
                     target_cid,
                     object_id,
+                    to_primary_stream,
                     group_transmitter,
                     drill,
                     group_config,
@@ -116,6 +120,12 @@ impl GroupTransmitter {
                 None
             }
         }
+    }
+
+    pub fn transmit_group_header(&mut self, virtual_target: VirtualTargetType) -> Result<(), NetworkError> {
+        let header = self.generate_group_header(virtual_target);
+        self.to_primary_stream.unbounded_send(header)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     /// Generates the group header for this set using the pre-allocated slab. Since the group header is always sent through the primary port,
@@ -150,7 +160,7 @@ impl GroupTransmitter {
     }
 
     #[allow(unused_comparisons)]
-    pub fn transmit_next_window_udp(&mut self, udp_sender: &OutboundUdpSender, wave_window: RangeInclusive<u32>, to_primary_stream: &UnboundedSender<Bytes>) -> bool {
+    pub fn transmit_next_window_udp(&mut self, udp_sender: &OutboundUdpSender, wave_window: RangeInclusive<u32>) -> bool {
         let packets_needed = self.group_config.packets_needed;
         let waves_needed = self.group_config.wave_count;
         let group_id = self.group_id;
@@ -159,6 +169,7 @@ impl GroupTransmitter {
         let ref pqc = self.pqc;
         let target_cid = self.target_cid;
         let object_id = self.object_id;
+        let ref to_primary_stream = self.to_primary_stream;
 
         let (last_packets_per_wave, packets_per_wave) = packets_needed.div_mod_floor(&self.group_config.max_packets_per_wave);
 
@@ -202,8 +213,9 @@ impl GroupTransmitter {
         true
     }
 
-    pub fn transmit_tcp(&mut self, to_primary_stream: &UnboundedSender<Bytes>) -> bool {
+    pub fn transmit_tcp(&mut self) -> bool {
         log::info!("[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
+        let ref to_primary_stream = self.to_primary_stream;
         let ref mut transmitter = inner_mut!(self.group_transmitter);
         while let Some(ret) = transmitter.get_next_packet() {
             self.packets_sent += 1;
@@ -217,8 +229,9 @@ impl GroupTransmitter {
     }
 
     #[allow(unused_results)]
-    pub fn transmit_tcp_file_transfer(&self, to_primary_stream: &UnboundedSender<Bytes>) -> bool {
+    pub fn transmit_tcp_file_transfer(&self) -> bool {
         let packets_needed = self.group_config.packets_needed;
+        let ref to_primary_stream = self.to_primary_stream;
         log::info!("[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
         let transmitter = self.group_transmitter.clone();
         let mut to_primary_stream = to_primary_stream.clone();
@@ -272,7 +285,7 @@ pub(crate) mod group {
     use crate::hdp::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
     use crate::hdp::hdp_server::Ticket;
 
-    // TODO: all GROUP packets require a target_cid. If target_cid != 0, then the packet will get proxied
+    // TODO: all GROUP packets require a target_cid. If target_cid != 0, then the packet will get proxied unless sent through direct-p2p
     pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType) -> Bytes {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
@@ -301,7 +314,7 @@ pub(crate) mod group {
             packet.put(fast_msg_payload);
             packet.put(serialized_vt.as_slice());
 
-            log::info!("[FAST] len: {} | {:?}", fast_msg_payload.len(), fast_msg_payload);
+            //log::info!("[FAST] len: {} | {:?}", fast_msg_payload.len(), fast_msg_payload);
         } else {
             packet.put_u8(0);
             processor.group_config.inscribe_into(&mut packet);
@@ -321,7 +334,7 @@ pub(crate) mod group {
     #[allow(unused_results)]
     pub(crate) fn craft_group_header_ack(pqc: &PostQuantumContainer, object_id: u32, group_id: u64, target_cid: u64, ticket: Ticket, drill: &Drill, initial_wave_window: Option<RangeInclusive<u32>>, fast_msg: bool, timestamp: i64) -> Bytes {
         const SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
-        log::info!("Creating header ACK with session_cid of {}", drill.get_cid());
+        //log::info!("Creating header ACK with session_cid of {}", drill.get_cid());
         let fast_msg = if fast_msg { 1 } else { 0 };
 
         let header = HdpHeader {
@@ -695,14 +708,14 @@ pub(crate) mod do_register {
                 /// Since this is sent over TCP, the size of the packet can be up to ~64k bytes
                 ///
                 /// We also use the NID in place of the CID because the CID only exists AFTER registration completes
-    pub(crate) fn craft_stage0<T: AsRef<[u8]>>(algorithm: u8, timestamp: i64, local_nid: u64, alice_public_key: T, potential_cid_alice: u64) -> Bytes {
+    pub(crate) fn craft_stage0<T: AsRef<[u8]>>(algorithm: u8, timestamp: i64, local_nid: u64, alice_public_key: T, potential_cids_alice: &Vec<u64>) -> Bytes {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE0,
             algorithm,
             security_level: 0,
-            context_info: U64::new(0),
-            group: U64::new(potential_cid_alice),
+            context_info: U64::new(potential_cids_alice.len() as u64),
+            group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(local_nid),
             drill_version: U32::new(0),
@@ -712,9 +725,10 @@ pub(crate) mod do_register {
 
         let public_key = alice_public_key.as_ref();
         let pk_len = public_key.len();
-        let mut packet = BytesMut::with_capacity(pk_len + HDP_HEADER_BYTE_LEN);
+        let mut packet = BytesMut::with_capacity(pk_len + HDP_HEADER_BYTE_LEN + potential_cids_alice.len() * 8);
 
         packet.put(header.into_packet());
+        potential_cids_alice.iter().for_each(|val| packet.put_u64(*val));
         packet.put(public_key);
 
         packet.freeze()
@@ -1572,6 +1586,31 @@ pub(crate) mod peer_cmd {
             drill_version: U32::new(drill.get_version()),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(ENDPOINT_ENCRYPTION_OFF)
+        };
+
+        let peer_cmd_serialized = peer_command.serialize_bin();
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + peer_cmd_serialized.len() + AES_GCM_GHASH_OVERHEAD);
+        header.inscribe_into(&mut packet);
+        packet.put(peer_cmd_serialized.as_slice());
+
+        drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
+
+        packet.freeze()
+    }
+
+    pub(crate) fn craft_peer_signal_endpoint<T: SerBin>(pqc: &PostQuantumContainer, drill: &Drill, peer_command: T, ticket: Ticket, timestamp: i64, target_cid: u64) -> Bytes {
+        let header = HdpHeader {
+            cmd_primary: packet_flags::cmd::primary::PEER_CMD,
+            cmd_aux: packet_flags::cmd::aux::peer_cmd::SIGNAL,
+            algorithm: 0,
+            security_level: 0,
+            context_info: U64::new(ticket.0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(drill.get_cid()),
+            drill_version: U32::new(drill.get_version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(target_cid)
         };
 
         let peer_cmd_serialized = peer_command.serialize_bin();

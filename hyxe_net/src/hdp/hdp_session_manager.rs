@@ -4,7 +4,7 @@ use std::net::ToSocketAddrs;
 
 use bytes::{Bytes, BytesMut};
 use futures::channel::mpsc::UnboundedSender;
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, TcpListener};
 
 use hyxe_crypt::prelude::SecurityLevel;
 use hyxe_user::account_manager::AccountManager;
@@ -136,7 +136,7 @@ impl HdpSessionManager {
 
         // We must now create a TcpStream towards the peer
         let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
-        let primary_stream = HdpServer::create_tcp_connect_socket(peer_addr)
+        let (p2p_listener, primary_stream) = HdpServer::create_init_tcp_connect_socket(peer_addr).await
             .map_err(|err| NetworkError::SocketError(err.to_string()))?;
 
         let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), peer_addr, this.time_tracker.clone(), implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(TCP_ONLY)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
@@ -154,15 +154,15 @@ impl HdpSessionManager {
         // NOTE: client must send its TICKET
         //self.insert_provisional_expiration(peer_addr, ticket);
         // Load the session stream into the current handle
-        spawn!(Self::execute_session_with_safe_shutdown(session_manager_clone, new_session,peer_addr.clone(), primary_stream));
+        spawn!(Self::execute_session_with_safe_shutdown(session_manager_clone, new_session,peer_addr.clone(), Some(p2p_listener), primary_stream));
 
         Ok(())
     }
 
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
     /// TODO: Make this code less hacky, and make the removal process cleaner
-    async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, tcp_stream: TcpStream) -> Result<(), NetworkError> {
-        match new_session.execute(tcp_stream).await {
+    async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, p2p_listener: Option<TcpListener>, tcp_stream: TcpStream) -> Result<(), NetworkError> {
+        match new_session.execute(p2p_listener, tcp_stream).await {
             Ok(cid_opt) => {
                 if let Some(cid) = cid_opt {
                     //log::info!("[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
@@ -235,6 +235,10 @@ impl HdpSessionManager {
                     }
                 });
             }
+        } else {
+            // if we are ending a client session, we just need to ensure that the P2P stream go-down
+            log::info!("Ending any active P2P connections");
+            inner_mut!(sess.state_container).end_connections();
         }
 
         Ok(())
@@ -277,7 +281,7 @@ impl HdpSessionManager {
 
         // Note: Must send TICKET on finish
         //self.insert_provisional_expiration(peer_addr, provisional_ticket);
-        spawn!(Self::execute_session_with_safe_shutdown(this_dc, new_session,peer_addr, primary_stream));
+        spawn!(Self::execute_session_with_safe_shutdown(this_dc, new_session,peer_addr, None, primary_stream));
 
         Ok(())
     }
@@ -685,7 +689,7 @@ impl HdpSessionManagerInner {
     /// Clears a session from the SessionManager
     pub fn clear_session(&mut self, cid: u64) {
         if let None = self.sessions.remove(&cid) {
-            //log::error!("Tried removing a session (non-provisional), but did not find it ...");
+            log::warn!("Tried removing a session (non-provisional), but did not find it ...");
         }
     }
 

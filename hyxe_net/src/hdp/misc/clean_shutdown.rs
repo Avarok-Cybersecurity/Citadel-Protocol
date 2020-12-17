@@ -16,23 +16,23 @@ pub struct CleanFramedShutdown<S, U, I> {
     inner: Arc<Mutex<CleanFramedShutdownInner<S, U, I>>>
 }
 
-pub struct CleanTcpShutdownSink<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> {
+pub struct CleanShutdownSink<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> {
     ptr: CleanFramedShutdown<S, U, I>,
     inner: Option<SplitSink<Framed<S, U>, I>>
 }
 
-pub struct CleanTcpShutdownStream<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> {
+pub struct CleanShutdownStream<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> {
     ptr: CleanFramedShutdown<S, U, I>,
     inner: Option<SplitStream<Framed<S, U>>>
 }
 
-impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> CleanTcpShutdownSink<S, U, I> {
+impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> CleanShutdownSink<S, U, I> {
     pub fn new(inner: SplitSink<Framed<S, U>, I>, ptr: CleanFramedShutdown<S, U, I>) -> Self {
         Self { inner: Some(inner), ptr }
     }
 }
 
-impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> Drop for CleanTcpShutdownSink<S, U, I> {
+impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> Drop for CleanShutdownSink<S, U, I> {
     #[allow(unused_results)]
     fn drop(&mut self) {
         let inner = self.inner.take().unwrap();
@@ -41,13 +41,13 @@ impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std:
     }
 }
 
-impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> CleanTcpShutdownStream<S, U, I> {
+impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> CleanShutdownStream<S, U, I> {
     pub fn new(inner: SplitStream<Framed<S, U>>, ptr: CleanFramedShutdown<S, U, I>) -> Self {
         Self { inner: Some(inner), ptr }
     }
 }
 
-impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> Drop for CleanTcpShutdownStream<S, U, I> {
+impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> Drop for CleanShutdownStream<S, U, I> {
     #[allow(unused_results)]
     fn drop(&mut self) {
         let inner = self.inner.take().unwrap();
@@ -56,7 +56,7 @@ impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std:
     }
 }
 
-impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> Deref for CleanTcpShutdownSink<S, U, I> {
+impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> Deref for CleanShutdownSink<S, U, I> {
     type Target = SplitSink<Framed<S, U>, I>;
 
     fn deref(&self) -> &Self::Target {
@@ -64,13 +64,13 @@ impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std:
     }
 }
 
-impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> DerefMut for CleanTcpShutdownSink<S, U, I> {
+impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> DerefMut for CleanShutdownSink<S, U, I> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.inner.as_mut().unwrap()
     }
 }
 
-impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> Deref for CleanTcpShutdownStream<S, U, I> {
+impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> Deref for CleanShutdownStream<S, U, I> {
     type Target = SplitStream<Framed<S, U>>;
 
     fn deref(&self) -> &Self::Target {
@@ -78,7 +78,7 @@ impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std:
     }
 }
 
-impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> DerefMut for CleanTcpShutdownStream<S, U, I> {
+impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std::io::Error>> + Decoder + 'static, I: 'static> DerefMut for CleanShutdownStream<S, U, I> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.inner.as_mut().unwrap()
     }
@@ -90,11 +90,11 @@ impl<S: AsyncWrite + AsyncRead + Unpin + 'static, U: Encoder<I, Error: From<std:
         CleanFramedShutdown { inner: Arc::new(Mutex::new(inner)) }
     }
 
-    pub fn wrap(framed: Framed<S, U>) -> (CleanTcpShutdownSink<S, U, I>, CleanTcpShutdownStream<S, U, I>) {
+    pub fn wrap(framed: Framed<S, U>) -> (CleanShutdownSink<S, U, I>, CleanShutdownStream<S, U, I>) {
         let ptr = Self::new();
         let (sink, stream) = framed.split();
-        let sink = CleanTcpShutdownSink::new(sink, ptr.clone());
-        let stream = CleanTcpShutdownStream::new(stream, ptr);
+        let sink = CleanShutdownSink::new(sink, ptr.clone());
+        let stream = CleanShutdownStream::new(stream, ptr);
         (sink, stream)
     }
 

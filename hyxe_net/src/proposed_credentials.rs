@@ -63,10 +63,12 @@ impl ProposedCredentials {
         let password = password.trim();
         let full_name = full_name.trim();
 
+        log::info!("\n\rPassword Raw({}): {:?}", password.len(), password);
+
         let nonce = get_nonce(nonce);
         let password_hash = SecVec::new(argon2::hash_raw(password, &nonce as &[u8], &get_argon2id_config(num_cpus::get() as u32)).unwrap());
 
-        //log::info!("\n\rHashed passwd({}): {:?}", password_hash.unsecure().len(), password_hash.unsecure());
+        log::info!("\n\rHashed passwd({}): {:?}", password_hash.unsecure().len(), password_hash.unsecure());
         (username.to_string(), full_name.to_string(), password_hash, nonce)
     }
 

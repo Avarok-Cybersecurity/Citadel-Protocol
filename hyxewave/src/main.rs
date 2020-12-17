@@ -5,7 +5,7 @@ use hyxewave::{shutdown_sequence, setup_shutdown_hook, setup_log};
 use hyxewave::console::virtual_terminal::INPUT_ROUTER;
 
 fn main() -> Result<(), ConsoleError> {
-    //verify_permissions();
+    verify_permissions();
     setup_log();
     setup_shutdown_hook();
 
@@ -14,11 +14,17 @@ fn main() -> Result<(), ConsoleError> {
             print_welcome();
             INPUT_ROUTER.init(cfg.daemon_mode)?;
             log::info!("Obtained information from console. Now beginning instantiation of HdpServer ...");
-            execute(cfg).map_err(|err| ConsoleError::Generic(err.to_string()))
-                .and_then(|_| {
+            match execute(cfg).map_err(|err| ConsoleError::Generic(err.to_string())) {
+                Ok(_) => {
                     shutdown_sequence(0);
                     Ok(())
-                })
+                }
+
+                Err(err) => {
+                    INPUT_ROUTER.deinit()?;
+                    Err(err)
+                }
+            }
         },
 
         Err(err) => {
@@ -34,7 +40,7 @@ fn print_welcome() {
     print!("\x1B[2J\x1B[1;1H");
 }
 
-/*
+
 #[cfg(not(target_os = "windows"))]
 fn verify_permissions() {
     if !nix::unistd::Uid::effective().is_root() {
@@ -45,4 +51,3 @@ fn verify_permissions() {
 
 #[cfg(target_os = "windows")]
 fn verify_permissions() {}
- */

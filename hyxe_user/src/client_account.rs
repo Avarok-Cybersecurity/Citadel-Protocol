@@ -40,7 +40,7 @@ pub const MIN_PASSWORD_SIZE: usize = 7;
 pub const HYPERLAN_IDX: u64 = 0;
 
 /// This is to replace a tuple for greater organization
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MutualPeer {
     /// The interserver cid to which `cid` belongs to
     pub parent_icid: u64,
@@ -117,13 +117,17 @@ pub struct ClientNetworkAccountInner {
 /// 
 /// SAFETY: The `cid`, `adjacent_nid`, and `is_personal` is private. These values
 /// should NEVER be edited within this source file
+#[derive(Clone)]
 pub struct ClientNetworkAccount {
     /// The inner thread-safe device
-    inner: Arc<ShardedLock<ClientNetworkAccountInner>>,
+    inner: Arc<MetaInner>
+}
+
+struct MetaInner {
     cid: u64,
     adjacent_nid: u64,
-    /// Relative to THIS node only
     is_personal: bool,
+    inner: ShardedLock<ClientNetworkAccountInner>
 }
 
 unsafe impl Send for ClientNetworkAccount {}
@@ -189,7 +193,7 @@ impl ClientNetworkAccount {
 
     /// Returns true if the NAC is a personal type
     pub fn is_personal(&self) -> bool {
-        self.is_personal
+        self.inner.is_personal
     }
     
     pub(crate) fn generate_local_save_path(valid_cid: u64, is_personal: bool) -> PathBuf {
@@ -290,37 +294,11 @@ impl ClientNetworkAccount {
 
         // the password_in_ram is the raw original hashed password computed by the client sent to here (server-side)
         let pass_hashed_internal = read.password_in_ram.as_ref().unwrap().unsecure();
-        //log::info!("\n\rINTERNAL({}): {:?}", pass_hashed_internal.len(), pass_hashed_internal);
-        //log::info!("\n\rExternal({}): {:?}", password_hashed.unsecure().len(), password_hashed.unsecure());
+        log::info!("\n\rINTERNAL({}): {:?}", pass_hashed_internal.len(), pass_hashed_internal);
+        log::info!("\n\rExternal({}): {:?}", password_hashed.unsecure().len(), password_hashed.unsecure());
         // the client computes the hash of its proposed password and sends it
         if pass_hashed_internal != password_hashed.unsecure() {
             log::warn!("Invalid password ...");
-            Err(AccountError::InvalidPassword)
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Checks the credentials for validity. Used for the login process.
-    pub unsafe fn validate_credentials_blocking<T: AsRef<[u8]>>(&self, username: T, password: SecVec<u8>) -> Result<(), AccountError<String>> {
-        let read = self.read();
-
-        if read.password_in_ram.is_none() {
-            debug_assert!(self.is_personal);
-            return Err(AccountError::Generic("Account does not have password loaded; account is personal".to_string()))
-        }
-
-        if username.as_ref() != read.username.as_bytes() {
-            return Err(AccountError::InvalidUsername);
-        }
-
-        let pass = password.unsecure();
-        let pass_real = read.password_in_ram.as_ref().unwrap().unsecure();
-        //log::info!("Will compare ...");
-        //log::info!("Password recv: {:?}\nPass internal: {:?}\n", pass, pass_real);
-
-        if pass != pass_real {
-            log::info!("Invalid password ...");
             Err(AccountError::InvalidPassword)
         } else {
             Ok(())
@@ -394,7 +372,7 @@ impl ClientNetworkAccount {
     /// The latest_drill must be the CURRENT latest drill. The returned Drill will be one version newer, but is not added
     /// to the toolset
     pub fn generate_new_dou(&self, latest_drill: &Drill) -> Result<(DrillUpdateObject, Drill), CryptError<String>> {
-        let cid = self.cid;
+        let cid = self.inner.cid;
         let next_drill_version = latest_drill.get_version().wrapping_add(1);
         DrillUpdateObject::generate(cid, next_drill_version, latest_drill).and_then(|update| {
             update.compute_next_recursion(latest_drill, true).ok_or_else(|| CryptError::DrillUpdateError("Unable to compute next recursion".to_string()))
@@ -478,12 +456,12 @@ impl ClientNetworkAccount {
 
     /// Reads futures-style
     pub fn read(&self) -> ShardedLockReadGuard<ClientNetworkAccountInner> {
-        self.inner.read().unwrap()
+        self.inner.inner.read().unwrap()
     }
 
     /// Reads futures-style
     pub fn write(&self) -> ShardedLockWriteGuard<ClientNetworkAccountInner> {
-        self.inner.write().unwrap()
+        self.inner.inner.write().unwrap()
     }
 
     /*
@@ -538,8 +516,8 @@ impl ClientNetworkAccount {
     /// the local filesystem on the Threadpool
     #[allow(unused_results)]
     pub fn register_hyperlan_p2p_as_server(&self, other_orig: &ClientNetworkAccount) {
-        let this_cid = self.cid;
-        let other_cid = other_orig.cid;
+        let this_cid = self.inner.cid;
+        let other_cid = other_orig.inner.cid;
 
         let mut this = self.write();
         let mut other = other_orig.write();
@@ -791,25 +769,14 @@ impl ClientNetworkAccount {
 
     /// This will panic if the adjacent NAC is not loaded
     pub fn get_adjacent_nid(&self) -> u64 {
-        self.adjacent_nid
-    }
-}
-
-impl Clone for ClientNetworkAccount {
-    fn clone(&self) -> Self {
-        let adjacent_nid = self.adjacent_nid;
-        Self { adjacent_nid, cid: self.cid, is_personal: self.is_personal, inner: self.inner.clone() }
+        self.inner.adjacent_nid
     }
 }
 
 #[async_trait]
 impl HyperNodeAccountInformation for ClientNetworkAccount {
     fn get_id(&self) -> u64 {
-        self.cid
-    }
-
-    async fn get_filesystem_location(&self) -> PathBuf {
-        self.read().local_save_path.clone()
+        self.inner.cid
     }
 
     // TODO: Make the syncing process cleaner. This is "blocking", but not really because a small amount of data is written to the disk
@@ -820,20 +787,32 @@ impl HyperNodeAccountInformation for ClientNetworkAccount {
 
 impl std::fmt::Debug for ClientNetworkAccount {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "CNAC | CID: {}, Adjacent NID: {}", self.cid, self.adjacent_nid)
+        writeln!(f, "CNAC | CID: {}, Adjacent NID: {}", self.inner.cid, self.inner.adjacent_nid)
     }
 }
 
 impl std::fmt::Display for ClientNetworkAccount {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let inner = self.read();
-        writeln!(f, "{}\t\t{}\t\t{}\t\t{}", self.cid, &inner.username, &inner.full_name, self.is_personal)
+        writeln!(f, "{}\t\t{}\t\t{}\t\t{}", self.inner.cid, &inner.username, &inner.full_name, self.inner.is_personal)
+    }
+}
+
+impl From<ClientNetworkAccountInner> for MetaInner {
+    fn from(inner: ClientNetworkAccountInner) -> Self {
+        let adjacent_nid = inner.adjacent_nac.as_ref().unwrap().get_id();
+        Self { cid: inner.cid, adjacent_nid, is_personal: inner.is_local_personal, inner: ShardedLock::new(inner) }
+    }
+}
+
+impl From<MetaInner> for ClientNetworkAccount {
+    fn from(inner: MetaInner) -> Self {
+        Self { inner: Arc::new(inner) }
     }
 }
 
 impl From<ClientNetworkAccountInner> for ClientNetworkAccount {
     fn from(inner: ClientNetworkAccountInner) -> Self {
-        let adjacent_nid = inner.adjacent_nac.as_ref().unwrap().get_id();
-        Self { adjacent_nid, cid: inner.cid, is_personal: inner.is_local_personal, inner: Arc::new(ShardedLock::new(inner)) }
+        ClientNetworkAccount::from(MetaInner::from(inner))
     }
 }

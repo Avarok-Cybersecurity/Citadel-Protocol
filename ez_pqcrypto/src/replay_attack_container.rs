@@ -1,15 +1,16 @@
+#[cfg(not(feature = "unordered"))]
 pub mod ordered {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     /// Uses compare-and-swap operations to determine that an in-order packet is valid
     ///
     /// Use this when anticipating the use of TCP
-    pub struct AntiReplayAttackContainerOrdered {
+    pub struct AntiReplayAttackContainer {
         in_counter: AtomicU64,
         out_counter: AtomicU64
     }
 
-    impl AntiReplayAttackContainerOrdered {
+    impl AntiReplayAttackContainer {
         #[inline]
         pub fn get_next_pid(&self) -> u64 {
             self.out_counter.fetch_add(1, Ordering::SeqCst)
@@ -22,7 +23,7 @@ pub mod ordered {
         }
     }
 
-    impl Default for AntiReplayAttackContainerOrdered {
+    impl Default for AntiReplayAttackContainer {
         fn default() -> Self {
             Self { in_counter: AtomicU64::new(0), out_counter: AtomicU64::new(0) }
         }
@@ -35,7 +36,6 @@ pub mod unordered {
     use parking_lot::Mutex;
     use circular_queue::CircularQueue;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use crate::ez_error::EzError;
 
     /// The past 100 packets arrived will be saved to allow out-of-order delivery of packets
     pub const HISTORY_LEN: u64 = 50;
@@ -48,14 +48,14 @@ pub mod unordered {
     /// be kept tracked of within a small range (maybe 100)
     ///
     /// This should be session-unique. There's no point to saving this, especially since re-keying occurs in the networking stack
-    pub struct AntiReplayAttackContainerUnordered {
+    pub struct AntiReplayAttackContainer {
         // the first value is the number of packets received
         history: Mutex<(u64, CircularQueue<u64>)>,
         // used for getting the next unique outbound PID. Each node has a unique counter
         counter_out: AtomicU64
     }
 
-    impl AntiReplayAttackContainerUnordered {
+    impl AntiReplayAttackContainer {
         #[inline]
         pub fn get_next_pid(&self) -> u64 {
             self.counter_out.fetch_add(1, Ordering::SeqCst)
@@ -64,10 +64,10 @@ pub mod unordered {
         /// If the value already exists, this will return an error. If not, this will save
         /// the PID in the internal circular buffer
         #[allow(unused_results)]
-        pub fn try_register(&self, pid_received: u64) -> Result<(), EzError> {
+        pub fn on_pid_received(&self, pid_received: u64) -> bool {
             let mut queue = self.history.lock();
             if let Some(_) = queue.1.iter().find(|already_arrived| **already_arrived == pid_received) {
-                Err(EzError::Generic("Packet already arrived"))
+                false
             } else {
                 // this means the PID is not in the history. HOWEVER, it may still be possible that the packet
                 // was withheld long enough for the history to be cleared, thus enabling a delayed replay attack.
@@ -76,18 +76,18 @@ pub mod unordered {
                 let min = queue.0.saturating_sub(HISTORY_LEN);
                 let max = queue.0 + HISTORY_LEN;
 
-                if pid_received > min && pid_received < max {
+                if pid_received >= min && pid_received < max {
                     queue.0 += 1;
                     queue.1.push(pid_received);
-                    Ok(())
+                    true
                 } else {
-                    Err(EzError::Generic("Packet already arrived"))
+                    false
                 }
             }
         }
     }
 
-    impl Default for AntiReplayAttackContainerUnordered {
+    impl Default for AntiReplayAttackContainer {
         fn default() -> Self {
             Self { history: Mutex::new((0, CircularQueue::with_capacity(HISTORY_LEN as usize))), counter_out: AtomicU64::new(0) }
         }

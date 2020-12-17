@@ -10,8 +10,6 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
         if session.state != SessionState::SocketJustOpened {
             log::error!("Register packet received, but the system's state is not NeedsRegister. Dropping packet");
             return PrimaryProcessorResult::Void;
-        } else {
-            log::info!("Socket just opened, but will attempt registration reguardless ...");
         }
     }
 
@@ -20,29 +18,22 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
     match header.cmd_aux {
         packet_flags::cmd::aux::do_register::STAGE0 => {
             log::info!("STAGE 0 REGISTER PACKET");
+            let mut state_container = inner_mut!(session.state_container);
             // This node is Bob (receives a stage 0 packet from Alice). The payload should have Alice's public key
-            if inner!(session.state_container).register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE0 {
+            if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE0 {
                 let algorithm = header.algorithm;
-                match PostQuantumContainer::new_bob(algorithm, payload) {
-                    Ok(container_bob) => {
+                match validation::do_register::validate_stage0(header, payload) {
+                    Some((container_bob, possible_cids)) => {
                         let ciphertext = container_bob.get_ciphertext()?;
-                        debug_assert!(inner!(session.state_container).register_state.proposed_credentials.is_none());
 
                         // Now, create a stage 1 packet
                         let timestamp = session.time_tracker.get_global_time_ns();
                         let local_nid = session.account_manager.get_local_nid();
-                        let potential_cid_alice = header.group.get();
-                        let potential_cid_bob = session.account_manager.get_local_nac().reserve_cid();
 
-                        let reserved_true_cid = if potential_cid_alice >= potential_cid_bob {
-                            potential_cid_alice
-                        } else {
-                            potential_cid_bob
-                        };
-
+                        let reserved_true_cid = session.account_manager.get_local_nac().find_first_valid_cid(&possible_cids)?;
 
                         let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, local_nid, ciphertext, reserved_true_cid);
-                        let mut state_container = inner_mut!(session.state_container);
+                        //let mut state_container = inner_mut!(session.state_container);
                         state_container.register_state.proposed_cid = Some(reserved_true_cid);
                         state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE1;
                         state_container.register_state.on_register_packet_received();
@@ -54,13 +45,14 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
                         PrimaryProcessorResult::ReplyToSender(stage1_packet)
                     }
 
-                    Err(err) => {
-                        log::error!("Unable to create bob container (ERR: {}). Resetting register state ...", err.to_string());
-                        session.state = SessionState::NeedsRegister;
+                    _ => {
+                        log::error!("Unable to validate & create PQC");
                         let timestamp = session.time_tracker.get_global_time_ns();
-                        let mut state_container = inner_mut!(session.state_container);
                         state_container.register_state.on_fail(timestamp);
                         state_container.register_state.on_register_packet_received();
+                        std::mem::drop(state_container);
+
+                        session.state = SessionState::NeedsRegister;
 
                         PrimaryProcessorResult::Void
                     }
@@ -85,10 +77,6 @@ pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, 
                     let ciphertext = payload;
                     match post_quantum.alice_on_receive_ciphertext(ciphertext) {
                         Ok(_) => {
-                            // At this point, the shared secrets are synchronized! Now, transmit the NONCE
-                            //let mut nonce: [u8; AES_GCM_NONCE_LEN_BYTES] = [0u8; AES_GCM_NONCE_LEN_BYTES];
-                            //ThreadRng::default().fill_bytes(&mut nonce);
-                            //log::info!("Generated NONCE: {:?}", &nonce);
 
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let local_nid = session.account_manager.get_local_nid();

@@ -18,6 +18,7 @@ pub mod macros {
     use crate::hdp::hdp_session::HdpSessionInner;
 
     pub type SessionBorrow<'a> = std::cell::RefMut<'a, HdpSessionInner>;
+    pub type WeakBorrow<T> = std::rc::Weak<std::cell::RefCell<T>>;
 
     macro_rules! inner {
     ($item:expr) => {
@@ -37,6 +38,28 @@ pub mod macros {
         #[derive(Clone)]
         pub struct $struct_name {
             pub inner: std::rc::Rc<std::cell::RefCell<$inner>>
+        }
+
+        impl $struct_name {
+            #[allow(dead_code)]
+            pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
+                std::rc::Rc::downgrade(&self.inner)
+            }
+
+            #[allow(dead_code)]
+            pub fn upgrade_weak(this: &crate::macros::WeakBorrow<$inner>) -> Option<$struct_name> {
+                this.upgrade().map(|inner| Self { inner })
+            }
+
+            #[allow(dead_code)]
+            pub fn strong_count(&self) -> usize {
+                std::rc::Rc::strong_count(&self.inner)
+            }
+
+            #[allow(dead_code)]
+            pub fn weak_count(&self) -> usize {
+                std::rc::Rc::weak_count(&self.inner)
+            }
         }
 
         impl From<$inner> for $struct_name {
@@ -94,6 +117,7 @@ pub mod macros {
     use crate::hdp::hdp_session::HdpSessionInner;
 
     pub type SessionBorrow<'a> = parking_lot::RwLockWriteGuard<'a, HdpSessionInner>;
+    pub type WeakBorrow<T> = std::sync::Weak<parking_lot::RwLock<T>>;
 
     macro_rules! inner {
     ($item:expr) => {
@@ -109,6 +133,7 @@ pub mod macros {
 
     macro_rules! define_outer_struct_wrapper {
     ($struct_name:ident, $inner:ty) => {
+
         #[derive(Clone)]
         pub struct $struct_name {
             pub inner: std::sync::Arc<parking_lot::RwLock<$inner>>
@@ -116,6 +141,28 @@ pub mod macros {
 
         unsafe impl Send for $struct_name {}
         unsafe impl Sync for $struct_name {}
+
+        impl $struct_name {
+            #[allow(dead_code)]
+            pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
+                std::sync::Arc::downgrade(&self.inner)
+            }
+
+            #[allow(dead_code)]
+            pub fn upgrade_weak(this: &crate::macros::WeakBorrow<$inner>) -> Option<$struct_name> {
+                this.upgrade().map(|inner| Self { inner })
+            }
+
+            #[allow(dead_code)]
+            pub fn strong_count(&self) -> usize {
+                std::sync::Arc::strong_count(&self.inner)
+            }
+
+                        #[allow(dead_code)]
+            pub fn weak_count(&self) -> usize {
+                std::sync::Arc::weak_count(&self.inner)
+            }
+        }
 
         impl From<$inner> for $struct_name {
             fn from(inner: $inner) -> Self {

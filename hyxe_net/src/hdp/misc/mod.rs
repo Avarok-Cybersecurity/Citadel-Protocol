@@ -5,6 +5,7 @@ use futures::Future;
 use futures::task::{Context, Poll};
 
 pub mod clean_shutdown;
+pub mod net;
 
 /// For denoting to the compiler that running the future is thread-safe
 pub struct ThreadSafeFuture<'a, Out: 'a>(Arc<Mutex<Pin<Box<dyn Future<Output=Out> + 'a>>>>);
