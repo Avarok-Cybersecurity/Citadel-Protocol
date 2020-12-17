@@ -1,4 +1,4 @@
-pub const BUILD_VERSION: usize = 1012;
+pub const BUILD_VERSION: usize = 1191;
 /// Signal for closing the stream_wrapper
 pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper
@@ -38,7 +38,7 @@ pub const INITIAL_RECONNECT_LOCKOUT_TIME_NS: i64 = NANOSECONDS_PER_SECOND;
 ///
 pub const KEEP_ALIVE_INTERVAL_MS: u64 = 15000;
 /// The keep alive max interval
-pub const KEEP_ALIVE_TIMEOUT_NS: i64 = (KEEP_ALIVE_INTERVAL_MS * 2 * 1_000_000) as i64;
+pub const KEEP_ALIVE_TIMEOUT_NS: i64 = (KEEP_ALIVE_INTERVAL_MS * 3 * 1_000_000) as i64;
 // 1ms = 1 million ns
 /// Timeout for the drill update subroutine
 pub const DRILL_UPDATE_TIMEOUT_NS: i64 = KEEP_ALIVE_TIMEOUT_NS;
@@ -96,3 +96,5 @@ pub const TIMED_TICKET_LIFETIME: std::time::Duration = std::time::Duration::from
 pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from_secs(8);
 /// Every 30 minutes, resync the clocks. This was to fix bugs related to long-lasting connections and reconnections
 pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_secs(60*30);
+///
+pub const TCP_CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);

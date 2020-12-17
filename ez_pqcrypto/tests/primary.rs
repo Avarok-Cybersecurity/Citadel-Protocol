@@ -4,7 +4,7 @@ mod tests {
     use rand::prelude::ThreadRng;
     use rand::RngCore;
 
-    use ez_pqcrypto::{algorithm_dictionary, PostQuantumContainer, NONCE_LENGTH_BYTES};
+    use ez_pqcrypto::{algorithm_dictionary, PostQuantumContainer, NONCE_LENGTH_BYTES, AntiReplayAttackContainer};
 
     /*
         #[test]
@@ -110,6 +110,7 @@ mod tests {
     }
 
     #[test]
+    // this will work in ordered mode, but panic in unordered
     fn in_place_out_of_order() {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;
@@ -138,7 +139,7 @@ mod tests {
 
             // to simulate out-of order delivery, protect a new packet in place and validate that one
             println!("[ {} ] {:?}", buf2.len(), &buf2[..]);
-            let mut header2 = buf2.split_to(HEADER_LEN);
+            let header2 = buf2.split_to(HEADER_LEN);
             assert!(bob_container.validate_packet_in_place(&header2, &mut buf2, &nonce).is_err());
             // now do them in order
 
@@ -157,6 +158,64 @@ mod tests {
 
             println!("[ {} ] {:?}", buf.len(), &buf[..]);
         }
+    }
+
+    #[test]
+    // this will work in ordered mode, but panic in unordered
+    fn in_place_out_of_order_for_unordered_mode() {
+        const HEADER_LEN: usize = 50;
+        const TOTAL_LEN: usize = HEADER_LEN + 150;
+
+        let algorithm = algorithm_dictionary::FIRESABER;
+        println!("Test algorithm {}", algorithm);
+        let mut alice_container = PostQuantumContainer::new_alice(Some(algorithm));
+        let bob_container = PostQuantumContainer::new_bob(algorithm, alice_container.get_public_key()).unwrap();
+        alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
+        let mut zeroth = BytesMut::default();
+        let mut zeroth_nonce = Default::default();
+        for y in 0..100 {
+            let mut buf = BytesMut::with_capacity(TOTAL_LEN);
+            for x in 0..TOTAL_LEN {
+                buf.put_u8(x as u8);
+            }
+
+            let mut buf2 = buf.clone();
+
+            println!("[ {} ] {:?}", buf.len(), &buf[..]);
+            let nonce: [u8; NONCE_LENGTH_BYTES] = Default::default();
+            alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
+            alice_container.protect_packet_in_place(HEADER_LEN, &mut buf2, &nonce).unwrap();
+
+            // pretend someone grabs the header + ciphertext
+            let mut intercepted_packet = buf.clone();
+            if y == 0 {
+                zeroth = intercepted_packet.clone();
+                zeroth_nonce = nonce;
+            }
+
+            // to simulate out-of order delivery, protect a new packet in place and validate that one
+            println!("[ {} ] {:?}", buf2.len(), &buf2[..]);
+            let header2 = buf2.split_to(HEADER_LEN);
+            assert!(bob_container.validate_packet_in_place(&header2, &mut buf2, &nonce).is_ok());
+            // now do them in order
+
+            let mut header = buf.split_to(HEADER_LEN);
+            bob_container.validate_packet_in_place(&header, &mut buf, &nonce).unwrap();
+            // since we are using in-place decryption, the first attempt will corrupt the payload, thus invalidating the packet's
+            // decryption operation, even though it may correct. As such, this proves it is NECESSARY that packets
+            // arrive IN-ORDER!!
+            assert!(bob_container.validate_packet_in_place(&header2, &mut buf2, &nonce).is_err());
+            // now, let's see what happens when we try validating the intercepted packet (replay attack)
+            let intercepted_header = intercepted_packet.split_to(HEADER_LEN);
+            assert!(bob_container.validate_packet_in_place(&intercepted_header, &mut intercepted_packet, &nonce).is_err());
+            // Therefore: packets MUST be in order, and repeat attempts will invalidate the decryption attempt, as desired
+            header.unsplit(buf);
+            let buf = header;
+
+            println!("[ {} ] {:?}", buf.len(), &buf[..]);
+        }
+        let header = zeroth.split_to(HEADER_LEN);
+        assert!(bob_container.validate_packet_in_place(header, &mut zeroth, zeroth_nonce).is_err());
     }
 
     /*

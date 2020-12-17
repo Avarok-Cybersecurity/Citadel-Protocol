@@ -143,13 +143,12 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                         Some(initial_wave_window)
                                     };
 
-                                    let to_primary_stream = session.to_primary_stream.as_ref()?;
                                     // A weird exception for obj_id location .. usually in context info, but in wave if for this unique case
                                     let peer_cid = header.session_cid.get();
                                     //let mut state_container = session.state_container.borrow_mut();
                                     let object_id = header.wave_id.get();
                                     let group_id = header.group.get();
-                                    if !state_container.on_group_header_ack_received(object_id, peer_cid, group_id, initial_wave_window, to_primary_stream) {
+                                    if !state_container.on_group_header_ack_received(object_id, peer_cid, group_id, initial_wave_window) {
                                         if tcp_only {
                                             PrimaryProcessorResult::EndSession("TCP sockets disconnected")
                                         } else {
@@ -252,9 +251,8 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                     log::info!("WAVE_ACK implies window completion!");
                                 }
 
-                                let to_primary_stream = session.to_primary_stream.as_ref()?;
                                 // the window is done. Since this node is the transmitter, we then make a call to begin sending the next wave
-                                if !state_container.on_wave_ack_received(drill.get_cid(), &header, tcp_only, next_window_opt, to_primary_stream) {
+                                if !state_container.on_wave_ack_received(drill.get_cid(), &header, tcp_only, next_window_opt) {
                                     if tcp_only {
                                         log::error!("There was an error sending the TCP window; Cancelling connection");
                                     } else {
@@ -321,6 +319,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
     }
 }
 
+#[inline]
 pub(super) fn get_proper_pqc_and_drill<K: ExpectedInnerTargetMut<StateContainerInner>>(header_drill_vers: u32, sess_cnac: &ClientNetworkAccount, sess_pqc: &Arc<PostQuantumContainer>, state_container: &InnerParameterMut<K, StateContainerInner>, proxy_cid_info: Option<(u64, u64)>) -> Option<(Arc<PostQuantumContainer>, Drill)> {
     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
         // since this conn was proxied, we need to go into the virtual conn layer to get the peer session crypto. HOWEVER:
@@ -328,14 +327,9 @@ pub(super) fn get_proper_pqc_and_drill<K: ExpectedInnerTargetMut<StateContainerI
         // inside the target_cid (that way the packet routes correctly to this node). However, this is problematic here
         // since we use the original implica
         if let Some(vconn) = state_container.active_virtual_connections.get(&original_implicated_cid) {
-            if let Some(endpoint_container) = vconn.endpoint_container.as_ref() {
-                let drill = endpoint_container.endpoint_crypto.get_drill(Some(header_drill_vers))?.clone();
-                let pqc = endpoint_container.endpoint_crypto.pqc.clone();
-                Some((pqc, drill))
-            } else {
-                log::error!("Unable to find endpoint container for vconn {}", &vconn.connection_type);
-                return None;
-            }
+            vconn.get_endpoint_pqc_and_drill(|drill, pqc| {
+                (pqc.clone(), drill.clone())
+            })
         } else {
             log::error!("Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
             return None;

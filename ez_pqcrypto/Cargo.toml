@@ -21,12 +21,16 @@ aes = ["aes-gcm-siv"]
 chacha20 = ["chacha20poly1305"]
 
 [dependencies]
-pqcrypto = { path = "./pqcrypto/pqcrypto" }
-#oqs = {version = "0.3.0", default-features=false}
+pqcrypto-traits = "0.3.3"
+pqcrypto-saber = "0.1.5"
+#oqs = { path = "../../tmp2/liboqs-rust/oqs", version = "0.3.0", default-features=false}
+#pqcrypto = { path = "./pqcrypto/pqcrypto" }
 nanoserde = "0.1.16"
-rand = "0.7.3"
 aes-gcm-siv = { version = "0.5.0", features = ["heapless"], optional = true }
 chacha20poly1305 = { version = "*", features = ["heapless", "xchacha20poly1305"], optional = true }
 bytes = "0.5.6"
 circular-queue = { version = "*", optional = true }
 parking_lot = { version = "0.11.0", optional = true }
+
+[dev-dependencies]
+rand = "0.7.3"

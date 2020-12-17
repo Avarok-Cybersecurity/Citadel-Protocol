@@ -22,7 +22,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
             if this_implicated_cid != target_cid {
                 // since the implicated_cid is not equal to the target_cid, it means we need to proxy to the target
                 let _source_implicated_cid = header.session_cid.get();
-                log::info!("Proxying packet from {} to {}", this_implicated_cid, target_cid);
+                log::info!("Proxying {}:{} packet from {} to {}", header.cmd_primary, header.cmd_aux, this_implicated_cid, target_cid);
                 // Proxy will only occur if there exists a virtual connection, in which case, we get the TcpSender (since these are primary packets)
                 let sess = inner!(session);
                 let state_container = inner!(sess.state_container);
@@ -45,6 +45,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
     }
 
     let cmd_aux = header.cmd_aux;
+    let header_drill_vers = header.drill_version.get();
 
     match header.cmd_primary {
         packet_flags::cmd::primary::DO_REGISTER => {
@@ -80,7 +81,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
         }
 
         packet_flags::cmd::primary::PEER_CMD => {
-            super::peer_cmd_packet::process(session, cmd_aux, packet)
+            super::peer_cmd_packet::process(session, cmd_aux, packet, header_drill_vers, proxy_cid_info)
         }
 
         packet_flags::cmd::primary::FILE => {

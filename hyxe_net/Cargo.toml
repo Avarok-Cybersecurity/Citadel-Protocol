@@ -15,6 +15,7 @@ multi-threaded = []
 [dependencies]
 #futures = { version = "0.3.1", features = ["compat", "async-await"] }
 futures = "0.3.5"
+#rav1e = {version = "0.4.0-alpha", default-features=false, features = ["binaries", "signal_support"]}
 bstr = "0.2.13"
 log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_info"] }
 #async-std = { version = "1.6.2", features = ["unstable"] }
@@ -32,7 +33,6 @@ nanoserde = "0.1.18"
 rand = "0.7.3"
 atomic = "0.5.0"
 secstr = "0.4.0"
-env_logger = "0.7.1"
 net2 = "0.2.34"
 num = "0.2.1"
 #rsntp = "0.3.1"

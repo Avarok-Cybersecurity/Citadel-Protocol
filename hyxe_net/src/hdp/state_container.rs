@@ -38,6 +38,8 @@ use crate::hdp::file_transfer::{VirtualFileMetadata, FileTransferStatus};
 use tokio::io::{BufWriter, AsyncWriteExt};
 use tokio::stream::StreamExt;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
+use crate::functional::IfEqConditional;
 
 define_outer_struct_wrapper!(StateContainer, StateContainerInner);
 
@@ -63,6 +65,7 @@ pub struct StateContainerInner {
     pub(super) udp_sender: Option<OutboundUdpSender>,
     pub(super) kernel_tx: UnboundedSender<HdpServerResult>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection>,
+    pub(super) provisional_direct_p2p_conns: HashMap<SocketAddr, DirectP2PRemote>,
     pub(super) cnac: Option<ClientNetworkAccount>,
     // when data transmits from the hLAN client to the hLAN server, the server SHOULD keep track
     // of the maximum value, even though the client does this already. HOWEVER, when the server needs
@@ -132,8 +135,20 @@ pub(crate) struct VirtualConnection {
     pub(crate) endpoint_container: Option<EndpointChannelContainer>
 }
 
+impl VirtualConnection {
+    pub fn get_endpoint_pqc_and_drill<T>(&self, fx: impl Fn(&Drill, &Arc<PostQuantumContainer>) -> T) -> Option<T> {
+        let endpoint_container = self.endpoint_container.as_ref()?;
+        let drill = endpoint_container.endpoint_crypto.get_drill(None)?;
+        let ref pqc = endpoint_container.endpoint_crypto.pqc;
+        let output = (fx)(drill, pqc);
+        Some(output)
+    }
+}
+
 #[allow(dead_code)]
 pub(crate) struct EndpointChannelContainer {
+    // this is only loaded if STUN-like NAT-traversal works
+    pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
     pub(crate) endpoint_crypto: PeerSessionCrypto,
     to_channel: UnboundedSender<SecBuffer>,
     waker_recv: tokio::sync::oneshot::Receiver<Waker>,
@@ -152,6 +167,16 @@ impl EndpointChannelContainer {
     pub fn get_and_increment_object_id(&mut self) -> u32 {
         self.rolling_object_id += 1;
         self.rolling_object_id - 1
+    }
+
+    pub fn get_direct_p2p_primary_stream(&self) -> Option<UnboundedSender<Bytes>> {
+        let ref stream = self.direct_p2p_remote.as_ref()?.p2p_primary_stream;
+        if stream.is_closed() {
+            log::error!("Direct P2P primary stream receiver must have dropped. Bad shutdown. Report to developers");
+            None
+        } else {
+            Some(stream.clone())
+        }
     }
 }
 
@@ -445,12 +470,53 @@ impl GroupReceiverContainer {
 impl StateContainerInner {
     /// Creates a new container
     pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote) -> Self {
-        Self { hdp_server_remote, pre_connect_state: Default::default(), cnac: None, udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), disconnect_state: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), connect_register_drill: None, inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new() }
+        Self { hdp_server_remote, pre_connect_state: Default::default(), cnac: None, udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), disconnect_state: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), connect_register_drill: None, inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() }
     }
 
     /// Creates a new [StateContainer] with a custom state
     pub fn new_with_custom_state(kernel_tx: UnboundedSender<HdpServerResult>, register_stage: u8, connect_stage: u8, hdp_server_remote: HdpServerRemote) -> Self {
-        Self { hdp_server_remote, pre_connect_state: Default::default(), cnac: None, udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), disconnect_state: Default::default(), network_stats: Default::default(), kernel_tx, register_state: register_stage.into(), connect_state: connect_stage.into(), connect_register_drill: None, inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new() }
+        Self { hdp_server_remote, pre_connect_state: Default::default(), cnac: None, udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), disconnect_state: Default::default(), network_stats: Default::default(), kernel_tx, register_state: register_stage.into(), connect_state: connect_stage.into(), connect_register_drill: None, inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() }
+    }
+
+    /// The inner P2P handles will get dropped, causing the connections to end
+    pub fn end_connections(&mut self) {
+        self.active_virtual_connections.clear();
+    }
+
+    /// Returns true if the remote was loaded, false if there's already a connection from the addr
+    /// being loaded
+    pub fn load_provisional_direct_p2p_remote(&mut self, addr: SocketAddr, remote: DirectP2PRemote) -> bool {
+        if !self.provisional_direct_p2p_conns.contains_key(&addr) {
+            self.provisional_direct_p2p_conns.insert(addr, remote).is_none()
+        } else {
+            false
+        }
+    }
+
+    /// In order for the upgrade to work, the peer_addr must be reflective of the peer_addr present when
+    /// receiving the packet. As such, the direct p2p-stream MUST have sent the packet
+    pub fn upgrade_provisional_direct_p2p_connection(&mut self, peer_addr: SocketAddr, peer_cid: u64, possible_verified_conn: Option<SocketAddr>) -> bool {
+        if let Some(provisional) = self.provisional_direct_p2p_conns.remove(&peer_addr) {
+            if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
+                if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
+                    log::info!("UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
+                    if let Some(_) = endpoint_container.direct_p2p_remote.replace(provisional) {
+                        log::warn!("Dropped previous p2p remote during upgrade process");
+                    }
+
+                    if let Some(previous_conn) = possible_verified_conn {
+                        if let Some(_) = self.provisional_direct_p2p_conns.remove(&previous_conn) {
+                            log::info!("Dropped previous conn due to initiator preference");
+                        }
+                    }
+                    // now, we need to check to see if we need to drop an older conn
+
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     #[allow(unused_results)]
@@ -462,6 +528,7 @@ impl StateContainerInner {
         let (peer_channel, waker_recv) = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket,security_level, is_alive, channel_rx);
 
         let endpoint_container = Some(EndpointChannelContainer {
+            direct_p2p_remote: None,
             endpoint_crypto,
             to_channel: channel_tx,
             waker_recv,
@@ -474,6 +541,7 @@ impl StateContainerInner {
         let vconn = VirtualConnection {
             connection_type,
             is_active: Arc::new(AtomicBool::new(true)),
+            // this is None for endpoints, as there's no need for this
             sender: None,
             endpoint_container
         };
@@ -506,6 +574,8 @@ impl StateContainerInner {
         }
     }
 
+    /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
+    /// (thus bypassing the kernel)
     pub fn forward_data_to_channel_as_endpoint(&mut self, peer_cid: u64, data: SecBuffer) -> bool {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(channel) = vconn.endpoint_container.as_mut() {
@@ -541,6 +611,25 @@ impl StateContainerInner {
         }
 
         false
+    }
+
+    /// Once NAT-traversal succeeds between two peers, this should be called
+    pub fn update_direct_p2p_remote(&mut self, target_cid: u64, remote: Option<DirectP2PRemote>) -> bool {
+        if let Some(endpoint_container) = self.active_virtual_connections.get_mut(&target_cid) {
+            if let Some(container) = endpoint_container.endpoint_container.as_mut() {
+                container.direct_p2p_remote = remote;
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Determines whether to use the default primary stream or the direct p2p primary stream
+    pub fn get_direct_p2p_primary_stream(&self, target_cid: u64) -> Option<UnboundedSender<Bytes>> {
+        let endpoint_container = self.active_virtual_connections.get(&target_cid)?;
+        let container = endpoint_container.endpoint_container.as_ref()?;
+        container.direct_p2p_remote.as_ref().map(|res| res.p2p_primary_stream.clone())
     }
 
     /// When a keep alive is received, this function gets called. Prior to getting called,
@@ -739,7 +828,7 @@ impl StateContainerInner {
     /// TODO: NOTE! object ID is in wave_id for header ACKS
     /// NOTE: If object id != 0, then this header ack belongs to a file transfer and must thus be transmitted via TCP
     #[allow(unused_results)]
-    pub fn on_group_header_ack_received(&mut self, object_id: u32, peer_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, tcp_sender: &UnboundedSender<Bytes>) -> bool {
+    pub fn on_group_header_ack_received(&mut self, object_id: u32, peer_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>) -> bool {
         // the target is where the packet came from (implicated_cid)
         let key = GroupKey::new(peer_cid, group_id);
         if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
@@ -747,7 +836,7 @@ impl StateContainerInner {
             if object_id != 0 || next_window.is_none() {
                 // file-transfer, or TCP only mode since next_window is none. Use TCP
                 if let Some(transmitter) = outbound_container.burst_transmitter.as_mut() {
-                    return transmitter.transmit_tcp_file_transfer(tcp_sender);
+                    return transmitter.transmit_tcp_file_transfer();
                 } else {
                     log::error!("Transmitter already taken. Invalid request");
                 }
@@ -756,7 +845,7 @@ impl StateContainerInner {
                 if let Some(udp_sender) = self.udp_sender.as_ref() {
                     if let Some(transmitter) = outbound_container.burst_transmitter.as_mut() {
                         return if let Some(next_window) = next_window {
-                            Self::transmit_window_udp(udp_sender, transmitter, next_window, tcp_sender)
+                            Self::transmit_window_udp(udp_sender, transmitter, next_window)
                         } else {
                             log::error!("MQ-UDP was signalled to be used, but the next window was not provided. Invalid request");
                             false
@@ -785,7 +874,7 @@ impl StateContainerInner {
     /// Returns true if the sending process was a success, false otherwise
     ///
     /// safety: DO NOT borrow_mut the state container unless inside the spawn_local, otherwise a BorrowMutError will occur
-    pub fn on_window_tail_received(&mut self, pqc: &Arc<PostQuantumContainer>, state_container_ref: &StateContainer, header: &LayoutVerified<&[u8], HdpHeader>, drill: &Drill, waves: RangeInclusive<u32>, time_tracker: &TimeTracker, to_primary_stream: &UnboundedSender<Bytes>) -> bool {
+    pub fn on_window_tail_received(&mut self, pqc: &Arc<PostQuantumContainer>, state_container_ref: &StateContainer, header: &LayoutVerified<&[u8], HdpHeader>, drill: &Drill, waves: RangeInclusive<u32>, time_tracker: &TimeTracker, to_primary_stream_orig: &UnboundedSender<Bytes>) -> bool {
         let group = header.group.get();
         let object_id = header.context_info.get() as u32;
         // When receiving the WINDOW_TAIL, we are the recipient. When we need to figure out the target_cid
@@ -793,12 +882,14 @@ impl StateContainerInner {
         // through the HyperLAN, the target_cid is just the header's original cid (for proxied packet). However, for
         // non-proxied packets, we use ZERO for the target_cid. To determine if the packet was proxied or not, just
         // check the header:
-        let resp_target_cid = if header.target_cid.get() != 0 {
+        let (resp_target_cid, to_primary_stream_preferred) = if header.target_cid.get() != 0 {
             // this is thus a proxied packet that has reached its destination
-            header.session_cid.get()
+            (header.session_cid.get(), self.get_direct_p2p_primary_stream(header.target_cid.get()))
         } else {
-            0
+            (0, Some(to_primary_stream_orig.clone()))
         };
+
+        let to_primary_stream = to_primary_stream_preferred.unwrap_or_else(|| to_primary_stream_orig.clone());
 
         // the key's target is always going to be where the packet came from
         let key = GroupKey::new(header.session_cid.get(), group);
@@ -815,7 +906,6 @@ impl StateContainerInner {
                 let state_container_ref = state_container_ref.clone();
                 let drill = drill.clone();
                 let time_tracker = time_tracker.clone();
-                let to_primary_stream = to_primary_stream.clone();
                 let pqc = pqc.clone();
                 // Before doing anything, spawn a task to wait for completion
 
@@ -866,7 +956,7 @@ impl StateContainerInner {
     /// of the number of waves ACK'ed. Once the number of waves ACK'ed equals the window size, this function
     /// also re-engages the transmitter
     #[allow(unused_results)]
-    pub fn on_wave_ack_received(&mut self, implicated_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, tcp_only: bool, waves_in_next_window: Option<RangeInclusive<u32>>, to_primary_stream: &UnboundedSender<Bytes>) -> bool {
+    pub fn on_wave_ack_received(&mut self, implicated_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, tcp_only: bool, waves_in_next_window: Option<RangeInclusive<u32>>) -> bool {
         let object_id = header.context_info.get();
         let group = header.group.get();
         let wave_id = header.wave_id.get();
@@ -942,7 +1032,7 @@ impl StateContainerInner {
                     if let Some(waves_in_next_window) = transmitter_container.on_wave_ack_received(waves_in_next_window) {
                         // window finished. Begin transmission of next window
                         let udp_sender = self.udp_sender.as_ref().unwrap();
-                        return Self::transmit_window_udp(udp_sender, transmitter_container.burst_transmitter.as_mut().unwrap(), waves_in_next_window, to_primary_stream);
+                        return Self::transmit_window_udp(udp_sender, transmitter_container.burst_transmitter.as_mut().unwrap(), waves_in_next_window);
                     }
                 }
             } else {
@@ -959,8 +1049,8 @@ impl StateContainerInner {
     }
 
     /// `waves_in_window`: if None, assuming tcp_only mode
-    fn transmit_window_udp(udp_sender: &OutboundUdpSender, sender: &mut GroupTransmitter, waves_in_window: RangeInclusive<u32>, to_primary_stream: &UnboundedSender<Bytes>) -> bool {
-        sender.transmit_next_window_udp(udp_sender, waves_in_window, to_primary_stream)
+    fn transmit_window_udp(udp_sender: &OutboundUdpSender, sender: &mut GroupTransmitter, waves_in_window: RangeInclusive<u32>) -> bool {
+        sender.transmit_next_window_udp(udp_sender, waves_in_window)
     }
 
     /*
@@ -986,6 +1076,8 @@ impl StateContainerInner {
             0
         };
 
+        let preferred_primary_stream = self.get_direct_p2p_primary_stream(resp_target_cid).unwrap_or_else(|| to_primary_stream.clone());
+
         let object_id = header.context_info.get() as u32;
         let group = header.group.get();
         let wave_id = header.wave_id.get();
@@ -1000,8 +1092,9 @@ impl StateContainerInner {
                     match group_receiver.receiver.on_packet_received(group, true_sequence, wave_id, drill, pqc, payload) {
                         GroupReceiverStatus::GROUP_COMPLETE(last_wave_id) => {
                             log::info!("Group {} finished!", group);
+
                             let wave_ack = crate::hdp::hdp_packet_crafter::group::craft_wave_ack(pqc, object_id, resp_target_cid, group, last_wave_id, time_tracker.get_global_time_ns(), None, drill);
-                            to_primary_stream.unbounded_send(wave_ack).unwrap();
+                            preferred_primary_stream.unbounded_send(wave_ack).unwrap();
                             finished = true;
                         }
 
@@ -1019,7 +1112,7 @@ impl StateContainerInner {
                                 crate::hdp::hdp_packet_crafter::group::craft_wave_ack(pqc, object_id, resp_target_cid, group, wave_id, time_tracker.get_global_time_ns(), None, drill)
                             };
 
-                            to_primary_stream.unbounded_send(wave_ack).unwrap();
+                            preferred_primary_stream.unbounded_send(wave_ack).unwrap();
                         }
 
                         // Common

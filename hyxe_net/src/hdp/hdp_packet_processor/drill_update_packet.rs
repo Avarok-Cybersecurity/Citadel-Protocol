@@ -19,7 +19,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
     match header.cmd_aux {
         // Bob
         packet_flags::cmd::aux::do_drill_update::STAGE0 => {
-            log::info!("DO_DRILL_UPDATE STAGE 0 PACKET RECV");
+            //log::info!("DO_DRILL_UPDATE STAGE 0 PACKET RECV");
             // The receiving node of a stage 0 packet should not initially have in-progress set as true
             if !state_container.drill_update_state.in_progress {
                 state_container.drill_update_state.in_progress = true;
@@ -40,7 +40,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
         // Alice
         packet_flags::cmd::aux::do_drill_update::STAGE1 => {
-            log::info!("DO_DRILL_UPDATE STAGE 1 PACKET RECV");
+            //log::info!("DO_DRILL_UPDATE STAGE 1 PACKET RECV");
             if state_container.drill_update_state.in_progress && state_container.drill_update_state.last_stage == packet_flags::cmd::aux::do_drill_update::STAGE0 {
                 if let Some(nonce) = validation::do_drill_update::validate_stage1(payload) {
                     if let Ok((drill_update_object, proposed_new_drill)) = cnac.generate_new_dou(&drill) {
@@ -72,7 +72,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
         // Bob
         packet_flags::cmd::aux::do_drill_update::STAGE2 => {
-            log::info!("DO_DRILL_UPDATE STAGE 2 PACKET RECV");
+            //log::info!("DO_DRILL_UPDATE STAGE 2 PACKET RECV");
             if state_container.drill_update_state.in_progress && state_container.drill_update_state.last_stage == packet_flags::cmd::aux::do_drill_update::STAGE1 {
                 let nonce = state_container.drill_update_state.nonce.as_ref()?;
 
@@ -95,7 +95,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
         }
 
         packet_flags::cmd::aux::do_drill_update::STAGE3 => {
-            log::info!("DO_DRILL_UPDATE STAGE 3 PACKET RECV");
+            //log::info!("DO_DRILL_UPDATE STAGE 3 PACKET RECV");
             if state_container.drill_update_state.in_progress && state_container.drill_update_state.last_stage == packet_flags::cmd::aux::do_drill_update::STAGE1 {
                 let new_drill = state_container.drill_update_state.new_drill.as_ref()?;
                 let expected_nonce = state_container.drill_update_state.nonce.as_ref()?;
@@ -124,7 +124,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
         }
 
         packet_flags::cmd::aux::do_drill_update::SUCCESS => {
-            log::info!("DO_DRILL_UPDATE STAGE SUCCESS PACKET RECV");
+            //log::info!("DO_DRILL_UPDATE STAGE SUCCESS PACKET RECV");
             if state_container.drill_update_state.in_progress && state_container.drill_update_state.last_stage == packet_flags::cmd::aux::do_drill_update::STAGE2 {
                 let new_drill = state_container.drill_update_state.new_drill.as_ref()?;
                 if cnac.register_new_drill_to_toolset(new_drill.clone()) {
@@ -144,7 +144,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
         }
 
         packet_flags::cmd::aux::do_drill_update::FAILURE => {
-            log::info!("DO_DRILL_UPDATE STAGE FAILURE PACKET RECV");
+            //log::info!("DO_DRILL_UPDATE STAGE FAILURE PACKET RECV");
             if state_container.drill_update_state.in_progress && state_container.drill_update_state.last_stage == packet_flags::cmd::aux::do_drill_update::STAGE2 {
                 log::error!("Drill validation has failed. Ending session for security purposes");
                 // TODO: Drill rollback mechanism?

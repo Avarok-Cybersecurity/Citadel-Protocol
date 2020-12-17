@@ -16,6 +16,7 @@ use std::collections::hash_map::RandomState;
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
+#[derive(Clone)]
 pub struct AccountManager {
     /// A set of all local CNACs loaded at runtime + created during network registrations
     map: Arc<ShardedLock<HashMap<u64, ClientNetworkAccount>>>,
@@ -38,9 +39,8 @@ impl AccountManager {
             return Err(FsError::IoError("Unable to setup directories".to_string()));
         }
 
-        let (highest_cid, mut map) = load_cnac_files().await?;
+        let mut map = load_cnac_files().await?;
         let local_nac = load_node_nac(&mut map).map_err(|err| FsError::IoError(err.to_string()))?;
-        local_nac.set_highest_cid(highest_cid);
 
         let map = Arc::new(ShardedLock::new(map));
         Ok(Self { map, local_nac })
@@ -64,7 +64,9 @@ impl AccountManager {
         // [0] Add the new CNAC to the global map
         // [1] Insert the CNAC under the local impersonal server
         log::info!("Created impersonal CNAC ...");
-        assert!(self.write_map().insert(new_cnac.get_id(), new_cnac.clone()).is_none());
+        if let Some(cnac) = self.write_map().insert(new_cnac.get_id(), new_cnac.clone()) {
+            log::error!("Overwrote pre-existing account {} in the CNAC map. Please report to developers", cnac.get_id());
+        }
         Ok(new_cnac)
     }
 
@@ -72,7 +74,7 @@ impl AccountManager {
     /// HyperLAN Client (Alice) runs this function below
     pub fn register_personal_hyperlan_server<T: AsRef<[u8]>, R: ToString + Display, V: ToString + Display>(&self, toolset_bytes: T, username: R, full_name: V, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>, password_hash: Vec<u8>) -> Result<ClientNetworkAccount, AccountError<String>> {
         let cnac = ClientNetworkAccount::new_from_network_personal(toolset_bytes, &username, password, &full_name, password_hash, adjacent_nac, post_quantum_container)?;
-        self.local_nac.register_cid(cnac.get_id(), &username);
+        self.local_nac.register_cid(cnac.get_id(), &username)?;
 
         let mut map = self.write_map();
         if let Some(_prev) = map.insert(cnac.get_id(), cnac.clone()) {
@@ -80,6 +82,8 @@ impl AccountManager {
         } else {
             log::info!("Successfully added CID to AccountManager Hashmap");
         }
+
+        self.local_nac.spawn_save_task_on_threadpool();
 
         Ok(cnac)
     }
@@ -91,13 +95,28 @@ impl AccountManager {
         local_nac.cids_registered.contains_key(&cid)
     }
 
-    /// Returns a list of registered HyperLAN cids
-    pub fn get_registered_hyperlan_cids(&self) -> Option<Vec<u64>> {
+    /// Returns a list of registered local cids (personal + impersonal)
+    pub fn get_registered_local_cids(&self) -> Option<Vec<u64>> {
         let local_nac = self.local_nac.read();
         if !local_nac.cids_registered.is_empty() {
             Some(local_nac.cids_registered.keys().cloned().collect::<Vec<u64>>())
         } else {
             None
+        }
+    }
+
+    /// Returns a list of impersonal cids
+    pub fn get_registered_impersonal_cids(&self) -> Option<Vec<u64>> {
+        let read = self.read_map();
+        let ret = read.iter()
+            .filter(|cnac| !cnac.1.is_personal())
+            .map(|res| *res.0)
+            .collect::<Vec<u64>>();
+
+        if ret.is_empty() {
+            None
+        } else {
+            Some(ret)
         }
     }
 
@@ -162,6 +181,8 @@ impl AccountManager {
 
         let mut write = self.local_nac.write();
         write.cids_registered.clear();
+        std::mem::drop(write);
+        self.local_nac.spawn_save_task_on_threadpool();
 
         count
     }
@@ -191,14 +212,32 @@ impl AccountManager {
     }
 
     /// Deletes a client by cid. Returns true if a success
+    #[allow(unused_results)]
     pub fn delete_client_by_cid(&self, cid: u64) -> bool {
         let mut write = self.write_map();
         if let Some(mut removed_client) = write.remove(&cid) {
+            // Now, find any mutuals inside the removed client and clean them
+            removed_client.view_hyperlan_peers(|peers| {
+                for peer in peers {
+                    let peer_cid = peer.cid;
+                    if let Some(mutual) = write.get(&peer_cid) {
+                        if let Some(_) = mutual.remove_hyperlan_peer(cid) {
+                            mutual.spawn_save_task_on_threadpool();
+                        }
+                    }
+                }
+            });
+
             // Now that the account is removed from the list, it won't be saved upon synchronization.
             // The last step is to purge its existing content from the file system
             if removed_client.purge_from_fs_blocking().is_ok() {
                 // Finally, remove the entry in the config file
-                self.local_nac.remove_registered_cid(removed_client.get_id())
+                if self.local_nac.remove_registered_cid(removed_client.get_id()) {
+                    self.local_nac.spawn_save_task_on_threadpool();
+                    true
+                } else {
+                    false
+                }
             } else {
                 log::error!("Unable to remove client {} from the internal filesystem. Please report to administrator", cid);
                 false
@@ -209,14 +248,15 @@ impl AccountManager {
     }
 
     /// Saves all the CNACs to the local filesystem safely. This should be called during the shutdowns sequence.
-    /// This also saves the network map to the local filesystem
     pub async fn async_save_to_local_fs(&self) -> Result<(), AccountError<String>> {
         let write = self.write_map();
         let iter = write.iter();
         for (_, cnac) in iter {
             cnac.clone().async_save_to_local_fs().await?
         }
-        Ok(())
+        std::mem::drop(write);
+
+        self.local_nac.clone().async_save_to_local_fs().await
     }
 
     /// returns the local nac
@@ -233,11 +273,5 @@ impl AccountManager {
     pub fn visit_cnac<J>(&self, cid: u64, fx: impl FnOnce(&ClientNetworkAccount) -> Option<J>) -> Option<J> {
         let read = self.read_map();
         fx(read.get(&cid)?)
-    }
-}
-
-impl Clone for AccountManager {
-    fn clone(&self) -> Self {
-        Self { map: self.map.clone(), local_nac: self.local_nac.clone() }
     }
 }
