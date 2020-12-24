@@ -1,4 +1,4 @@
-use crate::dapp::primitives::accessor::{NetworkTransferable, OwnedGuard};
+use crate::primitives::accessor::{NetworkTransferable, OwnedGuard};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

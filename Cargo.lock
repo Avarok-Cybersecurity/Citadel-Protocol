@@ -647,7 +647,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "mio 0.7.6",
- "parking_lot 0.11.0",
+ "parking_lot 0.11.1",
  "signal-hook",
  "winapi 0.3.9",
 ]
@@ -825,7 +825,7 @@ dependencies = [
  "chacha20poly1305",
  "circular-queue",
  "nanoserde",
- "parking_lot 0.11.0",
+ "parking_lot 0.11.1",
  "pqcrypto-saber 0.1.5",
  "pqcrypto-traits 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.3",
@@ -1281,9 +1281,11 @@ dependencies = [
  "bytes",
  "crossbeam-utils 0.8.1",
  "either",
+ "env_logger 0.8.2",
  "ez_pqcrypto",
  "futures",
  "hyxe_crypt",
+ "hyxe_fs",
  "hyxe_nat",
  "hyxe_user",
  "log 0.4.11",
@@ -1291,7 +1293,7 @@ dependencies = [
  "net2",
  "num 0.2.1",
  "num_cpus",
- "parking_lot 0.11.0",
+ "parking_lot 0.10.2",
  "rand 0.7.3",
  "rust-argon2",
  "secstr",
@@ -1306,7 +1308,7 @@ name = "hyxe_user"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "crossbeam-utils 0.7.2",
+ "crossbeam-utils 0.8.1",
  "hyxe_fs",
  "lazy_static",
  "log 0.4.11",
@@ -1336,7 +1338,7 @@ dependencies = [
  "lazy_static",
  "log 0.4.11",
  "nix 0.19.1",
- "parking_lot 0.11.0",
+ "parking_lot 0.11.1",
  "prettytable-rs",
  "serde",
  "serde_json",
@@ -1999,9 +2001,9 @@ dependencies = [
 
 [[package]]
 name = "parking_lot"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4893845fa2ca272e647da5d0e46660a314ead9c2fdd9a883aabc32e481a8733"
+checksum = "6d7744ac029df22dca6284efe4e898991d28e3085c706c972bcd7da4a27a15eb"
 dependencies = [
  "instant",
  "lock_api 0.4.1",
@@ -2537,6 +2539,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "satori_nos"
+version = "0.1.0"
+dependencies = [
+ "bincode2",
+ "env_logger 0.8.2",
+ "futures",
+ "log 0.4.11",
+ "parking_lot 0.11.1",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2607,9 +2622,9 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "serde"
-version = "1.0.115"
+version = "1.0.118"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e54c9a88f2da7238af84b5101443f0c0d0a3bbdc455e34a5c9497b1903ed55d5"
+checksum = "06c64263859d87aa2eb554587e2d23183398d617427327cf2b3d0ed8c69e4800"
 dependencies = [
  "serde_derive",
 ]
@@ -2626,9 +2641,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.115"
+version = "1.0.118"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "609feed1d0a73cc36a0182a840a9b37b4a82f0b1150369f0536a9e3f2a31dc48"
+checksum = "c84d3526699cd55261af4b941e4e725444df67aa4f9e6a3564f18030d12672df"
 dependencies = [
  "proc-macro2 1.0.24",
  "quote 1.0.7",

@@ -1,7 +1,6 @@
 use std::path::Path;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::fmt::{Formatter, Error, Debug};
-use serde::de::DeserializeOwned;
 
 /// Default Error type for this crate
 pub enum FsError<T: ToString> {
@@ -69,18 +68,8 @@ fn merge_dir_and_filename<'a>(directory: &'a str, filename: &'a str) -> String {
 }
 
 /// Conveniant serialization methods for types that #[derive(Serialize, Deserialize)]
-pub trait SyncIO where Self: Sized {
+pub trait SyncIO where for<'a> Self: Serialize + Deserialize<'a> + Sized {
     /// Serializes a bincode type to the local FS
-    fn serialize_to_local_fs<P: AsRef<Path>>(&self, location: P) -> Result<(), FsError<String>>;
-    /// Deserializes a bincode type from the local FS
-    fn deserialize_from_local_fs<P: AsRef<Path>>(location: P) -> Result<Self, FsError<String>>;
-    /// Serializes a bincode type to a byte vector
-    fn serialize_to_vector(&self) -> Result<Vec<u8>, FsError<String>>;
-    /// Deserialized a bincode type from a byte vector
-    fn deserialize_from_vector<T: AsRef<[u8]>>(input: &T) -> Result<Self, FsError<String>>;
-}
-
-impl<T: Serialize + DeserializeOwned + Sized> SyncIO for T {
     fn serialize_to_local_fs<P: AsRef<Path>>(&self, location: P) -> Result<(), FsError<String>> {
         if let Some(parent_path) = location.as_ref().parent() {
             crate::system_file_manager::make_dir_all_blocking(parent_path)?;
@@ -88,17 +77,19 @@ impl<T: Serialize + DeserializeOwned + Sized> SyncIO for T {
 
         crate::system_file_manager::write(self, location)
     }
-
+    /// Deserializes a bincode type from the local FS
     fn deserialize_from_local_fs<P: AsRef<Path>>(location: P) -> Result<Self, FsError<String>> {
         crate::system_file_manager::read(location)
     }
-
+    /// Serializes a bincode type to a byte vector
     fn serialize_to_vector(&self) -> Result<Vec<u8>, FsError<String>> {
         crate::system_file_manager::type_to_bytes(self)
     }
-
-    fn deserialize_from_vector<B: AsRef<[u8]>>(input: &B) -> Result<Self, FsError<String>> {
+    /// Deserialized a bincode type from a byte vector
+    fn deserialize_from_vector<T: AsRef<[u8]>>(input: &T) -> Result<Self, FsError<String>> {
         crate::system_file_manager::bytes_to_type(input.as_ref())
     }
 }
+
+impl<T> SyncIO for T where for<'a> T: Serialize + Deserialize<'a> + Sized {}
 
