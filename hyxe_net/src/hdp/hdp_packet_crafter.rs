@@ -1,4 +1,4 @@
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use num::Integer;
 
 use ez_pqcrypto::PostQuantumContainer;
@@ -10,12 +10,10 @@ use hyxe_nat::time_tracker::TimeTracker;
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::hdp::hdp_packet_crafter::group::craft_wave_payload_packet_into;
 use crate::hdp::hdp_server::Ticket;
-use crate::hdp::outbound_sender::OutboundUdpSender;
-use crate::re_imports::UnboundedSender;
+use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
 use std::ops::RangeInclusive;
 use crate::hdp::state_container::{VirtualTargetType, GroupSender};
 use std::sync::Arc;
-use futures::SinkExt;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use crate::error::NetworkError;
 
@@ -23,7 +21,7 @@ use crate::error::NetworkError;
 /// the rest of the packets (the payload packets) get streamed to the [HdpServer] layer
 pub struct GroupTransmitter {
     pqc: Arc<PostQuantumContainer>,
-    to_primary_stream: UnboundedSender<Bytes>,
+    to_primary_stream: OutboundTcpSender,
     // Handles the encryption and scrambling asynchronously. Also manages missing packets
     group_transmitter: GroupSender,
     /// Contained within Self::group_transmitter, but is here for convenience
@@ -39,7 +37,8 @@ pub struct GroupTransmitter {
     /// Denotes the current wave being sent
     current_wave: usize,
     packets_sent: usize,
-    time_tracker: TimeTracker
+    time_tracker: TimeTracker,
+    is_message: bool
 }
 
 /// For communicating between the packet crafter and the higher-levels
@@ -61,11 +60,13 @@ pub enum WavePacketType {
 }
 
 impl GroupTransmitter {
-    pub fn new_from_group_sender(to_primary_stream: UnboundedSender<Bytes>, group_sender: GroupSender, pqc: Arc<PostQuantumContainer>, drill: Drill, object_id: u32, target_cid: u64, ticket: Ticket, security_level: SecurityLevel, time_tracker: TimeTracker) -> Self {
+    pub fn new_from_group_sender(to_primary_stream: OutboundTcpSender, group_sender: GroupSender, pqc: Arc<PostQuantumContainer>, drill: Drill, object_id: u32, target_cid: u64, ticket: Ticket, security_level: SecurityLevel, time_tracker: TimeTracker) -> Self {
         let cfg = inner!(group_sender).get_receiver_config();
         let group_id = cfg.group_id as u64;
         let bytes_encrypted = cfg.plaintext_length;
         Self {
+            // This must be false
+            is_message: false,
             pqc,
             group_transmitter: group_sender,
             to_primary_stream,
@@ -83,7 +84,7 @@ impl GroupTransmitter {
         }
     }
     /// Creates a new stream for a request
-    pub fn new(to_primary_stream: UnboundedSender<Bytes>, object_id: u32, target_cid: u64, drill: Drill, pqc: &Arc<PostQuantumContainer>, input_packet: SecBuffer, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
+    pub fn new(to_primary_stream: OutboundTcpSender, object_id: u32, target_cid: u64, drill: Drill, pqc: &Arc<PostQuantumContainer>, input_packet: SecBuffer, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
         // Gets the latest drill version by default for this operation
         log::trace!("Will use drill v{} to encrypt group {}", drill.get_version(), group_id);
 
@@ -98,6 +99,7 @@ impl GroupTransmitter {
                 let current_wave = 0;
                 let packets_sent = 0;
                 Some(Self {
+                    is_message: true,
                     pqc: pqc.clone(),
                     target_cid,
                     object_id,
@@ -130,14 +132,14 @@ impl GroupTransmitter {
 
     /// Generates the group header for this set using the pre-allocated slab. Since the group header is always sent through the primary port,
     /// and the wave ports are what receive the packet stream, this should be ran BEFORE streaming self
-    pub fn generate_group_header(&mut self, virtual_target: VirtualTargetType) -> Bytes {
+    pub fn generate_group_header(&mut self, virtual_target: VirtualTargetType) -> BytesMut {
         group::craft_group_header_packet(self, virtual_target)
     }
 
     /// Sometimes, we only need a single packet to represent the data. When this happens, we don't scramble
     /// and instead place the ciphertext into the payload of the GROUP_HEADER
-    pub(super) fn get_fast_message_payload(&mut self) -> Option<Bytes> {
-        if self.group_config.packets_needed == 1 {
+    pub(super) fn get_fast_message_payload(&mut self) -> Option<BytesMut> {
+        if self.group_config.packets_needed == 1  && self.is_message {
             Some(inner_mut!(self.group_transmitter).get_next_packet().unwrap().packet)
         } else {
             None
@@ -234,7 +236,7 @@ impl GroupTransmitter {
         let ref to_primary_stream = self.to_primary_stream;
         log::info!("[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
         let transmitter = self.group_transmitter.clone();
-        let mut to_primary_stream = to_primary_stream.clone();
+        let to_primary_stream = to_primary_stream.clone();
         spawn!(async move {
             let mut transmitter = inner_mut!(transmitter);
             if let Some(packets) = transmitter.get_next_packets(packets_needed) {
@@ -244,19 +246,10 @@ impl GroupTransmitter {
                 if let Err(_) = to_primary_stream.send_all(&mut tokio::stream::iter(packets.into_iter().map(|packet| Ok(packet.packet)).collect::<Vec<Result<Bytes, futures::channel::mpsc::SendError>>>())).await {
                     log::error!("Unable to send_all stream through TCP channel");
                 }*/
-                if !to_primary_stream.is_closed() {
-                    for packet in packets {
-                        if let Err(_) = to_primary_stream.start_send(packet.packet) {
-                            log::error!("[TCP] [FILE] Unable to send_all stream through TCP channel");
-                            break;
-                        }
+                for packet in packets {
+                    if let Err(err) = to_primary_stream.unbounded_send(packet.packet) {
+                        log::error!("[FILE] to_primary_stream died {:?}", err);
                     }
-
-                    if let Err(_) = to_primary_stream.flush().await {
-                        log::error!("[TCP] [FILE] Unable to flush stream through TCP channel");
-                    }
-                } else {
-                    log::error!("[TCP] [FILE] Primary stream closed");
                 }
             } else {
                 log::error!("Unable to load all packets");
@@ -270,7 +263,7 @@ impl GroupTransmitter {
 
 pub(crate) mod group {
 
-    use bytes::{BufMut, Bytes, BytesMut};
+    use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U32, U64};
 
     use hyxe_crypt::drill_algebra::PacketVector;
@@ -286,7 +279,7 @@ pub(crate) mod group {
     use crate::hdp::hdp_server::Ticket;
 
     // TODO: all GROUP packets require a target_cid. If target_cid != 0, then the packet will get proxied unless sent through direct-p2p
-    pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType) -> Bytes {
+    pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER,
@@ -324,7 +317,7 @@ pub(crate) mod group {
         let ref pqc = processor.pqc;
         processor.drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
     /// `initial_wave_window` should be set the Some if this node is ready to begin receiving the data
@@ -332,7 +325,7 @@ pub(crate) mod group {
     /// `fast_msg`: If this is true, then that implies the receiver already got the message. The initiator that gets the header ack
     /// needs to only delete the outbound container
     #[allow(unused_results)]
-    pub(crate) fn craft_group_header_ack(pqc: &PostQuantumContainer, object_id: u32, group_id: u64, target_cid: u64, ticket: Ticket, drill: &Drill, initial_wave_window: Option<RangeInclusive<u32>>, fast_msg: bool, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_group_header_ack(pqc: &PostQuantumContainer, object_id: u32, group_id: u64, target_cid: u64, ticket: Ticket, drill: &Drill, initial_wave_window: Option<RangeInclusive<u32>>, fast_msg: bool, timestamp: i64) -> BytesMut {
         const SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
         //log::info!("Creating header ACK with session_cid of {}", drill.get_cid());
         let fast_msg = if fast_msg { 1 } else { 0 };
@@ -366,7 +359,7 @@ pub(crate) mod group {
         }
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 
     /// This is called by the scrambler
@@ -397,7 +390,7 @@ pub(crate) mod group {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn craft_window_tail(pqc: &PostQuantumContainer, drill: &Drill, object_id: u32, target_cid: u64, group_id: u64, waves_in_window: RangeInclusive<u32>, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_window_tail(pqc: &PostQuantumContainer, drill: &Drill, object_id: u32, target_cid: u64, group_id: u64, waves_in_window: RangeInclusive<u32>, timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_WINDOW_TAIL,
@@ -418,12 +411,12 @@ pub(crate) mod group {
         packet.put_u32(*waves_in_window.end()); // + 4 bytes
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 
     /// This is always sent from Bob's side. This a retransmission request packet, and occurs when a timeout for a specific wave occured
     #[allow(unused_results)]
-    pub(crate) fn craft_wave_do_retransmission(pqc: &PostQuantumContainer, object_id: u32, target_cid: u64, group_id: u64, wave_id: u32, vectors_missing: &Vec<PacketVector>, drill: &Drill, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_wave_do_retransmission(pqc: &PostQuantumContainer, object_id: u32, target_cid: u64, group_id: u64, wave_id: u32, vectors_missing: &Vec<PacketVector>, drill: &Drill, timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::WAVE_DO_RETRANSMISSION,
@@ -451,11 +444,11 @@ pub(crate) mod group {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
     // NOTE: context infos contain the object ID in most of the GROUP packets
-    pub(crate) fn craft_wave_ack(pqc: &PostQuantumContainer, object_id: u32, target_cid: u64, group_id: u64, wave_id: u32, timestamp: i64, next_window: Option<RangeInclusive<u32>>, drill: &Drill) -> Bytes {
+    pub(crate) fn craft_wave_ack(pqc: &PostQuantumContainer, object_id: u32, target_cid: u64, group_id: u64, wave_id: u32, timestamp: i64, next_window: Option<RangeInclusive<u32>>, drill: &Drill) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::WAVE_ACK,
@@ -476,19 +469,19 @@ pub(crate) mod group {
             packet.put_u32(*next_window.start());
             packet.put_u32(*next_window.end());
             drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-            packet.freeze()
+            packet
         } else {
             let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + 4);
             header.inscribe_into(&mut packet);
             packet.put_u32(drill.get_high()[0][0]);
             drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-            packet.freeze()
+            packet
         }
     }
 }
 
 pub(crate) mod do_connect {
-    use bytes::{BufMut, Bytes, BytesMut};
+    use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U32, U64};
 
     use ez_pqcrypto::PostQuantumContainer;
@@ -505,7 +498,7 @@ pub(crate) mod do_connect {
                 ///
                 /// /// This returns a drill in hopes that it gets stored in Alice's container
     #[allow(unused_results)]
-    pub(crate) fn craft_stage0_packet<T: AsRef<[u8]>>(drill: &Drill, public_key: T, algorithm: u8, timestamp: i64) -> Option<Bytes> {
+    pub(crate) fn craft_stage0_packet<T: AsRef<[u8]>>(drill: &Drill, public_key: T, algorithm: u8, timestamp: i64) -> Option<BytesMut> {
         let public_key = public_key.as_ref();
         //log::info!("PUBLIC KEY(len: {}): {:?}", public_key.len(), public_key);
         // The values below are quasi
@@ -533,14 +526,14 @@ pub(crate) mod do_connect {
         header.inscribe_into(&mut packet);
         drill.encrypt_to_buf(public_key, &mut packet, 0, SECURITY_LEVEL).unwrap();
 
-        Some(packet.freeze())
+        Some(packet)
     }
 
     /// This goes from Bob to Alice. It contains the nonce which is to be applied OVER the post quantum key.
     /// Will return None if validation failed
     /// This returns a drill in hopes that it gets stored in Bob's container
     #[allow(unused_results)]
-    pub(crate) fn craft_stage1_packet<T: AsRef<[u8]>>(drill: &Drill, algorithm: u8, ciphertext: T, timestamp: i64) -> ([u8; AES_GCM_NONCE_LEN_BYTES], Bytes) {
+    pub(crate) fn craft_stage1_packet<T: AsRef<[u8]>>(drill: &Drill, algorithm: u8, ciphertext: T, timestamp: i64) -> ([u8; AES_GCM_NONCE_LEN_BYTES], BytesMut) {
         let nonce: [u8; AES_GCM_NONCE_LEN_BYTES] = drill.get_random_aes_gcm_nonce();
 
         const SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
@@ -575,12 +568,12 @@ pub(crate) mod do_connect {
 
         debug_assert_eq!(expected_len, packet.len());
 
-        (nonce, packet.freeze())
+        (nonce, packet)
     }
 
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
     #[allow(unused_results)]
-    pub(crate) fn craft_stage2_packet(proposed_credentials: ProposedCredentials, pqc: &PostQuantumContainer, drill: &Drill, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_stage2_packet(proposed_credentials: ProposedCredentials, pqc: &PostQuantumContainer, drill: &Drill, timestamp: i64) -> BytesMut {
         let (username, password) = proposed_credentials.decompose_credentials();
 
         let encrypted_len = hyxe_crypt::net::crypt_splitter::calculate_aes_gcm_output_length(username.len() + username.len());
@@ -606,11 +599,11 @@ pub(crate) mod do_connect {
         packet.put(password);
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(success: bool, mailbox_items_opt: Option<MailboxTransfer>, message: T, peers: Vec<u64>, drill: &Drill, pqc: &PostQuantumContainer, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(success: bool, mailbox_items_opt: Option<MailboxTransfer>, message: T, peers: Vec<u64>, drill: &Drill, pqc: &PostQuantumContainer, timestamp: i64) -> BytesMut {
         let payload = message.as_ref();
         let (mailbox_transfer_len ,mailbox_items) = if let Some(mailbox_items) = mailbox_items_opt {
             let serialized = SerBin::serialize_bin(&mailbox_items);
@@ -656,12 +649,12 @@ pub(crate) mod do_connect {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 }
 
 pub(crate) mod keep_alive {
-    use bytes::Bytes;
+    use bytes::BytesMut;
     use zerocopy::{I64, U32, U64};
 
     use hyxe_crypt::prelude::Drill;
@@ -670,7 +663,7 @@ pub(crate) mod keep_alive {
     use ez_pqcrypto::PostQuantumContainer;
     use crate::constants::HDP_HEADER_BYTE_LEN;
 
-    pub(crate) fn craft_keep_alive_packet(drill: &Drill, pqc: &PostQuantumContainer, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_keep_alive_packet(drill: &Drill, pqc: &PostQuantumContainer, timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::KEEP_ALIVE,
             cmd_aux: 0,
@@ -687,12 +680,12 @@ pub(crate) mod keep_alive {
 
         let mut packet = header.into_packet_mut();
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 }
 
 pub(crate) mod do_register {
-    use bytes::{BufMut, Bytes, BytesMut};
+    use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U32, U64};
 
     use ez_pqcrypto::PostQuantumContainer;
@@ -708,7 +701,7 @@ pub(crate) mod do_register {
                 /// Since this is sent over TCP, the size of the packet can be up to ~64k bytes
                 ///
                 /// We also use the NID in place of the CID because the CID only exists AFTER registration completes
-    pub(crate) fn craft_stage0<T: AsRef<[u8]>>(algorithm: u8, timestamp: i64, local_nid: u64, alice_public_key: T, potential_cids_alice: &Vec<u64>) -> Bytes {
+    pub(crate) fn craft_stage0<T: AsRef<[u8]>>(algorithm: u8, timestamp: i64, local_nid: u64, alice_public_key: T, potential_cids_alice: &Vec<u64>) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE0,
@@ -731,11 +724,11 @@ pub(crate) mod do_register {
         potential_cids_alice.iter().for_each(|val| packet.put_u64(*val));
         packet.put(public_key);
 
-        packet.freeze()
+        packet
     }
 
     /// Bob crafts a packet with the ciphertext
-    pub(crate) fn craft_stage1<T: AsRef<[u8]>>(algorithm: u8, timestamp: i64, local_nid: u64, ciphertext: T, reserved_true_cid: u64) -> Bytes {
+    pub(crate) fn craft_stage1<T: AsRef<[u8]>>(algorithm: u8, timestamp: i64, local_nid: u64, ciphertext: T, reserved_true_cid: u64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE1,
@@ -757,11 +750,11 @@ pub(crate) mod do_register {
         packet.put(header.into_packet());
         packet.put(ciphertext);
 
-        packet.freeze()
+        packet
     }
 
     /// Alice sends this. It is expected that the nonce is generated
-    pub(crate) fn craft_stage2(nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], algorithm: u8, local_nid: u64, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_stage2(nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], algorithm: u8, local_nid: u64, timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE2,
@@ -780,11 +773,11 @@ pub(crate) mod do_register {
         header.inscribe_into(&mut packet);
         packet.put(&*nonce as &[u8]);
 
-        packet.freeze()
+        packet
     }
 
     /// Bob sends this. It tells Alice that it is ready to receive the proposed credentials
-    pub(crate) fn craft_stage3(algorithm: u8, local_nid: u64, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_stage3(algorithm: u8, local_nid: u64, timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE3,
@@ -804,7 +797,7 @@ pub(crate) mod do_register {
 
     /// Alice sends this. The stage 3 packet contains the encrypted username, password, and full name of the registering client
     #[allow(unused_results)]
-    pub(crate) fn craft_stage4(nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], algorithm: u8, local_nid: u64, timestamp: i64, post_quantum: &PostQuantumContainer, proposed_credentials: &ProposedCredentials) -> Bytes {
+    pub(crate) fn craft_stage4(nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], algorithm: u8, local_nid: u64, timestamp: i64, post_quantum: &PostQuantumContainer, proposed_credentials: &ProposedCredentials) -> BytesMut {
         let (username_len, password_len, full_name_len) = proposed_credentials.get_item_lengths();
         let ciphertext_payload_len = proposed_credentials.get_expected_ciphertext_length();
 
@@ -826,11 +819,11 @@ pub(crate) mod do_register {
         let mut packet = BytesMut::with_capacity(total_len);
         header.inscribe_into(&mut packet);
         proposed_credentials.inscribe_into(&mut packet, nonce, post_quantum);
-        packet.freeze()
+        packet
     }
 
     /// `success_message`: This is NOT encrypted in this closure. Make sure to encrypt it beforehand if necessary
-    pub(crate) fn craft_success<T: AsRef<[u8]>>(cnac: &ClientNetworkAccount, algorithm: u8, local_nid: u64, timestamp: i64, post_quantum: &PostQuantumContainer, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], success_message: T) -> Bytes {
+    pub(crate) fn craft_success<T: AsRef<[u8]>>(cnac: &ClientNetworkAccount, algorithm: u8, local_nid: u64, timestamp: i64, post_quantum: &PostQuantumContainer, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], success_message: T) -> BytesMut {
         let serialized_bytes: Vec<u8> = cnac.serialize_toolset_to_vec().unwrap();
         let success_message = success_message.as_ref();
         let success_message_len = success_message.len();
@@ -860,10 +853,10 @@ pub(crate) mod do_register {
         packet.put(cnac_ciphertext.as_ref());
         packet.put(success_message);
 
-        packet.freeze()
+        packet
     }
 
-    pub(crate) fn craft_failure<T: AsRef<[u8]>>(algorithm: u8, local_nid: u64, timestamp: i64, error_message: T) -> Bytes {
+    pub(crate) fn craft_failure<T: AsRef<[u8]>>(algorithm: u8, local_nid: u64, timestamp: i64, error_message: T) -> BytesMut {
         let error_message = error_message.as_ref();
 
         let header = HdpHeader {
@@ -884,13 +877,13 @@ pub(crate) mod do_register {
         header.inscribe_into(&mut packet);
         packet.put(error_message);
 
-        packet.freeze()
+        packet
     }
 }
 
 /// For creating disconnect packets
 pub mod do_disconnect {
-    use bytes::{BufMut, Bytes, BytesMut};
+    use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U32, U64};
 
     use ez_pqcrypto::PostQuantumContainer;
@@ -906,7 +899,7 @@ pub mod do_disconnect {
 
     /// The drill used should be an unused one. (generate a new drill)
     #[allow(unused_results)]
-    pub(crate) fn craft_stage0(virtual_connection_type: VirtualConnectionType, drill: &Drill, ticket: Ticket, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_stage0(virtual_connection_type: VirtualConnectionType, drill: &Drill, ticket: Ticket, timestamp: i64) -> BytesMut {
         let sec0 = drill.get_ultra()[0][0];
         let sec1 = drill.get_high()[0][1];
 
@@ -928,12 +921,12 @@ pub mod do_disconnect {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + virtual_connection_bytes.len());
         header.inscribe_into(&mut packet);
         drill.encrypt_to_buf(virtual_connection_bytes.as_slice(), &mut packet, 0, SecurityLevel::LOW).unwrap();
-        packet.freeze()
+        packet
     }
 
     /// Bob sends Alice an encrypted nonce
     #[allow(unused_results)]
-    pub(crate) fn craft_stage1(drill: &Drill, ticket: Ticket, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], timestamp: i64) -> Bytes {
+    pub(crate) fn craft_stage1(drill: &Drill, ticket: Ticket, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], timestamp: i64) -> BytesMut {
         let sec0 = drill.get_ultra()[0][2];
         let sec1 = drill.get_high()[0][3];
 
@@ -955,10 +948,10 @@ pub mod do_disconnect {
         header.inscribe_into(&mut packet);
         drill.encrypt_to_buf(nonce as &[u8], &mut packet, 0, SecurityLevel::LOW).unwrap();
         //log::info!("Len of output stage1 packet: {}", packet.len());
-        packet.freeze()
+        packet
     }
 
-    pub(crate) fn craft_stage2(drill: &Drill, ticket: Ticket, post_quantum: &PostQuantumContainer, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], timestamp: i64) -> Bytes {
+    pub(crate) fn craft_stage2(drill: &Drill, ticket: Ticket, post_quantum: &PostQuantumContainer, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], timestamp: i64) -> BytesMut {
         let sec0 = drill.get_ultra()[0][4];
         let sec1 = drill.get_high()[0][5];
 
@@ -990,11 +983,11 @@ pub mod do_disconnect {
 
         let encrypted_payload = drill.aes_gcm_encrypt_custom_nonce(nonce, post_quantum, &payload).unwrap();
         packet.put_slice(&encrypted_payload);
-        packet.freeze()
+        packet
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_final<T: AsRef<[u8]>>(success: bool, drill: &Drill, ticket: Ticket, timestamp: i64, message: T) -> Bytes {
+    pub(crate) fn craft_final<T: AsRef<[u8]>>(success: bool, drill: &Drill, ticket: Ticket, timestamp: i64, message: T) -> BytesMut {
         let sec0 = drill.get_ultra()[0][6];
         let sec1 = drill.get_high()[0][7];
 
@@ -1024,12 +1017,12 @@ pub mod do_disconnect {
         header.inscribe_into(&mut packet);
         drill.encrypt_to_buf(message, &mut packet, 0, SecurityLevel::LOW).unwrap();
 
-        packet.freeze()
+        packet
     }
 }
 
 pub(crate) mod do_drill_update {
-    use bytes::{BufMut, Bytes, BytesMut};
+    use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U32, U64};
 
     use ez_pqcrypto::PostQuantumContainer;
@@ -1041,7 +1034,7 @@ pub(crate) mod do_drill_update {
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags, packet_sizes};
 
     #[allow(unused_results)]
-    pub(crate) fn craft_stage0(drill: &Drill, pqc: &PostQuantumContainer, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_stage0(drill: &Drill, pqc: &PostQuantumContainer, timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE0,
@@ -1059,11 +1052,11 @@ pub(crate) mod do_drill_update {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + AES_GCM_NONCE_LEN_BYTES);
         header.inscribe_into(&mut packet);
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_stage1(drill: &Drill, pqc: &PostQuantumContainer, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], timestamp: i64) -> Bytes {
+    pub(crate) fn craft_stage1(drill: &Drill, pqc: &PostQuantumContainer, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE1,
@@ -1084,11 +1077,11 @@ pub(crate) mod do_drill_update {
         packet.put(nonce as &[u8]);
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_stage2(drill: &Drill, drill_update_object: DrillUpdateObject, post_quantum: &PostQuantumContainer, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], timestamp: i64) -> Option<Bytes> {
+    pub(crate) fn craft_stage2(drill: &Drill, drill_update_object: DrillUpdateObject, post_quantum: &PostQuantumContainer, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], timestamp: i64) -> Option<BytesMut> {
         if let Ok(ref serialized_dou) = drill_update_object.serialize_to_vector() {
             let encrypted_dou = drill.aes_gcm_encrypt_custom_nonce(nonce, post_quantum, &serialized_dou).unwrap();
             let header = HdpHeader {
@@ -1112,7 +1105,7 @@ pub(crate) mod do_drill_update {
             // encrypt the nonce into the packet
             packet.put_slice(&encrypted_dou);
             drill.protect_packet(post_quantum, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-            Some(packet.freeze())
+            Some(packet)
         } else {
             log::error!("Error serializing the drill update object");
             None
@@ -1121,7 +1114,7 @@ pub(crate) mod do_drill_update {
 
     /// To verify the validity of the new drill, thise node encrypts the earlier-obtained nonce.
     /// The other node has the new drill, and as such, does not need to receive the DOU
-    pub(crate) fn craft_stage3(old_drill: &Drill, new_drill: &Drill, stage1_nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], post_quantum: &PostQuantumContainer, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_stage3(old_drill: &Drill, new_drill: &Drill, stage1_nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], post_quantum: &PostQuantumContainer, timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE3,
@@ -1142,11 +1135,11 @@ pub(crate) mod do_drill_update {
         let encrypted_nonce = new_drill.aes_gcm_encrypt_custom_nonce(stage1_nonce, post_quantum, stage1_nonce).unwrap();
         packet.put_slice(&encrypted_nonce);
         old_drill.protect_packet(post_quantum, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_final(old_drill: &Drill, pqc: &PostQuantumContainer, success: bool, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_final(old_drill: &Drill, pqc: &PostQuantumContainer, success: bool, timestamp: i64) -> BytesMut {
         let cmd_aux = if success {
             packet_flags::cmd::aux::do_drill_update::SUCCESS
         } else {
@@ -1170,12 +1163,12 @@ pub(crate) mod do_drill_update {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
         old_drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 }
 
 pub(crate) mod do_deregister {
-    use bytes::{BufMut, Bytes, BytesMut};
+    use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U32, U64};
 
     use ez_pqcrypto::PostQuantumContainer;
@@ -1186,7 +1179,7 @@ pub(crate) mod do_deregister {
     use crate::hdp::state_container::VirtualConnectionType;
 
     #[allow(unused_results)]
-    pub(crate) fn craft_stage0(drill: &Drill, pqc: &PostQuantumContainer, timestamp: i64, virtual_connection_type: VirtualConnectionType) -> Bytes {
+    pub(crate) fn craft_stage0(drill: &Drill, pqc: &PostQuantumContainer, timestamp: i64, virtual_connection_type: VirtualConnectionType) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_DEREGISTER,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE0,
@@ -1209,11 +1202,11 @@ pub(crate) mod do_deregister {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_final(drill: &Drill, pqc: &PostQuantumContainer, success: bool, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_final(drill: &Drill, pqc: &PostQuantumContainer, success: bool, timestamp: i64) -> BytesMut {
         let cmd_aux = if success {
             packet_flags::cmd::aux::do_deregister::SUCCESS
         } else {
@@ -1238,12 +1231,12 @@ pub(crate) mod do_deregister {
         header.inscribe_into(&mut packet);
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 }
 
 pub(crate) mod pre_connect {
-    use bytes::{BufMut, Bytes, BytesMut};
+    use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U32, U64, LayoutVerified};
 
     use hyxe_crypt::drill::Drill;
@@ -1257,7 +1250,7 @@ pub(crate) mod pre_connect {
     use crate::hdp::hdp_packet_processor::includes::SocketAddr;
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
 
-    pub(crate) fn craft_syn(static_aux_drill: &Drill, old_pqc: &PostQuantumContainer, tcp_only: bool, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_syn(static_aux_drill: &Drill, old_pqc: &PostQuantumContainer, tcp_only: bool, timestamp: i64) -> BytesMut {
         let tcp_only = if tcp_only {
             1
         } else {
@@ -1281,13 +1274,13 @@ pub(crate) mod pre_connect {
         let mut packet  = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
         static_aux_drill.protect_packet(old_pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 
     /// Must synchronize drills using the static auxiliar drill (which supplies the nonce) and the pqc
     /// TODO: Limit the use of this to a certain frequency. An attacker could flood the node with false
     /// PRE_CONNECT packets. Could limit the number of recoveries by IP, or, node-wide
-    pub(crate) fn craft_syn_ack<T: AsRef<[u8]>>(static_auxilliary_drill: &Drill, pqc: &PostQuantumContainer, dou_bytes: T, timestamp: i64, peer_external_addr: SocketAddr) -> Bytes {
+    pub(crate) fn craft_syn_ack<T: AsRef<[u8]>>(static_auxilliary_drill: &Drill, pqc: &PostQuantumContainer, dou_bytes: T, timestamp: i64, peer_external_addr: SocketAddr) -> BytesMut {
         let external_addr_bytes = peer_external_addr.to_string();
         let external_addr_bytes = external_addr_bytes.as_bytes();
 
@@ -1314,11 +1307,11 @@ pub(crate) mod pre_connect {
         packet.put(dou_bytes);
         static_auxilliary_drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         //let _ = static_auxilliary_drill.aes_gcm_encrypt_into(0, pqc, dou_bytes, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 
     // This gets sent from Alice to Bob
-    pub(crate) fn craft_stage0(drill: &Drill, pqc: &PostQuantumContainer, local_node_type: HyperNodeType, local_wave_ports: &Vec<u16>, timestamp: i64, peer_external_ip: SocketAddr) -> Bytes {
+    pub(crate) fn craft_stage0(drill: &Drill, pqc: &PostQuantumContainer, local_node_type: HyperNodeType, local_wave_ports: &Vec<u16>, timestamp: i64, peer_external_ip: SocketAddr) -> BytesMut {
         let external_ip_bytes = peer_external_ip.to_string();
         let external_ip_bytes = external_ip_bytes.as_bytes();
 
@@ -1348,10 +1341,10 @@ pub(crate) mod pre_connect {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
-    pub(crate) fn craft_stage1(drill: &Drill, pqc: &PostQuantumContainer, local_node_type: HyperNodeType, local_wave_ports: &Vec<u16>, initial_nat_traversal_method: NatTraversalMethod, timestamp: i64, sync_time: i64) -> Bytes {
+    pub(crate) fn craft_stage1(drill: &Drill, pqc: &PostQuantumContainer, local_node_type: HyperNodeType, local_wave_ports: &Vec<u16>, initial_nat_traversal_method: NatTraversalMethod, timestamp: i64, sync_time: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::STAGE1,
@@ -1381,10 +1374,10 @@ pub(crate) mod pre_connect {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
-    pub(crate) fn craft_stage_try_next(drill: &Drill, next_nat_traversal_method: NatTraversalMethod, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_stage_try_next(drill: &Drill, next_nat_traversal_method: NatTraversalMethod, timestamp: i64) -> BytesMut {
         let sec0 = drill.get_ultra()[1][6];
         let sec1 = drill.get_ultra()[1][7];
         let sec2 = drill.get_high()[1][8];
@@ -1407,10 +1400,10 @@ pub(crate) mod pre_connect {
         header.inscribe_into(&mut packet);
         packet.put_u8(next_nat_traversal_method.into_byte());
 
-        packet.freeze()
+        packet
     }
 
-    pub(crate) fn craft_stage_try_next_ack(drill: &Drill, timestamp: i64, sync_time: i64) -> Bytes {
+    pub(crate) fn craft_stage_try_next_ack(drill: &Drill, timestamp: i64, sync_time: i64) -> BytesMut {
         let sec0 = drill.get_ultra()[1][9];
         let sec1 = drill.get_ultra()[1][10];
         let sec2 = drill.get_high()[1][11];
@@ -1433,11 +1426,11 @@ pub(crate) mod pre_connect {
         header.inscribe_into(&mut packet);
         packet.put_i64(sync_time);
 
-        packet.freeze()
+        packet
     }
 
     /// If `tcp_only` is set to true, then the primary stream will be used for sharing information instead of the wave ports
-    pub(crate) fn craft_stage_final(drill: &Drill, success: bool, tcp_only: bool, timestamp: i64, upnp_ports: Option<Vec<u16>>) -> Bytes {
+    pub(crate) fn craft_stage_final(drill: &Drill, success: bool, tcp_only: bool, timestamp: i64, upnp_ports: Option<Vec<u16>>) -> BytesMut {
         let sec0 = drill.get_ultra()[2][0];
         let sec1 = drill.get_ultra()[2][1];
         let sec2 = drill.get_high()[2][2];
@@ -1475,13 +1468,13 @@ pub(crate) mod pre_connect {
                 packet.put_u16(upnp_port);
             }
 
-            packet.freeze()
+            packet
         } else {
             header.into_packet()
         }
     }
 
-    pub(crate) fn craft_begin_connect(drill: &Drill, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_begin_connect(drill: &Drill, timestamp: i64) -> BytesMut {
         let sec0 = drill.get_ultra()[2][3];
         let sec1 = drill.get_ultra()[2][4];
         let sec2 = drill.get_high()[2][5];
@@ -1503,7 +1496,7 @@ pub(crate) mod pre_connect {
         header.into_packet()
     }
 
-    pub(crate) fn craft_server_finished_hole_punch(drill: &Drill, pqc: &PostQuantumContainer, success: bool, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_server_finished_hole_punch(drill: &Drill, pqc: &PostQuantumContainer, success: bool, timestamp: i64) -> BytesMut {
         let algorithm = if success {
             1
         } else {
@@ -1527,10 +1520,10 @@ pub(crate) mod pre_connect {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + 1);
         header.inscribe_into(&mut packet);
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet.freeze()
+        packet
     }
 
-    pub fn craft_halt<T: AsRef<[u8]>>(prev_header: &LayoutVerified<&[u8], HdpHeader>, fail_reason: T) -> Bytes {
+    pub fn craft_halt<T: AsRef<[u8]>>(prev_header: &LayoutVerified<&[u8], HdpHeader>, fail_reason: T) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::HALT,
@@ -1550,13 +1543,13 @@ pub(crate) mod pre_connect {
         header.inscribe_into(&mut packet);
         packet.put(fail_reason);
 
-        packet.freeze()
+        packet
     }
 }
 
 pub(crate) mod peer_cmd {
     use hyxe_crypt::drill::Drill;
-    use bytes::{Bytes, BytesMut, BufMut};
+    use bytes::{BytesMut, BufMut};
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
     use zerocopy::{U64, U32, I64};
     use crate::hdp::hdp_server::Ticket;
@@ -1573,7 +1566,7 @@ pub(crate) mod peer_cmd {
      */
     /// Peer signals, unlike channels, DO NOT get a target_cid because they require the central server's participation to increase security between the
     /// two nodes
-    pub(crate) fn craft_peer_signal<T: SerBin>(pqc: &PostQuantumContainer, drill: &Drill, peer_command: T, ticket: Ticket, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_peer_signal<T: SerBin>(pqc: &PostQuantumContainer, drill: &Drill, peer_command: T, ticket: Ticket, timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
             cmd_aux: packet_flags::cmd::aux::peer_cmd::SIGNAL,
@@ -1595,10 +1588,10 @@ pub(crate) mod peer_cmd {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
-    pub(crate) fn craft_peer_signal_endpoint<T: SerBin>(pqc: &PostQuantumContainer, drill: &Drill, peer_command: T, ticket: Ticket, timestamp: i64, target_cid: u64) -> Bytes {
+    pub(crate) fn craft_peer_signal_endpoint<T: SerBin>(pqc: &PostQuantumContainer, drill: &Drill, peer_command: T, ticket: Ticket, timestamp: i64, target_cid: u64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
             cmd_aux: packet_flags::cmd::aux::peer_cmd::SIGNAL,
@@ -1620,12 +1613,12 @@ pub(crate) mod peer_cmd {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
     /// Channel packets ALWAYS get rerouted, and hence NEED a target_cid
     #[allow(dead_code)]
-    pub(crate) fn craft_channel_packet(pqc: &PostQuantumContainer, drill: &Drill, payload: ChannelPacket, ticket: Ticket, proxy_target_cid: u64, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_channel_packet(pqc: &PostQuantumContainer, drill: &Drill, payload: ChannelPacket, ticket: Ticket, proxy_target_cid: u64, timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
             cmd_aux: packet_flags::cmd::aux::peer_cmd::CHANNEL,
@@ -1647,12 +1640,12 @@ pub(crate) mod peer_cmd {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
     /// Group message packets, unlike channel packets, do not always get rerouted
     #[allow(dead_code)]
-    pub(crate) fn craft_group_message_packet(pqc: &PostQuantumContainer, drill: &Drill, payload: &GroupBroadcast, ticket: Ticket, proxy_target_cid: u64, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_group_message_packet(pqc: &PostQuantumContainer, drill: &Drill, payload: &GroupBroadcast, ticket: Ticket, proxy_target_cid: u64, timestamp: i64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,
             cmd_aux: packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST,
@@ -1674,7 +1667,7 @@ pub(crate) mod peer_cmd {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
 }
@@ -1685,11 +1678,11 @@ pub(crate) mod file {
     use crate::hdp::state_container::VirtualTargetType;
     use crate::hdp::file_transfer::VirtualFileMetadata;
     use zerocopy::{U64, U32, I64};
-    use bytes::{BytesMut, BufMut, Bytes};
+    use bytes::{BytesMut, BufMut};
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
 
-    pub(crate) fn craft_file_header_packet(group_start: u64, drill: &Drill, pqc: &PostQuantumContainer, ticket: Ticket, security_level: SecurityLevel, virtual_target: VirtualTargetType, file_metadata: VirtualFileMetadata, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_file_header_packet(group_start: u64, drill: &Drill, pqc: &PostQuantumContainer, ticket: Ticket, security_level: SecurityLevel, virtual_target: VirtualTargetType, file_metadata: VirtualFileMetadata, timestamp: i64) -> BytesMut {
         let metadata_serialized = file_metadata.serialize();
         let serialized_vt = virtual_target.serialize();
         let header = HdpHeader {
@@ -1714,10 +1707,10 @@ pub(crate) mod file {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
-    pub(crate) fn craft_file_header_ack_packet(success: bool, object_id: u32, target_cid: u64, drill: &Drill, pqc: &PostQuantumContainer, ticket: Ticket, security_level: SecurityLevel, virtual_target: VirtualTargetType, timestamp: i64) -> Bytes {
+    pub(crate) fn craft_file_header_ack_packet(success: bool, object_id: u32, target_cid: u64, drill: &Drill, pqc: &PostQuantumContainer, ticket: Ticket, security_level: SecurityLevel, virtual_target: VirtualTargetType, timestamp: i64) -> BytesMut {
         let success: u64 = if success {
             1
         } else {
@@ -1744,27 +1737,27 @@ pub(crate) mod file {
 
         drill.protect_packet(pqc, HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 }
 
 pub(crate) mod hole_punch {
     use hyxe_crypt::drill::Drill;
     use ez_pqcrypto::PostQuantumContainer;
-    use bytes::{Bytes, BytesMut, BufMut};
+    use bytes::{BytesMut, BufMut};
     use std::iter::FromIterator;
 
-    pub fn generate_packet(drill: &Drill, pqc: &PostQuantumContainer, local_port: u16) -> Bytes {
+    pub fn generate_packet(drill: &Drill, pqc: &PostQuantumContainer, local_port: u16) -> BytesMut {
         let mut packet = BytesMut::new();
         packet.put_u16(local_port);
         drill.protect_packet(pqc,0, &mut packet).unwrap();
 
-        packet.freeze()
+        packet
     }
 
-    pub fn decrypt_packet(drill: &Drill, pqc: &PostQuantumContainer, packet: &[u8]) -> Option<Bytes> {
+    pub fn decrypt_packet(drill: &Drill, pqc: &PostQuantumContainer, packet: &[u8]) -> Option<BytesMut> {
         let mut packet = BytesMut::from_iter(packet);
         drill.validate_packet_in_place_split(pqc, &[], &mut packet).ok()?;
-        Some(packet.freeze())
+        Some(packet)
     }
 }

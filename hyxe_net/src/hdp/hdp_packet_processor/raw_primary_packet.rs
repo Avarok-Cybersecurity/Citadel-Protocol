@@ -1,13 +1,15 @@
 use super::includes::*;
 use bytes::BytesMut;
+use crate::hdp::hdp_packet::HeaderObfuscator;
 
 /// For primary-port packet types. NOT for wave ports
-pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut) -> PrimaryProcessorResult {
+pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, mut packet: BytesMut, header_obfuscator: &HeaderObfuscator) -> PrimaryProcessorResult {
+    header_obfuscator.on_packet_received(&mut packet)?;
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     let (header, payload) = packet.parse()?;
 
     let target_cid = header.target_cid.get();
-    let mut proxy_cid_info = None;
+    let mut endpoint_cid_info = None;
     // if proxying is involved, then the target_cid != 0
     if target_cid != 0 {
         // since target cid is not zero, there are two possibilities:
@@ -39,7 +41,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
             } else {
                 // since implicated_cid == target_cid, and target_cid != 0, we are at the destination
                 // and need to use the endpoint crypto in order to process the packets
-                proxy_cid_info = Some((header.session_cid.get(), target_cid))
+                endpoint_cid_info = Some((header.session_cid.get(), target_cid))
             }
         }
     }
@@ -61,7 +63,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
         }
 
         packet_flags::cmd::primary::GROUP_PACKET => {
-            super::primary_group_packet::process(session, cmd_aux, packet, proxy_cid_info)
+            super::primary_group_packet::process(session, cmd_aux, packet, endpoint_cid_info)
         }
 
         packet_flags::cmd::primary::DO_DISCONNECT => {
@@ -81,11 +83,11 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
         }
 
         packet_flags::cmd::primary::PEER_CMD => {
-            super::peer_cmd_packet::process(session, cmd_aux, packet, header_drill_vers, proxy_cid_info)
+            super::peer_cmd_packet::process(session, cmd_aux, packet, header_drill_vers, endpoint_cid_info)
         }
 
         packet_flags::cmd::primary::FILE => {
-            super::file_packet::process(session, packet, proxy_cid_info)
+            super::file_packet::process(session, packet, endpoint_cid_info)
         }
 
         _ => {

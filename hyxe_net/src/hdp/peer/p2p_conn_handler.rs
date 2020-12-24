@@ -4,28 +4,29 @@ use crate::hdp::hdp_session::{HdpSession, SessionState};
 use crate::error::NetworkError;
 use tokio::stream::StreamExt;
 use crate::hdp::misc;
-use futures::channel::mpsc::{unbounded, UnboundedSender};
+use crate::hdp::outbound_sender::{unbounded, UnboundedSender};
 use std::sync::Arc;
 use atomic::Atomic;
 use crate::hdp::hdp_server::{HdpServerResult, HdpServer, Ticket};
-use bytes::Bytes;
 use tokio::sync::oneshot::{Receiver, Sender, channel};
 use crate::hdp::peer::peer_layer::{PeerSignal, PeerConnectionType};
 use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
 use ez_pqcrypto::PostQuantumContainer;
 use hyxe_crypt::drill::Drill;
 use crate::functional::IfEqConditional;
+use crate::hdp::outbound_sender::OutboundTcpSender;
+use crate::hdp::hdp_packet::HeaderObfuscator;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
     stopper: Option<Sender<()>>,
-    pub p2p_primary_stream: UnboundedSender<Bytes>,
+    pub p2p_primary_stream: OutboundTcpSender,
     pub from_listener: bool,
     pub fallback: Option<u64>
 }
 
 impl DirectP2PRemote {
-    fn new(stopper: Sender<()>, p2p_primary_stream: UnboundedSender<Bytes>, from_listener: bool) -> Self {
+    fn new(stopper: Sender<()>, p2p_primary_stream: OutboundTcpSender, from_listener: bool) -> Self {
         Self { stopper: Some(stopper), p2p_primary_stream, from_listener, fallback: None }
     }
 }
@@ -74,7 +75,7 @@ pub async fn p2p_conn_handler(mut p2p_listener: TcpListener, session: HdpSession
     Err(NetworkError::InternalError("Ended"))
 }
 
-fn handle_p2p_stream(p2p_stream: TcpStream, implicated_cid: Arc<Atomic<Option<u64>>>, session: HdpSession, kernel_tx: UnboundedSender<HdpServerResult>, from_listener: bool) -> std::io::Result<UnboundedSender<Bytes>> {
+fn handle_p2p_stream(p2p_stream: TcpStream, implicated_cid: Arc<Atomic<Option<u64>>>, session: HdpSession, kernel_tx: UnboundedSender<HdpServerResult>, from_listener: bool) -> std::io::Result<OutboundTcpSender> {
     // SECURITY: Since this branch only occurs IF the primary session is connected, then the primary user is
     // logged-in. However, what if a malicious user decides to connect here?
     // They won't be able to register through here, since registration requires that the state is NeedsRegister
@@ -87,10 +88,13 @@ fn handle_p2p_stream(p2p_stream: TcpStream, implicated_cid: Arc<Atomic<Option<u6
     log::info!("[P2P-stream {}] New stream from {:?}", from_listener.if_eq(true, "listener").if_false("client"), &remote_peer);
     let (sink, stream) = misc::net::safe_split_stream(p2p_stream);
     let (p2p_primary_stream_tx, p2p_primary_stream_rx) = unbounded();
+    let p2p_primary_stream_tx = OutboundTcpSender::from(p2p_primary_stream_tx);
+    let (header_obfuscator, packet_opt) = HeaderObfuscator::new(from_listener);
+
     let (stopper_tx, stopper_rx) = channel();
     let p2p_handle = P2PInboundHandle::new(remote_peer, local_bind_addr.port(), implicated_cid.clone(), kernel_tx.clone(), p2p_primary_stream_tx.clone());
-    let writer_future = HdpSession::outbound_stream(p2p_primary_stream_rx, sink);
-    let reader_future = HdpSession::execute_inbound_stream(stream, session.clone(), Some(p2p_handle));
+    let writer_future = HdpSession::outbound_stream(p2p_primary_stream_rx, sink, header_obfuscator.clone());
+    let reader_future = HdpSession::execute_inbound_stream(stream, session.clone(), Some(p2p_handle), header_obfuscator);
     let stopper_future = p2p_stopper(stopper_rx);
 
     let direct_p2p_remote = DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx.clone(), from_listener);
@@ -138,6 +142,11 @@ fn handle_p2p_stream(p2p_stream: TcpStream, implicated_cid: Arc<Atomic<Option<u6
 
     let _ = spawn!(future);
 
+    // send the packet, if necessary
+    if let Some(zero) = packet_opt {
+        p2p_primary_stream_tx.unbounded_send(zero).map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))?;
+    }
+
     Ok(p2p_primary_stream_tx)
 }
 
@@ -148,11 +157,11 @@ pub struct P2PInboundHandle {
     // this has to be the CID of the local session, not the peer's CID
     pub implicated_cid: Arc<Atomic<Option<u64>>>,
     pub kernel_tx: UnboundedSender<HdpServerResult>,
-    pub to_primary_stream: UnboundedSender<Bytes>
+    pub to_primary_stream: OutboundTcpSender
 }
 
 impl P2PInboundHandle {
-    fn new(remote_peer: SocketAddr, local_bind_port: u16, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, to_primary_stream: UnboundedSender<Bytes>) -> Self {
+    fn new(remote_peer: SocketAddr, local_bind_port: u16, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, to_primary_stream: OutboundTcpSender) -> Self {
         Self { remote_peer, local_bind_port, implicated_cid, kernel_tx, to_primary_stream }
     }
 }
@@ -193,7 +202,7 @@ endpoint_pqc: Arc<PostQuantumContainer>, endpoint_drill: Drill) -> std::io::Resu
     }
 }
 
-fn send_hole_punch_packet(session: HdpSession, signal: PeerSignal, endpoint_pqc: Arc<PostQuantumContainer>, endpoint_drill: Drill, ticket: Ticket, expected_peer_cid: u64, p2p_outbound_stream_opt: Option<&UnboundedSender<Bytes>>) -> std::io::Result<()> {
+fn send_hole_punch_packet(session: HdpSession, signal: PeerSignal, endpoint_pqc: Arc<PostQuantumContainer>, endpoint_drill: Drill, ticket: Ticket, expected_peer_cid: u64, p2p_outbound_stream_opt: Option<&OutboundTcpSender>) -> std::io::Result<()> {
     let sess = inner!(session);
     let p2p_outbound_stream = p2p_outbound_stream_opt.unwrap_or_else(|| sess.to_primary_stream.as_ref().unwrap());
     let timestamp = sess.time_tracker.get_global_time_ns();

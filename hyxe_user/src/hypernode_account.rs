@@ -1,7 +1,5 @@
 use crate::misc::AccountError;
 use async_trait::async_trait;
-use std::path::PathBuf;
-
 /// The file extension for (H)yper(N)ode(A)ccounts (server/client NAC)
 pub const NAC_SERIALIZED_EXTENSION: &'static str = "hna";
 /// The file extension for (H)yper(N)ode(A)ccounts (CNAC only)
