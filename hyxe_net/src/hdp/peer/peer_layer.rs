@@ -6,13 +6,14 @@ use tokio::time::{delay_queue, DelayQueue, Error};
 use crate::constants::PEER_EVENT_MAILBOX_SIZE;
 use crate::error::NetworkError;
 use std::pin::Pin;
-use futures::task::{Context, Poll, Waker};
+use futures::task::{Context, Poll, AtomicWaker};
 use tokio::time::Duration;
 use futures::Stream;
 use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
 use std::fmt::{Display, Formatter};
 use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+use std::sync::Arc;
 
 #[derive(Default)]
 /// When HyperLAN client A needs to send a POST_REGISTER signal to HyperLAN client B (who is disconnected),
@@ -23,7 +24,7 @@ pub struct HyperNodePeerLayerInner {
     pub(crate) observed_postings: HashMap<u64, HashMap<Ticket, TrackedPosting>>,
     pub(crate) message_groups: HashMap<u64, (u8, HashMap<u8, MessageGroup>)>,
     delay_queue: DelayQueue<(u64, Ticket)>,
-    waker: Option<Waker>
+    waker: Arc<AtomicWaker>
 }
 
 define_outer_struct_wrapper!(HyperNodePeerLayer, HyperNodePeerLayerInner);
@@ -288,9 +289,10 @@ impl HyperNodePeerLayer {
         if let Some(map) = this.observed_postings.get_mut(&implicated_cid) {
             let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
             map.insert(ticket, tracked_posting);
-            if let Some(waker) = this.waker.as_ref() {
-                waker.wake_by_ref();
-            }
+
+            let waker = this.waker.clone();
+            std::mem::drop(this);
+            waker.wake();
 
             true
         } else {
@@ -310,10 +312,12 @@ impl HyperNodePeerLayer {
             let mut map = HashMap::with_capacity(1);
             let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
             map.insert(ticket, tracked_posting);
-            if let Some(waker) = this.waker.as_ref() {
-                waker.wake_by_ref();
-            }
             this.observed_postings.insert(implicated_cid, map);
+
+            let waker = this.waker.clone();
+            std::mem::drop(this);
+            waker.wake();
+
             true
         } else {
             false
@@ -344,9 +348,7 @@ impl HyperNodePeerLayer {
 
     pub(self) fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         let mut this = inner_mut!(self);
-        if this.waker.is_none() {
-            this.waker = Some(cx.waker().clone());
-        }
+        this.waker.register(cx.waker());
 
         while let Some(res) = futures::ready!(this.delay_queue.poll_expired(cx)) {
             let (implicated_cid, ticket) = res?.into_inner();
@@ -376,6 +378,17 @@ impl Stream for HyperNodePeerLayer {
             Err(_) => {
                 Poll::Ready(None)
             }
+        }
+    }
+}
+
+impl futures::Future for HyperNodePeerLayer {
+    type Output = Result<(), NetworkError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match futures::ready!(self.poll_next(cx)) {
+            Some(_) => Poll::Pending,
+            None => Poll::Ready(Err(NetworkError::InternalError("Queue handler signalled shutdown")))
         }
     }
 }

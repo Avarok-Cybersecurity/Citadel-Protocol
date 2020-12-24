@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use bitvec::vec::BitVec;
 use byteorder::{BigEndian, ReadBytesExt};
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use bytes::buf::BufExt;
 use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
@@ -66,7 +66,7 @@ pub fn calculate_nonce_version(a: usize, b: u64) -> usize {
 #[derive(Clone)]
 pub struct PacketCoordinate {
     /// The encrypted packet
-    pub packet: Bytes,
+    pub packet: BytesMut,
     /// The coordinate data of the packet along the wave
     pub vector: PacketVector,
 }
@@ -126,7 +126,6 @@ pub fn scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: Sec
             let vector = generate_packet_vector(true_packet_sequence, group_id, drill);
             header_inscriber(&vector, drill, object_id, target_cid, &mut packet);
             packet.put(ciphertext_packet_bytes);
-            let packet = packet.freeze();
             (true_packet_sequence, PacketCoordinate { packet, vector })
         }).collect::<Vec<(usize, PacketCoordinate)>>();
         packets.shuffle(&mut ThreadRng::default());
@@ -195,7 +194,6 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level:
             let vector = generate_packet_vector(true_packet_sequence, group_id, drill);
             header_inscriber(&vector, drill, object_id, target_cid, &mut packet);
             packet.put(ciphertext_packet_bytes);
-            let packet = packet.freeze();
             (true_packet_sequence, PacketCoordinate { packet, vector })
         }).collect::<Vec<(usize, PacketCoordinate)>>();
         packets.shuffle(&mut ThreadRng::default());
@@ -218,7 +216,7 @@ pub fn par_encrypt_group_unified<T: AsRef<[u8]>>(plain_text: T, drill: &Drill, q
     let vector_singleton = generate_packet_vector(0, group_id, drill);
     header_inscriber(&vector_singleton, drill, object_id, target_cid, &mut packet);
     let _ = drill.aes_gcm_encrypt_into(0, quantum_container, plaintext, &mut packet)?;
-    let coord = PacketCoordinate { vector: vector_singleton, packet: packet.freeze()};
+    let coord = PacketCoordinate { vector: vector_singleton, packet};
     let group_receiver_config = GroupReceiverConfig::new(group_id as usize, 1, header_size_bytes, plaintext.len(), output_len, output_len, 1, plaintext.len(), plaintext.len(), 1, 1);
     let mut packets = HashMap::with_capacity(1);
     packets.insert(0, coord);

@@ -150,7 +150,7 @@ impl Toolset {
                 self.map.push_front(drill);
                 Ok(())
             } else {
-                panic!("This shouldn't happen");
+                unreachable!("This shouldn't happen");
             }
         } else {
             self.map.push_front(drill);

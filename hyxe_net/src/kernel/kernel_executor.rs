@@ -1,5 +1,4 @@
-use futures::channel::mpsc::{unbounded, UnboundedReceiver};
-use futures::StreamExt;
+use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
 
 use hyxe_user::account_manager::AccountManager;
 
@@ -8,6 +7,7 @@ use crate::error::NetworkError;
 use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult};
 use hyxe_nat::hypernode_type::HyperNodeType;
 use tokio::net::ToSocketAddrs;
+use tokio::stream::StreamExt;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {

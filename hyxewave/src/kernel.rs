@@ -223,10 +223,7 @@ impl NetKernel for CLIKernel {
                     self.console_context.proxy_to_ffi(KernelResponse::Error(ticket.unwrap_or(Ticket(0)).0, err.clone()))
                 }
 
-                // if the error relates to the HdpServer crashing, close the kernel immediately
-                if self.remote.as_ref().unwrap().is_closed() {
-                    return Err(NetworkError::Generic(err));
-                }
+                // TODO: Determine mechanism for shutting down if the error is severe enough. Check global flag?
             }
 
             // FFI handler is built-in to the ticket callback
@@ -298,12 +295,12 @@ impl NetKernel for CLIKernel {
             HdpServerResult::MessageDelivery(ticket, cid, data) => {
                 // NOTE: This data should only be delivered if sent if there is n=1 hop. Otherwise,
                 // channels are used
-                let message = String::from_utf8(data.into_buffer()).unwrap_or(String::from(INVALID_UTF8));
+                let message = String::from_utf8(data.clone().into_buffer()).unwrap_or(String::from(INVALID_UTF8));
                 if self.console_context.is_ffi {
                     self.console_context.proxy_to_ffi(KernelResponse::NodeMessage(ticket.0, cid, 0, 0, message));
                 } else {
                     colour::white!("Server message[{}]: ", cid);
-                    colour::yellow!("{}\n", message);
+                    colour::yellow!("{}\n", String::from_utf8_lossy(&data.into_buffer()[..]));
                 }
             }
 

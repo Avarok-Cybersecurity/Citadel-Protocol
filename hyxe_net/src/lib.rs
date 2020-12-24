@@ -12,6 +12,10 @@ unused_results,
 warnings
 )]
 
+#![allow(
+dead_code
+)]
+
 #[cfg(not(feature = "multi-threaded"))]
 #[macro_use]
 pub mod macros {
@@ -121,12 +125,14 @@ pub mod macros {
 
     macro_rules! inner {
     ($item:expr) => {
+        //$item.inner.try_read_for(std::time::Duration::from_millis(1000)).expect("PANIC ON READ (TIMEOUT)")
         $item.inner.read()
     };
 }
 
     macro_rules! inner_mut {
     ($item:expr) => {
+        //$item.inner.try_write_for(std::time::Duration::from_millis(1000)).expect("PANIC ON WRITE (TIMEOUT)")
         $item.inner.write()
     };
 }
@@ -219,6 +225,8 @@ pub mod re_imports {
     pub use futures::future::try_join3;
 
     pub use hyxe_nat::hypernode_type::HyperNodeType;
+
+    pub use ez_pqcrypto::build_tag;
 }
 
 /// Contains the streams for creating connections
@@ -237,3 +245,6 @@ pub mod proposed_credentials;
 pub mod functional;
 /// For handling differential function input types between single/multi-threaded modes
 pub mod inner_arg;
+/// For distributed computation
+#[cfg(feature = "dapp")]
+pub mod dapp;

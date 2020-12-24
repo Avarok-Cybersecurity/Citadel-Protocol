@@ -6,8 +6,8 @@ use std::sync::atomic::Ordering::SeqCst;
 use nanoserde::{SerBin, DeBin};
 
 use std::net::SocketAddr;
-use futures::{StreamExt, Sink, SinkExt};
-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures::{StreamExt, Sink};
+use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::try_join;
 use log::info;
 use tokio::net::{TcpListener, TcpStream};
@@ -424,9 +424,6 @@ impl HdpServerRemote {
             .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    pub fn is_closed(&self) -> bool {
-        self.outbound_send_request_tx.is_closed()
-    }
 
     fn get_next_ticket(&self) -> Ticket {
         Ticket(self.ticket_counter.fetch_add(1, SeqCst) as u64)
@@ -438,23 +435,20 @@ impl Unpin for HdpServerRemote {}
 impl Sink<(Ticket, HdpServerRequest)> for HdpServerRemote {
     type Error = NetworkError;
 
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.get_mut().outbound_send_request_tx.poll_ready_unpin(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 
     fn start_send(self: Pin<&mut Self>, item: (Ticket, HdpServerRequest)) -> Result<(), Self::Error> {
         self.get_mut().send_with_custom_ticket(item.0, item.1)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.get_mut().outbound_send_request_tx.poll_flush_unpin(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.get_mut().outbound_send_request_tx.poll_close_unpin(cx)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 }
 

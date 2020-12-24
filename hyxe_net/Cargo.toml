@@ -6,9 +6,10 @@ edition = "2018"
 workspace = "../"
 
 [features]
-default = ["multi-threaded"]
-single-threaded = []
-multi-threaded = []
+default = ["single-threaded", "dapp"]
+single-threaded = ["ez_pqcrypto/aes", "hyxe_crypt/single-threaded"]
+multi-threaded = ["ez_pqcrypto/aes", "ez_pqcrypto/unordered", "hyxe_crypt/multi-threaded"]
+dapp = ["sha2", "crossbeam-utils"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -18,11 +19,7 @@ futures = "0.3.5"
 #rav1e = {version = "0.4.0-alpha", default-features=false, features = ["binaries", "signal_support"]}
 bstr = "0.2.13"
 log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_info"] }
-#async-std = { version = "1.6.2", features = ["unstable"] }
 async-trait = "0.1.31"
-#base64 = { path = "../base64", version = "0.10.1" }
-#tokio = { path = "../tokio/tokio", version = "0.3.0", features = ["full"] }
-#tokio-util = { path = "../tokio/tokio-util", version = "0.4.0", features = ["udp", "codec"] }
 tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
 tokio = { version = "^0.2.22", features = ["full"] }
 parking_lot = "*"
@@ -35,15 +32,14 @@ atomic = "0.5.0"
 secstr = "0.4.0"
 net2 = "0.2.34"
 num = "0.2.1"
-#rsntp = "0.3.1"
 either = "1.5.3"
 bitvec = "0.17.3"
-#futures_codec = { git = "https://github.com/matthunz/futures-codec/", version = "0.4.0"}
-hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0" }
+hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }
 hyxe_user = { path = "../hyxe_user", version = "0.1.0" }
 hyxe_nat = { path = "../hyxe_nat", version = "0.1.0" }
-ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1" }
+ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
 rust-argon2 = "0.8.3"
 num_cpus = "1.13.0"
-#radix64 = "*"
-#base64-codec = { path = "../base64-codec", version = "0.1.0" }
+crossbeam-utils = { version = "0.8.1", optional=true }
+
+sha2 = { version = "0.9.2", optional=true}

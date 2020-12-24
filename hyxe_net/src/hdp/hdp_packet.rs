@@ -1,11 +1,18 @@
 use std::io;
 
 use byteorder::{NetworkEndian, WriteBytesExt};
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut, Buf};
 use zerocopy::{AsBytes, FromBytes, I64, LayoutVerified, U32, U64, Unaligned};
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use rand::prelude::ThreadRng;
+use rand::{RngCore, Rng};
+use atomic::{Atomic, Ordering};
+use crate::functional::PairMap;
+use bytes::buf::BufMutExt;
+use std::io::Write;
 
 pub(crate) mod packet_flags {
     pub(crate) mod cmd {
@@ -237,8 +244,8 @@ impl HdpHeader {
     }
 
     /// Creates a packet from self
-    pub fn into_packet(self) -> Bytes {
-        Bytes::copy_from_slice(self.as_bytes())
+    pub fn into_packet(self) -> BytesMut {
+        BytesMut::from(self.as_bytes())
     }
 
     pub fn into_packet_mut(self) -> BytesMut {
@@ -287,8 +294,8 @@ impl HdpPacket {
     }
 
     /// Creates a packet out of the inner device
-    pub fn into_packet(self) -> Bytes {
-        self.packet.freeze()
+    pub fn into_packet(self) -> BytesMut {
+        self.packet
     }
 
     /// Parses the header
@@ -344,5 +351,126 @@ impl HdpPacket {
         let local_port = self.local_port;
 
         (header_bytes, payload_bytes, remote_peer, local_port)
+    }
+}
+
+
+#[derive(Clone)]
+pub struct HeaderObfuscator {
+    inner: Arc<Atomic<Option<u128>>>
+}
+
+impl HeaderObfuscator {
+    pub fn new(is_server: bool) -> (Self, Option<BytesMut>) {
+        if is_server {
+            (Self::new_server(), None)
+        } else {
+            Self::new_client()
+                .map_right(Some)
+        }
+    }
+    pub fn on_packet_received(&self, packet: &mut BytesMut) -> Option<()> {
+        //log::info!("[Header-scrambler] RECV {:?}", &packet[..]);
+        if let Some(val) = self.inner.load(Ordering::Acquire) {
+            //log::info!("[Header-scrambler] received ordinary packet");
+            apply_cipher(val, true, packet);
+            Some(())
+        } else {
+            if packet.len() >= 16 && packet.len() < HDP_HEADER_BYTE_LEN {
+                //log::info!("[Header-Scrambler] Loading first-time packet {:?}", &packet[..]);
+                // we are only interested in taking the first 16 bytes
+                let val0 = packet.get_u64();
+                let val1 = packet.get_u64();
+                self.store(val0, val1);
+            } else {
+                log::warn!("Discarding invalid packet (LEN: {})", packet.len());
+            }
+
+            None
+        }
+    }
+
+    /// This will only obfuscate packets that are at least HDP_HEADER_BYTE_LEN
+    pub fn prepare_outbound(&self, mut packet: BytesMut) -> Bytes {
+        if packet.len() >= HDP_HEADER_BYTE_LEN {
+            //log::info!("[Header-scrambler] Before: {:?}", &packet[..]);
+            let val = self.inner.load(Ordering::Acquire).unwrap();
+            apply_cipher(val, false, &mut packet);
+            //log::info!("[Header-scrambler] After: {:?}", &packet[..]);
+        }
+
+        packet.freeze()
+    }
+
+    /// Returns to the client an instance of self coupled with the required init packet
+    pub fn new_client() -> (Self, BytesMut) {
+        let mut rng = ThreadRng::default();
+        let mut fill0 = [0u8; 8];
+        let mut fill1 = [0u8; 8];
+
+        rng.fill(&mut fill0);
+        rng.fill(&mut fill1);
+
+        let val0 = u64::from_be_bytes(fill0);
+        let val1 = u64::from_be_bytes(fill1);
+        //log::info!("[header-scrambler] {} -> {:?} | {} -> {:?}", val0, &fill0, val1, &fill1);
+        // we have 16 bytes used. Now, choose a random number of bytes between 0 and HDP_HEADER_BYTE_LEN - 16 to fill
+        let bytes_to_add = rng.gen_range(0, HDP_HEADER_BYTE_LEN - 17);
+        let mut packet = vec![0; 16 + bytes_to_add];
+        let tmp = &mut packet[..];
+        let mut tmp = tmp.writer();
+        tmp.write_all(&fill0 as &[u8]).unwrap();
+        tmp.write_all(&fill1 as &[u8]).unwrap();
+
+        rng.fill_bytes(&mut packet[16..]);
+        //log::info!("[Header-scrambler] Prepared packet: {:?}", &packet[..]);
+        let packet = BytesMut::from(&packet[..]);
+        let this = Self::new_from_u64s(val0, val1);
+        (this, packet)
+    }
+
+    pub fn new_server() -> Self {
+        Self { inner: Arc::new(Atomic::new(None)) }
+    }
+
+    fn store(&self, val0: u64, val1: u64) {
+        self.inner.store(Some(u64s_to_u128(val0, val1)), Ordering::SeqCst);
+    }
+
+    fn new_from_u64s(val0: u64, val1: u64) -> Self {
+        Self { inner: Arc::new(Atomic::new(Some(u64s_to_u128(val0, val1)))) }
+    }
+}
+
+fn u64s_to_u128(val0: u64, val1: u64) -> u128 {
+    let mut ret = [0u8; 16];
+    let val0_bytes = val0.to_be_bytes();
+    let val1_bytes = val1.to_be_bytes();
+    for x in 0..8 {
+        ret[x] = val0_bytes[x];
+        ret[x + 8] = val1_bytes[x];
+    }
+
+    u128::from_be_bytes(ret)
+}
+
+/// panics if packet is not of proper length
+#[inline]
+fn apply_cipher(val: u128, inverse: bool, packet: &mut BytesMut) {
+    let ref bytes = val.to_be_bytes();
+    let (bytes0, bytes1) = bytes.split_at(8);
+    let packet = &mut packet[..HDP_HEADER_BYTE_LEN];
+    bytes0.iter().zip(bytes1.iter())
+        .cycle()
+        .zip(packet.iter_mut())
+        .for_each(|((a, b), c)| cipher_inner(*a, *b, c, inverse))
+}
+
+#[inline]
+fn cipher_inner(a: u8, b: u8, c: &mut u8, inverse: bool) {
+    if inverse {
+        *c = (*c ^ b).wrapping_sub(a);
+    } else {
+        *c = c.wrapping_add(a) ^ b;
     }
 }

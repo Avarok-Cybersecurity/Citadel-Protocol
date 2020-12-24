@@ -2,7 +2,8 @@ use std::net::IpAddr;
 //use async_std::prelude::*;
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt, Future, Stream};
-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
+//use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
+use crate::hdp::outbound_sender::{unbounded, channel, UnboundedSender, UnboundedReceiver, SendError};
 use tokio::net::{TcpStream, UdpSocket, TcpListener};
 use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
@@ -16,14 +17,14 @@ use hyxe_user::client_account::ClientNetworkAccount;
 
 use crate::constants::{DEFAULT_PQC_ALGORITHM, INITIAL_RECONNECT_LOCKOUT_TIME_NS, LOGIN_EXPIRATION_TIME, DRILL_UPDATE_FREQUENCY_LOW_BASE, KEEP_ALIVE_INTERVAL_MS, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, CODEC_BUFFER_CAPACITY};
 use crate::error::NetworkError;
-use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
+use crate::hdp::hdp_packet::{HdpPacket, packet_flags, HeaderObfuscator};
 use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter};
 //use futures_codec::Framed;
 use crate::hdp::hdp_packet_processor::{self, GroupProcessorResult, PrimaryProcessorResult};
 use crate::hdp::hdp_packet_processor::includes::{SocketAddr, Duration};
 use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote};
 use crate::hdp::hdp_session_manager::HdpSessionManager;
-use crate::hdp::outbound_sender::{OutboundUdpSender, KEEP_ALIVE};
+use crate::hdp::outbound_sender::{OutboundUdpSender, KEEP_ALIVE, OutboundTcpReceiver, OutboundTcpSender};
 use crate::hdp::state_container::{OutboundTransmitterContainer, StateContainerInner, VirtualConnectionType, VirtualTargetType, GroupKey, OutboundFileTransfer, FileKey, StateContainer, GroupSender};
 use crate::hdp::time::TransferStats;
 use crate::proposed_credentials::ProposedCredentials;
@@ -74,7 +75,7 @@ pub struct HdpSessionInner {
     pub(super) wave_socket_loader: Option<tokio::sync::oneshot::Sender<Vec<(UdpSocket, HolePunchedSocketAddr)>>>,
     // Sends results directly to the kernel
     pub(super) kernel_tx: UnboundedSender<HdpServerResult>,
-    pub(super) to_primary_stream: Option<UnboundedSender<Bytes>>,
+    pub(super) to_primary_stream: Option<OutboundTcpSender>,
     pub(super) to_wave_ports: Option<OutboundUdpSender>,
     pub(super) post_quantum: Option<Arc<PostQuantumContainer>>,
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
@@ -247,8 +248,10 @@ impl HdpSession {
         let (writer, reader) = misc::net::safe_split_stream(tcp_stream);
 
         let (primary_outbound_tx, primary_outbound_rx) = unbounded();
+        let primary_outbound_tx = OutboundTcpSender::from(primary_outbound_tx);
 
         let mut this_ref = inner_mut!(this);
+        let (obfuscator, packet_opt) = HeaderObfuscator::new(this_ref.is_server);
         let sess_id = this_ref.kernel_ticket;
         this_ref.to_primary_stream = Some(primary_outbound_tx.clone());
 
@@ -266,19 +269,19 @@ impl HdpSession {
         this_ref.wave_socket_loader = Some(socket_loader_tx);
 
         // Ensure the tx forwards to the writer
-        let writer_future = Self::outbound_stream(primary_outbound_rx, writer);
-        let reader_future = Self::execute_inbound_stream(reader, this_inbound, None);
+        let writer_future = Self::outbound_stream(primary_outbound_rx, writer, obfuscator.clone());
+        let reader_future = Self::execute_inbound_stream(reader, this_inbound, None, obfuscator);
         //let timer_future = Self::execute_timer(this.clone());
         let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
         let socket_loader_future = Self::socket_loader(this_socket_loader, to_kernel_tx_clone.clone(), socket_loader_rx);
 
-        let handle_zero_state = Self::handle_zero_state(primary_outbound_tx.clone(), this_outbound, this_ref.state, timestamp, local_nid, cnac_opt);
+        let handle_zero_state = Self::handle_zero_state(packet_opt, primary_outbound_tx.clone(), this_outbound, this_ref.state, timestamp, local_nid, cnac_opt);
         std::mem::drop(this_ref);
 
         let session_future = FuturesUnordered::new();
         session_future.push(Box::pin(writer_future) as Pin<Box<dyn Future<Output=Result<(), NetworkError>>>>);
         session_future.push(Box::pin(reader_future));
-        session_future.push(Box::pin(queue_worker_future));
+        //session_future.push(Box::pin(queue_worker_future));
         // TODO: if local node type is pure_server, don't add the below
         session_future.push(Box::pin(socket_loader_future));
         if let Some(p2p_listener) = p2p_listener {
@@ -291,6 +294,12 @@ impl HdpSession {
             log::error!("Unable to proceed past session zero-state. Stopping session");
             return Err((err, implicated_cid.load(Ordering::SeqCst)));
         }
+
+        // this will automatically drop when getting polled, because it tries upgrading a Weak reference to the session
+        // as such, if it cannot, it will end the future. We do this to ensure there is no deadlocking.
+        // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
+        // separate task, we solve the issue
+        let _ = spawn!(queue_worker_future);
 
         session_future.try_collect::<Vec<()>>().await.map(|_| {
             implicated_cid.load(Ordering::SeqCst)
@@ -315,7 +324,11 @@ impl HdpSession {
     }
 
     /// Before going through the usual loopy business, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
-    async fn handle_zero_state(to_outbound: UnboundedSender<Bytes>, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
+    async fn handle_zero_state(zero_packet: Option<BytesMut>, to_outbound: OutboundTcpSender, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
+        if let Some(zero) = zero_packet {
+            to_outbound.unbounded_send(zero).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
+        }
+
         match state {
             SessionState::NeedsRegister => {
                 log::info!("Beginning registration subroutine!");
@@ -416,11 +429,13 @@ impl HdpSession {
         })
     }
 
-    pub async fn outbound_stream(primary_outbound_rx: UnboundedReceiver<Bytes>, mut writer: CleanShutdownSink<TcpStream, LengthDelimitedCodec, Bytes>) -> Result<(), NetworkError> {
-        writer.send_all(&mut primary_outbound_rx.map(Ok)).map_err(|err| NetworkError::Generic(err.to_string())).await
+    pub async fn outbound_stream(primary_outbound_rx: OutboundTcpReceiver, mut writer: CleanShutdownSink<TcpStream, LengthDelimitedCodec, Bytes>, header_obfuscator: HeaderObfuscator) -> Result<(), NetworkError> {
+        writer.send_all(&mut primary_outbound_rx.map(|packet| {
+            Ok(header_obfuscator.prepare_outbound(packet))
+        })).map_err(|err| NetworkError::Generic(err.to_string())).await
     }
 
-    pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<TcpStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>) -> Result<(), NetworkError> {
+    pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<TcpStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>, header_obfuscator: HeaderObfuscator) -> Result<(), NetworkError> {
         log::info!("HdpSession async inbound-stream subroutine executed");
         let (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream) = if let Some(p2p) = p2p_handle {
             (p2p.remote_peer, p2p.local_bind_port, p2p.implicated_cid, p2p.kernel_tx, p2p.to_primary_stream)
@@ -452,7 +467,7 @@ impl HdpSession {
 
                 Some(Ok(packet)) => {
                     //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
-                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), local_primary_port, packet) {
+                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), local_primary_port, packet, &header_obfuscator) {
                         PrimaryProcessorResult::ReplyToSender(return_packet) => {
                             Self::send_to_primary_stream_closure(&primary_stream, &kernel_tx, return_packet, None)?;
                         }
@@ -479,7 +494,7 @@ impl HdpSession {
         }
     }
 
-    fn send_to_primary_stream_closure(to_primary_stream: &UnboundedSender<Bytes>, kernel_tx: &UnboundedSender<HdpServerResult>, msg: Bytes, ticket: Option<Ticket>) -> Result<(), NetworkError>{
+    fn send_to_primary_stream_closure(to_primary_stream: &OutboundTcpSender, kernel_tx: &UnboundedSender<HdpServerResult>, msg: BytesMut, ticket: Option<Ticket>) -> Result<(), NetworkError>{
         if let Err(err) = to_primary_stream.unbounded_send(msg) {
             kernel_tx.unbounded_send(HdpServerResult::InternalServerError(ticket, err.to_string())).map_err(|err| NetworkError::Generic(err.to_string()))?;
             Err(NetworkError::InternalError("Primary stream closed"))
@@ -734,6 +749,7 @@ impl HdpSession {
 
                         // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
                         // received a signal here
+
                         if let None = next_gs_alerter_rx.next().await {
                             log::warn!("next_gs_alerter: steam ended");
                             return;
@@ -844,7 +860,7 @@ impl HdpSession {
 
 
             // We manually send the header. The tails get sent automatically
-            log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
+            log::info!("[message] Sending GROUP HEADER through primary stream for group {}", group_id);
             let group_len = transmitter.get_total_plaintext_bytes();
             //this.send_to_primary_stream(Some(ticket), transmitter.generate_group_header(virtual_target))?;
             // transmit
@@ -964,7 +980,7 @@ impl HdpSession {
         Ok(())
     }
 
-    async fn wave_outbound_sender<S: SinkExt<(Bytes, SocketAddr)> + Unpin>(local_is_server: bool, mut receiver: UnboundedReceiver<(usize, Bytes)>, hole_punched_addrs: Vec<HolePunchedSocketAddr>, to_kernel_tx: UnboundedSender<HdpServerResult>, mut sinks: Vec<S>) -> Result<(), NetworkError> {
+    async fn wave_outbound_sender<S: SinkExt<(Bytes, SocketAddr)> + Unpin>(local_is_server: bool, mut receiver: UnboundedReceiver<(usize, BytesMut)>, hole_punched_addrs: Vec<HolePunchedSocketAddr>, to_kernel_tx: UnboundedSender<HdpServerResult>, mut sinks: Vec<S>) -> Result<(), NetworkError> {
         while let Some((idx, packet)) = receiver.next().await {
             if let Some(sink) = sinks.get_mut(idx) {
 
@@ -977,8 +993,8 @@ impl HdpSession {
                 };
 
                 log::trace!("About to send packet w/len {} through UDP sink idx: {} | Dest: {:?}", packet.len(), idx, &send_addr);
-
-                if let Err(_err) = sink.send((packet, send_addr)).await {
+                // TODO: UDP header obfuscation
+                if let Err(_err) = sink.send((packet.freeze(), send_addr)).await {
                     to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(None, format!("Sink Error on idx {}", idx))).unwrap();
                 }
             } else {
@@ -1196,12 +1212,12 @@ impl HdpSessionInner {
 
     /// This will panic if cannot be sent
     #[inline]
-    pub fn send_to_kernel(&self, msg: HdpServerResult) -> Result<(), TrySendError<HdpServerResult>> {
+    pub fn send_to_kernel(&self, msg: HdpServerResult) -> Result<(), SendError<HdpServerResult>> {
         self.kernel_tx.unbounded_send(msg)
     }
 
     /// Will send the message to the primary stream, and will alert the kernel if the stream's connector is full
-    pub fn send_to_primary_stream(&self, ticket: Option<Ticket>, msg: Bytes) -> Result<(), NetworkError> {
+    pub fn send_to_primary_stream(&self, ticket: Option<Ticket>, msg: BytesMut) -> Result<(), NetworkError> {
         if let Some(tx) = self.to_primary_stream.as_ref() {
             match tx.unbounded_send(msg) {
                 Ok(_) => {

@@ -1,5 +1,5 @@
 use futures::Stream;
-use std::task::{Poll, Context, Waker};
+use std::task::{Poll, Context};
 use std::pin::Pin;
 use tokio::time::{delay_queue, DelayQueue, Error};
 use std::collections::HashMap;
@@ -10,6 +10,7 @@ use byteorder::{BigEndian, ByteOrder};
 use crate::inner_arg::InnerParameterMut;
 use crate::macros::SessionBorrow;
 use crate::error::NetworkError;
+use futures::task::AtomicWaker;
 
 /// any index below 10 are reserved for the session. Inbound GROUP timeouts will begin at 10 or high
 pub const QUEUE_WORKER_RESERVED_INDEX: usize = 10;
@@ -20,12 +21,38 @@ pub const DRILL_REKEY_WORKER: usize = 1;
 pub const KEEP_ALIVE_CHECKER: usize = 2;
 pub const FIREWALL_KEEP_ALIVE: usize = 3;
 
-define_outer_struct_wrapper!(SessionQueueWorker, SessionQueueWorkerInner);
+//define_outer_struct_wrapper!(SessionQueueWorker, SessionQueueWorkerInner);
+#[derive(Clone)]
+#[cfg(target_feature = "multi-threaded")]
+pub struct SessionQueueWorker {
+    inner: std::sync::Arc<parking_lot::Mutex<SessionQueueWorkerInner>>,
+    waker: std::syc::Arc<AtomicWaker>
+}
+
+#[derive(Clone)]
+#[cfg(not(target_feature = "multi-threaded"))]
+pub struct SessionQueueWorker {
+    inner: std::rc::Rc<std::cell::RefCell<SessionQueueWorkerInner>>,
+    waker: std::rc::Rc<AtomicWaker>
+}
+
+#[cfg(target_feature = "multi-threaded")]
+macro_rules! unlock {
+    ($item:expr) => {
+        $item.inner.lock()
+    };
+}
+
+#[cfg(not(target_feature = "multi-threaded"))]
+macro_rules! unlock {
+    ($item:expr) => {
+        $item.inner.borrow_mut()
+    };
+}
 
 pub struct SessionQueueWorkerInner {
     entries: HashMap<QueueWorkerTicket, (Box<dyn Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + 'static>, delay_queue::Key, Duration), NoHash>,
     expirations: DelayQueue<QueueWorkerTicket>,
-    waker: Option<Waker>,
     session: Option<WeakHdpSessionBorrow>,
     // keeps track of how many items have been added
     rolling_idx: usize
@@ -45,34 +72,53 @@ pub enum QueueWorkerResult {
 }
 
 impl SessionQueueWorker {
+    #[cfg(target_feature = "multi-threaded")]
     pub fn new() -> Self {
-        Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: None, session: None })
+        let waker = std::sync::Arc::new(AtomicWaker::new());
+        //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
+        Self { waker, inner: std::sync::Arc::new(parking_lot::Mutex::new(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
+    }
+
+    #[cfg(not(target_feature = "multi-threaded"))]
+    pub fn new() -> Self {
+        let waker = std::rc::Rc::new(AtomicWaker::new());
+        //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
+        Self { waker, inner: std::rc::Rc::new(std::cell::RefCell::new(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
     }
 
     /// MUST be called when a session's timer subroutine begins!
     pub fn load_session(&self, session: &HdpSession) {
-        let mut this = inner_mut!(self);
+        let mut this = unlock!(self);
         this.session = Some(session.as_weak());
     }
 
-    /// Inserts a reserved system process
+    pub fn remove_entry(&self, key: QueueWorkerTicket) {
+        let mut this = unlock!(self);
+        if let Some((_, key, _)) = this.entries.remove(&key) {
+            let _ = this.expirations.remove(&key);
+        }
+    }
+
+    /// Inserts a reserved system process. We now spawn this as a task to prevent deadlocking
     #[allow(unused_results)]
     pub fn insert_reserved(&self, key: Option<QueueWorkerTicket>, timeout: Duration, on_timeout: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + 'static) {
-        let mut this = inner_mut!(self);
-        // the zero in the default unwrap ensures that the key is going to be unique
-        let key = key.unwrap_or(QueueWorkerTicket::Oneshot(this.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1, RESERVED_CID_IDX));
-        let delay = this.expirations
-            .insert(key, timeout);
+            //tokio::task::yield_now().await;
+            let mut this = unlock!(self);
+            // the zero in the default unwrap ensures that the key is going to be unique
+            let key = key.unwrap_or(QueueWorkerTicket::Oneshot(this.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1, RESERVED_CID_IDX));
+            let delay = this.expirations
+                .insert(key, timeout);
 
-        if let Some(key) = this.entries.insert(key, (Box::new(on_timeout), delay, timeout)) {
-            log::error!("Overwrote a session key: {:?}", key.1);
-        }
+            if let Some(key) = this.entries.insert(key, (Box::new(on_timeout), delay, timeout)) {
+                log::error!("Overwrote a session key: {:?}", key.1);
+            }
 
-        if let Some(waker) = this.waker.as_ref() {
-            waker.wake_by_ref();
-        }
+            this.rolling_idx += 1;
 
-        this.rolling_idx += 1;
+            std::mem::drop(this);
+            // may not be registered yet
+            self.waker.wake();
+
     }
 
     /// A conveniant way to check on a task once sometime in the future
@@ -80,7 +126,7 @@ impl SessionQueueWorker {
         self.insert_reserved(None, call_in, move |sess| {
             (on_call)(sess);
             QueueWorkerResult::Complete
-        })
+        });
     }
 
     /// factors-in the offset
@@ -91,10 +137,9 @@ impl SessionQueueWorker {
     #[allow(unused_results)]
     fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         //log::info!("poll_purge");
-        let mut this = inner_mut!(self);
-        if this.waker.is_none() {
-            this.waker = Some(cx.waker().clone());
-        }
+        self.waker.register(cx.waker());
+
+        let mut this = unlock!(self);
 
         if let Some(sess) = HdpSession::upgrade_weak(this.session.as_ref().unwrap()) {
             let mut sess = inner_mut!(sess);
@@ -125,7 +170,8 @@ impl SessionQueueWorker {
                                     this.entries.remove(&entry);
                                     // the below line was to fix a bug where the queue wouldn't be polled if ANY
                                     // task returned Complete
-                                    this.waker.as_ref().unwrap().wake_by_ref();
+                                    std::mem::drop(this);
+                                    self.waker.wake();
                                     return Poll::Pending;
                                 }
 
@@ -209,3 +255,4 @@ impl BuildHasher for NoHash {
         NoHash(0)
     }
 }
+

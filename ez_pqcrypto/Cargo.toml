@@ -21,8 +21,8 @@ aes = ["aes-gcm-siv"]
 chacha20 = ["chacha20poly1305"]
 
 [dependencies]
-pqcrypto-traits = "0.3.3"
-pqcrypto-saber = "0.1.5"
+pqcrypto-traits = "*"
+pqcrypto-saber = "*"
 #oqs = { path = "../../tmp2/liboqs-rust/oqs", version = "0.3.0", default-features=false}
 #pqcrypto = { path = "./pqcrypto/pqcrypto" }
 nanoserde = "0.1.16"
