@@ -8,7 +8,7 @@ use tokio::macros::support::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-pub struct NetMutex<T: NetworkTransferable + 'static> {
+pub struct NetMutex<T: NetworkTransferable> {
     lock: Arc<Mutex<T>>,
     // the networking protocol will notify this when the network has locked the status
     access_notifier: parking_lot::Mutex<Receiver<()>>,
@@ -48,7 +48,7 @@ impl<T: NetworkTransferable> Future for &'_ NetMutex<T> {
     }
 }
 
-pub struct AccessGuard<'a, T: NetworkTransferable + 'static> {
+pub struct AccessGuard<'a, T: NetworkTransferable> {
     mutated: bool,
     lock: Option<OwnedMutexGuard<T>>,
     notifier: Sender<OwnedGuard<T>>,
