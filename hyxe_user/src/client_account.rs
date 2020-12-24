@@ -237,7 +237,7 @@ impl ClientNetworkAccount {
         // We must now clear the encrypted contents by taking it
         let internal_nac_hyxefile = inner.inner_encrypted_nac.take().unwrap();
         let decrypted_nac_bytes = internal_nac_hyxefile.read_contents(&drill).map_err(|err| AccountError::IoError(err.to_string()))?;
-        let inner_nac = bytes_to_type::<NetworkAccountInner, _>(&decrypted_nac_bytes).map_err(|err| AccountError::IoError(err.to_string()))?;
+        let inner_nac = bytes_to_type::<NetworkAccountInner>(&decrypted_nac_bytes).map_err(|err| AccountError::IoError(err.to_string()))?;
         let nac = NetworkAccount::new_from_cnac(inner_nac);
         inner.adjacent_nac = Some(nac);
 

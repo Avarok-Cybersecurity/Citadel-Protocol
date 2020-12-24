@@ -1,11 +1,11 @@
-use crate::dapp::primitives::accessor::{NetworkTransferable, Accessor, OwnedGuard};
+use crate::primitives::accessor::{NetworkTransferable, Accessor, OwnedGuard};
 use std::sync::Arc;
-use crate::dapp::primitives::net_mutex::NetMutex;
-use crate::dapp::primitives::net_rwlock::NetRwLock;
+use crate::primitives::net_mutex::NetMutex;
+use crate::primitives::net_rwlock::NetRwLock;
 use tokio::sync::mpsc::{Sender, Receiver};
 use std::ops::Deref;
-use hyxe_user::re_imports::export::PhantomData;
 use std::any::Any;
+use std::marker::PhantomData;
 
 // Each [NetworkVariable] gets stored inside an application hashmap
 #[derive(Clone)]

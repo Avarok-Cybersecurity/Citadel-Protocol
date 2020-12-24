@@ -1,12 +1,12 @@
 use tokio::sync::{Mutex, OwnedMutexGuard};
-use crate::dapp::primitives::accessor::{NetworkTransferable, OwnedGuard};
+use crate::primitives::accessor::{NetworkTransferable, OwnedGuard};
 use futures::task::{Poll, Context};
 use std::ops::{Deref, DerefMut};
-use hyxe_user::re_imports::export::PhantomData;
 use futures::Future;
 use tokio::macros::support::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
+use std::marker::PhantomData;
 
 pub struct NetMutex<T: NetworkTransferable> {
     lock: Arc<Mutex<T>>,

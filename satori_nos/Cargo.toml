@@ -1,0 +1,18 @@
+[package]
+name = "satori_nos"
+version = "0.1.0"
+authors = ["Thomas Braun <tbraun96@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+parking_lot = "0.11.1"
+serde = "1.0.118"
+bincode2 = "2.0.1"
+tokio = { version = "0.2.22", features=["full"] }
+futures = "0.3.8"
+log = { version = "0.4.8", features = ["max_level_info", "release_max_level_info"] }
+
+[dev-dependencies]
+env_logger = "0.8.2"
