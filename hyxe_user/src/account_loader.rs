@@ -72,7 +72,7 @@ pub async fn load_cnac_files() -> Result<HashMap<u64, ClientNetworkAccount>, FsE
 pub async fn load_cnac_from_bytes<T: AsRef<[u8]>>(serialized_bytes: T) -> Result<ClientNetworkAccount, AccountError<String>> {
     let serialized_bytes = serialized_bytes.as_ref();
 
-    let inner = hyxe_fs::system_file_manager::bytes_to_type::<ClientNetworkAccountInner, _>(serialized_bytes).map_err(|err| AccountError::Generic(err.to_string()))?;
+    let inner = hyxe_fs::system_file_manager::bytes_to_type::<ClientNetworkAccountInner>(serialized_bytes).map_err(|err| AccountError::Generic(err.to_string()))?;
     let cid = inner.cid;
     let is_personal = inner.is_local_personal;
 

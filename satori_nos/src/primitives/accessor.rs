@@ -1,9 +1,9 @@
-use crate::error::NetworkError;
-use crate::dapp::primitives::net_mutex::{NetMutex, AccessGuard};
+use crate::primitives::net_mutex::{NetMutex, AccessGuard};
 use std::ops::{Deref, DerefMut};
-use crate::dapp::primitives::net_rwlock::{NetRwLock, RwLockWriteAccessGuard, RwLockReadAccessGuard, OwnedRwLockGuard};
+use crate::primitives::net_rwlock::{NetRwLock, RwLockWriteAccessGuard, RwLockReadAccessGuard, OwnedRwLockGuard};
 use tokio::sync::OwnedMutexGuard;
-use hyxe_fs::io::SyncIO;
+use crate::primitives::error::Error;
+use serde::{Serialize, Deserialize};
 
 pub enum Accessor<T: NetworkTransferable> {
     Mutex(NetMutex<T>),
@@ -48,23 +48,24 @@ impl<T: NetworkTransferable> Accessor<T> {
     }
 }
 
-pub trait NetworkTransferable where Self: SyncIO + Default + Send + Sync + 'static {
-    fn serialize(&self) -> Result<Vec<u8>, NetworkError> {
-        self.serialize_to_vector()
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+pub trait NetworkTransferable where for<'a> Self: Serialize + Deserialize<'a> + Sized + Default + Send + Sync + 'static {
+    fn serialize(&self) -> Result<Vec<u8>, Error> {
+        bincode2::serialize(self)
+            .map_err(|err| Error::Default(err.to_string()))
     }
 
     fn deserialize_from(input: &[u8]) -> Option<Self> {
-        Self::deserialize_from_vector(&input).ok()
+        bincode2::deserialize(input).ok()
     }
 
     /// When the application initializes, the default will be used to set a shared state
-    fn serialize_default() -> Result<Vec<u8>, NetworkError> {
+    fn serialize_default() -> Result<Vec<u8>, Error> {
         <Self as NetworkTransferable>::serialize(&Self::default())
     }
 }
 
-impl<T: SyncIO + Default + Send + Sync + 'static> NetworkTransferable for T {}
+impl<T> NetworkTransferable for T
+    where for<'a> T: Serialize + Deserialize<'a> + Sized + Default + Send + Sync + 'static{}
 
 impl<T: NetworkTransferable> Deref for ReadAccessGuard<'_, T> {
     type Target = T;

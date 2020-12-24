@@ -24,6 +24,7 @@ pub mod prelude {
     pub use crate::hyxe_file::*;
     pub use crate::io::*;
     pub use crate::async_io::*;
+    pub use serde::{Serialize, Deserialize};
 }
 
 /// Re-import
@@ -54,3 +55,6 @@ pub mod file_crypt_scrambler;
 
 /// Contains misc subroutines
 pub mod misc;
+
+/// For handling ser/de into source
+pub mod utils;
