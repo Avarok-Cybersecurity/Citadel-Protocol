@@ -14,16 +14,16 @@ pub struct Application {
 }
 
 impl Application {
-    pub fn create_mutex_variable<T: NetworkTransferable + 'static>(&self, value: T) -> NetworkVariable<T> {
+    pub fn create_mutex_variable<T: NetworkTransferable>(&self, value: T) -> NetworkVariable<T> {
         self.create_variable(value, VariableType::MutualExclusion)
     }
 
-    pub fn create_rwlock_variable<T: NetworkTransferable + 'static>(&self, value: T) -> NetworkVariable<T> {
+    pub fn create_rwlock_variable<T: NetworkTransferable>(&self, value: T) -> NetworkVariable<T> {
         self.create_variable(value, VariableType::ReadWriteLock)
     }
 
-    #[allow(unused_variables)]
-    fn create_variable<T: NetworkTransferable + 'static>(&self, value: T, var_type: VariableType) -> NetworkVariable<T> {
+    #[allow(unused_variables, unused_results)]
+    fn create_variable<T: NetworkTransferable>(&self, value: T, var_type: VariableType) -> NetworkVariable<T> {
         let (notifier_tx, notifier_rx) = channel::<()>(1);
         let (updater_tx, updater_rx) = channel::<OwnedGuard<T>>(1);
         let net_var_inner = NetworkVariableInner::new::<T>(value, var_type, notifier_rx, updater_tx);
