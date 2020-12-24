@@ -54,7 +54,6 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
 
                                     let resp_target_cid = recipient_valid_gate(&virtual_target, wrap_inner_mut!(state_container))?;
 
-
                                     // the below will return None if not ready to accept
                                     let initial_wave_window = state_container.on_group_header_received(&header, &drill, group_receiver_config, virtual_target);
                                     if initial_wave_window.is_some() {
@@ -62,6 +61,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                         std::mem::drop(state_container);
                                         let group_id = header.group.get();
                                         let peer_cid = header.session_cid.get();
+
                                         session.queue_worker.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |sess| {
                                             let mut state_container = inner_mut!(sess.state_container);
                                             let key = GroupKey::new(peer_cid, group_id);
@@ -73,9 +73,10 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                                             if group.object_id != 0 {
                                                                 // belongs to a file. Delete file; stop transmission
                                                                 let key = FileKey::new(peer_cid, group.object_id);
-                                                                if let Some(file) = state_container.inbound_files.remove(&key) {
+                                                                if let Some(_file) = state_container.inbound_files.remove(&key) {
                                                                     // stop the stream to the HD
-                                                                    file.stream_to_hd.close_channel();
+                                                                    //file.stream_to_hd.close_channel();
+                                                                    log::warn!("File transfer expired");
                                                                     // TODO: Create file FIN
                                                                 }
                                                             }
@@ -93,7 +94,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                                 // has been removed, thus is complete
                                                 QueueWorkerResult::Complete
                                             }
-                                        })
+                                        });
                                     }
                                     let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&pqc, object_id, header.group.get(), resp_target_cid, ticket, &drill, initial_wave_window, false, timestamp);
                                     PrimaryProcessorResult::ReplyToSender(group_header_ack)
@@ -308,6 +309,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                     PrimaryProcessorResult::Void
                 } else {
                     // send to kernel
+                    println!("Sending to kernel!~~");
                     let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
                     session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, reconstructed_packet))?;
                     PrimaryProcessorResult::Void

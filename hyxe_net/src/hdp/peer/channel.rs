@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::error::NetworkError;
 use crate::hdp::state_container::VirtualConnectionType;
-use futures::channel::mpsc::UnboundedReceiver;
+use crate::hdp::outbound_sender::UnboundedReceiver;
 use futures::{Sink, Stream};
 use futures::task::{Context, Poll, Waker};
 use tokio::macros::support::Pin;
@@ -169,15 +169,15 @@ impl Stream for PeerChannelRecvHalf {
                     Poll::Pending
                 }
             } else {
-                match self.receiver.try_next() {
-                    Ok(Some(data)) => Poll::Ready(Some(data)),
-                    Err(_) => {
+                match futures::ready!(self.receiver.poll_recv(cx)) {
+                    Some(data) => Poll::Ready(Some(data)),
+                    _ => {
+                        log::error!("[PeerChannelRecvHalf] ending");
                         // when the stream yields Some, it will get polled again.
                         // when that occurs, try_next likely returns None and
                         // we need to signal for Pending to be awoken again
                         Poll::Pending
                     }
-                    _ => Poll::Pending
                 }
             }
         }

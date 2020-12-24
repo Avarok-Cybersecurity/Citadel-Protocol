@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 
-use bytes::{Bytes, BytesMut};
-use futures::channel::mpsc::UnboundedSender;
+use bytes::BytesMut;
+use crate::hdp::outbound_sender::UnboundedSender;
 use tokio::net::{TcpStream, TcpListener};
 
 use hyxe_crypt::prelude::SecurityLevel;
@@ -19,12 +19,10 @@ use crate::proposed_credentials::ProposedCredentials;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::time_tracker::TimeTracker;
 use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, PeerSignal, MailboxTransfer, PeerConnectionType, PeerResponse};
-use crate::hdp::outbound_sender::OutboundUdpSender;
+use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
 use crate::hdp::hdp_packet_processor::includes::{Duration, Drill, HyperNodeAccountInformation};
 use ez_pqcrypto::PostQuantumContainer;
-use futures::StreamExt;
 use std::sync::atomic::Ordering;
-use std::hint::black_box;
 use std::path::PathBuf;
 use crate::hdp::peer::message_group::MessageGroupKey;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState, GroupMemberAlterMode};
@@ -187,6 +185,7 @@ impl HdpSessionManager {
             }
         };
 
+
         let sess_mgr = inner!(session_manager);
         // the final step is to take all virtual conns inside the session, and remove them from other sessions
         let sess = inner!(new_session);
@@ -247,12 +246,10 @@ impl HdpSessionManager {
     // This future should be joined up higher at the [HdpServer] layer
     pub async fn run_peer_container(hdp_session_manager: HdpSessionManager) -> Result<(), NetworkError> {
         let this = inner!(hdp_session_manager);
-        let mut peer_container = this.hypernode_peer_layer.clone();
+        let peer_container = this.hypernode_peer_layer.clone();
 
         std::mem::drop(this);
-        while let Some(_) = peer_container.next().await {
-            black_box(())
-        }
+        let _res = peer_container.await;
 
         Ok(())
     }
@@ -572,7 +569,7 @@ impl HdpSessionManager {
     /// is equal to `cid`, a deadlock will occur.
     ///
     /// Returns true if sent successfully
-    pub fn route_packet_to_primary_stream(&self, cid: u64, ticket_opt: Option<Ticket>, packet: Bytes) -> bool {
+    pub fn route_packet_to_primary_stream(&self, cid: u64, ticket_opt: Option<Ticket>, packet: BytesMut) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
             let sess = inner!(sess);
@@ -620,7 +617,7 @@ impl HdpSessionManager {
     }
 
     /// Returns a sink that allows sending data outbound
-    pub fn get_handle_to_tcp_sender(&self, cid: u64) -> Option<UnboundedSender<Bytes>> {
+    pub fn get_handle_to_tcp_sender(&self, cid: u64) -> Option<OutboundTcpSender> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
             let sess = inner!(sess);
@@ -632,7 +629,7 @@ impl HdpSessionManager {
 
     // Returns both UDP and TCP handles (useful for when the server detects that, during the POST_CONNECT response phase,
     // that client B consented to client A.
-    pub fn get_tcp_udp_senders(&self, cid: u64) -> Option<(UnboundedSender<Bytes>, OutboundUdpSender)> {
+    pub fn get_tcp_udp_senders(&self, cid: u64) -> Option<(OutboundTcpSender, OutboundUdpSender)> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
             let sess = inner!(sess);
@@ -652,7 +649,7 @@ impl HdpSessionManager {
     }
 
     /// Removes a virtual connection `implicated_cid` from `peer_cid`
-    pub fn disconnect_virtual_conn(&self, implicated_cid: u64, peer_cid: u64, on_internal_disconnect: impl FnOnce(&PostQuantumContainer, &Drill) -> Bytes) -> Result<(), String> {
+    pub fn disconnect_virtual_conn(&self, implicated_cid: u64, peer_cid: u64, on_internal_disconnect: impl FnOnce(&PostQuantumContainer, &Drill) -> BytesMut) -> Result<(), String> {
         let this = inner!(self);
         if let Some(peer_sess) = this.sessions.get(&peer_cid) {
             let sess = inner!(peer_sess);
@@ -696,7 +693,7 @@ impl HdpSessionManagerInner {
     /// Stores the `signal` inside the internal timed-queue for `implicated_cid`, and then sends `packet` to `target_cid`.
     /// After `timeout`, the closure `on_timeout` is executed
     #[inline]
-    pub fn route_signal_primary(&mut self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&PostQuantumContainer, &Drill) -> Bytes, timeout: Duration, on_timeout: impl Fn(PeerSignal) + 'static) -> Result<(), String> {
+    pub fn route_signal_primary(&mut self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&PostQuantumContainer, &Drill) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + 'static) -> Result<(), String> {
         if self.account_manager.hyperlan_cid_is_registered(target_cid) {
             // get the target cid's session
             if let Some(sess) = self.sessions.get(&target_cid) {
@@ -742,7 +739,7 @@ impl HdpSessionManagerInner {
     /// Also returns the [TrackedPosting] that was posted when the signal initially crossed through
     /// the HyperLAN Server
     #[inline]
-    pub fn route_signal_response_primary(&mut self, implicated_cid: u64, target_cid: u64, ticket: Ticket, packet: impl FnOnce(&PostQuantumContainer, &Drill) -> Bytes) -> Result<(HdpSession, PeerSignal), String> {
+    pub fn route_signal_response_primary(&mut self, implicated_cid: u64, target_cid: u64, ticket: Ticket, packet: impl FnOnce(&PostQuantumContainer, &Drill) -> BytesMut) -> Result<(HdpSession, PeerSignal), String> {
         // Instead of checking for registration, check the `implicated_cid`'s timed queue for a ticket corresponding to Ticket.
         if let Some(tracked_posting) = self.hypernode_peer_layer.remove_tracked_posting(target_cid, ticket) {
             // since the posting was valid, we just need to forward the signal to `implicated_cid`
@@ -773,7 +770,7 @@ impl HdpSessionManagerInner {
     }
 
     // for use by the server. This skips the whole ticket-tracking processes intermediate to the routing above
-    pub fn send_signal_to_peer_direct(&self, target_cid: u64, packet: impl FnOnce(&PostQuantumContainer, &Drill) -> Bytes) -> Result<(), NetworkError> {
+    pub fn send_signal_to_peer_direct(&self, target_cid: u64, packet: impl FnOnce(&PostQuantumContainer, &Drill) -> BytesMut) -> Result<(), NetworkError> {
         if let Some(peer_sess) = self.sessions.get(&target_cid) {
             let peer_sess = inner!(peer_sess);
             let peer_sender = peer_sess.to_primary_stream.as_ref().ok_or_else(||NetworkError::InternalError("Peer stream absent"))?;

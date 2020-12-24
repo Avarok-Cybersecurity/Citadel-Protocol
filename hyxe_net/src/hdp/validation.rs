@@ -196,7 +196,6 @@ pub(crate) mod group {
             let mut reader = payload.reader();
             let fast_msg = reader.read_u8().ok()? == 1;
             if fast_msg {
-                log::info!("FAST");
                 let message_len = reader.read_u64::<BigEndian>().ok()? as usize;
                 //let payload = reader.into_inner();
                 // are there enough remaining bytes in the payload?

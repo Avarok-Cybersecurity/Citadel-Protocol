@@ -3,7 +3,8 @@ use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, 
 
 use super::includes::*;
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
-use crate::hdp::peer::peer_crypt::{KEP_STAGE1, KeyExchangeProcess, PeerSessionCrypto};
+use crate::hdp::peer::peer_crypt::{KEP_STAGE1, KeyExchangeProcess};
+use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use hyxe_crypt::toolset::Toolset;
 use crate::constants::DEFAULT_PQC_ALGORITHM;
 use crate::macros::SessionBorrow;

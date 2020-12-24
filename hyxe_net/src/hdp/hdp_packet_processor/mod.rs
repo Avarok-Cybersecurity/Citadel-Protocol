@@ -1,6 +1,6 @@
-use bytes::Bytes;
+use bytes::BytesMut;
 use crate::hdp::hdp_server::Ticket;
-use futures::channel::mpsc::TrySendError;
+use crate::hdp::outbound_sender::{SendError, TrySendError};
 use ez_pqcrypto::prelude::Error;
 use hyxe_user::misc::AccountError;
 use crate::hdp::hdp_packet_processor::includes::SecBuffer;
@@ -72,10 +72,10 @@ pub enum PrimaryProcessorResult {
     /// Do nothing
     Void,
     /// Returns some data to the sender
-    ReplyToSender(Bytes),
+    ReplyToSender(BytesMut),
     /// Sends data to kernel
     /// Replies to the sender, then closes the session
-    FinalReply(Bytes),
+    FinalReply(BytesMut),
     /// Tells the system to shutdown
     EndSession(&'static str),
 }
@@ -88,7 +88,7 @@ pub enum GroupProcessorResult {
     /// Signals the session to shutdown.
     ShutdownSession(String),
     /// Sends a packet back to the sender
-    ReplyToSender(Bytes),
+    ReplyToSender(BytesMut),
     /// Send an error to the kernel level
     Error(String),
     /// Send a reconstructed packet to the kernel
@@ -126,6 +126,12 @@ impl From<std::option::NoneError> for PrimaryProcessorResult {
 
 impl<T> From<TrySendError<T>> for PrimaryProcessorResult {
     fn from(_: TrySendError<T>) -> Self {
+        PrimaryProcessorResult::EndSession("Outbound sender disconnected")
+    }
+}
+
+impl<T> From<SendError<T>> for PrimaryProcessorResult {
+    fn from(_: SendError<T>) -> Self {
         PrimaryProcessorResult::EndSession("Outbound sender disconnected")
     }
 }

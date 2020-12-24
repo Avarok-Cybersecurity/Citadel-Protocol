@@ -18,6 +18,7 @@ impl<'a, Out: 'a> ThreadSafeFuture<'a, Out> {
 }
 
 unsafe impl<'a, Out: 'a> Send for ThreadSafeFuture<'a, Out> {}
+unsafe impl<'a, Out: 'a> Sync for ThreadSafeFuture<'a, Out> {}
 
 impl<'a, Out: 'a> Future for ThreadSafeFuture<'a, Out> {
     type Output = Out;

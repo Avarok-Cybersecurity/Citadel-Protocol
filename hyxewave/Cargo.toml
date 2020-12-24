@@ -26,7 +26,7 @@ dirs = "*"
 #crossterm = "0.17"
 prettytable-rs = "0.8.0"
 #tui = { version = "0.9.5", default-features = false, features = ['crossterm'] }
-parking_lot = "0.11.0"
+parking_lot = { version = "0.11.0", features = ["deadlock_detection"]}
 lazy_static = "1.4.0"
 #[target.'cfg(target_os = "windows")'.dependencies]
 crossterm = { version = "0.18.0"}

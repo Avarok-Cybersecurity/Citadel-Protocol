@@ -57,6 +57,7 @@ pub fn process<K: ExpectedInnerTargetMut<HdpSessionInner>>(session: &mut InnerPa
                             }
 
                             VirtualConnectionType::HyperLANPeerToHyperLANServer(_implicated_cid) => {
+                                println!("Sending XZJ to kernel");
                                 // Whether the current node is the peer or server, one hop is all that's needed
                                 GroupProcessorResult::SendToKernel(ticket, reconstructed_packet)
                             }
@@ -68,7 +69,7 @@ pub fn process<K: ExpectedInnerTargetMut<HdpSessionInner>>(session: &mut InnerPa
                     }
 
                     Err(err) => {
-                        trace!("An error occurred while rendering group payload packet: {}", err.to_string());
+                        log::error!("An error occurred while rendering group payload packet: {}", err.to_string());
                         GroupProcessorResult::Void
                     }
 

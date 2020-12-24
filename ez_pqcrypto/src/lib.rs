@@ -30,13 +30,27 @@ pub const NONCE_LENGTH_BYTES: usize = 24;
 pub const NONCE_LENGTH_BYTES: usize = 12;
 
 pub mod bytes_in_place;
+
 /// For handling serialization/deserialization
 pub mod export;
 
 /// For organizing error types
 pub mod ez_error;
 
+/// For protecting against replay attacks
 pub mod replay_attack_container;
+
+/// For debug purposes
+#[cfg(not(feature = "unordered"))]
+pub const fn build_tag() -> &'static str {
+    "ordered/single-threaded networking protocol"
+}
+
+/// For debug purposes
+#[cfg(feature = "unordered")]
+pub const fn build_tag() -> &'static str {
+    "unordered/multi-threaded networking protocol"
+}
 
 /// Contains the public keys for Alice and Bob
 pub struct PostQuantumContainer {

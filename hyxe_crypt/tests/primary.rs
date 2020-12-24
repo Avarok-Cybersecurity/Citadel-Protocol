@@ -2,6 +2,62 @@
 mod tests {
     use hyxe_crypt::sec_string::SecString;
     use hyxe_crypt::sec_bytes::SecBuffer;
+    use ez_pqcrypto::PostQuantumContainer;
+    use hyxe_crypt::toolset::Toolset;
+    use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+    use hyxe_crypt::relay_chain::CryptoRelayChain;
+    use std::iter::FromIterator;
+    use bytes::BufMut;
+
+    fn setup_log() {
+        std::env::set_var("RUST_LOG", "info,error,warn");
+        env_logger::init();
+        log::trace!("TRACE enabled");
+        log::info!("INFO enabled");
+        log::warn!("WARN enabled");
+        log::error!("ERROR enabled");
+    }
+
+    #[test]
+    fn onion_packet() {
+        setup_log();
+        const LEN: usize = 5;
+        const HEADER_LEN: usize = 50;
+        let message = "Hello, world!";
+
+        let chain: CryptoRelayChain = CryptoRelayChain::from_iter((0..LEN).into_iter().map(|idx| rand::random::<u64>())
+            .map(|cid| {
+                let mut alice_pqc = PostQuantumContainer::new_alice(None);
+                let alice_public_key = alice_pqc.get_public_key();
+                let bob_pqc = PostQuantumContainer::new_bob(0, alice_public_key).unwrap();
+                let bob_ct = bob_pqc.get_ciphertext().unwrap();
+                alice_pqc.alice_on_receive_ciphertext(bob_ct).unwrap();
+                let toolset = Toolset::new(cid).unwrap();
+                let container = PeerSessionCrypto::new(alice_pqc, toolset);
+                container
+            }));
+
+        log::info!("Generated chain!");
+
+        let onion_packet = chain.encrypt(message, 0, HEADER_LEN, |drill, pqc, target_cid, buffer| {
+            for x in 0..HEADER_LEN {
+                buffer.put_u8(x as u8);
+            }
+        }).unwrap();
+
+        println!("Onion packet: {:?}", &onion_packet);
+        let cids_order_decrypt = chain.target_cid_list.as_ref().unwrap().iter().rev().cloned().collect::<Vec<u64>>();
+        println!("{:?}\n", &cids_order_decrypt);
+        let output = chain.links.iter().rfold(onion_packet, |mut acc, (cid, container)| {
+            println!("At {} (onion packet len: {})", cid, acc.len());
+            let (pqc, drill) = container.borrow_pqc_and_drill(None).unwrap();
+            let payload = acc.split_off(HEADER_LEN);
+            drill.aes_gcm_decrypt(0, pqc, payload)
+                .map(|vec| bytes::BytesMut::from(&vec[..])).unwrap()
+        });
+
+        assert_eq!(message, String::from_utf8(output.to_vec()).unwrap());
+    }
 
     #[test]
     fn secstring() {
