@@ -5,17 +5,17 @@ use std::ops::{Deref, DerefMut};
 use crate::dapp::primitives::net_rwlock::{NetRwLock, RwLockWriteAccessGuard, RwLockReadAccessGuard, OwnedRwLockGuard};
 use tokio::sync::OwnedMutexGuard;
 
-pub enum Accessor<T: NetworkTransferable + 'static> {
+pub enum Accessor<T: NetworkTransferable> {
     Mutex(NetMutex<T>),
     RwLock(NetRwLock<T>)
 }
 
-pub enum WriteAccessGuard<'a, T: NetworkTransferable + 'static> {
+pub enum WriteAccessGuard<'a, T: NetworkTransferable> {
     Mutex(AccessGuard<'a, T>),
     RwLock(RwLockWriteAccessGuard<'a, T>)
 }
 
-pub enum ReadAccessGuard<'a, T: NetworkTransferable + 'static> {
+pub enum ReadAccessGuard<'a, T: NetworkTransferable> {
     Mutex(AccessGuard<'a, T>),
     RwLock(RwLockReadAccessGuard<'a, T>)
 }
@@ -48,7 +48,7 @@ impl<T: NetworkTransferable> Accessor<T> {
     }
 }
 
-pub trait NetworkTransferable where Self: SerBin + DeBin + Default + Send + Sync {
+pub trait NetworkTransferable where Self: SerBin + DeBin + Default + Send + Sync + 'static {
     fn serialize_into(&self, buf: &mut Vec<u8>) -> Result<(), NetworkError> {
         SerBin::ser_bin(self, buf);
         Ok(())
@@ -95,7 +95,8 @@ impl<T: NetworkTransferable> DerefMut for WriteAccessGuard<'_, T> {
     }
 }
 
-pub enum OwnedGuard<T: NetworkTransferable + 'static> {
+#[allow(variant_size_differences)]
+pub enum OwnedGuard<T: NetworkTransferable> {
     Mutex(OwnedMutexGuard<T>),
     RwLock(OwnedRwLockGuard<T>)
 }

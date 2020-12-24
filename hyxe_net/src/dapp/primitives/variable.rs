@@ -19,7 +19,7 @@ pub enum VariableType {
 }
 
 impl NetworkVariableInner {
-    pub fn new<T: NetworkTransferable + 'static>(value: T, var_type: VariableType, notifier_rx: Receiver<()>, updater_tx: Sender<OwnedGuard<T>>) -> Self {
+    pub fn new<T: NetworkTransferable>(value: T, var_type: VariableType, notifier_rx: Receiver<()>, updater_tx: Sender<OwnedGuard<T>>) -> Self {
         match var_type {
             VariableType::MutualExclusion => Self { inner: Arc::new(Accessor::Mutex(NetMutex::new(value, notifier_rx, updater_tx))) },
             VariableType::ReadWriteLock => Self { inner: Arc::new(Accessor::RwLock(NetRwLock::new(value, notifier_rx, updater_tx))) }
@@ -28,18 +28,18 @@ impl NetworkVariableInner {
 }
 
 #[derive(Clone)]
-pub struct NetworkVariable<T: NetworkTransferable + 'static> {
+pub struct NetworkVariable<T: NetworkTransferable> {
     ptr: NetworkVariableInner,
     _pd: PhantomData<T>
 }
 
-impl<T: NetworkTransferable + 'static> NetworkVariable<T> {
+impl<T: NetworkTransferable> NetworkVariable<T> {
     pub fn new(ptr: NetworkVariableInner) -> Self {
         Self { ptr, _pd: Default::default() }
     }
 }
 
-impl<T: NetworkTransferable + 'static> Deref for NetworkVariable<T> {
+impl<T: NetworkTransferable> Deref for NetworkVariable<T> {
     type Target = Accessor<T>;
 
     fn deref(&self) -> &Self::Target {

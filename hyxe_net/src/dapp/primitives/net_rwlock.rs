@@ -9,7 +9,7 @@ use futures::Future;
 use futures::task::Context;
 use tokio::macros::support::{Pin, Poll};
 
-pub struct NetRwLock<T: NetworkTransferable + 'static> {
+pub struct NetRwLock<T: NetworkTransferable> {
     // When the ReadAccessorGuard drop, it only sends a signal to the networking protocol if
     // local_read_locks_open drops to 0. This allows multiple local read to occur without consent
     // of the network
@@ -79,7 +79,7 @@ impl<T: NetworkTransferable> Future for &'_ NetRwLock<T> {
     }
 }
 
-pub enum OwnedRwLockGuard<T: NetworkTransferable + 'static> {
+pub enum OwnedRwLockGuard<T: NetworkTransferable> {
     Read(Arc<RwLock<T>>, RwLockReadGuard<'static, T>),
     Write(Arc<RwLock<T>>, RwLockWriteGuard<'static, T>)
 }
@@ -100,7 +100,7 @@ impl<T: NetworkTransferable> OwnedRwLockGuard<T> {
     }
 }
 
-pub struct RwLockReadAccessGuard<'a, T: NetworkTransferable + 'static> {
+pub struct RwLockReadAccessGuard<'a, T: NetworkTransferable> {
     lock: Option<OwnedRwLockGuard<T>>,
     notifier: Sender<OwnedGuard<T>>,
     reads_open: Arc<AtomicUsize>,
@@ -130,7 +130,7 @@ impl<T: NetworkTransferable> Drop for RwLockReadAccessGuard<'_, T> {
     }
 }
 
-pub struct RwLockWriteAccessGuard<'a, T: NetworkTransferable + 'static> {
+pub struct RwLockWriteAccessGuard<'a, T: NetworkTransferable> {
     lock: Option<OwnedRwLockGuard<T>>,
     notifier: Sender<OwnedGuard<T>>,
     mutated: bool,
