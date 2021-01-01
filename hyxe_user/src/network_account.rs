@@ -10,7 +10,6 @@ use rand::random;
 use secstr::SecVec;
 use serde::{Deserialize, Serialize};
 
-use hyxe_fs::hyxe_crypt::prelude::PostQuantumContainer;
 use hyxe_fs::misc::get_pathbuf;
 use hyxe_fs::prelude::SyncIO;
 
@@ -20,6 +19,9 @@ use crate::misc::AccountError;
 use crate::server_config_handler::username_has_invalid_symbols;
 use crossbeam_utils::sync::{ShardedLock, ShardedLockWriteGuard, ShardedLockReadGuard};
 use std::ops::Deref;
+use std::fmt::Debug;
+use serde::export::Formatter;
+use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
 
 lazy_static! {
     /// Each node has a unique NetworkAccount; this information is stored at the address below if the instance is a server node
@@ -152,7 +154,7 @@ impl NetworkAccount {
     ///
     /// Note: If the local node is the server node, then nac_other should be the client's NAC. This should always be made at a server anyways
     #[allow(unused_results)]
-    pub fn create_client_account<T: ToString, V: ToString, K: AsRef<[u8]>>(&self, reserved_cid: u64, nac_other: Option<NetworkAccount>, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, post_quantum_container: &PostQuantumContainer, toolset_bytes: Option<K>) -> Result<ClientNetworkAccount, AccountError<String>> {
+    pub fn create_client_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: Option<NetworkAccount>, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, base_hyper_ratchet: HyperRatchet) -> Result<ClientNetworkAccount, AccountError<String>> {
         if nac_other.is_none() {
             info!("WARNING: You are using debug mode. The supplied NAC is none, and will receive THIS nac in its place (unit tests only)");
         }
@@ -170,7 +172,8 @@ impl NetworkAccount {
 
         log::info!("Received password: {:?}", password.unsecure());
 
-        let cnac = ClientNetworkAccount::new(Some(reserved_cid), false, nac_other.unwrap_or_else(|| self.clone()), &username, password, full_name, password_hash, post_quantum_container, toolset_bytes)?;
+        let cnac = ClientNetworkAccount::new(reserved_cid, false, nac_other.unwrap_or_else(|| self.clone()), &username, password, full_name, password_hash, base_hyper_ratchet)?;
+
         // So long as the CNAC creation succeeded, we can confidently add the CID into the config
         self.register_cid(reserved_cid, username)
             .and_then(|_| Ok(cnac))
@@ -236,6 +239,12 @@ impl NetworkAccount {
         hyxe_fs::system_file_manager::make_dir_all_blocking(path_no_filename).map_err(|err| AccountError::Generic(err.to_string()))?;
         // First, save the NAC
         inner_nac.serialize_to_local_fs(path).map_err(|err| AccountError::IoError(err.to_string()))
+    }
+}
+
+impl Debug for NetworkAccount {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NID: {} | CIDs registered: {:?}", self.get_id(), &self.read().cids_registered)
     }
 }
 

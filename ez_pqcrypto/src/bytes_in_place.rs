@@ -48,3 +48,47 @@ impl AsRef<[u8]> for InPlaceBytesMut<'_> {
         &self.inner[self.window.clone()]
     }
 }
+
+pub struct InPlaceByteSliceMut<'a> {
+    pub(crate) inner: &'a mut [u8],
+    truncated_len: usize
+}
+
+impl InPlaceByteSliceMut<'_> {
+    pub fn get_finished_len(&self) -> usize {
+        self.truncated_len
+    }
+}
+
+impl<'a> From<&'a mut [u8]> for InPlaceByteSliceMut<'a> {
+    fn from(inner: &'a mut [u8]) -> Self {
+        Self { inner, truncated_len: 0 }
+    }
+}
+
+impl AsMut<[u8]> for InPlaceByteSliceMut<'_> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.inner
+    }
+}
+
+impl AsRef<[u8]> for InPlaceByteSliceMut<'_> {
+    fn as_ref(&self) -> &[u8] {
+        self.inner
+    }
+}
+
+impl Buffer for InPlaceByteSliceMut<'_> {
+    fn extend_from_slice(&mut self, other: &[u8]) -> Result<(), Error> {
+        if self.inner.len() >= other.len() {
+            self.inner.copy_from_slice(other);
+            Ok(())
+        } else {
+            Err(Error)
+        }
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.truncated_len = len;
+    }
+}

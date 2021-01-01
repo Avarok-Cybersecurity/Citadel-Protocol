@@ -6,10 +6,9 @@ edition = "2018"
 workspace = "../"
 
 [features]
-default = ["single-threaded", "dapp"]
+default = ["single-threaded"]
 single-threaded = ["ez_pqcrypto/aes", "hyxe_crypt/single-threaded"]
 multi-threaded = ["ez_pqcrypto/aes", "ez_pqcrypto/unordered", "hyxe_crypt/multi-threaded"]
-dapp = ["sha2", "crossbeam-utils"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -18,7 +17,7 @@ dapp = ["sha2", "crossbeam-utils"]
 futures = "0.3.5"
 #rav1e = {version = "0.4.0-alpha", default-features=false, features = ["binaries", "signal_support"]}
 bstr = "0.2.13"
-log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_info"] }
+log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
 async-trait = "0.1.31"
 tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
 tokio = { version = "^0.2.22", features = ["full"] }
@@ -29,7 +28,9 @@ byteorder = "1.3.4"
 nanoserde = "0.1.18"
 rand = "0.7.3"
 atomic = "0.5.0"
-secstr = "0.4.0"
+secstr = { version = "0.4.0", features=["serde"] }
+bincode2 = "2.0.1"
+serde = { version = "1.0.104", features=["derive"] }
 net2 = "0.2.34"
 num = "0.2.1"
 either = "1.5.3"
@@ -41,10 +42,7 @@ hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
 rust-argon2 = "0.8.3"
 num_cpus = "1.13.0"
-crossbeam-utils = { version = "0.8.1", optional=true }
 
-
-sha2 = { version = "0.9.2", optional=true }
 
 [dev-dependencies]
 env_logger = "0.8.2"

@@ -3,7 +3,6 @@
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-    use hyxe_net::dapp::application::Application;
     use hyxe_net::error::NetworkError;
 
     fn setup_log() {
@@ -17,11 +16,6 @@ mod tests {
 
     #[tokio::test]
     async fn main() -> Result<(), Box<dyn Error>> {
-        let dapp = Application::new();
-        let var0 = dapp.create_mutex_variable("Hello, world!".to_string());
-        let var1 = dapp.create_rwlock_variable(0usize);
-        var1.read().await.ok_or(Box::new(default_error("bad read")))?;
-
         Ok(())
     }
 

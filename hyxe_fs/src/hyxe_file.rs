@@ -12,6 +12,7 @@ use crate::io::FsError;
 use crate::misc::{generate_random_string, get_present_formatted_timestamp, get_pathbuf};
 use crate::async_io::AsyncIO;
 use crate::prelude::SyncIO;
+use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
 /// The extension for virtually hyperencrypted files
 pub const HYXE_FILE_EXT: &str = "vxh";
@@ -67,14 +68,14 @@ impl HyxeFile {
     /// drill supplied contains an unequal CID to this HyxeFiles.
     ///
     /// if `retrieve` is true, then data that is possibly pre-existing is returned. This is synonymous to a "get and set" operation
-    pub fn replace_contents<B: ByteSlice>(&mut self, drill: &Drill, bytes: B, retrieve: bool, security_level: SecurityLevel) -> Result<Option<Vec<u8>>, FsError<String>> {
-        if self.cid != drill.get_cid() {
+    pub fn replace_contents<B: ByteSlice>(&mut self, static_hyper_ratchet: &HyperRatchet, bytes: B, retrieve: bool, security_level: SecurityLevel) -> Result<Option<Vec<u8>>, FsError<String>> {
+        if self.cid != static_hyper_ratchet.get_cid() {
             return Err(FsError::Generic("Invalid CID".to_string()));
         }
 
-        drill.encrypt_to_vec(bytes, 0, security_level).and_then(|new_encrypted_bytes| {
+        static_hyper_ratchet.encrypt(bytes.as_ref()).and_then(|new_encrypted_bytes| {
             self.security_level_drilled = security_level;
-            self.drill_version = drill.get_version();
+            self.drill_version = static_hyper_ratchet.version();
             let _ = self.set_metadata(DATE_UPDATED, get_present_formatted_timestamp());
             if retrieve {
                 let ret = self.data_encrypted_bytes.clone();
@@ -89,47 +90,20 @@ impl HyxeFile {
 
     /// Encrypts the data for the first-time within this HyxeFile. This returns an error if [1] the encryption fails, or; [2] if the CID of the
     /// drill supplied does not equal the CID associated with this HyxeFile.
-    pub fn drill_contents<B: ByteSlice>(&mut self, drill: &Drill, bytes: B, security_level: SecurityLevel) -> Result<(), FsError<String>> {
-        if self.cid != drill.get_cid() {
+    pub fn drill_contents<B: ByteSlice>(&mut self, static_hyper_ratchet: &HyperRatchet, bytes: B, security_level: SecurityLevel) -> Result<(), FsError<String>> {
+        if self.cid != static_hyper_ratchet.get_cid() {
             return Err(FsError::Generic("Invalid CID".to_string()));
         }
 
         if let None = self.data_encrypted_bytes.borrow() {
-            drill.encrypt_to_vec(bytes, 0, security_level).and_then(|new_encrypted_bytes| {
+            static_hyper_ratchet.encrypt(bytes.as_ref()).and_then(|new_encrypted_bytes| {
                 self.data_encrypted_bytes = Some(new_encrypted_bytes);
                 self.security_level_drilled = security_level;
-                self.drill_version = drill.get_version();
+                self.drill_version = static_hyper_ratchet.version();
                 Ok(())
             }).map_err(|err| FsError::Generic(err.to_string()))
         } else {
             Err(FsError::Generic("You cannot drill the contents if there is data currently! Use redrill_contents instead".to_string()))
-        }
-    }
-
-    /// Re encrypts the stored data. This returns an error if [1] the encryption fails, or; [2] if the drill version
-    /// supplied is less than or equal to the current drill version applied to the bytes, or; [3] if the CID of the
-    /// drill supplied does not equal the CID associated with this HyxeFile, or; [4] if there is no content currently
-    /// drilled within the HyxeFile (i.e., `self.data_encrypted_bytes.is_none()`)
-    pub fn redrill_contents(&mut self, drill: &Drill, security_level: SecurityLevel) -> Result<(), FsError<String>> {
-        if self.cid != drill.get_cid() {
-            return Err(FsError::Generic("Invalid CID".to_string()));
-        }
-
-        if self.drill_version >= drill.get_version() {
-            return Err(FsError::Generic("You cannot use an equal to or older version of a drill when re-drilling a HyxeFile".to_string()));
-        }
-
-        if let Some(bytes) = self.data_encrypted_bytes.borrow() {
-            drill.decrypt_to_vec(bytes.as_ref(), 0, self.security_level_drilled).and_then(|decrypted_bytes| drill.encrypt_to_vec(decrypted_bytes.as_ref(), 0, security_level))
-                .and_then(|new_encrypted_bytes| {
-                    self.data_encrypted_bytes = Some(new_encrypted_bytes);
-                    self.security_level_drilled = security_level;
-                    self.drill_version = drill.get_version();
-                    let _ = self.set_metadata(DATE_UPDATED, get_present_formatted_timestamp());
-                    Ok(())
-                }).map_err(|err| FsError::Generic(err.to_string()))
-        } else {
-            Err(FsError::Generic("You cannot redrill the contents if there are none currently! Use drill_contents instead".to_string()))
         }
     }
 
@@ -160,17 +134,17 @@ impl HyxeFile {
     /// drilled within the HyxeFile (i.e., `self.data_encrypted_bytes.is_none()`). The return type is a newly allocated vector. This should NOT be called
     /// multiple times in succession (it can if needed, however) because of performance reasons. Instead, you should read the data once, and then pass
     /// references to that data.
-    pub fn read_contents(&self, drill: &Drill) -> Result<Vec<u8>, FsError<String>> {
-        if self.cid != drill.get_cid() {
+    pub fn read_contents(&self, static_hyper_ratchet: &HyperRatchet) -> Result<Vec<u8>, FsError<String>> {
+        if self.cid != static_hyper_ratchet.get_cid() {
             return Err(FsError::Generic("Invalid CID".to_string()));
         }
 
-        if self.drill_version != drill.get_version() {
+        if self.drill_version != static_hyper_ratchet.version() {
             return Err(FsError::Generic("You must supply the correct drill version when reading the encrypted contents".to_string()));
         }
 
         if let Some(bytes) = self.data_encrypted_bytes.borrow() {
-            drill.decrypt_to_vec(bytes.as_ref(), 0, self.security_level_drilled).and_then(|decrypted_bytes| {
+            static_hyper_ratchet.decrypt(bytes).and_then(|decrypted_bytes| {
                 Ok(decrypted_bytes)
             }).map_err(|err| FsError::Generic(err.to_string()))
         } else {
@@ -196,8 +170,7 @@ impl HyxeFile {
     /// Returns the drill version used to drill-shut.
     /// Returns None if data is not currently drilled
     pub fn get_active_drill_version(&self) -> Option<u32> {
-        log::info!("bypass version: {}", self.drill_version);
-        match &self.data_encrypted_bytes {
+        match self.data_encrypted_bytes.as_ref() {
             Some(_) => Some(self.drill_version),
             None => None
         }
