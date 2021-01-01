@@ -3,103 +3,14 @@ pub(crate) mod do_connect {
     use secstr::SecVec;
     use zerocopy::LayoutVerified;
 
-    use ez_pqcrypto::PostQuantumContainer;
-    use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
-    use hyxe_crypt::drill::Drill;
-    use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_user::client_account::ClientNetworkAccount;
 
     use crate::error::NetworkError;
     use crate::hdp::hdp_packet::HdpHeader;
     use crate::hdp::peer::peer_layer::MailboxTransfer;
-    use crate::hdp::state_container::StateContainerInner;
-    use crate::inner_arg::{ExpectedInnerTargetMut, InnerParameterMut};
-
-    /// Bob receives this (presumably the server). Returns the NAT ports
-    pub(crate) fn validate_stage0_packet(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(Drill, PostQuantumContainer)> {
-        let pk_len = header.context_info.get() as usize;
-        if payload.len() != pk_len {
-            log::error!("Bad payload len on stage 0 connect packet");
-            return None;
-        }
-
-        let drill = cnac.get_drill(Some(header.drill_version.get()))?;
-        let algorithm = header.algorithm;
-
-        //let sec0 = drill.get_ultra()[0][0];
-        let sec1 = drill.get_ultra()[0][1];
-        let sec2 = drill.get_high()[0][2];
-
-        let security_level = header.security_level;
-        if security_level > SecurityLevel::DIVINE.value() {
-            return None;
-        }
-
-        let security_level = SecurityLevel::for_value(security_level as usize).unwrap();
-
-        if header.group.get() != sec1 || header.wave_id.get() != sec2 {
-            None
-        } else {
-            let alice_public_key_encrypted = payload;
-            let alice_public_key = drill.decrypt_to_vec(alice_public_key_encrypted, 0, security_level).unwrap();
-            //log::info!("PUBLIC KEY(len: {}): {:?}", alice_public_key.len(), &alice_public_key);
-
-            if alice_public_key.len() != 0 {
-                if let Ok(pqc_bob) = PostQuantumContainer::new_bob(algorithm, &alice_public_key) {
-                    Some((drill, pqc_bob))
-                } else {
-                    log::error!("Unable to generate Bob PQC container");
-                    None
-                }
-            } else {
-                log::error!("Received an empty public key. Dropping packet");
-                None
-            }
-        }
-    }
-
-    /// Alice receives this (presumably the client). She receives a nonce from Bob
-    pub(crate) fn validate_stage1_packet(drill: &Drill, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<([u8; AES_GCM_NONCE_LEN_BYTES], Vec<u8>)> {
-        if payload.len() <= AES_GCM_NONCE_LEN_BYTES {
-            return None;
-        }
-
-        let security_level = header.security_level;
-        if security_level > SecurityLevel::DIVINE.value() {
-            return None;
-        }
-
-        let sec0 = drill.get_ultra()[0][3];
-        let sec1 = drill.get_high()[0][4];
-
-        if header.group.get() != sec0 || header.wave_id.get() != sec1 {
-            None
-        } else {
-            // Now, get the encrypted nonce and decrypt it
-            let (encrypted_nonce, encrypted_ciphertext) = payload.split_at(AES_GCM_NONCE_LEN_BYTES);
-            let ciphertext_len = header.context_info.get() as usize;
-
-            if encrypted_ciphertext.len() != ciphertext_len {
-                return None;
-            }
-
-            let security_level = SecurityLevel::for_value(security_level as usize).unwrap();
-
-            let decrypted_nonce: Vec<u8> = drill.decrypt_to_vec(encrypted_nonce, 0, security_level).unwrap();
-
-            let mut decrypted_nonce_ret: [u8; AES_GCM_NONCE_LEN_BYTES] = [0u8; AES_GCM_NONCE_LEN_BYTES];
-            for idx in 0..AES_GCM_NONCE_LEN_BYTES {
-                decrypted_nonce_ret[idx] = decrypted_nonce[idx];
-            }
-
-            let decrypted_ciphertext = drill.decrypt_to_vec(encrypted_ciphertext, 0, security_level).unwrap();
-
-            Some((decrypted_nonce_ret, decrypted_ciphertext))
-        }
-    }
 
     /// Here, Bob receives a payload of the encrypted username + password. We must verify the login data is valid
-    pub(crate) fn validate_stage2_packet(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Result<(), NetworkError> {
+    pub(crate) fn validate_stage0_packet(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Result<(), NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
         let split_idx = header.context_info.get() as usize;
         if split_idx > payload.len() {
@@ -112,8 +23,7 @@ pub(crate) mod do_connect {
         }
     }
 
-    pub(crate) fn validate_final_status_packet<K: ExpectedInnerTargetMut<StateContainerInner>>(state_container: &mut InnerParameterMut<K, StateContainerInner>, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Result<Option<(Drill, Vec<u8>, Option<MailboxTransfer>, Vec<u64>)>, ()> {
-        let drill = state_container.connect_register_drill.as_ref().ok_or(())?;
+    pub(crate) fn validate_final_status_packet(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Result<Option<(Vec<u8>, Option<MailboxTransfer>, Vec<u64>)>, ()> {
         let msg_len = header.context_info.get() as usize;
         let mailbox_len = header.group.get() as usize;
 
@@ -133,7 +43,7 @@ pub(crate) mod do_connect {
 
         let peers = peers_bytes.chunks_exact(8).map(|vals| BigEndian::read_u64(vals)).collect::<Vec<u64>>();
 
-        Ok(Some((drill.clone(), Vec::from(msg), mailbox, peers)))
+        Ok(Some((Vec::from(msg), mailbox, peers)))
     }
 }
 
@@ -141,111 +51,89 @@ pub(crate) mod keep_alive {
     use bytes::{Bytes, BytesMut};
     use zerocopy::LayoutVerified;
 
-    use ez_pqcrypto::PostQuantumContainer;
-    use hyxe_crypt::drill::Drill;
     use hyxe_user::prelude::ClientNetworkAccount;
 
     use crate::hdp::hdp_packet::HdpHeader;
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
     /// Returns Ok(false) if expired.
             /// Returns Ok(true) if valid
             /// Return Err(_) if getting the drill failed or the security params were false
-    pub(crate) fn validate_keep_alive<'a, 'b: 'a>(cnac: &ClientNetworkAccount, pqc: &PostQuantumContainer, header: &'b Bytes, payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, Drill)> {
-        super::aead::validate(cnac, pqc, header, payload)
+    pub(crate) fn validate_keep_alive<'a, 'b: 'a>(cnac: &ClientNetworkAccount, header: &'b Bytes, payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, HyperRatchet)> {
+        super::aead::validate(cnac,header, payload)
     }
 }
 
 pub(crate) mod group {
     use std::ops::RangeInclusive;
 
-    use byteorder::{BigEndian, ByteOrder, ReadBytesExt};
+    use byteorder::{BigEndian, ByteOrder};
     use bytes::{Bytes, BytesMut};
-    use bytes::buf::BufExt;
     use zerocopy::LayoutVerified;
 
-    use ez_pqcrypto::PostQuantumContainer;
-    use hyxe_crypt::net::crypt_splitter::{GROUP_RECEIVER_INSCRIBE_LEN, calculate_nonce_version};
     use hyxe_crypt::net::crypt_splitter::GroupReceiverConfig;
-    use hyxe_crypt::prelude::Drill;
 
     //use crate::hdp::file_transfer::MAX_GROUP_PLAINTEXT_LEN;
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::error::NetworkError;
     use crate::hdp::hdp_packet::{HdpHeader, packet_sizes};
-    use crate::hdp::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
     use crate::hdp::state_container::VirtualTargetType;
-    use hyxe_crypt::sec_bytes::SecBuffer;
+    use serde::{Serialize, Deserialize};
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
+    use hyxe_fs::io::SyncIO;
+    use crate::hdp::hdp_packet_crafter::group::DUAL_ENCRYPTION_ON;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
-    pub(crate) fn validate<'a, 'b: 'a>(drill: &Drill, pqc: &PostQuantumContainer, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
+    pub(crate) fn validate<'a, 'b: 'a>(hyper_ratchet: &HyperRatchet, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
         //let bytes = &header[..];
         //let header = LayoutVerified::new(bytes)? as LayoutVerified<&[u8], HdpHeader>;
-        drill.validate_packet_in_place_split(pqc, header, &mut payload).ok()?;
+        hyper_ratchet.validate_message_packet_in_place_split(header, &mut payload).ok()?;
         Some(payload.freeze())
     }
 
-    pub(crate) enum GroupHeader {
+    #[derive(Serialize, Deserialize)]
+    pub(crate) enum GroupHeader<'a> {
         Standard(GroupReceiverConfig, VirtualTargetType),
-        FastMessage(SecBuffer, VirtualTargetType),
+        FastMessage(Vec<u8>, VirtualTargetType, #[serde(borrow)]Option<AliceToBobTransfer<'a>>),
     }
 
-    pub(crate) fn validate_header(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], drill: &Drill, pqc: &PostQuantumContainer) -> Option<GroupHeader> {
-        if payload.len() < 1 {
-            None
-        } else {
-            let mut reader = payload.reader();
-            let fast_msg = reader.read_u8().ok()? == 1;
-            if fast_msg {
-                let message_len = reader.read_u64::<BigEndian>().ok()? as usize;
-                //let payload = reader.into_inner();
-                // are there enough remaining bytes in the payload?
-                if payload.len().saturating_sub(1 + 8) > message_len {
-                    let message_end_idx = 1 + 8 + message_len;
-                    let message_ciphertext = &payload[(1 + 8)..message_end_idx];
-                    log::info!("[FAST] len: {} | {:?}", message_len, message_ciphertext);
-                    let plaintext = drill.aes_gcm_decrypt(calculate_nonce_version(0, header.group.get()), pqc, message_ciphertext).ok()?;
-                    let vconn = VirtualTargetType::deserialize_from(&payload[message_end_idx..])?;
-
-                    Some(GroupHeader::FastMessage(SecBuffer::from(plaintext), vconn))
-                } else {
-                    // bad packet
-                    log::warn!("Bad FAST_MSG header");
-                    return None;
-                }
-            } else {
-                let start_idx = 1;
-                let end_idx = start_idx + GROUP_RECEIVER_INSCRIBE_LEN;
-                if end_idx < payload.len() {
-                    let group_receiver_config = GroupReceiverConfig::try_from_bytes(&payload[start_idx..end_idx])?;
-                    if group_receiver_config.plaintext_length > hyxe_user::prelude::MAX_BYTES_PER_GROUP {
-                        log::error!("The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");
-                        None
-                    } else {
-                        // Now, get the virtual target
-                        let vconn = VirtualTargetType::deserialize_from(&payload[end_idx..])?;
-                        Some(GroupHeader::Standard(group_receiver_config, vconn))
-                    }
-                } else {
-                    None
+    pub(crate) fn validate_header<'a>(payload: &'a [u8], hyper_ratchet: &'a HyperRatchet, header: &'a LayoutVerified<&'a [u8], HdpHeader>) -> Option<GroupHeader<'a>> {
+        let mut group_header = GroupHeader::deserialize_from_vector(payload).ok()?;
+        match &mut group_header {
+            GroupHeader::Standard(group_receiver_config, _) => {
+                if group_receiver_config.plaintext_length > hyxe_user::prelude::MAX_BYTES_PER_GROUP {
+                    log::error!("The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");
+                    return None
                 }
             }
+
+             GroupHeader::FastMessage(msg, _, _) => {
+                 if header.algorithm == DUAL_ENCRYPTION_ON {
+                     let truncated_len = hyper_ratchet.decrypt_in_place_custom_scrambler(header.wave_id.get(), header.group.get(), msg).ok()?;
+                     msg.truncate(truncated_len);
+                 }
+
+                 // we need to decrypt the message. Use zero for wave-id here only
+                 let truncated_len = hyper_ratchet.decrypt_in_place_custom(0, header.group.get(), msg).ok()?;
+                 msg.truncate(truncated_len);
+             }
         }
+
+        Some(group_header)
+    }
+
+
+    #[derive(Serialize, Deserialize)]
+    #[allow(variant_size_differences)]
+    pub enum GroupHeaderAck {
+        ReadyToReceive { fast_msg: bool, initial_window: Option<RangeInclusive<u32>>, transfer: Option<BobToAliceTransfer> },
+        NotReady { fast_msg: bool }
     }
 
     /// Returns None if the packet is invalid. Returns Some(is_ready_to_accept) if the packet is valid
-    pub(crate) fn validate_header_ack(payload: &[u8]) -> Option<(bool, RangeInclusive<u32>, bool)> {
-        if payload.len() < GROUP_HEADER_ACK_LEN - HDP_HEADER_BYTE_LEN {
-            log::error!("Invalid HEADER ACK payload len");
-            return None;
-        }
-
-        let mut reader = payload.reader();
-        let ready_to_accept = reader.read_u8().ok()? == 1;
-        let fast_msg = reader.read_u8().ok()? == 1;
-        let window_start = reader.read_u32::<BigEndian>().ok()?;
-        let window_end = reader.read_u32::<BigEndian>().ok()?;
-
-        Some((ready_to_accept, window_start..=window_end, fast_msg))
+    pub(crate) fn validate_header_ack(payload: &[u8]) -> Option<GroupHeaderAck> {
+        GroupHeaderAck::deserialize_from_vector(payload).ok()
     }
 
     pub(crate) fn validate_window_tail(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<RangeInclusive<u32>> {
@@ -273,38 +161,32 @@ pub(crate) mod group {
         }
     }
 
+    #[derive(Serialize, Deserialize)]
+    pub struct WaveAck {
+        pub(crate) range: Option<RangeInclusive<u32>>
+    }
+
     /// Will return Ok(_) if valid. Will return Ok(Some(_)) if the window is complete, or Ok(None) if just a simple ack
-    pub(crate) fn validate_wave_ack(payload: &[u8]) -> Result<Option<RangeInclusive<u32>>, NetworkError> {
-        let payload_len = payload.len();
-        // The packet is either 8 (normal) or 4 (dummy security parameter)
-        if payload_len != 4 && payload_len != 8 {
-            Err(NetworkError::InvalidPacket("Bad payload size"))
-        } else {
-            if payload_len != 8 {
-                Ok(None)
-            } else {
-                let start = BigEndian::read_u32(&payload[..4]);
-                let end = BigEndian::read_u32(&payload[4..8]);
-                Ok(Some(start..=end))
-            }
-        }
+    pub(crate) fn validate_wave_ack(payload: &[u8]) -> Option<WaveAck> {
+        WaveAck::deserialize_from_vector(payload).ok()
     }
 }
 
 pub(crate) mod do_register {
     use std::net::SocketAddr;
-    use secstr::SecVec;
     use zerocopy::LayoutVerified;
 
-    use ez_pqcrypto::PostQuantumContainer;
-    use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
     use hyxe_user::network_account::NetworkAccount;
 
     use crate::hdp::hdp_packet::HdpHeader;
     use crate::proposed_credentials::ProposedCredentials;
     use byteorder::{BigEndian, ByteOrder};
+    use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use bytes::BytesMut;
+    use hyxe_fs::io::SyncIO;
 
-    pub(crate) fn validate_stage0(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(PostQuantumContainer, Vec<u64>)> {
+    pub(crate) fn validate_stage0<'a>(header: &'a LayoutVerified<&[u8], HdpHeader>, payload: &'a [u8]) -> Option<(AliceToBobTransfer<'a>, Vec<u64>)> {
         let cids_to_get = header.context_info.get() as usize;
         if cids_to_get > 10 {
             log::error!("Too many CIDs provided");
@@ -326,388 +208,120 @@ pub(crate) mod do_register {
         let remaining_bytes = &payload[cids_to_get*8..];
 
         log::info!("Possible CIDs obtained: {:?}", &cids);
-        let quantum_container = PostQuantumContainer::new_bob(header.algorithm, remaining_bytes).ok()?;
-        Some((quantum_container, cids))
-    }
-
-    pub(crate) fn validate_stage2(_header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<[u8; AES_GCM_NONCE_LEN_BYTES]> {
-        if payload.len() != AES_GCM_NONCE_LEN_BYTES {
-            log::error!("Stage 2 payload improperly sized");
-            return None;
-        }
-
-        let mut nonce: [u8; AES_GCM_NONCE_LEN_BYTES] = [0u8; AES_GCM_NONCE_LEN_BYTES];
-        for idx in 0..AES_GCM_NONCE_LEN_BYTES {
-            nonce[idx] = payload[idx];
-        }
-
-        Some(nonce)
-    }
-
-    pub(crate) fn validate_stage3(_header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> bool {
-        payload.len() == 0
+        let transfer = AliceToBobTransfer::deserialize_from(remaining_bytes)?;
+        Some((transfer, cids))
     }
 
     /// Returns the decrypted username, password, and full name
-    pub(crate) fn validate_stage4(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], post_quantum: &PostQuantumContainer, peer_addr: SocketAddr) -> Option<(ProposedCredentials, NetworkAccount)> {
-        let username_len = header.context_info.get() as usize;
-        let password_len = header.group.get() as usize;
-        let fullname_len = header.wave_id.get() as usize;
+    pub(crate) fn validate_stage2(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, peer_addr: SocketAddr) -> Option<(ProposedCredentials, NetworkAccount)> {
+        let (_, plaintext_bytes) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
+        let proposed_credentials = ProposedCredentials::deserialize_from_vector(&plaintext_bytes).ok()?;
 
-        if let Ok(plaintext_bytes) = post_quantum.decrypt(payload, nonce) {
-            let (username, plaintext_bytes) = plaintext_bytes.split_at(username_len);
-            debug_assert_eq!(username.len(), username_len);
-            let (password, full_name) = plaintext_bytes.split_at(password_len);
-            if full_name.len() != fullname_len {
-                log::error!("The length of the payload was invalid. Invalid stage 4 packet");
-                return None;
-            }
-
-            let full_name = String::from_utf8(full_name.to_vec()).ok()?;
-            let username = String::from_utf8(username.to_vec()).ok()?;
-
-            //let (full_name, username) = (full_name.trim(), username.trim());
-            // let password = password.trim(); DO NOT trim the password
-
-            let proposed_credentials = ProposedCredentials::new_from_hashed(full_name, username, SecVec::new(password.to_vec()), nonce.clone());
-            let adjacent_nid = header.session_cid.get();
-            let adjacent_nac = NetworkAccount::new_from_recent_connection(adjacent_nid, peer_addr);
-            Some((proposed_credentials, adjacent_nac))
-        } else {
-            log::error!("Error using AES-GCM decryption on the stage 4 packet");
-            None
-        }
+        //let proposed_credentials = ProposedCredentials::new_from_hashed(full_name, username, SecVec::new(password.to_vec()), nonce);
+        let adjacent_nid = header.session_cid.get();
+        let adjacent_nac = NetworkAccount::new_from_recent_connection(adjacent_nid, peer_addr);
+        Some((proposed_credentials, adjacent_nac))
     }
 
     /// Returns the decrypted Toolset text, as well as the welcome message
-    pub(crate) fn validate_success(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], post_quantum: &PostQuantumContainer) -> Option<(Vec<u8>, Vec<u8>)> {
-        let cnac_ciphertext_len = header.context_info.get() as usize;
-        log::info!("CNAC ciphertext len: {} | payload len: {}", cnac_ciphertext_len, payload.len());
-        if payload.len() < cnac_ciphertext_len {
-            log::error!("invalid payload len for the success packet");
-            return None;
-        }
-
-        let (cnac_ciphertext, welcome_message) = payload.split_at(cnac_ciphertext_len);
-        debug_assert_eq!(cnac_ciphertext.len(), cnac_ciphertext_len);
-        if let Ok(cnac_plaintext) = post_quantum.decrypt(cnac_ciphertext, nonce) {
-            Some((cnac_plaintext, welcome_message.to_vec()))
-        } else {
-            log::error!("Error using AES-GCM decryption on the success packet!");
-            None
-        }
+    pub(crate) fn validate_success(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr) -> Option<(Vec<u8>, NetworkAccount)> {
+        let (_, payload) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
+        let adjacent_nac = NetworkAccount::new_from_recent_connection(header.session_cid.get(), remote_addr);
+        Some((payload.to_vec(), adjacent_nac))
     }
 
     /// Returns the error message
     pub(crate) fn validate_failure(_header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<Vec<u8>> {
+        // no encryption used for this type
         Some(payload.to_vec())
-    }
-}
-
-pub(crate) mod do_disconnect {
-    use zerocopy::LayoutVerified;
-
-    use ez_pqcrypto::PostQuantumContainer;
-    use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
-    use hyxe_crypt::drill::Drill;
-    use hyxe_crypt::drill::E_OF_X_START_INDEX;
-    use hyxe_crypt::drill::SecurityLevel;
-    use hyxe_user::client_account::ClientNetworkAccount;
-
-    use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::error::NetworkError;
-    use crate::hdp::hdp_packet::{HdpHeader, packet_sizes};
-    use crate::hdp::hdp_server::Ticket;
-    use crate::hdp::state_container::VirtualConnectionType;
-
-    /// Returns the identifier and target cid
-    pub(crate) fn validate_stage0(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(VirtualConnectionType, Ticket, Drill)> {
-        if payload.len() == 0 {
-            log::error!("The payload of the packet has an invalid size. Dropping");
-            return None;
-        }
-
-        let security_level = header.security_level;
-        if security_level > SecurityLevel::DIVINE.value() {
-            log::error!("Invalid security level of packet. Dropping");
-            return None;
-        }
-
-        let security_level = SecurityLevel::for_value(security_level as usize).unwrap();
-
-        if let Some(drill) = cnac.get_drill(Some(header.drill_version.get())) {
-            let sec0 = drill.get_ultra()[0][0];
-            let sec1 = drill.get_high()[0][1];
-
-            if sec0 != header.group.get() || sec1 != header.wave_id.get() {
-                log::error!("Invalid security parameters on disconnect packet");
-                return None;
-            }
-
-            let ticket = Ticket(header.context_info.get());
-            let data = drill.decrypt_to_vec(payload, 0, security_level).unwrap();
-            let virt_cxn_type = VirtualConnectionType::deserialize_from(data)?;
-            Some((virt_cxn_type, ticket, drill))
-        } else {
-            log::error!("Drill missing for stage 0 do_disconnect packet. Dropping");
-            None
-        }
-    }
-
-    /// Returns the identifier and target cid
-    pub(crate) fn validate_stage1(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<([u8; AES_GCM_NONCE_LEN_BYTES], Ticket, Drill)> {
-        if payload.len() != packet_sizes::disconnect::STAGE1 - HDP_HEADER_BYTE_LEN {
-            log::error!("The payload of the packet has an invalid size. Dropping");
-            return None;
-        }
-
-        let security_level = header.security_level;
-        if security_level > SecurityLevel::DIVINE.value() {
-            log::error!("Invalid security level of packet. Dropping");
-            return None;
-        }
-
-        let security_level = SecurityLevel::for_value(security_level as usize).unwrap();
-
-        if let Some(drill) = cnac.get_drill(Some(header.drill_version.get())) {
-            let sec0 = drill.get_ultra()[0][2];
-            let sec1 = drill.get_high()[0][3];
-
-            if sec0 != header.group.get() || sec1 != header.wave_id.get() {
-                log::error!("Invalid security parameters on disconnect packet");
-                return None;
-            }
-
-            let ticket = Ticket(header.context_info.get());
-            let nonce_decrypted = drill.decrypt_to_vec(payload, 0, security_level).unwrap();
-            let mut nonce: [u8; AES_GCM_NONCE_LEN_BYTES] = [0u8; AES_GCM_NONCE_LEN_BYTES];
-            for x in 0..AES_GCM_NONCE_LEN_BYTES {
-                nonce[x] = nonce_decrypted[x];
-            }
-
-            Some((nonce, ticket, drill))
-        } else {
-            log::error!("Drill missing for stage 1 do_disconnect packet. Dropping");
-            None
-        }
-    }
-
-    pub(crate) fn validate_stage2(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], post_quantum: &PostQuantumContainer, payload: &[u8]) -> Option<(Drill, Ticket)> {
-        if payload.len() != packet_sizes::disconnect::STAGE2 - HDP_HEADER_BYTE_LEN {
-            log::error!("The payload of the packet has an invalid size. Dropping");
-            return None;
-        }
-
-        if let Some(drill) = cnac.get_drill(Some(header.drill_version.get())) {
-            let sec0 = drill.get_ultra()[0][4];
-            let sec1 = drill.get_high()[0][5];
-
-            if sec0 != header.group.get() || sec1 != header.wave_id.get() {
-                log::error!("Invalid security parameters on disconnect packet");
-                return None;
-            }
-
-            if let Ok(decrypted_low_subdrill) = drill.aes_gcm_decrypt_custom_nonce(nonce, post_quantum, &payload) {
-                let port_range = drill.get_multiport_width();
-                let low_subdrill_real = drill.get_low();
-                let mut idx = 0;
-                for x in 0..E_OF_X_START_INDEX {
-                    for y in 0..port_range {
-                        if low_subdrill_real[x][y] != decrypted_low_subdrill[idx] {
-                            log::error!("Low subdrills did not match. Dropping");
-                            return None;
-                        }
-                        idx += 1;
-                    }
-                }
-
-                let ticket = Ticket(header.context_info.get());
-
-                Some((drill, ticket))
-            } else {
-                log::error!("Invalid stage 2 packet payload");
-                None
-            }
-        } else {
-            log::error!("Drill missing for stage 2 do_disconnect packet. Dropping");
-            None
-        }
-    }
-
-    pub(crate) fn validate_final_packet(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Result<(Option<Vec<u8>>, Ticket), NetworkError> {
-        let security_level = header.security_level;
-        if security_level > SecurityLevel::DIVINE.value() {
-            log::error!("Invalid security level of packet. Dropping");
-            return Err(NetworkError::InvalidPacket("Invalid security level"));
-        }
-
-        let security_level = SecurityLevel::for_value(security_level as usize).unwrap();
-
-        if let Some(drill) = cnac.get_drill(Some(header.drill_version.get())) {
-            let sec0 = drill.get_ultra()[0][6];
-            let sec1 = drill.get_high()[0][7];
-
-            if sec0 != header.group.get() || sec1 != header.wave_id.get() {
-                log::error!("Invalid security parameters on disconnect packet");
-                return Err(NetworkError::InvalidPacket("Bad security parameters"));
-            }
-
-
-            let ticket = Ticket(header.context_info.get());
-            if payload.len() != 0 {
-                let message = drill.decrypt_to_vec(payload, 0, security_level).unwrap();
-                Ok((Some(message), ticket))
-            } else {
-                Ok((None, ticket))
-            }
-        } else {
-            log::error!("Drill missing for stage FINAL do_disconnect packet. Dropping");
-            Err(NetworkError::InvalidPacket("CNAC not found for cid provided by packet"))
-        }
     }
 }
 
 pub(crate) mod do_drill_update {
 
-    use ez_pqcrypto::PostQuantumContainer;
-    use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
-    use hyxe_crypt::drill::Drill;
-    use hyxe_crypt::drill_update::DrillUpdateObject;
+    use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
 
-    use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::hdp::hdp_packet::packet_sizes;
-
-    pub(crate) fn validate_stage1(payload: &[u8]) -> Option<[u8; AES_GCM_NONCE_LEN_BYTES]> {
-        if payload.len() != packet_sizes::do_drill_update::STAGE1 - HDP_HEADER_BYTE_LEN {
-            log::error!("Invalid stage 1 payload len");
-            return None;
-        }
-
-        let mut nonce: [u8; AES_GCM_NONCE_LEN_BYTES] = [0u8; AES_GCM_NONCE_LEN_BYTES];
-        for x in 0..AES_GCM_NONCE_LEN_BYTES {
-            nonce[x] = payload[x];
-        }
-        Some(nonce)
+    pub(crate) fn validate_stage0(payload: &[u8]) -> Option<AliceToBobTransfer<'_>> {
+        AliceToBobTransfer::deserialize_from(payload as &[u8])
     }
 
-    pub(crate) fn validate_stage2(drill: &Drill, post_quantum: &PostQuantumContainer, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], payload: &[u8]) -> Option<Drill> {
-        if payload.len() <= HDP_HEADER_BYTE_LEN {
-            log::error!("Invalid stage 2 payload len");
-            return None;
-        }
-        if let Ok(decrypted_dou) = drill.aes_gcm_decrypt_custom_nonce(nonce, post_quantum, payload) {
-            if let Ok(dou_deserialized) = DrillUpdateObject::deserialize_from_vector(&decrypted_dou) {
-                if dou_deserialized.drill_version.wrapping_sub(1) != drill.get_version() {
-                    log::error!("The inbound DOU is not one version ahead of the used drill");
-                    return None;
-                }
-
-                if let Some((_dou, next_drill)) = dou_deserialized.compute_next_recursion(&drill, true) {
-                    Some(next_drill)
-                } else {
-                    log::error!("Unable to compute next recursion between the drill and its dou");
-                    None
-                }
-            } else {
-                log::error!("Unable to deserialize inbound DrillUpdateObject");
-                None
-            }
-        } else {
-            log::error!("Error decrypting Drill Update Object");
-            None
-        }
-    }
-
-    pub(crate) fn validate_stage3(new_drill: &Drill, post_quantum: &PostQuantumContainer, expected_nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], payload: &[u8]) -> bool {
-        if payload.len() != packet_sizes::do_drill_update::STAGE3 - HDP_HEADER_BYTE_LEN {
-            log::error!("Invalid stage 3 payload len");
-            return false;
-        }
-
-        if let Ok(nonce_plaintext) = new_drill.aes_gcm_decrypt_custom_nonce(expected_nonce, post_quantum, payload) {
-            nonce_plaintext.as_ref() as &[u8] == expected_nonce as &[u8]
-        } else {
-            log::error!("Error decrypting nonce");
-            false
-        }
-    }
-}
-
-pub(crate) mod do_deregister {
-    use zerocopy::LayoutVerified;
-
-    use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
-    use crate::hdp::state_container::VirtualConnectionType;
-
-    /// Returns the payload ID, target cid, and drill
-    pub(crate) fn validate_stage0(payload: &[u8]) -> Option<VirtualConnectionType> {
-        VirtualConnectionType::deserialize_from(payload)
-    }
-
-    /// The new drill has to be explicitly given. Shouldn't be added to the cnac quite yet.
-    pub(crate) fn validate_stage_final(header: &LayoutVerified<&[u8], HdpHeader>) -> bool {
-        header.cmd_aux == packet_flags::cmd::aux::do_deregister::SUCCESS
+    pub(crate) fn validate_stage1(payload: &[u8]) -> Option<BobToAliceTransfer> {
+        BobToAliceTransfer::deserialize_from(payload as &[u8])
     }
 }
 
 pub(crate) mod pre_connect {
     use byteorder::{ByteOrder, NetworkEndian};
-    use zerocopy::LayoutVerified;
 
-    use ez_pqcrypto::PostQuantumContainer;
-    use hyxe_crypt::drill::Drill;
-    use hyxe_crypt::drill_update::DrillUpdateObject;
-    use hyxe_crypt::toolset::Toolset;
+    use hyxe_crypt::toolset::{Toolset, StaticAuxRatchet};
     use hyxe_nat::hypernode_type::HyperNodeType;
     use hyxe_nat::udp_traversal::NatTraversalMethod;
     use hyxe_user::client_account::ClientNetworkAccount;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::hdp::hdp_packet::{HdpHeader, packet_sizes, HdpPacket};
-    use crate::hdp::hdp_packet::packet_flags::payload_identifiers;
+    use crate::hdp::hdp_packet::{packet_sizes, HdpPacket};
     use crate::hdp::hdp_packet_processor::includes::SocketAddr;
     use std::str::FromStr;
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, HyperRatchetConstructor, BobToAliceTransfer};
 
     // +1 for node type, +2 for minimum 1 wave port inscribed
     const STAGE0_MIN_PAYLOAD_LEN: usize = 1 + 2;
     // +1 for node type, +1 for nat traversal type, +8 for sync_time, +2 for minimum 1 wave port inscribed
     const STAGE1_MIN_PAYLOAD_LEN: usize = 1 + 1 + 8 + 2;
 
+    pub fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<(StaticAuxRatchet, BobToAliceTransfer)> {
+        // refresh the toolset's ARA & get static aux hr
+        let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
+        let (header, payload, _, _) = packet.decompose();
+        let (header, payload) = super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload)?;
+
+        let transfer = AliceToBobTransfer::deserialize_from(&payload)?;
+        let bob_constructor = HyperRatchetConstructor::new_bob(header.algorithm, header.session_cid.get(), 0, transfer)?;
+        let transfer = bob_constructor.stage0_bob()?;
+        let new_hyper_ratchet = bob_constructor.finish()?;
+        // below, we need to ensure the hyper ratchet stays constant throughout transformations
+        let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_hyper_ratchet));
+
+        cnac.replace_toolset(toolset);
+        Some((static_auxiliary_ratchet, transfer))
+    }
+
     /// This returns an error if the packet is maliciously invalid (e.g., due to a false packet)
     /// This returns Ok(true) if the system was already synchronized, or Ok(false) if the system needed to synchronize toolsets
-    pub fn validate_syn_ack(cnac: &ClientNetworkAccount, pqc: &PostQuantumContainer, packet: HdpPacket) -> Result<(Drill, SocketAddr), ()> {
-        let static_auxiliary_drill = unsafe { cnac.get_static_auxiliary_drill() };
+    pub fn validate_syn_ack(cnac: &ClientNetworkAccount, mut alice_constructor: HyperRatchetConstructor, packet: HdpPacket) -> Option<(HyperRatchet, SocketAddr)> {
+        let static_auxiliary_ratchet = cnac.get_static_auxiliary_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
-        let (header, payload) = super::aead::validate_custom(&static_auxiliary_drill, pqc, &header, payload).ok_or(())?;
+        let (header, payload) = super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload)?;
         let external_addr_len = header.context_info.get() as usize;
         if payload.len() > external_addr_len {
-            let external_addr_bytes = String::from_utf8((&payload[..external_addr_len]).to_vec()).map_err(|_| ())?;
-            let external_ip = SocketAddr::from_str(&external_addr_bytes).map_err(|_| ())?;
+            let external_addr_bytes = String::from_utf8((&payload[..external_addr_len]).to_vec()).ok()?;
+            let external_ip = SocketAddr::from_str(&external_addr_bytes).ok()?;
             log::info!("External IP: {:?}", external_ip);
-            let dou_plaintext = &payload[external_addr_len..];
+            let transfer_payload = &payload[external_addr_len..];
 
-            let dou = DrillUpdateObject::deserialize_from_vector(dou_plaintext).map_err(|_| ())?;
-            let (_dou, new_base_toolset_drill) = dou.compute_next_recursion(&static_auxiliary_drill, false).ok_or(())?;
-
-            let toolset = Toolset::from((static_auxiliary_drill, new_base_toolset_drill.clone()));
+            let transfer = BobToAliceTransfer::deserialize_from(transfer_payload)?;
+            alice_constructor.stage1_alice(transfer)?;
+            let new_hyper_ratchet = alice_constructor.finish()?;
+            let toolset = Toolset::from((static_auxiliary_ratchet, new_hyper_ratchet.clone()));
             cnac.replace_toolset(toolset);
-            Ok((new_base_toolset_drill, external_ip))
+            Some((new_hyper_ratchet, external_ip))
         } else {
             log::error!("Bad payload len");
-            Err(())
+            None
         }
     }
 
     // Returns the adjacent node type, wave ports, and external IP. Serverside, we do not update the CNAC's toolset until this point
     // because we want to make sure the client passes the challenge
-    pub fn validate_stage0<'a>(new_base_drill: &'a Drill, pqc: &PostQuantumContainer, cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<(HyperNodeType, Vec<u16>, SocketAddr)> {
+    pub fn validate_stage0<'a>(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<(HyperNodeType, Vec<u16>, SocketAddr)> {
         let (header, payload, _, _) = packet.decompose();
-        let (header, payload) = super::aead::validate_custom(new_base_drill, pqc, &header, payload)?;
+        let (header, payload) = super::aead::validate_custom(hyper_ratchet, &header, payload)?;
         if payload.len() < STAGE0_MIN_PAYLOAD_LEN {
             return None;
         }
 
-        if header.drill_version.get() != new_base_drill.get_version() {
+        if header.drill_version.get() != hyper_ratchet.version() {
             log::error!("Header drill version not equal to the new base drill");
             None
         } else {
@@ -729,17 +343,13 @@ pub(crate) mod pre_connect {
             }
             // Remember: these wll be the UPnP ports if the other end already enabled UPnP. We figure that out later in the stage1 process that calls this closure
             let ports = ports_from_bytes(port_bytes);
-            let static_aux_drill = unsafe { cnac.get_static_auxiliary_drill() };
-            let new_toolset = Toolset::from((static_aux_drill, new_base_drill.clone()));
-            // at this point, the toolsets on both ends are synchronized
-            cnac.replace_toolset(new_toolset);
             Some((adjacent_node_type, ports, external_ip))
         }
     }
 
-    pub fn validate_stage1(drill: &Drill, pqc: &PostQuantumContainer, packet: HdpPacket) -> Option<(HyperNodeType, NatTraversalMethod, i64, Vec<u16>)> {
+    pub fn validate_stage1(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<(HyperNodeType, NatTraversalMethod, i64, Vec<u16>)> {
         let (header, payload, _, _) = packet.decompose();
-        let (_header, payload) = super::aead::validate_custom(drill, pqc, &header, payload)?;
+        let (_header, payload) = super::aead::validate_custom(hyper_ratchet,&header, payload)?;
         if payload.len() < STAGE1_MIN_PAYLOAD_LEN {
             log::error!("Bad payload len");
             return None;
@@ -758,119 +368,71 @@ pub(crate) mod pre_connect {
         Some((adjacent_node_type, nat_traversal_method, sync_time, adjacent_ports))
     }
 
-    pub fn validate_try_next(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(Drill, NatTraversalMethod)> {
+    pub fn validate_try_next(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<(HyperRatchet, NatTraversalMethod)> {
+        let (header, payload, _, _) = packet.decompose();
+        let (_, payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
+
         if payload.len() != packet_sizes::do_preconnect::STAGE_TRY_NEXT - HDP_HEADER_BYTE_LEN {
             log::error!("Bad payload len");
             return None;
         }
 
-        if let Some(drill) = cnac.get_drill(Some(header.drill_version.get())) {
-            let sec0 = drill.get_ultra()[1][6];
-            let sec1 = drill.get_ultra()[1][7];
-            let sec2 = drill.get_high()[1][8];
-
-            if sec0 != header.context_info.get() || sec1 != header.group.get() || sec2 != header.wave_id.get() {
-                log::error!("Bad security parameters");
-                return None;
-            }
-
-            Some((drill, NatTraversalMethod::from_byte(payload[0])?))
-        } else {
-            log::error!("Unable to find drill");
-            None
-        }
+        Some((hyper_ratchet, NatTraversalMethod::from_byte(payload[0])?))
     }
 
     /// Returns the drill and sync_time
-    pub fn validate_try_next_ack(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(Drill, i64)> {
+    pub fn validate_try_next_ack(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<(HyperRatchet, i64)> {
+        let (header, payload, _, _) = packet.decompose();
+        let (_, payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
         if payload.len() != packet_sizes::do_preconnect::STAGE_TRY_NEXT_ACK - HDP_HEADER_BYTE_LEN {
             log::error!("Bad payload len");
             return None;
         }
-
-        if let Some(drill) = cnac.get_drill(Some(header.drill_version.get())) {
-            let sec0 = drill.get_ultra()[1][9];
-            let sec1 = drill.get_ultra()[1][10];
-            let sec2 = drill.get_high()[1][11];
-
-            if sec0 != header.context_info.get() || sec1 != header.group.get() || sec2 != header.wave_id.get() {
-                log::error!("Bad security parameters");
-                return None;
-            }
-
-            let sync_time = NetworkEndian::read_i64(payload);
-            Some((drill, sync_time))
-        } else {
-            log::error!("Unable to find drill");
-            None
-        }
+        let sync_time = NetworkEndian::read_i64(&payload[..]);
+        Some((hyper_ratchet, sync_time))
     }
 
     /// if the payload contains ports, it is expected that those ports are reflective of the ports reserved from the UPnP process.
     /// This returns the drill, the upnp ports, and TCP_ONLY mode
-    pub fn validate_final(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(Drill, Option<Vec<u16>>, bool)> {
+    pub fn validate_final(cnac: &ClientNetworkAccount, packet: HdpPacket, tcp_only: bool) -> Option<(HyperRatchet, Option<Vec<u16>>)> {
+        let (header, payload, _, _) = packet.decompose();
+        let (_, payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
+
         if payload.len() % 2 != 0 {
             log::error!("Bad payload len");
             return None;
         }
 
-        if let Some(drill) = cnac.get_drill(Some(header.drill_version.get())) {
-            let sec0 = drill.get_ultra()[2][0];
-            let sec1 = drill.get_ultra()[2][1];
-            let sec2 = drill.get_high()[2][2];
-
-            if sec0 != header.context_info.get() || sec1 != header.group.get() || sec2 != header.wave_id.get() {
-                log::error!("Bad security parameters");
-                return None;
-            }
-
-            let upnp_ports = if payload.len() != 0 {
-                Some(ports_from_bytes(payload))
-            } else {
-                None
-            };
-
-            let tcp_only = header.algorithm == payload_identifiers::do_preconnect::TCP_ONLY;
-
-            if tcp_only && upnp_ports.is_some() {
-                log::error!("Improper packet configuration. TCP only and Some(upnp_ports) cannot both be true");
-                return None;
-            }
-
-            Some((drill, upnp_ports, tcp_only))
+        let upnp_ports = if payload.len() != 0 {
+            Some(ports_from_bytes(payload))
         } else {
-            log::error!("Unable to find drill");
             None
+        };
+
+        if tcp_only && upnp_ports.is_some() {
+            log::error!("Improper packet configuration. TCP only and Some(upnp_ports) cannot both be true");
+            return None;
         }
+
+        Some((hyper_ratchet, upnp_ports))
     }
 
-    pub fn validate_begin_connect(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<Drill> {
+    pub fn validate_begin_connect(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<HyperRatchet> {
+        let (header, payload, _, _) = packet.decompose();
+        let (_,payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
+
         if payload.len() != packet_sizes::do_preconnect::STAGE_SUCCESS_ACK - HDP_HEADER_BYTE_LEN {
             log::error!("Bad payload len");
             return None;
         }
 
-        if let Some(drill) = cnac.get_drill(Some(header.drill_version.get())) {
-            let sec0 = drill.get_ultra()[2][3];
-            let sec1 = drill.get_ultra()[2][4];
-            let sec2 = drill.get_high()[2][5];
-
-            if sec0 != header.context_info.get() || sec1 != header.group.get() || sec2 != header.wave_id.get() {
-                log::error!("Bad security parameters");
-                return None;
-            }
-
-            Some(drill)
-        } else {
-            log::error!("Unable to find drill");
-            None
-        }
+        Some(hyper_ratchet)
     }
 
-    pub fn validate_server_finished_hole_punch(drill: &Drill, pqc: &PostQuantumContainer, packet: HdpPacket) -> Option<bool> {
+    pub fn validate_server_finished_hole_punch(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<()> {
         let (header, payload, _, _) = packet.decompose();
-        let (header, _payload) = super::aead::validate_custom(drill, pqc, &header, payload)?;
-        Some(header.algorithm == 1)
+        let (_header, _payload) = super::aead::validate_custom(hyper_ratchet, &header, payload)?;
+        Some(())
     }
 
     #[inline]
@@ -887,27 +449,6 @@ pub(crate) mod pre_connect {
         }
 
         ret
-    }
-}
-
-pub(crate) mod peer_cmd {
-    use bytes::BytesMut;
-    use zerocopy::LayoutVerified;
-
-    use hyxe_crypt::drill::Drill;
-    use hyxe_user::client_account::ClientNetworkAccount;
-
-    use crate::hdp::hdp_packet::HdpHeader;
-    use crate::hdp::hdp_packet_processor::includes::{Bytes, PostQuantumContainer};
-
-    /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
-    #[allow(dead_code)]
-    pub(crate) fn validate<'a, 'b: 'a>(cnac: &ClientNetworkAccount, pqc: &PostQuantumContainer, header: &'b Bytes, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, Drill)> {
-        let bytes = &header[..];
-        let header = LayoutVerified::new(bytes)? as LayoutVerified<&[u8], HdpHeader>;
-        let drill = cnac.get_drill(Some(header.drill_version.get()))?;
-        drill.validate_packet_in_place_split(pqc, bytes, &mut payload).ok()?;
-        Some((header, payload.freeze(), drill))
     }
 }
 
@@ -947,26 +488,25 @@ pub(crate) mod aead {
     use bytes::{Bytes, BytesMut};
     use zerocopy::LayoutVerified;
 
-    use ez_pqcrypto::PostQuantumContainer;
-    use hyxe_crypt::drill::Drill;
     use hyxe_user::client_account::ClientNetworkAccount;
 
     use crate::hdp::hdp_packet::HdpHeader;
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM or chacha-poly
-    pub(crate) fn validate<'a, 'b: 'a>(cnac: &ClientNetworkAccount, pqc: &PostQuantumContainer, header: &'b Bytes, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, Drill)> {
-        let bytes = &header[..];
-        let header = LayoutVerified::new(bytes)? as LayoutVerified<&[u8], HdpHeader>;
-        let drill = cnac.get_drill(Some(header.drill_version.get()))?;
-        drill.validate_packet_in_place_split(pqc, bytes, &mut payload).ok()?;
-        Some((header, payload.freeze(), drill))
+    pub(crate) fn validate<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(cnac: &ClientNetworkAccount, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, HyperRatchet)> {
+        let header_bytes = header.as_ref();
+        let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
+        let hyper_ratchet = cnac.get_hyper_ratchet(Some(header.drill_version.get()))?;
+        hyper_ratchet.validate_message_packet_in_place_split(header_bytes, &mut payload).ok()?;
+        Some((header, payload.freeze(), hyper_ratchet))
     }
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
-    pub(crate) fn validate_custom<'a, 'b: 'a>(drill: &Drill, pqc: &PostQuantumContainer, header: &'b Bytes, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes)> {
-        let bytes = &header[..];
-        let header = LayoutVerified::new(bytes)? as LayoutVerified<&[u8], HdpHeader>;
-        drill.validate_packet_in_place_split(pqc, bytes, &mut payload).ok()?;
+    pub(crate) fn validate_custom<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(hyper_ratchet: &HyperRatchet, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes)> {
+        let header_bytes = header.as_ref();
+        let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
+        hyper_ratchet.validate_message_packet_in_place_split(header_bytes, &mut payload).ok()?;
         Some((header, payload.freeze()))
     }
 }

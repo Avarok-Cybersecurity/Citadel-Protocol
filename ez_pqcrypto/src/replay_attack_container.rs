@@ -21,6 +21,11 @@ pub mod ordered {
         pub fn on_pid_received(&self, pid: u64) -> bool {
             self.in_counter.compare_and_swap(pid, pid + 1, Ordering::SeqCst) == pid
         }
+
+        pub fn has_tracked_packets(&self) -> bool {
+            self.in_counter.load(Ordering::Relaxed) != 0
+            || self.out_counter.load(Ordering::Relaxed) != 0
+        }
     }
 
     impl Default for AntiReplayAttackContainer {
@@ -84,6 +89,11 @@ pub mod unordered {
                     false
                 }
             }
+        }
+
+        pub fn has_tracked_packets(&self) -> bool {
+            (self.counter_out.load(Ordering::Relaxed) != 0)
+            || (self.history.lock().0 != 0)
         }
     }
 

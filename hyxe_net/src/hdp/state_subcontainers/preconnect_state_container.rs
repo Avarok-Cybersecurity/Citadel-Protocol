@@ -6,7 +6,7 @@ use crate::constants::DO_CONNECT_EXPIRE_TIME_MS;
 use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
-use hyxe_crypt::drill::Drill;
+use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 
 /// For keeping track of the pre-connect state
 pub struct PreConnectState {
@@ -14,7 +14,7 @@ pub struct PreConnectState {
     pub(crate) adjacent_node_type: Option<HyperNodeType>,
     pub(crate) adjacent_unnated_ports: Option<Vec<u16>>,
     // This drill should be turned .into() the next toolset once the other side updated
-    pub(crate) base_toolset_drill: Option<Drill>,
+    pub(crate) constructor: Option<HyperRatchetConstructor>,
     pub(crate) reserved_sockets: Option<Vec<UdpSocket>>,
     pub(crate) hole_punched: Option<Vec<(UdpSocket, HolePunchedSocketAddr)>>,
     pub(crate) current_nat_traversal_method: Option<NatTraversalMethod>,
@@ -46,6 +46,6 @@ impl PreConnectState {
 
 impl Default for PreConnectState {
     fn default() -> Self {
-        Self { base_toolset_drill: None, hole_punched: None, hole_puncher: None, last_packet_time: None, reserved_sockets: None, adjacent_unnated_ports: None, last_stage: 0, adjacent_node_type: None, success: false, nat_traversal_attempts: 0, current_nat_traversal_method: None, ticket: None }
+        Self { constructor: None, hole_punched: None, hole_puncher: None, last_packet_time: None, reserved_sockets: None, adjacent_unnated_ports: None, last_stage: 0, adjacent_node_type: None, success: false, nat_traversal_attempts: 0, current_nat_traversal_method: None, ticket: None }
     }
 }

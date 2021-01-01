@@ -1,18 +1,18 @@
 use tokio::time::Instant;
 
-use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
-
 use crate::constants::DO_REGISTER_EXPIRE_TIME_MS;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::proposed_credentials::ProposedCredentials;
-use ez_pqcrypto::PostQuantumContainer;
+use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
+use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
 /// These values should correlate directly to the packet_flags::cmd::aux::do_register::*
+#[derive(Default)]
 pub struct RegisterState {
     pub(crate) last_stage: u8,
-    pub(crate) nonce: Option<[u8; AES_GCM_NONCE_LEN_BYTES]>,
     pub(crate) proposed_credentials: Option<ProposedCredentials>,
-    pub(crate) pqc: Option<PostQuantumContainer>,
+    pub(crate) constructor: Option<HyperRatchetConstructor>,
+    pub(crate) created_hyper_ratchet: Option<HyperRatchet>,
     pub(crate) proposed_cid: Option<u64>,
     pub(crate) last_packet_time: Option<Instant>,
     pub(crate) fail_time: Option<i64>,
@@ -25,7 +25,7 @@ impl RegisterState {
         self.last_stage = packet_flags::cmd::aux::do_register::FAILURE;
         self.fail_time = Some(fail_time);
         self.success_time = None;
-        self.pqc = None;
+        self.constructor = None;
         self.on_register_packet_received();
     }
 
@@ -33,7 +33,7 @@ impl RegisterState {
     pub fn on_success(&mut self, success_time: i64) {
         self.last_stage = packet_flags::cmd::aux::do_register::SUCCESS;
         self.success_time = Some(success_time);
-        self.pqc = None;
+        self.constructor = None;
         self.fail_time = None;
         self.on_register_packet_received();
     }
@@ -55,6 +55,6 @@ impl RegisterState {
 
 impl From<u8> for RegisterState {
     fn from(stage: u8) -> Self {
-        Self { pqc: None, proposed_cid: None, last_packet_time: None, last_stage: stage, nonce: None, proposed_credentials: None, fail_time: None, success_time: None }
+        Self { last_stage: stage, ..Default::default() }
     }
 }

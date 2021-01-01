@@ -11,12 +11,10 @@ pub const KEP_ACCEPT_REKEY: u8 = 3;
 pub enum KeyExchangeProcess {
     // alice sends public key
     Stage0(Vec<u8>),
-    // Bob sends ciphertext, encrypted nonce, addr
-    Stage1(Vec<u8>, Vec<u8>, Option<String>),
-    // Alice sends encrypted toolset over
-    Stage2(Vec<u8>, Option<String>),
-    // Bob sends ACK w/ init time to begin hole-punch attempt
-    Stage3(i64),
+    // Bob sends ciphertext, addr
+    Stage1(Vec<u8>, Option<String>),
+    // Alice sends a sync time over. Server takes care of external addr
+    Stage2(i64, Option<String>),
     // Sends a signal to the other side validating that it established a connection
     // However, the other side must thereafter receiving prove that it's who they claim it is
     // to prevent MITM attacks

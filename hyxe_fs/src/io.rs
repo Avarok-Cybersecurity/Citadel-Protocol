@@ -1,6 +1,9 @@
 use std::path::Path;
 use serde::{Serialize, Deserialize};
 use std::fmt::{Formatter, Error, Debug};
+use bytes::BytesMut;
+use bytes::buf::BufMutExt;
+use serde::de::DeserializeOwned;
 
 /// Default Error type for this crate
 pub enum FsError<T: ToString> {
@@ -42,35 +45,11 @@ pub enum IoMode {
     WriteIfNonExists
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-#[allow(dead_code)]
-fn merge_dir_and_filename<'a>(directory: &'a mut str, filename: &'a str) -> String {
-    let mut builder = String::new();
-
-    if !(directory.ends_with("/") || directory.ends_with("\\")) {
-        builder.push('/');
-    }
-
-    (directory.to_owned() + filename).replace("\\", "/")
-}
-
-#[cfg(any(target_os = "windows"))]
-#[allow(dead_code)]
-fn merge_dir_and_filename<'a>(directory: &'a str, filename: &'a str) -> String {
-    let mut builder = String::new();
-    builder.push_str(directory);
-
-    if !(directory.ends_with("/") || directory.ends_with("\\")) {
-        builder.push('\\');
-    }
-
-    (builder + filename).replace("\\", "/")
-}
-
 /// Conveniant serialization methods for types that #[derive(Serialize, Deserialize)]
-pub trait SyncIO where for<'a> Self: Serialize + Deserialize<'a> + Sized {
+pub trait SyncIO {
     /// Serializes a bincode type to the local FS
-    fn serialize_to_local_fs<P: AsRef<Path>>(&self, location: P) -> Result<(), FsError<String>> {
+    fn serialize_to_local_fs<'a, P: AsRef<Path>>(&self, location: P) -> Result<(), FsError<String>>
+        where Self: Serialize + Sized {
         if let Some(parent_path) = location.as_ref().parent() {
             crate::system_file_manager::make_dir_all_blocking(parent_path)?;
         }
@@ -78,18 +57,38 @@ pub trait SyncIO where for<'a> Self: Serialize + Deserialize<'a> + Sized {
         crate::system_file_manager::write(self, location)
     }
     /// Deserializes a bincode type from the local FS
-    fn deserialize_from_local_fs<P: AsRef<Path>>(location: P) -> Result<Self, FsError<String>> {
+    fn deserialize_from_local_fs<P: AsRef<Path>>(location: P) -> Result<Self, FsError<String>>
+        where Self: DeserializeOwned {
         crate::system_file_manager::read(location)
     }
     /// Serializes a bincode type to a byte vector
-    fn serialize_to_vector(&self) -> Result<Vec<u8>, FsError<String>> {
+    fn serialize_to_vector(&self) -> Result<Vec<u8>, FsError<String>>
+        where Self: Serialize {
         crate::system_file_manager::type_to_bytes(self)
     }
     /// Deserialized a bincode type from a byte vector
-    fn deserialize_from_vector<T: AsRef<[u8]>>(input: &T) -> Result<Self, FsError<String>> {
-        crate::system_file_manager::bytes_to_type(input.as_ref())
+    fn deserialize_from_vector<'a>(input: &'a [u8]) -> Result<Self, FsError<String>>
+        where Self: Deserialize<'a> {
+        crate::system_file_manager::bytes_to_type(input)
+    }
+
+    /// Serializes self into a buffer
+    fn serialize_into_buf(&self, buf: &mut BytesMut) -> Result<(), FsError<String>>
+        where Self: Serialize {
+        bincode2::serialized_size(self)
+            .and_then(|amt| {
+                buf.reserve(amt as usize);
+                bincode2::serialize_into(buf.writer(), self)
+            }).map_err(|_| FsError::Generic("Bad ser".to_string()))
+    }
+
+    /// Returns the expected size of the serialized objects
+    fn serialized_size(&self) -> Option<usize>
+        where Self: Serialize {
+        bincode2::serialized_size(self).ok()
+            .map(|res| res as usize)
     }
 }
 
-impl<T> SyncIO for T where for<'a> T: Serialize + Deserialize<'a> + Sized {}
+impl<'a, T> SyncIO for T where T: Serialize + Deserialize<'a> + Sized {}
 

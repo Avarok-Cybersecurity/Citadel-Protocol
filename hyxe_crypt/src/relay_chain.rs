@@ -1,10 +1,8 @@
 use linked_hash_map::LinkedHashMap;
-use crate::prelude::{PostQuantumContainer, Drill};
 use crate::endpoint_crypto_container::PeerSessionCrypto;
 use bytes::BytesMut;
-use std::sync::Arc;
 use crate::net::crypt_splitter::calculate_aes_gcm_output_length;
-use std::iter::FromIterator;
+use crate::hyper_ratchet::HyperRatchet;
 
 /// Suppose we want to communicate from A -> B -> C -> D
 /// Let definition "KA" => ordinary session key exchange.
@@ -74,40 +72,43 @@ impl CryptoRelayChain {
     /// Encrypts a singular unit into an onion packet. The innermost encryption (zeroth pass) uses the furthermost
     /// endpoint's encryption, followed by each additional endpoint between each hop in the order of increasing
     /// proximity
-    pub fn encrypt<T: AsRef<[u8]>>(&self, input: T, nonce_version: usize, header_len: usize, header_inscriber: impl Fn(&Drill, &Arc<PostQuantumContainer>, u64, &mut BytesMut)) -> Option<BytesMut> {
+    pub fn encrypt<T: AsRef<[u8]>>(&self, input: T, nonce_version: usize, header_len: usize, header_inscriber: impl Fn(&HyperRatchet, u64, &mut BytesMut)) -> Option<BytesMut> {
         // the zeroth entry must be applied first. Its target CID is zero
         // the last entry needs to have a target_cid equal to C's CID
         // thus, we need to zip a vector to this iter that has the target cids
         let input = input.as_ref();
         let target_cids = self.target_cid_list.as_ref()?;
         self.links.iter().zip(target_cids.iter()).enumerate().try_fold(BytesMut::new(),
-        |mut acc, (idx, ((cid, container), target_cid))| {
-            let (pqc, drill) = container.borrow_pqc_and_drill(None)?;
+        |mut acc, (idx, ((_cid, container), target_cid))| {
+            let hyper_ratchet = container.get_hyper_ratchet(None)?;
+            let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill();
             //println!("At IDX {} using endpoint container {}. Target CID: {}", idx, cid, target_cid);
             if idx != 0 {
                 // we need to take the previous packet and make it the payload of a new packet
                 let mut outer_packet = BytesMut::with_capacity(header_len + calculate_aes_gcm_output_length(acc.len()));
-                (header_inscriber)(drill, pqc, *target_cid, &mut outer_packet);
+                (header_inscriber)(hyper_ratchet, *target_cid, &mut outer_packet);
                 // now, place the payload encrypted
-                let _len = drill.aes_gcm_encrypt_into(nonce_version, pqc, acc, &mut outer_packet).ok()?;
+                let _len = msg_drill.aes_gcm_encrypt_into(nonce_version, msg_pqc, acc, &mut outer_packet).ok()?;
                 Some(outer_packet)
             } else {
-                (header_inscriber)(drill, pqc, *target_cid, &mut acc);
+                (header_inscriber)(hyper_ratchet, *target_cid, &mut acc);
                 // this is the first. Place the input inside the packet encrypted
-                let _len = drill.aes_gcm_encrypt_into(nonce_version, pqc, input, &mut acc).ok()?;
+                let _len = msg_drill.aes_gcm_encrypt_into(nonce_version, msg_pqc, input, &mut acc).ok()?;
                 Some(acc)
             }
         })
     }
 
     /// Borrow the drill and pqc
-    pub fn borrow_drill_and_pqc(&self, cid: u64, drill_version: Option<u32>) -> Option<(&Arc<PostQuantumContainer>, &Drill)> {
+    pub fn borrow_drill_and_pqc(&self, cid: u64, drill_version: Option<u32>) -> Option<&HyperRatchet> {
         self.links.get(&cid)
-            .and_then(|res| res.borrow_pqc_and_drill(drill_version))
+            .and_then(|res| res.get_hyper_ratchet(drill_version))
     }
 
 }
 
+#[cfg(debug_assertions)]
+use std::iter::FromIterator;
 #[cfg(debug_assertions)]
 impl FromIterator<PeerSessionCrypto> for CryptoRelayChain {
     fn from_iter<T: IntoIterator<Item=PeerSessionCrypto>>(iter: T) -> Self {

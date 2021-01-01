@@ -2,9 +2,10 @@ use super::includes::*;
 use crate::hdp::state_container::{StateContainerInner, GroupKey, FileKey};
 use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::hdp::session_queue_handler::QueueWorkerResult;
-use std::sync::Arc;
 use atomic::Ordering;
-use crate::hdp::validation::group::GroupHeader;
+use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
+use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer, HyperRatchetConstructor};
 
 /// This will handle an inbound primary group packet
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
@@ -27,21 +28,20 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
     // that TCP_ONLY mode is engaged, in which case, the packets are funneled through here
     if cmd_aux != packet_flags::cmd::aux::group::GROUP_PAYLOAD {
         let (header, payload, _, _) = packet.decompose();
-        let pqc_sess = session.post_quantum.as_ref()?;
         let cnac_sess = session.cnac.as_ref()?;
         let mut state_container = inner_mut!(session.state_container);
         // get the proper pqc
         let header_bytes = &header[..];
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
-        let (pqc, drill) = get_proper_pqc_and_drill(header.drill_version.get(), cnac_sess, pqc_sess, &wrap_inner_mut!(state_container), proxy_cid_info)?;
+        let hyper_ratchet = get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess, &wrap_inner_mut!(state_container), proxy_cid_info)?;
 
-        match validation::group::validate(&drill, &pqc, header_bytes, payload) {
-            Some(payload) => {
+        match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
+            Some((header, payload)) => {
                 match cmd_aux {
                     packet_flags::cmd::aux::group::GROUP_HEADER => {
                         log::info!("RECV GROUP HEADER");
                         // keep in mind: The group header is a packet with a standard header containing the ticket in the context_info, but with a payload len in the 8-byte "payload"
-                        if let Some(group_header) = validation::group::validate_header(&header, &payload, &drill, &pqc) {
+                        if let Some(group_header) = validation::group::validate_header(&payload[..], &hyper_ratchet, &header) {
                             match group_header {
                                 GroupHeader::Standard(group_receiver_config, virtual_target) => {
                                     // First, check to make sure the virtual target can accept
@@ -55,7 +55,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                     let resp_target_cid = recipient_valid_gate(&virtual_target, wrap_inner_mut!(state_container))?;
 
                                     // the below will return None if not ready to accept
-                                    let initial_wave_window = state_container.on_group_header_received(&header, &drill, group_receiver_config, virtual_target);
+                                    let initial_wave_window = state_container.on_group_header_received(&header, group_receiver_config, virtual_target);
                                     if initial_wave_window.is_some() {
                                         // register group timeout device
                                         std::mem::drop(state_container);
@@ -96,17 +96,18 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                             }
                                         });
                                     }
-                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&pqc, object_id, header.group.get(), resp_target_cid, ticket, &drill, initial_wave_window, false, timestamp);
+                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket,initial_wave_window, false, timestamp, None);
                                     PrimaryProcessorResult::ReplyToSender(group_header_ack)
                                 }
 
-                                GroupHeader::FastMessage(plaintext, virtual_target) => {
+                                GroupHeader::FastMessage(plaintext, virtual_target, transfer) => {
                                     // Here, we do not go through all the fiasco like above. We just forward the message to the kernel, then send an ACK
                                     // so that the sending side can be notified of a successful send
                                     let resp_target_cid = recipient_valid_gate(&virtual_target, wrap_inner_mut!(state_container))?;
                                     let object_id = header.wave_id.get();
                                     let ticket = header.context_info.get().into();
                                     let timestamp = session.time_tracker.get_global_time_ns();
+                                    let plaintext = SecBuffer::from(plaintext);
 
                                     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
                                         // send to channel
@@ -120,8 +121,13 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                         session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, plaintext))?;
                                     }
 
+                                    // now, update the keys (if applicable)
+                                    let transfer = if let Some(transfer) = transfer {
+                                        Some(update_toolset_as_bob(cnac_sess, transfer, header.algorithm, header.drill_version.get() + 1)?)
+                                    } else { None };
+
                                     // finally, return a GROUP_HEADER_ACK
-                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&pqc, object_id, header.group.get(), resp_target_cid, ticket, &drill, None, true, timestamp);
+                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer);
                                     PrimaryProcessorResult::ReplyToSender(group_header_ack)
                                 }
                             }
@@ -134,14 +140,15 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                     packet_flags::cmd::aux::group::GROUP_HEADER_ACK => {
                         log::info!("RECV GROUP HEADER ACK");
                         match validation::group::validate_header_ack(&payload) {
-                            Some((true, initial_wave_window, _)) => {
+                            Some(GroupHeaderAck::ReadyToReceive { initial_window, transfer, fast_msg }) => {
+
                                     // we need to begin sending the data
                                     // valid and ready to accept!
                                     let tcp_only = session.tcp_only;
                                     let initial_wave_window = if tcp_only {
                                         None
                                     } else {
-                                        Some(initial_wave_window)
+                                        initial_window
                                     };
 
                                     // A weird exception for obj_id location .. usually in context info, but in wave if for this unique case
@@ -149,7 +156,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                     //let mut state_container = session.state_container.borrow_mut();
                                     let object_id = header.wave_id.get();
                                     let group_id = header.group.get();
-                                    if !state_container.on_group_header_ack_received(object_id, peer_cid, group_id, initial_wave_window) {
+                                    if !state_container.on_group_header_ack_received(object_id, peer_cid, group_id, initial_wave_window, transfer, cnac_sess, fast_msg) {
                                         if tcp_only {
                                             PrimaryProcessorResult::EndSession("TCP sockets disconnected")
                                         } else {
@@ -160,7 +167,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                     }
                             }
 
-                            Some((false, _, fast_msg)) => {
+                            Some(GroupHeaderAck::NotReady { fast_msg }) => {
                                 // valid but not ready to accept.
                                 // Possible reasons: too large, target not valid (e.g., not registered, not connected, etc)
                                 //let mut state_container = session.state_container.borrow_mut();
@@ -205,7 +212,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                             Some(waves_in_window) => {
                                 let to_primary_stream = session.to_primary_stream.as_ref()?;
                                 let ref state_container_ref = session.state_container;
-                                match state_container.on_window_tail_received(&pqc, state_container_ref, &header, &drill, waves_in_window, &session.time_tracker, to_primary_stream) {
+                                match state_container.on_window_tail_received(&hyper_ratchet, state_container_ref, &header,waves_in_window, &session.time_tracker, to_primary_stream) {
                                     true => {
                                         PrimaryProcessorResult::Void
                                     }
@@ -230,7 +237,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                             Ok(_) => {
                                 // The internal session timer will handle the outbound dispatch of packets
                                 // once
-                                state_container.on_wave_do_retransmission_received(&drill, &header, &payload);
+                                state_container.on_wave_do_retransmission_received(&hyper_ratchet, &header, &payload);
                                 PrimaryProcessorResult::Void
                             }
 
@@ -245,15 +252,16 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                     packet_flags::cmd::aux::group::WAVE_ACK => {
                         log::info!("RECV WAVE ACK");
                         match validation::group::validate_wave_ack(&payload) {
-                            Ok(next_window_opt) => {
+                            Some(WaveAck { range }) => {
+
                                 let tcp_only = session.tcp_only;
 
-                                if next_window_opt.is_some() {
+                                if range.is_some() {
                                     log::info!("WAVE_ACK implies window completion!");
                                 }
 
                                 // the window is done. Since this node is the transmitter, we then make a call to begin sending the next wave
-                                if !state_container.on_wave_ack_received(drill.get_cid(), &header, tcp_only, next_window_opt) {
+                                if !state_container.on_wave_ack_received(hyper_ratchet.get_cid(), &header, tcp_only, range) {
                                     if tcp_only {
                                         log::error!("There was an error sending the TCP window; Cancelling connection");
                                     } else {
@@ -267,8 +275,8 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                 }
                             }
 
-                            Err(err) => {
-                                trace!("Error validating WAVE_ACK: {}", err.to_string());
+                            None => {
+                                log::error!("Error validating WAVE_ACK");
                                 PrimaryProcessorResult::Void
                             }
                         }
@@ -309,7 +317,6 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                     PrimaryProcessorResult::Void
                 } else {
                     // send to kernel
-                    println!("Sending to kernel!~~");
                     let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
                     session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, reconstructed_packet))?;
                     PrimaryProcessorResult::Void
@@ -322,15 +329,15 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
 }
 
 #[inline]
-pub(super) fn get_proper_pqc_and_drill<K: ExpectedInnerTargetMut<StateContainerInner>>(header_drill_vers: u32, sess_cnac: &ClientNetworkAccount, sess_pqc: &Arc<PostQuantumContainer>, state_container: &InnerParameterMut<K, StateContainerInner>, proxy_cid_info: Option<(u64, u64)>) -> Option<(Arc<PostQuantumContainer>, Drill)> {
+pub(super) fn get_proper_hyper_ratchet<K: ExpectedInnerTargetMut<StateContainerInner>>(header_drill_vers: u32, sess_cnac: &ClientNetworkAccount, state_container: &InnerParameterMut<K, StateContainerInner>, proxy_cid_info: Option<(u64, u64)>) -> Option<HyperRatchet> {
     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
         // since this conn was proxied, we need to go into the virtual conn layer to get the peer session crypto. HOWEVER:
         // In the case that a packet is proxied back to the source, the adjacent endpoint inscribes this node's cid
         // inside the target_cid (that way the packet routes correctly to this node). However, this is problematic here
         // since we use the original implica
         if let Some(vconn) = state_container.active_virtual_connections.get(&original_implicated_cid) {
-            vconn.get_endpoint_pqc_and_drill(|drill, pqc| {
-                (pqc.clone(), drill.clone())
+            vconn.get_endpoint_hyper_ratchet(|hyper_ratchet| {
+                hyper_ratchet.clone()
             })
         } else {
             log::error!("Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
@@ -339,8 +346,8 @@ pub(super) fn get_proper_pqc_and_drill<K: ExpectedInnerTargetMut<StateContainerI
     } else {
         // since this was not proxied, use the ordinary pqc and drill
 
-        let drill = sess_cnac.get_drill(Some(header_drill_vers))?;
-        Some((sess_pqc.clone(), drill))
+        let hyper_ratchet = sess_cnac.get_hyper_ratchet(Some(header_drill_vers))?;
+        Some(hyper_ratchet)
     }
 }
 
@@ -371,4 +378,11 @@ pub fn recipient_valid_gate<K: ExpectedInnerTargetMut<StateContainerInner>>(virt
             unimplemented!("HyperWAN functionality is not yet implemented")
         }
     }
+}
+
+fn update_toolset_as_bob(cnac: &ClientNetworkAccount, transfer: AliceToBobTransfer<'_>, algorithm: u8, new_drill_vers: u32) -> Option<BobToAliceTransfer> {
+    let constructor = HyperRatchetConstructor::new_bob(algorithm, cnac.get_id(), new_drill_vers, transfer)?;
+    let transfer = constructor.stage0_bob()?;
+    cnac.register_new_hyper_ratchet(constructor.finish()?).ok()?;
+    Some(transfer)
 }

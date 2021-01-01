@@ -1,8 +1,8 @@
 use crate::{PostQuantumContainer, PQNode};
-use nanoserde::{DeBin, SerBin};
+use serde::{Serialize, Deserialize};
 
 /// The default type to store data from a [PostQuantumContainer]
-#[derive(DeBin, SerBin)]
+#[derive(Serialize, Deserialize)]
 pub struct PostQuantumExport {
     pub(super) algorithm: u8,
     pub(super) public_key: Vec<u8>,
@@ -27,5 +27,27 @@ impl From<&'_ PostQuantumContainer> for PostQuantumExport {
         let shared_secret = container.get_shared_secret().map(|res| res.to_vec()).ok();
 
         Self { algorithm, public_key, secret_key, ciphertext, shared_secret, node }
+    }
+}
+
+pub(crate) mod custom_serde {
+    use crate::PostQuantumContainer;
+    use serde::{Serializer, Serialize, Deserializer, Deserialize};
+    use crate::export::PostQuantumExport;
+    use std::convert::TryFrom;
+
+    impl Serialize for PostQuantumContainer {
+        fn serialize<S>(&self, s: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+            S: Serializer {
+            let intermediate_form = PostQuantumExport::from(self);
+            PostQuantumExport::serialize(&intermediate_form, s)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for PostQuantumContainer {
+        fn deserialize<D>(d: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
+            D: Deserializer<'de> {
+            Ok(PostQuantumContainer::try_from(PostQuantumExport::deserialize(d).map_err(|_| serde::de::Error::custom("Deser err"))? as PostQuantumExport).map_err(|_| serde::de::Error::custom("Deser err"))?)
+        }
     }
 }

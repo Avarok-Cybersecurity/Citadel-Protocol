@@ -3,7 +3,6 @@
 //! Hyxe Cryptography is a crypto crate designed to asynchronously obscure data, re-assemble, etc
 
 #![deny(
-missing_docs,
 trivial_numeric_casts,
 unused_extern_crates,
 unused_import_braces,
@@ -16,7 +15,6 @@ unused_results
 pub mod prelude {
     pub use crate::toolset::Toolset;
     pub use crate::drill::{Drill, SecurityLevel};
-    pub use crate::random::HyperRandom;
     pub use crate::misc::CryptError;
     pub use crate::drill_algebra::PacketVector;
     pub use crate::sec_string::SecString;
@@ -38,18 +36,6 @@ pub mod drill;
 /// Contains the fundamental operations across custom rings;
 pub mod drill_algebra;
 
-/// Contains the update datastructures
-pub mod drill_update;
-
-/// Provides the Encryption subroutines and types
-pub mod encrypt;
-
-/// Provides the Decryption subroutines and types
-pub mod decrypt;
-
-/// HyperRandom
-pub mod random;
-
 /// Contains the subroutines for network-related functionality
 pub mod net;
 
@@ -66,3 +52,5 @@ pub mod sec_bytes;
 pub mod relay_chain;
 /// An abstraction binding the drill and the PQC
 pub mod endpoint_crypto_container;
+/// This is a container for holding the drill and PQC, and is intended to replace the seperate use of the drill/PQC
+pub mod hyper_ratchet;

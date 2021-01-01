@@ -21,8 +21,12 @@ rand = "0.7.0"
 lazy_static = "1.4.0"
 multimap = "0.8.1"
 
-log = { version = "0.4.8", features = ["max_level_info", "release_max_level_info"] }
+log = { version = "0.4.8", features = ["max_level_trace", "release_max_level_error"] }
 
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 #hyxe_config = { path = "../hyxe_config", version = "0.1.0" }
 #async_ip = { path = "../async_ip", version = "0.1.0" }
+
+[dev-dependencies]
+tokio = { version = "0.2.22", features = ["full"] }
+env_logger = "0.8.2"

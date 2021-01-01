@@ -1,6 +1,6 @@
 use super::includes::*;
-use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_pqc_and_drill;
 use crate::hdp::hdp_server::Ticket;
+use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 
 pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
     let session = inner!(session);
@@ -9,17 +9,17 @@ pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(
     }
 
     let (header, payload, _, _) = packet.decompose();
-    let pqc_sess = session.post_quantum.as_ref()?;
+
     let cnac_sess = session.cnac.as_ref()?;
     let timestamp = session.time_tracker.get_global_time_ns();
     let mut state_container = inner_mut!(session.state_container);
     // get the proper pqc
     let header_bytes = &header[..];
     let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
-    let (pqc, drill) = get_proper_pqc_and_drill(header.drill_version.get(), cnac_sess, pqc_sess, &wrap_inner_mut!(state_container), proxy_cid_info)?;
+    let hyper_ratchet = get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess,&wrap_inner_mut!(state_container), proxy_cid_info)?;
 
     // ALL FILE packets must be authenticated
-    match validation::group::validate(&drill, &pqc, header_bytes, payload) {
+    match validation::group::validate(&hyper_ratchet, header_bytes, payload) {
         Some(payload) => {
             match header.cmd_aux {
                 packet_flags::cmd::aux::file::FILE_HEADER => {
@@ -44,7 +44,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(
                                 }
                             };
 
-                            let file_header_ack = hdp_packet_crafter::file::craft_file_header_ack_packet(success, object_id, target_cid, &drill, &pqc, ticket, security_level, v_target_flipped, timestamp);
+                            let file_header_ack = hdp_packet_crafter::file::craft_file_header_ack_packet(&hyper_ratchet, success, object_id, target_cid,ticket, security_level, v_target_flipped, timestamp);
                             PrimaryProcessorResult::ReplyToSender(file_header_ack)
                         }
 

@@ -5,19 +5,34 @@ use std::collections::HashMap;
 use std::sync::atomic::{Ordering, AtomicU64};
 use parking_lot::RwLock;
 use tokio::sync::mpsc::channel;
+use crate::primitives::error::Error;
 
 /// Each application that gets run spawns in its own task associated with a session
 #[derive(Clone)]
 pub struct Application {
-    map: Arc<RwLock<HashMap<u64, NetworkVariableInner>>>,
-    id_generator: Arc<AtomicU64>
+    /// These variables maintain a shared-state across the network
+    variables: Arc<RwLock<HashMap<u64, NetworkVariableInner>>>,
+    id_generator: Arc<AtomicU64>,
+    /// As variable states change, we pass the serialized information through this function
+    update_function_tx: Arc<dyn Fn(ApplicationState) -> Result<(), Error>>
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum ApplicationState {
+    Variable { state: VariableState, vid: u64, value: Vec<u8> }
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum VariableState {
+    Init, Update
 }
 
 impl Application {
-    pub fn new() -> Self {
+    pub fn new(update_function_tx: impl Fn(ApplicationState) -> Result<(), Error>) -> Self {
         Self {
-            map: Arc::new(RwLock::new(HashMap::new())),
-            id_generator: Arc::new(AtomicU64::new(1))
+            variables: Arc::new(RwLock::new(HashMap::new())),
+            id_generator: Arc::new(AtomicU64::new(1)),
+            update_function_tx: Arc::new(update_function_tx)
         }
     }
 

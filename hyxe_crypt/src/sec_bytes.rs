@@ -1,6 +1,7 @@
 use crate::sec_string::SecString;
 use std::fmt::Debug;
 use serde::export::Formatter;
+use serde::{Serialize, Serializer, Deserialize, Deserializer};
 
 /// A memory-secure wrapper for shipping around Bytes
 #[derive(Clone)]
@@ -79,5 +80,19 @@ impl Debug for SecBuffer {
 impl<T: AsRef<[u8]>> PartialEq<T> for SecBuffer {
     fn eq(&self, other: &T) -> bool {
         self.as_ref() == other.as_ref()
+    }
+}
+
+impl Serialize for SecBuffer {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+        S: Serializer {
+        serializer.serialize_bytes(self.as_ref())
+    }
+}
+
+impl<'de> Deserialize<'de> for SecBuffer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
+        D: Deserializer<'de> {
+        Ok(Self::from(Vec::deserialize(deserializer)?))
     }
 }

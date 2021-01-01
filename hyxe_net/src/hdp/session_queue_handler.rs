@@ -11,6 +11,7 @@ use crate::inner_arg::InnerParameterMut;
 use crate::macros::SessionBorrow;
 use crate::error::NetworkError;
 use futures::task::AtomicWaker;
+use crate::hdp::outbound_sender::Sender;
 
 /// any index below 10 are reserved for the session. Inbound GROUP timeouts will begin at 10 or high
 pub const QUEUE_WORKER_RESERVED_INDEX: usize = 10;
@@ -54,6 +55,7 @@ pub struct SessionQueueWorkerInner {
     entries: HashMap<QueueWorkerTicket, (Box<dyn Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + 'static>, delay_queue::Key, Duration), NoHash>,
     expirations: DelayQueue<QueueWorkerTicket>,
     session: Option<WeakHdpSessionBorrow>,
+    sess_shutdown: Sender<()>,
     // keeps track of how many items have been added
     rolling_idx: usize
 }
@@ -73,17 +75,17 @@ pub enum QueueWorkerResult {
 
 impl SessionQueueWorker {
     #[cfg(target_feature = "multi-threaded")]
-    pub fn new() -> Self {
+    pub fn new(sess_shutdown: Sender<()>) -> Self {
         let waker = std::sync::Arc::new(AtomicWaker::new());
         //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
-        Self { waker, inner: std::sync::Arc::new(parking_lot::Mutex::new(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
+        Self { waker, inner: std::sync::Arc::new(parking_lot::Mutex::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
     }
 
     #[cfg(not(target_feature = "multi-threaded"))]
-    pub fn new() -> Self {
+    pub fn new(sess_shutdown: Sender<()>) -> Self {
         let waker = std::rc::Rc::new(AtomicWaker::new());
         //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
-        Self { waker, inner: std::rc::Rc::new(std::cell::RefCell::new(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
+        Self { waker, inner: std::rc::Rc::new(std::cell::RefCell::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
     }
 
     /// MUST be called when a session's timer subroutine begins!
@@ -92,6 +94,7 @@ impl SessionQueueWorker {
         this.session = Some(session.as_weak());
     }
 
+    #[allow(dead_code)]
     pub fn remove_entry(&self, key: QueueWorkerTicket) {
         let mut this = unlock!(self);
         if let Some((_, key, _)) = this.entries.remove(&key) {
@@ -227,10 +230,15 @@ impl Stream for SessionQueueWorker {
 impl futures::Future for SessionQueueWorker {
     type Output = Result<(), NetworkError>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match futures::ready!(self.poll_next(cx)) {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match futures::ready!(self.as_mut().poll_next(cx)) {
             Some(_) => Poll::Pending,
-            None => Poll::Ready(Err(NetworkError::InternalError("Queue handler signalled shutdown")))
+            None => {
+                if let Err(_err) = unlock!(self.as_mut()).sess_shutdown.try_send(()) {
+                    //log::error!("Unable to shutdown session: {:?}", err);
+                }
+                Poll::Ready(Err(NetworkError::InternalError("Queue handler signalled shutdown")))
+            }
         }
     }
 }
