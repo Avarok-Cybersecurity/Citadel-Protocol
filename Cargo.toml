@@ -13,23 +13,6 @@ members = [
 	"async_ip",
 	"ez_pqcrypto",
 	"hyxe_net",
-	"ez_pqcrypto/pqcrypto/pqcrypto",
-    "ez_pqcrypto/pqcrypto/pqcrypto-traits",
-    #"pqcrypto/pqcrypto-kyber",
-    #"pqcrypto/pqcrypto-frodo",
-    #"pqcrypto/pqcrypto-ntru",
-    "ez_pqcrypto/pqcrypto/pqcrypto-saber",
-    #"pqcrypto/pqcrypto-ledacryptkem",
-    #"pqcrypto/pqcrypto-threebears",
-    #"pqcrypto/pqcrypto-classicmceliece",
-    #"pqcrypto/pqcrypto-newhope",
-    #"pqcrypto/pqcrypto-hqc",
-    #"pqcrypto/pqcrypto-mqdss",
-    #"pqcrypto/pqcrypto-dilithium",
-    #"pqcrypto/pqcrypto-falcon",
-    #"pqcrypto/pqcrypto-qtesla",
-    #"pqcrypto/pqcrypto-rainbow",
-    #"pqcrypto/pqcrypto-sphincsplus",
     "rpassword"
 ]
 

@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
-use hyxe_fs::hyxe_crypt::drill_update::DrillUpdateObject;
 use hyxe_fs::hyxe_crypt::prelude::*;
 use hyxe_fs::env::{HYXE_NAC_DIR_PERSONAL, HYXE_NAC_DIR_IMPERSONAL};
 use hyxe_fs::hyxe_file::HyxeFile;
@@ -18,16 +17,13 @@ use hyxe_fs::async_io::AsyncIO;
 use crate::prelude::NetworkAccount;
 use hyxe_fs::system_file_manager::bytes_to_type;
 use crate::network_account::NetworkAccountInner;
-use hyxe_fs::hyxe_crypt::prelude::PostQuantumContainer;
 use log::info;
 
-//use future_parking_lot::rwlock::{RwLock, FutureReadable, FutureWriteable, FutureRawRwLock};
 use std::ops::RangeInclusive;
 use serde::export::Formatter;
 use hyxe_fs::misc::{get_present_formatted_timestamp, get_pathbuf};
-//use future_parking_lot::parking_lot::RawRwLock;
-//use future_parking_lot::parking_lot::lock_api::RwLockReadGuard;
 use crossbeam_utils::sync::{ShardedLock, ShardedLockReadGuard, ShardedLockWriteGuard};
+use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network
 pub const HYXEFILE_PASSWORD_LENGTH: usize = 222;
@@ -101,7 +97,6 @@ pub struct ClientNetworkAccountInner {
     /// This allows the CNAC to be serialized and sent over without sending the password
     #[serde(skip)]
     password_hyxefile: Option<HyxeFile>,
-    post_quantum_code: Vec<u8>,
     /// When the client needs to hash its proposed password for the future, this is required
     /// When the server needs to serve the role of recovering an account (e.g., if the client loses its local CNAC info),
     /// this constant password hash will store
@@ -138,44 +133,33 @@ impl ClientNetworkAccount {
     ///
     /// `client_nac`: This is required because it allows the server to keep track of the IP in the case [PINNED_IP_MODE] is engaged
     #[allow(unused_results)]
-    pub(crate) fn new<T: ToString, V: ToString, K: AsRef<[u8]>>(valid_cid: Option<u64>, is_personal: bool, adjacent_nac: NetworkAccount, username: &T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, post_quantum_container: &PostQuantumContainer, toolset_bytes: Option<K>) -> Result<Self, AccountError<String>> {
+    pub(crate) fn new<T: ToString, V: ToString>(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount, username: &T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, base_hyper_ratchet: HyperRatchet) -> Result<Self, AccountError<String>> {
 
-        info!("Creating valid cid: {:?}", valid_cid);
+        info!("Creating CNAC w/valid cid: {:?}", valid_cid);
         //let password = password.unsecure().to_vec();
         //let password = String::from_utf8(password).map_err(|err| AccountError::Generic(err.to_string()))?;
         let username = username.to_string();
         let full_name = full_name.to_string();
         // we no longer check the credential formatting since it's hashed
         check_credential_formatting::<_, &str, _>(&username, None, &full_name)?;
+
         let creation_date = get_present_formatted_timestamp();
+        // the static & f(0) hyper ratchets will be the provided hyper ratchet
+        let toolset = Toolset::new(valid_cid, base_hyper_ratchet);
+        //debug_assert_eq!(is_personal, is_client);
 
-        // if is_client is true, then the password isn't stored. It only exists on the server
-        let (toolset, cid, is_client): (Toolset, u64, bool) = if let Some(toolset_bytes) = toolset_bytes {
-            let toolset = Toolset::deserialize_from_bytes(toolset_bytes.as_ref()).map_err(|err| AccountError::Generic(err.to_string()))?;
-            let cid = toolset.cid;
-            (toolset, cid, true)
-        } else {
-            let cid = valid_cid.unwrap();
-            let toolset = Toolset::new(cid).map_err(|err| AccountError::Generic(err.to_string()))?;
-            (toolset, cid, false)
-        };
+        let local_save_path = Self::generate_local_save_path(valid_cid, is_personal);
 
-        assert_eq!(is_personal, is_client);
-
-        let local_save_path = Self::generate_local_save_path(cid, is_personal);
-
-        let (password_hyxefile, password_in_ram) = if is_client {
+        let (password_hyxefile, password_in_ram) = if is_personal {
             (None, None)
         } else {
-            (Some(HyxeFile::new(full_name.to_string(), cid, "password_file", None)), Some(password))
+            (Some(HyxeFile::new(full_name.to_string(), valid_cid, "password_file", None)), Some(password))
         };
 
-        let post_quantum_code = post_quantum_container.serialize_to_vector()
-            .map_err(|err| AccountError::Generic(err.to_string()))?;
 
         let mutuals = MultiMap::new();
 
-        let inner = ClientNetworkAccountInner { password_hash, creation_date, post_quantum_code, cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, toolset, password_in_ram };
+        let inner = ClientNetworkAccountInner { password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, toolset, password_in_ram };
         let this = Self::from(inner);
 
         this.blocking_save_to_local_fs()?;
@@ -189,6 +173,15 @@ impl ClientNetworkAccount {
     pub fn spawn_save_task_on_threadpool(&self) {
         let this = self.clone();
         tokio::task::spawn(this.async_save_to_local_fs());
+    }
+
+    /// Resets the toolset, if necessary. If the CNAC was freshly serialized, the hyper ratchet
+    /// is not updated. In either case, returns the static aux hyper ratchet
+    #[allow(unused_results)]
+    pub fn refresh_static_hyper_ratchet(&self) -> HyperRatchet {
+        let mut write = self.write();
+        write.toolset.verify_init_state();
+        write.toolset.get_static_auxiliary_ratchet().clone()
     }
 
     /// Returns true if the NAC is a personal type
@@ -218,7 +211,7 @@ impl ClientNetworkAccount {
 
         inner.local_save_path = local_save_path;
 
-        let drill = unsafe { inner.toolset.get_static_auxiliary_drill() };
+        let static_hyper_ratchet = inner.toolset.get_static_auxiliary_ratchet();
 
         if !inner.is_local_personal {
             let hyxefile_path = inner.hyxefile_save_path.as_ref().unwrap();
@@ -229,14 +222,14 @@ impl ClientNetworkAccount {
 
             // Now, remove the hyxefile_save_path for additional security measure
             inner.hyxefile_save_path = None;
-            let password_unencrypted = hyxefile.read_contents(&drill).map_err(|err| AccountError::IoError(err.to_string()))?;
+            let password_unencrypted = hyxefile.read_contents(&static_hyper_ratchet).map_err(|err| AccountError::IoError(err.to_string()))?;
             inner.password_in_ram = Some(SecVec::new(password_unencrypted));
             inner.password_hyxefile = Some(hyxefile);
         }
 
         // We must now clear the encrypted contents by taking it
         let internal_nac_hyxefile = inner.inner_encrypted_nac.take().unwrap();
-        let decrypted_nac_bytes = internal_nac_hyxefile.read_contents(&drill).map_err(|err| AccountError::IoError(err.to_string()))?;
+        let decrypted_nac_bytes = internal_nac_hyxefile.read_contents(&static_hyper_ratchet).map_err(|err| AccountError::IoError(err.to_string()))?;
         let inner_nac = bytes_to_type::<NetworkAccountInner>(&decrypted_nac_bytes).map_err(|err| AccountError::IoError(err.to_string()))?;
         let nac = NetworkAccount::new_from_cnac(inner_nac);
         inner.adjacent_nac = Some(nac);
@@ -250,16 +243,16 @@ impl ClientNetworkAccount {
     }
 
     /// Towards the end of the registration phase, the [ClientNetworkAccountInner] gets transmitted to Alice.
-    pub fn new_from_network_personal<T: AsRef<[u8]>, R: ToString, K: ToString>(toolset_bytes: T, username: R, password: SecVec<u8>, full_name: K, password_hash: Vec<u8>, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer) -> Result<Self, AccountError<String>> {
+    pub fn new_from_network_personal<R: ToString, K: ToString>(valid_cid: u64, hyper_ratchet: HyperRatchet, username: R, password: SecVec<u8>, full_name: K, password_hash: Vec<u8>, adjacent_nac: NetworkAccount) -> Result<Self, AccountError<String>> {
         const IS_PERSONAL: bool = true;
 
         // We supply none to the valid cid
-        Self::new(None, IS_PERSONAL, adjacent_nac, &username, password, full_name, password_hash, post_quantum_container, Some(toolset_bytes.as_ref()))
+        Self::new(valid_cid, IS_PERSONAL, adjacent_nac, &username, password, full_name, password_hash, hyper_ratchet)
     }
 
     /// Serializes the inner toolset to a vector. Requires exclusive access
     pub fn serialize_toolset_to_vec(&self) -> Result<Vec<u8>, AccountError<String>> {
-        let mut this = self.write();
+        let this = self.read();
         this.toolset.serialize_to_vec().map_err(|err| AccountError::Generic(err.to_string()))
     }
 
@@ -315,12 +308,12 @@ impl ClientNetworkAccount {
 
     /// If no version is supplied, the latest drill will be retrieved. The drill will not be dropped from
     /// the toolset if the strong reference still exists
-    pub fn get_drill(&self, version: Option<u32>) -> Option<Drill> {
+    pub fn get_hyper_ratchet(&self, version: Option<u32>) -> Option<HyperRatchet> {
         let read = self.read();
         if let Some(version) = version {
-            read.toolset.get_drill(version).cloned()
+            read.toolset.get_hyper_ratchet(version).cloned()
         } else {
-            read.toolset.get_most_recent_drill().cloned()
+            read.toolset.get_most_recent_hyper_ratchet().cloned()
         }
     }
 
@@ -329,98 +322,42 @@ impl ClientNetworkAccount {
     /// None will be passed into the supplied function.
     ///
     /// F should be a nonblocking function!
-    pub fn borrow_drill<F, Y>(&self, version: Option<u32>, f: F) -> Y where F: FnOnce(Option<&Drill>) -> Y {
+    pub fn borrow_hyper_ratchet<F, Y>(&self, version: Option<u32>, f: F) -> Y where F: FnOnce(Option<&HyperRatchet>) -> Y {
         let read = self.read();
         if let Some(version) = version {
-            f(read.toolset.get_drill(version))
+            f(read.toolset.get_hyper_ratchet(version))
         } else {
-            f(read.toolset.get_most_recent_drill())
+            f(read.toolset.get_most_recent_hyper_ratchet())
         }
     }
 
     /// Captures by reference instead of just by value
-    pub fn borrow_drill_fn<F, Y>(&self, version: Option<u32>, f: F) -> Y where F: Fn(Option<&Drill>) -> Y {
+    pub fn borrow_hyper_ratchet_fn<F, Y>(&self, version: Option<u32>, f: F) -> Y where F: Fn(Option<&HyperRatchet>) -> Y {
         let read = self.read();
         if let Some(version) = version {
-            f(read.toolset.get_drill(version))
+            f(read.toolset.get_hyper_ratchet(version))
         } else {
-            f(read.toolset.get_most_recent_drill())
+            f(read.toolset.get_most_recent_hyper_ratchet())
         }
     }
 
     /// Returns a range of available drill versions
-    pub fn get_drill_versions(&self) -> RangeInclusive<u32> {
+    pub fn get_hyper_ratchet_versions(&self) -> RangeInclusive<u32> {
         let read = self.read();
-        read.toolset.get_available_drill_versions()
-    }
-
-    /// Advances the toolset version by 1, and returns the latest drill
-    pub fn get_next_drill(&self) -> Result<Drill, CryptError<String>> {
-        self.update_toolset(None)?;
-        self.get_drill(None).ok_or(CryptError::DrillUpdateError("Drill not available".to_string()))
+        read.toolset.get_available_hyper_ratchet_versions()
     }
 
     /// Updates the internal toolset a desired number of times. Inserting None will imply that
     /// the toolset will update once
-    pub fn update_toolset(&self, count: Option<usize>) -> Result<(), CryptError<String>> {
+    pub fn register_new_hyper_ratchet(&self, new_hyper_ratchet: HyperRatchet) -> Result<(), CryptError<String>> {
         let mut write = self.write();
-        write.toolset.update_n(count.unwrap_or(1))
-    }
-
-    /// Generate a new DrillUpdate object coupled with its corresponding new drill.
-    ///
-    /// The latest_drill must be the CURRENT latest drill. The returned Drill will be one version newer, but is not added
-    /// to the toolset
-    pub fn generate_new_dou(&self, latest_drill: &Drill) -> Result<(DrillUpdateObject, Drill), CryptError<String>> {
-        let cid = self.inner.cid;
-        let next_drill_version = latest_drill.get_version().wrapping_add(1);
-        DrillUpdateObject::generate(cid, next_drill_version, latest_drill).and_then(|update| {
-            update.compute_next_recursion(latest_drill, true).ok_or_else(|| CryptError::DrillUpdateError("Unable to compute next recursion".to_string()))
-        })
-    }
-
-    /// Updates from a new inbound DOU. This will return None if the improper latest drill is sent. The returned Drill
-    /// will be 1 version higher than the latest_drill, advancing the toolset in the process.
-    pub fn update_toolset_from_dou(&self, latest_drill: &Drill, dou: DrillUpdateObject) -> Option<Drill> {
-        let mut this = self.write();
-        this.toolset.update_from(latest_drill, dou)
+        write.toolset.update_from(new_hyper_ratchet).ok_or(CryptError::Decrypt("Unable to update toolset".to_string()))
     }
 
     /// Replaces the internal toolset. This should ONLY be called (if absolutely necessary) during the PRE_CONNECT stage
     /// if synchronization is required
     pub fn replace_toolset(&self, toolset: Toolset) {
         self.write().toolset = toolset;
-    }
-
-    /// Adds the new drill to the toolset. The last step of the DO_DRILL_UPDATE process
-    /// Note: This will return false if the toolsets are out of sync. Ever since the inclusion
-    /// of using the static auxiliary drill for RECOVERY (out of sync) mode, this closure should
-    /// always return true
-    pub fn register_new_drill_to_toolset(&self, new_drill: Drill) -> bool {
-        let mut this = self.write();
-        this.toolset.register_new_drill(new_drill)
-    }
-
-    /// Retrieves the post quantum container. Performance note: Run only once! Then, update it later
-    pub fn get_post_quantum_container(&self) -> Result<PostQuantumContainer, AccountError<String>> {
-        PostQuantumContainer::deserialize_from_bytes(self.read().post_quantum_code.as_slice())
-            .map_err(|err| AccountError::Generic(err.to_string()))
-    }
-
-    /// Once the key exchange occurs, this should be updated to save for the next time this node connects to the other node
-    ///
-    /// Note: by encryption standards, the public key should be refreshed upon each session. This helps ensure forward secrecy
-    pub async fn update_post_quantum_container(&self, container: &PostQuantumContainer) -> Result<(), AccountError<String>> {
-        match container.serialize_to_vector() {
-            Ok(post_quantum_code) => {
-                self.write().post_quantum_code = post_quantum_code;
-                Ok(())
-            }
-
-            Err(err) => {
-                Err(AccountError::Generic(err.to_string()))
-            }
-        }
     }
 
     /// Gets the username and password
@@ -432,9 +369,9 @@ impl ClientNetworkAccount {
     }
 
     /// This should ONLY be used for recovery mode
-    pub unsafe fn get_static_auxiliary_drill(&self) -> Drill {
+    pub fn get_static_auxiliary_hyper_ratchet(&self) -> HyperRatchet {
         let this = self.read();
-        this.toolset.get_static_auxiliary_drill()
+        this.toolset.get_static_auxiliary_ratchet().clone()
     }
 
     /// Removes the CNAC from the hard drive
@@ -735,15 +672,16 @@ impl ClientNetworkAccount {
         //debug_assert!(ptr.hyxefile_save_path.is_none());
         //debug_assert!(ptr.inner_encrypted_nac.is_none());
 
-        let static_aux_drill = unsafe { ptr.toolset.get_static_auxiliary_drill() };
+        let static_hyper_ratchet = ptr.toolset.get_static_auxiliary_ratchet().clone();
         //let path = ptr.local_save_path.clone();
 
         // impersonals store the password, NOT personals!
         if !ptr.is_local_personal {
             // We save the password locally if self is server
             let password_bytes = ptr.password_in_ram.as_ref().unwrap().unsecure().to_vec();
-            let _ = ptr.password_hyxefile.as_mut().unwrap().replace_contents(&static_aux_drill, password_bytes.as_slice(), false, SecurityLevel::DIVINE).map_err(|err| AccountError::IoError(err.to_string()))?;
-            let path = ptr.password_hyxefile.as_mut().unwrap().save_locally_blocking().map_err(|err| AccountError::IoError(err.to_string()))?;
+            let password_hyxefile = ptr.password_hyxefile.as_mut().unwrap();
+            let _ = password_hyxefile.replace_contents(&static_hyper_ratchet, password_bytes.as_slice(), false, SecurityLevel::DIVINE).map_err(|err| AccountError::IoError(err.to_string()))?;
+            let path = password_hyxefile.save_locally_blocking().map_err(|err| AccountError::IoError(err.to_string()))?;
             ptr.hyxefile_save_path = Some(path.clone());
         } else {
             debug_assert!(ptr.password_in_ram.is_none());
@@ -755,7 +693,7 @@ impl ClientNetworkAccount {
         let mut new_hyxefile = HyxeFile::new(&ptr.full_name, ptr.cid, "encrypted_nac", None);
         let nac_unencrypted_bytes = ptr.adjacent_nac.as_ref().unwrap().read().serialize_to_vector().map_err(|err| AccountError::IoError(err.to_string()))?;
         // We save the bytes inside the HyxeFile.
-        new_hyxefile.drill_contents(&static_aux_drill, nac_unencrypted_bytes.as_slice(), SecurityLevel::DIVINE).map_err(|err| AccountError::IoError(err.to_string()))?;
+        new_hyxefile.drill_contents(&static_hyper_ratchet, nac_unencrypted_bytes.as_slice(), SecurityLevel::DIVINE).map_err(|err| AccountError::IoError(err.to_string()))?;
         // Place the HyxeFile inside
         assert!(ptr.inner_encrypted_nac.replace(new_hyxefile).is_none());
 

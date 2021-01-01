@@ -71,12 +71,15 @@ mod tests {
         assert_ne!(eve_ss, bob_ss);
 
         let plaintext = b"Hello, world!";
-        let nonce = b"unique nonceunique nonce"; // 96 bits or 12 bytes
+        let nonce = b"unique nonce"; // 96 bits or 12 bytes
 
-        let ciphertext = alice_container.encrypt(plaintext, nonce).unwrap();
-        let decrypted = bob_container.decrypt(ciphertext, nonce).unwrap();
+        let mut ciphertext = alice_container.encrypt(plaintext, nonce).unwrap();
+        let mut ptr = &mut ciphertext[..];
 
-        debug_assert_eq!(plaintext, decrypted.as_slice());
+        //let decrypted = bob_container.decrypt(ciphertext, nonce).unwrap();
+        let decrypted_len = bob_container.decrypt_in_place(&mut ptr, nonce).unwrap();
+
+        debug_assert_eq!(plaintext, &ptr[..decrypted_len]);
         Ok(())
     }
 
@@ -263,9 +266,9 @@ mod tests {
         let al_ss0 = alice_container.get_shared_secret().unwrap();
         let al_secr0 = alice_container.get_secret_key().unwrap();
 
-        let bob_pub0 = alice_container.get_public_key();
-        let bob_ss0 = alice_container.get_shared_secret().unwrap();
-        let _bob_secr0 = alice_container.get_secret_key().unwrap();
+        let bob_pub0 = bob_container.get_public_key();
+        let bob_ss0 = bob_container.get_shared_secret().unwrap();
+        //let _bob_secr0 = bob_container.get_secret_key().unwrap();
 
         let serialized_alice = alice_container.serialize_to_vector().unwrap();
         let pqq_alice = PostQuantumContainer::deserialize_from_bytes(&serialized_alice).unwrap();
@@ -287,7 +290,8 @@ mod tests {
         assert_eq!(bob_pub0, bob_pub1);
         assert_eq!(bob_ss0, bob_ss1);
 
-        assert_ne!(al_pub0, bob_pub0);
+        //assert_ne!(al_pub0, bob_pub0);
+        assert_eq!(bob_ss1, al_ss1);
 
         let _decr_alice = alice_container.decrypt(&enc, &nonce).unwrap();
         let _decr_bob = bob_container.decrypt(&enc, &nonce).unwrap();

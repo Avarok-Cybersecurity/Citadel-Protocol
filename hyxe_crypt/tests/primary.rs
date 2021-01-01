@@ -2,15 +2,16 @@
 mod tests {
     use hyxe_crypt::sec_string::SecString;
     use hyxe_crypt::sec_bytes::SecBuffer;
-    use ez_pqcrypto::PostQuantumContainer;
     use hyxe_crypt::toolset::Toolset;
     use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
     use hyxe_crypt::relay_chain::CryptoRelayChain;
     use std::iter::FromIterator;
-    use bytes::BufMut;
+    use bytes::{BufMut, BytesMut};
+    use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "info,error,warn");
+        std::env::set_var("RUST_LOG", "info");
         env_logger::init();
         log::trace!("TRACE enabled");
         log::info!("INFO enabled");
@@ -25,21 +26,21 @@ mod tests {
         const HEADER_LEN: usize = 50;
         let message = "Hello, world!";
 
-        let chain: CryptoRelayChain = CryptoRelayChain::from_iter((0..LEN).into_iter().map(|idx| rand::random::<u64>())
+        let chain: CryptoRelayChain = CryptoRelayChain::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
             .map(|cid| {
-                let mut alice_pqc = PostQuantumContainer::new_alice(None);
-                let alice_public_key = alice_pqc.get_public_key();
-                let bob_pqc = PostQuantumContainer::new_bob(0, alice_public_key).unwrap();
-                let bob_ct = bob_pqc.get_ciphertext().unwrap();
-                alice_pqc.alice_on_receive_ciphertext(bob_ct).unwrap();
-                let toolset = Toolset::new(cid).unwrap();
-                let container = PeerSessionCrypto::new(alice_pqc, toolset);
+                let mut alice_hr = HyperRatchetConstructor::new_alice(None);
+                let transfer = alice_hr.stage0_alice();
+                let bob_hr = HyperRatchetConstructor::new_bob(0, 0, 0, transfer).unwrap();
+                let transfer = bob_hr.stage0_bob().unwrap();
+                alice_hr.stage1_alice(transfer).unwrap();
+                let toolset = Toolset::new(cid, alice_hr.finish().unwrap());
+                let container = PeerSessionCrypto::new(toolset);
                 container
             }));
 
         log::info!("Generated chain!");
 
-        let onion_packet = chain.encrypt(message, 0, HEADER_LEN, |drill, pqc, target_cid, buffer| {
+        let onion_packet = chain.encrypt(message, 0, HEADER_LEN, |_ratchet, _target_cid, buffer| {
             for x in 0..HEADER_LEN {
                 buffer.put_u8(x as u8);
             }
@@ -50,7 +51,7 @@ mod tests {
         println!("{:?}\n", &cids_order_decrypt);
         let output = chain.links.iter().rfold(onion_packet, |mut acc, (cid, container)| {
             println!("At {} (onion packet len: {})", cid, acc.len());
-            let (pqc, drill) = container.borrow_pqc_and_drill(None).unwrap();
+            let (pqc, drill) = container.get_hyper_ratchet(None).unwrap().message_pqc_drill();
             let payload = acc.split_off(HEADER_LEN);
             drill.aes_gcm_decrypt(0, pqc, payload)
                 .map(|vec| bytes::BytesMut::from(&vec[..])).unwrap()
@@ -75,6 +76,8 @@ mod tests {
         assert_ne!(val.as_str(), basic.as_str());
 
         let retrieved = basic.into_buffer();
+        let serde = bincode2::serialize(&retrieved).unwrap();
+        let retrieved = bincode2::deserialize::<SecString>(&serde).unwrap().into_buffer();
         // at this point, basic should have dropped, but the memory should not have been zeroed out
         assert_eq!(retrieved, "hey");
 
@@ -91,6 +94,8 @@ mod tests {
     fn secbytes() {
         println!("ABT to make3");
         let buf = SecBuffer::from("Hello, world!");
+        let serde = bincode2::serialize(&buf).unwrap();
+        let buf = bincode2::deserialize::<SecBuffer>(&serde).unwrap();
         assert_eq!(buf.as_ref(), b"Hello, world!");
         let cloned = buf.clone();
         let ptr = cloned.as_ref().as_ptr();
@@ -102,6 +107,64 @@ mod tests {
         let slice = unsafe { &*std::ptr::slice_from_raw_parts(ptr, len) };
         assert_eq!(slice, &[0,0,0,0,0,0,0,0,0,0,0,0,0]);
     }
+
+    #[test]
+    fn hyper_ratchet() {
+        let algorithm = Some(0);
+        let mut alice_hyper_ratchet = HyperRatchetConstructor::new_alice(algorithm);
+        let transfer = alice_hyper_ratchet.stage0_alice();
+
+        let bob_hyper_ratchet = HyperRatchetConstructor::new_bob(algorithm.unwrap(), 99, 0, transfer).unwrap();
+        let transfer = bob_hyper_ratchet.stage0_bob().unwrap();
+
+        alice_hyper_ratchet.stage1_alice(transfer).unwrap();
+
+        let alice_hyper_ratchet = alice_hyper_ratchet.finish().unwrap();
+        let bob_hyper_ratchet = bob_hyper_ratchet.finish().unwrap();
+
+        const MESSAGE: &[u8] = b"Hello, world!" as &[u8];
+        const HEADER_LEN: usize = 50;
+
+        let mut packet = BytesMut::with_capacity(MESSAGE.len() + HEADER_LEN);
+
+        for x in 0..50 {
+            packet.put_u8(x);
+        }
+
+        packet.put(MESSAGE);
+
+        let plaintext_packet = packet.clone();
+
+        alice_hyper_ratchet.protect_message_packet(HEADER_LEN, &mut packet).unwrap();
+        assert_ne!(packet, plaintext_packet);
+
+        let mut header = packet.split_to(HEADER_LEN);
+        bob_hyper_ratchet.validate_message_packet(&header[..], &mut packet).unwrap();
+
+        header.unsplit(packet);
+
+        assert_eq!(header, plaintext_packet);
+    }
+
+    #[test]
+    fn toolset() {
+        setup_log();
+        fn gen(drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
+            let mut alice_base = HyperRatchetConstructor::new_alice(None);
+            let bob_base = HyperRatchetConstructor::new_bob(0, 0, drill_vers, alice_base.stage0_alice()).unwrap();
+            alice_base.stage1_alice(bob_base.stage0_bob().unwrap()).unwrap();
+
+            (alice_base.finish().unwrap(), bob_base.finish().unwrap())
+        }
+
+        let (alice, _bob) = gen(0);
+
+        let mut toolset = Toolset::new(0, alice);
+
+        for x in 1..100 {
+            assert!(toolset.update_from(gen(x).0).is_some());
+        }
+    }
 }
 /*#![feature(const_fn, slice_from_raw_parts)]
 /*
@@ -110,7 +173,7 @@ mod tests {
 
 pub mod prelude {
     pub use std::time::Instant;
-    
+
     pub use std::ops::DerefMut;
 
     pub use hyxe_crypt::prelude::*;

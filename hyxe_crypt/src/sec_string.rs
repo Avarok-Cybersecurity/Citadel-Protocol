@@ -1,6 +1,7 @@
 use std::ops::Deref;
 use std::fmt::{Debug, Display};
 use serde::export::Formatter;
+use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
 /// Allows mutable access
 pub struct SecString {
@@ -64,9 +65,9 @@ impl SecString {
     }
 }
 
-impl From<String> for SecString {
-    fn from(inner: String) -> Self {
-        let this = Self { inner };
+impl<T: Into<String>> From<T> for SecString {
+    fn from(inner: T) -> Self {
+        let this = Self { inner: inner.into() };
         this.lock();
         this
     }
@@ -115,4 +116,18 @@ fn decompose(input: &String) -> (*const u8, usize) {
     let ptr = input.as_ptr();
     let len = input.capacity();
     (ptr, len)
+}
+
+impl Serialize for SecString {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+        S: Serializer {
+        serializer.serialize_bytes(self.as_ref())
+    }
+}
+
+impl<'de> Deserialize<'de> for SecString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
+        D: Deserializer<'de> {
+        Ok(Self::from(String::deserialize(deserializer)?))
+    }
 }

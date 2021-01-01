@@ -1,6 +1,7 @@
 #![feature(async_closure, main, try_trait, ip)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
+#![feature(min_const_generics)]
 //! Core networking components for SatoriNET
 #![deny(
 trivial_numeric_casts,
@@ -10,10 +11,6 @@ variant_size_differences,
 unused_features,
 unused_results,
 warnings
-)]
-
-#![allow(
-dead_code
 )]
 
 #[cfg(not(feature = "multi-threaded"))]
@@ -245,6 +242,3 @@ pub mod proposed_credentials;
 pub mod functional;
 /// For handling differential function input types between single/multi-threaded modes
 pub mod inner_arg;
-/// For distributed computation
-#[cfg(feature = "dapp")]
-pub mod dapp;

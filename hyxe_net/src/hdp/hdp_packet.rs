@@ -50,7 +50,6 @@ pub(crate) mod packet_flags {
             pub(crate) mod do_connect {
                 pub(crate) const STAGE0: u8 = 0;
                 pub(crate) const STAGE1: u8 = 1;
-                pub(crate) const STAGE2: u8 = 2;
                 pub(crate) const SUCCESS: u8 = 3;
                 pub(crate) const FAILURE: u8 = 4;
             }
@@ -59,8 +58,6 @@ pub(crate) mod packet_flags {
                 pub(crate) const STAGE0: u8 = 0;
                 pub(crate) const STAGE1: u8 = 1;
                 pub(crate) const STAGE2: u8 = 2;
-                pub(crate) const STAGE3: u8 = 3;
-                pub(crate) const STAGE4: u8 = 4;
                 pub(crate) const SUCCESS: u8 = 5;
                 pub(crate) const FAILURE: u8 = 6;
             }
@@ -69,21 +66,13 @@ pub(crate) mod packet_flags {
                 /// Alice sends a STAGE0 packet to Bob
                 /// to request a safe disconnect
                 pub(crate) const STAGE0: u8 = 0;
-                /// Bob sends a packet back to Alice with an encrypted nonce
-                pub(crate) const STAGE1: u8 = 1;
-                /// Alice send a low-security level subdrill that is AES_GCM encrypted
-                pub(crate) const STAGE2: u8 = 2;
-                pub(crate) const SUCCESS: u8 = 3;
-                pub(crate) const FAILURE: u8 = 4;
+                /// Bob sends a packet back to Alice to okay to D/C
+                pub(crate) const FINAL: u8 = 1;
             }
 
             pub(crate) mod do_drill_update {
                 pub(crate) const STAGE0: u8 = 0;
                 pub(crate) const STAGE1: u8 = 1;
-                pub(crate) const STAGE2: u8 = 2;
-                pub(crate) const STAGE3: u8 = 3;
-                pub(crate) const SUCCESS: u8 = 4;
-                pub(crate) const FAILURE: u8 = 5;
             }
 
             pub(crate) mod do_deregister {
@@ -151,24 +140,11 @@ pub(crate) mod packet_sizes {
     /// + 16 bytes for an 8-byte, 4-byte security parameter, and the end of the window
     pub(crate) const GROUP_WINDOW_TAIL_LEN: usize = HDP_HEADER_BYTE_LEN + 4;
 
-    pub(crate) const DO_REGISTER_STAGE2_PACKET: usize = HDP_HEADER_BYTE_LEN + hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
-
-    pub(crate) mod disconnect {
-        use crate::constants::HDP_HEADER_BYTE_LEN;
-        use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
-
-        /// 12 bytes for the encrypted nonce
-        pub(crate) const STAGE1: usize = HDP_HEADER_BYTE_LEN + AES_GCM_NONCE_LEN_BYTES;
-        /// The payload is an encrypted low-security level subdrill
-        pub(crate) static STAGE2: usize = HDP_HEADER_BYTE_LEN + hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD + hyxe_crypt::drill::BYTES_IN_LOW;
-    }
-
     pub(crate) mod do_drill_update {
         use crate::constants::HDP_HEADER_BYTE_LEN;
         use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
 
         pub(crate) const STAGE1: usize = HDP_HEADER_BYTE_LEN + AES_GCM_NONCE_LEN_BYTES;
-        pub(crate) const STAGE3: usize = HDP_HEADER_BYTE_LEN + hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD + AES_GCM_NONCE_LEN_BYTES;
     }
 
     pub(crate) mod do_preconnect {
@@ -207,6 +183,12 @@ pub struct HdpHeader {
     pub timestamp: I64<NetworkEndian>,
     /// The target_cid (0 if hyperLAN server)
     pub target_cid: U64<NetworkEndian>
+}
+
+impl AsRef<[u8]> for HdpHeader {
+    fn as_ref(&self) -> &[u8] {
+        self.as_bytes()
+    }
 }
 
 impl HdpHeader {
@@ -250,11 +232,6 @@ impl HdpHeader {
 
     pub fn into_packet_mut(self) -> BytesMut {
         BytesMut::from(self.as_bytes())
-    }
-
-    /// Returns the bytes of the header
-    pub fn to_bytes(&self) -> &[u8] {
-        self.as_bytes()
     }
 }
 

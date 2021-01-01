@@ -51,7 +51,7 @@ const MIN_PASSWORD_LENGTH: usize = 7;
 const MAX_PASSWORD_LENGTH: usize = 17;
 
 const MIN_USERNAME_LENGTH: usize = 7;
-const MAX_USERNAME_LENGTH: usize = 17;
+const MAX_USERNAME_LENGTH: usize = 37;
 
 const MIN_NAME_LENGTH: usize = 2;
 const MAX_NAME_LENGTH: usize = 77;

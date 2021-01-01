@@ -1,14 +1,16 @@
-use bytes::BufMut;
+use bytes::BytesMut;
 use secstr::SecVec;
 
-use ez_pqcrypto::PostQuantumContainer;
 use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
 use bstr::ByteSlice;
 use rand::prelude::ThreadRng;
 use rand::Rng;
+use bytes::buf::BufMutExt;
+use serde::{Serialize, Deserialize};
+
 
 /// When creating credentials, this is required
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProposedCredentials {
     ///
     pub username: String,
@@ -73,33 +75,23 @@ impl ProposedCredentials {
     }
 
     /// Inscribed self into the proposed buffer, and then returns the length of the plaintext username, password, and full_name, respectively
-    pub fn inscribe_into<B: BufMut>(&self, input: &mut B, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], post_quantum: &PostQuantumContainer) -> (usize, usize, usize) {
+    pub fn inscribe_into(&self, input: &mut BytesMut) -> (usize, usize, usize, usize) {
         let username_bytes = self.username.as_bytes();
         let password_bytes = self.password.unsecure();
         let full_name_bytes = self.full_name.as_bytes();
+        let nonce = &self.nonce as &[u8];
 
         let plaintext_username_len = username_bytes.len();
         let plaintext_password_len = password_bytes.len();
         let plaintext_fullname_len = full_name_bytes.len();
+        let nonce_len = nonce.len();
 
-        let mut full_plaintext: Vec<u8> = Vec::with_capacity(plaintext_username_len + plaintext_password_len + plaintext_fullname_len);
+        let amt = bincode2::serialized_size(self).unwrap();
+        input.reserve(amt as usize);
         
-        for byte in username_bytes {
-            full_plaintext.push(*byte)
-        }
+        bincode2::serialize_into(input.writer(), self).unwrap();
 
-        for byte in password_bytes {
-            full_plaintext.push(*byte)
-        }
-
-        for byte in full_name_bytes {
-            full_plaintext.push(*byte)
-        }
-
-        let full_ciphertext = post_quantum.encrypt(&full_plaintext as &[u8], nonce).unwrap();
-
-        input.put(full_ciphertext.as_ref());
-        (plaintext_username_len, plaintext_password_len, plaintext_fullname_len)
+        (plaintext_username_len, plaintext_password_len, plaintext_fullname_len, nonce_len)
     }
 
     /// Useful for determining the length for a pre-allocated buffer

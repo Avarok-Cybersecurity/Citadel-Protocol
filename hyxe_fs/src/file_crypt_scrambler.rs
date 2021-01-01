@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use bytes::BytesMut;
 use tokio::sync::mpsc::Sender as GroupChanneler;
-use futures::channel::oneshot::Receiver;
+use tokio::sync::oneshot::Receiver;
 use futures::task::Context;
 use num::Integer;
 use serde::export::PhantomData;
@@ -11,11 +9,12 @@ use tokio::macros::support::Pin;
 
 use hyxe_crypt::drill::{Drill, SecurityLevel};
 use hyxe_crypt::net::crypt_splitter::{GroupSenderDevice, par_scramble_encrypt_group};
-use hyxe_crypt::prelude::{PacketVector, PostQuantumContainer};
+use hyxe_crypt::prelude::PacketVector;
 
 use crate::io::FsError;
 use std::task::Poll;
 use tokio::stream::{Stream,StreamExt};
+use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
 /// The max file size is 100Mb (1024 bytes per Kb, 1024 kb per Mb, times 100)
 pub const MAX_FILE_SIZE: usize = 1024 * 1024 * 100;
@@ -32,7 +31,7 @@ const DEFAULT_BYTES_PER_GROUP: usize = 1024 * 1024 * 3;
 ///
 /// This is ran on a separate thread on the threadpool. Returns the number of bytes and number of groups
 #[allow(unused_results)]
-pub fn scramble_encrypt_file<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static>(std_file: std::fs::File, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<GroupSenderDevice>, stop: Receiver<()>, security_level: SecurityLevel, drill: Drill, pqc: Arc<PostQuantumContainer>, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), FsError<String>> {
+pub fn scramble_encrypt_file<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static>(std_file: std::fs::File, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<GroupSenderDevice>, stop: Receiver<()>, security_level: SecurityLevel, hyper_ratchet: HyperRatchet, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), FsError<String>> {
     let metadata = std_file.metadata().map_err(|err| FsError::IoError(err.to_string()))?;
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
     if !metadata.is_file() {
@@ -59,9 +58,8 @@ pub fn scramble_encrypt_file<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMu
         target_cid,
         group_id,
         security_level,
-        drill,
+        hyper_ratchet,
         reader,
-        pqc,
         file_len,
         max_bytes_per_group,
         read_cursor: 0,
@@ -93,8 +91,7 @@ async fn file_streamer<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + S
 #[allow(dead_code)]
 struct AsyncCryptScrambler<'a, F: Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static, R: Read> {
     reader: BufReader<R>,
-    drill: Drill,
-    pqc: Arc<PostQuantumContainer>,
+    hyper_ratchet: HyperRatchet,
     security_level: SecurityLevel,
     file_len: usize,
     read_cursor: usize,
@@ -115,7 +112,7 @@ impl<'a, F: Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send +
 impl<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, R: Read> AsyncCryptScrambler<'_, F, R> {
     fn poll_scramble_next_group(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<GroupSenderDevice>> {
         let Self {
-            pqc,
+            hyper_ratchet,
             file_len,
             read_cursor,
             buffer,
@@ -126,7 +123,6 @@ impl<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'stat
             object_id,
             header_inscriber,
             reader,
-            drill,
             security_level,
             max_bytes_per_group,
             ..
@@ -140,7 +136,7 @@ impl<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'stat
                 // let mut compressed = Vec::new();
                 // flate3::Compressor::new().deflate(bytes as &[u8])
                 // let len = flate2::bufread::DeflateEncoder::new(bytes as &[u8], flate2::Compression::fast()).read_to_end(&mut compressed).unwrap();
-                if let Ok(sender) = par_scramble_encrypt_group(bytes, *security_level, &*drill, pqc, *header_size_bytes, *target_cid, *object_id, group_id_input, |a, b, c, d, e| {
+                if let Ok(sender) = par_scramble_encrypt_group(bytes, *security_level, hyper_ratchet,  *header_size_bytes, *target_cid, *object_id, group_id_input, |a, b, c, d, e| {
                     (header_inscriber)(a, b, c, d, e)
                 }) {
                     *groups_rendered += 1;

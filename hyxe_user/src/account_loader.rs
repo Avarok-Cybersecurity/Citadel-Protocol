@@ -12,11 +12,12 @@ use crate::server_config_handler::sync_cnacs_and_nac;
 /// This is called during the program init. This closure will install a new NAC if one does not
 /// exist locally.
 /// `cnacs_loaded` must also be present in order to validate that the local node's listed clients map to locally-existant CNACs. A "feed two birds with one scone" scenario
+#[allow(unused_results)]
 pub fn load_node_nac(cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount>) -> Result<NetworkAccount, AccountError<String>> {
     log::info!("[NAC-loader] Detecting local NAC...");
     // First, set the NAC_NODE_DEFAULT_STORE_LOCATION
     let file_location = (HYXE_SERVER_DIR.lock().unwrap().as_ref().unwrap().clone() + "default_server." + NAC_SERIALIZED_EXTENSION).to_string();
-    assert!(NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().replace(file_location.clone()).is_none());
+    NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().replace(file_location.clone());
 
     match std::fs::File::open(&file_location) {
         Ok(_) => {
@@ -68,13 +69,15 @@ pub async fn load_cnac_files() -> Result<HashMap<u64, ClientNetworkAccount>, FsE
     Ok(ret)
 }
 
-/// Creates and internally-loads a CNAC, ready for use
-pub async fn load_cnac_from_bytes<T: AsRef<[u8]>>(serialized_bytes: T) -> Result<ClientNetworkAccount, AccountError<String>> {
+/// Creates and internally-loads a CNAC, ready for use. This does not load safely, as it is expected the data is serialized
+/// via the normal method
+pub async fn load_cnac_from_bytes_test<T: AsRef<[u8]>>(serialized_bytes: T, test_nac: &NetworkAccount) -> Result<ClientNetworkAccount, AccountError<String>> {
     let serialized_bytes = serialized_bytes.as_ref();
 
-    let inner = hyxe_fs::system_file_manager::bytes_to_type::<ClientNetworkAccountInner>(serialized_bytes).map_err(|err| AccountError::Generic(err.to_string()))?;
-    let cid = inner.cid;
-    let is_personal = inner.is_local_personal;
+    let mut inner = hyxe_fs::system_file_manager::bytes_to_type::<ClientNetworkAccountInner>(serialized_bytes).map_err(|err| AccountError::Generic(err.to_string()))?;
+    inner.adjacent_nac = Some(test_nac.clone());
 
-    ClientNetworkAccount::load_safe_from_fs(inner, ClientNetworkAccount::generate_local_save_path(cid, is_personal)).await
+    Ok(ClientNetworkAccount::from(inner))
+    //ClientNetworkAccount::load_safe_from_fs(inner, ClientNetworkAccount::generate_local_save_path(cid, is_personal)).await
 }
+

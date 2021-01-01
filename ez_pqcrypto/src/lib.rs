@@ -8,9 +8,10 @@ use chacha20poly1305::{XChaCha20Poly1305 as AeadKey, aead::{NewAead, Aead, AeadI
 #[cfg(not(feature = "chacha20"))]
 use aes_gcm_siv::{Aes256GcmSiv as AeadKey, aead::{NewAead, Aead, AeadInPlace, generic_array::GenericArray}};
 use crate::ez_error::EzError;
-use nanoserde::{SerBin, DeBin};
-use crate::bytes_in_place::InPlaceBytesMut;
+use crate::bytes_in_place::{InPlaceBytesMut, InPlaceByteSliceMut};
 use bytes::{BytesMut, BufMut};
+use std::fmt::Debug;
+use serde::export::Formatter;
 
 #[cfg(not(feature = "unordered"))]
 pub type AntiReplayAttackContainer = crate::replay_attack_container::ordered::AntiReplayAttackContainer;
@@ -50,6 +51,14 @@ pub const fn build_tag() -> &'static str {
 #[cfg(feature = "unordered")]
 pub const fn build_tag() -> &'static str {
     "unordered/multi-threaded networking protocol"
+}
+
+/// Returns the approximate size of each PQC
+pub const fn get_approx_bytes_per_container() -> usize {
+    pqcrypto_saber::firesaber_ciphertext_bytes() +
+        pqcrypto_saber::firesaber_public_key_bytes() +
+        pqcrypto_saber::firesaber_secret_key_bytes() +
+        pqcrypto_saber::firesaber_shared_secret_bytes()
 }
 
 /// Contains the public keys for Alice and Bob
@@ -116,6 +125,13 @@ impl PostQuantumContainer {
         self.shared_secret = Some(AeadKey::new(&GenericArray::clone_from_slice(ss)));
         Ok(())
     }
+
+    /// Returns true if either Tx/Rx Anti-replay attack counters have been engaged (useful for determining
+    /// if resetting the state is necessary)
+    pub fn has_verified_packets(&self) -> bool {
+        self.anti_replay_attack.has_tracked_packets()
+    }
+
     /// Gets the public key
     pub fn get_public_key(&self) -> &[u8] {
         self.data.get_public_key()
@@ -134,17 +150,14 @@ impl PostQuantumContainer {
     }
 
     /// Serializes the entire package to a vector
-    pub fn serialize_to_vector(&self) -> Result<Vec<u8>, Error> {
-        let export = PostQuantumExport::from(self);
-        Ok(export.serialize_bin())
+    pub fn serialize_to_vector(&self) -> Result<Vec<u8>, EzError> {
+        bincode2::serialize(self).map_err(|_err| EzError::Generic("Deserialization failure"))
     }
 
-    /// Attempts to deserialize the input bytesm presumed to be of type [PostQuantumExport],
+    /// Attempts to deserialize the input bytes presumed to be of type [PostQuantumExport],
     /// into a [PostQuantumContainer]
     pub fn deserialize_from_bytes<B: AsRef<[u8]>>(bytes: B) -> Result<Self, EzError> {
-        //let export = bincode2::deserialize::<PostQuantumExport>(bytes.as_ref())?;
-        let export = PostQuantumExport::deserialize_bin(bytes.as_ref()).map_err(|_err| EzError::Generic("Deserialization failure"))?;
-        PostQuantumContainer::try_from(export).map_err(|_err| EzError::Generic("Deserialization failure"))
+        bincode2::deserialize::<PostQuantumContainer>(bytes.as_ref()).map_err(|_err| EzError::Generic("Deserialization failure"))
     }
 
     /// Returns either Alice or Bob
@@ -158,7 +171,7 @@ impl PostQuantumContainer {
     }
 
     /// Encrypts the data. This will return an error if the internal shared secret is not set
-    pub fn encrypt<T: AsRef<[u8]>, R: AsRef<[u8]>>(&self, input: T, nonce: R) -> Result<Vec<u8>, EzError> where Self: Sized {
+    pub fn encrypt<T: AsRef<[u8]>, R: AsRef<[u8]>>(&self, input: T, nonce: R) -> Result<Vec<u8>, EzError> {
         let input = input.as_ref();
         let nonce = nonce.as_ref();
         let nonce = GenericArray::from_slice(nonce);
@@ -254,6 +267,30 @@ impl PostQuantumContainer {
         }
     }
 
+    /// Encrypts the data. This will return an error if the internal shared secret is not set
+    pub fn decrypt_in_place<T: AsMut<[u8]>, R: AsRef<[u8]>>(&self, mut input: T, nonce: R) -> Result<usize, EzError> where Self: Sized {
+        let input = input.as_mut();
+        let mut buf = InPlaceByteSliceMut::from(input);
+        let nonce = nonce.as_ref();
+
+        let nonce = GenericArray::from_slice(nonce);
+        // if the shared secret is loaded, the AES GCM abstraction should too.
+
+        if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
+            match aes_gcm_key.decrypt_in_place(nonce, &[], &mut buf) {
+                Err(_) => {
+                    Err(EzError::AesGcmDecryptionFailure)
+                },
+
+                Ok(_) => {
+                    Ok(buf.get_finished_len())
+                }
+            }
+        } else {
+            Err(EzError::SharedSecretNotLoaded)
+        }
+    }
+
     /// This, for now, only gets FIRESABER
     fn get_new_alice(_algorithm: u8) -> FiresaberContainer {
         FiresaberContainer::new_alice()
@@ -285,9 +322,10 @@ impl TryFrom<PostQuantumExport> for PostQuantumContainer {
             PQNode::Bob
         };
 
+        // we override all the values, so we can go with either
         let mut container = PostQuantumContainer::new_bob(algorithm, export.public_key.as_slice())?;
         container.node = node;
-        container.data.set_public_key(export.public_key.as_slice()).unwrap();
+        container.data.set_public_key(export.public_key.as_slice())?;
 
         // Now, begin setting the values
         if let Some(secret_key) = export.secret_key {
@@ -473,5 +511,11 @@ const fn generic_err() -> Error {
         name: "",
         actual: 0,
         expected: 0
+    }
+}
+
+impl Debug for PostQuantumContainer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PQC")
     }
 }

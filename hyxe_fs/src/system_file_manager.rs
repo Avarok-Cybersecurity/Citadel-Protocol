@@ -52,8 +52,7 @@ pub async fn async_read<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<
 }
 
 /// Reads the given path as the given type, D. This is BLOCKING
-pub fn read<D, P: AsRef<Path>>(path: P) -> Result<D, FsError<String>>
-    where for<'a> D: Deserialize<'a> {
+pub fn read<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<D, FsError<String>> {
     std::fs::File::open(path.as_ref()).map_err(|err| FsError::IoError(err.to_string())).and_then(|file| {
         bincode2::deserialize_from(std::io::BufReader::new(file))
             .map_err(|err| FsError::IoError(err.to_string()))
@@ -111,7 +110,7 @@ pub async fn create_file_with<P: AsRef<Path>>(path: P, data: &String) -> Result<
 
 /// Deserializes the bytes, T, into type D
 pub fn bytes_to_type<'a, D: Deserialize<'a>>(bytes: &'a [u8]) -> Result<D, FsError<String>> {
-    bincode2::deserialize(bytes.as_ref())
+    bincode2::deserialize(bytes)
         .map_err(|err| FsError::IoError(err.to_string()))
 }
 

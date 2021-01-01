@@ -6,7 +6,7 @@ use crate::hdp::hdp_packet::HeaderObfuscator;
 pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, mut packet: BytesMut, header_obfuscator: &HeaderObfuscator) -> PrimaryProcessorResult {
     header_obfuscator.on_packet_received(&mut packet)?;
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
-    let (header, payload) = packet.parse()?;
+    let (header, _payload) = packet.parse()?;
 
     let target_cid = header.target_cid.get();
     let mut endpoint_cid_info = None;
@@ -51,7 +51,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
 
     match header.cmd_primary {
         packet_flags::cmd::primary::DO_REGISTER => {
-            super::register_packet::process(session, &header, payload, remote_peer)
+            super::register_packet::process(session, packet, remote_peer)
         }
 
         packet_flags::cmd::primary::DO_CONNECT => {
@@ -67,7 +67,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
         }
 
         packet_flags::cmd::primary::DO_DISCONNECT => {
-            super::disconnect_packet::process(session, &header, payload)
+            super::disconnect_packet::process(session, packet)
         }
 
         packet_flags::cmd::primary::DO_DRILL_UPDATE => {

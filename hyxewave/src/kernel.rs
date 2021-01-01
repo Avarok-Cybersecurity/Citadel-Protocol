@@ -458,7 +458,7 @@ fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticke
         if let Some(ticket) = ticket {
             let peer_cid = conn.get_original_implicated_cid();
             let this_cid = conn.get_original_target_cid();
-            let username = this.console_context.account_manager.visit_cnac(this_cid, |cnac| -> Option<String> {
+            let username = this.console_context.account_manager.visit_cnac(this_cid, |cnac| {
                 cnac.get_hyperlan_peer(peer_cid)?.username.clone()
             });
             let username = username.unwrap_or(String::from("INVALID"));

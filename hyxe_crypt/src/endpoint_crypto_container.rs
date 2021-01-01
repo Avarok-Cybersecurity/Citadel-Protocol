@@ -1,55 +1,34 @@
 #![allow(missing_docs)]
 
-use ez_pqcrypto::PostQuantumContainer;
 use crate::toolset::Toolset;
-use crate::drill::Drill;
-use crate::drill_update::DrillUpdateObject;
-use std::sync::Arc;
-use crate::misc::CryptError;
+use crate::hyper_ratchet::HyperRatchet;
 
 /// a container that holds both the PQC and toolset for an endpoint connection
 pub struct PeerSessionCrypto {
-    pub pqc: Arc<PostQuantumContainer>,
     pub toolset: Toolset,
-    latest_drill_version_commited: u32
+    latest_hyper_ratchet_version_committed: u32
 }
 
 impl PeerSessionCrypto {
     /// Creates a new [PeerSessionCrypto] instance
-    pub fn new(pqc: PostQuantumContainer, toolset: Toolset) -> Self {
-        let pqc = Arc::new(pqc);
-        let latest_drill_version_commited = toolset.get_most_recent_drill_version();
-        Self { pqc, toolset, latest_drill_version_commited }
+    pub fn new(toolset: Toolset) -> Self {
+        let latest_hyper_ratchet_version_committed = toolset.get_most_recent_hyper_ratchet_version();
+        Self { toolset, latest_hyper_ratchet_version_committed }
     }
 
     /// Gets a specific drill version, or, gets the latest version comitted
-    pub fn get_drill(&self, version: Option<u32>) -> Option<&Drill> {
-        self.toolset.get_drill(version.unwrap_or(self.latest_drill_version_commited))
-    }
-
-    /// Updates the toolset and gets the DUO. Does not change the latest committed version. Comitting
-    /// must be done manually AFTER receiving confirmation that the other side was updated
-    pub fn generate(&mut self) -> Result<DrillUpdateObject, CryptError<String>> {
-        self.toolset.update()
+    pub fn get_hyper_ratchet(&self, version: Option<u32>) -> Option<&HyperRatchet> {
+        self.toolset.get_hyper_ratchet(version.unwrap_or(self.latest_hyper_ratchet_version_committed))
     }
 
     /// This should only be called when Bob receives the new DOU during the ReKey phase, or, when Alice receives confirmation
     /// that the endpoint updated the drill
-    pub fn commit_next_drill_version(&mut self) {
-        let cur_vers = self.latest_drill_version_commited;
+    pub fn commit_next_hyper_ratchet_version(&mut self, newest_version: HyperRatchet) -> Option<()> {
+        self.toolset.update_from(newest_version)?;
+        let cur_vers = self.latest_hyper_ratchet_version_committed;
         let next_vers = cur_vers.wrapping_add(1);
-        self.latest_drill_version_commited = next_vers;
-    }
+        self.latest_hyper_ratchet_version_committed = next_vers;
 
-    /// Clones both the PQC and desired drill version
-    pub fn get_pqc_and_drill(&self, drill_version: Option<u32>) -> Option<(Arc<PostQuantumContainer>, Drill)> {
-        self.get_drill(drill_version)
-            .map(|drill| (self.pqc.clone(), drill.clone()))
-    }
-
-    /// Borrows both the PQC and desired drill version
-    pub fn borrow_pqc_and_drill(&self, drill_version: Option<u32>) -> Option<(&Arc<PostQuantumContainer>, &Drill)> {
-        self.get_drill(drill_version)
-            .and_then(|drill| Some((&self.pqc, drill)))
+        Some(())
     }
 }

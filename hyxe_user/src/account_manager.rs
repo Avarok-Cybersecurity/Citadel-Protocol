@@ -4,15 +4,14 @@ use crate::client_account::ClientNetworkAccount;
 use hyxe_fs::io::FsError;
 use crate::account_loader::{load_node_nac, load_cnac_files};
 use std::sync::Arc;
-use hyxe_fs::hyxe_crypt::drill::Drill;
 use std::net::SocketAddr;
 use crate::prelude::HyperNodeAccountInformation;
 use crate::misc::AccountError;
-use hyxe_fs::hyxe_crypt::prelude::PostQuantumContainer;
 use secstr::SecVec;
 use std::fmt::Display;
 use crossbeam_utils::sync::{ShardedLock, ShardedLockReadGuard, ShardedLockWriteGuard};
 use std::collections::hash_map::RandomState;
+use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
@@ -56,8 +55,8 @@ impl AccountManager {
 
     /// Once a valid and decrypted stage 4 packet gets received by the server (Bob), this function should be called
     /// to create the new CNAC. The generated CNAC will be assumed to be an impersonal hyperlan client
-    pub fn register_impersonal_hyperlan_client_network_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: NetworkAccount, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, post_quantum_container: &PostQuantumContainer) -> Result<ClientNetworkAccount, AccountError<String>> {
-        let new_cnac = self.local_nac.create_client_account::<_,_,&[u8]>(reserved_cid, Some(nac_other), username, password, full_name, password_hash, post_quantum_container, None)?;
+    pub fn register_impersonal_hyperlan_client_network_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: NetworkAccount, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, init_hyper_ratchet: &HyperRatchet) -> Result<ClientNetworkAccount, AccountError<String>> {
+        let new_cnac = self.local_nac.create_client_account(reserved_cid, Some(nac_other), username, password, full_name, password_hash, init_hyper_ratchet.clone())?;
         // By using the local nac to create the CNAC, we ensured a unique CID and ensured that the config has been updated
         // What remains is to update the internal graph
         // To conclude the registration process, we need to:
@@ -72,8 +71,8 @@ impl AccountManager {
 
     /// whereas the HyperLAN server (Bob) runs `register_impersonal_hyperlan_client_network_account`, the registering
     /// HyperLAN Client (Alice) runs this function below
-    pub fn register_personal_hyperlan_server<T: AsRef<[u8]>, R: ToString + Display, V: ToString + Display>(&self, toolset_bytes: T, username: R, full_name: V, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>, password_hash: Vec<u8>) -> Result<ClientNetworkAccount, AccountError<String>> {
-        let cnac = ClientNetworkAccount::new_from_network_personal(toolset_bytes, &username, password, &full_name, password_hash, adjacent_nac, post_quantum_container)?;
+    pub fn register_personal_hyperlan_server<'a, R: ToString + Display, V: ToString + Display>(&self, valid_cid: u64, hyper_ratchet: HyperRatchet, username: R, full_name: V, adjacent_nac: NetworkAccount, password: SecVec<u8>, password_hash: Vec<u8>) -> Result<ClientNetworkAccount, AccountError<String>> {
+        let cnac = ClientNetworkAccount::new_from_network_personal(valid_cid, hyper_ratchet, &username, password, &full_name, password_hash, adjacent_nac)?;
         self.local_nac.register_cid(cnac.get_id(), &username)?;
 
         let mut map = self.write_map();
@@ -132,8 +131,8 @@ impl AccountManager {
 
     /// Gets a drill for a specific CID.
     /// `drill_version`: If this is None, the latest drill version is obtained. Else, the specified drill version is obtained
-    pub fn get_drill(&self, cid: u64, drill_version: Option<u32>) -> Option<Drill> {
-        self.visit_cnac(cid, |cnac| cnac.get_drill(drill_version))
+    pub fn get_hyper_ratchet(&self, cid: u64, hyper_ratchet_version: Option<u32>) -> Option<HyperRatchet> {
+        self.visit_cnac(cid, |cnac| cnac.get_hyper_ratchet(hyper_ratchet_version))
     }
 
     /// Returns the first username detected. This is not advised to use, because overlapping usernames are entirely possible.
@@ -182,7 +181,9 @@ impl AccountManager {
         let mut write = self.local_nac.write();
         write.cids_registered.clear();
         std::mem::drop(write);
-        self.local_nac.spawn_save_task_on_threadpool();
+        if let Err(err) = self.local_nac.save_to_local_fs() {
+            log::error!("Error saving NAC to storage: {:?}", err);
+        }
 
         count
     }
