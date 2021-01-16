@@ -1,0 +1,22 @@
+[package]
+name = "rsntp"
+version = "1.0.1"
+authors = ["Szilveszter Dobák <dobaksz@gmail.com>"]
+repository = "https://github.com/dobaksz/rsntp"
+documentation = "https://docs.rs/rsntp"
+edition = "2018"
+keywords = ["sntp", "time", "async"] 
+categories = ["network-programming"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+description = "An RFC 4330 compliant Simple Network Time Protocol (SNTP) client library for Rust"
+
+[features]
+default = ["async"]
+async = ["tokio"]
+
+[dependencies]
+chrono = "^0.4.10"
+#tokio = { version = "0.3.4", path = "../../tokio/tokio", features = ["time", "net"], optional=true }
+#tokio = { version = "0.3.5", path = "../../tokio/tokio", features = ["time", "net"], optional=true }
+tokio = { version = "^0.2.22", features = ["macros", "rt-util", "time", "net"], optional=true }
