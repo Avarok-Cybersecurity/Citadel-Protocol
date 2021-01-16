@@ -15,6 +15,7 @@ use crate::functional::IfEqConditional;
 use crate::hdp::outbound_sender::OutboundTcpSender;
 use crate::hdp::hdp_packet::HeaderObfuscator;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::drill::SecurityLevel;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
@@ -173,7 +174,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 /// Both sides need to begin this process at `sync_time` to bypass the firewall
 #[allow(warnings)]
 pub async fn attempt_tcp_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, session: HdpSession, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant,
-endpoint_hyper_ratchet: HyperRatchet) -> std::io::Result<()> {
+endpoint_hyper_ratchet: HyperRatchet, security_level: SecurityLevel) -> std::io::Result<()> {
 
     tokio::time::delay_until(sync_time).await;
     let expected_peer_cid = peer_connection_type.get_original_target_cid();
@@ -190,22 +191,22 @@ endpoint_hyper_ratchet: HyperRatchet) -> std::io::Result<()> {
                 // its connection
                 log::warn!("[P2P-stream/client] Success connecting to {:?}", peer_endpoint_addr);
                 let success_signal = PeerSignal::Kem(peer_connection_type, KeyExchangeProcess::HolePunchEstablished);
-                send_hole_punch_packet(session, success_signal, endpoint_hyper_ratchet, ticket, expected_peer_cid, Some(&p2p_outbound_stream))
+                send_hole_punch_packet(session, success_signal, endpoint_hyper_ratchet, ticket, expected_peer_cid, Some(&p2p_outbound_stream), security_level)
             })
     } else {
         // Since this node gets no stream, it doesn't matter if we're the initiator or not. We discard the connection,
         // and alert the other side so that it may keep its connection (if established)
         log::warn!("Unable to connect to {:?}. Sending failure packet", peer_endpoint_addr);
         let fail_signal = PeerSignal::Kem(peer_connection_type, KeyExchangeProcess::HolePunchFailed);
-        send_hole_punch_packet(session, fail_signal, endpoint_hyper_ratchet, ticket, expected_peer_cid, None)
+        send_hole_punch_packet(session, fail_signal, endpoint_hyper_ratchet, ticket, expected_peer_cid, None, security_level)
     }
 }
 
-fn send_hole_punch_packet(session: HdpSession, signal: PeerSignal, endpoint_hyper_ratchet: HyperRatchet, ticket: Ticket, expected_peer_cid: u64, p2p_outbound_stream_opt: Option<&OutboundTcpSender>) -> std::io::Result<()> {
+fn send_hole_punch_packet(session: HdpSession, signal: PeerSignal, endpoint_hyper_ratchet: HyperRatchet, ticket: Ticket, expected_peer_cid: u64, p2p_outbound_stream_opt: Option<&OutboundTcpSender>, security_level: SecurityLevel) -> std::io::Result<()> {
     let sess = inner!(session);
     let p2p_outbound_stream = p2p_outbound_stream_opt.unwrap_or_else(|| sess.to_primary_stream.as_ref().unwrap());
     let timestamp = sess.time_tracker.get_global_time_ns();
-    let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal_endpoint(&endpoint_hyper_ratchet, signal, ticket, timestamp, expected_peer_cid);
+    let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal_endpoint(&endpoint_hyper_ratchet, signal, ticket, timestamp, expected_peer_cid, security_level);
     log::info!("***ABT TO SEND {} PACKET***", p2p_outbound_stream_opt.is_some().if_eq(true, "SUCCESS").if_false("FAILURE"));
     p2p_outbound_stream.unbounded_send(packet)
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))

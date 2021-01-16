@@ -48,24 +48,19 @@ impl<T: NetworkTransferable> Accessor<T> {
     }
 }
 
-pub trait NetworkTransferable where for<'a> Self: Serialize + Deserialize<'a> + Sized + Default + Send + Sync + 'static {
+pub trait NetworkTransferable: for<'a> Deserialize<'a> + Serialize + Send + Sync + 'static  {
     fn serialize(&self) -> Result<Vec<u8>, Error> {
         bincode2::serialize(self)
             .map_err(|err| Error::Default(err.to_string()))
     }
 
-    fn deserialize_from(input: &[u8]) -> Option<Self> {
-        bincode2::deserialize(input).ok()
-    }
-
-    /// When the application initializes, the default will be used to set a shared state
-    fn serialize_default() -> Result<Vec<u8>, Error> {
-        <Self as NetworkTransferable>::serialize(&Self::default())
+    fn deserialize_from<'a>(input: Vec<u8>) -> Option<Self> {
+        bincode2::deserialize(input.as_slice()).ok()
     }
 }
 
 impl<T> NetworkTransferable for T
-    where for<'a> T: Serialize + Deserialize<'a> + Sized + Default + Send + Sync + 'static{}
+    where T: for<'a> Deserialize<'a> + Serialize + Sized + Send + Sync + 'static {}
 
 impl<T: NetworkTransferable> Deref for ReadAccessGuard<'_, T> {
     type Target = T;

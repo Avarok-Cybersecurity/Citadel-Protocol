@@ -33,6 +33,7 @@ use crate::ffi::{DomainResponse, FFIIO, KernelResponse};
 use crate::mail::IncomingPeerRequest;
 use crate::ticket_event::TicketQueueHandler;
 use hyxe_net::functional::IfEqConditional;
+use hyxe_crypt::drill::SecurityLevel;
 
 #[allow(dead_code)]
 pub struct CLIKernel {
@@ -336,8 +337,8 @@ impl NetKernel for CLIKernel {
                         process_post_register_signal(self, conn, username, ticket, response, true)
                     }
 
-                    PeerSignal::PostConnect(conn, ticket, response) => {
-                        process_post_connect_signal(self, conn, ticket, response, true)
+                    PeerSignal::PostConnect(conn, ticket, response, endpoint_security_level) => {
+                        process_post_connect_signal(self, conn, ticket, response, endpoint_security_level,true)
                     }
 
                     PeerSignal::SignalError(ticket, err) => {
@@ -413,8 +414,8 @@ impl NetKernel for CLIKernel {
 
                         for signal in signals {
                             match signal {
-                                PeerSignal::PostConnect(conn, ticket, response) => {
-                                    process_post_connect_signal(self, conn, ticket, response, false)
+                                PeerSignal::PostConnect(conn, ticket, response, endpoint_security_level) => {
+                                    process_post_connect_signal(self, conn, ticket, response, endpoint_security_level, false)
                                 }
 
                                 PeerSignal::PostRegister(peer_conn, peer_username, ticket, response) => {
@@ -448,7 +449,7 @@ impl NetKernel for CLIKernel {
     }
 }
 
-fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticket: Option<Ticket>, response: Option<PeerResponse>, do_print: bool) {
+fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticket: Option<Ticket>, response: Option<PeerResponse>, endpoint_security_addr: SecurityLevel, do_print: bool) {
     // if we get a response, it means that this node's connection attempt with conn succeeded
     // else we don't get a response, it means that this node RECEIVED an INVITATION to connect
     if let Some(response) = response {
@@ -463,7 +464,7 @@ fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticke
             });
             let username = username.unwrap_or(String::from("INVALID"));
             // now, store the mail that way the next call to peer accept-request can work
-            let mail_id = this.console_context.unread_mail.write().on_peer_request_received(IncomingPeerRequest::Connection(ticket, conn, Instant::now()));
+            let mail_id = this.console_context.unread_mail.write().on_peer_request_received(IncomingPeerRequest::Connection(ticket, conn, Instant::now(), endpoint_security_addr));
             let cmd = format!("peer accept-connect {}", mail_id);
             if do_print {
                 printfs!({

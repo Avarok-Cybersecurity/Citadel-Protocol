@@ -3,6 +3,10 @@ use std::fmt::{Display, Formatter};
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 
+use serde::{Serialize, Deserialize};
+use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer};
+use crate::hdp::hdp_packet_processor::primary_group_packet::ToolsetUpdate;
+
 use bytes::Bytes;
 use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
@@ -26,7 +30,6 @@ use crate::hdp::state_subcontainers::drill_update_container::DrillUpdateState;
 use crate::hdp::state_subcontainers::preconnect_state_container::PreConnectState;
 use crate::hdp::state_subcontainers::register_state_container::RegisterState;
 use hyxe_crypt::drill::SecurityLevel;
-use nanoserde::{SerBin, DeBin};
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::hdp::peer::channel::PeerChannel;
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
@@ -39,6 +42,7 @@ use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
 use crate::functional::IfEqConditional;
 use futures::StreamExt;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_fs::prelude::SyncIO;
 
 define_outer_struct_wrapper!(StateContainer, StateContainerInner);
 
@@ -188,11 +192,9 @@ impl Drop for VirtualConnection {
     }
 }
 
-use serde::{Serialize, Deserialize};
-use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer};
 
 /// For determining the nature of a [VirtualConnection]
-#[derive(PartialEq, Copy, Clone, Debug, SerBin, DeBin, Serialize, Deserialize)]
+#[derive(PartialEq, Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum VirtualConnectionType {
     // A peer in the HyperLAN is connected to a peer in the HyperLAN. Contains the target CID
     HyperLANPeerToHyperLANPeer(u64, u64),
@@ -212,11 +214,11 @@ pub const HYPERLAN_PEER_TO_HYPERLAN_SERVER: u8 = 2;
 pub const HYPERLAN_PEER_TO_HYPERWAN_SERVER: u8 = 3;
 impl VirtualConnectionType {
     pub fn serialize(&self) -> Vec<u8> {
-        SerBin::serialize_bin(self)
+        Self::serialize_to_vector(self).unwrap()
     }
 
-    pub fn deserialize_from<T: AsRef<[u8]>>(this: T) -> Option<Self> {
-        DeBin::deserialize_bin(this.as_ref()).ok()
+    pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(this: T) -> Option<Self> {
+        Self::deserialize_from_vector(this.as_ref()).ok()
     }
 
     /// Gets the target cid, agnostic to type
@@ -827,20 +829,20 @@ impl StateContainerInner {
     /// TODO: NOTE! object ID is in wave_id for header ACKS
     /// NOTE: If object id != 0, then this header ack belongs to a file transfer and must thus be transmitted via TCP
     #[allow(unused_results)]
-    pub fn on_group_header_ack_received(&mut self, object_id: u32, peer_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: Option<BobToAliceTransfer>, cnac: &ClientNetworkAccount, fast_msg: bool) -> bool {
+    pub fn on_group_header_ack_received(&mut self, object_id: u32, peer_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: Option<BobToAliceTransfer>, update_method: ToolsetUpdate, fast_msg: bool) -> bool {
         // the target is where the packet came from (implicated_cid)
         let key = GroupKey::new(peer_cid, group_id);
         if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
             if let Some(transfer) = transfer {
                 if let Some(mut constructor) = outbound_container.ratchet_constructor.take() {
                     if let None = constructor.stage1_alice(transfer) {
+                        log::error!("Unable to construct hyper ratchet");
                         return true; // return true, otherwise, the session ends
                     }
 
-                    if let Some(hyper_ratchet) = constructor.finish() {
-                        if let Err(err) = cnac.register_new_hyper_ratchet(hyper_ratchet) {
-                            log::error!("Error registering new hyper ratchet: {:?}", err);
-                        }
+                    if let None = update_method.update(constructor) {
+                        log::error!("Unable to update container (X-01)");
+                        return true;
                     }
 
                 } else {
@@ -899,7 +901,7 @@ impl StateContainerInner {
     pub fn on_window_tail_received(&mut self, hyper_ratchet: &HyperRatchet, state_container_ref: &StateContainer, header: &LayoutVerified<&[u8], HdpHeader>, waves: RangeInclusive<u32>, time_tracker: &TimeTracker, to_primary_stream_orig: &OutboundTcpSender) -> bool {
         let group = header.group.get();
         let object_id = header.context_info.get() as u32;
-
+        let security_level = header.security_level.into();
         let Self {
             active_virtual_connections,
             ..
@@ -950,7 +952,7 @@ impl StateContainerInner {
                         // to adjust for network latency
                         let timestamp = time_tracker.get_global_time_ns();
                         let send_success = waves.clone().into_iter().filter_map(|wave_id_to_check| group_receiver.receiver.get_retransmission_vectors_for(wave_id_to_check, group, &hyper_ratchet))
-                            .map(|packet_vectors| crate::hdp::hdp_packet_crafter::group::craft_wave_do_retransmission(&hyper_ratchet, object_id, resp_target_cid, group, packet_vectors[0].wave_id, &packet_vectors, timestamp))
+                            .map(|packet_vectors| crate::hdp::hdp_packet_crafter::group::craft_wave_do_retransmission(&hyper_ratchet, object_id, resp_target_cid, group, packet_vectors[0].wave_id, &packet_vectors, timestamp, security_level))
                             .try_for_each(|packet| {
                                 //log::warn!("Sending DO_RETRANSMISSION packet");
                                 to_primary_stream.unbounded_send(packet)
@@ -1114,6 +1116,7 @@ impl StateContainerInner {
         let object_id = header.context_info.get() as u32;
         let group = header.group.get();
         let wave_id = header.wave_id.get();
+        let security_level = header.security_level.into();
         let ref _drill_version = header.drill_version.get();
         let mut finished = false;
         let key = GroupKey::new(header.session_cid.get(), group);
@@ -1127,7 +1130,7 @@ impl StateContainerInner {
                         GroupReceiverStatus::GROUP_COMPLETE(last_wave_id) => {
                             log::info!("Group {} finished!", group);
 
-                            let wave_ack = crate::hdp::hdp_packet_crafter::group::craft_wave_ack(hyper_ratchet, object_id, resp_target_cid, group, last_wave_id, time_tracker.get_global_time_ns(), None);
+                            let wave_ack = crate::hdp::hdp_packet_crafter::group::craft_wave_ack(hyper_ratchet, object_id, resp_target_cid, group, last_wave_id, time_tracker.get_global_time_ns(), None, security_level);
                             preferred_primary_stream.unbounded_send(wave_ack)?;
                             finished = true;
                         }
@@ -1140,10 +1143,10 @@ impl StateContainerInner {
                             let wave_ack = if let Some(next_window) = group_receiver.on_wave_finished() {
                                 log::info!("Window complete! Sending extended WAVE_ACK. Next window: {:?}", &next_window);
                                 // Now, we must send a WAVE_ACK with a range
-                                crate::hdp::hdp_packet_crafter::group::craft_wave_ack(hyper_ratchet, object_id, resp_target_cid,group, wave_id, time_tracker.get_global_time_ns(), Some(next_window))
+                                crate::hdp::hdp_packet_crafter::group::craft_wave_ack(hyper_ratchet, object_id, resp_target_cid,group, wave_id, time_tracker.get_global_time_ns(), Some(next_window), security_level)
                             } else {
                                 log::info!("Wave complete, but the window is not yet done");
-                                crate::hdp::hdp_packet_crafter::group::craft_wave_ack(hyper_ratchet, object_id, resp_target_cid, group, wave_id, time_tracker.get_global_time_ns(), None)
+                                crate::hdp::hdp_packet_crafter::group::craft_wave_ack(hyper_ratchet, object_id, resp_target_cid, group, wave_id, time_tracker.get_global_time_ns(), None, security_level)
                             };
 
                             preferred_primary_stream.unbounded_send(wave_ack)?;

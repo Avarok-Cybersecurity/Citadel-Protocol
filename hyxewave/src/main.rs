@@ -5,7 +5,7 @@ use hyxewave::{shutdown_sequence, setup_shutdown_hook, setup_log};
 use hyxewave::console::virtual_terminal::INPUT_ROUTER;
 
 fn main() -> Result<(), ConsoleError> {
-    deadlock_detection();
+    //deadlock_detection();
     verify_permissions();
     setup_log();
     setup_shutdown_hook();
@@ -53,6 +53,7 @@ fn verify_permissions() {
 #[cfg(target_os = "windows")]
 fn verify_permissions() {}
 
+#[allow(dead_code)]
 fn deadlock_detection() {
     println!("Deadlock function called ...");
         use std::thread;

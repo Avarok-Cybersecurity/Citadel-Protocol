@@ -43,7 +43,7 @@ pub struct Toolset {
 }
 
 impl Toolset {
-    /// Creates a new [Toolset]. Designates the `hyper_ratchet` as the static auxilliary ratchet
+    /// Creates a new [Toolset]. Designates the `hyper_ratchet` as the static auxiliary ratchet
     pub fn new(cid: u64, hyper_ratchet: HyperRatchet) -> Self {
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);
         map.push_front(hyper_ratchet.clone());
@@ -54,8 +54,13 @@ impl Toolset {
     pub fn update_from(&mut self, new_hyper_ratchet: HyperRatchet) -> Option<()> {
         let latest_hr_version = self.get_most_recent_hyper_ratchet_version();
 
+        if new_hyper_ratchet.get_cid() != self.cid {
+            log::error!("The supplied hyper ratchet does not belong to the expected CID (expected: {}, obtained: {})", self.cid, new_hyper_ratchet.get_cid());
+            return None;
+        }
+
         if latest_hr_version != new_hyper_ratchet.version().saturating_sub(1) {
-            log::error!("The supplied hyper ratchet is not precedent to the drill update object");
+            log::error!("The supplied hyper ratchet is not precedent to the drill update object (expected: {}, obtained: {})", latest_hr_version + 1, new_hyper_ratchet.version());
             return None;
         }
 

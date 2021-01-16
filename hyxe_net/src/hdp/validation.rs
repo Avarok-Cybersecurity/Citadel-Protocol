@@ -8,6 +8,7 @@ pub(crate) mod do_connect {
     use crate::error::NetworkError;
     use crate::hdp::hdp_packet::HdpHeader;
     use crate::hdp::peer::peer_layer::MailboxTransfer;
+    use hyxe_fs::prelude::SyncIO;
 
     /// Here, Bob receives a payload of the encrypted username + password. We must verify the login data is valid
     pub(crate) fn validate_stage0_packet(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Result<(), NetworkError> {
@@ -31,7 +32,7 @@ pub(crate) mod do_connect {
         let (mailbox_transfer_bytes, peers_bytes) = mailbox_transfer_and_peers_bytes.split_at(mailbox_len);
 
         let mailbox = if mailbox_transfer_bytes.len() != 0 {
-            MailboxTransfer::deserialize_from(mailbox_transfer_bytes)
+            Some(MailboxTransfer::deserialize_from_vector(mailbox_transfer_bytes).map_err(|_|())?)
         } else {
             None
         };
@@ -83,12 +84,13 @@ pub(crate) mod group {
     use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_fs::io::SyncIO;
     use crate::hdp::hdp_packet_crafter::group::DUAL_ENCRYPTION_ON;
+    use hyxe_crypt::drill::SecurityLevel;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
-    pub(crate) fn validate<'a, 'b: 'a>(hyper_ratchet: &HyperRatchet, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
+    pub(crate) fn validate<'a, 'b: 'a>(hyper_ratchet: &HyperRatchet, security_level: SecurityLevel, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
         //let bytes = &header[..];
         //let header = LayoutVerified::new(bytes)? as LayoutVerified<&[u8], HdpHeader>;
-        hyper_ratchet.validate_message_packet_in_place_split(header, &mut payload).ok()?;
+        hyper_ratchet.validate_message_packet_in_place_split(Some(security_level), header, &mut payload).ok()?;
         Some(payload.freeze())
     }
 
@@ -280,6 +282,7 @@ pub(crate) mod pre_connect {
         let bob_constructor = HyperRatchetConstructor::new_bob(header.algorithm, header.session_cid.get(), 0, transfer)?;
         let transfer = bob_constructor.stage0_bob()?;
         let new_hyper_ratchet = bob_constructor.finish()?;
+        debug_assert!(new_hyper_ratchet.verify_level(transfer.security_level.into()).is_ok());
         // below, we need to ensure the hyper ratchet stays constant throughout transformations
         let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_hyper_ratchet));
 
@@ -301,8 +304,11 @@ pub(crate) mod pre_connect {
             let transfer_payload = &payload[external_addr_len..];
 
             let transfer = BobToAliceTransfer::deserialize_from(transfer_payload)?;
+            let lvl = transfer.security_level;
+            log::info!("Session security level based-on returned transfer: {:?}", lvl);
             alice_constructor.stage1_alice(transfer)?;
             let new_hyper_ratchet = alice_constructor.finish()?;
+            debug_assert!(new_hyper_ratchet.verify_level(lvl.into()).is_ok());
             let toolset = Toolset::from((static_auxiliary_ratchet, new_hyper_ratchet.clone()));
             cnac.replace_toolset(toolset);
             Some((new_hyper_ratchet, external_ip))
@@ -498,7 +504,7 @@ pub(crate) mod aead {
         let header_bytes = header.as_ref();
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
         let hyper_ratchet = cnac.get_hyper_ratchet(Some(header.drill_version.get()))?;
-        hyper_ratchet.validate_message_packet_in_place_split(header_bytes, &mut payload).ok()?;
+        hyper_ratchet.validate_message_packet_in_place_split(Some(header.security_level.into()), header_bytes, &mut payload).ok()?;
         Some((header, payload.freeze(), hyper_ratchet))
     }
 
@@ -506,7 +512,7 @@ pub(crate) mod aead {
     pub(crate) fn validate_custom<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(hyper_ratchet: &HyperRatchet, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes)> {
         let header_bytes = header.as_ref();
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
-        hyper_ratchet.validate_message_packet_in_place_split(header_bytes, &mut payload).ok()?;
+        hyper_ratchet.validate_message_packet_in_place_split(Some(header.security_level.into()), header_bytes, &mut payload).ok()?;
         Some((header, payload.freeze()))
     }
 }

@@ -31,6 +31,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
 
     let (header, payload, peer_addr, _) = packet.decompose();
     let (header, payload) = validation::aead::validate_custom(&sess_hyper_ratchet, &header, payload)?;
+    let security_level = header.security_level.into();
     log::info!("PEER CMD packet authenticated");
 
     match aux_cmd {
@@ -39,7 +40,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
         }
 
         packet_flags::cmd::aux::peer_cmd::SIGNAL => {
-            let signal = PeerSignal::deserialize_from_bytes(payload)?;
+            let signal = PeerSignal::deserialize_from_vector(&payload[..]).ok()?;
             let timestamp = session.time_tracker.get_global_time_ns();
             let ticket = header.context_info.get().into();
 
@@ -56,7 +57,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                         return PrimaryProcessorResult::Void;
                     }
 
-                    PeerSignal::PostConnect(conn,_, resp) => {
+                    PeerSignal::PostConnect(conn,_, resp, endpoint_security_level) => {
                         if let Some(resp) = resp {
                             // the connection was mutually accepted. Now, we must begin the KEM subroutine
                             match resp {
@@ -69,8 +70,9 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                             // establish a working [PeerChannel] system that has a custom post-quantum key and toolset
                                             // unique to the session.
                                             //let mut state_container = inner_mut!(session.state_container);
+                                            //let peer_cid = conn.get_original_implicated_cid();
                                             let mut peer_kem_state_container = PeerKemStateContainer::default();
-                                            let alice_constructor = HyperRatchetConstructor::new_alice(Some(DEFAULT_PQC_ALGORITHM));
+                                            let alice_constructor = HyperRatchetConstructor::new_alice(Some(DEFAULT_PQC_ALGORITHM), conn.get_original_target_cid(), 0, Some(*endpoint_security_level));
                                             let transfer = alice_constructor.stage0_alice();
                                             //log::info!("0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
                                             let msg_bytes = transfer.serialize_to_vec()?;
@@ -86,7 +88,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                             // server and to the endpoint
                                             let hyper_ratchet = cnac.get_hyper_ratchet(None)?;
 
-                                            let stage0_peer_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(&hyper_ratchet, signal, ticket, timestamp);
+                                            let stage0_peer_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(&hyper_ratchet, signal, ticket, timestamp, security_level);
                                             log::info!("Sent peer KEM stage 0 outbound");
                                             // send to central server
                                             return PrimaryProcessorResult::ReplyToSender(stage0_peer_kem);
@@ -107,9 +109,10 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 log::info!("RECV STAGE 0 PEER KEM");
                                 // We generate bob's pqc, as well as a nonce
                                 //let mut state_container = inner_mut!(session.state_container);
-                                let this_cid = conn.get_original_target_cid();
+                                //let this_cid = conn.get_original_target_cid();
+                                let peer_cid = conn.get_original_implicated_cid();
 
-                                let bob_constructor = HyperRatchetConstructor::new_bob(header.algorithm, this_cid, 0, AliceToBobTransfer::deserialize_from(transfer)?)?;
+                                let bob_constructor = HyperRatchetConstructor::new_bob(header.algorithm, conn.get_original_target_cid(), 0, AliceToBobTransfer::deserialize_from(transfer)?)?;
                                 let transfer = bob_constructor.stage0_bob()?;
 
                                 let bob_transfer = transfer.serialize_to_vector().ok()?;
@@ -119,13 +122,13 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 let mut state_container_kem = PeerKemStateContainer::default();
                                 state_container_kem.constructor = Some(bob_constructor);
                                 state_container_kem.last_state = KEP_STAGE1;
-                                state_container.peer_kem_states.insert(conn.get_original_implicated_cid(), state_container_kem);
+                                state_container.peer_kem_states.insert(peer_cid, state_container_kem);
                                 // send signal
                                 std::mem::drop(state_container);
 
                                 let ref hyper_ratchet = session.cnac.as_ref()?.get_hyper_ratchet(None)?;
 
-                                let stage1_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp);
+                                let stage1_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
                                 log::info!("Sent stage 1 peer KEM");
                                 PrimaryProcessorResult::ReplyToSender(stage1_kem)
                             }
@@ -145,6 +148,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 alice_constructor.stage1_alice(BobToAliceTransfer::deserialize_from(transfer)?)?;
                                 let hyper_ratchet = alice_constructor.finish_with_custom_cid(this_cid)?;
                                 let endpoint_hyper_ratchet = hyper_ratchet.clone();
+                                let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();
                                 // now, create a new toolset and encrypt it
                                 // NOTE: when this toolset gets transmitted, it retains this_cid
                                 // As such, the other end MUST change the CID internally for BOTH
@@ -155,7 +159,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
                                 let bob_socket_addr = SocketAddr::from_str(bob_public_addr.as_str()).ok()?;
                                 log::info!("[STUN] Peer public addr: {:?}", &bob_socket_addr);
-                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(bob_socket_addr, security_level, ticket, peer_cid, vconn_type, peer_crypto);
+                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(bob_socket_addr, endpoint_security_level, ticket, peer_cid, vconn_type, peer_crypto);
                                 // load the channel now that the keys have been exchanged
                                 state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
                                 kem_state.local_is_initiator = true;
@@ -169,13 +173,13 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 std::mem::drop(state_container);
                                 // we need to use the session pqc since this signal needs to get processed by the center node
                                 let ref sess_hyper_ratchet = session.cnac.as_ref()?.get_hyper_ratchet(None)?;
-                                let stage2_kem_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(sess_hyper_ratchet, signal, ticket, timestamp);
+                                let stage2_kem_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(sess_hyper_ratchet, signal, ticket, timestamp, security_level);
                                 log::info!("Sent stage 2 peer KEM");
 
                                 // now, fire-up the hole-punch future
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
-                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket,session_orig.clone(),bob_socket_addr, implicated_cid, kernel_tx, sync_instant, endpoint_hyper_ratchet);
+                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket,session_orig.clone(),bob_socket_addr, implicated_cid, kernel_tx, sync_instant, endpoint_hyper_ratchet, endpoint_security_level);
                                 let _ = spawn!(hole_punch_future);
 
                                 PrimaryProcessorResult::ReplyToSender(stage2_kem_packet)
@@ -187,7 +191,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 log::info!("RECV STAGE 2 PEER KEM");
                                 let peer_cid = conn.get_original_implicated_cid();
                                 let this_cid = conn.get_original_target_cid();
-                                let security_level = session.security_level;
+                                //let security_level = session.security_level;
                                 //let mut state_container = inner_mut!(session.state_container);
                                 let kem = state_container.peer_kem_states.get_mut(&peer_cid)?;
                                 // since the AES-GCM was a success, we can now entrust that the toolset is perfectly symmetric to the
@@ -195,6 +199,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 let bob_constructor = kem.constructor.take()?;
                                 let hyper_ratchet = bob_constructor.finish_with_custom_cid(this_cid)?;
                                 let endpoint_hyper_ratchet = hyper_ratchet.clone();
+                                let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();
                                 let toolset = Toolset::new(this_cid, hyper_ratchet);
                                 let peer_crypto = PeerSessionCrypto::new(toolset);
 
@@ -202,7 +207,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
                                 let alice_socket_addr = SocketAddr::from_str(alice_public_addr.as_str()).ok()?;
                                 log::info!("[STUN] Peer public addr: {:?}", &alice_socket_addr);
-                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(alice_socket_addr, security_level, ticket, peer_cid, vconn_type, peer_crypto);
+                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(alice_socket_addr, endpoint_security_level, ticket, peer_cid, vconn_type, peer_crypto);
 
                                 log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
                                 // We can now send the channel to the kernel, where TURN traversal is immediantly available.
@@ -215,7 +220,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
-                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket,session_orig.clone(),alice_socket_addr, implicated_cid, kernel_tx, sync_instant, endpoint_hyper_ratchet);
+                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket,session_orig.clone(),alice_socket_addr, implicated_cid, kernel_tx, sync_instant, endpoint_hyper_ratchet, endpoint_security_level);
                                 let _ = spawn!(hole_punch_future);
 
                                 PrimaryProcessorResult::Void
@@ -254,7 +259,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 // Now, tell the other side the connection was established. Here, we use just pqc and drill because this packet,
                                 // by requirement, was encrypted using the endpoint encryption
                                 let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::HolePunchEstablishedVerified(upgraded_connection));
-                                let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal_endpoint(&sess_hyper_ratchet, signal, ticket, timestamp, peer_cid);
+                                let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal_endpoint(&sess_hyper_ratchet, signal, ticket, timestamp, peer_cid, security_level);
                                 PrimaryProcessorResult::ReplyToSender(packet)
                             }
 
@@ -339,7 +344,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                 PrimaryProcessorResult::Void
             } else {
                 std::mem::drop(state_container);
-                process_signal_command_as_server(signal, ticket, wrap_inner_mut!(session), sess_hyper_ratchet, header, timestamp)
+                process_signal_command_as_server(signal, ticket, wrap_inner_mut!(session), sess_hyper_ratchet, header, timestamp, security_level)
             }
         }
 
@@ -355,7 +360,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
 }
 
 #[inline]
-fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: PeerSignal, ticket: Ticket, session: InnerParameterMut<K, HdpSessionInner>, sess_hyper_ratchet: HyperRatchet, _header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64) -> PrimaryProcessorResult {
+fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: PeerSignal, ticket: Ticket, session: InnerParameterMut<K, HdpSessionInner>, sess_hyper_ratchet: HyperRatchet, _header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64, security_level: SecurityLevel) -> PrimaryProcessorResult {
     match signal {
         PeerSignal::Kem(conn, mut kep) => {
             // before just routing the signals, we also need to add socket information into intercepted stage1 and stage2 signals
@@ -374,11 +379,11 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
             let sess_mgr = inner!(session.session_manager);
             let signal_to = PeerSignal::Kem(conn, kep);
             let res = sess_mgr.send_signal_to_peer_direct(conn.get_original_target_cid(),move |peer_hyper_ratchet| {
-                hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal_to, ticket, timestamp)
+                hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal_to, ticket, timestamp, security_level)
             });
 
             if let Err(err) = res {
-                reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp)
+                reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp, security_level)
             } else {
                 PrimaryProcessorResult::Void
             }
@@ -400,10 +405,10 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
                                     log::info!("Observed registration between {} <-> {} locally", implicated_cid, target_cid);
                                 }
                             }
-                        })
+                        }, security_level)
                     } else {
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
-                        route_signal_and_register_ticket_forwards(PeerSignal::PostRegister(peer_conn_type, username, Some(ticket), None), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, session, &sess_hyper_ratchet)
+                        route_signal_and_register_ticket_forwards(PeerSignal::PostRegister(peer_conn_type, username, Some(ticket), None), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, session, &sess_hyper_ratchet, security_level)
                     }
                 }
 
@@ -426,21 +431,21 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
                                 // route the original signal to the other end. If not connected, don't bother
                                 if session.session_manager.session_active(target_cid) {
                                     let peer_alert_signal = signal.clone();
-                                    if !session.session_manager.send_signal_to_peer(target_cid, ticket, peer_alert_signal, timestamp) {
+                                    if !session.session_manager.send_signal_to_peer(target_cid, ticket, peer_alert_signal, timestamp, security_level) {
                                         log::warn!("Unable to send packet to {}", target_cid);
                                     }
                                 }
 
                                 // now, send a success packet to the client
                                 let success_cmd = PeerSignal::SignalReceived(ticket);
-                                let rebound_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet,success_cmd, ticket, timestamp);
+                                let rebound_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet,success_cmd, ticket, timestamp, security_level);
                                 PrimaryProcessorResult::ReplyToSender(rebound_packet)
                             }
 
                             None => {
                                 // unable to find the peer
                                 let error_signal = PeerSignal::SignalError(ticket, format!("Target peer {} is not registered as a mutual with {}", target_cid, implicated_cid));
-                                let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, error_signal, ticket, timestamp);
+                                let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, error_signal, ticket, timestamp, security_level);
                                 PrimaryProcessorResult::ReplyToSender(error_packet)
                             }
                         }
@@ -455,13 +460,13 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
             }
         }
 
-        PeerSignal::PostConnect(peer_conn_type, _ticket_opt, peer_response) => {
+        PeerSignal::PostConnect(peer_conn_type, _ticket_opt, peer_response, endpoint_security_level) => {
             match peer_conn_type {
                 PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                     const TIMEOUT: Duration = Duration::from_secs(60*60);
                     if let Some(peer_response) = peer_response {
                         // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
-                        route_signal_response(PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(peer_response)), implicated_cid, target_cid, timestamp, ticket, session, &sess_hyper_ratchet,
+                        route_signal_response(PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(peer_response), endpoint_security_level), implicated_cid, target_cid, timestamp, ticket, session, &sess_hyper_ratchet,
                             |this_sess, peer_sess, _original_tracked_posting| {
                                 // when the route finishes, we need to update both sessions to allow high-level message-passing
                                 // In other words, forge a virtual connection
@@ -485,10 +490,10 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
 
                                     }
                                 }
-                        })
+                        }, security_level)
                     } else {
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
-                        route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, session, &sess_hyper_ratchet)
+                        route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, session, &sess_hyper_ratchet, security_level)
                     }
                 }
 
@@ -510,14 +515,14 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
                         // now, remove target CID's v_conn to `implicated_cid`
                         let res = session.session_manager.disconnect_virtual_conn(implicated_cid, target_cid, move |peer_hyper_ratchet| {
                             // send signal to peer
-                            hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal_to_peer, ticket, timestamp)
+                            hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal_to_peer, ticket, timestamp, security_level)
                         });
 
                         // now, send a packet back to the source
-                        res.map_or_else(|err| reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp),
-                                        |_| reply_to_sender(PeerSignal::Disconnect(peer_conn_type, None), &sess_hyper_ratchet, ticket, timestamp))
+                        res.map_or_else(|err| reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp, security_level),
+                                        |_| reply_to_sender(PeerSignal::Disconnect(peer_conn_type, None), &sess_hyper_ratchet, ticket, timestamp, security_level))
                     } else {
-                        reply_to_sender_err(format!("{} is not connected to {}", implicated_cid, target_cid), &sess_hyper_ratchet, ticket, timestamp)
+                        reply_to_sender_err(format!("{} is not connected to {}", implicated_cid, target_cid), &sess_hyper_ratchet, ticket, timestamp, security_level)
                     }
                 }
 
@@ -537,7 +542,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
                         PeerSignal::GetRegisteredPeers(hypernode_conn_type, None)
                     };
 
-                    reply_to_sender(rebound_signal, &sess_hyper_ratchet, ticket, timestamp)
+                    reply_to_sender(rebound_signal, &sess_hyper_ratchet, ticket, timestamp, security_level)
                 }
 
                 HypernodeConnectionType::HyperLANPeerToHyperWANServer(_implicated_cid, _icid) => {
@@ -556,7 +561,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
                         PeerSignal::GetMutuals(hypernode_conn_type, None)
                     };
 
-                    reply_to_sender(rebound_signal, &sess_hyper_ratchet, ticket, timestamp)
+                    reply_to_sender(rebound_signal, &sess_hyper_ratchet, ticket, timestamp, security_level)
                 }
 
                 HypernodeConnectionType::HyperLANPeerToHyperWANServer(_implicated_cid, _icid) => {
@@ -592,19 +597,19 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
 
 #[inline]
 /// This just makes the repeated operation above cleaner. By itself does not send anything; must return the result of this closure directly
-fn reply_to_sender(signal: PeerSignal, hyper_ratchet: &HyperRatchet, ticket: Ticket, timestamp: i64) -> PrimaryProcessorResult {
-    let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp);
+fn reply_to_sender(signal: PeerSignal, hyper_ratchet: &HyperRatchet, ticket: Ticket, timestamp: i64, security_level: SecurityLevel) -> PrimaryProcessorResult {
+    let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
     PrimaryProcessorResult::ReplyToSender(packet)
 }
 
 #[inline]
-fn reply_to_sender_err<E: ToString>(err: E, hyper_ratchet: &HyperRatchet, ticket: Ticket, timestamp: i64) -> PrimaryProcessorResult {
+fn reply_to_sender_err<E: ToString>(err: E, hyper_ratchet: &HyperRatchet, ticket: Ticket, timestamp: i64, security_level: SecurityLevel) -> PrimaryProcessorResult {
     let err_signal = PeerSignal::SignalError(ticket, err.to_string());
-    let err_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, err_signal, ticket, timestamp);
+    let err_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, err_signal, ticket, timestamp, security_level);
     PrimaryProcessorResult::ReplyToSender(err_packet)
 }
 
-fn route_signal_and_register_ticket_forwards<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: PeerSignal, timeout: Duration, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: InnerParameterMut<K, HdpSessionInner>, sess_hyper_ratchet: &HyperRatchet) -> PrimaryProcessorResult {
+fn route_signal_and_register_ticket_forwards<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: PeerSignal, timeout: Duration, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: InnerParameterMut<K, HdpSessionInner>, sess_hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> PrimaryProcessorResult {
     // We use the same logic as the register post
     let to_primary_stream = session.to_primary_stream.clone()?;
 
@@ -612,30 +617,30 @@ fn route_signal_and_register_ticket_forwards<K: ExpectedInnerTargetMut<HdpSessio
     let sess_hyper_ratchet_2 = sess_hyper_ratchet.clone();
     // Give the target_cid 10 seconds to respond
     let res = sess_mgr.route_signal_primary(implicated_cid, target_cid, ticket, signal.clone(), move |peer_hyper_ratchet| {
-        hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal.clone(), ticket, timestamp)
+        hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal.clone(), ticket, timestamp, security_level)
     }, timeout, move |stale_signal| {
         // on timeout, run this
         log::warn!("Running timeout closure. Sending error message to {}", implicated_cid);
-        let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet_2, stale_signal, ticket, timestamp);
+        let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet_2, stale_signal, ticket, timestamp, security_level);
         let _ = to_primary_stream.unbounded_send(error_packet);
     });
 
     // Then, we tell the implicated_cid's node that we have handled the message. However, the peer has yet to respond
     if let Err(err) = res {
-        reply_to_sender_err(err, sess_hyper_ratchet, ticket, timestamp)
+        reply_to_sender_err(err, sess_hyper_ratchet, ticket, timestamp, security_level)
     } else {
         let received_signal = PeerSignal::SignalReceived(ticket);
-        reply_to_sender(received_signal, sess_hyper_ratchet, ticket, timestamp)
+        reply_to_sender(received_signal, sess_hyper_ratchet, ticket, timestamp, security_level)
     }
 }
 
 // returns (true, status) if the process was a success, or (false, success) otherwise
-fn route_signal_response<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: PeerSignal, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: InnerParameterMut<K, HdpSessionInner>, sess_hyper_ratchet: &HyperRatchet, on_route_finished: impl FnOnce(InnerParameterMut<K, HdpSessionInner>, InnerParameterMut<SessionBorrow, HdpSessionInner>, PeerSignal)) -> PrimaryProcessorResult {
+fn route_signal_response<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: PeerSignal, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: InnerParameterMut<K, HdpSessionInner>, sess_hyper_ratchet: &HyperRatchet, on_route_finished: impl FnOnce(InnerParameterMut<K, HdpSessionInner>, InnerParameterMut<SessionBorrow, HdpSessionInner>, PeerSignal), security_level: SecurityLevel) -> PrimaryProcessorResult {
     let mut sess_mgr = inner_mut!(session.session_manager);
     log::info!("impl: {} | target: {}", implicated_cid, target_cid);
 
     let res = sess_mgr.route_signal_response_primary(implicated_cid, target_cid, ticket, move |peer_hyper_ratchet| {
-        hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, ticket, timestamp)
+        hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, ticket, timestamp, security_level)
     });
     std::mem::drop(sess_mgr);
 
@@ -643,7 +648,7 @@ fn route_signal_response<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: Pee
         Ok((peer_sess, original_posting)) => {
             // send a notification that the server forwarded the signal
             let received_signal = PeerSignal::SignalReceived(ticket);
-            let ret = reply_to_sender(received_signal, sess_hyper_ratchet, ticket, timestamp);
+            let ret = reply_to_sender(received_signal, sess_hyper_ratchet, ticket, timestamp, security_level);
             log::info!("Running on_route_finished subroutine");
             let mut peer_sess_ref = inner_mut!(peer_sess);
             on_route_finished(session, InnerParameterMut::from(&mut peer_sess_ref), original_posting);
@@ -651,7 +656,7 @@ fn route_signal_response<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: Pee
         }
 
         Err(err) => {
-            reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp)
+            reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp, security_level)
         }
     }
 

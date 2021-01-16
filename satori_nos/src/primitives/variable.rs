@@ -13,6 +13,7 @@ pub struct NetworkVariableInner {
     inner: Arc<dyn Any + Send + Sync + 'static>
 }
 
+#[derive(Copy, Clone)]
 pub enum VariableType {
     MutualExclusion,
     ReadWriteLock
@@ -24,6 +25,25 @@ impl NetworkVariableInner {
             VariableType::MutualExclusion => Self { inner: Arc::new(Accessor::Mutex(NetMutex::new(value, notifier_rx, updater_tx))) },
             VariableType::ReadWriteLock => Self { inner: Arc::new(Accessor::RwLock(NetRwLock::new(value, notifier_rx, updater_tx))) }
         }
+    }
+
+    fn downcast_accessor<T: NetworkTransferable>(&self) -> &Accessor<T> {
+        self.inner.downcast_ref::<Accessor<T>>().unwrap()
+    }
+
+    pub(crate) async fn update_value<T: NetworkTransferable>(&self, t: Vec<u8>) -> Option<()> {
+        let t = T::deserialize_from(t)?;
+        match self.downcast_accessor() {
+            Accessor::Mutex(val) => {
+                val.update_value(t).await
+            }
+
+            Accessor::RwLock(val) => {
+                val.update_value(t).await
+            }
+        }
+
+        Some(())
     }
 }
 

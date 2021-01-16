@@ -223,6 +223,7 @@ impl HdpSession {
         let this_socket_loader = self.clone();
         let this_queue_worker = self.clone();
         let this_p2p_listener = self.clone();
+        let this_close = self.clone();
 
         let sock = tcp_stream.peer_addr().unwrap();
 
@@ -233,7 +234,7 @@ impl HdpSession {
 
         let mut this_ref = inner_mut!(this);
         let (obfuscator, packet_opt) = HeaderObfuscator::new(this_ref.is_server);
-        let sess_id = this_ref.kernel_ticket;
+        //let sess_id = this_ref.kernel_ticket;
         this_ref.to_primary_stream = Some(primary_outbound_tx.clone());
 
         let to_kernel_tx_clone = this_ref.kernel_tx.clone();
@@ -286,8 +287,8 @@ impl HdpSession {
 
         session_future.try_collect::<Vec<()>>().await.map(|_| {
             implicated_cid.load(Ordering::SeqCst)
-        }).map_err(|err| {
-            let ticket = sess_id;
+        }).map_err(move |err| {
+            let ticket = inner!(this_close).kernel_ticket;
             let reason = err.to_string();
             let needs_close_message = needs_close_message.load(Ordering::Relaxed);
             let cid = implicated_cid.load(Ordering::Relaxed);
@@ -308,7 +309,7 @@ impl HdpSession {
 
     async fn stopper(mut receiver: Receiver<()>) -> Result<(), NetworkError> {
         let _ = receiver.next().await;
-        Err(NetworkError::InternalError("Stopper-rx triggered"))
+        Err(NetworkError::InternalError("Session stopper-rx triggered"))
     }
 
     /// Before going through the usual loopy business, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
@@ -321,8 +322,10 @@ impl HdpSession {
             SessionState::NeedsRegister => {
                 log::info!("Beginning registration subroutine!");
                 let session_ref = inner!(session);
+                let security_level = session_ref.security_level;
                 let potential_cids_alice = session_ref.account_manager.get_local_nac().generate_possible_cids();
-                let alice_constructor = HyperRatchetConstructor::new_alice(Some(session_ref.pqc_algorithm.unwrap_or(DEFAULT_PQC_ALGORITHM)));
+                // we supply 0,0 for cid and new drill vers by default, even though it will be reset by bob
+                let alice_constructor = HyperRatchetConstructor::new_alice(Some(session_ref.pqc_algorithm.unwrap_or(DEFAULT_PQC_ALGORITHM)), 0, 0, Some(security_level));
                 let mut state_container = inner_mut!(session_ref.state_container);
                 state_container.register_state.last_packet_time = Some(Instant::now());
                 let transfer = alice_constructor.stage0_alice();
@@ -339,15 +342,18 @@ impl HdpSession {
             SessionState::NeedsConnect => {
                 log::info!("Beginning pre-connect subroutine!");
                 let session_ref = inner!(session);
+                let security_level = session_ref.security_level;
                 let tcp_only = session_ref.tcp_only;
                 let timestamp = session_ref.time_tracker.get_global_time_ns();
                 let cnac = cnac.as_ref().unwrap();
                 // reset the toolset's ARA
                 let ref static_aux_hr = cnac.refresh_static_hyper_ratchet();
-                let alice_constructor = HyperRatchetConstructor::new_alice(Some(session_ref.pqc_algorithm.unwrap_or(DEFAULT_PQC_ALGORITHM)));
+                //static_aux_hr.verify_level(Some(security_level)).map_err(|_| NetworkError::Generic(format!("Invalid security level. Maximum security level for this account is {:?}", static_aux_hr.get_default_security_level())))?;
+                let alice_constructor = HyperRatchetConstructor::new_alice(Some(session_ref.pqc_algorithm.unwrap_or(DEFAULT_PQC_ALGORITHM)), cnac.get_cid(), 0, Some(security_level));
                 let transfer = alice_constructor.stage0_alice();
-
-                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, tcp_only, timestamp);
+                let max_usable_level = static_aux_hr.get_default_security_level();
+                // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
+                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, tcp_only, timestamp, max_usable_level);
                 let mut state_container = inner_mut!(session_ref.state_container);
                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                 state_container.pre_connect_state.constructor = Some(alice_constructor);
@@ -811,15 +817,18 @@ impl HdpSession {
             const OBJECT_SINGLETON: u32 = 0;
             // Drop this to ensure that it doesn't block other async closures from accessing the inner device
             // std::mem::drop(this);
-            let (mut transmitter, group_id, target_cid) = match virtual_target {
+            let (mut transmitter, group_id, target_cid, ratchet_cid, new_ratchet_vers) = match virtual_target {
                 VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
                     let group_id = this.get_and_increment_group_id();
                     let latest_hyper_ratchet = cnac.get_hyper_ratchet(None).unwrap();
+                    latest_hyper_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_hyper_ratchet.get_default_security_level())))?;
                     let to_primary_stream = this.to_primary_stream.clone().unwrap();
                     let target_cid = 0;
-                    (GroupTransmitter::new(to_primary_stream, OBJECT_SINGLETON, target_cid, latest_hyper_ratchet, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid)
+                    let ratchet_cid = latest_hyper_ratchet.get_cid();
+                    let new_ratchet_vers = latest_hyper_ratchet.version().wrapping_add(1);
+                    (GroupTransmitter::new(to_primary_stream, OBJECT_SINGLETON, target_cid, latest_hyper_ratchet, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid, ratchet_cid, new_ratchet_vers)
                 }
 
                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
@@ -831,8 +840,10 @@ impl HdpSession {
                             let group_id = endpoint_container.get_and_increment_group_id();
                             let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
                             let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap().clone();
-
-                            (GroupTransmitter::new(to_primary_stream_preferred,OBJECT_SINGLETON, target_cid, latest_usable_ratchet, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
+                            latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
+                            let ratchet_cid = latest_usable_ratchet.get_cid();
+                            let new_ratchet_vers = latest_usable_ratchet.version().wrapping_add(1);
+                            (GroupTransmitter::new(to_primary_stream_preferred,OBJECT_SINGLETON, target_cid, latest_usable_ratchet, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid, ratchet_cid, new_ratchet_vers)
                         } else {
                             log::error!("Endpoint container not found");
                             return Ok(())
@@ -852,7 +863,8 @@ impl HdpSession {
             // We manually send the header. The tails get sent automatically
             log::info!("[message] Sending GROUP HEADER through primary stream for group {}", group_id);
             let group_len = transmitter.get_total_plaintext_bytes();
-            let alice_constructor = HyperRatchetConstructor::new_alice(algorithm);
+            let sess_security_level = this.security_level;
+            let alice_constructor = HyperRatchetConstructor::new_alice(algorithm, ratchet_cid, new_ratchet_vers, Some(sess_security_level));
             let transfer = alice_constructor.stage0_alice();
             //this.send_to_primary_stream(Some(ticket), transmitter.generate_group_header(virtual_target))?;
             // transmit
@@ -893,6 +905,7 @@ impl HdpSession {
         }
 
         let cnac = this.cnac.as_ref().unwrap();
+        let security_level = this.security_level;
         let to_primary_stream = this.to_primary_stream.as_ref().unwrap();
 
         cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
@@ -906,7 +919,7 @@ impl HdpSession {
                 GroupBroadcast::Add(_,_) |
                 GroupBroadcast::AcceptMembership(_) |
                 GroupBroadcast::LeaveRoom(_) => {
-                    hdp_packet_crafter::peer_cmd::craft_group_message_packet(hyper_ratchet, &command, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp)
+                    hdp_packet_crafter::peer_cmd::craft_group_message_packet(hyper_ratchet, &command, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
                 }
 
                 n => {
@@ -1112,10 +1125,11 @@ impl HdpSession {
         let cnac = session.cnac.as_ref().unwrap();
         let hyper_ratchet = cnac.get_hyper_ratchet(None).unwrap();
         let timestamp = session.time_tracker.get_global_time_ns();
+        let security_level = session.security_level;
         let to_primary_stream = session.to_primary_stream.as_ref().unwrap();
         let ref to_kernel_tx = session.kernel_tx;
 
-        let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(&hyper_ratchet, ticket, timestamp);
+        let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(&hyper_ratchet, ticket, timestamp, security_level);
         inner_mut!(session.state_container).disconnect_state.ticket = ticket;
         Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket))
             .and_then(|_| Ok(true))
@@ -1227,11 +1241,12 @@ impl HdpSessionInner {
         //state_container.drill_update_state.on_begin_update_subroutine(timestamp, ticket);
         //std::mem::drop(state_container);
         let cnac = self.cnac.as_ref().unwrap();
+         let security_level = self.security_level;
         let ref hyper_ratchet = cnac.get_hyper_ratchet(None).unwrap();
-         let alice_constructor = HyperRatchetConstructor::new_alice(self.pqc_algorithm.clone());
+         let alice_constructor = HyperRatchetConstructor::new_alice(self.pqc_algorithm.clone(), hyper_ratchet.get_cid(), hyper_ratchet.version().wrapping_add(1), Some(security_level));
          let transfer = alice_constructor.stage0_alice();
 
-        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(hyper_ratchet, transfer, timestamp);
+         let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(hyper_ratchet, transfer, timestamp, security_level);
          state_container.drill_update_state.alice_hyper_ratchet = Some(alice_constructor);
         let to_primary_stream = self.to_primary_stream.as_ref().unwrap();
         let kernel_tx = &self.kernel_tx;
@@ -1242,9 +1257,10 @@ impl HdpSessionInner {
         log::info!("Initiating deregister process ...");
         let timestamp = self.time_tracker.get_global_time_ns();
         let cnac = self.cnac.as_ref().unwrap();
+        let security_level = self.security_level;
         let ref hyper_ratchet = cnac.get_hyper_ratchet(None).unwrap();
 
-        let stage0_packet = hdp_packet_crafter::do_deregister::craft_stage0(hyper_ratchet, timestamp);
+        let stage0_packet = hdp_packet_crafter::do_deregister::craft_stage0(hyper_ratchet, timestamp, security_level);
         let mut state_container = inner_mut!(self.state_container);
         state_container.deregister_state.on_init(virtual_connection_type, timestamp,  ticket);
         std::mem::drop(state_container);

@@ -107,6 +107,7 @@ impl Drill {
     pub fn get_aes_gcm_nonce(&self, nonce_version: usize) -> [u8; AES_GCM_NONCE_LEN_BYTES] {
         //assert!(AES_GCM_NONCE_LEN_BYTES < 25);
         let nonce = self.get_nonce(nonce_version);
+        debug_assert_eq!(nonce.len(), AES_GCM_NONCE_LEN_BYTES);
         log::trace!("Generated nonce v{}: {:?}", nonce_version, &nonce);
         nonce
     }
@@ -147,7 +148,7 @@ impl Drill {
 
     /// Returns the length of the ciphertext
     pub fn aes_gcm_encrypt_into_custom_nonce<T: AsRef<[u8]>, B: BufMut>(&self, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], quantum_container: &PostQuantumContainer, input: T, mut output: B) -> Result<usize, CryptError<String>>{
-        quantum_container.encrypt(nonce, input.as_ref())
+        quantum_container.encrypt(input.as_ref(), nonce)
             .map(|ciphertext| {
                 output.put(ciphertext.as_slice());
                 ciphertext.len()
@@ -156,7 +157,7 @@ impl Drill {
 
     /// Returns the length of the plaintext
     pub fn aes_gcm_decrypt_into_custom_nonce<T: AsRef<[u8]>, B: BufMut>(&self, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], quantum_container: &PostQuantumContainer, input: T, mut output: B) -> Result<usize, CryptError<String>>{
-        quantum_container.decrypt(nonce, input.as_ref())
+        quantum_container.decrypt(input.as_ref(), nonce)
             .map(|plaintext| {
                 output.put(plaintext.as_slice());
                 plaintext.len()
@@ -262,16 +263,12 @@ impl Drill {
 /// Provides the enumeration forall security levels
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub enum SecurityLevel {
-    /// Bytes multiplier: 1
-    LOW = 0,
-    /// Bytes multiplier: 2
-    MEDIUM = 1,
-    /// Bytes multiplier: 4
-    HIGH = 2,
-    /// Bytes multiplier: 8
-    ULTRA = 3,
-    /// Bytes multiplier: 16
-    DIVINE = 4,
+    LOW,
+    MEDIUM,
+    HIGH,
+    ULTRA,
+    DIVINE,
+    TRANSCENDENT(u8)
 }
 
 impl SecurityLevel {
@@ -283,56 +280,31 @@ impl SecurityLevel {
             SecurityLevel::HIGH => 2,
             SecurityLevel::ULTRA => 3,
             SecurityLevel::DIVINE => 4,
+            SecurityLevel::TRANSCENDENT(val) => val
         }
     }
 
     /// Possibly returns the security_level given an input value
     pub fn for_value(val: usize) -> Option<Self> {
+        Some(SecurityLevel::from(u8::try_from(val).ok()?))
+    }
+}
+
+impl From<u8> for SecurityLevel {
+    fn from(val: u8) -> Self {
         match val {
-            0 => Some(SecurityLevel::LOW),
-            1 => Some(SecurityLevel::MEDIUM),
-            2 => Some(SecurityLevel::HIGH),
-            3 => Some(SecurityLevel::ULTRA),
-            4 => Some(SecurityLevel::DIVINE),
-            _ => None,
+            0 => SecurityLevel::LOW,
+            1 => SecurityLevel::MEDIUM,
+            2 => SecurityLevel::HIGH,
+            3 => SecurityLevel::ULTRA,
+            4 => SecurityLevel::DIVINE,
+            n => SecurityLevel::TRANSCENDENT(n)
         }
-    }
-
-    /// Result version of for_value
-    pub fn for_value_ok(val: usize) -> Result<Self, CryptError<String>> {
-        match val {
-            0 => Ok(SecurityLevel::LOW),
-            1 => Ok(SecurityLevel::MEDIUM),
-            2 => Ok(SecurityLevel::HIGH),
-            3 => Ok(SecurityLevel::ULTRA),
-            4 => Ok(SecurityLevel::DIVINE),
-            _ => Err(CryptError::BadSecuritySetting),
-        }
-    }
-
-    /// Returns the byte augmentation value
-    pub fn get_augmentation(self) -> usize {
-        match self {
-            SecurityLevel::LOW => 1,
-            SecurityLevel::MEDIUM => 2,
-            SecurityLevel::HIGH => 4,
-            SecurityLevel::ULTRA => 8,
-            SecurityLevel::DIVINE => 16,
-        }
-    }
-
-    /// Returns the number of bytes expected upon encryption
-    pub fn get_expected_encrypted_len(self, len: usize) -> usize {
-        len * self.get_augmentation()
-    }
-
-    /// Returns the number of bytes expected upon decryption
-    pub fn get_expected_decrypted_len(self, len: usize) -> usize {
-        len / self.get_augmentation()
     }
 }
 
 use serde_big_array::big_array;
+use std::convert::TryFrom;
 big_array! {
     BigArray;
     +BYTES_PER_3D_ARRAY,

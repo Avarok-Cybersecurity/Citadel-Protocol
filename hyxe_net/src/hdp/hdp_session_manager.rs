@@ -200,6 +200,7 @@ impl HdpSessionManager {
             if let Some(implicated_cid) = sess.implicated_cid.clone().load(Ordering::Relaxed) {
                 sess_mgr.hypernode_peer_layer.on_session_shutdown(implicated_cid);
                 let timestamp = sess.time_tracker.get_global_time_ns();
+                let security_level = sess.security_level;
                 let mut state_container = inner_mut!(sess.state_container);
 
                 state_container.active_virtual_connections.drain().for_each(|(peer_id, vconn)| {
@@ -215,7 +216,7 @@ impl HdpSessionManager {
                                     let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid);
                                     let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{} disconnected from {} forcibly", peer_cid, implicated_cid))));
                                     if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
-                                        super::hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp)
+                                        super::hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
                                     }) {
                                         //log::error!("Unable to send shutdown signal to {}: {:?}", peer_cid, err);
                                     }
@@ -237,8 +238,9 @@ impl HdpSessionManager {
                 });
             }
         } else {
-            // if we are ending a client session, we just need to ensure that the P2P stream go-down
+            // if we are ending a client session, we just need to ensure that the P2P streams go-down
             log::info!("Ending any active P2P connections");
+            sess.queue_worker.signal_shutdown();
             inner_mut!(sess.state_container).end_connections();
         }
 
@@ -380,7 +382,7 @@ impl HdpSessionManager {
 
     /// Sends the command outbound. Returns true if sent, false otherwise
     /// In the case that this return false, further interaction should be avoided
-    pub fn dispatch_peer_command(&self, implicated_cid: u64, ticket: Ticket, peer_command: PeerSignal) -> bool {
+    pub fn dispatch_peer_command(&self, implicated_cid: u64, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
             let sess = inner!(sess);
@@ -390,7 +392,7 @@ impl HdpSessionManager {
                         // move into the closure without cloning the drill
                         return cnac.borrow_hyper_ratchet(None, move |drill_opt| {
                             if let Some(hyper_ratchet) = drill_opt {
-                                let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, peer_command, ticket, timestamp);
+                                let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, peer_command, ticket, timestamp, security_level);
                                 to_primary_stream.unbounded_send(packet).is_ok()
                             } else {
                                 false
@@ -466,14 +468,14 @@ impl HdpSessionManager {
     }
 
     /// Creates a new message group. Returns a key if successful
-    pub fn create_message_group_and_notify(&self, timestamp: i64, ticket: Ticket, implicated_cid: u64, peers_to_notify: Vec<u64>) -> Option<MessageGroupKey> {
+    pub fn create_message_group_and_notify(&self, timestamp: i64, ticket: Ticket, implicated_cid: u64, peers_to_notify: Vec<u64>, security_level: SecurityLevel) -> Option<MessageGroupKey> {
         let this = inner!(self);
         let key = this.hypernode_peer_layer.create_new_message_group(implicated_cid, &peers_to_notify)?;
         // notify all the peers
         for peer_cid in peers_to_notify {
             if let Err(err) = this.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
                 let signal = GroupBroadcast::Invitation(key);
-                super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp)
+                super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
             }) {
                 log::warn!("Unable to send signal to peer {}: {}", peer_cid, err.to_string());
             }
@@ -483,14 +485,14 @@ impl HdpSessionManager {
     }
 
     /// Returns true if the removal was a success
-    pub fn remove_message_group(&self, cid_host: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey) -> bool {
+    pub fn remove_message_group(&self, cid_host: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(group) = this.hypernode_peer_layer.remove_message_group(key) {
             for (peer_cid, _) in group.concurrent_peers {
                 if peer_cid != cid_host {
                     if let Err(err) = this.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
                         let signal = GroupBroadcast::Disconnected(key);
-                        super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp)
+                        super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
                     }) {
                         log::warn!("Unable to send d/c signal to peer {}: {}", peer_cid, err.to_string());
                     }
@@ -505,7 +507,7 @@ impl HdpSessionManager {
 
     /// Removes the supplied peers from the group. Each peer that is successfully removed will receive a group disconnect signal
     /// This will additionally alert each remaining member
-    pub fn kick_from_message_group(&self, mode: GroupMemberAlterMode, sess_cnac: &ClientNetworkAccount, implicated_cid: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, peers: Vec<u64>) -> bool {
+    pub fn kick_from_message_group(&self, mode: GroupMemberAlterMode, sess_cnac: &ClientNetworkAccount, implicated_cid: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, peers: Vec<u64>, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         match this.hypernode_peer_layer.remove_peers_from_message_group(key, peers) {
             Ok((peers_removed, peers_remaining)) => {
@@ -516,7 +518,7 @@ impl HdpSessionManager {
                     let signal = GroupBroadcast::Disconnected(key);
                     for peer in &peers_removed {
                         if *peer != implicated_cid {
-                            if let Err(err) = this.send_group_broadcast_signal_to(sess_cnac, timestamp, ticket, *peer, false, true, signal.clone()) {
+                            if let Err(err) = this.send_group_broadcast_signal_to(sess_cnac, timestamp, ticket, *peer, false, true, signal.clone(), security_level) {
                                 log::warn!("Unable to send group broadcast signal from {} to {}: {}", key.cid, peer, err);
                             }
                         }
@@ -526,7 +528,7 @@ impl HdpSessionManager {
                 let signal = GroupBroadcast::MemberStateChanged(key, MemberState::LeftGroup(peers_removed));
                 for peer in peers_remaining {
                     if peer != implicated_cid {
-                        if let Err(err) = this.send_group_broadcast_signal_to(sess_cnac, timestamp, ticket, peer, false, true, signal.clone()) {
+                        if let Err(err) = this.send_group_broadcast_signal_to(sess_cnac, timestamp, ticket, peer, false, true, signal.clone(), security_level) {
                             log::warn!("Unable to send group broadcast signal from {} to {}: {}", key.cid, peer, err);
                         }
                     }
@@ -545,7 +547,7 @@ impl HdpSessionManager {
     /// Broadcasts a message to a target group
     /// Note: uses mail_if_offline: true. This allows a member to disconnect, but to still receive messages later-on
     /// In the future, a SQL server should be used to store these messages, as they may get pretty lengthy
-    pub fn broadcast_signal_to_group(&self, sess_cnac: &ClientNetworkAccount, timestamp: i64, ticket: Ticket, key: MessageGroupKey, signal: GroupBroadcast) -> bool {
+    pub fn broadcast_signal_to_group(&self, sess_cnac: &ClientNetworkAccount, timestamp: i64, ticket: Ticket, key: MessageGroupKey, signal: GroupBroadcast, security_level: SecurityLevel) -> bool {
         let implicated_cid = sess_cnac.get_id();
         let this = inner!(self);
         if let Some(peers_to_broadcast_to) = this.hypernode_peer_layer.get_peers_in_message_group(key) {
@@ -553,7 +555,7 @@ impl HdpSessionManager {
                 // we only broadcast to the peers not equal to the calling one
                 if peer != implicated_cid {
                     let signal = signal.clone();
-                    if let Err(err) = this.send_group_broadcast_signal_to(sess_cnac, timestamp, ticket, peer, true, true, signal) {
+                    if let Err(err) = this.send_group_broadcast_signal_to(sess_cnac, timestamp, ticket, peer, true, true, signal, security_level) {
                         log::warn!("Unable to send group broadcast signal from {} to {}: {}", key.cid, peer, err);
                     }
                 }
@@ -581,7 +583,7 @@ impl HdpSessionManager {
 
     /// sends a signal to the peer using the correct PQC and Drill cryptosystem
     /// NOTE: THIS WILL PANIC if `target_cid` == the implicated cid from the closure that calls this
-    pub fn send_signal_to_peer(&self, target_cid: u64, ticket: Ticket, signal: PeerSignal, timestamp: i64) -> bool {
+    pub fn send_signal_to_peer(&self, target_cid: u64, ticket: Ticket, signal: PeerSignal, timestamp: i64, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&target_cid) {
             let sess = inner!(sess);
@@ -589,7 +591,7 @@ impl HdpSessionManager {
                     if let Some(cnac) = sess.cnac.as_ref() {
                         return cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
                             if let Some(hyper_ratchet) = hyper_ratchet_opt {
-                                let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp);
+                                let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
                                 to_primary_stream.unbounded_send(packet).is_ok()
                             } else {
                                 false
@@ -789,10 +791,10 @@ impl HdpSessionManagerInner {
     /// NOTE: it is the duty of the calling closure to ensure that the [MessageGroup] exists!
     ///
     ///
-    pub fn send_group_broadcast_signal_to(&self, sess_cnac: &ClientNetworkAccount, timestamp: i64, ticket: Ticket, peer_cid: u64, mail_if_offline: bool, bypass_mutual_check: bool, signal: GroupBroadcast) -> Result<(), String> {
+    pub fn send_group_broadcast_signal_to(&self, sess_cnac: &ClientNetworkAccount, timestamp: i64, ticket: Ticket, peer_cid: u64, mail_if_offline: bool, bypass_mutual_check: bool, signal: GroupBroadcast, security_level: SecurityLevel) -> Result<(), String> {
         if sess_cnac.hyperlan_peer_exists(peer_cid) || bypass_mutual_check {
             if self.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
-                super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp)
+                super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
             }).is_err() {
                 if mail_if_offline {
                     if !self.hypernode_peer_layer.try_add_mailbox(true, peer_cid, PeerSignal::BroadcastConnected(signal)) {
