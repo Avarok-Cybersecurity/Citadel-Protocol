@@ -57,7 +57,7 @@ mod imports {
             }
         }
 
-        Err(ConsoleError::Default("Invalid security level. Please enter a value 0 (LOW) <= n <= 4 (DIVINE)"))
+        Err(ConsoleError::Default("Invalid security level. Please enter a value 0 (LOW) <= n <= 256 (HIGHEST)"))
     }
 }
 

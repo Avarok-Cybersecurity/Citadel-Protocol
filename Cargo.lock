@@ -1281,7 +1281,6 @@ dependencies = [
  "hyxe_nat",
  "hyxe_user",
  "log 0.4.11",
- "nanoserde",
  "net2",
  "num 0.2.1",
  "num_cpus",
@@ -1693,21 +1692,6 @@ checksum = "1255076139a83bb467426e7f8d0134968a8118844faa755985e077cf31850333"
 dependencies = [
  "serde",
 ]
-
-[[package]]
-name = "nanoserde"
-version = "0.1.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6fcd4f145a3908af453e43543a3f45847c8e095bb3ca818729c1d1c14055e62"
-dependencies = [
- "nanoserde-derive",
-]
-
-[[package]]
-name = "nanoserde-derive"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb64d3bcd1ce4f535e5804e21cc33f7e97bece37776557ff13d0b97a23a7194b"
 
 [[package]]
 name = "native-tls"
@@ -2522,6 +2506,7 @@ dependencies = [
  "futures",
  "log 0.4.11",
  "parking_lot 0.11.1",
+ "pin-project 1.0.2",
  "serde",
  "sha2",
  "tokio",

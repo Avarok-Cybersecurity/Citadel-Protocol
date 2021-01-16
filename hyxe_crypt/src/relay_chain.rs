@@ -81,8 +81,8 @@ impl CryptoRelayChain {
         self.links.iter().zip(target_cids.iter()).enumerate().try_fold(BytesMut::new(),
         |mut acc, (idx, ((_cid, container), target_cid))| {
             let hyper_ratchet = container.get_hyper_ratchet(None)?;
-            let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill();
-            //println!("At IDX {} using endpoint container {}. Target CID: {}", idx, cid, target_cid);
+            let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
+            log::trace!("At IDX {} using endpoint container {}. Target CID: {}", idx, _cid, target_cid);
             if idx != 0 {
                 // we need to take the previous packet and make it the payload of a new packet
                 let mut outer_packet = BytesMut::with_capacity(header_len + calculate_aes_gcm_output_length(acc.len()));

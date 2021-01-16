@@ -17,9 +17,9 @@ pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(
     let header_bytes = &header[..];
     let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
     let hyper_ratchet = get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess,&wrap_inner_mut!(state_container), proxy_cid_info)?;
-
+    let security_level = header.security_level.into();
     // ALL FILE packets must be authenticated
-    match validation::group::validate(&hyper_ratchet, header_bytes, payload) {
+    match validation::group::validate(&hyper_ratchet, security_level, header_bytes, payload) {
         Some(payload) => {
             match header.cmd_aux {
                 packet_flags::cmd::aux::file::FILE_HEADER => {

@@ -74,7 +74,7 @@ pub struct PacketCoordinate {
 /// header_size_bytes: This size (in bytes) of each packet's header
 #[allow(unused_results)]
 pub fn scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: SecurityLevel, hyper_ratchet: &HyperRatchet, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
-    let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill();
+    let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
     let plain_text = plain_text.as_ref();
     let max_packet_payload_size = get_max_packet_size(MAX_WAVEFORM_PACKET_SIZE, security_level);
     let max_packets_per_wave = msg_drill.get_multiport_width();
@@ -119,6 +119,7 @@ pub fn scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: Sec
     }
 
     let scramble_drill = hyper_ratchet.get_scramble_drill();
+
     let packets = plain_text.chunks(max_plaintext_bytes_per_wave).enumerate().map(|(wave_idx, bytes_to_encrypt_for_this_wave)| {
         let mut packets = msg_drill.aes_gcm_encrypt(calculate_nonce_version(wave_idx, group_id), msg_pqc, bytes_to_encrypt_for_this_wave).unwrap()
             .chunks(max_packet_payload_size).enumerate().map(|(relative_packet_idx, ciphertext_packet_bytes)| {
@@ -144,7 +145,7 @@ pub fn scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: Sec
 /// the feed order into the header_inscriber is first the target_cid, and then the object ID
 #[allow(unused_results)]
 pub fn par_scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: SecurityLevel, hyper_ratchet: &HyperRatchet, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
-    let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill();
+    let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
 
     let plain_text = plain_text.as_ref();
     let max_packet_payload_size = get_max_packet_size(1024*8, security_level);
@@ -216,7 +217,7 @@ pub fn par_scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level:
 /// the feed order into the header_inscriber is first the target_cid, and then the object ID
 #[allow(unused_results)]
 pub fn par_encrypt_group_unified<T: AsRef<[u8]>>(plain_text: T, hyper_ratchet: &HyperRatchet, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
-    let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill();
+    let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
     let scramble_drill = hyper_ratchet.get_scramble_drill();
 
     let plaintext = plain_text.as_ref();
@@ -462,7 +463,7 @@ impl GroupReceiver {
 
             if wave_store.packets_received == wave_store.packets_in_wave {
                 let ciphertext_bytes_for_this_wave = &wave_store.ciphertext_buffer[..];
-                let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill();
+                let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
 
                 match msg_drill.aes_gcm_decrypt(calculate_nonce_version(wave_id as usize, group_id), msg_pqc, ciphertext_bytes_for_this_wave) {
                     Ok(plaintext) => {

@@ -14,6 +14,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
     let ref header = header;
     let payload = &payload[..];
 
+    let security_level = header.security_level.into();
     let timestamp = session.time_tracker.get_global_time_ns();
 
     match header.cmd_aux {
@@ -31,7 +32,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     let new_hyper_ratchet = bob_constructor.finish()?;
                     log::info!("[BOB] success creating HyperRatchet v {}", new_hyper_ratchet.version());
                     cnac.register_new_hyper_ratchet(new_hyper_ratchet.clone()).ok()?;
-                    let packet = hdp_packet_crafter::do_drill_update::craft_stage1(&hyper_ratchet, transfer, timestamp);
+                    let packet = hdp_packet_crafter::do_drill_update::craft_stage1(&hyper_ratchet, transfer, timestamp, security_level);
                     PrimaryProcessorResult::ReplyToSender(packet)
                 }
 

@@ -8,7 +8,8 @@ edition = "2018"
 
 [dependencies]
 parking_lot = "0.11.1"
-serde = "1.0.118"
+serde = { version = "1.0.118", features = ["derive"] }
+pin-project = "1.0.2"
 bincode2 = "2.0.1"
 tokio = { version = "0.2.22", features=["full"] }
 futures = "0.3.8"

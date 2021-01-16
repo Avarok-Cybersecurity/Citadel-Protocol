@@ -9,6 +9,7 @@ mod tests {
     use bytes::{BufMut, BytesMut};
     use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use hyxe_crypt::drill::SecurityLevel;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "info");
@@ -28,7 +29,7 @@ mod tests {
 
         let chain: CryptoRelayChain = CryptoRelayChain::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
             .map(|cid| {
-                let mut alice_hr = HyperRatchetConstructor::new_alice(None);
+                let mut alice_hr = HyperRatchetConstructor::new_alice(None, 0, 0,None);
                 let transfer = alice_hr.stage0_alice();
                 let bob_hr = HyperRatchetConstructor::new_bob(0, 0, 0, transfer).unwrap();
                 let transfer = bob_hr.stage0_bob().unwrap();
@@ -51,7 +52,7 @@ mod tests {
         println!("{:?}\n", &cids_order_decrypt);
         let output = chain.links.iter().rfold(onion_packet, |mut acc, (cid, container)| {
             println!("At {} (onion packet len: {})", cid, acc.len());
-            let (pqc, drill) = container.get_hyper_ratchet(None).unwrap().message_pqc_drill();
+            let (pqc, drill) = container.get_hyper_ratchet(None).unwrap().message_pqc_drill(None);
             let payload = acc.split_off(HEADER_LEN);
             drill.aes_gcm_decrypt(0, pqc, payload)
                 .map(|vec| bytes::BytesMut::from(&vec[..])).unwrap()
@@ -111,7 +112,7 @@ mod tests {
     #[test]
     fn hyper_ratchet() {
         let algorithm = Some(0);
-        let mut alice_hyper_ratchet = HyperRatchetConstructor::new_alice(algorithm);
+        let mut alice_hyper_ratchet = HyperRatchetConstructor::new_alice(algorithm, 99, 0, Some(SecurityLevel::TRANSCENDENT(10)));
         let transfer = alice_hyper_ratchet.stage0_alice();
 
         let bob_hyper_ratchet = HyperRatchetConstructor::new_bob(algorithm.unwrap(), 99, 0, transfer).unwrap();
@@ -135,11 +136,11 @@ mod tests {
 
         let plaintext_packet = packet.clone();
 
-        alice_hyper_ratchet.protect_message_packet(HEADER_LEN, &mut packet).unwrap();
+        alice_hyper_ratchet.protect_message_packet(Some(SecurityLevel::TRANSCENDENT(10)), HEADER_LEN, &mut packet).unwrap();
         assert_ne!(packet, plaintext_packet);
 
         let mut header = packet.split_to(HEADER_LEN);
-        bob_hyper_ratchet.validate_message_packet(&header[..], &mut packet).unwrap();
+        bob_hyper_ratchet.validate_message_packet(Some(SecurityLevel::TRANSCENDENT(10)), &header[..], &mut packet).unwrap();
 
         header.unsplit(packet);
 
@@ -150,7 +151,7 @@ mod tests {
     fn toolset() {
         setup_log();
         fn gen(drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
-            let mut alice_base = HyperRatchetConstructor::new_alice(None);
+            let mut alice_base = HyperRatchetConstructor::new_alice(None, 0, drill_vers, None);
             let bob_base = HyperRatchetConstructor::new_bob(0, 0, drill_vers, alice_base.stage0_alice()).unwrap();
             alice_base.stage1_alice(bob_base.stage0_bob().unwrap()).unwrap();
 

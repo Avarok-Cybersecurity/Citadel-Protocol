@@ -1,7 +1,8 @@
-use nanoserde::{SerBin, DeBin};
+use serde::{Serialize, Deserialize};
 use hyxe_user::re_imports::export::Formatter;
+use hyxe_fs::io::SyncIO;
 
-#[derive(SerBin, DeBin, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VirtualFileMetadata {
     pub name: String,
     pub date_created: String,
@@ -13,11 +14,11 @@ pub struct VirtualFileMetadata {
 
 impl VirtualFileMetadata {
     pub fn serialize(&self) -> Vec<u8> {
-        SerBin::serialize_bin(self)
+        Self::serialize_to_vector(self).unwrap()
     }
 
-    pub fn deserialize_from<T: AsRef<[u8]>>(input: T) -> Option<Self> {
-        DeBin::deserialize_bin(input.as_ref()).ok()
+    pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(input: T) -> Option<Self> {
+        Self::deserialize_from_vector(input.as_ref()).ok()
     }
 }
 

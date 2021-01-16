@@ -88,6 +88,13 @@ impl SessionQueueWorker {
         Self { waker, inner: std::rc::Rc::new(std::cell::RefCell::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
     }
 
+    pub fn signal_shutdown(&self) {
+        let mut this = unlock!(self);
+        if let Err(_) = this.sess_shutdown.try_send(()) {
+            log::warn!("Unable to signal shutdown through SessionQueueHandler")
+        }
+    }
+
     /// MUST be called when a session's timer subroutine begins!
     pub fn load_session(&self, session: &HdpSession) {
         let mut this = unlock!(self);

@@ -1,5 +1,4 @@
 use std::collections::{VecDeque, HashMap};
-use nanoserde::{SerBin, DeBin};
 use crate::hdp::file_transfer::VirtualFileMetadata;
 use crate::hdp::hdp_server::Ticket;
 use tokio::time::{delay_queue, DelayQueue, Error};
@@ -14,6 +13,9 @@ use std::fmt::{Display, Formatter};
 use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use std::sync::Arc;
+use hyxe_crypt::drill::SecurityLevel;
+use serde::{Serialize, Deserialize};
+use hyxe_fs::prelude::SyncIO;
 
 #[derive(Default)]
 /// When HyperLAN client A needs to send a POST_REGISTER signal to HyperLAN client B (who is disconnected),
@@ -393,14 +395,14 @@ impl futures::Future for HyperNodePeerLayer {
     }
 }
 
-#[derive(Debug, SerBin, DeBin, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum PeerSignal {
     // implicated_cid, icid (0 if hyperlan), target_cid (0 if all)
     PostRegister(PeerConnectionType, Username, Option<Ticket>, Option<PeerResponse>),
     // implicated_cid, icid, target_cid
     Deregister(PeerConnectionType),
     // implicated_cid, icid, target_cid
-    PostConnect(PeerConnectionType, Option<Ticket>, Option<PeerResponse>),
+    PostConnect(PeerConnectionType, Option<Ticket>, Option<PeerResponse>, SecurityLevel),
     // implicated_cid, icid, target cid
     Disconnect(PeerConnectionType, Option<PeerResponse>),
     // implicated_cid, icid
@@ -422,13 +424,13 @@ pub enum PeerSignal {
 }
 
 // Channel packets don't get decrypted/encrypted at the central node; only at the endpoints
-#[derive(Debug, SerBin, DeBin, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ChannelPacket {
     // payload
     Message(Vec<u8>)
 }
 
-#[derive(PartialEq, Debug, SerBin, DeBin, Copy, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone)]
 pub enum PeerConnectionType {
     // implicated_cid, target_cid
     HyperLANPeerToHyperLANPeer(u64, u64),
@@ -468,7 +470,7 @@ impl Display for PeerConnectionType {
     }
 }
 
-#[derive(PartialEq, Debug, SerBin, DeBin, Copy, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Copy, Clone)]
 pub enum HypernodeConnectionType {
     // implicated_cid
     HyperLANPeerToHyperLANServer(u64),
@@ -485,7 +487,7 @@ impl HypernodeConnectionType {
     }
 }
 
-#[derive(Debug, SerBin, DeBin, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum PeerResponse {
     Ok(Option<String>),
     Accept(Option<String>),
@@ -507,19 +509,9 @@ impl PeerResponse {
 
 pub type Username = String;
 
-impl PeerSignal {
-    pub fn serialize_bytes(&self) -> Vec<u8> {
-        SerBin::serialize_bin(self)
-    }
-
-    pub fn deserialize_from_bytes<T: AsRef<[u8]>>(this: T) -> Option<Self> {
-        DeBin::deserialize_bin(this.as_ref()).ok()
-    }
-}
-
 impl Into<Vec<u8>> for PeerSignal {
     fn into(self) -> Vec<u8> {
-        self.serialize_bytes()
+        self.serialize_to_vector().unwrap()
     }
 }
 
@@ -531,16 +523,12 @@ impl Default for HyperNodePeerLayer {
 }
 
 
-#[derive(SerBin, DeBin, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum MailboxTransfer {
     Signals(Vec<PeerSignal>)
 }
 
 impl MailboxTransfer {
-    pub fn deserialize_from(input: &[u8]) -> Option<Self> {
-        DeBin::deserialize_bin(input).ok()
-    }
-
     pub fn len(&self) -> usize {
         match self {
             MailboxTransfer::Signals(signals) => signals.len()

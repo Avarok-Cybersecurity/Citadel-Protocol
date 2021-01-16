@@ -25,18 +25,23 @@ impl<T: NetworkTransferable> NetMutex<T> {
 
     pub async fn access(&self) -> Option<AccessGuard<'_, T>> {
         // ensure only one attempt to access at a time
-        let lock = Some(self.lock.clone().lock_owned().await);
-        // we need to wait for the network now
+        let lock = self.lock.clone().lock_owned().await;
+        // we need to wait for the network now, and modify the value if necessary
         self.await?;
+
         // this means the network is permitting access. We can now access the variable
         let guard = AccessGuard {
-            lock,
+            lock: Some(lock),
             notifier: self.updater_tx.clone(),
             mutated: false,
             _pd: Default::default()
         };
 
         Some(guard)
+    }
+
+    pub async fn update_value(&self, t: T) {
+        *self.lock.lock().await = t;
     }
 }
 

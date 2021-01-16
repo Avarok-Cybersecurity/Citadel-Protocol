@@ -10,18 +10,18 @@ pub enum RegisterResponse {
 
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let target_addr = get_remote_addr(matches)?;
-
+    let security_level = parse_security_level(matches)?;
     let ffi_mode = matches.is_present("ffi");
     let proposed_credentials = if ffi_mode {
         debug_assert!(ffi_io.is_some());
         handle_ffi(matches)
     } else {
-        handle_console(ctx, &target_addr)?
+        handle_console(ctx, &target_addr, security_level)?
     };
 
     let username = proposed_credentials.username.clone();
 
-    let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, None);
+    let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, None, security_level);
     let ticket = server_remote.unbounded_send(request)?;
     ctx.register_ticket(ticket, DO_REGISTER_EXPIRE_TIME_MS, 0, move |_ctx, _, response| {
         match response {
@@ -76,7 +76,7 @@ fn handle_ffi(matches: &ArgMatches<'_>) -> ProposedCredentials {
     ProposedCredentials::new_unchecked(full_name, username, SecVec::new(password.as_bytes().to_vec()), None)
 }
 
-fn handle_console(ctx: &ConsoleContext, target_addr: &SocketAddr) -> Result<ProposedCredentials, ConsoleError> {
+fn handle_console(ctx: &ConsoleContext, target_addr: &SocketAddr, security_level: SecurityLevel) -> Result<ProposedCredentials, ConsoleError> {
     let mut username = INPUT_ROUTER.read_line(ctx, Some(|| colour::green!("Proposed username: ")));
     username = username.trim().to_string();
 
@@ -98,7 +98,7 @@ fn handle_console(ctx: &ConsoleContext, target_addr: &SocketAddr) -> Result<Prop
 
     hyxe_user::misc::check_credential_formatting(&username, Some(&password_input_1_str), &full_name).map_err(|err| ConsoleError::Generic(err.to_string()))?;
 
-    printf_ln!(colour::yellow!("Server: {}\nFull name: {}\nUsername: {}\n", target_addr, &full_name, &username));
+    printf_ln!(colour::yellow!("Server: {}\nFull name: {}\nUsername: {}\nSecurity Level: {:?}", target_addr, &full_name, &username, security_level));
 
     Ok(ProposedCredentials::new_unchecked(full_name, &username, SecVec::new(password_input_1), None))
 }
