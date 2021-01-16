@@ -6,6 +6,8 @@ use atomic::Ordering;
 use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer, HyperRatchetConstructor};
+use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 
 /// This will handle an inbound primary group packet
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
@@ -34,6 +36,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
         let header_bytes = &header[..];
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
         let hyper_ratchet = get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess, &wrap_inner_mut!(state_container), proxy_cid_info)?;
+        let security_level = header.security_level.into();
 
         match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
             Some((header, payload)) => {
@@ -96,7 +99,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                             }
                                         });
                                     }
-                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket,initial_wave_window, false, timestamp, None);
+                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, initial_wave_window, false, timestamp, None, security_level);
                                     PrimaryProcessorResult::ReplyToSender(group_header_ack)
                                 }
 
@@ -123,11 +126,19 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
 
                                     // now, update the keys (if applicable)
                                     let transfer = if let Some(transfer) = transfer {
-                                        Some(update_toolset_as_bob(cnac_sess, transfer, header.algorithm, header.drill_version.get() + 1)?)
+
+                                        if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
+                                            let crypt = &mut state_container.active_virtual_connections.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
+                                            let update = ToolsetUpdate::E2E { crypt, local_cid: header.target_cid.get() };
+                                            Some(update_toolset_as_bob(update, transfer, header.algorithm)?)
+                                        } else {
+                                            let method = ToolsetUpdate::SessCNAC(cnac_sess);
+                                            Some(update_toolset_as_bob(method, transfer, header.algorithm)?)
+                                        }
+
                                     } else { None };
 
-                                    // finally, return a GROUP_HEADER_ACK
-                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer);
+                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer, security_level);
                                     PrimaryProcessorResult::ReplyToSender(group_header_ack)
                                 }
                             }
@@ -142,29 +153,39 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                         match validation::group::validate_header_ack(&payload) {
                             Some(GroupHeaderAck::ReadyToReceive { initial_window, transfer, fast_msg }) => {
 
-                                    // we need to begin sending the data
-                                    // valid and ready to accept!
-                                    let tcp_only = session.tcp_only;
-                                    let initial_wave_window = if tcp_only {
-                                        None
-                                    } else {
-                                        initial_window
-                                    };
+                                // we need to begin sending the data
+                                // valid and ready to accept!
+                                let tcp_only = session.tcp_only;
+                                let initial_wave_window = if tcp_only {
+                                    None
+                                } else {
+                                    initial_window
+                                };
 
-                                    // A weird exception for obj_id location .. usually in context info, but in wave if for this unique case
-                                    let peer_cid = header.session_cid.get();
-                                    //let mut state_container = session.state_container.borrow_mut();
-                                    let object_id = header.wave_id.get();
-                                    let group_id = header.group.get();
-                                    if !state_container.on_group_header_ack_received(object_id, peer_cid, group_id, initial_wave_window, transfer, cnac_sess, fast_msg) {
-                                        if tcp_only {
-                                            PrimaryProcessorResult::EndSession("TCP sockets disconnected")
-                                        } else {
-                                            PrimaryProcessorResult::EndSession("UDP sockets disconnected")
-                                        }
+                                // A weird exception for obj_id location .. usually in context info, but in wave if for this unique case
+                                let peer_cid = header.session_cid.get();
+                                //let mut state_container = session.state_container.borrow_mut();
+                                let object_id = header.wave_id.get();
+                                let group_id = header.group.get();
+
+                                let target_cid = header.target_cid.get();
+                                let toolset_update_method = if target_cid != ENDPOINT_ENCRYPTION_OFF {
+                                    let crypt = &mut state_container.active_virtual_connections.get_mut(&peer_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
+                                    let crypt = unsafe { &mut *(&mut *crypt as *mut PeerSessionCrypto) };
+                                    ToolsetUpdate::E2E { crypt, local_cid: header.target_cid.get() }
+                                } else {
+                                    ToolsetUpdate::SessCNAC(cnac_sess)
+                                };
+
+                                if !state_container.on_group_header_ack_received(object_id, peer_cid, group_id, initial_wave_window, transfer, toolset_update_method, fast_msg) {
+                                    if tcp_only {
+                                        PrimaryProcessorResult::EndSession("TCP sockets disconnected")
                                     } else {
-                                        PrimaryProcessorResult::Void
+                                        PrimaryProcessorResult::EndSession("UDP sockets disconnected")
                                     }
+                                } else {
+                                    PrimaryProcessorResult::Void
+                                }
                             }
 
                             Some(GroupHeaderAck::NotReady { fast_msg }) => {
@@ -212,7 +233,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                             Some(waves_in_window) => {
                                 let to_primary_stream = session.to_primary_stream.as_ref()?;
                                 let ref state_container_ref = session.state_container;
-                                match state_container.on_window_tail_received(&hyper_ratchet, state_container_ref, &header,waves_in_window, &session.time_tracker, to_primary_stream) {
+                                match state_container.on_window_tail_received(&hyper_ratchet, state_container_ref, &header, waves_in_window, &session.time_tracker, to_primary_stream) {
                                     true => {
                                         PrimaryProcessorResult::Void
                                     }
@@ -253,7 +274,6 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                         log::info!("RECV WAVE ACK");
                         match validation::group::validate_wave_ack(&payload) {
                             Some(WaveAck { range }) => {
-
                                 let tcp_only = session.tcp_only;
 
                                 if range.is_some() {
@@ -380,9 +400,40 @@ pub fn recipient_valid_gate<K: ExpectedInnerTargetMut<StateContainerInner>>(virt
     }
 }
 
-fn update_toolset_as_bob(cnac: &ClientNetworkAccount, transfer: AliceToBobTransfer<'_>, algorithm: u8, new_drill_vers: u32) -> Option<BobToAliceTransfer> {
-    let constructor = HyperRatchetConstructor::new_bob(algorithm, cnac.get_id(), new_drill_vers, transfer)?;
+pub enum ToolsetUpdate<'a> {
+    E2E { crypt: &'a mut PeerSessionCrypto, local_cid: u64 },
+    SessCNAC(&'a ClientNetworkAccount),
+}
+
+impl ToolsetUpdate<'_> {
+    pub(crate) fn update(self, constructor: HyperRatchetConstructor) -> Option<()> {
+        match self {
+            ToolsetUpdate::E2E { crypt, local_cid } => {
+                crypt.commit_next_hyper_ratchet_version(constructor.finish_with_custom_cid(local_cid)?)
+            }
+
+            ToolsetUpdate::SessCNAC(cnac) => {
+                cnac.register_new_hyper_ratchet(constructor.finish()?).ok()
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn get_cid(&self) -> u64 {
+        match self {
+            ToolsetUpdate::E2E { local_cid, ..} => *local_cid,
+            ToolsetUpdate::SessCNAC(cnac) => cnac.get_cid()
+        }
+    }
+}
+
+fn update_toolset_as_bob(update_method: ToolsetUpdate, transfer: AliceToBobTransfer<'_>, algorithm: u8) -> Option<BobToAliceTransfer> {
+    let cid = update_method.get_cid();
+    let new_version = transfer.get_declared_new_version();
+    let constructor = HyperRatchetConstructor::new_bob(algorithm, cid, new_version, transfer)?;
     let transfer = constructor.stage0_bob()?;
-    cnac.register_new_hyper_ratchet(constructor.finish()?).ok()?;
+
+    update_method.update(constructor)?;
+
     Some(transfer)
 }

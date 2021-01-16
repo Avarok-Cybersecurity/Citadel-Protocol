@@ -21,6 +21,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
     let cnac = session.cnac.as_ref()?;
     let (header, payload, _, _) = packet.decompose();
     let (header, payload, hyper_ratchet) = validation::aead::validate(cnac, &header, payload)?;
+    let security_level = header.security_level.into();
 
     match header.cmd_aux {
         // Node is Bob. Bob gets the encrypted username and password (separately encrypted)
@@ -55,7 +56,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                         //cnac.spawn_save_task_on_threadpool();
                         // register w/ peer layer, get mail in the process
                         let mailbox_items = session.session_manager.register_session_with_peer_layer(cid);
-                        let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, session.create_welcome_message(cid), peers,success_time);
+                        let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, session.create_welcome_message(cid), peers,success_time, security_level);
 
                         session.implicated_cid.store(Some(cid), Ordering::SeqCst);
                         session.state = SessionState::Connected;
@@ -74,7 +75,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                         std::mem::drop(state_container);
 
                         session.state = SessionState::NeedsConnect;
-                        let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, err.to_string(), Vec::with_capacity(0),fail_time);
+                        let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, err.to_string(), Vec::with_capacity(0),fail_time, security_level);
                         PrimaryProcessorResult::ReplyToSender(packet)
                     }
                 }
@@ -159,7 +160,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     }
                     //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
 
-                    let ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, timestamp);
+                    let ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, timestamp, security_level);
                     //session.post_quantum = Some(Arc::new(pqc));
                     PrimaryProcessorResult::ReplyToSender(ka)
                     //PrimaryProcessorResult::Void

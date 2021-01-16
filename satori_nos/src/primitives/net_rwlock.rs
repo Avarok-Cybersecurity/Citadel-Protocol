@@ -65,6 +65,10 @@ impl<T: NetworkTransferable> NetRwLock<T> {
         Some(guard)
     }
 
+    pub async fn update_value(&self, t: T) {
+        *self.lock.write().await = t;
+    }
+
     #[allow(unused_results)]
     fn increment_read(&self) {
         self.local_read_locks_open.fetch_add(1, Ordering::SeqCst);

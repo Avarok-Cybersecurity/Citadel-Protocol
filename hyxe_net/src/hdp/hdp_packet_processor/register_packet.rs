@@ -16,6 +16,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
     let (header, payload, _, _) = packet.decompose();
     let ref header = LayoutVerified::new(&header[..])? as LayoutVerified<&[u8], HdpHeader>;
     debug_assert_eq!(packet_flags::cmd::primary::DO_REGISTER, header.cmd_primary);
+    let security_level = header.security_level.into();
 
     match header.cmd_aux {
         packet_flags::cmd::aux::do_register::STAGE0 => {
@@ -74,6 +75,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                 //debug_assert!(session.post_quantum.is_none());
                 if let Some(mut alice_constructor) = state_container.register_state.constructor.take() {
                     let transfer = BobToAliceTransfer::deserialize_from(payload)?;
+                    let security_level = transfer.security_level;
                     alice_constructor.stage1_alice(transfer)?;
                     let new_hyper_ratchet = alice_constructor.finish()?;
 
@@ -83,7 +85,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
 
                     let proposed_credentials = state_container.register_state.proposed_credentials.as_ref()?;
 
-                    let stage2_packet = hdp_packet_crafter::do_register::craft_stage2(&new_hyper_ratchet, algorithm, local_nid, timestamp, proposed_credentials);
+                    let stage2_packet = hdp_packet_crafter::do_register::craft_stage2(&new_hyper_ratchet, algorithm, local_nid, timestamp, proposed_credentials, security_level);
                     //let mut state_container = inner_mut!(session.state_container);
 
                     state_container.register_state.proposed_cid = Some(reserved_true_cid);
@@ -119,7 +121,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                             Ok(peer_cnac) => {
                                 log::info!("Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_id());
                                 let success_message = session.create_register_success_message();
-                                let packet = hdp_packet_crafter::do_register::craft_success(hyper_ratchet, algorithm, local_nid, timestamp, success_message);
+                                let packet = hdp_packet_crafter::do_register::craft_success(hyper_ratchet, algorithm, local_nid, timestamp, success_message, security_level);
 
                                 state_container.register_state.on_success(timestamp);
                                 state_container.register_state.on_register_packet_received();

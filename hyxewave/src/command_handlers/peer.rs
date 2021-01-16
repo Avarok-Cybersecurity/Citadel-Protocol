@@ -31,7 +31,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                         log::info!("visiting mail element {}", mail_id);
                         count += 1;
                         match request {
-                            IncomingPeerRequest::Connection(_ticket, conn, recv_time) => {
+                            IncomingPeerRequest::Connection(_ticket, conn, recv_time, _endpoint_security_level) => {
                                 match conn {
                                     PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => {
                                         requests.add_row(prettytable::row![c => mail_id, "Connection", *implicated_cid, "", "hLAN", recv_time.elapsed().as_secs()]);
@@ -430,6 +430,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
         if let Some(matches) = matches.subcommand_matches("post-connect") {
             let target = matches.value_of("target_cid").unwrap();
+            let security_level = parse_security_level(matches)?;
             let read = ctx.sessions.read();
             let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
             let ref cnac = sess.cnac;
@@ -441,7 +442,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                 return Err(ConsoleError::Generic(format!("Peer {} is already connected to {}", target_cid, ctx_user)));
             }
 
-            let post_connect_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), None, None));
+            let post_connect_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), None, None, security_level));
             let ticket = server_remote.unbounded_send(post_connect_request)?;
             ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, ctx_user, move |_ctx, ticket, response| {
                 match response {

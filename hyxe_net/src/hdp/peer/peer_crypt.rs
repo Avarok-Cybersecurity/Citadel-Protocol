@@ -1,4 +1,4 @@
-use nanoserde::{DeBin, SerBin};
+use serde::{Serialize, Deserialize};
 
 
 pub const KEP_STAGE0: u8 = 0;
@@ -7,7 +7,7 @@ pub const KEP_INIT_REKEY: u8 = 2;
 pub const KEP_ACCEPT_REKEY: u8 = 3;
 
 
-#[derive(Clone, DeBin, SerBin, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum KeyExchangeProcess {
     // alice sends public key
     Stage0(Vec<u8>),

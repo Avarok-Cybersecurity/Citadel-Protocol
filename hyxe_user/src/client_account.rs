@@ -705,6 +705,11 @@ impl ClientNetworkAccount {
         Ok(())
     }
 
+    /// Returns the CID
+    pub fn get_cid(&self) -> u64 {
+        self.get_id()
+    }
+
     /// This will panic if the adjacent NAC is not loaded
     pub fn get_adjacent_nid(&self) -> u64 {
         self.inner.adjacent_nid

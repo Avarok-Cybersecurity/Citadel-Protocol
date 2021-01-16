@@ -19,11 +19,12 @@ pub fn process(session_main: &HdpSession, packet: HdpPacket) -> PrimaryProcessor
     let (header, payload, _, _) = packet.decompose();
     let (header, _payload, hyper_ratchet) = validation::aead::validate(cnac, &header, payload)?;
     let ref header = header;
+    let security_level = header.security_level.into();
 
     match header.cmd_aux {
         packet_flags::cmd::aux::do_deregister::STAGE0 => {
             log::info!("STAGE 0 DEREGISTER PACKET RECV");
-            deregister_client_from_self(implicated_cid, wrap_inner_mut!(session), &hyper_ratchet, timestamp)
+            deregister_client_from_self(implicated_cid, wrap_inner_mut!(session), &hyper_ratchet, timestamp, security_level)
         }
 
         packet_flags::cmd::aux::do_deregister::SUCCESS => {
@@ -50,7 +51,7 @@ pub fn process(session_main: &HdpSession, packet: HdpPacket) -> PrimaryProcessor
     }
 }
 
-fn deregister_client_from_self<K: ExpectedInnerTargetMut<HdpSessionInner>>(implicated_cid: u64, mut session: InnerParameterMut<K, HdpSessionInner>, hyper_ratchet: &HyperRatchet, timestamp: i64) -> PrimaryProcessorResult {
+fn deregister_client_from_self<K: ExpectedInnerTargetMut<HdpSessionInner>>(implicated_cid: u64, mut session: InnerParameterMut<K, HdpSessionInner>, hyper_ratchet: &HyperRatchet, timestamp: i64, security_level: SecurityLevel) -> PrimaryProcessorResult {
     let mut state_container = inner_mut!(session.state_container);
     let ticket = state_container.deregister_state.current_ticket;
 
@@ -62,12 +63,12 @@ fn deregister_client_from_self<K: ExpectedInnerTargetMut<HdpSessionInner>>(impli
 
     let (ret, success) = if acc_manager.delete_client_by_cid(implicated_cid) {
         log::info!("Successfully purged account {} locally!", implicated_cid);
-        let stage_success_packet = hdp_packet_crafter::do_deregister::craft_final(hyper_ratchet, true, timestamp);
+        let stage_success_packet = hdp_packet_crafter::do_deregister::craft_final(hyper_ratchet, true, timestamp, security_level);
         // At the end of the deregistration phase, the session also ends
         (PrimaryProcessorResult::ReplyToSender(stage_success_packet), true)
     } else {
         log::error!("Unable to locally purge account {}. Please report this to the HyperLAN Server admin", implicated_cid);
-        let stage_failure_packet = hdp_packet_crafter::do_deregister::craft_final(hyper_ratchet, false, timestamp);
+        let stage_failure_packet = hdp_packet_crafter::do_deregister::craft_final(hyper_ratchet, false, timestamp, security_level);
         (PrimaryProcessorResult::ReplyToSender(stage_failure_packet), false)
     };
 

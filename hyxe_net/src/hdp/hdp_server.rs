@@ -3,7 +3,6 @@ use std::io;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
-use nanoserde::{SerBin, DeBin};
 
 use std::net::SocketAddr;
 use futures::{StreamExt, Sink};
@@ -36,6 +35,7 @@ use crate::kernel::runtime_handler::RuntimeHandler;
 use crate::hdp::file_transfer::FileTransferStatus;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use parking_lot::Mutex;
+use serde::{Serialize, Deserialize};
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -307,8 +307,8 @@ impl HdpServer {
                     }
                 }
 
-                HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, SecurityLevel::LOW, None, quantum_algorithm, None).await {
+                HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm, security_level) => {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, None, quantum_algorithm, None).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
                         }
@@ -347,8 +347,9 @@ impl HdpServer {
                     }
                 }
 
+                // TODO: Update this to include security levels
                 HdpServerRequest::PeerCommand(implicated_cid, peer_command) => {
-                    if !session_manager.dispatch_peer_command(implicated_cid, ticket_id, peer_command) {
+                    if !session_manager.dispatch_peer_command(implicated_cid, ticket_id, peer_command, SecurityLevel::LOW) {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
                         }
@@ -456,7 +457,7 @@ impl Sink<(Ticket, HdpServerRequest)> for HdpServerRemote {
 /// in order for processes sitting above the [Kernel] to know how the request went
 pub enum HdpServerRequest {
     /// Sends a request to the underlying [HdpSessionManager] to begin connecting to a new client
-    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<u8>),
+    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<u8>, SecurityLevel),
     /// A high-level peer command. Can be used to facilitate communications between nodes in the HyperLAN
     PeerCommand(u64, PeerSignal),
     /// For submitting a de-register request
@@ -516,7 +517,7 @@ pub enum HdpServerResult {
 }
 
 /// A type sent through the server when a request is made
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, SerBin, DeBin)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct Ticket(pub u64);
 
 impl Into<Ticket> for u64 {
