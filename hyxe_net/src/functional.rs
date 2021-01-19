@@ -127,6 +127,7 @@ impl<J> IfTrueConditional<J> for bool {
 pub trait PairMap<A, B> {
     fn map_left<U, F: FnOnce(A) -> U>(self, fx: F) -> (U, B);
     fn map_right<U, F: FnOnce(B) -> U>(self, fx: F) -> (A, U);
+    fn map<U, F: FnOnce(A, B) -> U>(self, fx: F) -> U;
 }
 
 impl<A, B> PairMap<A, B> for (A, B) {
@@ -136,5 +137,9 @@ impl<A, B> PairMap<A, B> for (A, B) {
 
     fn map_right<U, F: FnOnce(B) -> U>(self, fx: F) -> (A, U) {
         (self.0, (fx)(self.1))
+    }
+
+    fn map<U, F: FnOnce(A, B) -> U>(self, fx: F) -> U {
+        (fx)(self.0, self.1)
     }
 }

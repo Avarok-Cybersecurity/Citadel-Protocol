@@ -1,7 +1,9 @@
 use std::error::Error;
+use std::fmt::{Display, Debug};
+use serde::export::Formatter;
+use tokio::sync::mpsc::error::SendError;
 
 /// The basic error type for this crate
-#[derive(Debug)]
 pub enum NetworkError {
     /// Thrown when the underlying socket fails
     SocketError(String),
@@ -19,8 +21,17 @@ pub enum NetworkError {
     Generic(String)
 }
 
-impl ToString for NetworkError {
-    fn to_string(&self) -> String {
+impl Error for NetworkError {}
+unsafe impl Send for NetworkError {}
+
+impl Debug for NetworkError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.msg())
+    }
+}
+
+impl NetworkError {
+    fn msg(&self) -> String {
         match self {
             NetworkError::SocketError(err) => {
                 err.to_string()
@@ -48,8 +59,14 @@ impl ToString for NetworkError {
     }
 }
 
-impl<T: Error> From<T> for NetworkError {
-    fn from(err: T) -> Self {
+impl Display for NetworkError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        <Self as Debug>::fmt(self, f)
+    }
+}
+
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for NetworkError {
+    fn from(err: SendError<T>) -> Self {
         NetworkError::Generic(err.to_string())
     }
 }

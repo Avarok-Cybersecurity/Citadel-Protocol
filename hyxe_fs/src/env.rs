@@ -40,9 +40,9 @@ fn setup_directory_w_bind_addr(bind_addr: &str, home_dir: Option<String>) -> boo
                 }
             }
 
-        if std::fs::read_dir(&home).is_err() {
+        /*if std::fs::read_dir(&home).is_err() {
             return false;
-        }
+        }*/
         home
     } else {
         if let Some(home) = get_home_dir(bind_addr) {

@@ -68,7 +68,7 @@ impl ProposedCredentials {
         log::info!("\n\rPassword Raw({}): {:?}", password.len(), password);
 
         let nonce = get_nonce(nonce);
-        let password_hash = SecVec::new(argon2::hash_raw(password, &nonce as &[u8], &get_argon2id_config(num_cpus::get() as u32)).unwrap());
+        let password_hash = SecVec::new(argon2::hash_raw(password, &nonce as &[u8], &get_argon2id_config(num_cpus::get() as u32, username)).unwrap());
 
         log::info!("\n\rHashed passwd({}): {:?}", password_hash.unsecure().len(), password_hash.unsecure());
         (username.to_string(), full_name.to_string(), password_hash, nonce)
@@ -115,16 +115,19 @@ impl ProposedCredentials {
 }
 
 /// no secret is used, as we want to ensure that the password be used even when the account info gets lost and recovery mode is desired
-const fn get_argon2id_config(lanes: u32) -> argon2::Config<'static> {
+fn get_argon2id_config<'a>(lanes: u32, name: &'a str) -> argon2::Config<'a> {
     argon2::Config {
         variant: argon2::Variant::Argon2id,
         version: argon2::Version::Version13,
         mem_cost: 1024 * 64,
+        #[cfg(debug_assertions)]
+        time_cost: 1,
+        #[cfg(not(debug_assertions))]
         time_cost: 10,
         lanes,
         thread_mode: argon2::ThreadMode::Parallel,
         secret: &[],
-        ad: &[],
+        ad: name.as_bytes(),
         hash_length: 32
     }
 }

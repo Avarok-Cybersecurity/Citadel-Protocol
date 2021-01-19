@@ -207,6 +207,11 @@ impl HyperRatchet {
     pub fn get_default_security_level(&self) -> SecurityLevel {
         self.inner.default_security_level
     }
+
+    /// A conveniance method for beginning the initialization of a new hyper ratchet w/ equivalent params of this [HyperRatchet]
+    pub fn next_alice_constructor(&self, algorithm: Option<u8>) -> HyperRatchetConstructor {
+        HyperRatchetConstructor::new_alice(algorithm, self.get_cid(), self.version().wrapping_add(1), Some(self.get_default_security_level()))
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -359,7 +364,7 @@ pub mod constructor {
         /// Called when bob receives alice's pk's
         pub fn new_bob(algorithm: u8, cid: u64, new_drill_vers: u32, transfer: AliceToBobTransfer) -> Option<Self> {
             log::info!("[BOB] creating container with {:?} security level", transfer.security_level);
-            let count = (transfer.security_level.value() + 1) as usize;
+            let count = transfer.security_level.value() as usize + 1;
             let keys: Vec<MessageRatchetConstructorInner> = transfer.pks.into_iter().filter_map(|pk| Some(MessageRatchetConstructorInner { drill: Some(Drill::new(cid, new_drill_vers).ok()?), pqc: PostQuantumContainer::new_bob(algorithm, pk).ok()? })).collect();
 
             if keys.len() != count {

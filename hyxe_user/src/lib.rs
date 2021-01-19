@@ -1,7 +1,6 @@
 #![feature(try_trait, nll, async_closure)]
 #![feature(label_break_value)]
 #![feature(in_band_lifetimes)]
-#![feature(vec_remove_item)]
 //! This crate is meant for containing the user-related libraries for HyperNode accounts. Both NetworkAccount and ClientAccount's are a subset of HyperNode accounts.
 //! Every node/device necessarily contains a singular NetworkAccount; for each connection leading into and out of the node, a ClientAccount exists.
 //!

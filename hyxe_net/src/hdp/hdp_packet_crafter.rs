@@ -2,7 +2,7 @@ use bytes::{Bytes, BytesMut};
 use num::Integer;
 
 use hyxe_crypt::drill::SecurityLevel;
-use hyxe_crypt::net::crypt_splitter::{GroupReceiverConfig, scramble_encrypt_group};
+use hyxe_crypt::net::crypt_splitter::{GroupReceiverConfig, encrypt_group_unified};
 use hyxe_nat::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -81,15 +81,15 @@ impl GroupTransmitter {
         }
     }
     /// Creates a new stream for a request
-    pub fn new(to_primary_stream: OutboundTcpSender, object_id: u32, target_cid: u64, hyper_ratchet: HyperRatchet, input_packet: SecBuffer, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
+    pub fn new_message(to_primary_stream: OutboundTcpSender, object_id: u32, target_cid: u64, hyper_ratchet: HyperRatchet, input_packet: SecBuffer, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
         // Gets the latest drill version by default for this operation
         log::trace!("Will use HyperRatchet v{} to encrypt group {}", hyper_ratchet.version(), group_id);
 
-        let bytes_encrypted = input_packet.len();
+        let bytes_encrypted = input_packet.len(); //the number of bytes that will be encrypted
         // + 1 byte source port offset (needed for sending across port-address-translation networks)
         // + 1 byte recv port offset
         const HDP_HEADER_EXTENDED_BYTE_LEN: usize = HDP_HEADER_BYTE_LEN + 2;
-        match scramble_encrypt_group(input_packet.into_buffer(), security_level, &hyper_ratchet, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into) {
+        match encrypt_group_unified(input_packet.into_buffer(), &hyper_ratchet, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into) {
             Ok(group_transmitter) => {
                 let group_config: GroupReceiverConfig = group_transmitter.get_receiver_config();
                 let group_transmitter = GroupSender::from(group_transmitter);

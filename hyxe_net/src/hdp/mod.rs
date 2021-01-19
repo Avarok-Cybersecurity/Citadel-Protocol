@@ -40,18 +40,22 @@ pub mod misc;
 /// It is up to the caller to ensure the supplied future is not going to be called
 /// from multiple threads concurrently. IF there is a single instance of the task, then
 /// use this. If there will be multiple, use the safer version in misc::ThreadSafeFuture
-pub struct AssertThreadSafeFuture<'a, Out: 'a>(Pin<Box<dyn Future<Output=Out> + 'a>>);
+pub struct AssertSendSafeFuture<'a, Out: 'a>(Pin<Box<dyn Future<Output=Out> + 'a>>);
 
-unsafe impl<'a, Out: 'a> Send for AssertThreadSafeFuture<'a, Out> {}
+unsafe impl<'a, Out: 'a> Send for AssertSendSafeFuture<'a, Out> {}
 
-impl<'a, Out: 'a> AssertThreadSafeFuture<'a, Out> {
+impl<'a, Out: 'a> AssertSendSafeFuture<'a, Out> {
     /// Wraps a future, asserting it is safe to use in a multithreaded context at the possible cost of race conditions, locks, etc
     pub unsafe fn new(fx: impl Future<Output=Out> + 'a) -> Self {
         Self(Box::pin(fx))
     }
+
+    pub fn new_silent(fx: impl Future<Output=Out> + 'a) -> Self {
+        Self(Box::pin(fx))
+    }
 }
 
-impl<'a, Out: 'a> Future for AssertThreadSafeFuture<'a, Out> {
+impl<'a, Out: 'a> Future for AssertSendSafeFuture<'a, Out> {
     type Output = Out;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
