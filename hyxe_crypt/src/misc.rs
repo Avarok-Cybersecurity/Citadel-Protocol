@@ -5,7 +5,7 @@ use std::os::raw::c_void;
 use rand::prelude::SliceRandom;
 
 /// Default Error type for this crate
-pub enum CryptError<T: ToString> {
+pub enum CryptError<T: ToString = String> {
     /// Encrypt Error
     Encrypt(T),
     /// Decrypt Error
@@ -19,11 +19,6 @@ pub enum CryptError<T: ToString> {
 }
 
 impl<T: ToString> CryptError<T> {
-    /// Conveniance method
-    pub fn throw<U>(self) -> Result<U, Self> {
-        Err(self)
-    }
-
     /// Use for converting to different types
     pub fn to_string(&self) -> String {
         match self {

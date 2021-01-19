@@ -27,29 +27,23 @@ impl<K: NetKernel + 'static> KernelExecutor<K> {
 
     /// This function is expected to be asynchronously executed from the context of the tokio runtime
     pub async fn execute(mut self) -> Result<(), NetworkError> {
-        //let local_set = tokio::task::LocalSet::new();
-        let runtime = new_runtime!();
+        let mut runtime = new_runtime!();
 
         let server = self.server.clone();
         let kernel = self.kernel;
         log::info!("Obtaining server remote ...");
         // The function in execute only spawns_local, but does not actually run anything until we run run_until with the local set
         // in multithreaded mode, the below spawns futures onto the executor
-        let server_remote = HdpServer::load(server, &runtime).await?;
+        let server_remote = HdpServer::load(server, &mut runtime)?;
         log::info!("Done obtaining server remote ...");
 
         let _ = self.server_remote.replace(server_remote.clone());
 
         let server_to_kernel_rx = self.server_to_kernel_rx.take().unwrap();
-
         let server_remote_kernel = server_remote.clone();
 
-        // Now, run the kernel in its own mutlithreaded environment,
-        //let _ = tokio::task::spawn(Self::multithreaded_kernel_inner_loop(kernel, server_to_kernel_rx, server_remote_kernel));
-        // and run_until (single-thread) on the server. This starts all the futures loaded above
-        //local_set.await;
-        let res = runtime.execute_kernel(Self::multithreaded_kernel_inner_loop(kernel, server_to_kernel_rx, server_remote_kernel)).await;
-        log::info!("Kernel::execute is finishing ... program going to quit");
+        let res = runtime.execute_system(server_remote, Self::multithreaded_kernel_inner_loop(kernel, server_to_kernel_rx, server_remote_kernel)).await;
+        log::info!("Kernel::execute has finished execution");
         res
     }
 
@@ -61,13 +55,22 @@ impl<K: NetKernel + 'static> KernelExecutor<K> {
         let kernel = std::sync::Arc::new(kernel);
 
         while let Some(message) = server_to_kernel_rx.next().await {
-            if !kernel.can_run() {
-                break;
-            }
+            match message {
+                HdpServerResult::Shutdown => {
+                    log::info!("Kernel received safe shutdown signal");
+                    break;
+                }
 
-            let kernel = kernel.clone();
-            // Ensure that we don't block further calls to next().await, and offload the task to the tokio runtime
-            let _ = tokio::task::spawn(async move { kernel.on_server_message_received(message).await });
+                message => {
+                    if !kernel.can_run() {
+                        break;
+                    }
+
+                    let kernel = kernel.clone();
+                    // Ensure that we don't block further calls to next().await, and offload the task to the tokio runtime
+                    let _ = tokio::task::spawn(async move { kernel.on_server_message_received(message).await });
+                }
+            }
         }
 
         log::info!("Calling kernel on_stop ...");

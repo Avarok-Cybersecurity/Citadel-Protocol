@@ -2,9 +2,7 @@
 members = [
     "hyxewave",
     "satori_nos",
-    "tokio_agnostic_uds",
     "lusna_ffi",
-    "async_udt",
     "hyxe_nat",
 	"hyxe_user",
 	"hyxe_config",

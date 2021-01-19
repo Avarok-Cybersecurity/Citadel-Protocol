@@ -114,6 +114,7 @@ mod tests {
 
     #[test]
     // this will work in ordered mode, but panic in unordered
+    #[cfg(not(feature = "unordered"))]
     fn in_place_out_of_order() {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;
@@ -124,7 +125,8 @@ mod tests {
         let bob_container = PostQuantumContainer::new_bob(algorithm, alice_container.get_public_key()).unwrap();
         alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
 
-        for _ in 0..1 {
+        for y in 0..1 {
+            println!("At {}", y);
             let mut buf = BytesMut::with_capacity(TOTAL_LEN);
             for x in 0..TOTAL_LEN {
                 buf.put_u8(x as u8);
@@ -165,6 +167,7 @@ mod tests {
 
     #[test]
     // this will work in ordered mode, but panic in unordered
+    #[cfg(feature = "unordered")]
     fn in_place_out_of_order_for_unordered_mode() {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;

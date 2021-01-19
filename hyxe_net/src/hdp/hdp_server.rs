@@ -7,7 +7,6 @@ use std::sync::atomic::Ordering::SeqCst;
 use std::net::SocketAddr;
 use futures::{StreamExt, Sink};
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
-use futures::try_join;
 use log::info;
 use tokio::net::{TcpListener, TcpStream};
 use std::net::ToSocketAddrs;
@@ -61,7 +60,6 @@ pub struct HdpServerInner {
     system_engaged: bool,
     to_kernel: UnboundedSender<HdpServerResult>,
     local_node_type: HyperNodeType,
-    shutdown_signaller: Option<tokio::sync::oneshot::Sender<()>>
 }
 
 impl HdpServer {
@@ -75,9 +73,8 @@ impl HdpServer {
         info!("Server established on {}", local_bind_addr);
 
         let time_tracker = TimeTracker::new().await?;
-        let session_manager = HdpSessionManager::new(local_node_type,to_kernel.clone(), account_manager, time_tracker.clone(), false);
+        let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone(), false);
         let inner = HdpServerInner {
-            shutdown_signaller: None,
             local_bind_addr,
             local_node_type,
             primary_socket: Some(primary_socket),
@@ -96,26 +93,42 @@ impl HdpServer {
     ///
     /// Returns a handle to communicate with the [HdpServer].
     /// TODO: if local is pure_server mode, bind the local sockets
-    #[allow(unused_results)]
-    pub async fn load(this: HdpServer, handle: &RuntimeHandler) -> Result<HdpServerRemote, NetworkError> {
+    #[allow(unused_results, unused_must_use)]
+    pub fn load(this: HdpServer, handle: &mut RuntimeHandler) -> Result<HdpServerRemote, NetworkError> {
         // Allow the listeners to read data without instantly returning
         // Load the readers
         let mut write = inner_mut!(this);
 
         write.system_engaged = true;
         let kernel_tx = write.to_kernel.clone();
-        let (shutdown_signaller, shutdown_receiver) = tokio::sync::oneshot::channel();
-        write.shutdown_signaller = Some(shutdown_signaller);
-
 
         let (outbound_send_request_tx, outbound_send_request_rx) = unbounded(); // for the Hdp remote
-        // Load the writer
-        load_into_runtime!(handle, Self::outbound_kernel_request_handler(this.clone(), kernel_tx.clone(), outbound_send_request_rx));
         let remote = HdpServerRemote::new(outbound_send_request_tx);
         let tt = write.session_manager.load_server_remote_get_tt(remote.clone());
-        load_into_runtime!(handle, Self::listen_primary(this.clone(), tt, shutdown_receiver, kernel_tx.clone()));
 
-        load_into_runtime!(handle, HdpSessionManager::run_peer_container(write.session_manager.clone()));
+        let outbound_kernel_request_handler = Self::outbound_kernel_request_handler(this.clone(), kernel_tx.clone(), outbound_send_request_rx);
+        let primary_stream_listener = Self::listen_primary(this.clone(), tt, kernel_tx.clone());
+        let peer_container = HdpSessionManager::run_peer_container(write.session_manager.clone());
+
+
+        let server_future = async move {
+            let res = tokio::select! {
+            res0 = outbound_kernel_request_handler => {
+                log::info!("OUTBOUND KERNEL REQUEST HANDLER ENDED");
+                res0
+            }
+
+            res1 = primary_stream_listener => res1,
+            res2 = peer_container => res2
+        };
+            if let Err(_) = kernel_tx.unbounded_send(HdpServerResult::Shutdown) {
+                log::warn!("Unable to send shutdown result to kernel (kernel died prematurely?)");
+            }
+
+            res
+        };
+
+        handle.load_server_future(server_future);
 
         Ok(remote)
     }
@@ -157,7 +170,7 @@ impl HdpServer {
         builder
             .reuse_address(true)?
             .bind(bind)?
-            .listen(backlog) //default
+            .listen(backlog)
             .map(tokio::net::TcpListener::from_std)?
             .and_then(|listener| {
                 Ok((listener, bind))
@@ -216,16 +229,19 @@ impl HdpServer {
     /// In personal mode, if a new connection needs to be forged with another node, then a new SO_REUSE socket
     /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
-    async fn listen_primary(server: HdpServer, tt: TimeTracker, shutdown_receiver: tokio::sync::oneshot::Receiver<()>, to_kernel: UnboundedSender<HdpServerResult>) -> Result<(), NetworkError> {
+    async fn listen_primary(server: HdpServer, tt: TimeTracker, to_kernel: UnboundedSender<HdpServerResult>) -> Result<(), NetworkError> {
         let mut this = inner_mut!(server);
         let socket = this.primary_socket.take().unwrap();
         let session_manager = this.session_manager.clone();
         std::mem::drop(this);
-        let timer_future = Self::primary_timer(shutdown_receiver, to_kernel.clone());
         let primary_port_future = Self::primary_session_creator_loop(to_kernel, session_manager, socket);
         let tt_updater_future = Self::time_tracker_updater(tt);
         // If the timer detects that the server is shutdown, it will return an error, thus causing the try_join to end the future
-        try_join!(timer_future, primary_port_future, tt_updater_future).map(|_| ()).map_err(|_| NetworkError::InternalError("Primary listener ended"))
+
+        tokio::select! {
+            res = primary_port_future => res,
+            res1 = tt_updater_future => res1
+        }
     }
 
     async fn time_tracker_updater(tt: TimeTracker) -> Result<(), NetworkError> {
@@ -252,7 +268,6 @@ impl HdpServer {
                             if let Err(err) = session_manager.process_new_inbound_connection(peer_addr, stream) {
                                 to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, format!("HDP Server dropping connection to {}. Reason: {}", peer_addr, err.to_string())))?;
                             }
-
                         }
 
                         Err(err) => {
@@ -273,10 +288,6 @@ impl HdpServer {
         Ok(())
     }
 
-    async fn primary_timer(shutdown_receiver: tokio::sync::oneshot::Receiver<()>, _to_kernel: UnboundedSender<HdpServerResult>) -> Result<(), NetworkError> {
-        shutdown_receiver.await.map_err(|_| NetworkError::InternalError("Shutdown receiver error"))
-    }
-
     async fn outbound_kernel_request_handler(this: HdpServer, to_kernel_tx: UnboundedSender<HdpServerResult>, mut outbound_send_request_rx: UnboundedReceiver<(HdpServerRequest, Ticket)>) -> Result<(), NetworkError> {
         let read = inner!(this);
         let primary_port = read.local_bind_addr.port();
@@ -292,17 +303,17 @@ impl HdpServer {
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.next().await {
             match outbound_request {
                 HdpServerRequest::SendMessage(packet, implicated_cid, virtual_target, security_level) => {
-                    if let Err(err) =  session_manager.process_outbound_packet(ticket_id, packet, implicated_cid, virtual_target, security_level) {
+                    if let Err(err) = session_manager.process_outbound_packet(ticket_id, packet, implicated_cid, virtual_target, security_level) {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
 
                 HdpServerRequest::GroupBroadcastCommand(implicated_cid, cmd) => {
-                    if let Err(err) =  session_manager.process_outbound_broadcast_command(ticket_id, implicated_cid, cmd) {
+                    if let Err(err) = session_manager.process_outbound_broadcast_command(ticket_id, implicated_cid, cmd) {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
@@ -310,15 +321,15 @@ impl HdpServer {
                 HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm, security_level) => {
                     if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, None, quantum_algorithm, None).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
 
                 HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, hdp_nodelay, quantum_algorithm, tcp_only) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type,(local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, hdp_nodelay, quantum_algorithm, tcp_only).await {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, hdp_nodelay, quantum_algorithm, tcp_only).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
@@ -326,7 +337,7 @@ impl HdpServer {
                 HdpServerRequest::DisconnectFromHypernode(implicated_cid, target) => {
                     if let Err(err) = session_manager.initiate_disconnect(implicated_cid, target, ticket_id) {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
@@ -334,7 +345,7 @@ impl HdpServer {
                 HdpServerRequest::UpdateDrill(implicated_cid) => {
                     if let Err(err) = session_manager.initiate_update_drill_subroutine(implicated_cid, ticket_id) {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
@@ -342,7 +353,7 @@ impl HdpServer {
                 HdpServerRequest::DeregisterFromHypernode(implicated_cid, virtual_connection_type) => {
                     if !session_manager.initiate_deregistration_subroutine(implicated_cid, virtual_connection_type, ticket_id) {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
@@ -351,7 +362,7 @@ impl HdpServer {
                 HdpServerRequest::PeerCommand(implicated_cid, peer_command) => {
                     if !session_manager.dispatch_peer_command(implicated_cid, ticket_id, peer_command, SecurityLevel::LOW) {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
@@ -359,16 +370,12 @@ impl HdpServer {
                 HdpServerRequest::SendFile(path, chunk_size, implicated_cid, virtual_target) => {
                     if let Err(err) = session_manager.process_outbound_file(ticket_id, chunk_size, path, implicated_cid, virtual_target, SecurityLevel::LOW) {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"))
+                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
 
                 HdpServerRequest::Shutdown => {
-                    let mut this = inner_mut!(this);
-                    if let Some(tx) = this.shutdown_signaller.take() {
-                        tx.send(()).unwrap_or(());
-                    }
                     break;
                 }
             }
@@ -387,6 +394,7 @@ pub struct HdpServerRemote {
 
 
 unsafe impl Send for HdpServerRemote {}
+
 unsafe impl Sync for HdpServerRemote {}
 
 impl Debug for HdpServerRemote {
@@ -479,6 +487,7 @@ pub enum HdpServerRequest {
 }
 
 unsafe impl Send for HdpServerRequest {}
+
 unsafe impl Sync for HdpServerRequest {}
 
 /// This type is for relaying results between the lower-level server and the higher-level kernel
@@ -513,7 +522,9 @@ pub enum HdpServerResult {
     /// An internal error occured
     InternalServerError(Option<Ticket>, String),
     /// A channel was created, with channel_id = ticket (same as post-connect ticket received)
-    PeerChannelCreated(Ticket, PeerChannel)
+    PeerChannelCreated(Ticket, PeerChannel),
+    /// For shutdowns
+    Shutdown,
 }
 
 /// A type sent through the server when a request is made

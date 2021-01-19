@@ -34,12 +34,8 @@ pub fn calculate_update_frequency(security_level: u8, _transfer_stats: &Transfer
             Duration::from_nanos(DRILL_UPDATE_FREQUENCY_ULTRA_BASE)
         }
 
-        4 => {
-            Duration::from_nanos(DRILL_UPDATE_FREQUENCY_DIVINE_BASE)
-        }
-
         _ => {
-            panic!("Invalid security level!")
+            Duration::from_nanos(DRILL_UPDATE_FREQUENCY_DIVINE_BASE)
         }
     }
 }

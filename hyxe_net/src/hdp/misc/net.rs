@@ -10,7 +10,7 @@ pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin>(stream: S)
     // With access to the primary stream, we can now communicate through it from this session
     let framed = LengthDelimitedCodec::builder()
         .length_field_offset(0) // default value
-        .length_field_length(2)
+        .length_field_length(4)
         .length_adjustment(0)   // default value
         // `num_skip` is not needed, the default is to skip
         .new_framed(stream);

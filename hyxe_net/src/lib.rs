@@ -1,7 +1,6 @@
 #![feature(async_closure, main, try_trait, ip)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
-#![feature(min_const_generics)]
 //! Core networking components for SatoriNET
 #![deny(
 trivial_numeric_casts,
@@ -77,13 +76,6 @@ pub mod macros {
     };
 }
 
-
-    macro_rules! load_into_runtime {
-    ($var:expr, $future:expr) => {
-        $var.spawn($future)
-    };
-}
-
     macro_rules! spawn {
     ($future:expr) => {
         tokio::task::spawn_local($future)
@@ -112,8 +104,6 @@ pub mod macros {
 
 #[cfg(feature = "multi-threaded")]
 #[macro_use]
-// !WARNING! THIS IS UNSTABLE! DEADLOCKS HAVE OCCURRED IN TESTS, AND AS SUCH, COMPILING TO MULTI-THREADED IS NOT RECOMMENDED
-// UNLESS IN TESTING
 pub mod macros {
     use crate::hdp::hdp_session::HdpSessionInner;
 
@@ -181,15 +171,15 @@ pub mod macros {
     };
 }
 
-    macro_rules! load_into_runtime {
-    ($var:expr, $future:expr) => {
-        unsafe { $var.spawn_multi(crate::hdp::AssertThreadSafeFuture::new($future)) }
-    };
-}
-
+    #[allow(unused_results)]
     macro_rules! spawn {
     ($future:expr) => {
-        unsafe { tokio::task::spawn(crate::hdp::AssertThreadSafeFuture::new($future)) }
+        if tokio::runtime::Handle::try_current().is_ok() {
+            std::mem::drop(unsafe { tokio::task::spawn(crate::hdp::AssertSendSafeFuture::new($future)) });
+        } else {
+            log::error!("Unable to spawn future: {:?}", stringify!($future));
+        }
+        //tokio::task::spawn($future)
     };
 }
 
