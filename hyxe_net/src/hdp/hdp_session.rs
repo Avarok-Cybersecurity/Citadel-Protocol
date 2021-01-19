@@ -454,9 +454,10 @@ impl HdpSession {
 
                     const WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
                     const RST: i32 = 104;
+                    const ECONN_RST: i32 = 54; // for macs
 
                     let error = err.raw_os_error().unwrap_or(-1);
-                    if error != WINDOWS_FORCE_SHUTDOWN && error != RST {
+                    if error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST {
                         log::error!("primary port reader error {}: {}", error, err.to_string());
                     }
 
@@ -817,7 +818,7 @@ impl HdpSession {
             const OBJECT_SINGLETON: u32 = 0;
             // Drop this to ensure that it doesn't block other async closures from accessing the inner device
             // std::mem::drop(this);
-            let (mut transmitter, group_id, target_cid, ratchet_cid, new_ratchet_vers) = match virtual_target {
+            let (mut transmitter, group_id, target_cid, alice_constructor) = match virtual_target {
                 VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
@@ -826,9 +827,8 @@ impl HdpSession {
                     latest_hyper_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_hyper_ratchet.get_default_security_level())))?;
                     let to_primary_stream = this.to_primary_stream.clone().unwrap();
                     let target_cid = 0;
-                    let ratchet_cid = latest_hyper_ratchet.get_cid();
-                    let new_ratchet_vers = latest_hyper_ratchet.version().wrapping_add(1);
-                    (GroupTransmitter::new(to_primary_stream, OBJECT_SINGLETON, target_cid, latest_hyper_ratchet, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid, ratchet_cid, new_ratchet_vers)
+                    let alice_constructor = latest_hyper_ratchet.next_alice_constructor(algorithm);
+                    (GroupTransmitter::new_message(to_primary_stream, OBJECT_SINGLETON, target_cid, latest_hyper_ratchet, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid, alice_constructor)
                 }
 
                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
@@ -841,9 +841,8 @@ impl HdpSession {
                             let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
                             let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap().clone();
                             latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
-                            let ratchet_cid = latest_usable_ratchet.get_cid();
-                            let new_ratchet_vers = latest_usable_ratchet.version().wrapping_add(1);
-                            (GroupTransmitter::new(to_primary_stream_preferred,OBJECT_SINGLETON, target_cid, latest_usable_ratchet, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid, ratchet_cid, new_ratchet_vers)
+                            let alice_constructor = latest_usable_ratchet.next_alice_constructor(algorithm);
+                            (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON, target_cid, latest_usable_ratchet, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid, alice_constructor)
                         } else {
                             log::error!("Endpoint container not found");
                             return Ok(())
@@ -863,8 +862,7 @@ impl HdpSession {
             // We manually send the header. The tails get sent automatically
             log::info!("[message] Sending GROUP HEADER through primary stream for group {}", group_id);
             let group_len = transmitter.get_total_plaintext_bytes();
-            let sess_security_level = this.security_level;
-            let alice_constructor = HyperRatchetConstructor::new_alice(algorithm, ratchet_cid, new_ratchet_vers, Some(sess_security_level));
+            //let alice_constructor = HyperRatchetConstructor::new_alice(algorithm, ratchet_cid, new_ratchet_vers, Some(new_ratchet_sec_lvl));
             let transfer = alice_constructor.stage0_alice();
             //this.send_to_primary_stream(Some(ticket), transmitter.generate_group_header(virtual_target))?;
             // transmit
@@ -1243,7 +1241,7 @@ impl HdpSessionInner {
         let cnac = self.cnac.as_ref().unwrap();
          let security_level = self.security_level;
         let ref hyper_ratchet = cnac.get_hyper_ratchet(None).unwrap();
-         let alice_constructor = HyperRatchetConstructor::new_alice(self.pqc_algorithm.clone(), hyper_ratchet.get_cid(), hyper_ratchet.version().wrapping_add(1), Some(security_level));
+         let alice_constructor = hyper_ratchet.next_alice_constructor(self.pqc_algorithm.clone());
          let transfer = alice_constructor.stage0_alice();
 
          let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(hyper_ratchet, transfer, timestamp, security_level);

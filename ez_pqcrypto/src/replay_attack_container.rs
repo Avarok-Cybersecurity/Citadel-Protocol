@@ -19,7 +19,7 @@ pub mod ordered {
         /// Returns true if the value is valid, false otherwise
         #[inline]
         pub fn on_pid_received(&self, pid: u64) -> bool {
-            self.in_counter.compare_and_swap(pid, pid + 1, Ordering::SeqCst) == pid
+            self.in_counter.compare_exchange(pid, pid + 1, Ordering::SeqCst, Ordering::SeqCst).is_ok()
         }
 
         pub fn has_tracked_packets(&self) -> bool {

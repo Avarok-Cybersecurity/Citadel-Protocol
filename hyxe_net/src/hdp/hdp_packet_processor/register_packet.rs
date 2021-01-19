@@ -74,7 +74,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                 // pqc is stored in the register state container for now
                 //debug_assert!(session.post_quantum.is_none());
                 if let Some(mut alice_constructor) = state_container.register_state.constructor.take() {
-                    let transfer = BobToAliceTransfer::deserialize_from(payload)?;
+                    let transfer = BobToAliceTransfer::deserialize_from(&payload[..])?;
                     let security_level = transfer.security_level;
                     alice_constructor.stage1_alice(transfer)?;
                     let new_hyper_ratchet = alice_constructor.finish()?;
