@@ -19,11 +19,13 @@ use hyxe_fs::system_file_manager::bytes_to_type;
 use crate::network_account::NetworkAccountInner;
 use log::info;
 
-use std::ops::RangeInclusive;
 use serde::export::Formatter;
 use hyxe_fs::misc::{get_present_formatted_timestamp, get_pathbuf};
 use crossbeam_utils::sync::{ShardedLock, ShardedLockReadGuard, ShardedLockWriteGuard};
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_fs::hyxe_crypt::toolset::UpdateStatus;
+use hyxe_fs::hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network
 pub const HYXEFILE_PASSWORD_LENGTH: usize = 222;
@@ -102,7 +104,7 @@ pub struct ClientNetworkAccountInner {
     /// this constant password hash will store
     pub password_hash: Vec<u8>,
     /// Toolset which contains all the drills
-    pub toolset: Toolset,
+    pub crypt_container: PeerSessionCrypto,
     #[serde(skip)]
     /// We keep the password in RAM encrypted
     password_in_ram: Option<SecVec<u8>>,
@@ -125,27 +127,21 @@ struct MetaInner {
     inner: ShardedLock<ClientNetworkAccountInner>
 }
 
-unsafe impl Send for ClientNetworkAccount {}
-unsafe impl Sync for ClientNetworkAccount {}
-
 impl ClientNetworkAccount {
     /// Note: This should ONLY be called from a server node.
     ///
     /// `client_nac`: This is required because it allows the server to keep track of the IP in the case [PINNED_IP_MODE] is engaged
     #[allow(unused_results)]
-    pub(crate) fn new<T: ToString, V: ToString>(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount, username: &T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, base_hyper_ratchet: HyperRatchet) -> Result<Self, AccountError<String>> {
-
+    pub fn new<T: ToString, V: ToString>(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, base_hyper_ratchet: HyperRatchet) -> Result<Self, AccountError<String>> {
         info!("Creating CNAC w/valid cid: {:?}", valid_cid);
-        //let password = password.unsecure().to_vec();
-        //let password = String::from_utf8(password).map_err(|err| AccountError::Generic(err.to_string()))?;
         let username = username.to_string();
         let full_name = full_name.to_string();
-        // we no longer check the credential formatting since it's hashed
+
         check_credential_formatting::<_, &str, _>(&username, None, &full_name)?;
 
         let creation_date = get_present_formatted_timestamp();
         // the static & f(0) hyper ratchets will be the provided hyper ratchet
-        let toolset = Toolset::new(valid_cid, base_hyper_ratchet);
+        let crypt_container = PeerSessionCrypto::new(Toolset::new(valid_cid, base_hyper_ratchet), is_personal);
         //debug_assert_eq!(is_personal, is_client);
 
         let local_save_path = Self::generate_local_save_path(valid_cid, is_personal);
@@ -159,7 +155,7 @@ impl ClientNetworkAccount {
 
         let mutuals = MultiMap::new();
 
-        let inner = ClientNetworkAccountInner { password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, toolset, password_in_ram };
+        let inner = ClientNetworkAccountInner { password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
         let this = Self::from(inner);
 
         this.blocking_save_to_local_fs()?;
@@ -180,15 +176,16 @@ impl ClientNetworkAccount {
     #[allow(unused_results)]
     pub fn refresh_static_hyper_ratchet(&self) -> HyperRatchet {
         let mut write = self.write();
-        write.toolset.verify_init_state();
-        write.toolset.get_static_auxiliary_ratchet().clone()
+        write.crypt_container.toolset.verify_init_state();
+        write.crypt_container.toolset.get_static_auxiliary_ratchet().clone()
     }
 
     /// Returns true if the NAC is a personal type
     pub fn is_personal(&self) -> bool {
         self.inner.is_personal
     }
-    
+
+
     pub(crate) fn generate_local_save_path(valid_cid: u64, is_personal: bool) -> PathBuf {
         if is_personal {
             get_pathbuf(format!("{}{}.{}", HYXE_NAC_DIR_PERSONAL.lock().unwrap().as_ref().unwrap(), valid_cid, CNAC_SERIALIZED_EXTENSION))
@@ -211,7 +208,7 @@ impl ClientNetworkAccount {
 
         inner.local_save_path = local_save_path;
 
-        let static_hyper_ratchet = inner.toolset.get_static_auxiliary_ratchet();
+        let static_hyper_ratchet = inner.crypt_container.toolset.get_static_auxiliary_ratchet();
 
         if !inner.is_local_personal {
             let hyxefile_path = inner.hyxefile_save_path.as_ref().unwrap();
@@ -247,13 +244,7 @@ impl ClientNetworkAccount {
         const IS_PERSONAL: bool = true;
 
         // We supply none to the valid cid
-        Self::new(valid_cid, IS_PERSONAL, adjacent_nac, &username, password, full_name, password_hash, hyper_ratchet)
-    }
-
-    /// Serializes the inner toolset to a vector. Requires exclusive access
-    pub fn serialize_toolset_to_vec(&self) -> Result<Vec<u8>, AccountError<String>> {
-        let this = self.read();
-        this.toolset.serialize_to_vec().map_err(|err| AccountError::Generic(err.to_string()))
+        Self::new(valid_cid, IS_PERSONAL, adjacent_nac, username, password, full_name, password_hash, hyper_ratchet)
     }
 
     /// When the client received its inner CNAC, it will not have the NAC of the server. Therefore, the client-version of the CNAC must be updated
@@ -287,8 +278,8 @@ impl ClientNetworkAccount {
 
         // the password_in_ram is the raw original hashed password computed by the client sent to here (server-side)
         let pass_hashed_internal = read.password_in_ram.as_ref().unwrap().unsecure();
-        log::info!("\n\rINTERNAL({}): {:?}", pass_hashed_internal.len(), pass_hashed_internal);
-        log::info!("\n\rExternal({}): {:?}", password_hashed.unsecure().len(), password_hashed.unsecure());
+        //log::info!("\n\rINTERNAL({}): {:?}", pass_hashed_internal.len(), pass_hashed_internal);
+        //log::info!("\n\rExternal({}): {:?}", password_hashed.unsecure().len(), password_hashed.unsecure());
         // the client computes the hash of its proposed password and sends it
         if pass_hashed_internal != password_hashed.unsecure() {
             log::warn!("Invalid password ...");
@@ -304,17 +295,12 @@ impl ClientNetworkAccount {
     pub fn get_ip(&self) -> Option<SocketAddr> {
         self.read().adjacent_nac.as_ref()?.get_addr(true)
     }
-    
 
     /// If no version is supplied, the latest drill will be retrieved. The drill will not be dropped from
     /// the toolset if the strong reference still exists
     pub fn get_hyper_ratchet(&self, version: Option<u32>) -> Option<HyperRatchet> {
         let read = self.read();
-        if let Some(version) = version {
-            read.toolset.get_hyper_ratchet(version).cloned()
-        } else {
-            read.toolset.get_most_recent_hyper_ratchet().cloned()
-        }
+        read.crypt_container.get_hyper_ratchet(version).cloned()
     }
 
     /// Whereas get_drill allows the caller to store the drill, thus controlling how long it stays in memory,
@@ -324,54 +310,37 @@ impl ClientNetworkAccount {
     /// F should be a nonblocking function!
     pub fn borrow_hyper_ratchet<F, Y>(&self, version: Option<u32>, f: F) -> Y where F: FnOnce(Option<&HyperRatchet>) -> Y {
         let read = self.read();
-        if let Some(version) = version {
-            f(read.toolset.get_hyper_ratchet(version))
-        } else {
-            f(read.toolset.get_most_recent_hyper_ratchet())
-        }
+        f(read.crypt_container.get_hyper_ratchet(version))
     }
 
     /// Captures by reference instead of just by value
     pub fn borrow_hyper_ratchet_fn<F, Y>(&self, version: Option<u32>, f: F) -> Y where F: Fn(Option<&HyperRatchet>) -> Y {
         let read = self.read();
-        if let Some(version) = version {
-            f(read.toolset.get_hyper_ratchet(version))
-        } else {
-            f(read.toolset.get_most_recent_hyper_ratchet())
-        }
+        f(read.crypt_container.get_hyper_ratchet(version))
     }
 
-    /// Returns a range of available drill versions
-    pub fn get_hyper_ratchet_versions(&self) -> RangeInclusive<u32> {
-        let read = self.read();
-        read.toolset.get_available_hyper_ratchet_versions()
-    }
-
-    /// Updates the internal toolset a desired number of times. Inserting None will imply that
-    /// the toolset will update once
-    pub fn register_new_hyper_ratchet(&self, new_hyper_ratchet: HyperRatchet) -> Result<(), CryptError<String>> {
+    /// Updates the internal toolset
+    pub fn register_new_hyper_ratchet(&self, new_hyper_ratchet: HyperRatchet) -> Result<UpdateStatus, CryptError<String>> {
         let mut write = self.write();
-        write.toolset.update_from(new_hyper_ratchet).ok_or(CryptError::Decrypt("Unable to update toolset".to_string()))
+        write.crypt_container.toolset.update_from(new_hyper_ratchet).ok_or(CryptError::Decrypt("Unable to update toolset".to_string()))
+    }
+
+    /// Removes the oldest hyper ratchet version. Explicit specification required to monitor consistency in the network
+    pub fn deregister_oldest_hyper_ratchet(&self, version: u32) -> Result<(), CryptError<String>> {
+        let mut write = self.write();
+        write.crypt_container.deregister_oldest_hyper_ratchet(version)
     }
 
     /// Replaces the internal toolset. This should ONLY be called (if absolutely necessary) during the PRE_CONNECT stage
     /// if synchronization is required
     pub fn replace_toolset(&self, toolset: Toolset) {
-        self.write().toolset = toolset;
-    }
-
-    /// Gets the username and password
-    pub unsafe fn get_account_info(&self) -> (String, Vec<u8>) {
-        let write = self.write();
-        let username = write.username.clone();
-        let password = write.password_in_ram.as_ref().unwrap().unsecure().to_vec();
-        (username, password)
+        self.write().crypt_container.toolset = toolset;
     }
 
     /// This should ONLY be used for recovery mode
     pub fn get_static_auxiliary_hyper_ratchet(&self) -> HyperRatchet {
         let this = self.read();
-        this.toolset.get_static_auxiliary_ratchet().clone()
+        this.crypt_container.toolset.get_static_auxiliary_ratchet().clone()
     }
 
     /// Removes the CNAC from the hard drive
@@ -423,13 +392,7 @@ impl ClientNetworkAccount {
     pub fn get_hyperlan_peer(&self, cid: u64) -> Option<MutualPeer> {
         let read = self.read();
         let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
-        for peer in hyperlan_peers {
-            if peer.cid == cid {
-                return Some(peer.clone())
-            }
-        }
-
-        None
+        hyperlan_peers.iter().find(|peer| peer.cid == cid).cloned()
     }
 
     /// Gets the desired HyperLAN peer by username (clones)
@@ -438,15 +401,7 @@ impl ClientNetworkAccount {
         let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
         let username = username.as_ref();
 
-        for peer in hyperlan_peers {
-            if let Some(username_peer) = peer.username.as_ref() {
-                if username_peer == username {
-                    return Some(peer.clone())
-                }
-            }
-        }
-
-        None
+        hyperlan_peers.iter().find(|peer| peer.username.as_ref().map(|name| name == username).unwrap_or(false)).cloned()
     }
 
     /// This function handles the registration for BOTH CNACs. Then, it synchronizes both to
@@ -507,33 +462,18 @@ impl ClientNetworkAccount {
         let read = self.read();
         if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
             //log::info!("Checking through {} peers", hyperlan_peers.len());
-            for peer in hyperlan_peers {
-                //log::info!("Checking if {} == {} ({})", peer.cid, cid, &peer.username.as_ref().unwrap());
-                if peer.cid == cid {
-                    return true
-                }
-            }
+            hyperlan_peers.iter().any(|peer| peer.cid == cid)
         } else {
             log::info!("mutuals vec is missing the hyperlan idx");
+            false
         }
-
-        false
     }
 
     /// Returns true if and only if all the peers in `peers` exist
     pub fn hyperlan_peers_exist(&self, peers: &Vec<u64>) -> bool {
         let read = self.read();
         if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
-            'search: for peer in peers {
-                for hyperlan_peer in hyperlan_peers {
-                    if hyperlan_peer.cid == *peer {
-                        continue 'search;
-                    }
-                }
-                // if we get here, it means we couldnt find a peer
-                return false;
-            }
-            true
+            peers.iter().all(|peer| hyperlan_peers.iter().any(|hyperlan_peer| hyperlan_peer.cid == *peer))
         } else {
             false
         }
@@ -564,18 +504,10 @@ impl ClientNetworkAccount {
         let username = username.as_ref();
 
         if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
-            //log::info!("Checking through {} peers", hyperlan_peers.len());
-            for peer in hyperlan_peers {
-                //log::info!("Checking if {} == {} ({})", peer.username.as_ref().unwrap(), username, peer.cid);
-                if let Some(uname) = peer.username.as_ref() {
-                    if uname == username {
-                        return true;
-                    }
-                }
-            }
+            hyperlan_peers.iter().any(|peer| peer.username.as_ref().map(|uname| uname == username).unwrap_or(false))
+        } else {
+            false
         }
-
-        false
     }
 
     /// ONLY run this after you're sure the peer doesn't already exist
@@ -672,7 +604,7 @@ impl ClientNetworkAccount {
         //debug_assert!(ptr.hyxefile_save_path.is_none());
         //debug_assert!(ptr.inner_encrypted_nac.is_none());
 
-        let static_hyper_ratchet = ptr.toolset.get_static_auxiliary_ratchet().clone();
+        let static_hyper_ratchet = ptr.crypt_container.toolset.get_static_auxiliary_ratchet().clone();
         //let path = ptr.local_save_path.clone();
 
         // impersonals store the password, NOT personals!

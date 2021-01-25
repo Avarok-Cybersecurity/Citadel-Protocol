@@ -15,7 +15,7 @@ pub static FFI_STATIC: Mutex<Option<(ConsoleContext, HdpServerRemote, FFIIO, Han
 ///
 /// `execute_args`: Pretend you are going to use the CLI version of Lusna, and pass the command line arguments
 /// herein (e.g., "--type pure_server --bind 127.0.0.1"
-pub fn execute_lusna_kernel<T: ToString>(execute_args: T, to_ffi_frontier: Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + 'static>) -> Result<(), ConsoleError> {
+pub fn execute_lusna_kernel<T: ToString>(execute_args: T, to_ffi_frontier: Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>) -> Result<(), ConsoleError> {
     (to_ffi_frontier)(Ok(Some(KernelResponse::Message("Beginning execution phase of the Lusna Kernel".to_string()))));
     let ffi_object = FFIIO::from(to_ffi_frontier);
     setup_shutdown_hook();

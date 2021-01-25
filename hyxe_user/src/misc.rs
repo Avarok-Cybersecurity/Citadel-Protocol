@@ -109,8 +109,6 @@ pub struct FutureRwLockWriteGuard<'a, T> {
     inner: RwLockWriteGuard<'a, FutureRawRwLock<RawRwLock>, T>
 }
 
-unsafe impl<'a, T> Send for FutureRwLockWriteGuard<'a, T> {}
-
 impl<'a, T> FutureRwLockWriteGuard<'a, T> {
     /// Wraps
     pub fn wrap(inner: RwLockWriteGuard<'a, FutureRawRwLock<RawRwLock>, T>) -> Self {
@@ -136,8 +134,6 @@ impl<'a, T> DerefMut for FutureRwLockWriteGuard<'a, T> {
 pub struct FutureRwLockReadGuard<'a, T> {
     inner: RwLockReadGuard<'a, FutureRawRwLock<RawRwLock>, T>
 }
-
-unsafe impl<'a, T> Send for FutureRwLockReadGuard<'a, T> {}
 
 impl<'a, T> FutureRwLockReadGuard<'a, T> {
     /// Wraps

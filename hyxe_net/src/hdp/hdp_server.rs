@@ -30,11 +30,11 @@ use std::path::PathBuf;
 use crate::hdp::hdp_packet_processor::includes::{Instant, Duration};
 use crate::constants::{NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::kernel::runtime_handler::RuntimeHandler;
 use crate::hdp::file_transfer::FileTransferStatus;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use parking_lot::Mutex;
 use serde::{Serialize, Deserialize};
+use crate::kernel::RuntimeFuture;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -63,14 +63,15 @@ pub struct HdpServerInner {
 }
 
 impl HdpServer {
-    /// Creates a new [HdpServer]
-    pub async fn new<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager) -> io::Result<Self> {
+    /// Creates a new [HdpServer] inside a
+    #[cfg(feature = "multi-threaded")]
+    pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>) -> io::Result<HdpServerRemote> {
         let (primary_socket, local_bind_addr) = Self::create_tcp_listen_socket(&bind_addr)?;
         let primary_port = local_bind_addr.port();
         // Note: on Android/IOS, the below command will fail since sudo access is prohibited
         Self::open_tcp_port(primary_port);
 
-        info!("Server established on {}", local_bind_addr);
+        info!("Multithreaded HdpServer established on {}", local_bind_addr);
 
         let time_tracker = TimeTracker::new().await?;
         let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone(), false);
@@ -83,7 +84,69 @@ impl HdpServer {
             system_engaged: false,
         };
 
-        Ok(Self::from(inner))
+        let this = Self::from(inner);
+        let (server_future, remote) = HdpServer::load(this, shutdown).await;
+
+        // spawn future. When the future ends, it will automatically signal the kernel that a shutdown occurred, thus closing the kernel
+        let _ = spawn!(server_future);
+
+        Ok(remote)
+    }
+
+    /// Creates a new [HdpServer] inside a single-threaded context
+    #[allow(unused_results)]
+    #[cfg(not(feature = "multi-threaded"))]
+    pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs + Send + 'static>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>) -> io::Result<HdpServerRemote> {
+        use tokio::task::LocalSet;
+        use tokio::runtime::Builder;
+
+        let (remote_tx, remote_rx) = tokio::sync::oneshot::channel();
+
+        std::thread::spawn(move || -> std::io::Result<()> {
+            let remote_tx = remote_tx;
+            let mut rt = Builder::new().basic_scheduler().enable_all().build()?;
+            let localset = LocalSet::new();
+            let res = localset.block_on(&mut rt, async move {
+                let (primary_socket, local_bind_addr) = Self::create_tcp_listen_socket(&bind_addr)?;
+                let primary_port = local_bind_addr.port();
+                // Note: on Android/IOS, the below command will fail since sudo access is prohibited
+                Self::open_tcp_port(primary_port);
+
+                info!("Single-threaded HdpServer established on {}", local_bind_addr);
+
+                let time_tracker = TimeTracker::new().await?;
+                let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone(), false);
+                let inner = HdpServerInner {
+                    local_bind_addr,
+                    local_node_type,
+                    primary_socket: Some(primary_socket),
+                    to_kernel,
+                    session_manager,
+                    system_engaged: false,
+                };
+
+                let this = Self::from(inner);
+                let (server_future, remote) = HdpServer::load(this, shutdown).await;
+
+                // send the remote to allow the async kernel to be executed
+                if let Err(_remote) = remote_tx.send(remote) {
+                    log::error!("Severe error. Unable to send remote. Exiting program");
+                    std::process::exit(-1);
+                }
+                // spawn future. When the future ends, it will automatically signal the kernel that a shutdown occurred, thus closing the kernel
+                server_future.await.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+            });
+
+            if let Err(err) = res {
+                log::error!("Localset_block_on error: {}", err)
+            } else {
+                log::info!("Localset ended execution ...");
+            }
+
+            Ok(())
+        });
+
+        remote_rx.await.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
     }
 
     /// Note: spawning via handle is more efficient than joining futures. Source: https://cafbit.com/post/tokio_internals/
@@ -94,7 +157,7 @@ impl HdpServer {
     /// Returns a handle to communicate with the [HdpServer].
     /// TODO: if local is pure_server mode, bind the local sockets
     #[allow(unused_results, unused_must_use)]
-    pub fn load(this: HdpServer, handle: &mut RuntimeHandler) -> Result<HdpServerRemote, NetworkError> {
+    async fn load(this: HdpServer, shutdown: tokio::sync::oneshot::Sender<()>) -> (Pin<Box<dyn RuntimeFuture>>, HdpServerRemote) {
         // Allow the listeners to read data without instantly returning
         // Load the readers
         let mut write = inner_mut!(this);
@@ -125,12 +188,17 @@ impl HdpServer {
                 log::warn!("Unable to send shutdown result to kernel (kernel died prematurely?)");
             }
 
+            // the kernel will wait until the server shuts down to prevent cleanup tasks from being killed too early
+            shutdown.send(());
+
+            log::info!("HdpServer shutting down (future ended)...");
+
             res
         };
 
-        handle.load_server_future(server_future);
+        //handle.load_server_future(server_future);
 
-        Ok(remote)
+        (Box::pin(server_future), remote)
     }
 
     fn open_tcp_port(port: u16) {
@@ -230,13 +298,16 @@ impl HdpServer {
     /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
     async fn listen_primary(server: HdpServer, tt: TimeTracker, to_kernel: UnboundedSender<HdpServerResult>) -> Result<(), NetworkError> {
-        let mut this = inner_mut!(server);
-        let socket = this.primary_socket.take().unwrap();
-        let session_manager = this.session_manager.clone();
-        std::mem::drop(this);
-        let primary_port_future = Self::primary_session_creator_loop(to_kernel, session_manager, socket);
-        let tt_updater_future = Self::time_tracker_updater(tt);
-        // If the timer detects that the server is shutdown, it will return an error, thus causing the try_join to end the future
+        let (primary_port_future, tt_updater_future) = {
+            let mut this = inner_mut!(server);
+            let socket = this.primary_socket.take().unwrap();
+            let session_manager = this.session_manager.clone();
+            std::mem::drop(this);
+            let primary_port_future = Self::primary_session_creator_loop(to_kernel, session_manager, socket);
+            let tt_updater_future = Self::time_tracker_updater(tt);
+            // If the timer detects that the server is shutdown, it will return an error, thus causing the try_join to end the future
+            (primary_port_future, tt_updater_future)
+        };
 
         tokio::select! {
             res = primary_port_future => res,
@@ -289,16 +360,19 @@ impl HdpServer {
     }
 
     async fn outbound_kernel_request_handler(this: HdpServer, to_kernel_tx: UnboundedSender<HdpServerResult>, mut outbound_send_request_rx: UnboundedReceiver<(HdpServerRequest, Ticket)>) -> Result<(), NetworkError> {
-        let read = inner!(this);
-        let primary_port = read.local_bind_addr.port();
-        //let port_start = read.multiport_range.start;
-        let local_bind_addr = read.local_bind_addr.ip();
-        let local_node_type = read.local_node_type;
+        let (primary_port, local_bind_addr, local_node_type, session_manager) = {
+            let read = inner!(this);
+            let primary_port = read.local_bind_addr.port();
+            //let port_start = read.multiport_range.start;
+            let local_bind_addr = read.local_bind_addr.ip();
+            let local_node_type = read.local_node_type;
 
-        // We need only the underlying [HdpSessionManager]
-        let mut session_manager = read.session_manager.clone();
-        // Drop the read handle; we are done with it
-        std::mem::drop(read);
+            // We need only the underlying [HdpSessionManager]
+            let session_manager = read.session_manager.clone();
+            // Drop the read handle; we are done with it
+            //std::mem::drop(read);
+            (primary_port, local_bind_addr, local_node_type, session_manager)
+        };
 
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.next().await {
             match outbound_request {
@@ -342,8 +416,8 @@ impl HdpServer {
                     }
                 }
 
-                HdpServerRequest::UpdateDrill(implicated_cid) => {
-                    if let Err(err) = session_manager.initiate_update_drill_subroutine(implicated_cid, ticket_id) {
+                HdpServerRequest::UpdateDrill(virtual_target) => {
+                    if let Err(err) = session_manager.initiate_update_drill_subroutine(virtual_target, ticket_id) {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
@@ -392,11 +466,6 @@ pub struct HdpServerRemote {
     ticket_counter: Arc<AtomicUsize>,
 }
 
-
-unsafe impl Send for HdpServerRemote {}
-
-unsafe impl Sync for HdpServerRemote {}
-
 impl Debug for HdpServerRemote {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "HdpServerRemote")
@@ -433,8 +502,7 @@ impl HdpServerRemote {
             .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-
-    fn get_next_ticket(&self) -> Ticket {
+    pub fn get_next_ticket(&self) -> Ticket {
         Ticket(self.ticket_counter.fetch_add(1, SeqCst) as u64)
     }
 }
@@ -473,7 +541,7 @@ pub enum HdpServerRequest {
     /// Send data to client. Peer addr, implicated cid, hdp_nodelay, quantum algorithm, tcp only
     ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, Option<bool>, Option<u8>, Option<bool>),
     /// Updates the drill for the given CID
-    UpdateDrill(u64),
+    UpdateDrill(VirtualTargetType),
     /// Send data to an already existent connection
     SendMessage(SecBuffer, u64, VirtualTargetType, SecurityLevel),
     /// Send a file
@@ -485,10 +553,6 @@ pub enum HdpServerRequest {
     /// shutdown signal
     Shutdown,
 }
-
-unsafe impl Send for HdpServerRequest {}
-
-unsafe impl Sync for HdpServerRequest {}
 
 /// This type is for relaying results between the lower-level server and the higher-level kernel
 #[derive(Debug)]
@@ -525,6 +589,15 @@ pub enum HdpServerResult {
     PeerChannelCreated(Ticket, PeerChannel),
     /// For shutdowns
     Shutdown,
+}
+
+impl HdpServerResult {
+    pub fn is_message(&self) -> bool {
+        match self {
+            HdpServerResult::MessageDelivery(..) => true,
+            _ => false
+        }
+    }
 }
 
 /// A type sent through the server when a request is made

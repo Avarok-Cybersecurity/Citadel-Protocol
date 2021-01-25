@@ -43,11 +43,8 @@ pub struct ConsoleContext {
     pub active_target_cid: Arc<AtomicU64>,
     pub message_groups: Arc<RwLock<HashMap<usize, MessageGroupContainer>>>,
     pub message_group_incrementer: Arc<AtomicUsize>,
-    pub is_ffi: bool
+    pub is_ffi: Arc<bool>
 }
-
-unsafe impl Send for ConsoleContext {}
-unsafe impl Sync for ConsoleContext {}
 
 impl ConsoleContext {
     pub fn new(is_ffi: bool, bind_addr: String, home_path: Option<String>, account_manager: AccountManager) -> Self {
@@ -61,7 +58,7 @@ impl ConsoleContext {
         let active_target_cid = Arc::new(AtomicU64::new(0));
         let message_groups = Arc::new(RwLock::new(HashMap::new()));
         let message_group_incrementer = Arc::new(AtomicUsize::new(0));
-        let mut this = Self { is_ffi, message_group_incrementer, message_groups, active_target_cid, unread_mail, bind_addr, active_user, can_run, account_manager, in_personal: in_stderr, active_dir, active_session: Arc::new(AtomicU64::new(nid)), sessions: Arc::new(RwLock::new(HashMap::new())), ticket_queue: None };
+        let mut this = Self { is_ffi: Arc::new(is_ffi), message_group_incrementer, message_groups, active_target_cid, unread_mail, bind_addr, active_user, can_run, account_manager, in_personal: in_stderr, active_dir, active_session: Arc::new(AtomicU64::new(nid)), sessions: Arc::new(RwLock::new(HashMap::new())), ticket_queue: None };
         let ticket_queue = TicketQueueHandler::new(this.clone());
         this.ticket_queue = Some(ticket_queue);
         this
@@ -89,7 +86,7 @@ impl ConsoleContext {
         write.insert(kernel_session.cid, kernel_session);
     }
 
-    pub fn register_ticket(&self, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: impl Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static) {
+    pub fn register_ticket(&self, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: impl Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + Send + 'static) {
         let queue = self.ticket_queue.as_ref().unwrap();
         queue.register_ticket(ticket, lifetime, implicated_cid, fx)
     }

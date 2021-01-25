@@ -29,6 +29,7 @@ use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
+use crate::macros::SyncContextRequirements;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -122,44 +123,57 @@ impl HdpSessionManager {
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection<T: ToSocketAddrs>(&mut self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: SocketAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, streaming_mode: Option<bool>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>) -> Result<(), NetworkError> {
-        let session_manager_clone = self.clone();
-        let mut this = inner_mut!(self);
-        let remote = this.server_remote.clone().unwrap();
+    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: SocketAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, streaming_mode: Option<bool>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>) -> Result<(), NetworkError> {
+        let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
+            let session_manager_clone = self.clone();
 
-        if this.provisional_connections.contains_key(&peer_addr) {
-            // Localhost is already trying to connect
-            return Err(NetworkError::Generic(format!("Localhost is already trying to connect to {}", peer_addr)));
-        }
+            let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt) = {
+
+                let (remote, kernel_tx, account_manager, tt) = {
+                    let this = inner!(self);
+                    let remote = this.server_remote.clone().unwrap();
+                    let kernel_tx = this.kernel_tx.clone();
+                    let account_manager = this.account_manager.clone();
+                    let tt = this.time_tracker.clone();
+
+                    if this.provisional_connections.contains_key(&peer_addr) {
+                        // Localhost is already trying to connect
+                        return Err(NetworkError::Generic(format!("Localhost is already trying to connect to {}", peer_addr)));
+                    }
+
+                    (remote, kernel_tx, account_manager, tt)
+                };
 
 
-        // We must now create a TcpStream towards the peer
-        let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
-        let (p2p_listener, primary_stream) = HdpServer::create_init_tcp_connect_socket(peer_addr).await
-            .map_err(|err| NetworkError::SocketError(err.to_string()))?;
+                // We must now create a TcpStream towards the peer
+                let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
+                let (p2p_listener, primary_stream) = HdpServer::create_init_tcp_connect_socket(peer_addr).await
+                    .map_err(|err| NetworkError::SocketError(err.to_string()))?;
+                (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt)
+            };
 
-        let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), peer_addr, this.time_tracker.clone(), implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(TCP_ONLY)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
+            let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, peer_addr, tt, implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(TCP_ONLY)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
 
-        if let Some(_implicated_cid) = implicated_cid {
-            // the cid exists which implies registration already occurred
-            new_session.store_proposed_credentials(proposed_credentials, packet_flags::cmd::primary::DO_CONNECT);
-            this.provisional_connections.insert(peer_addr, new_session.clone());
-        } else {
-            new_session.store_proposed_credentials(proposed_credentials, packet_flags::cmd::primary::DO_REGISTER);
-            this.provisional_connections.insert(peer_addr, new_session.clone());
-        }
+            if let Some(_implicated_cid) = implicated_cid {
+                // the cid exists which implies registration already occurred
+                new_session.store_proposed_credentials(proposed_credentials, packet_flags::cmd::primary::DO_CONNECT);
+                inner_mut!(self).provisional_connections.insert(peer_addr, new_session.clone());
+            } else {
+                new_session.store_proposed_credentials(proposed_credentials, packet_flags::cmd::primary::DO_REGISTER);
+                inner_mut!(self).provisional_connections.insert(peer_addr, new_session.clone());
+            }
 
-        std::mem::drop(this);
-        // NOTE: client must send its TICKET
-        //self.insert_provisional_expiration(peer_addr, ticket);
-        // Load the session stream into the current handle
-        spawn!(Self::execute_session_with_safe_shutdown(session_manager_clone, new_session,peer_addr.clone(), Some(p2p_listener), primary_stream));
+            (session_manager_clone, new_session, peer_addr, p2p_listener, primary_stream)
+        };
+
+
+        spawn!(Self::execute_session_with_safe_shutdown(session_manager, new_session, peer_addr, Some(p2p_listener), primary_stream));
 
         Ok(())
     }
 
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
-    /// TODO: Make this code less hacky, and make the removal process cleaner
+    /// TODO: Make this code less hacky, and make the removal process cleaner. Use RAII on HdpSessionInner?
     async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, p2p_listener: Option<TcpListener>, tcp_stream: TcpStream) -> Result<(), NetworkError> {
         match new_session.execute(p2p_listener, tcp_stream).await {
             Ok(cid_opt) => {
@@ -249,13 +263,11 @@ impl HdpSessionManager {
 
     // This future should be joined up higher at the [HdpServer] layer
     pub async fn run_peer_container(hdp_session_manager: HdpSessionManager) -> Result<(), NetworkError> {
-        let this = inner!(hdp_session_manager);
-        let peer_container = this.hypernode_peer_layer.clone();
+        let peer_container = {
+            inner!(hdp_session_manager).hypernode_peer_layer.clone()
+        };
 
-        std::mem::drop(this);
-        let _res = peer_container.await;
-
-        Ok(())
+        peer_container.await
     }
 
     /// When the primary port listener receives a new connection, the stream gets sent here for handling
@@ -350,13 +362,14 @@ impl HdpSessionManager {
     }
 
     /// Returns true if the process continued successfully
-    pub fn initiate_update_drill_subroutine(&self, implicated_cid: u64, ticket: Ticket) -> Result<(), NetworkError> {
+    pub fn initiate_update_drill_subroutine(&self, virtual_target: VirtualTargetType, ticket: Ticket) -> Result<(), NetworkError> {
+        let implicated_cid = virtual_target.get_implicated_cid();
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
             let sess = inner!(sess);
             let timestamp = sess.time_tracker.get_global_time_ns();
             let mut state_container = inner_mut!(sess.state_container);
-            sess.initiate_drill_update(timestamp, &mut wrap_inner_mut!(state_container), Some(ticket))
+            sess.initiate_drill_update(timestamp, virtual_target, &mut wrap_inner_mut!(state_container), Some(ticket))
         } else {
             Err(NetworkError::Generic(format!("Unable to initiate drill update subroutine for {} (not an active session)", implicated_cid)))
         }
@@ -385,21 +398,7 @@ impl HdpSessionManager {
     pub fn dispatch_peer_command(&self, implicated_cid: u64, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
-            let sess = inner!(sess);
-            let timestamp = sess.time_tracker.get_global_time_ns();
-                if let Some(cnac) = sess.cnac.as_ref() {
-                    if let Some(to_primary_stream) = sess.to_primary_stream.as_ref() {
-                        // move into the closure without cloning the drill
-                        return cnac.borrow_hyper_ratchet(None, move |drill_opt| {
-                            if let Some(hyper_ratchet) = drill_opt {
-                                let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, peer_command, ticket, timestamp, security_level);
-                                to_primary_stream.unbounded_send(packet).is_ok()
-                            } else {
-                                false
-                            }
-                        });
-                    }
-                }
+            return sess.dispatch_peer_command(ticket, peer_command, security_level).is_ok();
         }
 
         false
@@ -692,7 +691,7 @@ impl HdpSessionManagerInner {
     /// Stores the `signal` inside the internal timed-queue for `implicated_cid`, and then sends `packet` to `target_cid`.
     /// After `timeout`, the closure `on_timeout` is executed
     #[inline]
-    pub fn route_signal_primary(&mut self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + 'static) -> Result<(), String> {
+    pub fn route_signal_primary(&mut self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
         if self.account_manager.hyperlan_cid_is_registered(target_cid) {
             // get the target cid's session
             if let Some(sess) = self.sessions.get(&target_cid) {

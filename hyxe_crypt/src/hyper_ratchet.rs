@@ -16,9 +16,6 @@ pub struct HyperRatchet {
     pub(crate) inner: Arc<HyperRatchetInner>
 }
 
-unsafe impl Send for HyperRatchet {}
-unsafe impl Sync for HyperRatchet {}
-
 /// Returns the approximate size of each hyper ratchet, assuming LOW security level (default)
 pub const fn get_approx_bytes_per_hyper_ratchet() -> usize {
     (2 * ez_pqcrypto::get_approx_bytes_per_container()) +
@@ -228,7 +225,7 @@ pub(crate) struct MessageRatchet {
     inner: Vec<MessageRatchetInner>
 }
 
-///
+/// TODO: Consider using drill_out, pqc_out, drill_in, drill_out. When deserializing on other end, use std::mem::swap to
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct MessageRatchetInner {
     pub(crate) drill: Drill,
@@ -476,14 +473,28 @@ pub mod constructor {
             HyperRatchet::try_from(self).ok()
         }
 
+        /// Updates the internal version
+        pub fn update_version(&mut self, proposed_version: u32) -> Option<()> {
+            self.new_version = proposed_version;
+
+            for container in self.message.inner.iter_mut() {
+                container.drill.as_mut()?.version = proposed_version;
+            }
+
+            self.scramble.drill.as_mut()?.version = proposed_version;
+            Some(())
+        }
+
         /// Sometimes, replacing the CID is useful such as during peer KEM exhcange wherein
-        /// the CIDs between both parties are different
+        /// the CIDs between both parties are different. If a version is supplied, the version
+        /// will be updated
         pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<HyperRatchet> {
             for container in self.message.inner.iter_mut() {
                 container.drill.as_mut()?.cid = cid;
             }
 
             self.scramble.drill.as_mut()?.cid = cid;
+
             self.finish()
         }
     }

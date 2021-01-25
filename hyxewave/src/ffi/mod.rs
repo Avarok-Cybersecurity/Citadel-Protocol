@@ -16,24 +16,19 @@ pub mod command_handler;
 #[derive(Clone)]
 pub struct FFIIO {
     // to send data from rust to native
-    to_ffi_frontier: Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + 'static>>
+    to_ffi_frontier: Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>
 }
 
-unsafe impl Send for FFIIO {}
-/// Safety note: For JNI, each thread gets its thread-local pointer to the JVM. For now, we are okay.
-/// however, in the future, to_ffi_frontier should be protected with a Mutex to cover all cases.
-unsafe impl Sync for FFIIO {}
-
 impl Deref for FFIIO {
-    type Target = Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + 'static>>;
+    type Target = Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>;
 
     fn deref(&self) -> &Self::Target {
         &self.to_ffi_frontier
     }
 }
 
-impl From<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + 'static>> for FFIIO {
-    fn from(input: Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send>) -> Self {
+impl From<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>> for FFIIO {
+    fn from(input: Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>) -> Self {
         Self { to_ffi_frontier: Arc::new(input) }
     }
 }

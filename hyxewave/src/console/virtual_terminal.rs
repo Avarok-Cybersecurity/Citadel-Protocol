@@ -466,6 +466,5 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
 }
 
 pub struct AppThreadSafe(pub Mutex<App<'static, 'static>>) where Self: Send + Sync;
-
 unsafe impl Send for AppThreadSafe {}
 unsafe impl Sync for AppThreadSafe {}

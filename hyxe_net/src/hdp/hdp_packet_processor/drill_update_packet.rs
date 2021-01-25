@@ -1,16 +1,19 @@
 use super::includes::*;
-use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
+use crate::hdp::hdp_packet_processor::primary_group_packet::{ToolsetUpdate, get_proper_hyper_ratchet, get_resp_target_cid_from_header, attempt_kem_as_bob, attempt_kem_as_alice_finish};
+use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 
-pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResult {
+pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
     let session = inner!(session);
     if session.state != SessionState::Connected {
         log::error!("Session state is not connected; dropping drill update packet");
         return PrimaryProcessorResult::Void;
     }
 
-    let cnac = session.cnac.as_ref()?;
+    let cnac_sess = session.cnac.as_ref()?;
     let (header, payload, _, _) = packet.decompose();
-    let (header, payload, hyper_ratchet) = validation::aead::validate(cnac, &header, payload)?;
+    let mut state_container = inner_mut!(session.state_container);
+    let hyper_ratchet = get_proper_hyper_ratchet(header_drill_vers, cnac_sess, &wrap_inner_mut!(state_container), proxy_cid_info)?;
+    let (header, payload) = validation::aead::validate_custom(&hyper_ratchet, &header, payload)?;
     let ref header = header;
     let payload = &payload[..];
 
@@ -23,16 +26,9 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
             log::info!("DO_DRILL_UPDATE STAGE 0 PACKET RECV");
             match validation::do_drill_update::validate_stage0(payload) {
                 Some(transfer) => {
-                    let algorithm = header.algorithm;
-                    let new_drill_version = header.drill_version.get().wrapping_add(1);
-                    let cid = header.session_cid.get();
-
-                    let bob_constructor = HyperRatchetConstructor::new_bob(algorithm, cid, new_drill_version, transfer)?;
-                    let transfer = bob_constructor.stage0_bob()?;
-                    let new_hyper_ratchet = bob_constructor.finish()?;
-                    log::info!("[BOB] success creating HyperRatchet v {}", new_hyper_ratchet.version());
-                    cnac.register_new_hyper_ratchet(new_hyper_ratchet.clone()).ok()?;
-                    let packet = hdp_packet_crafter::do_drill_update::craft_stage1(&hyper_ratchet, transfer, timestamp, security_level);
+                    let resp_target_cid = get_resp_target_cid_from_header(header);
+                    let status = attempt_kem_as_bob(resp_target_cid, header, transfer, &mut state_container.active_virtual_connections, cnac_sess)?;
+                    let packet = hdp_packet_crafter::do_drill_update::craft_stage1(&hyper_ratchet,status, timestamp, resp_target_cid, security_level);
                     PrimaryProcessorResult::ReplyToSender(packet)
                 }
 
@@ -49,15 +45,22 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
             log::info!("DO_DRILL_UPDATE STAGE 1 PACKET RECV");
             match validation::do_drill_update::validate_stage1(payload) {
                 Some(transfer) => {
-                    let mut state_container = inner_mut!(session.state_container);
-                    let mut hyper_ratchet = state_container.drill_update_state.alice_hyper_ratchet.take()?;
-                    hyper_ratchet.stage1_alice(transfer)?;
-                    let new_hyper_ratchet = hyper_ratchet.finish()?;
-                    let vers = new_hyper_ratchet.version();
-                    cnac.register_new_hyper_ratchet(new_hyper_ratchet).ok()?;
-                    log::info!("[ALICE] success registering HyperRatchet v {}", vers);
+                    //let mut state_container = inner_mut!(session.state_container);
+                    let peer_cid = header.session_cid.get();
+                    let target_cid = header.target_cid.get();
+                    let resp_target_cid = get_resp_target_cid_from_header(header);
+                    let needs_truncate = transfer.update_status.requires_truncation();
+                    let constructor = if target_cid != ENDPOINT_ENCRYPTION_OFF { state_container.drill_update_state.p2p_updates.remove(&peer_cid)? } else { state_container.drill_update_state.alice_hyper_ratchet.take()? };
+                    log::info!("Obtained constructor for {}", resp_target_cid);
 
-                    PrimaryProcessorResult::Void
+                    let latest_hr = attempt_kem_as_alice_finish(peer_cid, target_cid, transfer.update_status, &mut state_container.active_virtual_connections, Some(constructor), cnac_sess).ok()?.unwrap_or(hyper_ratchet);
+
+                    if let Some(truncate_vers) = needs_truncate {
+                        let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&latest_hr, truncate_vers, resp_target_cid, timestamp, security_level);
+                        PrimaryProcessorResult::ReplyToSender(truncate_packet)
+                    } else {
+                        PrimaryProcessorResult::Void
+                    }
                 }
 
                 _ => {
@@ -65,6 +68,34 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     PrimaryProcessorResult::Void
                 }
             }
+        }
+
+        // Bob will always receive this, whether the toolset being upgraded is a CNAC or a PeerSessionCrypto
+        // It is up to Alice to make sure she's removed her hyper ratchet before sending this packet
+        packet_flags::cmd::aux::do_drill_update::TRUNCATE => {
+            log::info!("DO_DRILL_UPDATE TRUNCATE PACKET RECV");
+            let truncate_packet = validation::do_drill_update::validate_truncate(payload)?;
+            let resp_target_cid = get_resp_target_cid_from_header(header);
+
+            let mut method = if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
+                let crypt = &mut state_container.active_virtual_connections.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
+                let local_cid = header.target_cid.get();
+                ToolsetUpdate::E2E { crypt, local_cid }
+            } else {
+                // Cnac
+                ToolsetUpdate::SessCNAC(cnac_sess)
+            };
+
+            match method.deregister(truncate_packet.truncate_version) {
+                Ok(_) => {
+                    log::info!("[Toolset Update] Successfully truncated version {}", truncate_packet.truncate_version)
+                },
+                Err(err) => {
+                    log::error!("[Toolset Update] Error truncating vers {}: {:?}", truncate_packet.truncate_version, err);
+                }
+            }
+
+            PrimaryProcessorResult::Void
         }
 
         _ => {

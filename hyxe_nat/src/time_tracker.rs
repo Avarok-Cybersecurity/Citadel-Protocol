@@ -12,8 +12,6 @@ pub struct TimeTracker {
     sync_result: ArcSwap<SynchronizationResult>
 }
 
-unsafe impl Send for TimeTracker {}
-unsafe impl Sync for TimeTracker {}
 
 pub const NTP_SERVERS: &[&str] = &["time.cloudflare.com", "time.google.com", "0.us.pool.ntp.org", "1.us.pool.ntp.org", "2.us.pool.ntp.org", "3.us.pool.ntp.org"];
 const TIMEOUT: Duration = Duration::from_millis(1500);
