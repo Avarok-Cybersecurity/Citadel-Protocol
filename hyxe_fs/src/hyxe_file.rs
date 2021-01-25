@@ -70,7 +70,7 @@ impl HyxeFile {
     /// if `retrieve` is true, then data that is possibly pre-existing is returned. This is synonymous to a "get and set" operation
     pub fn replace_contents<B: ByteSlice>(&mut self, static_hyper_ratchet: &HyperRatchet, bytes: B, retrieve: bool, security_level: SecurityLevel) -> Result<Option<Vec<u8>>, FsError<String>> {
         if self.cid != static_hyper_ratchet.get_cid() {
-            return Err(FsError::Generic("Invalid CID".to_string()));
+            return Err(FsError::Generic("Invalid HyperRatchet CID".to_string()));
         }
 
         static_hyper_ratchet.encrypt(bytes.as_ref()).and_then(|new_encrypted_bytes| {

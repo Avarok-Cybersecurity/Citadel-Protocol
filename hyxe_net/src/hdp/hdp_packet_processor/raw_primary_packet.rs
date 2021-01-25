@@ -7,6 +7,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
     header_obfuscator.on_packet_received(&mut packet)?;
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     let (header, _payload) = packet.parse()?;
+    log::info!("RECV Raw packet: {:?}", &*header);
 
     let target_cid = header.target_cid.get();
     let mut endpoint_cid_info = None;
@@ -71,7 +72,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
         }
 
         packet_flags::cmd::primary::DO_DRILL_UPDATE => {
-            super::drill_update_packet::process(session, packet)
+            super::drill_update_packet::process(session, packet, header_drill_vers, endpoint_cid_info)
         }
 
         packet_flags::cmd::primary::DO_DEREGISTER =>  {

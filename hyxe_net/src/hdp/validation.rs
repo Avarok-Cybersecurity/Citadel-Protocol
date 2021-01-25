@@ -85,6 +85,7 @@ pub(crate) mod group {
     use hyxe_fs::io::SyncIO;
     use crate::hdp::hdp_packet_crafter::group::DUAL_ENCRYPTION_ON;
     use hyxe_crypt::drill::SecurityLevel;
+    use hyxe_crypt::toolset::UpdateStatus;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
     pub(crate) fn validate<'a, 'b: 'a>(hyper_ratchet: &HyperRatchet, security_level: SecurityLevel, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
@@ -129,8 +130,29 @@ pub(crate) mod group {
     #[derive(Serialize, Deserialize)]
     #[allow(variant_size_differences)]
     pub enum GroupHeaderAck {
-        ReadyToReceive { fast_msg: bool, initial_window: Option<RangeInclusive<u32>>, transfer: Option<BobToAliceTransfer> },
+        ReadyToReceive { fast_msg: bool, initial_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus },
         NotReady { fast_msg: bool }
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[allow(variant_size_differences)]
+    pub enum KemTransferStatus {
+        StatusNoTransfer(UpdateStatus),
+        Empty,
+        Omitted,
+        Some(BobToAliceTransfer, UpdateStatus)
+    }
+
+    impl KemTransferStatus {
+        pub fn requires_truncation(&self) -> Option<u32> {
+            match self {
+                KemTransferStatus::StatusNoTransfer(UpdateStatus::CommittedNeedsSynchronization { old_version, ..}) | KemTransferStatus::Some(_, UpdateStatus::CommittedNeedsSynchronization { old_version, ..}) => {
+                    Some(*old_version)
+                }
+
+                _ =>  None
+            }
+        }
     }
 
     /// Returns None if the packet is invalid. Returns Some(is_ready_to_accept) if the packet is valid
@@ -241,14 +263,20 @@ pub(crate) mod do_register {
 
 pub(crate) mod do_drill_update {
 
-    use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
+    use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
+    use crate::hdp::hdp_packet_crafter::do_drill_update::{TruncatePacket, Stage1UpdatePacket};
+    use hyxe_fs::io::SyncIO;
 
     pub(crate) fn validate_stage0(payload: &[u8]) -> Option<AliceToBobTransfer<'_>> {
         AliceToBobTransfer::deserialize_from(payload as &[u8])
     }
 
-    pub(crate) fn validate_stage1(payload: &[u8]) -> Option<BobToAliceTransfer> {
-        BobToAliceTransfer::deserialize_from(payload as &[u8])
+    pub(crate) fn validate_stage1(payload: &[u8]) -> Option<Stage1UpdatePacket> {
+        Stage1UpdatePacket::deserialize_from_vector(payload as &[u8]).ok()
+    }
+
+    pub(crate) fn validate_truncate(payload: &[u8]) -> Option<TruncatePacket> {
+        TruncatePacket::deserialize_from_vector(payload).ok()
     }
 }
 
@@ -512,7 +540,11 @@ pub(crate) mod aead {
     pub(crate) fn validate_custom<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(hyper_ratchet: &HyperRatchet, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes)> {
         let header_bytes = header.as_ref();
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
-        hyper_ratchet.validate_message_packet_in_place_split(Some(header.security_level.into()), header_bytes, &mut payload).ok()?;
+        if let Err(err) = hyper_ratchet.validate_message_packet_in_place_split(Some(header.security_level.into()), header_bytes, &mut payload) {
+            log::error!("AES-GCM stage failed: {:?}. Supplied Ratchet Version: {} | Expected Ratchet Version: {} | Header CID: {} | Target CID: {}", err, hyper_ratchet.version(), header.drill_version.get(), header.session_cid.get(), header.target_cid.get());
+            return None;
+        }
+
         Some((header, payload.freeze()))
     }
 }

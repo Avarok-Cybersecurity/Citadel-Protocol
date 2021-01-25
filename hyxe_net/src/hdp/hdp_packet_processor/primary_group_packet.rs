@@ -1,13 +1,16 @@
 use super::includes::*;
-use crate::hdp::state_container::{StateContainerInner, GroupKey, FileKey};
+use crate::hdp::state_container::{StateContainerInner, GroupKey, FileKey, VirtualConnection};
 use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::hdp::session_queue_handler::QueueWorkerResult;
 use atomic::Ordering;
-use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
+use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck, KemTransferStatus};
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer, HyperRatchetConstructor};
+use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, HyperRatchetConstructor};
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+use crate::functional::IfTrueConditional;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
+use crate::error::NetworkError;
+use std::collections::HashMap;
 
 /// This will handle an inbound primary group packet
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
@@ -37,9 +40,11 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
         let hyper_ratchet = get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess, &wrap_inner_mut!(state_container), proxy_cid_info)?;
         let security_level = header.security_level.into();
-
+        log::info!("[Peer HyperRatchet] Obtained version {} w/ CID {} (this CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
         match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
             Some((header, payload)) => {
+                state_container.meta_expiry_state.on_event_confirmation();
+
                 match cmd_aux {
                     packet_flags::cmd::aux::group::GROUP_HEADER => {
                         log::info!("RECV GROUP HEADER");
@@ -55,7 +60,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                     //let target_cid_header = header.target_cid.get();
                                     // for HyperLAN conns, this is true
 
-                                    let resp_target_cid = recipient_valid_gate(&virtual_target, wrap_inner_mut!(state_container))?;
+                                    let resp_target_cid = get_resp_target_cid(&virtual_target)?;
 
                                     // the below will return None if not ready to accept
                                     let initial_wave_window = state_container.on_group_header_received(&header, group_receiver_config, virtual_target);
@@ -71,20 +76,26 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                             if let Some(group) = state_container.inbound_groups.get(&key) {
                                                 if group.has_begun {
                                                     if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
-                                                        log::error!("Inbound group {} has expired; removing for {}.", group_id, peer_cid);
-                                                        if let Some(group) = state_container.inbound_groups.remove(&key) {
-                                                            if group.object_id != 0 {
-                                                                // belongs to a file. Delete file; stop transmission
-                                                                let key = FileKey::new(peer_cid, group.object_id);
-                                                                if let Some(_file) = state_container.inbound_files.remove(&key) {
-                                                                    // stop the stream to the HD
-                                                                    //file.stream_to_hd.close_channel();
-                                                                    log::warn!("File transfer expired");
-                                                                    // TODO: Create file FIN
+                                                        if state_container.meta_expiry_state.expired() {
+                                                            log::error!("Inbound group {} has expired; removing for {}.", group_id, peer_cid);
+                                                            if let Some(group) = state_container.inbound_groups.remove(&key) {
+                                                                if group.object_id != 0 {
+                                                                    // belongs to a file. Delete file; stop transmission
+                                                                    let key = FileKey::new(peer_cid, group.object_id);
+                                                                    if let Some(_file) = state_container.inbound_files.remove(&key) {
+                                                                        // stop the stream to the HD
+                                                                        //file.stream_to_hd.close_channel();
+                                                                        log::warn!("File transfer expired");
+                                                                        // TODO: Create file FIN
+                                                                    }
                                                                 }
                                                             }
+
+                                                            QueueWorkerResult::Complete
+                                                        } else {
+                                                            log::info!("[X-04] Other inbound groups being processed; patiently awaiting group {}", group_id);
+                                                            QueueWorkerResult::Incomplete
                                                         }
-                                                        QueueWorkerResult::Complete
                                                     } else {
                                                         // The inbound group is still receiving, and it hasn't expired. Keep polling
                                                         QueueWorkerResult::Incomplete
@@ -99,18 +110,19 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                             }
                                         });
                                     }
-                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, initial_wave_window, false, timestamp, None, security_level);
+                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, initial_wave_window, false, timestamp, KemTransferStatus::Empty, security_level);
                                     PrimaryProcessorResult::ReplyToSender(group_header_ack)
                                 }
 
                                 GroupHeader::FastMessage(plaintext, virtual_target, transfer) => {
                                     // Here, we do not go through all the fiasco like above. We just forward the message to the kernel, then send an ACK
                                     // so that the sending side can be notified of a successful send
-                                    let resp_target_cid = recipient_valid_gate(&virtual_target, wrap_inner_mut!(state_container))?;
+                                    let resp_target_cid = get_resp_target_cid(&virtual_target)?;
                                     let object_id = header.wave_id.get();
                                     let ticket = header.context_info.get().into();
                                     let timestamp = session.time_tracker.get_global_time_ns();
                                     let plaintext = SecBuffer::from(plaintext);
+                                    // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
 
                                     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
                                         // send to channel
@@ -126,17 +138,8 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
 
                                     // now, update the keys (if applicable)
                                     let transfer = if let Some(transfer) = transfer {
-
-                                        if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
-                                            let crypt = &mut state_container.active_virtual_connections.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
-                                            let update = ToolsetUpdate::E2E { crypt, local_cid: header.target_cid.get() };
-                                            Some(update_toolset_as_bob(update, transfer, header.algorithm)?)
-                                        } else {
-                                            let method = ToolsetUpdate::SessCNAC(cnac_sess);
-                                            Some(update_toolset_as_bob(method, transfer, header.algorithm)?)
-                                        }
-
-                                    } else { None };
+                                        attempt_kem_as_bob(resp_target_cid, &header, transfer, &mut state_container.active_virtual_connections, cnac_sess)?
+                                    } else { KemTransferStatus::Empty };
 
                                     let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer, security_level);
                                     PrimaryProcessorResult::ReplyToSender(group_header_ack)
@@ -152,7 +155,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                         log::info!("RECV GROUP HEADER ACK");
                         match validation::group::validate_header_ack(&payload) {
                             Some(GroupHeaderAck::ReadyToReceive { initial_window, transfer, fast_msg }) => {
-
+                                let timestamp = session.time_tracker.get_global_time_ns();
                                 // we need to begin sending the data
                                 // valid and ready to accept!
                                 let tcp_only = session.tcp_only;
@@ -169,22 +172,26 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                 let group_id = header.group.get();
 
                                 let target_cid = header.target_cid.get();
-                                let toolset_update_method = if target_cid != ENDPOINT_ENCRYPTION_OFF {
-                                    let crypt = &mut state_container.active_virtual_connections.get_mut(&peer_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
-                                    let crypt = unsafe { &mut *(&mut *crypt as *mut PeerSessionCrypto) };
-                                    ToolsetUpdate::E2E { crypt, local_cid: header.target_cid.get() }
-                                } else {
-                                    ToolsetUpdate::SessCNAC(cnac_sess)
-                                };
+                                let needs_truncate = transfer.requires_truncation();
 
-                                if !state_container.on_group_header_ack_received(object_id, peer_cid, group_id, initial_wave_window, transfer, toolset_update_method, fast_msg) {
+                                if state_container.on_group_header_ack_received(object_id, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg, cnac_sess) {
+                                    log::info!("[Toolset Update] Needs truncation? {:?}", &needs_truncate);
+                                    // now, we need to do one last thing. If the previous function performed an update inside the toolset, it is also possible that we need to truncate
+                                    if let Some(truncate_vers) = needs_truncate {
+                                        // we need to send a truncate packet
+                                        let target_cid = if target_cid != ENDPOINT_ENCRYPTION_OFF { peer_cid } else { ENDPOINT_ENCRYPTION_OFF };
+                                        let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&hyper_ratchet, truncate_vers, target_cid, timestamp, security_level);
+                                        log::info!("About to send TRUNCATE packet to remove v {} | HR v {} | HR CID {}", truncate_vers, hyper_ratchet.version(), hyper_ratchet.get_cid());
+                                        PrimaryProcessorResult::ReplyToSender(truncate_packet)
+                                    } else {
+                                        PrimaryProcessorResult::Void
+                                    }
+                                } else {
                                     if tcp_only {
                                         PrimaryProcessorResult::EndSession("TCP sockets disconnected")
                                     } else {
                                         PrimaryProcessorResult::EndSession("UDP sockets disconnected")
                                     }
-                                } else {
-                                    PrimaryProcessorResult::Void
                                 }
                             }
 
@@ -310,7 +317,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
             }
 
             _ => {
-                log::error!("Packet failed AES-GCM validation stage");
+                log::error!("Packet failed AES-GCM validation stage (self node: {})", session.is_server.if_true("server").if_false("client"));
                 PrimaryProcessorResult::Void
             }
         }
@@ -354,11 +361,13 @@ pub(super) fn get_proper_hyper_ratchet<K: ExpectedInnerTargetMut<StateContainerI
         // since this conn was proxied, we need to go into the virtual conn layer to get the peer session crypto. HOWEVER:
         // In the case that a packet is proxied back to the source, the adjacent endpoint inscribes this node's cid
         // inside the target_cid (that way the packet routes correctly to this node). However, this is problematic here
-        // since we use the original implica
+        // since we use the original implicated CID
         if let Some(vconn) = state_container.active_virtual_connections.get(&original_implicated_cid) {
-            vconn.get_endpoint_hyper_ratchet(|hyper_ratchet| {
-                hyper_ratchet.clone()
-            })
+            log::info!("[Peer HyperRatchet] v{} from vconn w/ {} (local username: {})", header_drill_vers, original_implicated_cid, sess_cnac.get_username());
+            // BUG: in tight concurrency, the header vers supplied returns none. The bottom returns None for alice when receiving
+            // a GROUP_HEADER_ACK. More info: Logs show that the moment deregistration of an HR occurs, following packets still use that deregistered version.
+            //
+            vconn.borrow_endpoint_hyper_ratchet(Some(header_drill_vers)).cloned()
         } else {
             log::error!("Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
             return None;
@@ -372,21 +381,14 @@ pub(super) fn get_proper_hyper_ratchet<K: ExpectedInnerTargetMut<StateContainerI
 }
 
 /// returns the relative `resp_target_cid`
-pub fn recipient_valid_gate<K: ExpectedInnerTargetMut<StateContainerInner>>(virtual_target: &VirtualConnectionType, state_container: InnerParameterMut<K, StateContainerInner>) -> Option<u64> {
+pub fn get_resp_target_cid(virtual_target: &VirtualConnectionType) -> Option<u64> {
     match virtual_target {
         VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => {
             // by logic of the network, target_cid must equal this node's CID
             // since we have entered this process function
             //debug_assert_eq!(sess_implicated_cid, target_cid);
             //debug_assert_eq!(target_cid_header, target_cid);
-            // the current node must be in a virtual connection with the original implicated_cid
-            // the resp_target_cid will be the original sender of this packet, being `implicated_cid`
-            // of the deserialized vconn type (order did not flip)
-            if state_container.active_virtual_connections.contains_key(implicated_cid) {
-                Some(*implicated_cid)
-            } else {
-                None
-            }
+            Some(*implicated_cid)
         }
 
         VirtualConnectionType::HyperLANPeerToHyperLANServer(_implicated_cid) => {
@@ -400,40 +402,175 @@ pub fn recipient_valid_gate<K: ExpectedInnerTargetMut<StateContainerInner>>(virt
     }
 }
 
+pub fn get_resp_target_cid_from_header(header: &LayoutVerified<&[u8], HdpHeader>) -> u64 {
+    if header.target_cid.get() != ENDPOINT_ENCRYPTION_OFF {
+        header.session_cid.get()
+    } else {
+        ENDPOINT_ENCRYPTION_OFF
+    }
+}
+
 pub enum ToolsetUpdate<'a> {
     E2E { crypt: &'a mut PeerSessionCrypto, local_cid: u64 },
     SessCNAC(&'a ClientNetworkAccount),
 }
 
 impl ToolsetUpdate<'_> {
-    pub(crate) fn update(self, constructor: HyperRatchetConstructor) -> Option<()> {
+    pub(crate) fn update(&mut self, constructor: HyperRatchetConstructor, local_is_alice: bool) -> Result<KemTransferStatus, ()> {
         match self {
             ToolsetUpdate::E2E { crypt, local_cid } => {
-                crypt.commit_next_hyper_ratchet_version(constructor.finish_with_custom_cid(local_cid)?)
+                Self::update_inner(crypt, constructor, local_is_alice, *local_cid)
             }
 
+            // TODO: Perfect concurrent updating above, then make the below account for the possibility of both server/client making changes
             ToolsetUpdate::SessCNAC(cnac) => {
-                cnac.register_new_hyper_ratchet(constructor.finish()?).ok()
+                cnac.visit_mut(|mut inner| {
+                    let local_cid = inner.cid;
+                    Self::update_inner(&mut inner.crypt_container, constructor, local_is_alice, local_cid)
+                })
             }
         }
     }
 
-    #[allow(dead_code)]
+    fn update_inner(crypt: &mut PeerSessionCrypto, constructor: HyperRatchetConstructor, local_is_alice: bool, local_cid: u64) -> Result<KemTransferStatus, ()> {
+        log::info!("[E2E] Calling UPDATE (local_is_alice: {}. Update in progress: {})", local_is_alice, crypt.update_in_progress);
+        // if local is alice (relative), then update_in_progress will be expected to be true. As such, we don't want this to occur
+        if crypt.update_in_progress && !local_is_alice {
+            // update is in progress. We only update if local is NOT the initiator (this implies the packet triggering this was sent by the initiator, which takes the preference as desired)
+            // if local is initiator, then the packet was sent by the non-initiator, and as such, we don't update on local
+            if crypt.local_is_initiator {
+                return Ok(KemTransferStatus::Omitted);
+            }
+        }
+
+        // There is one last special possibility. Let's say the initiator spam sends a bunch of FastMessage packets. Since the initiator's local won't have the appropriate proposed version ID
+        // we need to ensure that it gets the right version, The crypt container will take care of that for us
+        let (transfer, status) = crypt.commit_next_hyper_ratchet_version(constructor, local_cid, local_is_alice)?;
+
+        let ret = if let Some(transfer) = transfer {
+            KemTransferStatus::Some(transfer, status)
+        } else {
+            // if it returns with None, and local isn't alice, return an error since we expected Some
+            if !local_is_alice {
+                return Err(());
+            }
+
+            KemTransferStatus::StatusNoTransfer(status)
+        };
+
+        Ok(ret)
+    }
+
+    pub(crate) fn deregister(&mut self, version: u32) -> Result<(), NetworkError> {
+        match self {
+            ToolsetUpdate::E2E { crypt, .. } => {
+                crypt.deregister_oldest_hyper_ratchet(version).map_err(|err| NetworkError::Generic(err.to_string()))
+            }
+
+            ToolsetUpdate::SessCNAC(cnac) => {
+                cnac.deregister_oldest_hyper_ratchet(version).map_err(|err| NetworkError::Generic(err.to_string()))
+            }
+        }
+    }
+
+    /// Unlocks the internal state, allowing future upgrades to the system. Returns the latest hyper ratchet
+    pub(crate) fn unlock(self) -> HyperRatchet {
+        match self {
+            ToolsetUpdate::E2E { crypt, .. } => {
+                crypt.update_in_progress = false;
+                log::info!("Successfully toggled update_in_progress");
+                crypt.get_hyper_ratchet(None).cloned().unwrap()
+            }
+
+            ToolsetUpdate::SessCNAC(cnac) => {
+                cnac.visit_mut(|mut inner| {
+                    inner.crypt_container.update_in_progress = false;
+                    inner.crypt_container.get_hyper_ratchet(None).cloned().unwrap()
+                })
+            }
+        }
+    }
+
     pub(crate) fn get_cid(&self) -> u64 {
         match self {
-            ToolsetUpdate::E2E { local_cid, ..} => *local_cid,
+            ToolsetUpdate::E2E { local_cid, .. } => *local_cid,
             ToolsetUpdate::SessCNAC(cnac) => cnac.get_cid()
         }
     }
 }
 
-fn update_toolset_as_bob(update_method: ToolsetUpdate, transfer: AliceToBobTransfer<'_>, algorithm: u8) -> Option<BobToAliceTransfer> {
+/// peer_cid: from header.session_cid
+/// target_cid: from header.target_cid
+///
+/// Returns: Ok(latest_hyper_ratchet)
+pub(crate) fn attempt_kem_as_alice_finish(peer_cid: u64, target_cid: u64, transfer: KemTransferStatus, vconns: &mut HashMap<u64, VirtualConnection>, constructor: Option<HyperRatchetConstructor>, cnac_sess: &ClientNetworkAccount) -> Result<Option<HyperRatchet>, ()> {
+    let mut toolset_update_method = if target_cid != ENDPOINT_ENCRYPTION_OFF {
+        let crypt = &mut vconns.get_mut(&peer_cid).ok_or(())?.endpoint_container.as_mut().ok_or(())?.endpoint_crypto;
+        ToolsetUpdate::E2E { crypt, local_cid: target_cid }
+    } else {
+        ToolsetUpdate::SessCNAC(cnac_sess)
+    };
+
+    let requires_truncation = transfer.requires_truncation();
+
+    match transfer {
+        KemTransferStatus::Some(transfer, ..) => {
+            if let Some(mut constructor) = constructor {
+                if let None = constructor.stage1_alice(transfer) {
+                    log::error!("Unable to construct hyper ratchet");
+                    return Err(()); // return true, otherwise, the session ends
+                }
+
+                if let Err(_) = toolset_update_method.update(constructor, true) {
+                    log::error!("Unable to update container (X-01)");
+                    return Err(());
+                }
+
+                if let Some(version) = requires_truncation {
+                    if let Err(err) = toolset_update_method.deregister(version) {
+                        log::error!("[Toolset Update] Unable to update Alice's toolset: {:?}", err);
+                        return Err(());
+                    }
+                }
+
+                Ok(Some(toolset_update_method.unlock()))
+            } else {
+                log::warn!("No constructor, yet, KemTransferStatus is Some??");
+                Ok(None)
+            }
+        }
+
+        KemTransferStatus::Omitted => {
+            log::warn!("KEM was omitted (is adjacent node's hold not being released (unexpected), or tight concurrency (expected)?)");
+            Ok(Some(toolset_update_method.unlock()))
+        }
+
+        // in this case, wtf?
+        KemTransferStatus::StatusNoTransfer(_status) => {
+            log::error!("Unaccounted program logic @ StatusNoTransfer");
+            std::process::exit(-1);
+        }
+
+        _ => {
+            Ok(None)
+        }
+    }
+}
+
+pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: AliceToBobTransfer<'_>, vconns: &mut HashMap<u64, VirtualConnection>, cnac_sess: &ClientNetworkAccount) -> Option<KemTransferStatus> {
+    if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
+        let crypt = &mut vconns.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
+        let method = ToolsetUpdate::E2E { crypt, local_cid: header.target_cid.get() };
+        update_toolset_as_bob(method, transfer, header.algorithm)
+    } else {
+        let method = ToolsetUpdate::SessCNAC(cnac_sess);
+        update_toolset_as_bob(method, transfer, header.algorithm)
+    }
+}
+
+fn update_toolset_as_bob(mut update_method: ToolsetUpdate, transfer: AliceToBobTransfer<'_>, algorithm: u8) -> Option<KemTransferStatus> {
     let cid = update_method.get_cid();
     let new_version = transfer.get_declared_new_version();
     let constructor = HyperRatchetConstructor::new_bob(algorithm, cid, new_version, transfer)?;
-    let transfer = constructor.stage0_bob()?;
-
-    update_method.update(constructor)?;
-
-    Some(transfer)
+    Some(update_method.update(constructor, false).ok()?)
 }

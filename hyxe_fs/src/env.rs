@@ -1,6 +1,7 @@
 use std::fs::create_dir_all as mkdir;
 use std::sync::Mutex;
 use std::net::SocketAddr;
+use crate::io::FsError;
 
 /// Home directory
 pub const BASE_NAME: &'static str = ".HyxeWave";
@@ -90,19 +91,19 @@ fn append_to_path(base: String, addition: &'static str) -> String {
 }
 
 /// Sets up local directories that are pre-requisite to launching either client or server application
-pub fn setup_directories(bind_addr: SocketAddr, home_dir: Option<String>) -> bool {
+pub fn setup_directories(bind_addr: SocketAddr, home_dir: Option<String>) -> Result<(), FsError<String>> {
     if !setup_directory_w_bind_addr(check_ipv6(bind_addr).as_str(), home_dir) {
-        return false
+        return Err(FsError::IoError("Unable to access base directory, or invalid home dir configuration".to_string()))
     }
 
-    let j = mkdir(HYXE_HOME.lock().unwrap().as_ref().unwrap().as_str()).is_ok();
-    j &&
-        mkdir(HYXE_NAC_DIR_BASE.lock().unwrap().as_ref().unwrap().as_str()).is_ok() &&
-        mkdir(HYXE_NAC_DIR_IMPERSONAL.lock().unwrap().as_ref().unwrap().as_str()).is_ok() &&
-        mkdir(HYXE_NAC_DIR_PERSONAL.lock().unwrap().as_ref().unwrap().as_str()).is_ok() &&
-        mkdir(HYXE_SERVER_DIR.lock().unwrap().as_ref().unwrap().as_str()).is_ok() &&
-        mkdir(HYXE_CONFIG_DIR.lock().unwrap().as_ref().unwrap().as_str()).is_ok() &&
-        mkdir(HYXE_VIRTUAL_DIR.lock().unwrap().as_ref().unwrap().as_str()).is_ok()
+    let base = mkdir(HYXE_HOME.lock().unwrap().as_ref().unwrap().as_str());
+    base.and(mkdir(HYXE_NAC_DIR_BASE.lock().unwrap().as_ref().unwrap().as_str()))
+        .and(mkdir(HYXE_NAC_DIR_IMPERSONAL.lock().unwrap().as_ref().unwrap().as_str()))
+        .and(mkdir(HYXE_NAC_DIR_PERSONAL.lock().unwrap().as_ref().unwrap().as_str()))
+        .and(mkdir(HYXE_SERVER_DIR.lock().unwrap().as_ref().unwrap().as_str()))
+        .and(mkdir(HYXE_CONFIG_DIR.lock().unwrap().as_ref().unwrap().as_str()))
+        .and(mkdir(HYXE_VIRTUAL_DIR.lock().unwrap().as_ref().unwrap().as_str()))
+        .map_err(|err| FsError::IoError(err.to_string()))
 }
 
 fn check_ipv6(bind_addr_sck: SocketAddr) -> String {

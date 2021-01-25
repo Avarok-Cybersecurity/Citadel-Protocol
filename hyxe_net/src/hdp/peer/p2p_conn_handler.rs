@@ -11,11 +11,11 @@ use crate::hdp::hdp_server::{HdpServerResult, HdpServer, Ticket};
 use tokio::sync::oneshot::{Receiver, Sender, channel};
 use crate::hdp::peer::peer_layer::{PeerSignal, PeerConnectionType};
 use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
-use crate::functional::IfEqConditional;
 use crate::hdp::outbound_sender::OutboundTcpSender;
 use crate::hdp::hdp_packet::HeaderObfuscator;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::drill::SecurityLevel;
+use crate::functional::IfTrueConditional;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
@@ -33,7 +33,7 @@ impl DirectP2PRemote {
 
 impl Drop for DirectP2PRemote {
     fn drop(&mut self) {
-        log::info!("[DirectP2PRemote] dropping p2p connection (type: {})...", self.from_listener.if_eq(true, "listener").if_false("client"));
+        log::info!("[DirectP2PRemote] dropping p2p connection (type: {})...", self.from_listener.if_true("listener").if_false("client"));
         if let Some(stopper) = self.stopper.take() {
             if let Err(_) = stopper.send(()) {
                 //log::error!("Unable to alert p2p-stopper")
@@ -44,16 +44,18 @@ impl Drop for DirectP2PRemote {
 
 #[allow(unreachable_code, warnings)]
 pub async fn p2p_conn_handler(mut p2p_listener: TcpListener, session: HdpSession) -> Result<(), NetworkError> {
-    let sess = inner!(session);
-    let ref kernel_tx = sess.kernel_tx.clone();
-    let ref implicated_cid = sess.implicated_cid.clone();
-    std::mem::drop(sess);
-    let weak = session.as_weak();
-    std::mem::drop(session);
+    let (ref kernel_tx, ref implicated_cid, ref weak) = {
+        let sess = inner!(session);
+        let kernel_tx = sess.kernel_tx.clone();
+        let implicated_cid = sess.implicated_cid.clone();
+        std::mem::drop(sess);
+        let weak = session.as_weak();
+        (kernel_tx, implicated_cid, weak)
+    };
 
     log::info!("[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
     while let Some(p2p_stream) = p2p_listener.next().await {
-        let session = HdpSession::upgrade_weak(&weak).ok_or(NetworkError::InternalError("Unable to upgrade Weak"))?;
+        let session = HdpSession::upgrade_weak(weak).ok_or(NetworkError::InternalError("Unable to upgrade Weak"))?;
         let sess = inner!(session);
         if sess.state != SessionState::Connected {
             log::warn!("Blocked an eager p2p connection (session state not yet connected)");
@@ -85,7 +87,7 @@ fn handle_p2p_stream(p2p_stream: TcpStream, implicated_cid: Arc<Atomic<Option<u6
     // p2p endpoint crypto, so a rogue connector wouldn't be able to do anything without compromising the crypto
     let remote_peer = p2p_stream.peer_addr()?;
     let local_bind_addr = p2p_stream.local_addr()?;
-    log::info!("[P2P-stream {}] New stream from {:?}", from_listener.if_eq(true, "listener").if_false("client"), &remote_peer);
+    log::info!("[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), &remote_peer);
     let (sink, stream) = misc::net::safe_split_stream(p2p_stream);
     let (p2p_primary_stream_tx, p2p_primary_stream_rx) = unbounded();
     let p2p_primary_stream_tx = OutboundTcpSender::from(p2p_primary_stream_tx);
@@ -127,14 +129,14 @@ fn handle_p2p_stream(p2p_stream: TcpStream, implicated_cid: Arc<Atomic<Option<u6
                     log::warn!("Unable to find vconn for cid {}", peer_cid);
                 }
             } else {
-                log::warn!("Removed stale *{}* P2P connection to {:?}", conn.from_listener.if_eq(true, "listener").if_false("client"), remote_peer);
+                log::warn!("Removed stale *{}* P2P connection to {:?}", conn.from_listener.if_true("listener").if_false("client"), remote_peer);
             }
         }
     });
 
     let future = async move {
         if let Err(err) = futures::future::try_join3(writer_future, reader_future, stopper_future).await {
-            log::info!("[P2P-stream] P2P session ending. Reason: {}", err.to_string());
+            log::info!("[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
         }
 
         log::info!("[P2P-stream] Dropping tri-joined future");
@@ -207,7 +209,7 @@ fn send_hole_punch_packet(session: HdpSession, signal: PeerSignal, endpoint_hype
     let p2p_outbound_stream = p2p_outbound_stream_opt.unwrap_or_else(|| sess.to_primary_stream.as_ref().unwrap());
     let timestamp = sess.time_tracker.get_global_time_ns();
     let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal_endpoint(&endpoint_hyper_ratchet, signal, ticket, timestamp, expected_peer_cid, security_level);
-    log::info!("***ABT TO SEND {} PACKET***", p2p_outbound_stream_opt.is_some().if_eq(true, "SUCCESS").if_false("FAILURE"));
+    log::info!("***ABT TO SEND {} PACKET***", p2p_outbound_stream_opt.is_some().if_true("SUCCESS").if_false("FAILURE"));
     p2p_outbound_stream.unbounded_send(packet)
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
 }

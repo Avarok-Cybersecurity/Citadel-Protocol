@@ -16,6 +16,11 @@ use std::sync::Arc;
 use hyxe_crypt::drill::SecurityLevel;
 use serde::{Serialize, Deserialize};
 use hyxe_fs::prelude::SyncIO;
+use crate::macros::SyncContextRequirements;
+
+
+pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
+impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
 
 #[derive(Default)]
 /// When HyperLAN client A needs to send a POST_REGISTER signal to HyperLAN client B (who is disconnected),
@@ -36,11 +41,11 @@ define_outer_struct_wrapper!(HyperNodePeerLayer, HyperNodePeerLayerInner);
 pub struct TrackedPosting {
     pub(crate) signal: PeerSignal,
     pub(crate) key: delay_queue::Key,
-    pub(crate) on_timeout: Box<dyn FnOnce(PeerSignal) + 'static>
+    pub(crate) on_timeout: Box<dyn PeerLayerTimeoutFunction>
 }
 
 impl TrackedPosting {
-    pub fn new(signal: PeerSignal, key: delay_queue::Key, on_timeout: impl FnOnce(PeerSignal) + 'static) -> Self {
+    pub fn new(signal: PeerSignal, key: delay_queue::Key, on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements) -> Self {
         Self { signal, key, on_timeout: Box::new(on_timeout) }
     }
 }
@@ -282,7 +287,7 @@ impl HyperNodePeerLayer {
     /// NOTE: the ticket MUST be unique per session, otherwise unexpired items may disappear unnecessarily! If the ticket ID's are provided
     /// by the HyperLAN client's side, this should work out
     #[allow(unused_results)]
-    pub fn insert_tracked_posting(&self, implicated_cid: u64, timeout: Duration, ticket: Ticket, signal: PeerSignal, on_timeout: impl FnOnce(PeerSignal) + 'static) -> bool {
+    pub fn insert_tracked_posting(&self, implicated_cid: u64, timeout: Duration, ticket: Ticket, signal: PeerSignal, on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements) -> bool {
         let mut this = inner_mut!(self);
         let delay_key = this.delay_queue
             .insert((implicated_cid, ticket), timeout);
@@ -304,7 +309,7 @@ impl HyperNodePeerLayer {
 
     /// Useful for entries that will only have a bried lifetime in the `observed_postings` structure. Will only allocated one spot
     #[allow(unused_results, dead_code)]
-    pub fn insert_provisional_posting(&self, implicated_cid: u64, timeout: Duration, ticket: Ticket, signal: PeerSignal, on_timeout: impl FnOnce(PeerSignal) + 'static) -> bool {
+    pub fn insert_provisional_posting(&self, implicated_cid: u64, timeout: Duration, ticket: Ticket, signal: PeerSignal, on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements) -> bool {
         let mut this = inner_mut!(self);
         let delay_key = this.delay_queue
             .insert((implicated_cid, ticket), timeout);

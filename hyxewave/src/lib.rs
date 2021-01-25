@@ -26,7 +26,6 @@ pub mod re_exports {
     pub use hyxe_net::re_imports::{UnboundedSender, UnboundedReceiver, BufMut, unbounded};
     pub use tokio::task::spawn;
     pub use parking_lot::{Mutex, const_mutex};
-    pub use hyxe_net::hdp::AssertSendSafeFuture;
     pub use tokio::runtime::{Builder, Runtime};
     pub use hyxe_net::hdp::hdp_server::Ticket;
 }

@@ -6,7 +6,7 @@ use crate::error::NetworkError;
 use crate::hdp::state_container::VirtualConnectionType;
 use crate::hdp::outbound_sender::UnboundedReceiver;
 use futures::{Sink, Stream};
-use futures::task::{Context, Poll, Waker};
+use futures::task::{Context, Poll};
 use tokio::macros::support::Pin;
 use std::fmt::Debug;
 use crate::hdp::peer::peer_layer::PeerConnectionType;
@@ -24,8 +24,7 @@ pub struct PeerChannel {
 }
 
 impl PeerChannel {
-    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>) -> (Self, tokio::sync::oneshot::Receiver<Waker>) {
-        let (waker_send, waker_recv) = tokio::sync::oneshot::channel();
+    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>) -> Self {
         let implicated_cid = vconn_type.get_implicated_cid();
         let send_half = PeerChannelSendHalf {
             server_remote,
@@ -42,11 +41,10 @@ impl PeerChannel {
             target_cid,
             vconn_type,
             channel_id,
-            is_alive,
-            waker_send: Some(waker_send)
+            is_alive
         };
 
-        (PeerChannel { send_half, recv_half }, waker_recv)
+        PeerChannel { send_half, recv_half }
     }
 
     /// Gets the CID of the endpoint
@@ -61,17 +59,7 @@ impl PeerChannel {
 
     /// Gets the metadata of the virtual connection
     pub fn get_peer_conn_type(&self) -> Option<PeerConnectionType> {
-        match self.send_half.vconn_type {
-            VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                Some(PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid))
-            }
-
-            VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => {
-                Some(PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid))
-            }
-
-            _ => None
-        }
+        self.send_half.vconn_type.try_as_peer_connection()
     }
 
     /// In order to use the [PeerChannel] properly, split must be called in order to receive
@@ -146,8 +134,7 @@ pub struct PeerChannelRecvHalf {
     target_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
-    is_alive: Arc<AtomicBool>,
-    waker_send: Option<tokio::sync::oneshot::Sender<Waker>>
+    is_alive: Arc<AtomicBool>
 }
 
 impl Stream for PeerChannelRecvHalf {
@@ -159,34 +146,19 @@ impl Stream for PeerChannelRecvHalf {
             log::info!("[POLL] closing PeerChannel RecvHalf");
             Poll::Ready(None)
         } else {
-            // on first poll, we need to send the waker. No messages will be queued though
-            if let Some(waker_send) = self.waker_send.take() {
-                if let Err(_) = waker_send.send(cx.waker().clone()) {
-                    log::error!("[Channel] SendHalf has dropped");
-                    self.is_alive.store(false, Ordering::SeqCst);
-                    return Poll::Ready(None)
-                } else {
-                    Poll::Pending
-                }
-            } else {
-                match futures::ready!(self.receiver.poll_recv(cx)) {
-                    Some(data) => Poll::Ready(Some(data)),
-                    _ => {
-                        log::error!("[PeerChannelRecvHalf] ending");
-                        // when the stream yields Some, it will get polled again.
-                        // when that occurs, try_next likely returns None and
-                        // we need to signal for Pending to be awoken again
-                        Poll::Pending
-                    }
+            match futures::ready!(self.receiver.poll_recv(cx)) {
+                Some(data) => Poll::Ready(Some(data)),
+                _ => {
+                    log::info!("[PeerChannelRecvHalf] ending?");
+                    // when the stream yields Some, it will get polled again.
+                    // when that occurs, try_next likely returns None and
+                    // we need to signal for Pending to be awoken again
+                    Poll::Ready(None)
                 }
             }
         }
     }
 }
-
-unsafe impl Send for PeerChannelSendHalf {}
-unsafe impl Send for PeerChannelRecvHalf {}
-unsafe impl Send for PeerChannel {}
 
 impl AsyncWrite for PeerChannelSendHalf {
     fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {

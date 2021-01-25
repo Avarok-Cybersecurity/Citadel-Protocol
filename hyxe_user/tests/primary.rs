@@ -10,6 +10,8 @@ mod tests {
     use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
     use std::net::IpAddr;
     use std::str::FromStr;
+    use hyxe_user::client_account::ClientNetworkAccount;
+    use hyxe_user::network_account::NetworkAccount;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "info");
@@ -64,7 +66,7 @@ mod tests {
     }
 
     fn gen(cid: u64, version: u32) -> (HyperRatchet, HyperRatchet) {
-        let mut alice = HyperRatchetConstructor::new_alice(None);
+        let mut alice = HyperRatchetConstructor::new_alice(None, cid, version, None);
         let bob = HyperRatchetConstructor::new_bob(0, cid, version, alice.stage0_alice()).unwrap();
         alice.stage1_alice(bob.stage0_bob().unwrap()).unwrap();
         (alice.finish().unwrap(), bob.finish().unwrap())
@@ -176,5 +178,38 @@ mod tests {
         let account_count = account_manager.get_registered_local_cids().unwrap_or_default().len();
         assert!(account_manager.async_save_to_local_fs().await.is_ok());
         assert_eq!(account_count, account_manager.purge());
+    }
+
+    #[tokio::test]
+    async fn hyperlan_peer_adding() {
+        let _account_manager = acc_mgr().await;
+        let nac = NetworkAccount::default();
+        let cid0 = 10;
+        let username0 = "thomas0";
+
+        let cid1 = 11;
+        let username1 = "thomas1";
+
+        let hr0 = gen(cid0, 0);
+        let hr1 = gen(cid1, 0);
+        let cnac0 = ClientNetworkAccount::new(cid0, true, nac.clone(), username0, SecVec::new(Vec::new()), "Thomas Braun", Vec::new(), hr0.0).unwrap();
+        let _cnac1 = ClientNetworkAccount::new(cid1, true, nac, username1, SecVec::new(Vec::new()), "Thomas Braun II", Vec::new(), hr1.0).unwrap();
+        cnac0.insert_hyperlan_peer(cid1, username1);
+        assert!(cnac0.hyperlan_peer_exists(cid1));
+        assert!(cnac0.hyperlan_peer_exists_by_username(username1));
+
+        cnac0.remove_hyperlan_peer(cid1).unwrap();
+
+        assert!(!cnac0.hyperlan_peer_exists(cid1));
+        assert!(!cnac0.hyperlan_peer_exists_by_username(username1));
+
+        cnac0.insert_hyperlan_peer(cid1, username1);
+        assert!(cnac0.hyperlan_peer_exists(cid1));
+        assert!(cnac0.hyperlan_peer_exists_by_username(username1));
+
+        cnac0.remove_hyperlan_peer_by_username(username1).unwrap();
+        assert!(!cnac0.hyperlan_peer_exists(cid1));
+        assert!(!cnac0.hyperlan_peer_exists_by_username(username1));
+
     }
 }

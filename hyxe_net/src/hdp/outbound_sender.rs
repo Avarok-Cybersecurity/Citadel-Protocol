@@ -60,9 +60,6 @@ pub struct OutboundUdpSender {
     rolling_idx: Arc<AtomicUsize>
 }
 
-unsafe impl Send for OutboundUdpSender {}
-unsafe impl Sync for OutboundUdpSender {}
-
 impl OutboundUdpSender {
     pub fn new(sender: UnboundedSender<(usize, BytesMut)>, total_local_ports: usize) -> Self {
         let rolling_idx = Arc::new(AtomicUsize::new(0));

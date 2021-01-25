@@ -15,16 +15,13 @@ pub struct TrackedTicket {
     pub key: delay_queue::Key,
     pub lifetime: Duration,
     pub implicated_cid: u64,
-    pub fx: Pin<Box<dyn Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static>>
+    pub fx: Pin<Box<dyn Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + Send + 'static>>
 }
-
-unsafe impl Send for TrackedTicket {}
-unsafe impl Sync for TrackedTicket {}
 
 impl TrackedTicket {
 
     /// This should be called from the [TimedQueueHandler]
-    pub fn new(key: delay_queue::Key, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: impl Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static) -> Self {
+    pub fn new(key: delay_queue::Key, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: impl Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + Send + 'static) -> Self {
         let fx = Box::pin(fx);
         Self { ticket, key, lifetime, fx, implicated_cid}
     }
@@ -53,7 +50,7 @@ impl TicketQueueHandler {
         Self { inner: Arc::new(Mutex::new(inner)) }
     }
 
-    pub fn register_ticket(&self, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: impl Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static) {
+    pub fn register_ticket(&self, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: impl Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + Send + 'static) {
         let mut this = self.inner.lock();
         let key = this.queue.insert(ticket, lifetime);
         let tracked_ticket = TrackedTicket::new(key, ticket, lifetime, implicated_cid, fx);

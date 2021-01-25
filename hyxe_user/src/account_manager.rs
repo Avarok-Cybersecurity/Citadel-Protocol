@@ -22,9 +22,6 @@ pub struct AccountManager {
     local_nac: NetworkAccount,
 }
 
-unsafe impl Send for AccountManager {}
-unsafe impl Sync for AccountManager {}
-
 impl AccountManager {
     /// REQUIREMENT: Local NAC must exist. Therefore, for the local node's initialization phase, this must be created
     /// This returns an empty inner domain because it does not load information from a pre-existing [NetworkMap]: It doesn't exist yet!
@@ -34,9 +31,7 @@ impl AccountManager {
     #[allow(unused_results)]
     pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>) -> Result<Self, FsError<String>> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
-        if !hyxe_fs::env::setup_directories(bind_addr, home_dir) {
-            return Err(FsError::IoError("Unable to setup directories".to_string()));
-        }
+        hyxe_fs::env::setup_directories(bind_addr, home_dir)?;
 
         let mut map = load_cnac_files().await?;
         let local_nac = load_node_nac(&mut map).map_err(|err| FsError::IoError(err.to_string()))?;

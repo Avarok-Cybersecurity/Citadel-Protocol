@@ -4,10 +4,9 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
-use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer};
-use crate::hdp::hdp_packet_processor::primary_group_packet::ToolsetUpdate;
+use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
+use crate::hdp::hdp_packet_processor::primary_group_packet::attempt_kem_as_alice_finish;
 
-use bytes::Bytes;
 use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
 
@@ -15,7 +14,7 @@ use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig, GroupR
 use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::client_account::ClientNetworkAccount;
 
-use crate::constants::{GROUP_EXPIRE_TIME_MS, GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_TIMEOUT_NS, KEEP_ALIVE_INTERVAL_MS};
+use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_TIMEOUT_NS, KEEP_ALIVE_INTERVAL_MS};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
@@ -34,7 +33,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::hdp::peer::channel::PeerChannel;
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
-use futures::task::Waker;
 use crate::hdp::file_transfer::{VirtualFileMetadata, FileTransferStatus};
 use tokio::io::{BufWriter, AsyncWriteExt};
 use hyxe_crypt::sec_bytes::SecBuffer;
@@ -43,7 +41,11 @@ use crate::functional::IfEqConditional;
 use futures::StreamExt;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_fs::prelude::SyncIO;
+use crate::hdp::validation::group::KemTransferStatus;
+use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
+use crate::hdp::peer::peer_layer::PeerConnectionType;
 
+pub type WeakStateContainerBorrow = crate::macros::WeakBorrow<StateContainerInner>;
 define_outer_struct_wrapper!(StateContainer, StateContainerInner);
 
 /// For keeping track of the stages
@@ -57,6 +59,7 @@ pub struct StateContainerInner {
     pub(super) disconnect_state: DisconnectState,
     pub(super) drill_update_state: DrillUpdateState,
     pub(super) deregister_state: DeRegisterState,
+    pub(super) meta_expiry_state: MetaExpiryState,
     pub(super) network_stats: NetworkStats,
     pub(super) inbound_files: HashMap<FileKey, InboundFileTransfer>,
     pub(super) outbound_files: HashMap<FileKey, OutboundFileTransfer>,
@@ -68,6 +71,7 @@ pub struct StateContainerInner {
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection>,
     pub(super) provisional_direct_p2p_conns: HashMap<SocketAddr, DirectP2PRemote>,
     pub(super) cnac: Option<ClientNetworkAccount>,
+    pub(super) this: Option<WeakStateContainerBorrow>
     // when data transmits from the hLAN client to the hLAN server, the server SHOULD keep track
     // of the maximum value, even though the client does this already. HOWEVER, when the server needs
     // to route data from the
@@ -137,11 +141,10 @@ pub struct VirtualConnection {
 }
 
 impl VirtualConnection {
-    pub fn get_endpoint_hyper_ratchet<T>(&self, fx: impl Fn(&HyperRatchet) -> T) -> Option<T> {
+    /// If No version is supplied, uses the latest committed version
+    pub fn borrow_endpoint_hyper_ratchet(&self, version: Option<u32>) -> Option<&HyperRatchet> {
         let endpoint_container = self.endpoint_container.as_ref()?;
-        let hyper_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None)?;
-        let output = (fx)(hyper_ratchet);
-        Some(output)
+        endpoint_container.endpoint_crypto.get_hyper_ratchet(version)
     }
 }
 
@@ -151,8 +154,6 @@ pub struct EndpointChannelContainer {
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
     pub(crate) endpoint_crypto: PeerSessionCrypto,
     to_channel: UnboundedSender<SecBuffer>,
-    waker_recv: tokio::sync::oneshot::Receiver<Waker>,
-    waker: Option<Waker>,
     pub(crate) peer_socket_addr: SocketAddr,
     pub(crate) rolling_group_id: u64,
     pub(crate) rolling_object_id: u32
@@ -178,16 +179,10 @@ impl EndpointChannelContainer {
 impl Drop for VirtualConnection {
     fn drop(&mut self) {
         self.is_active.store(false, Ordering::SeqCst);
-        if let Some(mut endpoint_container) = self.endpoint_container.take() {
+        if let Some(endpoint_container) = self.endpoint_container.take() {
             // next, since the is_active field is false, send an empty vec through the channel
             // in order to wake the receiving end, thus causing a poll, thus ending it
             if let Err(_) = endpoint_container.to_channel.unbounded_send(SecBuffer::empty()) {}
-            // and close the sender half
-            // endpoint_container.to_channel.close_channel();
-            // finally, wake to ensure the receiving end stops it async subroutine
-            if let Some(waker) = endpoint_container.waker.take() {
-                waker.wake()
-            }
         }
     }
 }
@@ -219,6 +214,14 @@ impl VirtualConnectionType {
 
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(this: T) -> Option<Self> {
         Self::deserialize_from_vector(this.as_ref()).ok()
+    }
+
+    pub fn from_header(header: &LayoutVerified<&[u8], HdpHeader>) -> Self {
+        if header.target_cid.get() != 0 {
+            VirtualTargetType::HyperLANPeerToHyperLANPeer(header.session_cid.get(), header.target_cid.get())
+        } else {
+            VirtualTargetType::HyperLANPeerToHyperLANServer(header.session_cid.get())
+        }
     }
 
     /// Gets the target cid, agnostic to type
@@ -294,6 +297,31 @@ impl VirtualConnectionType {
         match self {
             VirtualConnectionType::HyperLANPeerToHyperWANServer(implicated_cid, icid) => (implicated_cid, icid),
             _ => panic!("Invalid branch selection")
+        }
+    }
+
+    pub fn is_hyperlan(&self) -> bool {
+        match self {
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(..) | VirtualConnectionType::HyperLANPeerToHyperLANServer(..) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_hyperwan(&self) -> bool {
+        !self.is_hyperlan()
+    }
+
+    pub fn try_as_peer_connection(&self) -> Option<PeerConnectionType> {
+        match self {
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid) => {
+                Some(PeerConnectionType::HyperLANPeerToHyperLANPeer(*implicated_cid, *peer_cid))
+            }
+
+            VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, peer_cid) => {
+                Some(PeerConnectionType::HyperLANPeerToHyperWANPeer(*implicated_cid, *icid, *peer_cid))
+            }
+
+            _ => None
         }
     }
 }
@@ -466,13 +494,12 @@ impl GroupReceiverContainer {
 
 impl StateContainerInner {
     /// Creates a new container
-    pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote) -> Self {
-        Self { hdp_server_remote, pre_connect_state: Default::default(), cnac: None, udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), disconnect_state: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() }
-    }
-
-    /// Creates a new [StateContainer] with a custom state
-    pub fn new_with_custom_state(kernel_tx: UnboundedSender<HdpServerResult>, register_stage: u8, connect_stage: u8, hdp_server_remote: HdpServerRemote) -> Self {
-        Self { hdp_server_remote, pre_connect_state: Default::default(), cnac: None, udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), disconnect_state: Default::default(), network_stats: Default::default(), kernel_tx, register_state: register_stage.into(), connect_state: connect_stage.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() }
+    pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote) -> StateContainer {
+        let inner = Self { this: None, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), cnac: None, udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), disconnect_state: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
+        let this = StateContainer::from(inner);
+        let weak_borrow = this.as_weak();
+        inner_mut!(this).this = Some(weak_borrow);
+        this
     }
 
     /// The inner P2P handles will get dropped, causing the connections to end
@@ -519,17 +546,15 @@ impl StateContainerInner {
     #[allow(unused_results)]
     pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, peer_socket_addr: SocketAddr, security_level: SecurityLevel, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
-        let is_alive = Arc::new(AtomicBool::new(true));
+        let is_active = Arc::new(AtomicBool::new(true));
 
 
-        let (peer_channel, waker_recv) = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket,security_level, is_alive, channel_rx);
+        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket,security_level, is_active.clone(), channel_rx);
 
         let endpoint_container = Some(EndpointChannelContainer {
             direct_p2p_remote: None,
             endpoint_crypto,
             to_channel: channel_tx,
-            waker_recv,
-            waker: None,
             peer_socket_addr,
             rolling_object_id: 1,
             rolling_group_id: 0
@@ -537,7 +562,7 @@ impl StateContainerInner {
 
         let vconn = VirtualConnection {
             connection_type,
-            is_active: Arc::new(AtomicBool::new(true)),
+            is_active,
             // this is None for endpoints, as there's no need for this
             sender: None,
             endpoint_container
@@ -578,29 +603,12 @@ impl StateContainerInner {
             if let Some(channel) = vconn.endpoint_container.as_mut() {
                 return match channel.to_channel.unbounded_send(data) {
                     Ok(_) => {
-                        // now, check to see if the wake is loaded, and if not, try receiving the waker
-                        // if the waker is not present, that means that the sender half has not yet began to poll
-                        if let Some(waker) = channel.waker.as_ref() {
-                            waker.wake_by_ref();
-                            true
-                        } else {
-                            match channel.waker_recv.try_recv() {
-                                Ok(waker) => {
-                                    waker.wake_by_ref();
-                                    channel.waker = Some(waker);
-                                    true
-                                }
-
-                                _ => {
-                                    log::error!("Will not forward data to PeerChannel: Waker recv's state is invalid");
-                                    false
-                                }
-                            }
-                        }
+                        log::info!("[Channel] Success sending message to channel");
+                        true
                     }
 
                     Err(err) => {
-                        log::error!("TrySendError: Unable to send data to channel. Reason: {}", err.to_string());
+                        log::error!("[Channel] TrySendError: Unable to send data to channel. Reason: {}", err.to_string());
                         false
                     }
                 }
@@ -631,6 +639,10 @@ impl StateContainerInner {
         } else {
             None
         }
+    }
+
+    pub fn get_peer_session_crypto(active_virtual_connections: &mut HashMap<u64, VirtualConnection>, peer_cid: u64) -> Option<&mut PeerSessionCrypto> {
+        Some(&mut active_virtual_connections.get_mut(&peer_cid)?.endpoint_container.as_mut()?.endpoint_crypto)
     }
 
     /// When a keep alive is received, this function gets called. Prior to getting called,
@@ -829,25 +841,14 @@ impl StateContainerInner {
     /// TODO: NOTE! object ID is in wave_id for header ACKS
     /// NOTE: If object id != 0, then this header ack belongs to a file transfer and must thus be transmitted via TCP
     #[allow(unused_results)]
-    pub fn on_group_header_ack_received(&mut self, object_id: u32, peer_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: Option<BobToAliceTransfer>, update_method: ToolsetUpdate, fast_msg: bool) -> bool {
+    pub fn on_group_header_ack_received(&mut self, object_id: u32, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool, cnac_sess: &ClientNetworkAccount) -> bool {
         // the target is where the packet came from (implicated_cid)
         let key = GroupKey::new(peer_cid, group_id);
+
         if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
-            if let Some(transfer) = transfer {
-                if let Some(mut constructor) = outbound_container.ratchet_constructor.take() {
-                    if let None = constructor.stage1_alice(transfer) {
-                        log::error!("Unable to construct hyper ratchet");
-                        return true; // return true, otherwise, the session ends
-                    }
-
-                    if let None = update_method.update(constructor) {
-                        log::error!("Unable to update container (X-01)");
-                        return true;
-                    }
-
-                } else {
-                    log::error!("Constructor not present; expected constructor");
-                }
+            let constructor = outbound_container.ratchet_constructor.take();
+            if attempt_kem_as_alice_finish(peer_cid, target_cid, transfer, &mut self.active_virtual_connections, constructor, cnac_sess).is_err() {
+                return true;
             }
 
             if fast_msg {
@@ -1129,7 +1130,6 @@ impl StateContainerInner {
                     match group_receiver.receiver.on_packet_received(group, true_sequence, wave_id, hyper_ratchet, payload) {
                         GroupReceiverStatus::GROUP_COMPLETE(last_wave_id) => {
                             log::info!("Group {} finished!", group);
-
                             let wave_ack = crate::hdp::hdp_packet_crafter::group::craft_wave_ack(hyper_ratchet, object_id, resp_target_cid, group, last_wave_id, time_tracker.get_global_time_ns(), None, security_level);
                             preferred_primary_stream.unbounded_send(wave_ack)?;
                             finished = true;
@@ -1252,46 +1252,6 @@ impl StateContainerInner {
         } else {
             log::error!("A WAVE_DO_TRANSMISSION was received that has no corresponding sender. No return packet needed");
         }
-    }
-
-    /// Checks all the groups to ensure all impending groups are still valid, and if not, then to remove them
-    /// and/or send DO_WAVE_RETRANSMISSION packets
-    ///
-    /// Returns false if the system must stop
-    pub fn check_group_timeouts(&mut self, _time: i64, _to_primary_stream: &UnboundedSender<Bytes>) -> bool {
-        // retains all packet groups that have not yet expired
-        //log::info!("Checking inbound packet groups for timeouts ... Count current: {}", self.inbound_packets.len());
-        self.inbound_groups.retain(|group_id, receiver| {
-            // !group.receiver.has_expired(GROUP_EXPIRE_TIME_MS)
-            let retain = if receiver.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
-                log::info!("Inbound group {:?} has expired; dropping from map", group_id);
-                false
-            } else {
-                true
-            };
-
-            if retain {
-                // if we are retaining the group, check for individual wave timeouts. If the group is going to drop, no reason to check, hence "if retain"
-                //Self::handle_inbound_wave_timeout(time, group_id, receiver, to_primary_stream);
-            }
-
-            retain
-        });
-
-        //log::info!("Checking outbound reliability container for group time outs ... Count current: {}", self.outbound_transmitters.len());
-        self.outbound_transmitters.retain(|group_id, transmitter| {
-            let transmitter = inner!(transmitter.reliability_container);
-            // !transmitter.has_expired(GROUP_EXPIRE_TIME_MS)
-            if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
-                log::info!("Outbound group {:?} has expired; dropping from map", group_id);
-                false
-            } else {
-                true
-            }
-        });
-
-        //self.handle_inbound_wave_timeouts(time, to_primary_stream)
-        true
     }
 
     /// This should be ran periodically by the session timer

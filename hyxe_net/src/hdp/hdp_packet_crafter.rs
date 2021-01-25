@@ -14,7 +14,7 @@ use crate::hdp::state_container::{VirtualTargetType, GroupSender};
 use hyxe_crypt::sec_bytes::SecBuffer;
 use crate::error::NetworkError;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
+use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 
 /// Sends the header (manual!) and tail (auto!) packets through the primary stream directly, and
 /// the rest of the packets (the payload packets) get streamed to the [HdpServer] layer
@@ -120,7 +120,7 @@ impl GroupTransmitter {
         }
     }
 
-    pub fn transmit_group_header(&mut self, virtual_target: VirtualTargetType, alice_transfer: Option<AliceToBobTransfer<'_>>) -> Result<(), NetworkError> {
+    pub fn transmit_group_header(&mut self, virtual_target: VirtualTargetType, alice_transfer: Option<&HyperRatchetConstructor>) -> Result<(), NetworkError> {
         let header = self.generate_group_header(virtual_target, alice_transfer);
         self.to_primary_stream.unbounded_send(header)
             .map_err(|err| NetworkError::Generic(err.to_string()))
@@ -128,7 +128,7 @@ impl GroupTransmitter {
 
     /// Generates the group header for this set using the pre-allocated slab. Since the group header is always sent through the primary port,
     /// and the wave ports are what receive the packet stream, this should be ran BEFORE streaming self
-    pub fn generate_group_header(&mut self, virtual_target: VirtualTargetType, alice_transfer: Option<AliceToBobTransfer<'_>>) -> BytesMut {
+    pub fn generate_group_header(&mut self, virtual_target: VirtualTargetType, alice_transfer: Option<&HyperRatchetConstructor>) -> BytesMut {
         group::craft_group_header_packet(self, virtual_target, alice_transfer)
     }
 
@@ -269,13 +269,13 @@ pub(crate) mod group {
     use crate::hdp::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
     use crate::hdp::hdp_server::Ticket;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
-    use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
+    use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck, KemTransferStatus};
     use hyxe_fs::io::SyncIO;
-    use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
+    use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 
     pub const DUAL_ENCRYPTION_ON: u8 = 1;
     // TODO: all GROUP packets require a target_cid. If target_cid != 0, then the packet will get proxied unless sent through direct-p2p
-    pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType, alice_transfer: Option<AliceToBobTransfer<'_>>) -> BytesMut {
+    pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType, alice_transfer: Option<&HyperRatchetConstructor>) -> BytesMut {
         let mut header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER,
@@ -300,9 +300,8 @@ pub(crate) mod group {
             // we omit the scrambling, because it's the group is the same as the group in this packet's header, and the wave id is always zero
             // However, is it possible for the drill version to be different? NO. Because it is constructed with a fixed HyperRatchet
             let fast_msg_payload = &fast_msg_payload[HDP_HEADER_BYTE_LEN + 1 + 1 ..];
-            //log::info!("[FAST] Sending: {}", String::from_utf8(fast_msg_payload.clone().to_vec()).unwrap_or(String::from("WOOPS")));
             let inner_encrypted = processor.hyper_ratchet.encrypt_custom_scrambler(header.wave_id.get(), header.group.get(), fast_msg_payload).unwrap();
-            let header = GroupHeader::FastMessage(inner_encrypted, virtual_target, alice_transfer);
+            let header = GroupHeader::FastMessage(inner_encrypted, virtual_target, alice_transfer.map(|res| res.stage0_alice()));
             header.serialize_into_buf(&mut packet).unwrap();
             //log::info!("[FAST] len: {} | {:?}", fast_msg_payload.len(), fast_msg_payload);
         } else {
@@ -321,7 +320,7 @@ pub(crate) mod group {
     /// `fast_msg`: If this is true, then that implies the receiver already got the message. The initiator that gets the header ack
     /// needs to only delete the outbound container
     #[allow(unused_results)]
-    pub(crate) fn craft_group_header_ack(hyper_ratchet: &HyperRatchet, object_id: u32, group_id: u64, target_cid: u64, ticket: Ticket, initial_wave_window: Option<RangeInclusive<u32>>, fast_msg: bool, timestamp: i64, transfer: Option<BobToAliceTransfer>, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_group_header_ack(hyper_ratchet: &HyperRatchet, object_id: u32, group_id: u64, target_cid: u64, ticket: Ticket, initial_wave_window: Option<RangeInclusive<u32>>, fast_msg: bool, timestamp: i64, transfer: KemTransferStatus, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER_ACK,
@@ -798,11 +797,14 @@ pub(crate) mod do_drill_update {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags, packet_sizes};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
-    use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
+    use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
     use hyxe_crypt::prelude::SecurityLevel;
+    use hyxe_fs::io::SyncIO;
+    use serde::{Serialize, Deserialize};
+    use crate::hdp::validation::group::KemTransferStatus;
 
     #[allow(unused_results)]
-    pub(crate) fn craft_stage0(hyper_ratchet: &HyperRatchet, transfer: AliceToBobTransfer<'_>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_stage0(hyper_ratchet: &HyperRatchet, transfer: AliceToBobTransfer<'_>, timestamp: i64, target_cid: u64, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE0,
@@ -814,7 +816,7 @@ pub(crate) mod do_drill_update {
             session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(hyper_ratchet.version()),
             timestamp: I64::new(timestamp),
-            target_cid: U64::new(0)
+            target_cid: U64::new(target_cid)
         };
 
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
@@ -825,8 +827,13 @@ pub(crate) mod do_drill_update {
         packet
     }
 
+    #[derive(Serialize, Deserialize)]
+    pub(crate) struct Stage1UpdatePacket {
+        pub(crate) update_status: KemTransferStatus
+    }
+
     #[allow(unused_results)]
-    pub(crate) fn craft_stage1(hyper_ratchet: &HyperRatchet, transfer: BobToAliceTransfer, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_stage1(hyper_ratchet: &HyperRatchet, update_status: KemTransferStatus, timestamp: i64, target_cid: u64, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE1,
@@ -838,13 +845,44 @@ pub(crate) mod do_drill_update {
             session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(hyper_ratchet.version()),
             timestamp: I64::new(timestamp),
-            target_cid: U64::new(0)
+            target_cid: U64::new(target_cid)
+        };
+
+        let mut packet = BytesMut::with_capacity(packet_sizes::do_drill_update::STAGE1);
+        header.inscribe_into(&mut packet);
+
+        let stage1_packet = Stage1UpdatePacket { update_status };
+        stage1_packet.serialize_into_buf(&mut packet).unwrap();
+
+        hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
+        packet
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub(crate) struct TruncatePacket {
+        pub(crate) truncate_version: u32
+    }
+
+    #[allow(unused_results)]
+    pub(crate) fn craft_truncate(hyper_ratchet: &HyperRatchet, truncate_version: u32, target_cid: u64, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+        let header = HdpHeader {
+            cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
+            cmd_aux: packet_flags::cmd::aux::do_drill_update::TRUNCATE,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U64::new(0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(target_cid)
         };
 
         let mut packet = BytesMut::with_capacity(packet_sizes::do_drill_update::STAGE1);
         header.inscribe_into(&mut packet);
         // encrypt the nonce into the packet
-        transfer.serialize_into(&mut packet).unwrap();
+        TruncatePacket { truncate_version }.serialize_into_buf(&mut packet).unwrap();
 
         hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet

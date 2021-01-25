@@ -155,7 +155,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 // toolset AND the single drill
                                 let toolset = Toolset::new(this_cid, hyper_ratchet);
                                 // now, register the loaded PQC + toolset into the virtual conn
-                                let peer_crypto = PeerSessionCrypto::new(toolset);
+                                let peer_crypto = PeerSessionCrypto::new(toolset, true);
                                 let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
                                 let bob_socket_addr = SocketAddr::from_str(bob_public_addr.as_str()).ok()?;
                                 log::info!("[STUN] Peer public addr: {:?}", &bob_socket_addr);
@@ -201,7 +201,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 let endpoint_hyper_ratchet = hyper_ratchet.clone();
                                 let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();
                                 let toolset = Toolset::new(this_cid, hyper_ratchet);
-                                let peer_crypto = PeerSessionCrypto::new(toolset);
+                                let peer_crypto = PeerSessionCrypto::new(toolset, false);
 
                                 // create an endpoint vconn
                                 let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);

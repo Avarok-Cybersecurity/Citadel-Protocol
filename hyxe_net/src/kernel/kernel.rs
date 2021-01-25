@@ -6,7 +6,7 @@ use crate::hdp::hdp_server::{HdpServerRemote, HdpServerResult};
 /// The [Kernel] is the thread-safe interface between the single-threaded async
 /// [HdpServer] and the multithreaded higher-level
 #[async_trait]
-pub trait NetKernel where Self: Send + Sync {
+pub trait NetKernel: Send + Sync + 'static {
     /// when the kernel executes, it will be given a handle to the server
     async fn on_start(&mut self, server_remote: HdpServerRemote) -> Result<(), NetworkError>;
     /// When the server processes a valid entry, the value is sent here

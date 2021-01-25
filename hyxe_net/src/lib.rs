@@ -1,6 +1,7 @@
-#![feature(async_closure, main, try_trait, ip)]
+#![feature(async_closure, main, try_trait, ip, type_alias_impl_trait)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
+#![forbid(unsafe_code)]
 //! Core networking components for SatoriNET
 #![deny(
 trivial_numeric_casts,
@@ -17,8 +18,16 @@ warnings
 pub mod macros {
     use crate::hdp::hdp_session::HdpSessionInner;
 
+    pub trait ContextRequirements: 'static {}
+    impl<T: 'static> ContextRequirements for T {}
+
+    pub trait SyncContextRequirements: 'static {}
+    impl<T: 'static> SyncContextRequirements for T {}
+
     pub type SessionBorrow<'a> = std::cell::RefMut<'a, HdpSessionInner>;
-    pub type WeakBorrow<T> = std::rc::Weak<std::cell::RefCell<T>>;
+    pub struct WeakBorrow<T> {
+        pub inner: std::rc::Weak<std::cell::RefCell<T>>
+    }
 
     macro_rules! inner {
     ($item:expr) => {
@@ -43,12 +52,12 @@ pub mod macros {
         impl $struct_name {
             #[allow(dead_code)]
             pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
-                std::rc::Rc::downgrade(&self.inner)
+                crate::macros::WeakBorrow { inner: std::rc::Rc::downgrade(&self.inner) }
             }
 
             #[allow(dead_code)]
             pub fn upgrade_weak(this: &crate::macros::WeakBorrow<$inner>) -> Option<$struct_name> {
-                this.upgrade().map(|inner| Self { inner })
+                this.inner.upgrade().map(|inner| Self { inner })
             }
 
             #[allow(dead_code)]
@@ -82,13 +91,6 @@ pub mod macros {
     };
 }
 
-
-    macro_rules! new_runtime {
-    () => {
-        crate::kernel::runtime_handler::RuntimeHandler::from(Some(tokio::task::LocalSet::new()))
-    };
-}
-
     macro_rules! wrap_inner_mut {
     ($item:expr) => {
         (&mut $item).into()
@@ -107,8 +109,16 @@ pub mod macros {
 pub mod macros {
     use crate::hdp::hdp_session::HdpSessionInner;
 
+    pub trait ContextRequirements: Send + 'static {}
+    impl<T: Send + 'static> ContextRequirements for T {}
+
+    pub trait SyncContextRequirements: Send + Sync + 'static {}
+    impl<T: Send + Sync + 'static> SyncContextRequirements for T {}
+
     pub type SessionBorrow<'a> = parking_lot::RwLockWriteGuard<'a, HdpSessionInner>;
-    pub type WeakBorrow<T> = std::sync::Weak<parking_lot::RwLock<T>>;
+    pub struct WeakBorrow<T> {
+        pub inner: std::sync::Weak<parking_lot::RwLock<T>>
+    }
 
     macro_rules! inner {
     ($item:expr) => {
@@ -132,18 +142,15 @@ pub mod macros {
             pub inner: std::sync::Arc<parking_lot::RwLock<$inner>>
         }
 
-        unsafe impl Send for $struct_name {}
-        unsafe impl Sync for $struct_name {}
-
         impl $struct_name {
             #[allow(dead_code)]
             pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
-                std::sync::Arc::downgrade(&self.inner)
+                crate::macros::WeakBorrow { inner: std::sync::Arc::downgrade(&self.inner) }
             }
 
             #[allow(dead_code)]
             pub fn upgrade_weak(this: &crate::macros::WeakBorrow<$inner>) -> Option<$struct_name> {
-                this.upgrade().map(|inner| Self { inner })
+                this.inner.upgrade().map(|inner| Self { inner })
             }
 
             #[allow(dead_code)]
@@ -175,19 +182,11 @@ pub mod macros {
     macro_rules! spawn {
     ($future:expr) => {
         if tokio::runtime::Handle::try_current().is_ok() {
-            std::mem::drop(unsafe { tokio::task::spawn(crate::hdp::AssertSendSafeFuture::new($future)) });
+            std::mem::drop(tokio::task::spawn($future));
         } else {
-            log::error!("Unable to spawn future: {:?}", stringify!($future));
+            //log::error!("Unable to spawn future: {:?}", stringify!($future));
         }
         //tokio::task::spawn($future)
-    };
-}
-
-    // single: Some(tokio::task::LocalSet::new())
-// multi: None
-    macro_rules! new_runtime {
-    () => {
-        crate::kernel::runtime_handler::RuntimeHandler::from(None)
     };
 }
 

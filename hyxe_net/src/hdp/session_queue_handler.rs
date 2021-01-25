@@ -8,7 +8,7 @@ use crate::hdp::hdp_packet_processor::includes::Duration;
 use std::hash::{Hasher, BuildHasher};
 use byteorder::{BigEndian, ByteOrder};
 use crate::inner_arg::InnerParameterMut;
-use crate::macros::SessionBorrow;
+use crate::macros::{SessionBorrow, ContextRequirements};
 use crate::error::NetworkError;
 use futures::task::AtomicWaker;
 use crate::hdp::outbound_sender::Sender;
@@ -24,27 +24,33 @@ pub const FIREWALL_KEEP_ALIVE: usize = 3;
 
 //define_outer_struct_wrapper!(SessionQueueWorker, SessionQueueWorkerInner);
 #[derive(Clone)]
-#[cfg(target_feature = "multi-threaded")]
+#[cfg(feature = "multi-threaded")]
 pub struct SessionQueueWorker {
     inner: std::sync::Arc<parking_lot::Mutex<SessionQueueWorkerInner>>,
-    waker: std::syc::Arc<AtomicWaker>
+    waker: std::sync::Arc<AtomicWaker>
 }
 
+pub trait QueueFunction: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements {}
+pub trait QueueOneshotFunction: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) + ContextRequirements {}
+
+impl<T: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements> QueueFunction for T {}
+impl<T: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) + ContextRequirements> QueueOneshotFunction for T {}
+
 #[derive(Clone)]
-#[cfg(not(target_feature = "multi-threaded"))]
+#[cfg(not(feature = "multi-threaded"))]
 pub struct SessionQueueWorker {
     inner: std::rc::Rc<std::cell::RefCell<SessionQueueWorkerInner>>,
     waker: std::rc::Rc<AtomicWaker>
 }
 
-#[cfg(target_feature = "multi-threaded")]
+#[cfg(feature = "multi-threaded")]
 macro_rules! unlock {
     ($item:expr) => {
         $item.inner.lock()
     };
 }
 
-#[cfg(not(target_feature = "multi-threaded"))]
+#[cfg(not(feature = "multi-threaded"))]
 macro_rules! unlock {
     ($item:expr) => {
         $item.inner.borrow_mut()
@@ -52,7 +58,7 @@ macro_rules! unlock {
 }
 
 pub struct SessionQueueWorkerInner {
-    entries: HashMap<QueueWorkerTicket, (Box<dyn Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + 'static>, delay_queue::Key, Duration), NoHash>,
+    entries: HashMap<QueueWorkerTicket, (Box<dyn QueueFunction>, delay_queue::Key, Duration), NoHash>,
     expirations: DelayQueue<QueueWorkerTicket>,
     session: Option<WeakHdpSessionBorrow>,
     sess_shutdown: Sender<()>,
@@ -74,14 +80,14 @@ pub enum QueueWorkerResult {
 }
 
 impl SessionQueueWorker {
-    #[cfg(target_feature = "multi-threaded")]
+    #[cfg(feature = "multi-threaded")]
     pub fn new(sess_shutdown: Sender<()>) -> Self {
         let waker = std::sync::Arc::new(AtomicWaker::new());
         //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
         Self { waker, inner: std::sync::Arc::new(parking_lot::Mutex::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
     }
 
-    #[cfg(not(target_feature = "multi-threaded"))]
+    #[cfg(not(feature = "multi-threaded"))]
     pub fn new(sess_shutdown: Sender<()>) -> Self {
         let waker = std::rc::Rc::new(AtomicWaker::new());
         //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
@@ -111,7 +117,7 @@ impl SessionQueueWorker {
 
     /// Inserts a reserved system process. We now spawn this as a task to prevent deadlocking
     #[allow(unused_results)]
-    pub fn insert_reserved(&self, key: Option<QueueWorkerTicket>, timeout: Duration, on_timeout: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + 'static) {
+    pub fn insert_reserved(&self, key: Option<QueueWorkerTicket>, timeout: Duration, on_timeout: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements) {
             //tokio::task::yield_now().await;
             let mut this = unlock!(self);
             // the zero in the default unwrap ensures that the key is going to be unique
@@ -132,7 +138,7 @@ impl SessionQueueWorker {
     }
 
     /// A conveniant way to check on a task once sometime in the future
-    pub fn insert_oneshot(&self, call_in: Duration, on_call: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) + 'static) {
+    pub fn insert_oneshot(&self, call_in: Duration, on_call: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) + ContextRequirements) {
         self.insert_reserved(None, call_in, move |sess| {
             (on_call)(sess);
             QueueWorkerResult::Complete
@@ -140,7 +146,7 @@ impl SessionQueueWorker {
     }
 
     /// factors-in the offset
-    pub fn insert_ordinary(&self, idx: usize, target_cid: u64, timeout: Duration, on_timeout: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + 'static) {
+    pub fn insert_ordinary(&self, idx: usize, target_cid: u64, timeout: Duration, on_timeout: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements) {
         self.insert_reserved(Some(QueueWorkerTicket::Periodic(idx + QUEUE_WORKER_RESERVED_INDEX, target_cid)), timeout, on_timeout)
     }
 

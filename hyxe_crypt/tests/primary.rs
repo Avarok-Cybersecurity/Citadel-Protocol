@@ -2,7 +2,7 @@
 mod tests {
     use hyxe_crypt::sec_string::SecString;
     use hyxe_crypt::sec_bytes::SecBuffer;
-    use hyxe_crypt::toolset::Toolset;
+    use hyxe_crypt::toolset::{Toolset, MAX_HYPER_RATCHETS_IN_MEMORY, UpdateStatus};
     use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
     use hyxe_crypt::relay_chain::CryptoRelayChain;
     use std::iter::FromIterator;
@@ -37,7 +37,7 @@ mod tests {
                 let transfer = bob_hr.stage0_bob().unwrap();
                 alice_hr.stage1_alice(transfer).unwrap();
                 let toolset = Toolset::new(cid, alice_hr.finish().unwrap());
-                let container = PeerSessionCrypto::new(toolset);
+                let container = PeerSessionCrypto::new(toolset, true);
                 container
             }));
 
@@ -156,6 +156,8 @@ mod tests {
     #[test]
     fn toolset() {
         setup_log();
+        const COUNT: u32 = 100;
+
         fn gen(drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
             let mut alice_base = HyperRatchetConstructor::new_alice(None, 0, drill_vers, None);
             let bob_base = HyperRatchetConstructor::new_bob(0, 0, drill_vers, alice_base.stage0_alice()).unwrap();
@@ -168,9 +170,39 @@ mod tests {
 
         let mut toolset = Toolset::new(0, alice);
 
-        for x in 1..100 {
-            assert!(toolset.update_from(gen(x).0).is_some());
+        for x in 1..COUNT {
+            let res = toolset.update_from(gen(x).0).unwrap();
+            match res {
+                UpdateStatus::Committed { .. } => {
+                    assert!(x + 1 <= MAX_HYPER_RATCHETS_IN_MEMORY as u32);
+                    assert_eq!(0, toolset.get_oldest_hyper_ratchet_version());
+                    assert_eq!(x, toolset.get_most_recent_hyper_ratchet_version());
+                }
+
+                UpdateStatus::CommittedNeedsSynchronization { old_version, .. } => {
+                    assert_eq!(old_version, 0); // we're not truncating it yet, so it should be 0
+                    assert!(x + 1 > MAX_HYPER_RATCHETS_IN_MEMORY as u32);
+                    assert_eq!(0, toolset.get_oldest_hyper_ratchet_version()); // this shouldn't change because the oldest needs to be manually removed
+                    assert_eq!(x, toolset.get_most_recent_hyper_ratchet_version());
+                }
+            }
         }
+
+        for x in 0..COUNT {
+            if let Ok(_) = toolset.deregister_oldest_hyper_ratchet(x) {
+                assert_eq!(x + 1, toolset.get_oldest_hyper_ratchet_version());
+            } else {
+                assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY);
+                assert_eq!(toolset.get_oldest_hyper_ratchet_version(), COUNT - MAX_HYPER_RATCHETS_IN_MEMORY as u32);
+            }
+        }
+
+        let _res = toolset.update_from(gen(COUNT).0).unwrap();
+        assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY + 1);
+        assert_eq!(toolset.get_oldest_hyper_ratchet_version(), toolset.get_most_recent_hyper_ratchet_version() - MAX_HYPER_RATCHETS_IN_MEMORY as u32);
+
+        toolset.deregister_oldest_hyper_ratchet(toolset.get_most_recent_hyper_ratchet_version() - MAX_HYPER_RATCHETS_IN_MEMORY as u32).unwrap();
+        assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY);
     }
 
     fn gen(cid: u64, version: u32, sec: SecurityLevel) -> (HyperRatchet, HyperRatchet) {
@@ -179,6 +211,43 @@ mod tests {
         let bob = HyperRatchetConstructor::new_bob(algorithm, cid, version, alice.stage0_alice()).unwrap();
         alice.stage1_alice(bob.stage0_bob().unwrap()).unwrap();
         (alice.finish().unwrap(), bob.finish().unwrap())
+    }
+
+    #[test]
+    fn toolset_wrapping_vers() {
+        setup_log();
+        let vers = u32::MAX - 1;
+        let cid = 10;
+        let hr = gen(cid, vers, SecurityLevel::LOW);
+        let mut toolset = Toolset::new_debug(cid, hr.0, vers, vers);
+        let r = toolset.get_hyper_ratchet(vers).unwrap();
+        assert_eq!(r.version(), vers);
+
+        const COUNT: usize  = 100;
+        let mut insofar = 0;
+        let mut cur_vers = vers.wrapping_add(1);
+        loop {
+            if insofar >= COUNT {
+                break;
+            }
+
+            toolset.update_from(gen(cid,cur_vers, SecurityLevel::LOW).0).unwrap();
+            let ratchet = toolset.get_hyper_ratchet(cur_vers).unwrap();
+            assert_eq!(ratchet.version(), cur_vers);
+            cur_vers = cur_vers.wrapping_add(1);
+            insofar += 1;
+        }
+
+        assert_eq!(toolset.get_oldest_hyper_ratchet().unwrap().version(), vers);
+        let mut amt_culled = 0;
+        for _ in 0..COUNT {
+            if toolset.len() == MAX_HYPER_RATCHETS_IN_MEMORY {
+                continue;
+            }
+            toolset.deregister_oldest_hyper_ratchet(vers.wrapping_add(amt_culled)).unwrap();
+            amt_culled += 1;
+            assert_eq!(toolset.get_oldest_hyper_ratchet().unwrap().version(), vers.wrapping_add(amt_culled));
+        }
     }
 
     #[test]
