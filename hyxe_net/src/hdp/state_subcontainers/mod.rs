@@ -12,3 +12,5 @@ pub mod deregister_state_container;
 pub mod preconnect_state_container;
 ///
 pub mod peer_kem_state_container;
+///
+pub mod meta_expiry_container;

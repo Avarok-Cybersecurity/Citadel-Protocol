@@ -157,8 +157,6 @@ impl<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'stat
     }
 }
 
-unsafe impl<'a, F: Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static, R: Read> Send for AsyncCryptScrambler<'a, F, R> {}
-
 impl<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, R: Read> Stream for AsyncCryptScrambler<'_, F, R> {
     type Item = GroupSenderDevice;
 

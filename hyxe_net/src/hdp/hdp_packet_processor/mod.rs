@@ -73,9 +73,6 @@ pub enum PrimaryProcessorResult {
     Void,
     /// Returns some data to the sender
     ReplyToSender(BytesMut),
-    /// Sends data to kernel
-    /// Replies to the sender, then closes the session
-    FinalReply(BytesMut),
     /// Tells the system to shutdown
     EndSession(&'static str),
 }
@@ -120,6 +117,7 @@ impl std::ops::Try for PrimaryProcessorResult {
 
 impl From<std::option::NoneError> for PrimaryProcessorResult {
     fn from(_: std::option::NoneError) -> Self {
+        log::error!("[X-03] NoneError");
         PrimaryProcessorResult::Void
     }
 }

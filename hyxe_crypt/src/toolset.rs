@@ -31,6 +31,7 @@ pub struct Toolset {
     /// the CID of the owner
     pub cid: u64,
     most_recent_hyper_ratchet_version: u32,
+    oldest_hyper_ratchet_version: u32,
     map: VecDeque<HyperRatchet>,
     /// The static auxiliary drill was made to cover a unique situation that is consequence of dropping-off the back of the VecDeque upon upgrade:
     /// As the back gets dropped, any data drilled using that version now becomes undecipherable forever. The solution to this is having a static drill, but this
@@ -42,16 +43,32 @@ pub struct Toolset {
     static_auxiliary_hyper_ratchet: HyperRatchet
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub enum UpdateStatus {
+    // new version has been committed, and the number of HRs is still less than the total max. No E2E synchronization required
+    Committed { new_version: u32 },
+    // The maximum number of acceptable HR's have been stored in memory, but will not be removed until both endpoints can agree
+    // to removing the version
+    CommittedNeedsSynchronization { new_version: u32, old_version: u32 }
+}
+
 impl Toolset {
     /// Creates a new [Toolset]. Designates the `hyper_ratchet` as the static auxiliary ratchet
     pub fn new(cid: u64, hyper_ratchet: HyperRatchet) -> Self {
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);
         map.push_front(hyper_ratchet.clone());
-        Toolset { cid, most_recent_hyper_ratchet_version: 0, map, static_auxiliary_hyper_ratchet: hyper_ratchet }
+        Toolset { cid, most_recent_hyper_ratchet_version: 0, oldest_hyper_ratchet_version: 0, map, static_auxiliary_hyper_ratchet: hyper_ratchet }
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn new_debug(cid: u64, hyper_ratchet: HyperRatchet, most_recent_hyper_ratchet_version: u32, oldest_hyper_ratchet_version: u32) -> Self {
+        let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);
+        map.push_front(hyper_ratchet.clone());
+        Toolset { cid, most_recent_hyper_ratchet_version, oldest_hyper_ratchet_version, map, static_auxiliary_hyper_ratchet: hyper_ratchet }
     }
 
     /// Updates from an inbound DrillUpdateObject. Returns the new Drill
-    pub fn update_from(&mut self, new_hyper_ratchet: HyperRatchet) -> Option<()> {
+    pub fn update_from(&mut self, new_hyper_ratchet: HyperRatchet) -> Option<UpdateStatus> {
         let latest_hr_version = self.get_most_recent_hyper_ratchet_version();
 
         if new_hyper_ratchet.get_cid() != self.cid {
@@ -59,68 +76,67 @@ impl Toolset {
             return None;
         }
 
-        if latest_hr_version != new_hyper_ratchet.version().saturating_sub(1) {
+        if latest_hr_version != new_hyper_ratchet.version().wrapping_sub(1) {
             log::error!("The supplied hyper ratchet is not precedent to the drill update object (expected: {}, obtained: {})", latest_hr_version + 1, new_hyper_ratchet.version());
             return None;
         }
 
-        let cur_version = self.append_hyper_ratchet(new_hyper_ratchet).ok()?;
+        let update_status = self.append_hyper_ratchet(new_hyper_ratchet);
+        let cur_version = match &update_status {
+            UpdateStatus::Committed { new_version } | UpdateStatus::CommittedNeedsSynchronization { new_version, .. } => *new_version
+        };
+
         self.most_recent_hyper_ratchet_version = cur_version;
 
-        let prev_version = self.most_recent_hyper_ratchet_version.saturating_sub(1);
-        log::info!("[{}] Upgraded {} to {}. Adjusted index of current: {}. Adjusted index of (current - 1): {} || OLDEST: {} || LEN: {}", MAX_HYPER_RATCHETS_IN_MEMORY, prev_version, cur_version, self.get_adjusted_index(cur_version).unwrap(), self.get_adjusted_index(prev_version).unwrap(), self.get_oldest_hyper_ratchet_version(), self.map.len());
-        Some(())
+        let prev_version = self.most_recent_hyper_ratchet_version.wrapping_sub(1);
+        log::info!("[{}] Upgraded {} to {}. Adjusted index of current: {}. Adjusted index of (current - 1): {} || OLDEST: {} || LEN: {}", MAX_HYPER_RATCHETS_IN_MEMORY, prev_version, cur_version, self.get_adjusted_index(cur_version), self.get_adjusted_index(prev_version), self.get_oldest_hyper_ratchet_version(), self.map.len());
+        Some(update_status)
     }
 
-    /// store a new drill. Must have the latest version
-    pub fn register_new_hyper_ratchet(&mut self, hyper_ratchet: HyperRatchet) -> bool {
-        match self.append_hyper_ratchet(hyper_ratchet.clone()) {
-            Ok(_) => {
-                let proposed_new_hyper_ratchet_version = hyper_ratchet.version();
-                let expected_new_hyper_ratchet_version =  self.most_recent_hyper_ratchet_version.wrapping_add(1);
-
-                if proposed_new_hyper_ratchet_version != expected_new_hyper_ratchet_version {
-                    log::error!("An invalid new hyper ratchet attempted to be registered, for the versions are not equivalent (Proposed: {} | Expected: {})", proposed_new_hyper_ratchet_version, expected_new_hyper_ratchet_version);
-                    // We need to limit the drill version by trimming. There are several scenarios:
-                    // 0. The expected new version is BELOW the proposed new version. This means localhost is behind the adjacent node.
-                    //
-                    // 1. The expected new version is AHEAD the proposed new version. This means localhost is ahead the adjacent node.
-                    // Since drill versioning is handled by the system internally, and it uses to latest version, localhost just needs
-                    // to trim
-                    false
-                } else {
-                    self.most_recent_hyper_ratchet_version = self.most_recent_hyper_ratchet_version.wrapping_add(1);
-                    let _prev_version = self.most_recent_hyper_ratchet_version.wrapping_sub(1);
-                    //log::info!("[{}] Upgraded {} to {}. Adjusted index of current: {}. Adjusted index of (current - 1): {} || OLDEST: {} || LEN: {}", MAX_DRILLS_IN_MEMORY, prev_version, prev_version + 1, self.get_adjusted_index(prev_version + 1).unwrap(), self.get_adjusted_index(prev_version).unwrap(), self.get_oldest_drill_version(), self.map.len());
-                    true
-                }
-            },
-
-            _ => {
-                false
-            }
-        }
-    }
 
     #[allow(unused_results)]
     ///Replacing drills is not allowed, and is why this subroutine returns an error when a collision is detected
     ///
     /// Returns the new hyper ratchet version
-    fn append_hyper_ratchet(&mut self, hyper_ratchet: HyperRatchet) -> Result<u32, CryptError<String>> {
-        debug_assert!(self.map.len() <= MAX_HYPER_RATCHETS_IN_MEMORY);
-        let new_vers = hyper_ratchet.version();
+    fn append_hyper_ratchet(&mut self, hyper_ratchet: HyperRatchet) -> UpdateStatus {
+        //debug_assert!(self.map.len() <= MAX_HYPER_RATCHETS_IN_MEMORY);
+        let new_version = hyper_ratchet.version();
         //println!("max hypers: {} @ {} bytes ea", MAX_HYPER_RATCHETS_IN_MEMORY, get_approx_bytes_per_hyper_ratchet());
-        if self.map.len() == MAX_HYPER_RATCHETS_IN_MEMORY {
-            if let Some(_old) = self.map.pop_back() {
-                self.map.push_front(hyper_ratchet);
-                Ok(new_vers)
-            } else {
-                unreachable!("This shouldn't happen");
-            }
+        self.map.push_front(hyper_ratchet);
+        if self.map.len() > MAX_HYPER_RATCHETS_IN_MEMORY {
+            let old_version = self.get_oldest_hyper_ratchet_version();
+            log::info!("[Toolset Update] Needs Truncation. Old version: {}", old_version);
+            UpdateStatus::CommittedNeedsSynchronization { new_version, old_version }
         } else {
-            self.map.push_front(hyper_ratchet);
-            Ok(new_vers)
+            UpdateStatus::Committed { new_version }
         }
+    }
+
+    /// When append_hyper_ratchet returns CommittedNeedsSynchronization on Bob's side, Bob should first
+    /// send a packet to Alice telling her that capacity has been reached and that version V should be dropped.
+    /// Alice will then prevent herself from sending any more packets using version V, and will locally run this
+    /// function. Next, Alice should alert Bob telling him that it's now safe to remove version V. Bob then runs
+    /// this function last. By doing this, Alice no longer sends packets that may be no longer be valid
+    #[allow(unused_results)]
+    pub fn deregister_oldest_hyper_ratchet(&mut self, version: u32) -> Result<(), CryptError> {
+        if self.map.len() <= MAX_HYPER_RATCHETS_IN_MEMORY {
+            return Err(CryptError::DrillUpdateError(format!("Cannot call for deregistration unless the map len is maxed out")))
+        }
+
+        let oldest = self.get_oldest_hyper_ratchet_version();
+        if oldest != version {
+            Err(CryptError::DrillUpdateError(format!("Unable to deregister. Provided version: {}, expected version: {}", version, oldest)))
+        } else {
+            self.map.pop_back().ok_or(CryptError::OutOfBoundsError)?;
+            self.oldest_hyper_ratchet_version = self.oldest_hyper_ratchet_version.wrapping_add(1);
+            log::info!("[Toolset] Deregistered version {}. New oldest: {} | LEN: {}", version, self.oldest_hyper_ratchet_version, self.len());
+            Ok(())
+        }
+    }
+
+    /// Returns the number of HyperRatchets internally
+    pub fn len(&self) -> usize {
+        self.map.len()
     }
 
     /// Returns the latest drill version
@@ -135,7 +151,7 @@ impl Toolset {
 
     /// Gets the oldest drill version
     pub fn get_oldest_hyper_ratchet_version(&self) -> u32 {
-        self.get_oldest_hyper_ratchet().unwrap().version()
+        self.oldest_hyper_ratchet_version
     }
 
     /// Returns the most recent drill
@@ -157,24 +173,15 @@ impl Toolset {
     }
 
     /// The index within the vec deque does not necessarily track the drill versions.
-    /// Returns None if the version is out of bounds
-    ///
-    /// TODO: Handle the case when wrapping_add goes beyond the max u32
+    /// This function adjusts for that
     #[inline]
-    fn get_adjusted_index(&self, version: u32) -> Option<usize> {
-        let oldest_hyper_ratchet_version = self.get_oldest_hyper_ratchet_version();
-        //println!("{} must be greater than {} or less than {} to fail", version, self.most_recent_hyper_ratchet_version, oldest_hyper_ratchet_version);
-
-        if version > self.most_recent_hyper_ratchet_version || version < oldest_hyper_ratchet_version {
-            return None;
-        }
-
-        Some((self.most_recent_hyper_ratchet_version - version) as usize)
+    fn get_adjusted_index(&self, version: u32) -> usize {
+        self.most_recent_hyper_ratchet_version.wrapping_sub(version) as usize
     }
 
     /// Returns a specific drill version
     pub fn get_hyper_ratchet(&self, version: u32) -> Option<&HyperRatchet> {
-        let idx = self.get_adjusted_index(version)?;
+        let idx = self.get_adjusted_index(version);
         //println!("Getting idx {} which should have v{}", idx, version);
         self.map.get(idx)
     }
@@ -191,11 +198,6 @@ impl Toolset {
         }
 
         Some(ret)
-    }
-
-    /// Returns a range of drill versions
-    pub fn get_available_hyper_ratchet_versions(&self) -> RangeInclusive<u32> {
-        self.get_oldest_hyper_ratchet_version()..=self.get_most_recent_hyper_ratchet_version()
     }
 
     /// Serializes the toolset to a buffer
@@ -228,10 +230,12 @@ pub type StaticAuxRatchet = HyperRatchet;
 impl From<(StaticAuxRatchet, HyperRatchet)> for Toolset {
     fn from(drill: (HyperRatchet, HyperRatchet)) -> Self {
         let most_recent_hyper_ratchet_version = drill.1.version();
+        let oldest_hyper_ratchet_version = most_recent_hyper_ratchet_version; // for init, just like in the normal constructor
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);
         map.insert(0, drill.1);
         Self {
             cid: drill.0.get_cid(),
+            oldest_hyper_ratchet_version,
             most_recent_hyper_ratchet_version,
             map,
             static_auxiliary_hyper_ratchet: drill.0

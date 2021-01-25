@@ -220,7 +220,7 @@ impl NetKernel for CLIKernel {
                 self.on_ticket_received_opt(ticket, PeerResponse::Err(Some(err.clone())));
                 //return Err(NetworkError::Generic(err))
 
-                if self.console_context.is_ffi {
+                if *self.console_context.is_ffi {
                     self.console_context.proxy_to_ffi(KernelResponse::Error(ticket.unwrap_or(Ticket(0)).0, err.clone()))
                 }
 
@@ -234,7 +234,7 @@ impl NetKernel for CLIKernel {
 
             // FFI Handler built-in to the ticket callback
             HdpServerResult::RegisterFailure(ticket, err) => {
-                if !self.console_context.is_ffi {
+                if !*self.console_context.is_ffi {
                     printfs!({
                         colour::white!("\nRegistration for ticket {}", ticket);
                         colour::red!(" FAILED!\n\n");
@@ -297,7 +297,7 @@ impl NetKernel for CLIKernel {
                 // NOTE: This data should only be delivered if sent if there is n=1 hop. Otherwise,
                 // channels are used
                 let message = String::from_utf8(data.clone().into_buffer()).unwrap_or(String::from(INVALID_UTF8));
-                if self.console_context.is_ffi {
+                if *self.console_context.is_ffi {
                     self.console_context.proxy_to_ffi(KernelResponse::NodeMessage(ticket.0, cid, 0, 0, message));
                 } else {
                     colour::white!("Server message[{}]: ", cid);
@@ -312,7 +312,7 @@ impl NetKernel for CLIKernel {
                 // A disconnect implies a connection occurred. As such, it is necessary the below not return an error, implying it is necessary that
                 // a session loaded, UNLESS there is a bug still in the server-level that sends a DISCONNECT instead of a CONNECT_FAIL
                 self.unload_kernel_session(cid);
-                if self.console_context.is_ffi {
+                if *self.console_context.is_ffi {
                     self.console_context.proxy_to_ffi(KernelResponse::DomainSpecificResponse(DomainResponse::Disconnect(DisconnectResponse::HyperLANPeerToHyperLANServer(ticket.0, cid))));
                 } else {
                     printf_ln!(colour::yellow!("{} sessions left\n", self.console_context.sessions.read().len()));
@@ -430,6 +430,8 @@ impl NetKernel for CLIKernel {
                     }
                 }
             }
+
+            _ => {}
         }
 
         if !self.app_config.daemon_mode {

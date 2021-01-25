@@ -3,10 +3,12 @@ use tokio::time::Duration;
 use crate::constants::{DRILL_UPDATE_FREQUENCY_DIVINE_BASE, DRILL_UPDATE_FREQUENCY_HIGH_BASE, DRILL_UPDATE_FREQUENCY_LOW_BASE, DRILL_UPDATE_FREQUENCY_MEDIUM_BASE, DRILL_UPDATE_FREQUENCY_ULTRA_BASE};
 use crate::hdp::time::TransferStats;
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct DrillUpdateState {
-    pub(crate) alice_hyper_ratchet: Option<HyperRatchetConstructor>
+    pub alice_hyper_ratchet: Option<HyperRatchetConstructor>,
+    pub p2p_updates: HashMap<u64, HyperRatchetConstructor>
 }
 
 impl DrillUpdateState {

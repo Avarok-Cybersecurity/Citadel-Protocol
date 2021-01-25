@@ -1,4 +1,4 @@
-pub const BUILD_VERSION: usize = 2031;
+pub const BUILD_VERSION: usize = 2528;
 /// Signal for closing the stream_wrapper
 pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper
@@ -76,13 +76,13 @@ pub const DEFAULT_PQC_ALGORITHM: u8 = ez_pqcrypto::algorithm_dictionary::FIRESAB
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
 pub const DRILL_UPDATE_FREQUENCY_LOW_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_MEDIUM_BASE: u64 = 1 * 400 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_MEDIUM_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_HIGH_BASE: u64 = 1 * 360 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_HIGH_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_ULTRA_BASE: u64 = 1 * 300 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_ULTRA_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_DIVINE_BASE: u64 = 1 * 240 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_DIVINE_BASE: u64 = 1 * 480 * 1_000_000_000;
 
 /// For ensuring that the hole-punching process begin at about the same time (required)
 /// this is applied to the ping. If the ping is 200ms, the a multiplier of 2.0 will mean that in 200*2.0 = 400ms,

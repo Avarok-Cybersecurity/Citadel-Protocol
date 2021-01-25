@@ -22,7 +22,6 @@ pub enum NetworkError {
 }
 
 impl Error for NetworkError {}
-unsafe impl Send for NetworkError {}
 
 impl Debug for NetworkError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -48,9 +48,6 @@ pub struct NetworkAccount {
     inner: Arc<(u64, ShardedLock<NetworkAccountInner>)>
 }
 
-unsafe impl Send for NetworkAccount {}
-unsafe impl Sync for NetworkAccount {}
-
 impl NetworkAccount {
     /// This should be called at runtime if the current node does not have a detected NAC. This is NOT for
     /// creating a NAC for new server connections; instead, use `new_from_recent_connection`.

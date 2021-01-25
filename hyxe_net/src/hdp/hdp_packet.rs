@@ -73,6 +73,8 @@ pub(crate) mod packet_flags {
             pub(crate) mod do_drill_update {
                 pub(crate) const STAGE0: u8 = 0;
                 pub(crate) const STAGE1: u8 = 1;
+
+                pub(crate) const TRUNCATE: u8 = 2;
             }
 
             pub(crate) mod do_deregister {
@@ -360,7 +362,7 @@ impl HeaderObfuscator {
                 let val1 = packet.get_u64();
                 self.store(val0, val1);
             } else {
-                log::warn!("Discarding invalid packet (LEN: {})", packet.len());
+                log::error!("Discarding invalid packet (LEN: {})", packet.len());
             }
 
             None
