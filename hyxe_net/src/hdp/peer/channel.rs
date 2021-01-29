@@ -150,9 +150,6 @@ impl Stream for PeerChannelRecvHalf {
                 Some(data) => Poll::Ready(Some(data)),
                 _ => {
                     log::info!("[PeerChannelRecvHalf] ending?");
-                    // when the stream yields Some, it will get polled again.
-                    // when that occurs, try_next likely returns None and
-                    // we need to signal for Pending to be awoken again
                     Poll::Ready(None)
                 }
             }

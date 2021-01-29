@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use hyxe_fs::hyxe_crypt::prelude::*;
-use hyxe_fs::env::{HYXE_NAC_DIR_PERSONAL, HYXE_NAC_DIR_IMPERSONAL};
+use hyxe_fs::env::DirectoryStore;
 use hyxe_fs::hyxe_file::HyxeFile;
 use hyxe_fs::prelude::SyncIO;
 use async_trait::async_trait;
@@ -25,6 +25,7 @@ use crossbeam_utils::sync::{ShardedLock, ShardedLockReadGuard, ShardedLockWriteG
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_fs::hyxe_crypt::toolset::UpdateStatus;
 use hyxe_fs::hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+use std::ops::RangeInclusive;
 
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network
@@ -108,6 +109,8 @@ pub struct ClientNetworkAccountInner {
     #[serde(skip)]
     /// We keep the password in RAM encrypted
     password_in_ram: Option<SecVec<u8>>,
+    #[serde(skip)]
+    dirs: Option<DirectoryStore>
 }
 
 /// A thread-safe handle for sharing data across threads and applications
@@ -132,7 +135,7 @@ impl ClientNetworkAccount {
     ///
     /// `client_nac`: This is required because it allows the server to keep track of the IP in the case [PINNED_IP_MODE] is engaged
     #[allow(unused_results)]
-    pub fn new<T: ToString, V: ToString>(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, base_hyper_ratchet: HyperRatchet) -> Result<Self, AccountError<String>> {
+    pub fn new<T: ToString, V: ToString>(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, base_hyper_ratchet: HyperRatchet, dirs: DirectoryStore) -> Result<Self, AccountError<String>> {
         info!("Creating CNAC w/valid cid: {:?}", valid_cid);
         let username = username.to_string();
         let full_name = full_name.to_string();
@@ -144,7 +147,8 @@ impl ClientNetworkAccount {
         let crypt_container = PeerSessionCrypto::new(Toolset::new(valid_cid, base_hyper_ratchet), is_personal);
         //debug_assert_eq!(is_personal, is_client);
 
-        let local_save_path = Self::generate_local_save_path(valid_cid, is_personal);
+
+        let local_save_path = Self::generate_local_save_path(valid_cid, is_personal, &dirs);
 
         let (password_hyxefile, password_in_ram) = if is_personal {
             (None, None)
@@ -154,8 +158,9 @@ impl ClientNetworkAccount {
 
 
         let mutuals = MultiMap::new();
+        let dirs = Some(dirs);
 
-        let inner = ClientNetworkAccountInner { password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
+        let inner = ClientNetworkAccountInner { dirs, password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
         let this = Self::from(inner);
 
         this.blocking_save_to_local_fs()?;
@@ -186,16 +191,16 @@ impl ClientNetworkAccount {
     }
 
 
-    pub(crate) fn generate_local_save_path(valid_cid: u64, is_personal: bool) -> PathBuf {
+    pub(crate) fn generate_local_save_path(valid_cid: u64, is_personal: bool, dirs: &DirectoryStore) -> PathBuf {
         if is_personal {
-            get_pathbuf(format!("{}{}.{}", HYXE_NAC_DIR_PERSONAL.lock().unwrap().as_ref().unwrap(), valid_cid, CNAC_SERIALIZED_EXTENSION))
+            get_pathbuf(format!("{}{}.{}", dirs.inner.read().hyxe_nac_dir_personal.as_str(), valid_cid, CNAC_SERIALIZED_EXTENSION))
         } else {
-            get_pathbuf(format!("{}{}.{}", HYXE_NAC_DIR_IMPERSONAL.lock().unwrap().as_ref().unwrap(), valid_cid, CNAC_SERIALIZED_EXTENSION))
+            get_pathbuf(format!("{}{}.{}", dirs.inner.read().hyxe_nac_dir_impersonal.as_str(), valid_cid, CNAC_SERIALIZED_EXTENSION))
         }
     }
 
     /// Loads from an inner device. Performs all the necessary actions to keep the data as safe as possible
-    pub(crate) async fn load_safe_from_fs(mut inner: ClientNetworkAccountInner, local_save_path: PathBuf) -> Result<Self, AccountError<String>> {
+    pub(crate) async fn load_safe_from_fs(mut inner: ClientNetworkAccountInner, local_save_path: PathBuf, dirs: &DirectoryStore) -> Result<Self, AccountError<String>> {
         if inner.is_local_personal {
             debug_assert!(inner.hyxefile_save_path.is_none()); // onload, this should have a value
             debug_assert!(inner.password_hyxefile.is_none());
@@ -206,6 +211,7 @@ impl ClientNetworkAccount {
 
         debug_assert!(inner.inner_encrypted_nac.is_some()); // onload, this should have a value for both server and client types
 
+        inner.dirs = Some(dirs.clone());
         inner.local_save_path = local_save_path;
 
         let static_hyper_ratchet = inner.crypt_container.toolset.get_static_auxiliary_ratchet();
@@ -240,11 +246,11 @@ impl ClientNetworkAccount {
     }
 
     /// Towards the end of the registration phase, the [ClientNetworkAccountInner] gets transmitted to Alice.
-    pub fn new_from_network_personal<R: ToString, K: ToString>(valid_cid: u64, hyper_ratchet: HyperRatchet, username: R, password: SecVec<u8>, full_name: K, password_hash: Vec<u8>, adjacent_nac: NetworkAccount) -> Result<Self, AccountError<String>> {
+    pub fn new_from_network_personal<R: ToString, K: ToString>(valid_cid: u64, hyper_ratchet: HyperRatchet, username: R, password: SecVec<u8>, full_name: K, password_hash: Vec<u8>, adjacent_nac: NetworkAccount, dirs: DirectoryStore) -> Result<Self, AccountError<String>> {
         const IS_PERSONAL: bool = true;
 
         // We supply none to the valid cid
-        Self::new(valid_cid, IS_PERSONAL, adjacent_nac, username, password, full_name, password_hash, hyper_ratchet)
+        Self::new(valid_cid, IS_PERSONAL, adjacent_nac, username, password, full_name, password_hash, hyper_ratchet, dirs)
     }
 
     /// When the client received its inner CNAC, it will not have the NAC of the server. Therefore, the client-version of the CNAC must be updated
@@ -319,6 +325,12 @@ impl ClientNetworkAccount {
         f(read.crypt_container.get_hyper_ratchet(version))
     }
 
+    /// Returns the versions available in the hyper ratchet
+    pub fn get_hyper_ratchet_versions(&self) -> RangeInclusive<u32> {
+        let read = self.read();
+        read.crypt_container.toolset.get_oldest_hyper_ratchet_version()..=read.crypt_container.toolset.get_most_recent_hyper_ratchet_version()
+    }
+
     /// Updates the internal toolset
     pub fn register_new_hyper_ratchet(&self, new_hyper_ratchet: HyperRatchet) -> Result<UpdateStatus, CryptError<String>> {
         let mut write = self.write();
@@ -356,7 +368,6 @@ impl ClientNetworkAccount {
     pub fn purge_from_fs_blocking(&mut self) -> Result<(), AccountError<String>> {
         let read = self.read();
         let path = &read.local_save_path;
-
         std::fs::remove_file(path).map_err(|err| err.into())
     }
 
@@ -601,6 +612,7 @@ impl ClientNetworkAccount {
     /// Blocking version of `async_save_to_local_fs`
     pub fn blocking_save_to_local_fs(&self) -> Result<(), AccountError<String>> where ClientNetworkAccountInner: SyncIO, NetworkAccountInner: SyncIO {
         let mut ptr = self.write();
+        let dirs = ptr.dirs.clone().ok_or_else(|| AccountError::Generic("Directory store not loaded".to_string()))?;
         //debug_assert!(ptr.hyxefile_save_path.is_none());
         //debug_assert!(ptr.inner_encrypted_nac.is_none());
 
@@ -613,7 +625,7 @@ impl ClientNetworkAccount {
             let password_bytes = ptr.password_in_ram.as_ref().unwrap().unsecure().to_vec();
             let password_hyxefile = ptr.password_hyxefile.as_mut().unwrap();
             let _ = password_hyxefile.replace_contents(&static_hyper_ratchet, password_bytes.as_slice(), false, SecurityLevel::DIVINE).map_err(|err| AccountError::IoError(err.to_string()))?;
-            let path = password_hyxefile.save_locally_blocking().map_err(|err| AccountError::IoError(err.to_string()))?;
+            let path = password_hyxefile.save_locally_blocking(&dirs).map_err(|err| AccountError::IoError(err.to_string()))?;
             ptr.hyxefile_save_path = Some(path.clone());
         } else {
             debug_assert!(ptr.password_in_ram.is_none());

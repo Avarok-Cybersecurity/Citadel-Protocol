@@ -13,9 +13,10 @@ mod tests {
     use hyxe_user::client_account::ClientNetworkAccount;
     use hyxe_user::network_account::NetworkAccount;
 
+    #[allow(unused_must_use)]
     fn setup_log() {
         std::env::set_var("RUST_LOG", "info");
-        env_logger::init();
+        let _ = env_logger::try_init();
         log::trace!("TRACE enabled");
         log::info!("INFO enabled");
         log::warn!("WARN enabled");
@@ -182,7 +183,9 @@ mod tests {
 
     #[tokio::test]
     async fn hyperlan_peer_adding() {
-        let _account_manager = acc_mgr().await;
+        let account_manager = acc_mgr().await;
+        let dirs = account_manager.get_directory_store().clone();
+
         let nac = NetworkAccount::default();
         let cid0 = 10;
         let username0 = "thomas0";
@@ -192,8 +195,8 @@ mod tests {
 
         let hr0 = gen(cid0, 0);
         let hr1 = gen(cid1, 0);
-        let cnac0 = ClientNetworkAccount::new(cid0, true, nac.clone(), username0, SecVec::new(Vec::new()), "Thomas Braun", Vec::new(), hr0.0).unwrap();
-        let _cnac1 = ClientNetworkAccount::new(cid1, true, nac, username1, SecVec::new(Vec::new()), "Thomas Braun II", Vec::new(), hr1.0).unwrap();
+        let cnac0 = ClientNetworkAccount::new(cid0, true, nac.clone(), username0, SecVec::new(Vec::new()), "Thomas Braun", Vec::new(), hr0.0, dirs.clone()).unwrap();
+        let _cnac1 = ClientNetworkAccount::new(cid1, true, nac, username1, SecVec::new(Vec::new()), "Thomas Braun II", Vec::new(), hr1.0, dirs).unwrap();
         cnac0.insert_hyperlan_peer(cid1, username1);
         assert!(cnac0.hyperlan_peer_exists(cid1));
         assert!(cnac0.hyperlan_peer_exists_by_username(username1));

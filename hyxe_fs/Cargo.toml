@@ -8,7 +8,6 @@ workspace = "../"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lazy_static = "1.3.0"
 #flate3 = "0.1.20"
 pin-project = "0.4.23"
 dirs-2 = "1.1.0"
@@ -26,6 +25,7 @@ futures = "0.3.8"
 log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_error"] }
 tokio = { version = "^0.2.22", features = ["fs", "rt-threaded", "macros", "sync", "stream"] }
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0" }
+parking_lot = "0.11.1"
 
 [dev-dependencies]
 byteorder = "*"

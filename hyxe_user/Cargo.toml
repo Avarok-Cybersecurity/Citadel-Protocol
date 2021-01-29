@@ -18,7 +18,6 @@ crossbeam-utils = "*"
 #future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
 secstr = "0.4.0"
 rand = "0.7.0"
-lazy_static = "1.4.0"
 multimap = "0.8.1"
 
 log = { version = "0.4.8", features = ["max_level_trace", "release_max_level_error"] }

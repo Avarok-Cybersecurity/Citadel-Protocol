@@ -14,6 +14,7 @@ crate-type = ["cdylib"]
 libc = "0.2.76"
 jni = { version = "0.17.0", default-features = false }
 hyxewave = { path = "../hyxewave", version = "0.1.0" }
+parking_lot = "0.11.1"
 #hyxe_net = { path = "../hyxe_net" }
 lazy_static = "1.4.0"
 android_logger = "0.9.0"

@@ -39,7 +39,6 @@ pub fn determine_initial_nat_method(local_node_type: HyperNodeType, remote_node_
             }
         }
 
-        // Cell-phone users. No UPnP; just use method3
         HyperNodeType::BehindSymmetricalNAT => {
             match remote_node_type {
                 HyperNodeType::GloballyReachable => {

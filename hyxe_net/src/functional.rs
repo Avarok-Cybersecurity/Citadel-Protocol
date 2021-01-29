@@ -143,3 +143,28 @@ impl<A, B> PairMap<A, B> for (A, B) {
         (fx)(self.0, self.1)
     }
 }
+
+pub trait TriMap<A, B, C> {
+    fn map_left<U, F: FnOnce(A) -> U>(self, fx: F) -> (U, B, C);
+    fn map_center<U, F: FnOnce(B) -> U>(self, fx: F) -> (A, U, C);
+    fn map_right<U, F: FnOnce(C) -> U>(self, fx: F) -> (A, B, U);
+    fn map<U, F: FnOnce(A, B, C) -> U>(self, fx: F) -> U;
+}
+
+impl<A, B, C> TriMap<A, B, C> for (A, B, C) {
+    fn map_left<U, F: FnOnce(A) -> U>(self, fx: F) -> (U, B, C) {
+        ((fx)(self.0), self.1, self.2)
+    }
+
+    fn map_center<U, F: FnOnce(B) -> U>(self, fx: F) -> (A, U, C) {
+        (self.0, (fx)(self.1), self.2)
+    }
+
+    fn map_right<U, F: FnOnce(C) -> U>(self, fx: F) -> (A, B, U) {
+        (self.0, self.1, (fx)(self.2))
+    }
+
+    fn map<U, F: FnOnce(A, B, C) -> U>(self, fx: F) -> U {
+        (fx)(self.0, self.1, self.2)
+    }
+}

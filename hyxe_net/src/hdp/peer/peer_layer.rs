@@ -163,8 +163,14 @@ impl HyperNodePeerLayer {
                 if let Some(peer) = entry.pending_peers.remove(&peer_cid) {
                     entry.concurrent_peers.insert(peer_cid, peer);
                     return true
+                } else {
+                    log::warn!("VDD");
                 }
+            } else {
+                log::warn!("VDX");
             }
+        } else {
+            log::warn!("VDH");
         }
 
         false

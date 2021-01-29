@@ -487,9 +487,9 @@ impl HdpSessionManager {
     pub fn remove_message_group(&self, cid_host: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(group) = this.hypernode_peer_layer.remove_message_group(key) {
-            for (peer_cid, _) in group.concurrent_peers {
-                if peer_cid != cid_host {
-                    if let Err(err) = this.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
+            for peer_cid in group.concurrent_peers.keys() {
+                if *peer_cid != cid_host {
+                    if let Err(err) = this.send_signal_to_peer_direct(*peer_cid, |peer_hyper_ratchet| {
                         let signal = GroupBroadcast::Disconnected(key);
                         super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
                     }) {
