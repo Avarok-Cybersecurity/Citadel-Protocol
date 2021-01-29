@@ -31,7 +31,7 @@ pub mod prelude {
 pub mod re_imports {
     pub use serde::*;
     pub use hyxe_fs::file_crypt_scrambler::*;
-    pub use hyxe_fs::env::HYXE_VIRTUAL_DIR;
+    pub use hyxe_fs::env::DirectoryStore;
 }
 
 /// The general trait for creating account types
@@ -74,6 +74,3 @@ pub mod server_config_handler;
 
 /// For errors
 pub mod misc;
-
-#[macro_use]
-extern crate lazy_static;

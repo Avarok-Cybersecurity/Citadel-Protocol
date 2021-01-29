@@ -212,7 +212,7 @@ impl HdpSession {
             queue_worker: SessionQueueWorker::new(stopper_tx),
         };
 
-        Self { inner: create_inner!(inner) }
+        Self::from(inner)
     }
 
     /// Once the [HdpSession] is created, it can then be executed to begin handling a periodic connection handler.
@@ -664,7 +664,7 @@ impl HdpSession {
 
                                 let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap();
 
-                                let preferred_primary_stream = endpoint_container.get_direct_p2p_primary_stream().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
+                                let preferred_primary_stream = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
 
                                 let (file_size, groups_needed) = scramble_encrypt_file(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_usable_ratchet.clone(), HDP_HEADER_BYTE_LEN, target_cid, start_group_id, hdp_packet_crafter::group::craft_wave_payload_packet_into)
                                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -919,7 +919,7 @@ impl HdpSession {
                     if let Some(vconn) = state_container.active_virtual_connections.get_mut(&target_cid) {
                         if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
                             let group_id = endpoint_container.get_and_increment_group_id();
-                            let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
+                            let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
                             let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap().clone();
                             latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
                             let alice_constructor = endpoint_container.endpoint_crypto.update_in_progress.if_true(None).if_false_then(|| {
@@ -1391,13 +1391,17 @@ impl HdpSessionInner {
 
                 match alice_constructor {
                     Some((alice_constructor, latest_hyper_ratchet)) => {
-                        let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().unwrap_or_else(|| self.to_primary_stream.clone().unwrap());
+                        let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().unwrap_or_else(|| self.to_primary_stream.as_ref().unwrap());
                         let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(&latest_hyper_ratchet, alice_constructor.stage0_alice(), timestamp, peer_cid, security_level);
+
+                        to_primary_stream_preferred.unbounded_send(stage0_packet).map_err(|err| NetworkError::Generic(err.to_string()))?;
+
                         if let Some(_) = state_container.drill_update_state.p2p_updates.insert(peer_cid, alice_constructor) {
                             log::error!("Overwrote pre-existing peer kem. Report to developers");
                         }
 
-                        to_primary_stream_preferred.unbounded_send(stage0_packet).map_err(|err| NetworkError::Generic(err.to_string()))
+                        // to_primary_stream_preferred.unbounded_send(stage0_packet).map_err(|err| NetworkError::Generic(err.to_string()))
+                        Ok(())
                     }
 
                     None => {

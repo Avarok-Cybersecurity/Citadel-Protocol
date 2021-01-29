@@ -24,10 +24,5 @@ pub enum KeyExchangeProcess {
     // the bool determines whether or not the connection was upgraded
     HolePunchEstablishedVerified(bool),
     // The hole-punch failed
-    HolePunchFailed,
-    // Re-key. Should be done periodically, handled by the channel layer
-    // contains the DOU
-    PerformReKey(Vec<u8>),
-    // returns the drill version that the not just updated to
-    ReKeyReturnStatus(u32)
+    HolePunchFailed
 }

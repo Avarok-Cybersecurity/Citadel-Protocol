@@ -48,7 +48,7 @@ public class NodeHomeFragment extends Fragment {
         TableLayout clientsTable = lyt.findViewById(R.id.clientsTable);
         FragmentManager fragmentManager = getParentFragmentManager();
         FragmentTransaction fragmentTransaction = fragmentManager.beginTransaction();
-        fragmentTransaction.add(R.id.clientsTable, new NodeMessagesFragment(peerList));
+        fragmentTransaction.add(R.id.clientsTable, new NodeMessagesFragment());
         fragmentTransaction.commit();
         /*
         // assemble the table

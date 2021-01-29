@@ -12,6 +12,8 @@ use std::fmt::Display;
 use crossbeam_utils::sync::{ShardedLock, ShardedLockReadGuard, ShardedLockWriteGuard};
 use std::collections::hash_map::RandomState;
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
+use crate::hypernode_account::NAC_SERIALIZED_EXTENSION;
+use hyxe_fs::env::DirectoryStore;
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
@@ -20,6 +22,7 @@ pub struct AccountManager {
     /// A set of all local CNACs loaded at runtime + created during network registrations
     map: Arc<ShardedLock<HashMap<u64, ClientNetworkAccount>>>,
     local_nac: NetworkAccount,
+    directory_store: DirectoryStore
 }
 
 impl AccountManager {
@@ -31,13 +34,18 @@ impl AccountManager {
     #[allow(unused_results)]
     pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>) -> Result<Self, FsError<String>> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
-        hyxe_fs::env::setup_directories(bind_addr, home_dir)?;
+        let directory_store = hyxe_fs::env::setup_directories(bind_addr, NAC_SERIALIZED_EXTENSION, home_dir)?;
 
-        let mut map = load_cnac_files().await?;
-        let local_nac = load_node_nac(&mut map).map_err(|err| FsError::IoError(err.to_string()))?;
+        let mut map = load_cnac_files(&directory_store).await?;
+        let local_nac = load_node_nac(&mut map, &directory_store).map_err(|err| FsError::IoError(err.to_string()))?;
 
         let map = Arc::new(ShardedLock::new(map));
-        Ok(Self { map, local_nac })
+        Ok(Self { map, local_nac, directory_store })
+    }
+
+    /// Returns the directory store for this local node session
+    pub fn get_directory_store(&self) -> &DirectoryStore {
+        &self.directory_store
     }
 
     fn read_map(&self) -> ShardedLockReadGuard<HashMap<u64, ClientNetworkAccount, RandomState>> {
@@ -67,7 +75,7 @@ impl AccountManager {
     /// whereas the HyperLAN server (Bob) runs `register_impersonal_hyperlan_client_network_account`, the registering
     /// HyperLAN Client (Alice) runs this function below
     pub fn register_personal_hyperlan_server<'a, R: ToString + Display, V: ToString + Display>(&self, valid_cid: u64, hyper_ratchet: HyperRatchet, username: R, full_name: V, adjacent_nac: NetworkAccount, password: SecVec<u8>, password_hash: Vec<u8>) -> Result<ClientNetworkAccount, AccountError<String>> {
-        let cnac = ClientNetworkAccount::new_from_network_personal(valid_cid, hyper_ratchet, &username, password, &full_name, password_hash, adjacent_nac)?;
+        let cnac = ClientNetworkAccount::new_from_network_personal(valid_cid, hyper_ratchet, &username, password, &full_name, password_hash, adjacent_nac, self.directory_store.clone())?;
         self.local_nac.register_cid(cnac.get_id(), &username)?;
 
         let mut map = self.write_map();
