@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::str::FromStr;
-use std::sync::Mutex;
 use std::sync::Arc;
 use async_trait::async_trait;
 //use future_parking_lot::rwlock::{FutureReadable, FutureWriteable, RwLock};
@@ -18,15 +17,10 @@ use crate::hypernode_account::HyperNodeAccountInformation;
 use crate::misc::AccountError;
 use crate::server_config_handler::username_has_invalid_symbols;
 use crossbeam_utils::sync::{ShardedLock, ShardedLockWriteGuard, ShardedLockReadGuard};
-use std::ops::Deref;
 use std::fmt::Debug;
 use serde::export::Formatter;
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
-
-lazy_static! {
-    /// Each node has a unique NetworkAccount; this information is stored at the address below if the instance is a server node
-    pub static ref NAC_NODE_DEFAULT_STORE_LOCATION: Mutex<Option<String>> = Mutex::new(None);
-}
+use hyxe_fs::env::DirectoryStore;
 
 #[derive(Serialize, Deserialize, Default)]
 /// Inner device
@@ -37,6 +31,9 @@ pub struct NetworkAccountInner {
     pub(crate) global_ipv6: Option<SocketAddrV6>,
     /// Contains a list of registered HyperLAN CIDS
     pub cids_registered: HashMap<u64, String>,
+    /// for serialization
+    #[serde(skip)]
+    pub dirs: Option<DirectoryStore>,
     /// The NID
     nid: u64,
 }
@@ -51,12 +48,13 @@ pub struct NetworkAccount {
 impl NetworkAccount {
     /// This should be called at runtime if the current node does not have a detected NAC. This is NOT for
     /// creating a NAC for new server connections; instead, use `new_from_recent_connection`.
-    pub fn new_local() -> Result<NetworkAccount, AccountError<String>> {
+    pub fn new_local(dirs: &DirectoryStore) -> Result<NetworkAccount, AccountError<String>> {
         let nid = random::<u64>() ^ random::<u64>();
         let (global_ipv4, global_ipv6) = (None, None);
-        let local_save_path = get_pathbuf(NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().as_ref().unwrap());
+        let local_save_path = get_pathbuf(dirs.inner.read().nac_node_default_store_location.as_str());
+        let dirs = Some(dirs.clone());
         info!("Attempting to create a NAC at {}", local_save_path.to_str().unwrap());
-        Ok(Self { inner: Arc::new((nid, ShardedLock::new(NetworkAccountInner { cids_registered: HashMap::new(), nid, global_ipv4, global_ipv6}))) })
+        Ok(Self { inner: Arc::new((nid, ShardedLock::new(NetworkAccountInner { cids_registered: HashMap::new(), nid, global_ipv4, global_ipv6, dirs}))) })
     }
 
     /// Saves the file to the local FS
@@ -67,7 +65,7 @@ impl NetworkAccount {
     }
 
     /// When a new connection is created, this may be called
-    pub fn new_from_recent_connection(nid: u64, addr: SocketAddr) -> NetworkAccount {
+    pub fn new_from_recent_connection(nid: u64, addr: SocketAddr, dir_store: DirectoryStore) -> NetworkAccount {
         let (global_ipv4, global_ipv6) = {
             if addr.is_ipv4() {
                 (Some(SocketAddrV4::from_str(addr.to_string().as_str()).unwrap()), None)
@@ -75,12 +73,14 @@ impl NetworkAccount {
                 (None, Some(SocketAddrV6::from_str(addr.to_string().as_str()).unwrap()))
             }
         };
+
         Self {
             inner: Arc::new((nid, ShardedLock::new(NetworkAccountInner {
                 cids_registered: HashMap::new(),
                 nid,
                 global_ipv4,
-                global_ipv6
+                global_ipv6,
+                dirs: Some(dir_store)
             }))),
         }
     }
@@ -167,9 +167,10 @@ impl NetworkAccount {
             return Err(AccountError::Generic(format!("Username {} already exists!", &username)))
         }
 
-        log::info!("Received password: {:?}", password.unsecure());
+        //log::info!("Received password: {:?}", password.unsecure());
+        let dirs = self.inner.1.read().unwrap().dirs.clone().ok_or_else(|| AccountError::Generic("Directory store not loaded".to_string()))?;
 
-        let cnac = ClientNetworkAccount::new(reserved_cid, false, nac_other.unwrap_or_else(|| self.clone()), &username, password, full_name, password_hash, base_hyper_ratchet)?;
+        let cnac = ClientNetworkAccount::new(reserved_cid, false, nac_other.unwrap_or_else(|| self.clone()), &username, password, full_name, password_hash, base_hyper_ratchet, dirs)?;
 
         // So long as the CNAC creation succeeded, we can confidently add the CID into the config
         self.register_cid(reserved_cid, username)
@@ -229,7 +230,7 @@ impl NetworkAccount {
     /// blocking version of async_save_to_local_fs
     pub fn save_to_local_fs(&self) -> Result<(), AccountError<String>> {
         let inner_nac = self.write();
-        let path = get_pathbuf(NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().as_ref().unwrap());
+        let path = get_pathbuf(inner_nac.dirs.as_ref().unwrap().inner.read().nac_node_default_store_location.as_str());
 
         let path_no_filename = path.parent().unwrap().clone();
         info!("Storing NAC to directory: {}", &path_no_filename.display());
@@ -245,13 +246,6 @@ impl Debug for NetworkAccount {
     }
 }
 
-/// This is called by the [ServerBridgeHandler] when needing to create a new Network account
-impl From<(u64, SocketAddr)> for NetworkAccount {
-    fn from(obj: (u64, SocketAddr)) -> Self {
-        Self::new_from_recent_connection(obj.0, obj.1)
-    }
-}
-
 #[async_trait]
 impl HyperNodeAccountInformation for NetworkAccount {
     fn get_id(&self) -> u64 {
@@ -259,12 +253,6 @@ impl HyperNodeAccountInformation for NetworkAccount {
     }
 
     async fn async_save_to_local_fs(self) -> Result<(), AccountError<String>> where NetworkAccountInner: SyncIO {
-        let path = get_pathbuf(NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().as_ref().unwrap());
-        let path_no_filename = path.parent().unwrap().clone();
-        info!("Storing NAC to directory: {}", &path_no_filename.display());
-        hyxe_fs::system_file_manager::make_dir_all(path_no_filename).await.map_err(|err| AccountError::Generic(err.to_string()))?;
-        let inner_nac = self.write();
-        // Save the NAC
-        inner_nac.deref().serialize_to_local_fs(path).map_err(|err| AccountError::IoError(err.to_string()))
+        self.save_to_local_fs()
     }
 }

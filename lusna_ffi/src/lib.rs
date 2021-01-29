@@ -2,8 +2,6 @@ use android_logger::{Config, FilterBuilder};
 use jni::JNIEnv;
 use jni::objects::{JClass, JObject, JValue};
 use jni::sys::{jbyteArray, jstring};
-//use std::sync::Mutex;
-use lazy_static::lazy_static;
 use log::Level;
 
 use hyxewave::ffi::KernelResponse;
@@ -15,13 +13,12 @@ use hyxewave::console_error::ConsoleError;
 /// A type to communicate between FFI boundaries. Other languages must have a mirror version to this
 pub mod ffi_object;
 
-lazy_static! {
-    pub static ref FFI_OBJECT: Mutex<Option<FFIObject>> = Mutex::new(None);
-}
+pub static FFI_OBJECT: Mutex<Option<FFIObject>> = parking_lot::const_mutex(None);
+
 
 #[no_mangle]
 pub extern "system" fn Java_com_lusna_svc_LusnaService_start_1rust_1subsystem(env: JNIEnv<'static>, clazz: JClass<'static>, home_dir: jbyteArray) -> jstring {
-    let output = format!("Powered by Rust 1.47 nightly ({} {})", std::env::consts::ARCH, std::env::consts::OS);
+    let output = format!("Powered by Rust 1.51 nightly ({} {})", std::env::consts::ARCH, std::env::consts::OS);
     let home_dir = env.convert_byte_array(home_dir).unwrap();
     start_lusnanet(&env, &clazz, home_dir);
     // send_to_java(&[1, 2, 3]);
@@ -65,18 +62,8 @@ fn serialize(input: KernelResponse) -> Vec<u8> {
     input.serialize_json().unwrap()
 }
 
-/*
-fn pack_string_to_vec(flag: u8, ticket: Option<Ticket>, msg: String) -> Vec<u8> {
-    let vals = msg.as_bytes();
-    let mut ret = Vec::with_capacity(1 + 8 + vals.len());
-    ret.put_u8(flag);
-    ret.put_u64(ticket.unwrap_or(Ticket(0)).0);
-    ret.put(vals);
-    ret
-}
-*/
 
-fn get_rust_to_native_fn() -> Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + 'static> {
+fn get_rust_to_native_fn() -> Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static> {
     Box::new(|res| {
         send_to_java(serialize(KernelResponse::from(res)))
     })
@@ -85,7 +72,7 @@ fn get_rust_to_native_fn() -> Box<dyn Fn(Result<Option<KernelResponse>, ConsoleE
 /// When the java module called get_rust_version on init, this function gets called.
 #[allow(unused_results)]
 fn start_lusnanet(env: &JNIEnv<'static>, clazz: &JClass<'static>, home_dir: Vec<u8>) {
-    (*FFI_OBJECT).lock().replace(FFIObject::new(env, clazz));
+    FFI_OBJECT.lock().replace(FFIObject::new(env, clazz));
 
     // start android logger
     start_logger();

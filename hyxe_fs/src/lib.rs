@@ -15,10 +15,6 @@ unused_results,
 warnings
 )]
 
-#[macro_use]
-/// For global constants
-extern crate lazy_static;
-
 /// Conveniance import to access important I/O subroutines, including local and virtual
 pub mod prelude {
     pub use crate::hyxe_file::*;
@@ -48,8 +44,6 @@ pub mod io;
 /// Contains the async file I/O subroutines, as well as async serialization/deserialization
 pub mod async_io;
 
-/// Contains the method for serializing/deserializing objects with Arc<RwLock<T>> types
-pub mod arc_rwlock_serde;
 /// Allows thread-pooled asynchronous and parallel file processing
 pub mod file_crypt_scrambler;
 

@@ -27,20 +27,22 @@ pub const FIREWALL_KEEP_ALIVE: usize = 3;
 #[cfg(feature = "multi-threaded")]
 pub struct SessionQueueWorker {
     inner: std::sync::Arc<parking_lot::Mutex<SessionQueueWorkerInner>>,
-    waker: std::sync::Arc<AtomicWaker>
+    waker: std::sync::Arc<AtomicWaker>,
 }
 
 pub trait QueueFunction: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements {}
+
 pub trait QueueOneshotFunction: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) + ContextRequirements {}
 
 impl<T: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements> QueueFunction for T {}
+
 impl<T: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) + ContextRequirements> QueueOneshotFunction for T {}
 
 #[derive(Clone)]
 #[cfg(not(feature = "multi-threaded"))]
 pub struct SessionQueueWorker {
     inner: std::rc::Rc<std::cell::RefCell<SessionQueueWorkerInner>>,
-    waker: std::rc::Rc<AtomicWaker>
+    waker: std::rc::Rc<AtomicWaker>,
 }
 
 #[cfg(feature = "multi-threaded")]
@@ -63,20 +65,20 @@ pub struct SessionQueueWorkerInner {
     session: Option<WeakHdpSessionBorrow>,
     sess_shutdown: Sender<()>,
     // keeps track of how many items have been added
-    rolling_idx: usize
+    rolling_idx: usize,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum QueueWorkerTicket {
     Oneshot(usize, u64),
-    Periodic(usize, u64)
+    Periodic(usize, u64),
 }
 
 pub enum QueueWorkerResult {
     Complete,
     Incomplete,
     EndSession,
-    AdjustPeriodicity(Duration)
+    AdjustPeriodicity(Duration),
 }
 
 impl SessionQueueWorker {
@@ -118,23 +120,22 @@ impl SessionQueueWorker {
     /// Inserts a reserved system process. We now spawn this as a task to prevent deadlocking
     #[allow(unused_results)]
     pub fn insert_reserved(&self, key: Option<QueueWorkerTicket>, timeout: Duration, on_timeout: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements) {
-            //tokio::task::yield_now().await;
-            let mut this = unlock!(self);
-            // the zero in the default unwrap ensures that the key is going to be unique
-            let key = key.unwrap_or(QueueWorkerTicket::Oneshot(this.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1, RESERVED_CID_IDX));
-            let delay = this.expirations
-                .insert(key, timeout);
+        //tokio::task::yield_now().await;
+        let mut this = unlock!(self);
+        // the zero in the default unwrap ensures that the key is going to be unique
+        let key = key.unwrap_or(QueueWorkerTicket::Oneshot(this.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1, RESERVED_CID_IDX));
+        let delay = this.expirations
+            .insert(key, timeout);
 
-            if let Some(key) = this.entries.insert(key, (Box::new(on_timeout), delay, timeout)) {
-                log::error!("Overwrote a session key: {:?}", key.1);
-            }
+        if let Some(key) = this.entries.insert(key, (Box::new(on_timeout), delay, timeout)) {
+            log::error!("Overwrote a session key: {:?}", key.1);
+        }
 
-            this.rolling_idx += 1;
+        this.rolling_idx += 1;
 
-            std::mem::drop(this);
-            // may not be registered yet
-            self.waker.wake();
-
+        std::mem::drop(this);
+        // may not be registered yet
+        self.waker.wake();
     }
 
     /// A conveniant way to check on a task once sometime in the future
@@ -169,7 +170,7 @@ impl SessionQueueWorker {
                             let (fx, _, _) = this.entries.remove(&entry).unwrap();
                             match (fx)(&mut wrap_inner_mut!(sess)) {
                                 QueueWorkerResult::EndSession => {
-                                    return Poll::Ready(Err(Error::shutdown()))
+                                    return Poll::Ready(Err(Error::shutdown()));
                                 }
 
                                 _ => {}
@@ -192,7 +193,7 @@ impl SessionQueueWorker {
                                 }
 
                                 QueueWorkerResult::EndSession => {
-                                    return Poll::Ready(Err(Error::shutdown()))
+                                    return Poll::Ready(Err(Error::shutdown()));
                                 }
 
                                 QueueWorkerResult::AdjustPeriodicity(new_period) => {

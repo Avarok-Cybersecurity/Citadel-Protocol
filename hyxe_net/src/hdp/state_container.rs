@@ -44,6 +44,7 @@ use hyxe_fs::prelude::SyncIO;
 use crate::hdp::validation::group::KemTransferStatus;
 use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
 use crate::hdp::peer::peer_layer::PeerConnectionType;
+use hyxe_fs::env::DirectoryStore;
 
 pub type WeakStateContainerBorrow = crate::macros::WeakBorrow<StateContainerInner>;
 define_outer_struct_wrapper!(StateContainer, StateContainerInner);
@@ -72,10 +73,6 @@ pub struct StateContainerInner {
     pub(super) provisional_direct_p2p_conns: HashMap<SocketAddr, DirectP2PRemote>,
     pub(super) cnac: Option<ClientNetworkAccount>,
     pub(super) this: Option<WeakStateContainerBorrow>
-    // when data transmits from the hLAN client to the hLAN server, the server SHOULD keep track
-    // of the maximum value, even though the client does this already. HOWEVER, when the server needs
-    // to route data from the
-    //pub(super) unique_group_id: u64
 }
 
 /// This helps consolidate unique keys between vconns sending data to this node
@@ -170,9 +167,8 @@ impl EndpointChannelContainer {
         self.rolling_object_id - 1
     }
 
-    pub fn get_direct_p2p_primary_stream(&self) -> Option<OutboundTcpSender> {
-        let ref stream = self.direct_p2p_remote.as_ref()?.p2p_primary_stream;
-        Some(stream.clone())
+    pub fn get_direct_p2p_primary_stream(&self) -> Option<&OutboundTcpSender> {
+        Some(&self.direct_p2p_remote.as_ref()?.p2p_primary_stream)
     }
 }
 
@@ -733,14 +729,14 @@ impl StateContainerInner {
 
     /// This creates an entry in the inbound_files hashmap
     #[allow(unused_results)]
-    pub fn on_file_header_received(&mut self, header: &LayoutVerified<&[u8], HdpHeader>, virtual_target: VirtualTargetType, metadata: VirtualFileMetadata) -> bool {
+    pub fn on_file_header_received(&mut self, header: &LayoutVerified<&[u8], HdpHeader>, virtual_target: VirtualTargetType, metadata: VirtualFileMetadata, dirs: &DirectoryStore) -> bool {
         let key = FileKey::new(header.session_cid.get(), metadata.object_id);
         let ticket = header.context_info.get().into();
 
         if !self.inbound_files.contains_key(&key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
             let name = metadata.name.clone();
-            let save_location = hyxe_user::re_imports::HYXE_VIRTUAL_DIR.lock().unwrap().clone().unwrap();
+            let save_location = dirs.inner.read().hyxe_virtual_dir.clone();
             let save_location = format!("{}{}", save_location, name);
             if let Ok(file) = std::fs::File::create(&save_location) {
                 let file = tokio::fs::File::from_std(file);
@@ -1268,33 +1264,4 @@ impl StateContainerInner {
     pub fn provisional_state_has_timed_out(&self) -> bool {
         self.register_state.has_expired() || self.connect_state.has_expired() || self.pre_connect_state.has_expired()
     }
-
-    /*
-    /// We need a way to determine if any group has a wave that needs to be retransmitted
-    #[inline]
-    #[allow(dead_code)]
-    fn handle_inbound_wave_timeout(pqc: &Rc<PostQuantumContainer>, time: i64, group_id: &u64, receiver: &GroupReceiverContainer, to_primary_stream: &UnboundedSender<Bytes>) {
-        // Now, check each wave
-        let drill = receiver.receiver.borrow_drill();
-        let last_finished_wave = receiver.receiver.get_last_complete_wave();
-        let target_cid
-        let wave_to_check = if let Some(last_finished_wave) = last_finished_wave {
-            // check the last wave that finished + 1
-            last_finished_wave + 1
-        } else {
-            // check the zeroth wave
-            0
-        };
-        // We only check the wave after the last finished wave. If no waves have finished yet, None is returned above and we check the zeroth wave.
-        // The group receiver can still be removed since there is a collective timer as well
-
-        if let Some(ref vectors_missing) = receiver.receiver.get_retransmission_vectors_for(wave_to_check, *group_id, drill) {
-            // TODO: omit this send until the wave timeout occurs
-            log::info!("Missing {} packets in wave {}. Creating and sending retransmission packet ...", vectors_missing.len(), wave_to_check);
-            // Cut the window in half
-
-            let retransmission_packet = crate::hdp::hdp_packet_crafter::group::craft_wave_do_retransmission(pqc,*group_id, wave_to_check, vectors_missing, drill, time);
-            if let Err(_) = to_primary_stream.unbounded_send(retransmission_packet) {}
-        }
-    }*/
 }

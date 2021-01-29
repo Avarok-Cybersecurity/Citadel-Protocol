@@ -50,7 +50,7 @@ impl<T: ToString> From<T> for AccountError<String> {
 const MIN_PASSWORD_LENGTH: usize = 7;
 const MAX_PASSWORD_LENGTH: usize = 17;
 
-const MIN_USERNAME_LENGTH: usize = 7;
+const MIN_USERNAME_LENGTH: usize = 3;
 const MAX_USERNAME_LENGTH: usize = 37;
 
 const MIN_NAME_LENGTH: usize = 2;

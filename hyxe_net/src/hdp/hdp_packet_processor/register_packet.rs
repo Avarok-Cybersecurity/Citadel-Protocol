@@ -111,7 +111,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
             if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE1 {
                 let algorithm = header.algorithm;
                 let hyper_ratchet = state_container.register_state.created_hyper_ratchet.as_ref()?;
-                    if let Some((proposed_credentials, adjacent_nac)) = validation::do_register::validate_stage2(hyper_ratchet, header, payload, remote_addr) {
+                    if let Some((proposed_credentials, adjacent_nac)) = validation::do_register::validate_stage2(hyper_ratchet, header, payload, remote_addr, session.account_manager.get_directory_store()) {
                         let (username, password, full_name, password_nonce) = proposed_credentials.decompose();
                         let timestamp = session.time_tracker.get_global_time_ns();
                         let local_nid = session.account_manager.get_local_nid();
@@ -176,7 +176,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
             if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE2 {
                 let hyper_ratchet = state_container.register_state.created_hyper_ratchet.clone()?;
 
-                    if let Some((success_message, adjacent_nac)) = validation::do_register::validate_success(&hyper_ratchet, header, payload, remote_addr) {
+                    if let Some((success_message, adjacent_nac)) = validation::do_register::validate_success(&hyper_ratchet, header, payload, remote_addr, session.account_manager.get_directory_store()) {
                         // Now, register the CNAC locally
 
                         let credentials = state_container.register_state.proposed_credentials.take()?;
