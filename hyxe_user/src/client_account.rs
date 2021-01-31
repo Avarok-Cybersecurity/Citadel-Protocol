@@ -19,7 +19,7 @@ use hyxe_fs::system_file_manager::bytes_to_type;
 use crate::network_account::NetworkAccountInner;
 use log::info;
 
-use serde::export::Formatter;
+use std::fmt::Formatter;
 use hyxe_fs::misc::{get_present_formatted_timestamp, get_pathbuf};
 use crossbeam_utils::sync::{ShardedLock, ShardedLockReadGuard, ShardedLockWriteGuard};
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;

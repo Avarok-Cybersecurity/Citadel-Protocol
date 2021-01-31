@@ -1,5 +1,5 @@
 use std::ops::{Deref, DerefMut};
-use hyxe_user::re_imports::export::PhantomData;
+use std::marker::PhantomData;
 
 pub struct InnerParameterMut<'a, T: 'a, K> {
     inner: &'a mut T,

@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-use hyxe_user::re_imports::export::Formatter;
+use std::fmt::Formatter;
 use hyxe_fs::io::SyncIO;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
