@@ -11,7 +11,7 @@ use crate::ez_error::EzError;
 use crate::bytes_in_place::{InPlaceBytesMut, InPlaceByteSliceMut};
 use bytes::{BytesMut, BufMut};
 use std::fmt::Debug;
-use serde::export::Formatter;
+use std::fmt::Formatter;
 
 #[cfg(not(feature = "unordered"))]
 pub type AntiReplayAttackContainer = crate::replay_attack_container::ordered::AntiReplayAttackContainer;

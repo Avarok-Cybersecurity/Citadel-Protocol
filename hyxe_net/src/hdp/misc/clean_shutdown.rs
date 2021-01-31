@@ -4,7 +4,7 @@ use tokio_util::codec::{Framed, Encoder, Decoder};
 use std::ops::{Deref, DerefMut};
 use futures::{StreamExt, SinkExt};
 use std::marker::PhantomData;
-use serde::export::fmt::Debug;
+use std::fmt::Debug;
 use crate::macros::ContextRequirements;
 
 pub fn clean_framed_shutdown<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements, U: Encoder<I, Error: From<std::io::Error> + Debug> + Decoder + ContextRequirements, I: ContextRequirements>(framed: Framed<S, U>)

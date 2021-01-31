@@ -1,6 +1,6 @@
 use crate::sec_string::SecString;
 use std::fmt::Debug;
-use serde::export::Formatter;
+use std::fmt::Formatter;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 
 /// A memory-secure wrapper for shipping around Bytes
