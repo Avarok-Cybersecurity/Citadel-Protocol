@@ -18,7 +18,7 @@ use crate::misc::AccountError;
 use crate::server_config_handler::username_has_invalid_symbols;
 use crossbeam_utils::sync::{ShardedLock, ShardedLockWriteGuard, ShardedLockReadGuard};
 use std::fmt::Debug;
-use serde::export::Formatter;
+use std::fmt::Formatter;
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_fs::env::DirectoryStore;
 

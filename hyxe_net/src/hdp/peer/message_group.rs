@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
-use hyxe_user::re_imports::export::Formatter;
+use std::fmt::Formatter;
 
 /// A [MessageGroup] is a set of HyperLAN Clients communicating through the HyperLAN Server.
 /// let P_0 be peer 0. Let S be the HyperLAN Server. Let there be a set of n peers: P_0 ... P_n-1

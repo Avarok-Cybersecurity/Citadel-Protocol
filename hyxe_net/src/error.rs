@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Debug};
-use serde::export::Formatter;
+use std::fmt::Formatter;
 use tokio::sync::mpsc::error::SendError;
 
 /// The basic error type for this crate

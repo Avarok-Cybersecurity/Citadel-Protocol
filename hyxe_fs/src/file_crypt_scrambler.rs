@@ -3,7 +3,7 @@ use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
 use futures::task::Context;
 use num::Integer;
-use serde::export::PhantomData;
+use std::marker::PhantomData;
 use std::io::{BufReader, Read};
 use tokio::macros::support::Pin;
 

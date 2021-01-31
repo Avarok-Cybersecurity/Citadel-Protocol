@@ -1,6 +1,6 @@
 use std::ops::Deref;
 use std::fmt::{Debug, Display};
-use serde::export::Formatter;
+use std::fmt::Formatter;
 use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
 /// Allows mutable access
