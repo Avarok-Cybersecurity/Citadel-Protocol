@@ -23,11 +23,12 @@ pub mod macros {
 
 
 pub mod re_exports {
-    pub use hyxe_net::re_imports::{UnboundedSender, UnboundedReceiver, BufMut, unbounded};
-    pub use tokio::task::spawn;
-    pub use parking_lot::{Mutex, const_mutex};
+    pub use parking_lot::{const_mutex, Mutex};
     pub use tokio::runtime::{Builder, Runtime};
+    pub use tokio::task::spawn;
+
     pub use hyxe_net::hdp::hdp_server::Ticket;
+    pub use hyxe_net::re_imports::{BufMut, unbounded, UnboundedReceiver, UnboundedSender};
 }
 
 pub mod app_config;

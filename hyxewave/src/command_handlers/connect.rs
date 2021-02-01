@@ -5,8 +5,8 @@ use super::imports::*;
 #[derive(Debug, Serialize)]
 pub enum ConnectResponse {
     // ticket, implicated cid, message
-    Success(u64, u64, String),
-    Failure(u64, u64, String),
+    Success(#[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64, String),
+    Failure(#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64, String),
 }
 
 #[allow(unused_results)]

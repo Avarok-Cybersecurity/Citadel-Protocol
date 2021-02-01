@@ -1,17 +1,21 @@
-use std::sync::Arc;
-use crate::console_error::ConsoleError;
 use std::ops::Deref;
-use crate::command_handlers::list_sessions::ActiveSessions;
-use crate::command_handlers::connect::ConnectResponse;
-use crate::command_handlers::register::RegisterResponse;
-use crate::command_handlers::list_accounts::ActiveAccounts;
+use std::sync::Arc;
+
 use serde::Serialize;
+
+use crate::command_handlers::connect::ConnectResponse;
 use crate::command_handlers::disconnect::DisconnectResponse;
+use crate::command_handlers::list_accounts::ActiveAccounts;
+use crate::command_handlers::list_sessions::ActiveSessions;
 use crate::command_handlers::peer::PeerList;
+use crate::command_handlers::register::RegisterResponse;
+use crate::console_error::ConsoleError;
+use ser::string;
 
 pub mod ffi_entry;
 
 pub mod command_handler;
+pub mod ser;
 
 #[derive(Clone)]
 pub struct FFIIO {
@@ -41,11 +45,11 @@ pub enum KernelResponse {
     Confirmation,
     Message(String),
     // ticket, implicated_cid, icid (0 if HyperLAN server), peer_cid
-    NodeMessage(u64, u64, u64, u64, String),
-    ResponseTicket(u64),
-    ResponseHybrid(u64, String),
+    NodeMessage(#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64, String),
+    ResponseTicket(#[serde(serialize_with = "string")] u64),
+    ResponseHybrid(#[serde(serialize_with = "string")] u64, String),
     DomainSpecificResponse(DomainResponse),
-    Error(u64, String),
+    Error(#[serde(serialize_with = "string")] u64, String),
 }
 
 impl KernelResponse {

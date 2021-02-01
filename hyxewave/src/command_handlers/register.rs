@@ -4,8 +4,8 @@ use crate::primary_terminal::parse_custom_addr;
 
 #[derive(Debug, Serialize)]
 pub enum RegisterResponse {
-    Success(u64, String),
-    Failure(u64, String)
+    Success(#[serde(serialize_with = "string")] u64, String),
+    Failure(#[serde(serialize_with = "string")] u64, String)
 }
 
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {

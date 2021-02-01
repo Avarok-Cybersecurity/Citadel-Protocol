@@ -10,6 +10,7 @@ enum ListType {
 
 #[derive(Debug, Default, Serialize)]
 pub struct ActiveAccounts {
+    #[serde(serialize_with = "string_vec")]
     cids: Vec<u64>,
     usernames: Vec<String>,
     full_names: Vec<String>,

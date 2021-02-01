@@ -10,9 +10,11 @@ enum ListType {
 #[derive(Debug, Default, Serialize)]
 pub struct ActiveSessions {
     usernames: Vec<String>,
+    #[serde(serialize_with = "string_vec")]
     cids: Vec<u64>,
-    ips: Vec<String>,
+    endpoints: Vec<String>,
     is_personals: Vec<bool>,
+    #[serde(serialize_with = "string_vec")]
     runtime_sec: Vec<u64>
 }
 
@@ -20,7 +22,7 @@ impl ActiveSessions {
     pub fn insert(&mut self, input: (&String, u64, String, bool, u64)) {
         self.usernames.push(input.0.clone());
         self.cids.push(input.1);
-        self.ips.push(input.2);
+        self.endpoints.push(input.2);
         self.is_personals.push(input.3);
         self.runtime_sec.push(input.4);
     }
@@ -52,7 +54,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, _server_remote: &'a HdpServerRemote,
 
 fn list(ctx: &ConsoleContext, list_type: ListType, none_message: &str) -> Result<Option<KernelResponse>, ConsoleError> {
     let mut table = Table::new();
-    table.set_titles(prettytable::row![Fgcb => "Username", "CID", "IP Address", "Personal", "Runtime(s)"]);
+    table.set_titles(prettytable::row![Fgcb => "Username", "CID", "Address", "Personal", "Runtime(s)"]);
     let mut cnt = 0;
 
     ctx.list_all_sessions(|sess| {
@@ -86,12 +88,12 @@ fn list(ctx: &ConsoleContext, list_type: ListType, none_message: &str) -> Result
 
 fn add_to_table(session: &KernelSession, table: &mut Table, cnt: &mut usize) {
     *cnt += 1;
-    let (username, cid, ip_addr, is_personal, runtime) = get_data_from_sess(session);
-    table.add_row(prettytable::row![c => username, cid, ip_addr, is_personal, runtime]);
+    let (username, cid, endpoint, is_personal, runtime) = get_data_from_sess(session);
+    table.add_row(prettytable::row![c => username, cid, endpoint, is_personal, runtime]);
 }
 
 fn get_data_from_sess(session: &KernelSession) -> (&String, u64, String, bool, u64) {
-    (&session.username, session.cid, session.ip_addr.ip().to_string(), session.is_personal, session.elapsed_time_seconds())
+    (&session.username, session.cid, session.socket_addr.to_string(), session.is_personal, session.elapsed_time_seconds())
 }
 
 fn handle_ffi(ctx: &ConsoleContext, list_type: ListType) -> KernelResponse {
