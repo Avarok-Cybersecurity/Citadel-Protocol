@@ -4,8 +4,10 @@ use hyxe_crypt::sec_bytes::SecBuffer;
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
+    #[serde(serialize_with = "string_vec")]
     cids: Vec<u64>,
     is_onlines: Vec<bool>,
+    #[serde(serialize_with = "string")]
     ticket: u64
 }
 

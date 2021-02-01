@@ -514,7 +514,7 @@ pub struct KernelSession {
     pub cnac: ClientNetworkAccount,
     pub cid: u64,
     pub username: String,
-    pub ip_addr: SocketAddr,
+    pub socket_addr: SocketAddr,
     pub is_personal: bool,
     pub tickets: HashSet<Ticket>,
     pub init_time: Instant,
@@ -531,9 +531,9 @@ pub struct PeerSession {
 }
 
 impl KernelSession {
-    pub fn new(cnac: ClientNetworkAccount, cid: u64, ip_addr: SocketAddr, username: String, is_personal: bool, virtual_cxn_type: VirtualConnectionType) -> Self {
+    pub fn new(cnac: ClientNetworkAccount, cid: u64, socket_addr: SocketAddr, username: String, is_personal: bool, virtual_cxn_type: VirtualConnectionType) -> Self {
         let concurrent_peers = HashMap::new();
-        Self { cnac, virtual_cxn_type, username, cid, ip_addr, is_personal, tickets: HashSet::new(), init_time: Instant::now(), concurrent_peers }
+        Self { cnac, virtual_cxn_type, username, cid, socket_addr, is_personal, tickets: HashSet::new(), init_time: Instant::now(), concurrent_peers }
     }
 
     pub fn elapsed_time_seconds(&self) -> u64 {
