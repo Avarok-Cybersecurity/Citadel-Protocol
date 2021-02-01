@@ -42,81 +42,74 @@
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
       <change afterPath="$PROJECT_DIR$/flutterust/ios/Podfile" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/native/scrap-ffi/src/ffi_object.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/main.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/parser.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/domain_specific_response.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/domain_specific_response_type.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/kernel_response.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/kernel_response_type.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/root/confirmation.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/root/domain_specific.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/root/error.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/root/hybrid.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/root/message.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/root/node_message.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/root/ticket.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/ticket.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/virtual_connection_type.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/test/parse.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/hyxe_wave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hyxe_wave.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/.metadata" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/build.gradle" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/debug/AndroidManifest.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/main/AndroidManifest.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/main/kotlin/com/example/lusna/MainActivity.kt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/main/res/drawable/launch_background.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/main/res/mipmap-hdpi/ic_launcher.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/main/res/mipmap-mdpi/ic_launcher.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/main/res/values/styles.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/app/src/profile/AndroidManifest.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/build.gradle" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/gradle.properties" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/gradle/wrapper/gradle-wrapper.properties" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/android/settings.gradle" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Flutter/AppFrameworkInfo.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Flutter/Debug.xcconfig" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Flutter/Release.xcconfig" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner.xcodeproj/project.pbxproj" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner.xcworkspace/contents.xcworkspacedata" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/AppDelegate.swift" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@3x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@3x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@3x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@3x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-83.5x83.5@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/LaunchImage.imageset/Contents.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@3x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Assets.xcassets/LaunchImage.imageset/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Base.lproj/LaunchScreen.storyboard" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Base.lproj/Main.storyboard" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Info.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/ios/Runner/Runner-Bridging-Header.h" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/lib/main.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/pubspec.lock" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/pubspec.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutter/lusna/test/widget_test.dart" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Makefile.toml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Makefile.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/lib/main.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/lib/main.dart" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/native/adder-ffi/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/native/adder-ffi/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/native/adder-ffi/Cargo.toml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/native/adder-ffi/binding.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/native/adder-ffi/build.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/native/adder-ffi/src/lib.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/native/adder/Cargo.toml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/native/adder/src/lib.rs" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/native/scrap-ffi/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/native/scrap-ffi/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/native/scrap-ffi/binding.h" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/native/scrap-ffi/binding.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/native/scrap-ffi/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/native/scrap-ffi/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/native/scrap/Cargo.toml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/native/scrap/src/lib.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/.metadata" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/CHANGELOG.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/LICENSE" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/build.gradle" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/gradle.properties" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/gradle/wrapper/gradle-wrapper.properties" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/settings.gradle" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/src/main/AndroidManifest.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/src/main/kotlin/com/example/adder/AdderPlugin.kt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Assets/.gitkeep" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/lib/RustString.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Classes/AdderPlugin.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Classes/AdderPlugin.m" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Classes/SwiftAdderPlugin.swift" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Classes/binding.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/adder.podspec" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/lib/adder.dart" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/lib/ffi.dart" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/pubspec.lock" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/pubspec.yaml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/test/adder_test.dart" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/ios/Classes/binding.h" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/ios/Classes/binding.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/lib/ffi.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/lib/ffi.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/lib/scrap.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/lib/scrap.dart" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/pubspec.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/pubspec.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/pubspec.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/pubspec.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/java/Lusna/app/src/main/java/com/lusna/guihandlers/EventHandlers.java" beforeDir="false" afterPath="$PROJECT_DIR$/java/Lusna/app/src/main/java/com/lusna/guihandlers/EventHandlers.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/command_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/ffi/command_handler.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -209,7 +202,7 @@
     <property name="project.structure.proportion" value="0.0" />
     <property name="project.structure.side.proportion" value="0.2" />
     <property name="restartRequiresConfirmation" value="false" />
-    <property name="settings.editor.selected.configurable" value="AndroidSdkUpdater" />
+    <property name="settings.editor.selected.configurable" value="preferences.pluginManager" />
     <property name="show.migrate.to.gradle.popup" value="false" />
   </component>
   <component name="ReadonlyStatusHandler">
@@ -379,10 +372,10 @@
       <item itemvalue="Cargo.Build HyxeWave" />
       <item itemvalue="Cargo.Retest tests::main (1)" />
       <item itemvalue="Cargo.Run hyxewave 127.0.0.2" />
+      <item itemvalue="Cargo.Test tests::delete_all_users" />
       <item itemvalue="Cargo.Test primary::tests" />
       <item itemvalue="Cargo.Test tests::create_cnac" />
       <item itemvalue="Cargo.Test tests::delete_all_users (1)" />
-      <item itemvalue="Cargo.Test tests::delete_all_users" />
       <item itemvalue="Cargo.Test tests::hyperlan_peer_adding" />
       <item itemvalue="Cargo.Test tests::main" />
     </list>
@@ -402,6 +395,7 @@
     <option name="toolchainHomeDirectory" value="$PROJECT_DIR$/../.cargo/bin" />
     <option name="version" value="2" />
   </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="project-level" UseSingleDictionary="true" transferred="true" />
   <component name="SvnConfiguration">
     <configuration>C:\Users\tbrau\AppData\Roaming\Subversion</configuration>
     <option name="sshConnectionType" value="PRIVATE_KEY" />
@@ -604,6 +598,8 @@
       <workItem from="1611421982901" duration="110925000" />
       <workItem from="1611783470120" duration="1196000" />
       <workItem from="1611807690726" duration="2376000" />
+      <workItem from="1612119556877" duration="721000" />
+      <workItem from="1612126677335" duration="89000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
@@ -768,20 +764,6 @@
     <MESSAGE value="Bug fixes, security improvements, etc. Added NetMutex, NetRwLock, etc" />
     <MESSAGE value="Added test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process" />
     <option name="LAST_COMMIT_MESSAGE" value="Added test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process" />
-  </component>
-  <component name="WindowStateProjectService">
-    <state x="100" y="125" width="3240" height="1215" key="AVDManager" timestamp="1611931122016">
-      <screen x="0" y="25" width="3440" height="1415" />
-    </state>
-    <state x="100" y="125" width="3240" height="1215" key="AVDManager/953.1465.1440.790/0.25.3440.1415@0.25.3440.1415" timestamp="1611931122016" />
-    <state x="1308" y="479" key="IDE.errors.dialog" timestamp="1611930025205">
-      <screen x="0" y="25" width="3440" height="1415" />
-    </state>
-    <state x="1308" y="479" key="IDE.errors.dialog/953.1465.1440.790/0.25.3440.1415@0.25.3440.1415" timestamp="1611930025205" />
-    <state x="1221" y="368" key="SettingsEditor" timestamp="1611947463330">
-      <screen x="0" y="25" width="3440" height="1415" />
-    </state>
-    <state x="1221" y="368" key="SettingsEditor/953.1465.1440.790/0.25.3440.1415@0.25.3440.1415" timestamp="1611947463330" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
