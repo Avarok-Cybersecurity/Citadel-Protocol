@@ -3,8 +3,8 @@ use super::imports::*;
 #[derive(Serialize, Debug)]
 pub enum DisconnectResponse {
     // ticket, implicated cid
-    HyperLANPeerToHyperLANServer(u64, u64),
-    HyperLANPeerToHyperLANPeer(u64, u64, u64)
+    HyperLANPeerToHyperLANServer(#[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64),
+    HyperLANPeerToHyperLANPeer(#[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64)
 }
 
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {

@@ -27,6 +27,7 @@ mod imports {
     pub use crate::kernel::KernelSession;
     pub use crate::ffi::{DomainResponse, FFIIO};
     pub use serde::Serialize;
+    pub use crate::ffi::ser::{string, string_vec};
     pub use super::super::console::virtual_terminal::INPUT_ROUTER;
 
     pub fn get_peer_cid_from_cnac(cnac: &ClientNetworkAccount, target_cid: &str) -> Result<u64, ConsoleError> {
