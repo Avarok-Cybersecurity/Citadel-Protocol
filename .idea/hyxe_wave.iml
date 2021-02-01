@@ -343,6 +343,12 @@
       <excludeFolder url="file://$MODULE_DIR$/dashmap/target" />
       <excludeFolder url="file://$MODULE_DIR$/ez_pqcrypto/oqs-rs/target" />
       <excludeFolder url="file://$MODULE_DIR$/ez_pqcrypto/target" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/satori_ffi_parser/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/satori_ffi_parser/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/scrap_ffi/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/scrap_ffi/build" />
       <excludeFolder url="file://$MODULE_DIR$/hypervec/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_config/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_core/target" />
