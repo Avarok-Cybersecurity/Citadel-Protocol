@@ -47,6 +47,7 @@
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/parser.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/domain_specific_response.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/domain_specific_response_type.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/connect_response.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/get_accounts_response.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/get_active_sessions.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/register_response.dart" afterDir="false" />
@@ -66,6 +67,7 @@
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/utils.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/test/parse.dart" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Makefile.toml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Makefile.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/lib/main.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/lib/main.dart" afterDir="false" />
@@ -252,121 +254,141 @@
       </method>
     </configuration>
     <configuration name="Build HyxeWave" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-      <option name="channel" value="NIGHTLY" />
       <option name="command" value="build --package hyxewave --bin hyxewave" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
     <configuration name="Retest tests::main (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-      <option name="channel" value="NIGHTLY" />
       <option name="command" value="test --package hyxe_net --test primary tests::main -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
     <configuration name="Run hyxewave 127.0.0.2" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-      <option name="channel" value="NIGHTLY" />
       <option name="command" value="run --package hyxewave --bin hyxewave -- --type pure_server --bind 127.0.0.2" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
     <configuration name="Test primary::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="channel" value="NIGHTLY" />
       <option name="command" value="test --package hyxe_user --test primary tests" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
+      <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
       <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
     <configuration name="Test tests::create_cnac" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="channel" value="NIGHTLY" />
       <option name="command" value="test --package hyxe_user --test primary tests::create_cnac -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
+      <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
       <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
     <configuration name="Test tests::delete_all_users (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="channel" value="NIGHTLY" />
       <option name="command" value="test --package hyxe_user --test primary tests::delete_all_users -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
+      <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
       <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
     <configuration name="Test tests::delete_all_users" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-      <option name="channel" value="NIGHTLY" />
       <option name="command" value="test --package hyxe_user --test primary tests::delete_all_users -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
+      <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
       <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
     <configuration name="Test tests::hyperlan_peer_adding" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="channel" value="NIGHTLY" />
       <option name="command" value="test --package hyxe_user --test primary tests::hyperlan_peer_adding -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
+      <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
       <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
     <configuration name="Test tests::main" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="channel" value="NIGHTLY" />
       <option name="command" value="test --package hyxe_net --test primary tests::main -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
+      <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
       <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
     <configuration default="true" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-      <option name="channel" value="NIGHTLY" />
       <option name="command" value="run" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="backtrace" value="FULL" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
@@ -607,6 +629,7 @@
       <workItem from="1612205626736" duration="199000" />
       <workItem from="1612206397163" duration="57000" />
       <workItem from="1612206860642" duration="5000" />
+      <workItem from="1612213219765" duration="842000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
