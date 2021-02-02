@@ -41,7 +41,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
+      <change afterPath="$PROJECT_DIR$/flutterust/ios/Flutter/.last_build_id" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/ios/Podfile" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/lib/components/text_form_field.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/lib/rust_string.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/lib/screens/register.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/lib/themes/default.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/lib/utils.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/native/scrap-ffi/src/ffi_object.rs" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/main.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/parser.dart" afterDir="false" />
@@ -51,6 +57,7 @@
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/disconnect_response.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/get_accounts_response.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/get_active_sessions.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/peer_list.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/register_response.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/kernel_response.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/kernel_response_type.dart" afterDir="false" />
@@ -71,6 +78,13 @@
       <change beforePath="$PROJECT_DIR$/flutterust" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Makefile.toml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Makefile.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/android/app/build.gradle" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/android/app/build.gradle" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/android/app/src/debug/AndroidManifest.xml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/android/app/src/debug/AndroidManifest.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/android/app/src/main/AndroidManifest.xml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/AndroidManifest.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/android/app/src/main/kotlin/me/shadykhalifa/flutterust/MainActivity.kt" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/kotlin/me/shadykhalifa/flutterust/MainActivity.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/android/app/src/profile/AndroidManifest.xml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/android/app/src/profile/AndroidManifest.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/ios/Podfile.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/ios/Podfile.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/ios/Runner.xcodeproj/project.pbxproj" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/ios/Runner.xcodeproj/project.pbxproj" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/lib/main.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/lib/main.dart" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/native/adder-ffi/Cargo.toml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/native/adder-ffi/binding.h" beforeDir="false" />
@@ -97,7 +111,7 @@
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/src/main/AndroidManifest.xml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/src/main/kotlin/com/example/adder/AdderPlugin.kt" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Assets/.gitkeep" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/lib/RustString.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Assets/.gitkeep" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/lib/screens/login.dart" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Classes/AdderPlugin.h" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Classes/AdderPlugin.m" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Classes/SwiftAdderPlugin.swift" beforeDir="false" />
@@ -632,6 +646,7 @@
       <workItem from="1612206860642" duration="5000" />
       <workItem from="1612213219765" duration="1712000" />
       <workItem from="1612218858679" duration="612000" />
+      <workItem from="1612224839899" duration="1650000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
