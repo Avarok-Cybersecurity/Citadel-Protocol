@@ -48,6 +48,7 @@
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/domain_specific_response.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/domain_specific_response_type.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/connect_response.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/disconnect_response.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/get_accounts_response.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/get_active_sessions.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/dsr/register_response.dart" afterDir="false" />
@@ -629,7 +630,8 @@
       <workItem from="1612205626736" duration="199000" />
       <workItem from="1612206397163" duration="57000" />
       <workItem from="1612206860642" duration="5000" />
-      <workItem from="1612213219765" duration="842000" />
+      <workItem from="1612213219765" duration="1712000" />
+      <workItem from="1612218858679" duration="612000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
