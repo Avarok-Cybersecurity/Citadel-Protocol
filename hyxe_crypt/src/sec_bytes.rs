@@ -11,8 +11,8 @@ pub struct SecBuffer {
 
 impl SecBuffer {
     /// Creates a new SecBytes container
-    pub fn new() -> Self {
-        Self::from(Vec::new())
+    pub const fn new() -> Self {
+        Self { inner: Vec::new() }
     }
 
     /// Creates an unlocked, empty buffer

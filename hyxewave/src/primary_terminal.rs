@@ -24,7 +24,7 @@ pub fn parse_command_line_arguments_into_app_config(cmd: Option<String>, ffi_io:
 
     app_config.is_ffi = ffi_io.is_some();
     app_config.ffi_io = ffi_io;
-    app_config.daemon_mode = arg_matches.is_present("daemon");
+    app_config.daemon_mode = arg_matches.is_present("daemon") || app_config.is_ffi;
     app_config.kernel_threads = try_get_kthreads(&arg_matches)?;
 
     parsers::parse_all_primary_commands(&arg_matches, &mut app_config)?;

@@ -12,6 +12,7 @@ mod tests {
     use std::str::FromStr;
     use hyxe_user::client_account::ClientNetworkAccount;
     use hyxe_user::network_account::NetworkAccount;
+    use dirs2::home_dir;
 
     #[allow(unused_must_use)]
     fn setup_log() {
@@ -74,7 +75,9 @@ mod tests {
     }
 
     async fn acc_mgr() -> AccountManager {
-        AccountManager::new((IpAddr::from_str("1.2.3.4").unwrap(), 12345).into(), None).await.unwrap()
+        let home_dir = format!("{}/tmp", home_dir().unwrap().to_str().unwrap());
+        println!("Home dir: {}", &home_dir);
+        AccountManager::new((IpAddr::from_str("1.2.3.4").unwrap(), 12345).into(), Some(home_dir)).await.unwrap()
     }
 
     #[tokio::test]

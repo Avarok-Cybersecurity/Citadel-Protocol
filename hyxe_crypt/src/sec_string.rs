@@ -10,8 +10,8 @@ pub struct SecString {
 
 impl SecString {
     /// Creates a new instance SecString
-    pub fn new() -> Self {
-        Self::from(String::new())
+    pub const fn new() -> Self {
+        Self { inner: String::new() }
     }
 
     /// Safely pushes a new character

@@ -27,5 +27,6 @@ hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 #async_ip = { path = "../async_ip", version = "0.1.0" }
 
 [dev-dependencies]
-tokio = { version = "0.2.22", features = ["full"] }
+tokio = { version = "^0.2.22", features = ["full"] }
 env_logger = "0.8.2"
+dirs2 = "3.0.1"
