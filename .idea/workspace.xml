@@ -41,10 +41,16 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
+      <change afterPath="$PROJECT_DIR$/flutterust/assets/notification.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/ios/Flutter/.last_build_id" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/ios/Podfile" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/lib/components/text_form_field.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/lib/handlers/kernel_response_handler.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/lib/handlers/login.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/lib/handlers/register.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/lib/rust_string.dart" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/lib/screens/login.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/lib/screens/register.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/lib/themes/default.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/lib/utils.dart" afterDir="false" />
@@ -74,7 +80,9 @@
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/virtual_connection_type.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/utils.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/test/parse.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.cargo/config" beforeDir="false" afterPath="$PROJECT_DIR$/.cargo/config" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Makefile.toml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Makefile.toml" afterDir="false" />
@@ -83,6 +91,7 @@
       <change beforePath="$PROJECT_DIR$/flutterust/android/app/src/main/AndroidManifest.xml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/AndroidManifest.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/android/app/src/main/kotlin/me/shadykhalifa/flutterust/MainActivity.kt" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/kotlin/me/shadykhalifa/flutterust/MainActivity.kt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/android/app/src/profile/AndroidManifest.xml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/android/app/src/profile/AndroidManifest.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/ios/Flutter/AppFrameworkInfo.plist" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/ios/Flutter/AppFrameworkInfo.plist" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/ios/Podfile.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/ios/Podfile.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/ios/Runner.xcodeproj/project.pbxproj" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/ios/Runner.xcodeproj/project.pbxproj" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/lib/main.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/lib/main.dart" afterDir="false" />
@@ -111,7 +120,7 @@
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/src/main/AndroidManifest.xml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/android/src/main/kotlin/com/example/adder/AdderPlugin.kt" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Assets/.gitkeep" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/lib/screens/login.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Assets/.gitkeep" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/lib/handlers/abstract_handler.dart" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Classes/AdderPlugin.h" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Classes/AdderPlugin.m" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/ios/Classes/SwiftAdderPlugin.swift" beforeDir="false" />
@@ -124,12 +133,25 @@
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/test/adder_test.dart" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/ios/Classes/binding.h" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/ios/Classes/binding.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/ios/scrap.podspec" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/ios/scrap.podspec" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/lib/ffi.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/lib/ffi.dart" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/lib/scrap.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/lib/scrap.dart" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/pubspec.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/pubspec.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/pubspec.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/pubspec.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/flutterust/test/widget_test.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/test/widget_test.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/sec_bytes.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/sec_bytes.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/sec_string.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/sec_string.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/proposed_credentials.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/proposed_credentials.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/register.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/register.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/ffi_entry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/ffi/ffi_entry.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -262,10 +284,21 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test tests::main">
+  <component name="RunManager" selected="Cargo.Test tests::delete_all_users (1)">
     <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="ArquillianJUnit" factoryName="" nameIsGenerated="true">
+      <option name="arquillianRunConfiguration">
+        <value>
+          <option name="containerStateName" value="" />
+        </value>
+      </option>
+      <option name="TEST_OBJECT" value="class" />
+      <method v="2">
+        <option name="Make" enabled="true" />
       </method>
     </configuration>
     <configuration name="Build HyxeWave" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
@@ -421,10 +454,10 @@
     </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Cargo.Test tests::main" />
-        <item itemvalue="Cargo.Test tests::hyperlan_peer_adding" />
         <item itemvalue="Cargo.Test tests::delete_all_users (1)" />
         <item itemvalue="Cargo.Test tests::create_cnac" />
+        <item itemvalue="Cargo.Test tests::main" />
+        <item itemvalue="Cargo.Test tests::hyperlan_peer_adding" />
         <item itemvalue="Cargo.Test primary::tests" />
       </list>
     </recent_temporary>
@@ -646,7 +679,7 @@
       <workItem from="1612206860642" duration="5000" />
       <workItem from="1612213219765" duration="1712000" />
       <workItem from="1612218858679" duration="612000" />
-      <workItem from="1612224839899" duration="1650000" />
+      <workItem from="1612224839899" duration="10975000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

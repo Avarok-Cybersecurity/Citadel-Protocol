@@ -24,7 +24,7 @@ pub struct ProposedCredentials {
 
 impl ProposedCredentials {
     /// Creates a new instance of Self
-    pub fn new<T: ToString, R: ToString>(full_name: T, username: R, password: SecVec<u8>, password_repeated: SecVec<u8>, nonce: Option<&[u8]>) -> Option<Self> {
+    pub fn new<T: Into<String>, R: Into<String>>(full_name: T, username: R, password: SecVec<u8>, password_repeated: SecVec<u8>, nonce: Option<&[u8]>) -> Option<Self> {
         let password_check_0 = password.unsecure();
         let password_check_1 = password_repeated.unsecure();
         if password_check_0 != password_check_1 {
@@ -38,7 +38,7 @@ impl ProposedCredentials {
     }
 
     /// For storing the data
-    pub fn new_unchecked<T: ToString, R: ToString>(full_name: T, username: R, password: SecVec<u8>, nonce: Option<&[u8]>) -> Self {
+    pub fn new_unchecked<T: Into<String>, R: Into<String>>(full_name: T, username: R, password: SecVec<u8>, nonce: Option<&[u8]>) -> Self {
         let (username, full_name, password, nonce) = Self::sanitize_and_prepare(username, full_name, password.unsecure(), nonce);
 
         Self { username, password, full_name, nonce }
@@ -47,18 +47,18 @@ impl ProposedCredentials {
     /// This does not sanitize nor compute the hash; it merely acts as a vessel for storing the data
     ///
     /// The server should call this
-    pub fn new_from_hashed<T: ToString, R: ToString>(full_name: T, username: R, hashed_password: SecVec<u8>, hash_nonce: [u8; AES_GCM_NONCE_LEN_BYTES]) -> Self {
-        let username = username.to_string();
-        let full_name = full_name.to_string();
+    pub fn new_from_hashed<T: Into<String>, R: Into<String>>(full_name: T, username: R, hashed_password: SecVec<u8>, hash_nonce: [u8; AES_GCM_NONCE_LEN_BYTES]) -> Self {
+        let username = username.into();
+        let full_name = full_name.into();
         let password = hashed_password;
         let nonce = hash_nonce;
 
         Self { username, password, full_name, nonce }
     }
 
-    fn sanitize_and_prepare<T: ToString, R: ToString>(username: T, full_name: R, password: &[u8], nonce: Option<&[u8]>) -> (String, String, SecVec<u8>, [u8; AES_GCM_NONCE_LEN_BYTES]) {
-        let username = username.to_string();
-        let full_name = full_name.to_string();
+    fn sanitize_and_prepare<T: Into<String>, R: Into<String>>(username: T, full_name: R, password: &[u8], nonce: Option<&[u8]>) -> (String, String, SecVec<u8>, [u8; AES_GCM_NONCE_LEN_BYTES]) {
+        let username = username.into();
+        let full_name = full_name.into();
 
 
         let username = username.trim();
