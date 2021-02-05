@@ -21,6 +21,7 @@ pub fn execute_lusna_kernel<T: ToString>(execute_args: T, to_ffi_frontier: Box<d
     setup_shutdown_hook();
     let cfg = parse_command_line_arguments_into_app_config(Some(execute_args.to_string()), Some(ffi_object))?;
     log::info!("Obtained information from console. Now beginning instantiation of HdpServer ...");
+
     execute(cfg).map_err(|err| ConsoleError::Generic(err.to_string()))
         .and_then(|_| {
             log::info!("Shutting down HdpServer");

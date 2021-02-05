@@ -92,12 +92,12 @@ enum TargetDestination {
 impl InputRouter {
     #[cfg(target_os = "windows")]
     pub const fn new() -> Self {
-        Self { inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: None, target_custom: None, custom_prompt: None, password_mode: false }) }
+        Self { inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: Some(SecString::new()), target_custom: None, custom_prompt: None, password_mode: false }) }
     }
 
     #[cfg(not(target_os = "windows"))]
     pub const fn new() -> Self {
-        Self { inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: None, target_custom: None, custom_prompt: None, raw_termion: None, password_mode: false }) }
+        Self { inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: Some(SecString::new()), target_custom: None, custom_prompt: None, raw_termion: None, password_mode: false }) }
     }
 
     #[allow(unused_results)]
@@ -415,6 +415,7 @@ impl InputRouter {
 
 impl InputRouterInner {
     fn print_prompt_inner(&self, clear: bool, ctx: &ConsoleContext) {
+
         //self.toggle_raw(false);
         if clear {
             print!("\x1B[2J\x1B[1;1H");

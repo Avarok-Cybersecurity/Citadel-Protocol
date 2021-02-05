@@ -359,16 +359,29 @@ impl ClientNetworkAccount {
     pub async fn purge_from_fs(&mut self) -> Result<(), AccountError<String>> {
         let read = self.read();
         let path = &read.local_save_path;
+        let ref pass_path_opt = read.hyxefile_save_path;
 
         hyxe_fs::system_file_manager::delete_file(path).await.map_err(|err| AccountError::IoError(err.to_string()))
+            .and_then(|_| if let Some(pass) = pass_path_opt {
+                std::fs::remove_file(pass).map_err(|err| err.into())
+            } else {
+                Ok(())
+            })
     }
 
 
     /// Purges this from the hard drive
     pub fn purge_from_fs_blocking(&mut self) -> Result<(), AccountError<String>> {
         let read = self.read();
-        let path = &read.local_save_path;
+        let ref path = read.local_save_path;
+        let ref pass_path_opt = read.hyxefile_save_path;
+
         std::fs::remove_file(path).map_err(|err| err.into())
+            .and_then(|_| if let Some(pass) = pass_path_opt {
+                std::fs::remove_file(pass).map_err(|err| err.into())
+            } else {
+                Ok(())
+            })
     }
 
     /// Reads futures-style
@@ -621,7 +634,11 @@ impl ClientNetworkAccount {
 
         // impersonals store the password, NOT personals!
         if !ptr.is_local_personal {
-            // We save the password locally if self is server
+            // We save the password locally if self is server. FIRST, check to see if the old password hyxefile exists
+            if let Some(ref old_pswd_hyxefile) = ptr.hyxefile_save_path {
+                std::fs::remove_file(old_pswd_hyxefile).map_err(|err| AccountError::IoError(err.to_string()))?
+            }
+
             let password_bytes = ptr.password_in_ram.as_ref().unwrap().unsecure().to_vec();
             let password_hyxefile = ptr.password_hyxefile.as_mut().unwrap();
             let _ = password_hyxefile.replace_contents(&static_hyper_ratchet, password_bytes.as_slice(), false, SecurityLevel::DIVINE).map_err(|err| AccountError::IoError(err.to_string()))?;

@@ -14,10 +14,15 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let ffi_mode = matches.is_present("ffi");
     let proposed_credentials = if ffi_mode {
         debug_assert!(ffi_io.is_some());
-        handle_ffi(matches)
+        handle_ffi(matches)?
     } else {
         handle_console(ctx, &target_addr, security_level)?
     };
+
+    // check local
+    if ctx.account_manager.get_cid_by_username(proposed_credentials.username.as_str()).is_some() {
+        return Err(ConsoleError::Generic(format!("username {} is already taken", proposed_credentials.username.as_str())));
+    }
 
     let username = proposed_credentials.username.clone();
 
@@ -51,7 +56,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
             _ => {
                 if let Some(ref ffi_io) = ffi_io {
-                    (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Register(RegisterResponse::Failure(ticket.0, String::from("Registration failed")))))))
+                    (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Register(RegisterResponse::Failure(ticket.0, String::from("Timeout on registration attempt. Please ensure that the node can be reached, then try again")))))))
                 } else {
                     colour::dark_red_ln!("Registration failed. Please try again ...\n");
                 }
@@ -66,14 +71,16 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
 /// Gets the value from the matches, otherwise reads it from stdin
 #[allow(unused_results)]
-fn handle_ffi(matches: &ArgMatches<'_>) -> ProposedCredentials {
+fn handle_ffi(matches: &ArgMatches<'_>) -> Result<ProposedCredentials, ConsoleError> {
     let full_name: String = matches.values_of("full_name").unwrap().collect::<Vec<&str>>().join(" ");
     let username = matches.value_of("username").unwrap();
     let password = matches.value_of("password").unwrap();
 
-    let username = username.replace("\n", "");
+    let username = username.trim().to_string();
 
-    ProposedCredentials::new_unchecked(full_name, username, SecVec::new(password.as_bytes().to_vec()), None)
+    hyxe_user::misc::check_credential_formatting(&username, Some(&password), &full_name).map_err(|err| ConsoleError::Generic(err.to_string()))?;
+
+    Ok(ProposedCredentials::new_unchecked(full_name, username, SecVec::new(password.as_bytes().to_vec()), None))
 }
 
 fn handle_console(ctx: &ConsoleContext, target_addr: &SocketAddr, security_level: SecurityLevel) -> Result<ProposedCredentials, ConsoleError> {
