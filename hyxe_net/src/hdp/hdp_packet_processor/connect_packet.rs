@@ -124,6 +124,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     log::info!("The login to the server was a success. Welcome Message: {}", &message);
                     state_container.connect_state.on_success(current_time);
                     state_container.connect_state.on_connect_packet_received();
+
+                    let use_ka = state_container.keep_alive_timeout_ns != 0;
                     // now that we are done with the PQC, we can insert it where with an rc into the session
                     state_container.cnac = Some(cnac.clone());
 
@@ -160,10 +162,14 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     }
                     //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
 
-                    let ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, timestamp, security_level);
-                    //session.post_quantum = Some(Arc::new(pqc));
-                    PrimaryProcessorResult::ReplyToSender(ka)
-                    //PrimaryProcessorResult::Void
+                    if use_ka {
+                        let ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, timestamp, security_level);
+                        //session.post_quantum = Some(Arc::new(pqc));
+                        PrimaryProcessorResult::ReplyToSender(ka)
+                    } else {
+                        log::warn!("Keep-alive subsystem will not be used for this session as requested");
+                        PrimaryProcessorResult::Void
+                    }
                 } else {
                     log::error!("An invalid SUCCESS packet was received; dropping due to invalid signature");
                     PrimaryProcessorResult::Void

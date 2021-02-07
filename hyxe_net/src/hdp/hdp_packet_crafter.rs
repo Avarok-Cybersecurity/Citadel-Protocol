@@ -966,7 +966,7 @@ pub(crate) mod pre_connect {
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::drill::SecurityLevel;
 
-    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, tcp_only: bool, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, tcp_only: bool, timestamp: i64, keep_alive_timeout_ns: i64, security_level: SecurityLevel) -> BytesMut {
         let tcp_only = if tcp_only {
             1
         } else {
@@ -984,7 +984,7 @@ pub(crate) mod pre_connect {
             session_cid: U64::new(static_aux_hr.get_cid()),
             drill_version: U32::new(static_aux_hr.version()),
             timestamp: I64::new(timestamp),
-            target_cid: U64::new(0)
+            target_cid: U64::new(keep_alive_timeout_ns as u64)
         };
 
         let mut packet  = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);

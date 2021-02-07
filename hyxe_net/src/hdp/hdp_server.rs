@@ -393,15 +393,15 @@ impl HdpServer {
                 }
 
                 HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm, security_level) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, None, quantum_algorithm, None).await {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, None, quantum_algorithm, None, None).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
 
-                HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, hdp_nodelay, quantum_algorithm, tcp_only) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, hdp_nodelay, quantum_algorithm, tcp_only).await {
+                HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, hdp_nodelay, quantum_algorithm, tcp_only, keep_alive_timeout) => {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, hdp_nodelay, quantum_algorithm, tcp_only, keep_alive_timeout.map(|val| val as i64)).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
@@ -538,8 +538,8 @@ pub enum HdpServerRequest {
     PeerCommand(u64, PeerSignal),
     /// For submitting a de-register request
     DeregisterFromHypernode(u64, VirtualConnectionType),
-    /// Send data to client. Peer addr, implicated cid, hdp_nodelay, quantum algorithm, tcp only
-    ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, Option<bool>, Option<u8>, Option<bool>),
+    /// Send data to client. Peer addr, implicated cid, hdp_nodelay, quantum algorithm, tcp only,
+    ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, Option<bool>, Option<u8>, Option<bool>, Option<u32>),
     /// Updates the drill for the given CID
     UpdateDrill(VirtualTargetType),
     /// Send data to an already existent connection

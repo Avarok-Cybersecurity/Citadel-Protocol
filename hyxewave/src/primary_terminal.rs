@@ -190,7 +190,11 @@ pub fn parse_custom_addr<T: AsRef<str>>(target_addr: T) -> Result<SocketAddr, Co
 fn try_get_kthreads(matches: &ArgMatches) -> Result<Option<usize>, ConsoleError> {
     if let Some(val) = matches.value_of("kernel_threads") {
         let count = u16::from_str(val).map_err(|_| ConsoleError::Default("Invalid kernel thread value"))?;
-        Ok(Some(count as usize))
+        if count != 0 {
+            Ok(Some(count as usize))
+        } else {
+            Ok(None)
+        }
     } else {
         Ok(None)
     }

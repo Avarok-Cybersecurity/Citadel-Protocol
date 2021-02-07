@@ -14,7 +14,7 @@ use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 
-use crate::constants::{DEFAULT_PQC_ALGORITHM, INITIAL_RECONNECT_LOCKOUT_TIME_NS, LOGIN_EXPIRATION_TIME, DRILL_UPDATE_FREQUENCY_LOW_BASE, KEEP_ALIVE_INTERVAL_MS, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, CODEC_BUFFER_CAPACITY};
+use crate::constants::{DEFAULT_PQC_ALGORITHM, INITIAL_RECONNECT_LOCKOUT_TIME_NS, LOGIN_EXPIRATION_TIME, DRILL_UPDATE_FREQUENCY_LOW_BASE, KEEP_ALIVE_INTERVAL_MS, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, CODEC_BUFFER_CAPACITY, KEEP_ALIVE_TIMEOUT_NS};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags, HeaderObfuscator};
 use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter};
@@ -128,7 +128,7 @@ pub enum SessionState {
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub fn new(hdp_remote: HdpServerRemote, pqc_algorithm: Option<u8>, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, remote_peer: SocketAddr, time_tracker: TimeTracker, implicated_cid: Option<u64>, kernel_ticket: Ticket, security_level: SecurityLevel, hdp_nodelay: bool, tcp_only: bool) -> Option<Self> {
+    pub fn new(hdp_remote: HdpServerRemote, pqc_algorithm: Option<u8>, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, remote_peer: SocketAddr, time_tracker: TimeTracker, implicated_cid: Option<u64>, kernel_ticket: Ticket, security_level: SecurityLevel, hdp_nodelay: bool, tcp_only: bool, keep_alive_timeout_ns: i64) -> Option<Self> {
         let (cnac, state) = if let Some(implicated_cid) = implicated_cid {
             let cnac = account_manager.get_client_by_cid(implicated_cid)?;
             (Some(cnac), SessionState::NeedsConnect)
@@ -155,7 +155,7 @@ impl HdpSession {
             kernel_ticket,
             to_primary_stream: None,
             rolling_object_idx: 1,
-            state_container: StateContainerInner::new(kernel_tx, hdp_remote),
+            state_container: StateContainerInner::new(kernel_tx, hdp_remote, keep_alive_timeout_ns),
             session_manager,
             remote_peer,
             cnac,
@@ -199,7 +199,7 @@ impl HdpSession {
             cnac: None,
             kernel_tx: kernel_tx.clone(),
             session_manager: session_manager.clone(),
-            state_container: StateContainerInner::new(kernel_tx, hdp_remote),
+            state_container: StateContainerInner::new(kernel_tx, hdp_remote, KEEP_ALIVE_TIMEOUT_NS),
             to_primary_stream: None,
             state: SessionState::SocketJustOpened,
             account_manager,
@@ -364,9 +364,11 @@ impl HdpSession {
                 let alice_constructor = HyperRatchetConstructor::new_alice(Some(session_ref.pqc_algorithm.unwrap_or(DEFAULT_PQC_ALGORITHM)), cnac.get_cid(), 0, Some(security_level));
                 let transfer = alice_constructor.stage0_alice();
                 let max_usable_level = static_aux_hr.get_default_security_level();
-                // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
-                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, tcp_only, timestamp, max_usable_level);
+
                 let mut state_container = inner_mut!(session_ref.state_container);
+                // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
+                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, tcp_only, timestamp, state_container.keep_alive_timeout_ns, max_usable_level);
+
                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                 state_container.pre_connect_state.constructor = Some(alice_constructor);
                 to_outbound.unbounded_send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
@@ -572,11 +574,16 @@ impl HdpSession {
                 let timestamp = sess.time_tracker.get_global_time_ns();
                 if sess.state == SessionState::Connected {
                     let state_container = inner!(sess.state_container);
-                    if state_container.keep_alive_subsystem_timed_out(timestamp) {
-                        log::warn!("The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
-                        QueueWorkerResult::EndSession
+                    if state_container.keep_alive_timeout_ns != 0 {
+                        if state_container.keep_alive_subsystem_timed_out(timestamp) {
+                            log::warn!("The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
+                            QueueWorkerResult::EndSession
+                        } else {
+                            QueueWorkerResult::Incomplete
+                        }
                     } else {
-                        QueueWorkerResult::Incomplete
+                        log::warn!("Keep alive subsystem will not be used for this session as requested");
+                        QueueWorkerResult::Complete
                     }
                 } else {
                     // keep it running, as we may be in provisional mode

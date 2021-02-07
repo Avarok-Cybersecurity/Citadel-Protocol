@@ -3,5 +3,6 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/flutterust" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/flutterust/packages/awesome_notifications" vcs="Git" />
   </component>
 </project>

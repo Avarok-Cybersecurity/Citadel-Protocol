@@ -14,7 +14,7 @@ use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig, GroupR
 use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::client_account::ClientNetworkAccount;
 
-use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_TIMEOUT_NS, KEEP_ALIVE_INTERVAL_MS};
+use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
@@ -72,7 +72,8 @@ pub struct StateContainerInner {
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection>,
     pub(super) provisional_direct_p2p_conns: HashMap<SocketAddr, DirectP2PRemote>,
     pub(super) cnac: Option<ClientNetworkAccount>,
-    pub(super) this: Option<WeakStateContainerBorrow>
+    pub(super) this: Option<WeakStateContainerBorrow>,
+    pub(crate) keep_alive_timeout_ns: i64
 }
 
 /// This helps consolidate unique keys between vconns sending data to this node
@@ -490,8 +491,8 @@ impl GroupReceiverContainer {
 
 impl StateContainerInner {
     /// Creates a new container
-    pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote) -> StateContainer {
-        let inner = Self { this: None, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), cnac: None, udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), disconnect_state: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
+    pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote, keep_alive_timeout_ns: i64) -> StateContainer {
+        let inner = Self { keep_alive_timeout_ns, this: None, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), cnac: None, udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), disconnect_state: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
         let this = StateContainer::from(inner);
         let weak_borrow = this.as_weak();
         inner_mut!(this).this = Some(weak_borrow);
@@ -645,6 +646,10 @@ impl StateContainerInner {
     /// validity must be ensured!
     #[allow(unused_results)]
     pub fn on_keep_alive_received(&mut self, inbound_packet_timestamp_ns: i64, mut current_timestamp_ns: i64) -> bool {
+        if self.keep_alive_timeout_ns == 0 {
+            return true;
+        }
+
         let mut ping_ns = current_timestamp_ns - inbound_packet_timestamp_ns;
         if ping_ns < 0 {
             // For localhost testing, this sometimes occurs. The clocks might be out of sync a bit.
@@ -658,7 +663,7 @@ impl StateContainerInner {
         self.network_stats.ping_ns.replace(ping_ns);
 
         let res = if let Some(last_ka) = self.network_stats.last_keep_alive.take() {
-            if ping_ns > KEEP_ALIVE_TIMEOUT_NS {
+            if ping_ns > self.keep_alive_timeout_ns {
                 // don't replace the last keep alive, keep it None, and ensure the session disconnects
                 false
             } else {
@@ -1253,8 +1258,8 @@ impl StateContainerInner {
     /// This should be ran periodically by the session timer
     pub fn keep_alive_subsystem_timed_out(&self, current_timestamp_ns: i64) -> bool {
         if let Some(prev_ka_time) = self.network_stats.last_keep_alive.clone() {
-            // Since the last ka time
-            current_timestamp_ns - prev_ka_time > KEEP_ALIVE_TIMEOUT_NS
+            assert_ne!(self.keep_alive_timeout_ns, 0);
+            current_timestamp_ns - prev_ka_time > self.keep_alive_timeout_ns
         } else {
             false
         }
