@@ -14,6 +14,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let username = matches.value_of("username").unwrap();
     let tcp_only = !matches.is_present("qudp");
     let security_level = parse_security_level(matches)?;
+    let kat = parse_timeout(matches)?;
     let peer_cnac = ctx.account_manager.get_client_by_username(username).ok_or(ConsoleError::Default("Username does not map to a local account. Please consider registering first"))?;
 
     if !peer_cnac.is_personal() {
@@ -33,7 +34,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let nonce = read.password_hash.as_slice();
     let proposed_credentials = get_proposed_credentials(matches, ctx, username, nonce,adjacent_socket.ip(), security_level, cid, full_name)?;
 
-    let request = HdpServerRequest::ConnectToHypernode(adjacent_socket, cid, proposed_credentials, security_level, None, None, Some(tcp_only));
+    let request = HdpServerRequest::ConnectToHypernode(adjacent_socket, cid, proposed_credentials, security_level, None, None, Some(tcp_only), kat);
     let ticket = server_remote.unbounded_send(request)?;
 
     let tx = parking_lot::Mutex::new(None);
@@ -132,5 +133,14 @@ fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext, user
         let proposed_credentials = ProposedCredentials::new_unchecked(&full_name, username, SecVec::new(password_input), Some(nonce));
         colour::white_ln!("Attempting to connect to HyperNode ...");
         Ok(proposed_credentials)
+    }
+}
+
+fn parse_timeout(arg_matches: &ArgMatches<'_>) -> Result<Option<u32>, ConsoleError> {
+    if let Some(val) = arg_matches.value_of("keep_alive_timeout") {
+        let val = u32::from_str(val).map_err(|err| ConsoleError::Generic(err.to_string()))?;
+        Ok(Some(val))
+    } else {
+        Ok(None)
     }
 }

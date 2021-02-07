@@ -9,7 +9,7 @@ use tokio::net::{TcpStream, TcpListener};
 use hyxe_crypt::prelude::SecurityLevel;
 use hyxe_user::account_manager::AccountManager;
 
-use crate::constants::{HDP_NODELAY, TCP_ONLY};
+use crate::constants::{HDP_NODELAY, TCP_ONLY, KEEP_ALIVE_TIMEOUT_NS};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
 use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
@@ -123,7 +123,7 @@ impl HdpSessionManager {
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: SocketAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, streaming_mode: Option<bool>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>) -> Result<(), NetworkError> {
+    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: SocketAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, streaming_mode: Option<bool>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>, keep_alive_timeout_ns: Option<i64>) -> Result<(), NetworkError> {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
@@ -152,7 +152,7 @@ impl HdpSessionManager {
                 (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt)
             };
 
-            let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, peer_addr, tt, implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(TCP_ONLY)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
+            let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, peer_addr, tt, implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(TCP_ONLY), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
 
             if let Some(_implicated_cid) = implicated_cid {
                 // the cid exists which implies registration already occurred

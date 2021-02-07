@@ -36,6 +36,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: SocketAd
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN {
                 if let Some(cnac) = session.account_manager.get_client_by_cid(header.session_cid.get()) {
                     let tcp_only = header.context_info.get() == 1;
+                    let kat = header.target_cid.get() as i64;
                     let adjacent_proto_version = header.group.get();
 
                     match validation::pre_connect::validate_syn(&cnac, packet){
@@ -58,6 +59,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: SocketAd
                             state_container.pre_connect_state.on_packet_received();
 
                             state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
+                            state_container.keep_alive_timeout_ns = kat;
 
                             std::mem::drop(state_container);
 

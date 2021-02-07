@@ -344,6 +344,12 @@ pub mod clap_commands {
                 .takes_value(false)
                 .required(false)
                 .help("Enables the use of the experimental MQ-UDP for messaging"))
+            .arg(Arg::with_name("keep_alive_timeout")
+                .long("keep_alive_timeout")
+                .short("kat")
+                .help("If not specified, default is set. If 0 is set, then timeouts do not occur")
+                .takes_value(true)
+                .required(false))
     }
 
     fn setup_register_subcommand() -> App<'static, 'static> {
