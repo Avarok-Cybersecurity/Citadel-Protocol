@@ -91,6 +91,7 @@ impl CLIKernel {
             let mut write = self.console_context.sessions.write();
             if let None = write.remove(&cid) {
                 //colour::red_ln!("Attempted to remove session {}, but it did not exist in the sessions map", cid);
+                //log::warn!("Unable to remove CID {} from the kernel sessions list", cid);
             }
 
             let (next_ctx_username, next_ctx) = if write.len() != 0 {

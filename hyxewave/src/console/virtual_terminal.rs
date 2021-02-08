@@ -191,6 +191,7 @@ pub mod clap_commands {
         subcommands.push(setup_cd_command());
         subcommands.push(setup_ls_command());
         subcommands.push(setup_send_command());
+        subcommands.push(setup_waitfor_command());
         subcommands.push(setup_switch_command());
         subcommands.push(setup_list_command());
         subcommands.push(setup_quit_command());
@@ -233,8 +234,14 @@ pub mod clap_commands {
 
     fn setup_send_command() -> App<'static, 'static> {
         SubCommand::with_name("send")
-            .arg(Arg::with_name("security").display_order(1).long("security").short("sl").required(false).takes_value(true).default_value("0").help("Sets the security level for the transmission. 0 is low, 4 is divine"))
+            .arg(Arg::with_name("security").display_order(1).long("security").short("sl").required(false).takes_value(true).default_value("0").help("Sets the security level for the transmission. 0 is low, 255 is highest"))
             .arg(Arg::with_name("message").required(true).takes_value(true).display_order(2).multiple(true))
+    }
+
+    fn setup_waitfor_command() -> App<'static, 'static> {
+        SubCommand::with_name("waitfor")
+            .arg(Arg::with_name("timeout").display_order(1).long("timeout").short("t").required(false).takes_value(true).default_value("10000").help("Specifies the timeout (millis) for the action. 0 implies infinite"))
+            .arg(Arg::with_name("command").required(true).takes_value(true).display_order(2).multiple(true))
     }
 
     fn setup_list_command() -> App<'static, 'static> {
@@ -425,6 +432,10 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
         return crate::command_handlers::send::handle(matches, server_remote, ctx);
     }
 
+    if let Some(matches) = matches.subcommand_matches("waitfor") {
+        return crate::command_handlers::waitfor::handle(matches, clap, server_remote, ctx);
+    }
+
     if let Some(matches) = matches.subcommand_matches("quit") {
         return crate::command_handlers::quit::handle(matches, server_remote, ctx);
     }
@@ -472,5 +483,6 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
 }
 
 pub struct AppThreadSafe(pub Mutex<App<'static, 'static>>) where Self: Send + Sync;
+// Since App does not impl Send, we must use this unsafe code
 unsafe impl Send for AppThreadSafe {}
 unsafe impl Sync for AppThreadSafe {}

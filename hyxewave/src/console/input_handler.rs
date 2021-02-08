@@ -13,11 +13,6 @@ use crate::console::console_context::ConsoleContext;
 use crate::console_error::ConsoleError;
 
 const MAX_HISTORY_COUNT: usize = 50;
-static DAEMON_MODE: AtomicBool = AtomicBool::new(false);
-
-fn in_daemon_mode() -> bool {
-    DAEMON_MODE.load(Ordering::Relaxed)
-}
 
 /// Sometimes, stdin input needs to be fed into the CLAP processor. Other times, input needs
 /// to be routed to a custom target
@@ -27,8 +22,8 @@ pub struct InputRouterInner {
     // the cursor position w.r.t the buffer above
     inline_cursor_pos: u16,
     // back the internal buffer with a SecVec since this can be used to capture passwords
-    target_custom: Option<std::sync::mpsc::Sender<SecString>>,
-    custom_prompt: Option<Box<dyn Fn() + 'static>>,
+    target_custom: Option<std::sync::mpsc::SyncSender<SecString>>,
+    custom_prompt: Option<Box<dyn Fn() + Send + Sync + 'static>>,
     to_clap: Option<Sender<SecString>>,
     tab_command: Option<String>,
     history: InputHistory,
@@ -81,7 +76,8 @@ impl InputHistory {
 }
 
 pub struct InputRouter {
-    inner: RwLock<InputRouterInner>
+    inner: RwLock<InputRouterInner>,
+    daemon_mode: AtomicBool
 }
 
 enum TargetDestination {
@@ -92,12 +88,20 @@ enum TargetDestination {
 impl InputRouter {
     #[cfg(target_os = "windows")]
     pub const fn new() -> Self {
-        Self { inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: Some(SecString::new()), target_custom: None, custom_prompt: None, password_mode: false }) }
+        Self { daemon_mode: AtomicBool::new(false), inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: Some(SecString::new()), target_custom: None, custom_prompt: None, password_mode: false }) }
     }
 
     #[cfg(not(target_os = "windows"))]
     pub const fn new() -> Self {
-        Self { inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: Some(SecString::new()), target_custom: None, custom_prompt: None, raw_termion: None, password_mode: false }) }
+        Self { daemon_mode: AtomicBool::new(false), inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: Some(SecString::new()), target_custom: None, custom_prompt: None, raw_termion: None, password_mode: false }) }
+    }
+
+    pub fn set_daemon_mode(&self, daemon_mode: bool) {
+        self.daemon_mode.store(daemon_mode, Ordering::SeqCst);
+    }
+
+    pub fn daemon_mode(&self) -> bool {
+        self.daemon_mode.load(Ordering::Relaxed)
     }
 
     #[allow(unused_results)]
@@ -306,7 +310,7 @@ impl InputRouter {
     }
 
     fn read_line_inner(&self, password: bool, ctx: &ConsoleContext, prompt: Option<fn()>) -> SecString {
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::sync_channel(0);
         let mut inner = self.inner.write();
         if let Some(prompt) = prompt {
             inner.custom_prompt.replace(Box::new(prompt));
@@ -342,7 +346,7 @@ impl InputRouter {
     /// The reason you input a function is because you may want to print coloured text from
     /// the colour crate, and as such, use it
     pub fn print(&self, print: impl FnOnce()) {
-        if !in_daemon_mode() {
+        if !self.daemon_mode() {
             #[cfg(target_os = "windows")]
                 {
                     print();
@@ -357,8 +361,8 @@ impl InputRouter {
                     raw_terminal.activate_raw_mode().unwrap();
                 }
         } else {
-            // just print, as output will still need to be redirected
-            print();
+            // only log::info! will be redirected. TODO: Setting to enable I/O
+            //print();
         }
     }
 
@@ -366,7 +370,7 @@ impl InputRouter {
     // Raw terminal mode can always be on for windows, whereas for linux, it cannot
     pub fn init(&self, daemon_mode: bool) -> Result<(), ConsoleError> {
         if daemon_mode {
-            DAEMON_MODE.store(true, Ordering::Relaxed);
+            self.set_daemon_mode(true);
             Ok(())
         } else {
             self.inner.write().buffer.replace(SecString::new());
@@ -377,7 +381,7 @@ impl InputRouter {
     #[cfg(not(target_os = "windows"))]
     pub fn init(&self, daemon_mode: bool) -> Result<(), ConsoleError> {
         if daemon_mode {
-            DAEMON_MODE.store(true, Ordering::Relaxed);
+            self.set_daemon_mode(true);
             Ok(())
         } else {
             let raw_terminal = std::io::stdout().into_raw_mode().map_err(|err| ConsoleError::Generic(err.to_string()))?;
@@ -390,7 +394,7 @@ impl InputRouter {
 
     #[cfg(target_os = "windows")]
     pub fn deinit(&self) -> Result<(), ConsoleError> {
-        if !in_daemon_mode() {
+        if !self.daemon_mode() {
             Self::clear_screen();
             Self::reset_cursor_position();
             crossterm::terminal::disable_raw_mode().map_err(|err| ConsoleError::Generic(err.to_string()))
@@ -401,7 +405,7 @@ impl InputRouter {
 
     #[cfg(not(target_os = "windows"))]
     pub fn deinit(&self) -> Result<(), ConsoleError> {
-        if !in_daemon_mode() {
+        if !self.daemon_mode() {
             let raw_terminal = self.inner.write().raw_termion.take().ok_or(ConsoleError::Default("Already turned off"))?;
             raw_terminal.suspend_raw_mode().unwrap();
             std::mem::drop(raw_terminal);
@@ -479,5 +483,3 @@ impl InputRouterInner {
         }
     }
 }
-
-unsafe impl Sync for InputRouter {}

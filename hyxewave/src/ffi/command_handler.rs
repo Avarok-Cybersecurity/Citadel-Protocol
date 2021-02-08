@@ -19,7 +19,7 @@ pub fn on_ffi_bytes_received(input: Vec<u8>) -> Result<Option<KernelResponse>, C
 
 /// Checks the first byte, enters the tokio context thereafter
 fn handle_ffi_payload(server_remote: &HdpServerRemote, ctx: &ConsoleContext, ffi_io: FFIIO, input: Vec<u8>, rt_handle: &Handle) -> Result<Option<KernelResponse>, ConsoleError> {
-    let buffer = String::from_utf8(input.to_vec())?;
+    let buffer = String::from_utf8(input)?;
     let parts = buffer.split(" ").collect::<Vec<&str>>();
     let clap = &super::super::console::virtual_terminal::CLAP_APP;
 

@@ -91,9 +91,7 @@ impl TicketQueueHandler {
 
     fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), tokio::time::Error>> {
         let mut this = self.inner.lock();
-        if this.waker.is_none() {
-            this.waker = Some(cx.waker().clone());
-        }
+        this.waker = Some(cx.waker().clone());
 
         while let Some(res) = futures_util::ready!(this.queue.poll_expired(cx)) {
             //log::info!("Poll: Expired ticket");
