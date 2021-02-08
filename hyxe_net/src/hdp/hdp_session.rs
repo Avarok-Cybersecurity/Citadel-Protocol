@@ -286,7 +286,7 @@ impl HdpSession {
             // this will automatically drop when getting polled, because it tries upgrading a Weak reference to the session
             // as such, if it cannot, it will end the future. We do this to ensure there is no deadlocking.
             // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
-            // separate task, we solve the issue
+            // separate task, we solve the issue of re-entrancing of mutex
             let _ = spawn!(queue_worker_future);
 
             (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message, sock)
@@ -305,7 +305,7 @@ impl HdpSession {
             let needs_close_message = needs_close_message.load(Ordering::Relaxed);
             let cid = implicated_cid.load(Ordering::Relaxed);
 
-            log::info!("Session {} connected to {} is ending! Reason: {}. Needs close message? {}", ticket.0, sock, reason.as_str(), needs_close_message);
+            log::info!("Session {} connected to {} is ending! Reason: {}. Needs close message? {} (strong count: {})", ticket.0, sock, reason.as_str(), needs_close_message, this_close.strong_count());
 
             if needs_close_message {
                 if let Some(cid) = cid {
@@ -395,8 +395,12 @@ impl HdpSession {
     }
 
     async fn socket_loader(this: HdpSession, to_kernel: UnboundedSender<HdpServerResult>, receiver: tokio::sync::oneshot::Receiver<Vec<(UdpSocket, HolePunchedSocketAddr)>>) -> Result<(), NetworkError> {
+        let this_weak = this.as_weak();
+        std::mem::drop(this);
         let (unordered_futures, udp_sender_future) = {
             let sockets = receiver.await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+
+            let this = HdpSession::upgrade_weak(&this_weak).ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
 
             let mut sess = inner_mut!(this);
             let local_is_server = sess.is_server;

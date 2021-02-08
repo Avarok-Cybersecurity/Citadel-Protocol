@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter};
 use tokio::time::Instant;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
 use hyxe_crypt::drill::SecurityLevel;
+use serde::{Serialize, Deserialize};
 
 #[derive(Default)]
 pub struct ConsoleSessionMail {
@@ -76,7 +77,7 @@ impl ConsoleSessionMail {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncomingGroupRequest {
     pub implicated_local_cid: u64,
     pub ticket: Ticket,

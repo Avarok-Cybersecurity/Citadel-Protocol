@@ -50,6 +50,7 @@ pub async fn p2p_conn_handler(mut p2p_listener: TcpListener, session: HdpSession
         let implicated_cid = sess.implicated_cid.clone();
         std::mem::drop(sess);
         let weak = session.as_weak();
+        std::mem::drop(session);
         (kernel_tx, implicated_cid, weak)
     };
 

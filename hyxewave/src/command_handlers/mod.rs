@@ -66,6 +66,8 @@ pub mod group;
 
 pub mod send;
 
+pub mod waitfor;
+
 pub mod quit;
 
 pub mod list_sessions;

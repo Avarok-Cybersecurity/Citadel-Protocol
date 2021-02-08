@@ -60,7 +60,7 @@ macro_rules! unlock {
 }
 
 pub struct SessionQueueWorkerInner {
-    entries: HashMap<QueueWorkerTicket, (Box<dyn QueueFunction>, delay_queue::Key, Duration), NoHash>,
+    entries: HashMap<QueueWorkerTicket, (Box<dyn QueueFunction>, delay_queue::Key, Duration)>,
     expirations: DelayQueue<QueueWorkerTicket>,
     session: Option<WeakHdpSessionBorrow>,
     sess_shutdown: Sender<()>,
@@ -86,14 +86,14 @@ impl SessionQueueWorker {
     pub fn new(sess_shutdown: Sender<()>) -> Self {
         let waker = std::sync::Arc::new(AtomicWaker::new());
         //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
-        Self { waker, inner: std::sync::Arc::new(parking_lot::Mutex::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
+        Self { waker, inner: std::sync::Arc::new(parking_lot::Mutex::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::new(), expirations: DelayQueue::new(), session: None })) }
     }
 
     #[cfg(not(feature = "multi-threaded"))]
     pub fn new(sess_shutdown: Sender<()>) -> Self {
         let waker = std::rc::Rc::new(AtomicWaker::new());
         //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
-        Self { waker, inner: std::rc::Rc::new(std::cell::RefCell::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
+        Self { waker, inner: std::rc::Rc::new(std::cell::RefCell::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::new(), expirations: DelayQueue::new(), session: None })) }
     }
 
     pub fn signal_shutdown(&self) {
@@ -256,25 +256,3 @@ impl futures::Future for SessionQueueWorker {
         }
     }
 }
-
-/// TODO: check soundness
-struct NoHash(u64);
-
-impl Hasher for NoHash {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        self.0 = BigEndian::read_u64(bytes);
-    }
-}
-
-impl BuildHasher for NoHash {
-    type Hasher = Self;
-
-    fn build_hasher(&self) -> Self::Hasher {
-        NoHash(0)
-    }
-}
-
