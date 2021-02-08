@@ -214,6 +214,8 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             let request = HdpServerRequest::SendFile(path, chunk_size, ctx_user, vconn_type);
             let ticket = server_remote.unbounded_send(request)?;
 
+            // TODO: Register callback to monitor for download state changes, interacting with FFI_IO, etc
+
             return Ok(Some(KernelResponse::ResponseTicket(ticket.0)));
         }
 

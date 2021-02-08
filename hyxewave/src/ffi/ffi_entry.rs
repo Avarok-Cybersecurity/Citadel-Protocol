@@ -8,6 +8,7 @@ use crate::console::console_context::ConsoleContext;
 use hyxe_net::hdp::hdp_server::HdpServerRemote;
 use tokio::runtime::Handle;
 use crate::re_exports::const_mutex;
+use crate::console::virtual_terminal::INPUT_ROUTER;
 
 pub static FFI_STATIC: Mutex<Option<(ConsoleContext, HdpServerRemote, FFIIO, Handle)>> = const_mutex(None);
 
@@ -21,6 +22,7 @@ pub fn execute_lusna_kernel<T: ToString>(execute_args: T, to_ffi_frontier: Box<d
     setup_shutdown_hook();
     let cfg = parse_command_line_arguments_into_app_config(Some(execute_args.to_string()), Some(ffi_object))?;
     log::info!("Obtained information from console. Now beginning instantiation of HdpServer ...");
+    INPUT_ROUTER.init(true)?;
 
     execute(cfg).map_err(|err| ConsoleError::Generic(err.to_string()))
         .and_then(|_| {
