@@ -301,14 +301,12 @@ impl HdpSession {
             (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message, sock)
         };
 
-        log::info!("APK");
 
         if let Err(err) = handle_zero_state.await {
             log::error!("Unable to proceed past session zero-state. Stopping session");
             return Err((err, implicated_cid.load(Ordering::SeqCst)));
         }
 
-        log::info!("APD");
 
         let res = session_future.await.map_err(|err| (NetworkError::Generic(err.to_string()), None))?
             .map_err(|err| (NetworkError::Generic(err.to_string()), None))?;
