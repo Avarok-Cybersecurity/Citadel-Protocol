@@ -72,5 +72,9 @@ pub mod account_manager;
 /// The server can keep track of this between runtimes by saving data to the disk
 pub mod server_config_handler;
 
+/// For handling I/O between the program and storage. Storage may be a database, the local HD, etc. NACs, CNACs, etc, that must be saved will be done so through
+/// one of the providers in this list. When the user interacts with the [KernelExecutor], the user will choose which db to use
+pub mod db;
+
 /// For errors
 pub mod misc;
