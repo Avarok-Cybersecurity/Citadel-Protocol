@@ -4,15 +4,15 @@ use std::net::SocketAddr;
 
 use async_trait::async_trait;
 use byteorder::{ByteOrder, NetworkEndian, WriteBytesExt};
-use bytes::buf::BufMutExt;
+use bytes::BufMut;
 use tokio::net::UdpSocket;
-use tokio::stream::StreamExt;
 use tokio::time::Duration;
 
 use crate::error::FirewallError;
 use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use crate::udp_traversal::linear::{LinearUdpHolePunchImpl, RelativeNodeType};
 use crate::udp_traversal::linear::nat_payloads::{SYN, SYN_ACK};
+use futures::StreamExt;
 
 /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL
 // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf
@@ -45,8 +45,10 @@ impl Method3 {
         let messages_syn = messages_syn.into_inner();
         let messages_syn = messages_syn.chunks(BYTES_PER_SOCKET_MESSAGE).collect::<Vec<&[u8]>>();
 
-        let mut iter = tokio::time::interval(Duration::from_millis(20)).take(5);
-        while let Some(_) = iter.next().await {
+        let mut sleep = tokio::time::interval(Duration::from_millis(20));
+
+        for _ in 0..5 {
+            let _ = sleep.tick().await;
             for ((socket, message), endpoint) in sockets.iter_mut().zip(messages_syn.iter()).zip(endpoints.iter()) {
                 log::info!("Sending short TTL {:?} to {}", *message, endpoint);
                 socket.send_to(*message, endpoint).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
@@ -58,8 +60,9 @@ impl Method3 {
             sck.set_ttl(120).unwrap();
         }
 
-        let mut iter = tokio::time::interval(Duration::from_millis(20)).take(5);
-        while let Some(_) = iter.next().await {
+        let mut iter = tokio::time::interval(Duration::from_millis(20));
+        for _ in 0..5 {
+            let _ = iter.tick().await;
             for ((socket, endpoint), message) in sockets.iter_mut().zip(endpoints.iter()).zip(messages_syn.iter()) {
                 log::info!("Sending long TTL {:?} to {}", *message, endpoint);
                 socket.send_to(*message, endpoint).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
@@ -122,8 +125,9 @@ impl Method3 {
 
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
         // 400ms window
-        let mut iter = tokio::time::interval(Duration::from_millis(20)).take(5);
-        while let Some(_) = iter.next().await {
+        let mut iter = tokio::time::interval(Duration::from_millis(20));
+        for _ in 0..5 {
+            let _ = iter.tick().await;
             for ((socket, hole_punched_addr), message) in sockets.into_iter().zip(hole_punched_addrs.iter()).zip(messages_syn_ack.iter()) {
                 log::info!("Sending short TTL {:?} to {}", *message, hole_punched_addr.natted);
                 socket.send_to(*message, hole_punched_addr.natted).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
@@ -136,8 +140,9 @@ impl Method3 {
         }
 
         // 400ms window
-        let mut iter = tokio::time::interval(Duration::from_millis(20)).take(5);
-        while let Some(_) = iter.next().await {
+        let mut iter = tokio::time::interval(Duration::from_millis(20));
+        for _ in 0..5 {
+            let _ = iter.tick().await;
             for ((socket, hole_punched_addr), message) in sockets.into_iter().zip(hole_punched_addrs.iter()).zip(messages_syn_ack.iter()) {
                 log::info!("Sending long TTL {:?} to {}", *message, hole_punched_addr.natted);
                 socket.send_to(*message, hole_punched_addr.natted).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
@@ -148,7 +153,7 @@ impl Method3 {
         // to finish its side of processing
         if !endpoints[0].ip().is_global() {
             log::info!("Delaying for initiator in a non-global network environment ...");
-            tokio::time::delay_for(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         Ok(hole_punched_addrs)

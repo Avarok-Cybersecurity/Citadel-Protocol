@@ -374,6 +374,16 @@
       <excludeFolder url="file://$MODULE_DIR$/sidh-rs/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/tokio_kcp/target" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/scrap/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/scrap/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/path_provider/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/path_provider/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/path_provider/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/path_provider/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/awesome_notifications/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/awesome_notifications/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/awesome_notifications/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/awesome_notifications/.pub" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

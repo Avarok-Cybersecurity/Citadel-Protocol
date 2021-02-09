@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 use bitvec::vec::BitVec;
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::{Buf, BufMut, BytesMut};
-use bytes::buf::BufExt;
 use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
 
@@ -426,7 +425,8 @@ impl GroupReceiver {
 
             let insert_index = Self::get_ciphertext_insertion_range(true_sequence, self.max_packets_per_wave, self.packets_needed, self.last_payload_size, self.max_payload_size, wave_store);
             let dest_bytes = &mut wave_store.ciphertext_buffer[insert_index.clone()];
-            let packet_bytes = packet.bytes();
+            //let packet_bytes = packet.bytes();
+            let packet_bytes = packet;
 
             debug_assert_eq!(packet_bytes.len(), dest_bytes.len());
 

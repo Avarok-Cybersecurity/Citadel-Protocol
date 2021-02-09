@@ -46,7 +46,7 @@ fn setup_clap<'a>() -> App<'a, 'a> {
             .required(false))
         .arg(Arg::with_name("ipv6")
             .long("ipv6")
-            .help("Enables IPv6 mode (shorthand for --bind [::]")
+            .help("Enables IPv6 mode (shorthand for --bind [::])")
             .takes_value(false)
             .required(false))
         .arg(Arg::with_name("daemon")

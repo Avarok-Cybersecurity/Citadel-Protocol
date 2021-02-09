@@ -27,7 +27,7 @@ serde = { version = "1.0.118", features = ["derive"] }
 bincode2 = "2.0.1"
 aes-gcm-siv = { version = "0.5.0", features = ["heapless"], optional = true }
 chacha20poly1305 = { version = "*", features = ["heapless", "xchacha20poly1305"], optional = true }
-bytes = "0.5.6"
+bytes = "^1.0.1"
 circular-queue = { version = "*", optional = true }
 parking_lot = { version = "0.11.0", optional = true }
 

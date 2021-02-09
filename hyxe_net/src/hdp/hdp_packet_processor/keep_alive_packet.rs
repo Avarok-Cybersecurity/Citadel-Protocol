@@ -28,7 +28,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
             let future = async move {
                 // ever since creating the anti-replay attack, we can no longer withhold packets; they must be sent outbound
                 // immediately, otherwise other packets will fail, invalidating the session
-                tokio::time::delay_for(Duration::from_millis(KEEP_ALIVE_INTERVAL_MS)).await;
+                tokio::time::sleep(Duration::from_millis(KEEP_ALIVE_INTERVAL_MS)).await;
                 cnac.borrow_hyper_ratchet(None, |ratchet_opt| {
                     ratchet_opt.and_then(|hyper_ratchet| {
                         let next_ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, current_timestamp_ns + DELTA_NS, security_level);

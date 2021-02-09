@@ -254,7 +254,7 @@ pub mod constructor {
     use crate::hyper_ratchet::HyperRatchet;
     use std::convert::TryFrom;
     use bytes::BytesMut;
-    use bytes::buf::BufMutExt;
+    use bytes::BufMut;
 
     /// Used during the key exchange process
     pub struct HyperRatchetConstructor {
