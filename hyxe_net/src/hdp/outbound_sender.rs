@@ -48,7 +48,13 @@ impl From<UnboundedSender<bytes::BytesMut>> for OutboundTcpSender {
     }
 }
 
-pub type OutboundTcpReceiver = UnboundedReceiver<bytes::BytesMut>;
+pub struct OutboundTcpReceiver(pub tokio_stream::wrappers::UnboundedReceiverStream<bytes::BytesMut>);
+
+impl From<UnboundedReceiver<bytes::BytesMut>> for OutboundTcpReceiver {
+    fn from(inner: UnboundedReceiver<BytesMut>) -> Self {
+        Self(tokio_stream::wrappers::UnboundedReceiverStream::new(inner))
+    }
+}
 
 /// For keeping the firewall open
 pub static KEEP_ALIVE: Bytes = Bytes::from_static(b"ACK");

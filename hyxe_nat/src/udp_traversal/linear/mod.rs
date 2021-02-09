@@ -34,6 +34,7 @@ pub mod method3_encrypted;
 /// cellular NAT, is connecting to a globally-routable server
 pub struct LinearUDPHolePuncher {
     method3: (bool, Method3),
+    #[allow(dead_code)]
     encrypted_method3: (bool, Option<Method3Encrypted>),
     upnp_handler: (bool, Option<UPnPHandler>),
     local_hypernode_type: HyperNodeType

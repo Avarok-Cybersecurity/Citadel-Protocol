@@ -87,9 +87,9 @@ pub mod macros {
 
     macro_rules! spawn {
     ($future:expr) => {
-        tokio::task::spawn_local($future)
+        tokio::task::spawn_local($future);
     };
-}
+    }
 
     macro_rules! spawn_handle {
     ($future:expr) => {
@@ -190,7 +190,7 @@ pub mod macros {
         if tokio::runtime::Handle::try_current().is_ok() {
             std::mem::drop(tokio::task::spawn($future));
         } else {
-            //log::error!("Unable to spawn future: {:?}", stringify!($future));
+            log::warn!("Unable to spawn future: {:?}", stringify!($future));
         }
         //tokio::task::spawn($future)
     };

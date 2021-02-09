@@ -8,7 +8,7 @@ use futures_util::future::Future;
 use futures_util::stream::FuturesUnordered;
 use futures_util::TryStreamExt;
 use tokio::net::TcpListener;
-use tokio::stream::StreamExt;
+use tokio_stream::StreamExt;
 use tokio::time::Instant;
 
 use hyxe_net::error::NetworkError;
@@ -549,16 +549,15 @@ impl KernelSession {
 async fn loopback_future(tcp_addr: Option<SocketAddr>) -> Result<(), ConsoleError> {
     if let Some(tcp_addr) = tcp_addr {
         printf_ln!(colour::yellow!("Creating loopback address on {}:{}", tcp_addr.ip(), tcp_addr.port()));
-        let mut listener = TcpListener::bind(tcp_addr).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-        while let Some(inbound) = listener.incoming().next().await {
-            match inbound {
+        let listener = TcpListener::bind(tcp_addr).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+        loop {
+            match listener.accept().await {
                 Ok(_stream) => {
-                    // TODO: When data comes inbound, figure out a way to universally parse it. Then, send it as a command, get the ticket, and correlate the ticket
-                    // to the socket address that this stream is connected to. You will need to use channels to accomplish this
+                    // TODO: consider setting FFI_IO to replace the function with a function that writes bytes to the socket
                 }
 
                 Err(err) => {
-                    log::error!("{}", err.to_string())
+                    log::error!("loopback_err: {:?}", err.to_string())
                 }
             }
         }

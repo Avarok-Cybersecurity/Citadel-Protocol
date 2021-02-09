@@ -2,9 +2,8 @@ use crate::hdp::hdp_packet_processor::includes::{SocketAddr, Instant, hdp_packet
 use tokio::net::{TcpListener, TcpStream};
 use crate::hdp::hdp_session::{HdpSession, SessionState};
 use crate::error::NetworkError;
-use tokio::stream::StreamExt;
 use crate::hdp::misc;
-use crate::hdp::outbound_sender::{unbounded, UnboundedSender};
+use crate::hdp::outbound_sender::{unbounded, UnboundedSender, OutboundTcpReceiver};
 use std::sync::Arc;
 use atomic::Atomic;
 use crate::hdp::hdp_server::{HdpServerResult, HdpServer, Ticket};
@@ -42,8 +41,7 @@ impl Drop for DirectP2PRemote {
     }
 }
 
-#[allow(unreachable_code, warnings)]
-pub async fn p2p_conn_handler(mut p2p_listener: TcpListener, session: HdpSession) -> Result<(), NetworkError> {
+pub async fn p2p_conn_handler(p2p_listener: TcpListener, session: HdpSession) -> Result<(), NetworkError> {
     let (ref kernel_tx, ref implicated_cid, ref weak) = {
         let sess = inner!(session);
         let kernel_tx = sess.kernel_tx.clone();
@@ -55,27 +53,27 @@ pub async fn p2p_conn_handler(mut p2p_listener: TcpListener, session: HdpSession
     };
 
     log::info!("[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
-    while let Some(p2p_stream) = p2p_listener.next().await {
-        let session = HdpSession::upgrade_weak(weak).ok_or(NetworkError::InternalError("Unable to upgrade Weak"))?;
-        let sess = inner!(session);
-        if sess.state != SessionState::Connected {
-            log::warn!("Blocked an eager p2p connection (session state not yet connected)");
-            continue;
-        }
 
-        match p2p_stream {
-            Ok(p2p_stream) => {
-                if let Err(err) = handle_p2p_stream(p2p_stream, implicated_cid.clone(), session.clone(), kernel_tx.clone(), true) {
+    loop {
+        match p2p_listener.accept().await {
+            Ok((p2p_stream, _)) => {
+                let session = HdpSession::upgrade_weak(weak).ok_or(NetworkError::InternalError("Unable to upgrade Weak"))?;
+                let sess = inner!(session);
+                if sess.state != SessionState::Connected {
+                    log::warn!("Blocked an eager p2p connection (session state not yet connected)");
+                    continue;
+                }
+
+                if let Err(err) = handle_p2p_stream(p2p_stream,implicated_cid.clone(), session.clone(), kernel_tx.clone(), true) {
                     log::error!("[P2P-stream] Unable to handle P2P stream: {:?}", err);
                 }
-            },
+            }
 
-            Err(err) =>{
+            Err(err) => {
                 log::error!("[P2P-stream] ERR: {:?}", err);
             }
         }
     }
-    Err(NetworkError::InternalError("Ended"))
 }
 
 fn handle_p2p_stream(p2p_stream: TcpStream, implicated_cid: Arc<Atomic<Option<u64>>>, session: HdpSession, kernel_tx: UnboundedSender<HdpServerResult>, from_listener: bool) -> std::io::Result<OutboundTcpSender> {
@@ -92,6 +90,7 @@ fn handle_p2p_stream(p2p_stream: TcpStream, implicated_cid: Arc<Atomic<Option<u6
     let (sink, stream) = misc::net::safe_split_stream(p2p_stream);
     let (p2p_primary_stream_tx, p2p_primary_stream_rx) = unbounded();
     let p2p_primary_stream_tx = OutboundTcpSender::from(p2p_primary_stream_tx);
+    let p2p_primary_stream_rx = OutboundTcpReceiver::from(p2p_primary_stream_rx);
     let (header_obfuscator, packet_opt) = HeaderObfuscator::new(from_listener);
 
     let (stopper_tx, stopper_rx) = channel();
@@ -179,7 +178,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 pub async fn attempt_tcp_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, session: HdpSession, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant,
 endpoint_hyper_ratchet: HyperRatchet, security_level: SecurityLevel) -> std::io::Result<()> {
 
-    tokio::time::delay_until(sync_time).await;
+    tokio::time::sleep_until(sync_time).await;
     let expected_peer_cid = peer_connection_type.get_original_target_cid();
     log::info!("[P2P-stream] Attempting to hole-punch to {:?} ({})", &peer_endpoint_addr, expected_peer_cid);
     if let Ok(p2p_stream) = HdpServer::create_reuse_tcp_connect_socket(peer_endpoint_addr, None).await {

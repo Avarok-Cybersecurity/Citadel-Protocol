@@ -234,6 +234,7 @@ impl HdpSession {
 
             let (primary_outbound_tx, primary_outbound_rx) = unbounded();
             let primary_outbound_tx = OutboundTcpSender::from(primary_outbound_tx);
+            let primary_outbound_rx = OutboundTcpReceiver::from(primary_outbound_rx);
 
             let mut this_ref = inner_mut!(this);
             let (obfuscator, packet_opt) = HeaderObfuscator::new(this_ref.is_server);
@@ -265,15 +266,15 @@ impl HdpSession {
             std::mem::drop(this_ref);
 
             let session_future = if let Some(p2p_listener) = p2p_listener {
-                let p2p_listener = spawn_handle!(crate::hdp::peer::p2p_conn_handler::p2p_conn_handler(p2p_listener, this_p2p_listener));
+                let p2p_listener = crate::hdp::peer::p2p_conn_handler::p2p_conn_handler(p2p_listener, this_p2p_listener);
                 spawn_handle!(async move {
                     tokio::select! {
                         res0 = writer_future => res0,
                         res1 = reader_future => res1,
                         res2 = stopper_future => res2,
-                        res3 = socket_loader_future => res3,
-                        res4 = queue_worker_future => res4,
-                        res5 = p2p_listener => res5
+                        res3 = queue_worker_future => res3,
+                        res4 = p2p_listener => Ok(res4),
+                        res5 = socket_loader_future => res5
                     }
                 })
             } else {
@@ -282,25 +283,39 @@ impl HdpSession {
                         res0 = writer_future => res0,
                         res1 = reader_future => res1,
                         res2 = stopper_future => res2,
-                        res3 = socket_loader_future => res3,
-                        res4 = queue_worker_future => res4
+                        res3 = queue_worker_future => res3,
+                        res4 = socket_loader_future => res4
                     }
                 })
             };
 
+            //let session_future = futures::future::try_join4(writer_future, reader_future, timer_future, socket_loader_future);
+
+
+            // this will automatically drop when getting polled, because it tries upgrading a Weak reference to the session
+            // as such, if it cannot, it will end the future. We do this to ensure there is no deadlocking.
+            // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
+            // separate task, we solve the issue of re-entrancing of mutex
+            //let _ = spawn!(queue_worker_future);
+
             (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message, sock)
         };
+
+        log::info!("APK");
 
         if let Err(err) = handle_zero_state.await {
             log::error!("Unable to proceed past session zero-state. Stopping session");
             return Err((err, implicated_cid.load(Ordering::SeqCst)));
         }
 
+        log::info!("APD");
+
         let res = session_future.await.map_err(|err| (NetworkError::Generic(err.to_string()), None))?
             .map_err(|err| (NetworkError::Generic(err.to_string()), None))?;
 
         match res {
             Ok(_) => {
+                log::info!("Done EXECUTING sess");
                 Ok(implicated_cid.load(Ordering::SeqCst))
             }
 
@@ -325,8 +340,8 @@ impl HdpSession {
         }
     }
 
-    async fn stopper(mut receiver: Receiver<()>) -> Result<(), NetworkError> {
-        let _ = receiver.next().await;
+    async fn stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
+        let _ = tokio_stream::wrappers::ReceiverStream::new(receiver).next().await;
         Err(NetworkError::InternalError("Session stopper-rx triggered"))
     }
 
@@ -455,7 +470,7 @@ impl HdpSession {
     }
 
     pub async fn outbound_stream(primary_outbound_rx: OutboundTcpReceiver, mut writer: CleanShutdownSink<TcpStream, LengthDelimitedCodec, Bytes>, header_obfuscator: HeaderObfuscator) -> Result<(), NetworkError> {
-        writer.send_all(&mut primary_outbound_rx.map(|packet| {
+        writer.send_all(&mut primary_outbound_rx.0.map(|packet| {
             Ok(header_obfuscator.prepare_outbound(packet))
         })).map_err(|err| NetworkError::Generic(err.to_string())).await
     }
@@ -634,7 +649,8 @@ impl HdpSession {
                 let file_name = String::from(file_name);
                 let time_tracker = this.time_tracker.clone();
                 let timestamp = this.time_tracker.get_global_time_ns();
-                let (group_sender, mut group_sender_rx) = channel::<GroupSenderDevice>(5);
+                let (group_sender, group_sender_rx) = channel::<GroupSenderDevice>(5);
+                let mut group_sender_rx = tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
                 let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
                 // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
 
@@ -726,7 +742,8 @@ impl HdpSession {
                 to_primary_stream.unbounded_send(file_header).map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
                 // create the outbound file container
                 let mut state_container = inner_mut!(this.state_container);
-                let (next_gs_alerter, mut next_gs_alerter_rx) = unbounded();
+                let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
+                let mut next_gs_alerter_rx = tokio_stream::wrappers::UnboundedReceiverStream::new(next_gs_alerter_rx);
                 let (start, start_rx) = tokio::sync::oneshot::channel();
                 let outbound_file_transfer_container = OutboundFileTransfer {
                     stop_tx: Some(stop_tx),
@@ -1106,7 +1123,8 @@ impl HdpSession {
         Ok(())
     }
 
-    async fn wave_outbound_sender<S: SinkExt<(Bytes, SocketAddr)> + Unpin>(local_is_server: bool, mut receiver: UnboundedReceiver<(usize, BytesMut)>, hole_punched_addrs: Vec<HolePunchedSocketAddr>, to_kernel_tx: UnboundedSender<HdpServerResult>, mut sinks: Vec<S>) -> Result<(), NetworkError> {
+    async fn wave_outbound_sender<S: SinkExt<(Bytes, SocketAddr)> + Unpin>(local_is_server: bool, receiver: UnboundedReceiver<(usize, BytesMut)>, hole_punched_addrs: Vec<HolePunchedSocketAddr>, to_kernel_tx: UnboundedSender<HdpServerResult>, mut sinks: Vec<S>) -> Result<(), NetworkError> {
+        let mut receiver = tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
         while let Some((idx, packet)) = receiver.next().await {
             if let Some(sink) = sinks.get_mut(idx) {
 

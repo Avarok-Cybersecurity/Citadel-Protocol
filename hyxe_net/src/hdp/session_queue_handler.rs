@@ -1,12 +1,11 @@
 use futures::Stream;
 use std::task::{Poll, Context};
 use std::pin::Pin;
-use tokio::time::{delay_queue, DelayQueue, Error};
+use tokio_util::time::{delay_queue, DelayQueue};
+use tokio::time::error::Error;
 use std::collections::HashMap;
 use crate::hdp::hdp_session::{HdpSession, HdpSessionInner, SessionState, WeakHdpSessionBorrow};
 use crate::hdp::hdp_packet_processor::includes::Duration;
-use std::hash::{Hasher, BuildHasher};
-use byteorder::{BigEndian, ByteOrder};
 use crate::inner_arg::InnerParameterMut;
 use crate::macros::{SessionBorrow, ContextRequirements};
 use crate::error::NetworkError;
@@ -60,7 +59,7 @@ macro_rules! unlock {
 }
 
 pub struct SessionQueueWorkerInner {
-    entries: HashMap<QueueWorkerTicket, (Box<dyn QueueFunction>, delay_queue::Key, Duration), NoHash>,
+    entries: HashMap<QueueWorkerTicket, (Box<dyn QueueFunction>, delay_queue::Key, Duration)>,
     expirations: DelayQueue<QueueWorkerTicket>,
     session: Option<WeakHdpSessionBorrow>,
     sess_shutdown: Sender<()>,
@@ -86,18 +85,19 @@ impl SessionQueueWorker {
     pub fn new(sess_shutdown: Sender<()>) -> Self {
         let waker = std::sync::Arc::new(AtomicWaker::new());
         //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
-        Self { waker, inner: std::sync::Arc::new(parking_lot::Mutex::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
+        Self { waker, inner: std::sync::Arc::new(parking_lot::Mutex::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::new(), expirations: DelayQueue::new(), session: None })) }
     }
 
     #[cfg(not(feature = "multi-threaded"))]
     pub fn new(sess_shutdown: Sender<()>) -> Self {
         let waker = std::rc::Rc::new(AtomicWaker::new());
         //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
-        Self { waker, inner: std::rc::Rc::new(std::cell::RefCell::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), session: None })) }
+        Self { waker, inner: std::rc::Rc::new(std::cell::RefCell::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::new(), expirations: DelayQueue::new(), session: None })) }
     }
 
     pub fn signal_shutdown(&self) {
-        let mut this = unlock!(self);
+        log::warn!("signal_shutdown called");
+        let this = unlock!(self);
         if let Err(_) = this.sess_shutdown.try_send(()) {
             log::warn!("Unable to signal shutdown through SessionQueueHandler")
         }
@@ -248,6 +248,7 @@ impl futures::Future for SessionQueueWorker {
         match futures::ready!(self.as_mut().poll_next(cx)) {
             Some(_) => Poll::Pending,
             None => {
+                log::warn!("SessionQueueWorker stream has ended ...");
                 if let Err(_err) = unlock!(self.as_mut()).sess_shutdown.try_send(()) {
                     //log::error!("Unable to shutdown session: {:?}", err);
                 }
@@ -256,25 +257,3 @@ impl futures::Future for SessionQueueWorker {
         }
     }
 }
-
-/// TODO: check soundness
-struct NoHash(u64);
-
-impl Hasher for NoHash {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        self.0 = BigEndian::read_u64(bytes);
-    }
-}
-
-impl BuildHasher for NoHash {
-    type Hasher = Self;
-
-    fn build_hasher(&self) -> Self::Hasher {
-        NoHash(0)
-    }
-}
-

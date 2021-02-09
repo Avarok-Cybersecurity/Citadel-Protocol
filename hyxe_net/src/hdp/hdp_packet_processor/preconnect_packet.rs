@@ -551,7 +551,7 @@ fn handle_nat_traversal_as_receiver(session: HdpSession, hyper_ratchet: HyperRat
 #[allow(unused_results)]
 async fn handle_nat_traversal_as_receiver_inner(session_orig: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Instant, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>, security_level: SecurityLevel) {
     let mut hole_puncher = {
-        tokio::time::delay_until(sync_time).await;
+        tokio::time::sleep_until(sync_time).await;
         log::info!("Synchronize time reached. Executing hole punch subroutine ...");
         let session = inner!(session_orig);
         let crypt_container = generate_hole_punch_crypt_container(hyper_ratchet.clone(), security_level);
@@ -641,7 +641,7 @@ fn handle_nat_traversal_as_initiator(session: HdpSession, hyper_ratchet: HyperRa
 async fn handle_nat_traversal_as_initiator_inner(session_orig: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Option<Instant>, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>, security_level: SecurityLevel) {
     let mut hole_puncher = {
         if let Some(sync_time) = sync_time {
-            tokio::time::delay_until(sync_time).await;
+            tokio::time::sleep_until(sync_time).await;
         }
 
         log::info!("Synchronize time reached. Executing hole punch subroutine ...");
