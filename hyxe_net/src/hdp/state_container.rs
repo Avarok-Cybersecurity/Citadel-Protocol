@@ -751,7 +751,7 @@ impl StateContainerInner {
                 // the HdpServer's single thread. This will end once a None signal is sent through
                 tokio::spawn(async move {
                     let mut writer = BufWriter::new(file);
-                    let mut reader = tokio::io::stream_reader(stream_to_hd_rx.map(|r| Ok(std::io::Cursor::new(r))));
+                    let mut reader = tokio_util::io::StreamReader::new(tokio_stream::wrappers::UnboundedReceiverStream::new(stream_to_hd_rx).map(|r| Ok(std::io::Cursor::new(r)) as Result<std::io::Cursor<Vec<u8>>, std::io::Error>));
 
                     if let Err(err) = tokio::io::copy(&mut reader, &mut writer).await {
                         log::error!("Error while copying from reader to writer: {}", err);
@@ -944,7 +944,7 @@ impl StateContainerInner {
                 let _ = spawn!(async move {
                     let wait_time = Duration::from_nanos(wait_time as u64);
                     log::trace!("ASYNC task waiting for {} nanos = {} millis", wait_time.as_nanos(), wait_time.as_millis());
-                    tokio::time::delay_for(wait_time).await;
+                    tokio::time::sleep(wait_time).await;
                     // now, we can safely use the state container
                     let mut state_container = inner_mut!(state_container_ref);
                     if let Some(group_receiver) = state_container.inbound_groups.get_mut(&key) {

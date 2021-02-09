@@ -52,20 +52,20 @@ impl UPnPHandler {
 
     /// `remote_peer`: If None, then ALL traffic inbound to the external port is forwarded to the local port on 0.0.0.0
     /// `lease_duration`: in seconds. If none, infinite time (must manually remove)
-    pub async fn open_firewall_port<T: AsRef<str>>(&self, protocol: PortMappingProtocol, lease_duration: Option<u32>, firewall_rule_name: T, remote_peer: Option<IpAddr>, external_port: u16, local_port: u16) -> Result<(), FirewallError>{
-        self.gateway.add_port(protocol, remote_peer, external_port, SocketAddrV4::new(self.local_ip_address, local_port), lease_duration.unwrap_or(0), firewall_rule_name.as_ref()).await
+    pub async fn open_firewall_port<T: AsRef<str>>(&self, protocol: PortMappingProtocol, lease_duration: Option<u32>, firewall_rule_name: T, _remote_peer: Option<IpAddr>, external_port: u16, local_port: u16) -> Result<(), FirewallError>{
+        self.gateway.add_port(protocol, external_port, SocketAddrV4::new(self.local_ip_address, local_port), lease_duration.unwrap_or(0), firewall_rule_name.as_ref()).await
             .map_err(|err| FirewallError::UPNP(err.to_string()))
     }
 
     /// `remote_peer`: If None, then ALL traffic inbound to the external port is forwarded to the local port on 0.0.0.0
     /// `lease_duration`: in seconds. If none, infinite time (must manually remove)
-    pub async fn open_any_firewall_port<T: AsRef<str>>(&self, protocol: PortMappingProtocol, lease_duration: Option<u32>, firewall_rule_name: T, remote_peer: Option<IpAddr>, local_port: u16) -> Result<u16, FirewallError>{
-        self.gateway.add_any_port(protocol, remote_peer, SocketAddrV4::new(self.local_ip_address, local_port), lease_duration.unwrap_or(0), firewall_rule_name.as_ref()).await
+    pub async fn open_any_firewall_port<T: AsRef<str>>(&self, protocol: PortMappingProtocol, lease_duration: Option<u32>, firewall_rule_name: T, _remote_peer: Option<IpAddr>, local_port: u16) -> Result<u16, FirewallError>{
+        self.gateway.add_any_port(protocol, SocketAddrV4::new(self.local_ip_address, local_port), lease_duration.unwrap_or(0), firewall_rule_name.as_ref()).await
             .map_err(|err| FirewallError::UPNP(err.to_string()))
     }
 
-    pub async fn close_firewall_port(&self, port_mapping_protocol: PortMappingProtocol, remote_peer: Option<IpAddr>, external_port: u16) -> Result<(), FirewallError> {
-        self.gateway.remove_port(port_mapping_protocol, remote_peer, external_port).await
+    pub async fn close_firewall_port(&self, port_mapping_protocol: PortMappingProtocol, _remote_peer: Option<IpAddr>, external_port: u16) -> Result<(), FirewallError> {
+        self.gateway.remove_port(port_mapping_protocol, external_port).await
             .map_err(|err| FirewallError::UPNP(err.to_string()))
     }
 }

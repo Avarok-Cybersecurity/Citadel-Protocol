@@ -2,7 +2,7 @@ use std::path::Path;
 use serde::{Serialize, Deserialize};
 use std::fmt::{Formatter, Error, Debug};
 use bytes::BytesMut;
-use bytes::buf::BufMutExt;
+use bytes::BufMut;
 use serde::de::DeserializeOwned;
 
 /// Default Error type for this crate

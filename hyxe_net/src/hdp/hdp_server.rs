@@ -35,6 +35,7 @@ use hyxe_crypt::sec_bytes::SecBuffer;
 use parking_lot::Mutex;
 use serde::{Serialize, Deserialize};
 use crate::kernel::RuntimeFuture;
+use tokio::task::LocalSet;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -63,15 +64,14 @@ pub struct HdpServerInner {
 }
 
 impl HdpServer {
-    /// Creates a new [HdpServer] inside a
-    #[cfg(feature = "multi-threaded")]
-    pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>) -> io::Result<HdpServerRemote> {
+    /// Creates a new [HdpServer]
+    pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)> {
         let (primary_socket, local_bind_addr) = Self::create_tcp_listen_socket(&bind_addr)?;
         let primary_port = local_bind_addr.port();
         // Note: on Android/IOS, the below command will fail since sudo access is prohibited
         Self::open_tcp_port(primary_port);
 
-        info!("Multithreaded HdpServer established on {}", local_bind_addr);
+        info!("HdpServer established on {}", local_bind_addr);
 
         let time_tracker = TimeTracker::new().await?;
         let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone(), false);
@@ -85,68 +85,7 @@ impl HdpServer {
         };
 
         let this = Self::from(inner);
-        let (server_future, remote) = HdpServer::load(this, shutdown).await;
-
-        // spawn future. When the future ends, it will automatically signal the kernel that a shutdown occurred, thus closing the kernel
-        let _ = spawn!(server_future);
-
-        Ok(remote)
-    }
-
-    /// Creates a new [HdpServer] inside a single-threaded context
-    #[allow(unused_results)]
-    #[cfg(not(feature = "multi-threaded"))]
-    pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs + Send + 'static>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>) -> io::Result<HdpServerRemote> {
-        use tokio::task::LocalSet;
-        use tokio::runtime::Builder;
-
-        let (remote_tx, remote_rx) = tokio::sync::oneshot::channel();
-
-        std::thread::spawn(move || -> std::io::Result<()> {
-            let remote_tx = remote_tx;
-            let mut rt = Builder::new().basic_scheduler().enable_all().build()?;
-            let localset = LocalSet::new();
-            let res = localset.block_on(&mut rt, async move {
-                let (primary_socket, local_bind_addr) = Self::create_tcp_listen_socket(&bind_addr)?;
-                let primary_port = local_bind_addr.port();
-                // Note: on Android/IOS, the below command will fail since sudo access is prohibited
-                Self::open_tcp_port(primary_port);
-
-                info!("Single-threaded HdpServer established on {}", local_bind_addr);
-
-                let time_tracker = TimeTracker::new().await?;
-                let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone(), false);
-                let inner = HdpServerInner {
-                    local_bind_addr,
-                    local_node_type,
-                    primary_socket: Some(primary_socket),
-                    to_kernel,
-                    session_manager,
-                    system_engaged: false,
-                };
-
-                let this = Self::from(inner);
-                let (server_future, remote) = HdpServer::load(this, shutdown).await;
-
-                // send the remote to allow the async kernel to be executed
-                if let Err(_remote) = remote_tx.send(remote) {
-                    log::error!("Severe error. Unable to send remote. Exiting program");
-                    std::process::exit(-1);
-                }
-                // spawn future. When the future ends, it will automatically signal the kernel that a shutdown occurred, thus closing the kernel
-                server_future.await.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
-            });
-
-            if let Err(err) = res {
-                log::error!("Localset_block_on error: {}", err)
-            } else {
-                log::info!("Localset ended execution ...");
-            }
-
-            Ok(())
-        });
-
-        remote_rx.await.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+        Ok(HdpServer::load(this, shutdown).await)
     }
 
     /// Note: spawning via handle is more efficient than joining futures. Source: https://cafbit.com/post/tokio_internals/
@@ -155,9 +94,8 @@ impl HdpServer {
     /// This will panic if called twice in succession without a proper server reload.
     ///
     /// Returns a handle to communicate with the [HdpServer].
-    /// TODO: if local is pure_server mode, bind the local sockets
     #[allow(unused_results, unused_must_use)]
-    async fn load(this: HdpServer, shutdown: tokio::sync::oneshot::Sender<()>) -> (Pin<Box<dyn RuntimeFuture>>, HdpServerRemote) {
+    async fn load(this: HdpServer, shutdown: tokio::sync::oneshot::Sender<()>) -> (HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>) {
         // Allow the listeners to read data without instantly returning
         // Load the readers
         let mut write = inner_mut!(this);
@@ -169,10 +107,25 @@ impl HdpServer {
         let remote = HdpServerRemote::new(outbound_send_request_tx);
         let tt = write.session_manager.load_server_remote_get_tt(remote.clone());
 
-        let outbound_kernel_request_handler = Self::outbound_kernel_request_handler(this.clone(), kernel_tx.clone(), outbound_send_request_rx);
-        let primary_stream_listener = Self::listen_primary(this.clone(), tt, kernel_tx.clone());
-        let peer_container = HdpSessionManager::run_peer_container(write.session_manager.clone());
+        let (outbound_kernel_request_handler, primary_stream_listener, peer_container, localset_opt) = {
+            #[cfg(feature = "multi-threaded")]
+            {
+                let outbound_kernel_request_handler = spawn_handle!(Self::outbound_kernel_request_handler(this.clone(), kernel_tx.clone(), outbound_send_request_rx));
+                let primary_stream_listener = spawn_handle!(Self::listen_primary(this.clone(), tt, kernel_tx.clone()));
+                let peer_container = spawn_handle!(HdpSessionManager::run_peer_container(write.session_manager.clone()));
+                let localset_opt = None;
+                (outbound_kernel_request_handler, primary_stream_listener, peer_container, localset_opt)
+            }
 
+            #[cfg(not(feature = "multi-threaded"))]
+                {
+                    let localset = LocalSet::new();
+                    let outbound_kernel_request_handler = localset.spawn_local(Self::outbound_kernel_request_handler(this.clone(), kernel_tx.clone(), outbound_send_request_rx));
+                    let primary_stream_listener = localset.spawn_local(Self::listen_primary(this.clone(), tt, kernel_tx.clone()));
+                    let peer_container = localset.spawn_local(HdpSessionManager::run_peer_container(write.session_manager.clone()));
+                    (outbound_kernel_request_handler, primary_stream_listener, peer_container, Some(localset))
+                }
+        };
 
         let server_future = async move {
             let res = tokio::select! {
@@ -193,12 +146,12 @@ impl HdpServer {
 
             log::info!("HdpServer shutting down (future ended)...");
 
-            res
+            res.map_err(|err| NetworkError::Generic(err.to_string()))?
         };
 
         //handle.load_server_future(server_future);
 
-        (Box::pin(server_future), remote)
+        (remote, Box::pin(server_future), localset_opt)
     }
 
     fn open_tcp_port(port: u16) {
@@ -284,7 +237,7 @@ impl HdpServer {
 
             let stream = tokio::net::TcpStream::from_std(std_stream)?;
             stream.set_linger(Some(tokio::time::Duration::from_secs(0)))?;
-            stream.set_keepalive(None)?;
+            //stream.set_keepalive(None)?;
 
             Ok(stream)
         })).await??
@@ -303,20 +256,23 @@ impl HdpServer {
             let socket = this.primary_socket.take().unwrap();
             let session_manager = this.session_manager.clone();
             std::mem::drop(this);
-            let primary_port_future = Self::primary_session_creator_loop(to_kernel, session_manager, socket);
-            let tt_updater_future = Self::time_tracker_updater(tt);
+            let primary_port_future = spawn_handle!(Self::primary_session_creator_loop(to_kernel, session_manager, socket));
+            let tt_updater_future = spawn_handle!(Self::time_tracker_updater(tt));
             // If the timer detects that the server is shutdown, it will return an error, thus causing the try_join to end the future
             (primary_port_future, tt_updater_future)
         };
 
-        tokio::select! {
+        let res = tokio::select! {
             res = primary_port_future => res,
             res1 = tt_updater_future => res1
-        }
+        };
+
+        res.map_err(|err| NetworkError::Generic(err.to_string()))?
     }
 
+    #[allow(unused_results)]
     async fn time_tracker_updater(tt: TimeTracker) -> Result<(), NetworkError> {
-        let mut iter = tokio::time::interval_at(Instant::now() + NTP_RESYNC_FREQUENCY, NTP_RESYNC_FREQUENCY);
+        let mut iter = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval_at(Instant::now() + NTP_RESYNC_FREQUENCY, NTP_RESYNC_FREQUENCY));
         while let Some(_) = iter.next().await {
             if !tt.resync().await {
                 log::warn!("Unable to resynchronize NTP time (non-fatal; clock may diverge from synchronicity)");
@@ -326,25 +282,25 @@ impl HdpServer {
         Ok(())
     }
 
-    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, mut socket: TcpListener) -> Result<(), NetworkError> {
-        while let Some(stream) = socket.incoming().next().await {
-            match stream {
-                Ok(stream) => {
-                    match stream.peer_addr() {
-                        Ok(peer_addr) => {
-                            stream.set_linger(Some(tokio::time::Duration::from_secs(0))).unwrap();
-                            stream.set_keepalive(None).unwrap();
-                            //stream.set_nodelay(true).unwrap();
-                            // the below closure spawns a new future on the tokio thread pool
-                            if let Err(err) = session_manager.process_new_inbound_connection(peer_addr, stream) {
-                                to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, format!("HDP Server dropping connection to {}. Reason: {}", peer_addr, err.to_string())))?;
-                            }
-                        }
 
-                        Err(err) => {
-                            log::error!("Error rendering peer addr: {}", err.to_string());
-                        }
+    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, socket: TcpListener) -> Result<(), NetworkError> {
+        loop {
+            //let _ = tokio::task::spawn_local(async move{ log::info!("HELLO 2 THE WORLD!") });
+            match socket.accept().await {
+                Ok((stream, peer_addr)) => {
+                    log::trace!("Received stream from {:?}", peer_addr);
+
+                    //let res = tokio::task::spawn_local(async move{ log::info!("AAA HELLO 2 THE WORLD!") });
+                    //log::info!("RES: {:?}", res);
+
+                    stream.set_linger(Some(tokio::time::Duration::from_secs(0))).unwrap();
+                    // stream.set_keepalive(None).unwrap();
+                    //stream.set_nodelay(true).unwrap();
+                    // the below closure spawns a new future on the tokio thread pool
+                    if let Err(err) = session_manager.process_new_inbound_connection(peer_addr, stream) {
+                        to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, format!("HDP Server dropping connection to {}. Reason: {}", peer_addr, err.to_string())))?;
                     }
+
                 }
 
                 Err(err) => {
@@ -355,11 +311,9 @@ impl HdpServer {
                 }
             }
         }
-
-        Ok(())
     }
 
-    async fn outbound_kernel_request_handler(this: HdpServer, to_kernel_tx: UnboundedSender<HdpServerResult>, mut outbound_send_request_rx: UnboundedReceiver<(HdpServerRequest, Ticket)>) -> Result<(), NetworkError> {
+    async fn outbound_kernel_request_handler(this: HdpServer, to_kernel_tx: UnboundedSender<HdpServerResult>, outbound_send_request_rx: UnboundedReceiver<(HdpServerRequest, Ticket)>) -> Result<(), NetworkError> {
         let (primary_port, local_bind_addr, local_node_type, session_manager) = {
             let read = inner!(this);
             let primary_port = read.local_bind_addr.port();
@@ -374,7 +328,9 @@ impl HdpServer {
             (primary_port, local_bind_addr, local_node_type, session_manager)
         };
 
-        while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.next().await {
+        let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(outbound_send_request_rx);
+
+        while let Some((outbound_request, ticket_id)) = stream.next().await {
             match outbound_request {
                 HdpServerRequest::SendMessage(packet, implicated_cid, virtual_target, security_level) => {
                     if let Err(err) = session_manager.process_outbound_packet(ticket_id, packet, implicated_cid, virtual_target, security_level) {

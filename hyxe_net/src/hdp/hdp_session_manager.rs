@@ -175,6 +175,7 @@ impl HdpSessionManager {
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
     /// TODO: Make this code less hacky, and make the removal process cleaner. Use RAII on HdpSessionInner?
     async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, p2p_listener: Option<TcpListener>, tcp_stream: TcpStream) -> Result<(), NetworkError> {
+        log::info!("Beginning pre-execution of session");
         match new_session.execute(p2p_listener, tcp_stream).await {
             Ok(cid_opt) => {
                 if let Some(cid) = cid_opt {

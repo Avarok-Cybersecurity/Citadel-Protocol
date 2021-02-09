@@ -21,7 +21,7 @@ pub mod tests {
     use hyxe_crypt::sec_bytes::SecBuffer;
     use futures::{StreamExt, SinkExt};
     use std::collections::HashSet;
-    use std::sync::atomic::{AtomicUsize, Ordering, AtomicBool};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use crate::utils::AssertSendSafeFuture;
     use byteorder::ByteOrder;
     use hyxe_net::hdp::state_container::VirtualConnectionType;
@@ -119,7 +119,7 @@ pub mod tests {
         let client2_future = tokio::task::spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), async move { client2_executor.execute().await }));
 
         let server = tokio::task::spawn(AssertSendSafeFuture::new_silent(server_future));
-        tokio::time::delay_for(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         //futures::future::try_join_all(vec![client0_future, client1_future]).await.map(|res|)
         tokio::try_join!(client0_future, client1_future, client2_future)?.map(|res0, res1, res2| flatten_err(res0).and(flatten_err(res1)).and(flatten_err(res2)))?;
@@ -150,7 +150,6 @@ pub mod tests {
         use hyxe_user::client_account::ClientNetworkAccount;
         use crate::tests::{NodeType, handle_peer_channel, COUNT, CLIENT_SERVER_MESSAGE_STRESS_TEST, start_client_server_stress_test};
         use hyxe_net::hdp::peer::peer_layer::{PeerSignal, PeerResponse};
-        use hyxe_net::hdp::peer::channel::PeerChannel;
         use byteorder::ByteOrder;
         use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 
@@ -233,7 +232,7 @@ pub mod tests {
                 let remote = self.remote.clone().unwrap();
                 if let Some(time) = time {
                     tokio::task::spawn(async move {
-                        tokio::time::delay_for(time).await;
+                        tokio::time::sleep(time).await;
                         remote.shutdown().unwrap();
                     });
                 } else {
@@ -296,7 +295,7 @@ pub mod tests {
                                     let remote = self.remote.clone().unwrap();
 
                                     tokio::task::spawn(async move {
-                                        tokio::time::delay_for(Duration::from_millis(500)).await;
+                                        tokio::time::sleep(Duration::from_millis(500)).await;
                                         remote.shutdown().unwrap();
                                     });
                                 }
@@ -306,7 +305,7 @@ pub mod tests {
                                     let remote = self.remote.clone().unwrap();
 
                                     tokio::task::spawn(async move {
-                                        tokio::time::delay_for(Duration::from_millis(500)).await;
+                                        tokio::time::sleep(Duration::from_millis(500)).await;
                                         remote.shutdown().unwrap();
                                     });
                                 }
@@ -335,7 +334,7 @@ pub mod tests {
 
                                         /*
                                         tokio::task::spawn(async move {
-                                            tokio::time::delay_for(Duration::from_millis(1000)).await;
+                                            tokio::time::sleep(Duration::from_millis(1000)).await;
                                             remote.shutdown().unwrap();
                                         });*/
                                     }
@@ -367,7 +366,7 @@ pub mod tests {
 
                                         /*
                                         tokio::task::spawn(async move {
-                                            tokio::time::delay_for(Duration::from_millis(1000)).await;
+                                            tokio::time::sleep(Duration::from_millis(1000)).await;
                                             remote.shutdown().unwrap();
                                         });*/
                                     }
@@ -407,7 +406,7 @@ pub mod tests {
                             self.on_valid_ticket_received(ticket);
                             if self.node_type != NodeType::Client1 && self.node_type != NodeType::Server {
                                 // wait to ensure Client1 connects
-                                tokio::time::delay_for(Duration::from_millis(100)).await;
+                                tokio::time::sleep(Duration::from_millis(100)).await;
                             }
                         }
 
@@ -516,14 +515,14 @@ pub mod tests {
         assert!(requests.lock().insert(P2P_MESSAGE_STRESS_TEST));
 
         tokio::task::spawn(async move {
-            tokio::time::delay_for(Duration::from_millis(300)).await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
             let (sink, mut stream) = channel.split();
             let sender = async move {
                 for x in 0..COUNT {
                     if x % 10 == 9 {
-                        tokio::time::delay_for(Duration::from_millis(1)).await
+                        tokio::time::sleep(Duration::from_millis(1)).await
                     }
-                    //tokio::time::delay_for(Duration::from_millis(10)).await;
+                    //tokio::time::sleep(Duration::from_millis(10)).await;
                     sink.send_unbounded(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8])).unwrap();
                 }
 
@@ -571,7 +570,7 @@ pub mod tests {
                     };
 
                     // begin the sender
-                    tokio::time::delay_for(Duration::from_millis(200)).await;
+                    tokio::time::sleep(Duration::from_millis(200)).await;
                     start_client_server_stress_test(requests.clone(), remote.clone(), implicated_cid, node_type).await;
                 }
             } else {
@@ -579,7 +578,7 @@ pub mod tests {
             }
 
             if node_type == NodeType::Client1 {
-                tokio::time::delay_for(Duration::from_millis(1000)).await;
+                tokio::time::sleep(Duration::from_millis(1000)).await;
                 remote.shutdown().unwrap();
             }
         });
@@ -663,7 +662,7 @@ pub mod tests {
                     }
                 }
 
-                tokio::time::delay_for(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         });
 
@@ -690,7 +689,7 @@ pub mod tests {
                     }
                 }
 
-                tokio::time::delay_for(Duration::from_millis(500)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         });
 
@@ -716,7 +715,7 @@ pub mod tests {
                     }
                 }
 
-                tokio::time::delay_for(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         });
 
@@ -741,7 +740,7 @@ pub mod tests {
                     }
                 }
                 // patiently wait for cnac_client1 to exist
-                tokio::time::delay_for(Duration::from_millis(100)).await;
+                tokio::time::sleep(Duration::from_millis(100)).await;
             }
         });
 

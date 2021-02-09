@@ -13,7 +13,7 @@ use hyxe_crypt::prelude::PacketVector;
 
 use crate::io::FsError;
 use std::task::Poll;
-use tokio::stream::{Stream,StreamExt};
+use tokio_stream::{Stream,StreamExt};
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
 /// The max file size is 100Mb (1024 bytes per Kb, 1024 kb per Mb, times 100)
@@ -80,7 +80,7 @@ async fn stopper(stop: Receiver<()>) -> Result<(), ()> {
     Err(())
 }
 
-async fn file_streamer<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, R: Read>(mut group_sender: GroupChanneler<GroupSenderDevice>, mut file_scrambler: AsyncCryptScrambler<'_, F, R>) -> Result<(), ()> {
+async fn file_streamer<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, R: Read>(group_sender: GroupChanneler<GroupSenderDevice>, mut file_scrambler: AsyncCryptScrambler<'_, F, R>) -> Result<(), ()> {
     while let Some(val) = file_scrambler.next().await {
         group_sender.send(val).await.map_err(|_| ())?;
     }

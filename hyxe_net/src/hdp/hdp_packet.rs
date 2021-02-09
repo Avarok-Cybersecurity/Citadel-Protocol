@@ -11,7 +11,6 @@ use rand::prelude::ThreadRng;
 use rand::{RngCore, Rng};
 use atomic::{Atomic, Ordering};
 use crate::functional::PairMap;
-use bytes::buf::BufMutExt;
 use std::io::Write;
 
 pub(crate) mod packet_flags {

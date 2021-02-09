@@ -1,14 +1,15 @@
 use hyxe_net::hdp::hdp_server::Ticket;
-use tokio::time::{Duration, DelayQueue};
+use tokio_util::time::{DelayQueue, delay_queue};
+use tokio::time::error::Error;
 use std::pin::Pin;
 use crate::console::console_context::ConsoleContext;
-use tokio::time::delay_queue;
 use hyxe_net::hdp::peer::peer_layer::PeerResponse;
 use futures_util::task::{Poll, Context, Waker};
-use tokio::stream::Stream;
+use tokio_stream::Stream;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use hyxe_net::hdp::hdp_packet_processor::includes::Duration;
 
 pub struct TrackedTicket {
     pub ticket: Ticket,
@@ -89,7 +90,7 @@ impl TicketQueueHandler {
         }
     }
 
-    fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), tokio::time::Error>> {
+    fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         let mut this = self.inner.lock();
         this.waker = Some(cx.waker().clone());
 

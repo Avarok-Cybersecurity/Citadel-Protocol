@@ -1,11 +1,11 @@
 use futures::stream::{SplitSink, SplitStream};
-use tokio::prelude::{AsyncWrite, AsyncRead};
 use tokio_util::codec::{Framed, Encoder, Decoder};
 use std::ops::{Deref, DerefMut};
 use futures::{StreamExt, SinkExt};
 use std::marker::PhantomData;
 use std::fmt::Debug;
 use crate::macros::ContextRequirements;
+use tokio::io::{AsyncWrite, AsyncRead};
 
 pub fn clean_framed_shutdown<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements, U: Encoder<I, Error: From<std::io::Error> + Debug> + Decoder + ContextRequirements, I: ContextRequirements>(framed: Framed<S, U>)
  -> (CleanShutdownSink<S, U, I>, CleanShutdownStream<S, U, I>) {

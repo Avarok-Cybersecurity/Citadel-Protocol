@@ -4,7 +4,6 @@ use parking_lot::{Mutex, MutexGuard};
 #[cfg(not(target_os = "windows"))]
 use termion::input::TermReadEventsAndRaw;
 //use tokio::io::AsyncBufReadExt;
-use tokio::stream::StreamExt;
 
 use hyxe_net::hdp::hdp_server::HdpServerRemote;
 
@@ -14,13 +13,15 @@ use crate::console::virtual_terminal::clap_commands::setup_clap;
 use crate::console_error::ConsoleError;
 use crate::ffi::{FFIIO, KernelResponse};
 use hyxe_crypt::sec_string::SecString;
+use tokio_stream::StreamExt;
 
 lazy_static! {
     pub static ref CLAP_APP: AppThreadSafe = AppThreadSafe(Mutex::new(setup_clap()));
 }
 
 pub async fn terminal_future(server_remote: HdpServerRemote, ctx: ConsoleContext) -> Result<(), ConsoleError> {
-    let (input_tx, mut input_rx) = tokio::sync::mpsc::channel::<SecString>(2);
+    let (input_tx, input_rx) = tokio::sync::mpsc::channel::<SecString>(2);
+    let mut input_rx = tokio_stream::wrappers::ReceiverStream::new(input_rx);
     INPUT_ROUTER.print_prompt(true, &ctx);
     spawn_input_listener(input_tx, ctx.clone());
 

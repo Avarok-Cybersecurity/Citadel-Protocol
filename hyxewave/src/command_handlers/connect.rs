@@ -1,4 +1,4 @@
-use tokio::stream::StreamExt;
+use tokio_stream::StreamExt;
 
 use super::imports::*;
 
@@ -44,7 +44,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         let (tx_oneshot, mut rx_oneshot) = tokio::sync::oneshot::channel::<()>();
         tx.lock().replace(tx_oneshot);
         tokio::task::spawn(async move {
-            let mut iter = tokio::time::interval(Duration::from_millis(100));
+            let mut iter = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_millis(100)));
             while let Some(_) = iter.next().await {
                 match rx_oneshot.try_recv() {
                     Ok(_) | Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {

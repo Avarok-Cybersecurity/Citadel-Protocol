@@ -1,11 +1,10 @@
-use bytes::BytesMut;
+use bytes::{BytesMut, BufMut};
 use secstr::SecVec;
 
 use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
 use bstr::ByteSlice;
 use rand::prelude::ThreadRng;
 use rand::Rng;
-use bytes::buf::BufMutExt;
 use serde::{Serialize, Deserialize};
 
 

@@ -8,7 +8,9 @@ use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigCon
 use async_trait::async_trait;
 
 pub struct Method3Encrypted {
+    #[allow(dead_code)]
     this_node_type: RelativeNodeType,
+    #[allow(dead_code)]
     encrypted_container: Arc<EncryptedConfigContainer>
 }
 
