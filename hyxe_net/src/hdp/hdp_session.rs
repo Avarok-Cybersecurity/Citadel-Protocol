@@ -29,8 +29,6 @@ use crate::hdp::time::TransferStats;
 use crate::proposed_credentials::ProposedCredentials;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::time_tracker::TimeTracker;
-use futures::stream::FuturesUnordered;
-use std::pin::Pin;
 use crate::hdp::session_queue_handler::{SessionQueueWorker, QueueWorkerTicket, PROVISIONAL_CHECKER, QueueWorkerResult, DRILL_REKEY_WORKER, KEEP_ALIVE_CHECKER, FIREWALL_KEEP_ALIVE, RESERVED_CID_IDX};
 use crate::hdp::state_subcontainers::drill_update_container::calculate_update_frequency;
 use std::sync::Arc;
@@ -49,7 +47,6 @@ use crate::hdp::misc;
 use crate::hdp::peer::p2p_conn_handler::P2PInboundHandle;
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 use crate::macros::SessionBorrow;
-use crate::kernel::RuntimeFuture;
 use crate::functional::IfTrueConditional;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::hdp::peer::peer_layer::PeerSignal;
@@ -258,36 +255,38 @@ impl HdpSession {
             let stopper = this_ref.stopper_rx.take().unwrap();
 
             // Ensure the tx forwards to the writer
-            let writer_future = Self::outbound_stream(primary_outbound_rx, writer, obfuscator.clone());
-            let reader_future = Self::execute_inbound_stream(reader, this_inbound, None, obfuscator);
+            let writer_future = spawn_handle!(Self::outbound_stream(primary_outbound_rx, writer, obfuscator.clone()));
+            let reader_future = spawn_handle!(Self::execute_inbound_stream(reader, this_inbound, None, obfuscator));
             //let timer_future = Self::execute_timer(this.clone());
-            let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
-            let socket_loader_future = Self::socket_loader(this_socket_loader, to_kernel_tx_clone.clone(), socket_loader_rx);
-            let stopper_future = Self::stopper(stopper);
+            let queue_worker_future = spawn_handle!(Self::execute_queue_worker(this_queue_worker));
+            let socket_loader_future = spawn_handle!(Self::socket_loader(this_socket_loader, to_kernel_tx_clone.clone(), socket_loader_rx));
+            let stopper_future = spawn_handle!(Self::stopper(stopper));
             let handle_zero_state = Self::handle_zero_state(packet_opt, primary_outbound_tx.clone(), this_outbound, this_ref.state, timestamp, local_nid, cnac_opt);
             std::mem::drop(this_ref);
 
-            let session_future = FuturesUnordered::new();
-
-            session_future.push(Box::pin(writer_future) as Pin<Box<dyn RuntimeFuture>>);
-
-            session_future.push(Box::pin(reader_future));
-            session_future.push(Box::pin(stopper_future));
-            //session_future.push(Box::pin(queue_worker_future));
-            // TODO: if local node type is pure_server, don't add the below
-            session_future.push(Box::pin(socket_loader_future));
-            if let Some(p2p_listener) = p2p_listener {
-                let p2p_listener = crate::hdp::peer::p2p_conn_handler::p2p_conn_handler(p2p_listener, this_p2p_listener);
-                session_future.push(Box::pin(p2p_listener));
-            }
-
-            //let session_future = futures::future::try_join4(writer_future, reader_future, timer_future, socket_loader_future);
-
-            // this will automatically drop when getting polled, because it tries upgrading a Weak reference to the session
-            // as such, if it cannot, it will end the future. We do this to ensure there is no deadlocking.
-            // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
-            // separate task, we solve the issue of re-entrancing of mutex
-            let _ = spawn!(queue_worker_future);
+            let session_future = if let Some(p2p_listener) = p2p_listener {
+                let p2p_listener = spawn_handle!(crate::hdp::peer::p2p_conn_handler::p2p_conn_handler(p2p_listener, this_p2p_listener));
+                spawn_handle!(async move {
+                    tokio::select! {
+                        res0 = writer_future => res0,
+                        res1 = reader_future => res1,
+                        res2 = stopper_future => res2,
+                        res3 = socket_loader_future => res3,
+                        res4 = queue_worker_future => res4,
+                        res5 = p2p_listener => res5
+                    }
+                })
+            } else {
+                spawn_handle!(async move {
+                    tokio::select! {
+                        res0 = writer_future => res0,
+                        res1 = reader_future => res1,
+                        res2 = stopper_future => res2,
+                        res3 = socket_loader_future => res3,
+                        res4 = queue_worker_future => res4
+                    }
+                })
+            };
 
             (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message, sock)
         };
@@ -297,26 +296,33 @@ impl HdpSession {
             return Err((err, implicated_cid.load(Ordering::SeqCst)));
         }
 
-        session_future.try_collect::<Vec<()>>().await.map(|_| {
-            implicated_cid.load(Ordering::SeqCst)
-        }).map_err(move |err| {
-            let ticket = inner!(this_close).kernel_ticket;
-            let reason = err.to_string();
-            let needs_close_message = needs_close_message.load(Ordering::Relaxed);
-            let cid = implicated_cid.load(Ordering::Relaxed);
+        let res = session_future.await.map_err(|err| (NetworkError::Generic(err.to_string()), None))?
+            .map_err(|err| (NetworkError::Generic(err.to_string()), None))?;
 
-            log::info!("Session {} connected to {} is ending! Reason: {}. Needs close message? {} (strong count: {})", ticket.0, sock, reason.as_str(), needs_close_message, this_close.strong_count());
-
-            if needs_close_message {
-                if let Some(cid) = cid {
-                    let result = HdpServerResult::Disconnect(ticket, cid, false, None, reason);
-                    // false indicates a D/C caused by a non-dc subroutine
-                    let _ = to_kernel_tx.unbounded_send(result);
-                }
+        match res {
+            Ok(_) => {
+                Ok(implicated_cid.load(Ordering::SeqCst))
             }
 
-            (err, cid)
-        })
+            Err(err) => {
+                let ticket = inner!(this_close).kernel_ticket;
+                let reason = err.to_string();
+                let needs_close_message = needs_close_message.load(Ordering::Relaxed);
+                let cid = implicated_cid.load(Ordering::Relaxed);
+
+                log::info!("Session {} connected to {} is ending! Reason: {}. Needs close message? {} (strong count: {})", ticket.0, sock, reason.as_str(), needs_close_message, this_close.strong_count());
+
+                if needs_close_message {
+                    if let Some(cid) = cid {
+                        let result = HdpServerResult::Disconnect(ticket, cid, false, None, reason);
+                        // false indicates a D/C caused by a non-dc subroutine
+                        let _ = to_kernel_tx.unbounded_send(result);
+                    }
+                }
+
+                Err((err, cid))
+            }
+        }
     }
 
     async fn stopper(mut receiver: Receiver<()>) -> Result<(), NetworkError> {
