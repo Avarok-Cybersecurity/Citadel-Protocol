@@ -27,6 +27,7 @@ pub mod tests {
     use hyxe_net::hdp::state_container::VirtualConnectionType;
     use hyxe_net::error::NetworkError;
     use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+    use tokio::runtime::{Builder, Runtime};
 
     const COUNT: usize = 500;
     const TIMEOUT_CNT_MS: usize = 10000 + (COUNT*50);
@@ -61,8 +62,10 @@ pub mod tests {
     // 7,8,9,10 use version 0 even though the other adjacent endpoint no longer has version 0.
     //
     // If we allow only one packet sent per down-and-back, we greatly reduce the speed of the network
-    #[tokio::test]
-    async fn main() -> Result<(), Box<dyn Error>> {
+    #[test]
+    fn main() -> Result<(), Box<dyn Error>> {
+        let rt = Arc::new(Builder::new_multi_thread().enable_time().enable_io().build().unwrap());
+
         setup_log();
         let server_bind_addr = SocketAddr::from_str("127.0.0.1:33332").unwrap();
         let client0_bind_addr = SocketAddr::from_str("127.0.0.1:33333").unwrap();
@@ -86,56 +89,59 @@ pub mod tests {
 
         let test_container = Arc::new(RwLock::new(TestContainer::default()));
 
-        log::info!("Setting up executors ...");
-        let server_executor = create_executor(server_bind_addr, Some(test_container.clone()),NodeType::Server, Vec::default()).await;
-        log::info!("Done setting up server executor");
-        let client0_executor = create_executor(client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
-            vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecVec::new(Vec::from(CLIENT0_PASSWORD)), None), None, security_level)),
-                 function(move |test_container| client0_action1(test_container, CLIENT0_USERNAME, CLIENT0_PASSWORD, security_level)),
-                 function(move |test_container| client0_action2(test_container)),
-                 function(move |test_container| client0_action3(test_container, p2p_security_level))
-            ]
-        }).await;
+        let rt_main = rt.clone();
+        rt_main.block_on(async move {
+            log::info!("Setting up executors ...");
+            let server_executor = create_executor(rt.clone(), server_bind_addr, Some(test_container.clone()),NodeType::Server, Vec::default()).await;
+            log::info!("Done setting up server executor");
+            let client0_executor = create_executor(rt.clone(), client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecVec::new(Vec::from(CLIENT0_PASSWORD)), None), None, security_level)),
+                     function(move |test_container| client0_action1(test_container, CLIENT0_USERNAME, CLIENT0_PASSWORD, security_level)),
+                     function(move |test_container| client0_action2(test_container)),
+                     function(move |test_container| client0_action3(test_container, p2p_security_level))
+                ]
+            }).await;
 
-        let client1_executor = create_executor(client1_bind_addr, Some(test_container.clone()), NodeType::Client1, {
-            vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT1_FULLNAME, CLIENT1_USERNAME, SecVec::new(Vec::from(CLIENT1_PASSWORD)), None), None, security_level)),
-                 function(move |test_container| client1_action1(test_container, CLIENT1_USERNAME, CLIENT1_PASSWORD, security_level))
-            ]
-        }).await;
+            let client1_executor = create_executor(rt.clone(), client1_bind_addr, Some(test_container.clone()), NodeType::Client1, {
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT1_FULLNAME, CLIENT1_USERNAME, SecVec::new(Vec::from(CLIENT1_PASSWORD)), None), None, security_level)),
+                     function(move |test_container| client1_action1(test_container, CLIENT1_USERNAME, CLIENT1_PASSWORD, security_level))
+                ]
+            }).await;
 
-        let client2_executor = create_executor(client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
-            vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT2_FULLNAME, CLIENT2_USERNAME, SecVec::new(Vec::from(CLIENT2_PASSWORD)), None), None, security_level)),
-                 function(move |test_container| client2_action1(test_container, CLIENT2_USERNAME, CLIENT2_PASSWORD, security_level)),
-                function(client2_action2),
-                function(client2_action3)
-            ]
-        }).await;
+            let client2_executor = create_executor(rt.clone(), client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT2_FULLNAME, CLIENT2_USERNAME, SecVec::new(Vec::from(CLIENT2_PASSWORD)), None), None, security_level)),
+                     function(move |test_container| client2_action1(test_container, CLIENT2_USERNAME, CLIENT2_PASSWORD, security_level)),
+                     function(client2_action2),
+                     function(client2_action3)
+                ]
+            }).await;
 
-        log::info!("Done setting up executors");
+            log::info!("Done setting up executors");
 
-        let server_future = async move { server_executor.execute().await };
-        let client0_future = tokio::task::spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), async move { client0_executor.execute().await }));
-        let client1_future = tokio::task::spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), async move { client1_executor.execute().await }));
-        let client2_future = tokio::task::spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), async move { client2_executor.execute().await }));
+            let server_future = async move { server_executor.execute().await };
+            let client0_future = tokio::task::spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(async move { client0_executor.execute().await })));
+            let client1_future = tokio::task::spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(async move { client1_executor.execute().await })));
+            let client2_future = tokio::task::spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(async move { client2_executor.execute().await })));
 
-        let server = tokio::task::spawn(AssertSendSafeFuture::new_silent(server_future));
-        tokio::time::sleep(Duration::from_millis(100)).await;
+            let server = tokio::task::spawn(AssertSendSafeFuture::new_silent(server_future));
+            tokio::time::sleep(Duration::from_millis(100)).await;
 
-        //futures::future::try_join_all(vec![client0_future, client1_future]).await.map(|res|)
-        tokio::try_join!(client0_future, client1_future, client2_future)?.map(|res0, res1, res2| flatten_err(res0).and(flatten_err(res1)).and(flatten_err(res2)))?;
+            //futures::future::try_join_all(vec![client0_future, client1_future]).await.map(|res|)
+            tokio::try_join!(client0_future, client1_future, client2_future)?.map(|res0, res1, res2| flatten_err(res0).and(flatten_err(res1)).and(flatten_err(res2)))?;
 
-        log::info!("Ending test (client(s) done) ...");
+            log::info!("Ending test (client(s) done) ...");
 
-        tokio::time::timeout(Duration::from_millis(100), server).await;
+            tokio::time::timeout(Duration::from_millis(100), server).await;
 
-        Ok(())
+            Ok(())
+        })
     }
 
-    async fn create_executor(bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: NodeType, commands: Vec<ActionType>) -> KernelExecutor<TestKernel> {
+    async fn create_executor(rt: Arc<Runtime>, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: NodeType, commands: Vec<ActionType>) -> KernelExecutor<TestKernel> {
         let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port()))).await.unwrap();
         account_manager.purge();
         let kernel = TestKernel::new(node_type, commands, test_container);
-        KernelExecutor::new(HyperNodeType::BehindResidentialNAT, account_manager, kernel, bind_addr).await.unwrap()
+        KernelExecutor::new(rt, HyperNodeType::BehindResidentialNAT, account_manager, kernel, bind_addr).await.unwrap()
     }
 
     pub mod kernel {
