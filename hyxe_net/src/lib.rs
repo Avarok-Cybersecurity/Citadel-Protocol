@@ -91,6 +91,12 @@ pub mod macros {
     };
 }
 
+    macro_rules! spawn_handle {
+    ($future:expr) => {
+        tokio::task::spawn_local($future)
+    };
+}
+
     macro_rules! wrap_inner_mut {
     ($item:expr) => {
         (&mut $item).into()
@@ -187,6 +193,12 @@ pub mod macros {
             //log::error!("Unable to spawn future: {:?}", stringify!($future));
         }
         //tokio::task::spawn($future)
+    };
+}
+
+    macro_rules! spawn_handle {
+    ($future:expr) => {
+        tokio::task::spawn($future)
     };
 }
 

@@ -36,8 +36,6 @@
     <cargoProject FILE="$PROJECT_DIR$/hyxe_config/Cargo.toml" />
     <cargoProject FILE="$PROJECT_DIR$/hyxe_net/Cargo.toml" />
     <cargoProject FILE="$PROJECT_DIR$/hyxe_nat/Cargo.toml" />
-    <cargoProject FILE="$PROJECT_DIR$/async_udt/Cargo.toml" />
-    <cargoProject FILE="$PROJECT_DIR$/async_udt/udt-rs/Cargo.toml" />
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
@@ -152,7 +150,6 @@
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/virtual_connection_type.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/utils.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/test/parse.dart" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/waitfor.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Cargo.lock" afterDir="false" />
@@ -401,17 +398,8 @@
       <change beforePath="$PROJECT_DIR$/flutterust/test/widget_test.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/test/widget_test.dart" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/session_queue_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/session_queue_handler.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/command_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/ffi/command_handler.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/ffi_entry.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/ffi/ffi_entry.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/kernel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/kernel.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/mail.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/mail.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/ticket_event.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/ticket_event.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/lib.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -435,7 +423,7 @@
     <option name="PREVIEW_PUSH_PROTECTED_ONLY" value="true" />
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="tokio03" />
+        <entry key="$PROJECT_DIR$" value="tokio02" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -544,19 +532,21 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test tests::delete_all_users (1)">
+  <component name="RunManager" selected="Cargo.Test tests::main">
     <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
-    <configuration default="true" type="ArquillianJUnit" factoryName="" nameIsGenerated="true">
+    <configuration default="true" type="ArquillianTestNG" factoryName="" nameIsGenerated="true">
       <option name="arquillianRunConfiguration">
         <value>
           <option name="containerStateName" value="" />
         </value>
       </option>
-      <option name="TEST_OBJECT" value="class" />
+      <option name="TEST_OBJECT" value="CLASS" />
+      <properties />
+      <listeners />
       <method v="2">
         <option name="Make" enabled="true" />
       </method>
@@ -603,8 +593,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test primary::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_user --test primary tests" />
+    <configuration name="Test tests::create_cnac" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_user --test primary tests::create_cnac -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
       <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
@@ -617,8 +607,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::create_cnac" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_user --test primary tests::create_cnac -- --exact" />
+    <configuration name="Test tests::create_cnac_then_ser_deser_then_check_login" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_user --test primary tests::create_cnac_then_ser_deser_then_check_login -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
       <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
@@ -659,8 +649,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::hyperlan_peer_adding" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_user --test primary tests::hyperlan_peer_adding -- --exact" />
+    <configuration name="Test tests::load_nac" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_user --test primary tests::load_nac -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
       <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
@@ -706,19 +696,19 @@
       <item itemvalue="Cargo.Retest tests::main (1)" />
       <item itemvalue="Cargo.Run hyxewave 127.0.0.2" />
       <item itemvalue="Cargo.Test tests::delete_all_users" />
-      <item itemvalue="Cargo.Test primary::tests" />
       <item itemvalue="Cargo.Test tests::create_cnac" />
       <item itemvalue="Cargo.Test tests::delete_all_users (1)" />
-      <item itemvalue="Cargo.Test tests::hyperlan_peer_adding" />
       <item itemvalue="Cargo.Test tests::main" />
+      <item itemvalue="Cargo.Test tests::load_nac" />
+      <item itemvalue="Cargo.Test tests::create_cnac_then_ser_deser_then_check_login" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Cargo.Test tests::main" />
+        <item itemvalue="Cargo.Test tests::create_cnac_then_ser_deser_then_check_login" />
+        <item itemvalue="Cargo.Test tests::load_nac" />
         <item itemvalue="Cargo.Test tests::delete_all_users (1)" />
         <item itemvalue="Cargo.Test tests::create_cnac" />
-        <item itemvalue="Cargo.Test tests::main" />
-        <item itemvalue="Cargo.Test tests::hyperlan_peer_adding" />
-        <item itemvalue="Cargo.Test primary::tests" />
       </list>
     </recent_temporary>
   </component>
@@ -939,7 +929,8 @@
       <workItem from="1612206860642" duration="5000" />
       <workItem from="1612213219765" duration="1712000" />
       <workItem from="1612218858679" duration="612000" />
-      <workItem from="1612224839899" duration="45935000" />
+      <workItem from="1612224839899" duration="68387000" />
+      <workItem from="1612824212961" duration="12259000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
