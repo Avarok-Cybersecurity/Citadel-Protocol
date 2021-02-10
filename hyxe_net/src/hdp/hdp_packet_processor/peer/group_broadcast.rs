@@ -19,7 +19,7 @@ pub enum GroupBroadcast {
     EndResponse(MessageGroupKey, bool),
     Disconnected(MessageGroupKey),
     // username, key, message
-    Message(String, MessageGroupKey, String),
+    Message(String, MessageGroupKey, SecBuffer),
     // not actually a "response message", but rather, just like the other response types, just what the server sends to the requesting client
     MessageResponse(MessageGroupKey, bool),
     Add(MessageGroupKey, Vec<u64>),
