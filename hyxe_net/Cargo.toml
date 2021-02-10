@@ -17,7 +17,7 @@ multi-threaded = ["ez_pqcrypto/aes", "ez_pqcrypto/unordered", "hyxe_crypt/multi-
 futures = "0.3.12"
 #rav1e = {version = "0.4.0-alpha", default-features=false, features = ["binaries", "signal_support"]}
 bstr = "0.2.13"
-log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_info"] }
+log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
 async-trait = "0.1.31"
 #tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
 tokio-util = { version = "^0.6.3", features = ["net", "codec", "time", "io"] }
@@ -34,7 +34,7 @@ atomic = "0.5.0"
 secstr = { version = "0.4.0", features=["serde"] }
 bincode2 = "2.0.1"
 serde = { version = "1.0.104", features=["derive"] }
-net2 = "0.2.34"
+net2 = "0.2.37"
 num = "0.2.1"
 either = "1.5.3"
 bitvec = "0.17.3"
@@ -49,3 +49,4 @@ num_cpus = "1.13.0"
 
 [dev-dependencies]
 env_logger = "0.8.2"
+parking_lot = { version = "0.11.1", features = ["deadlock_detection"] }

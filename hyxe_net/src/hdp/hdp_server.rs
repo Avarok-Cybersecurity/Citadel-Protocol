@@ -1,8 +1,7 @@
 use std::fmt::{Display, Formatter, Debug};
 use std::io;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use std::net::SocketAddr;
 use futures::{StreamExt, Sink};
@@ -192,6 +191,10 @@ impl HdpServer {
             .reuse_address(true)?
             .bind(bind)?
             .listen(backlog)
+            .and_then(|std_stream| {
+                std_stream.set_nonblocking(true)?;
+                Ok(std_stream)
+            })
             .map(tokio::net::TcpListener::from_std)?
             .and_then(|listener| {
                 Ok((listener, bind))
@@ -235,6 +238,7 @@ impl HdpServer {
                     .connect(remote)?
             };
 
+            std_stream.set_nonblocking(true)?;
             let stream = tokio::net::TcpStream::from_std(std_stream)?;
             stream.set_linger(Some(tokio::time::Duration::from_secs(0)))?;
             //stream.set_keepalive(None)?;
@@ -459,7 +463,7 @@ impl HdpServerRemote {
     }
 
     pub fn get_next_ticket(&self) -> Ticket {
-        Ticket(self.ticket_counter.fetch_add(1, SeqCst) as u64)
+        Ticket(self.ticket_counter.fetch_add(1, Ordering::Relaxed) as u64)
     }
 }
 
