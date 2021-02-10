@@ -28,6 +28,7 @@ pub mod tests {
     use hyxe_net::error::NetworkError;
     use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
     use tokio::runtime::{Builder, Runtime};
+    use hyxe_net::hdp::peer::message_group::MessageGroupKey;
 
     const COUNT: usize = 500;
     const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 50);
@@ -113,7 +114,7 @@ pub mod tests {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT2_FULLNAME, CLIENT2_USERNAME, SecVec::new(Vec::from(CLIENT2_PASSWORD)), None), None, security_level)),
                      function(move |test_container| client2_action1(test_container, CLIENT2_USERNAME, CLIENT2_PASSWORD, security_level)),
                      function(client2_action2),
-                     //function(move |test_container| client2_action3(test_container, p2p_security_level))
+                     function(move |test_container| client2_action3_start_group(test_container))
                 ]
             }).await;
 
@@ -155,10 +156,10 @@ pub mod tests {
         use async_trait::async_trait;
         use std::sync::Arc;
         use hyxe_user::client_account::ClientNetworkAccount;
-        use crate::tests::{NodeType, handle_peer_channel, COUNT, CLIENT_SERVER_MESSAGE_STRESS_TEST, start_client_server_stress_test};
+        use crate::tests::{NodeType, handle_peer_channel, COUNT, CLIENT_SERVER_MESSAGE_STRESS_TEST, start_client_server_stress_test, GROUP_TICKET_TEST, client2_action4_fire_group};
         use hyxe_net::hdp::peer::peer_layer::{PeerSignal, PeerResponse};
         use byteorder::ByteOrder;
-        use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+        use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
         use crate::utils::{assert_eq, assert};
         use tokio::sync::broadcast;
 
@@ -177,6 +178,10 @@ pub mod tests {
             pub can_begin_peer_post_register_notifier_cl_1: Option<broadcast::Sender<()>>,
             pub client_server_as_server_recv_count: usize,
             pub client_server_as_client_recv_count: usize,
+            pub group_members_entered_for_client2: usize,
+            pub group_messages_received_client0: usize,
+            pub group_messages_received_client1: usize,
+            pub group_messages_verified_client2_host: usize,
             pub client_server_stress_test_done_as_client: bool,
             pub client_server_stress_test_done_as_server: bool,
         }
@@ -250,7 +255,8 @@ pub mod tests {
 
             fn on_valid_ticket_received(&self, ticket: Ticket) {
                 if self.node_type != NodeType::Server {
-                    assert(self.queued_requests.lock().remove(&ticket), "EXCV")
+                    assert(self.queued_requests.lock().remove(&ticket), "EXCV");
+                    log::info!("{:?} checked-in ticket {}", self.node_type, ticket);
                 }
             }
 
@@ -318,24 +324,107 @@ pub mod tests {
                                 }
 
                                 GroupBroadcast::CreateResponse(Some(key)) => {
-                                    log::info!("Successfully created group {} for {:?}", key, self.node_type);
-                                    self.on_valid_ticket_received(ticket);
+                                    log::info!("[Group] Successfully created group {} for {:?}", key, self.node_type);
+                                    assert(self.node_type == NodeType::Client2, "FTQ");
+                                    // Even as the host, we do nothing here. We wait until both members joined the room
+                                    //self.on_valid_ticket_received(GROUP_TICKET_TEST);
+                                    /*
                                     let remote = self.remote.clone().unwrap();
 
                                     tokio::task::spawn(async move {
                                         tokio::time::sleep(Duration::from_millis(500)).await;
                                         remote.shutdown().unwrap();
-                                    });
+                                    });*/
                                 }
 
                                 GroupBroadcast::AcceptMembershipResponse(success) => {
-                                    log::info!("Successfully created group for {:?}? {}", self.node_type, success);
+                                    // client 1 & 0 will get this
+                                    assert(self.node_type == NodeType::Client0 || self.node_type == NodeType::Client1, "EQW");
+                                    assert(success, "YTR");
+                                    log::info!("[Group] Successfully entered* group for {:?}? {}", self.node_type, success);
+                                    /*
                                     let remote = self.remote.clone().unwrap();
+                                    self.on_valid_ticket_received(GROUP_TICKET_TEST);
+                                    // We don't have to do anything here; we just wait for group messages to start
+                                    // pouring-in
 
                                     tokio::task::spawn(async move {
                                         tokio::time::sleep(Duration::from_millis(500)).await;
                                         remote.shutdown().unwrap();
-                                    });
+                                    });*/
+                                }
+
+                                GroupBroadcast::MemberStateChanged(key, state) => {
+                                    if self.node_type == NodeType::Client2 {
+                                        log::info!("[Group] Member state changed: {:?}", &state);
+                                        match state {
+                                            MemberState::EnteredGroup(peers) => {
+                                                let mut lock = self.item_container.as_ref().unwrap().write();
+                                                lock.group_members_entered_for_client2 += peers.len();
+
+                                                if lock.group_members_entered_for_client2 == 2 {
+                                                    log::info!("[Group] Client2/Host will now begin group stress test ...");
+                                                    let test_container = self.item_container.clone().unwrap();
+                                                    std::mem::drop(lock);
+                                                    /*
+                                                    let remote = self.remote.clone().unwrap();
+                                                    self.on_valid_ticket_received(GROUP_TICKET_TEST);
+
+                                                    tokio::task::spawn(async move {
+                                                        tokio::time::sleep(Duration::from_millis(500)).await;
+                                                        remote.shutdown().unwrap();
+                                                    });*/
+                                                    client2_action4_fire_group(test_container, key, ticket);
+                                                }
+                                            }
+
+                                            _ => {}
+                                        }
+                                    }
+                                }
+
+                                GroupBroadcast::Message(_, _, msg) => {
+                                    let val = byteorder::BigEndian::read_u64(msg.as_ref());
+                                    assert(val <= COUNT as u64, "DFT");
+                                    assert(self.node_type == NodeType::Client0 || self.node_type == NodeType::Client1, "LKJ");
+                                    let mut lock = self.item_container.as_ref().unwrap().write();
+                                    let count = if self.node_type == NodeType::Client0 {
+                                        lock.group_messages_received_client0 += 1;
+                                        // TODO future: begin spawning this side's own firing thread to stress to the MAXXXX
+                                        lock.group_messages_received_client0
+                                    } else {
+                                        lock.group_messages_received_client1 += 1;
+                                        lock.group_messages_received_client1
+                                    };
+
+                                    log::info!("[Group] {:?} received {} messages", self.node_type, lock.group_messages_received_client0);
+
+                                    if count >= COUNT {
+                                        log::info!("[Group] {:?} is done receiving messages", self.node_type);
+                                        self.on_valid_ticket_received(GROUP_TICKET_TEST);
+                                        let remote = self.remote.clone().unwrap();
+                                        tokio::task::spawn(async move {
+                                            tokio::time::sleep(Duration::from_millis(500)).await;
+                                            remote.shutdown().unwrap();
+                                        });
+                                    }
+                                }
+
+                                GroupBroadcast::MessageResponse(_, success) => {
+                                    assert(success, "UQE");
+                                    assert(self.node_type == NodeType::Client2, "KZMT");
+                                    let mut lock = self.item_container.as_ref().unwrap().write();
+                                    lock.group_messages_verified_client2_host += 1;
+
+                                    if lock.group_messages_verified_client2_host >= COUNT {
+                                        log::info!("[Group] {:?}/Host has successfully sent all messages", self.node_type);
+                                        self.on_valid_ticket_received(GROUP_TICKET_TEST);
+                                        let remote = self.remote.clone().unwrap();
+                                        tokio::task::spawn(async move {
+                                            tokio::time::sleep(Duration::from_millis(500)).await;
+                                            remote.shutdown().unwrap();
+                                        });
+                                    }
                                 }
 
                                 _ => {}
@@ -357,15 +446,19 @@ pub mod tests {
                                     if lock.client_server_as_client_recv_count >= COUNT {
                                         log::info!("Client has finished receiving {} messages", COUNT);
                                         lock.client_server_stress_test_done_as_client = true;
-                                        let remote = self.remote.as_ref().unwrap().clone();
-                                        assert(self.queued_requests.lock().remove(&CLIENT_SERVER_MESSAGE_STRESS_TEST), "VIDZ");
+                                        let _remote = self.remote.as_ref().unwrap().clone();
+                                        std::mem::drop(lock);
+                                        let mut lock = self.queued_requests.lock();
+                                        assert(lock.remove(&CLIENT_SERVER_MESSAGE_STRESS_TEST), "VIDZ");
+                                        // we insert the group ticket. We wait for client2 to send the group invite
+                                        assert(lock.insert(GROUP_TICKET_TEST), "VIDX");
                                         std::mem::drop(lock);
 
-
+                                        /*
                                         tokio::task::spawn(async move {
                                             tokio::time::sleep(Duration::from_millis(1000)).await;
                                             remote.shutdown().unwrap();
-                                        });
+                                        });*/
                                     }
                                 }
 
@@ -395,16 +488,19 @@ pub mod tests {
 
                                     if lock.client_server_as_server_recv_count >= COUNT {
                                         log::info!("SERVER has finished receiving {} messages", COUNT);
-                                        let remote = self.remote.clone().unwrap();
+                                        let _remote = self.remote.clone().unwrap();
                                         lock.client_server_stress_test_done_as_server = true;
                                         std::mem::drop(lock);
-                                        assert(self.queued_requests.lock().remove(&CLIENT_SERVER_MESSAGE_STRESS_TEST), "JKZ");
+                                        let mut lock = self.queued_requests.lock();
+                                        assert(lock.remove(&CLIENT_SERVER_MESSAGE_STRESS_TEST), "JKZ");
+                                        // we insert the group ticket. We wait for client2 to send the group invite
+                                        assert(lock.insert(GROUP_TICKET_TEST), "JKOT");
 
-
+                                        /*
                                         tokio::task::spawn(async move {
                                             tokio::time::sleep(Duration::from_millis(1000)).await;
                                             remote.shutdown().unwrap();
-                                        });
+                                        });*/
                                     }
                                 }
 
@@ -471,7 +567,9 @@ pub mod tests {
                                                 self.on_valid_ticket_received(ticket);
 
                                                 if self.node_type == NodeType::Client2 {
-                                                    self.remote.as_ref().unwrap().shutdown().unwrap();
+                                                    //self.remote.as_ref().unwrap().shutdown().unwrap();
+                                                    // add the group ticket. Client2 will next send the group request ONCE the stress test is DONE between cl0 and server
+                                                    assert(self.queued_requests.lock().insert(GROUP_TICKET_TEST), "MJW");
                                                 }
                                             }
 
@@ -496,7 +594,7 @@ pub mod tests {
                                 }
 
                                 PeerSignal::PostConnect(vconn, _, resp_opt, p2p_sec_lvl) => {
-                                    if let Some(resp) = resp_opt {
+                                    if let Some(_resp) = resp_opt {
                                         // TODO
                                     } else {
                                         // the receiver is client 1
@@ -557,6 +655,7 @@ pub mod tests {
 
     const CLIENT_SERVER_MESSAGE_STRESS_TEST: Ticket = Ticket(0xfffffffe);
     const P2P_MESSAGE_STRESS_TEST: Ticket = Ticket(0xffffffff);
+    const GROUP_TICKET_TEST: Ticket = Ticket(0xfffffffd);
 
     #[allow(unused_results)]
     pub fn handle_peer_channel(channel: PeerChannel, remote: HdpServerRemote, test_container: Arc<RwLock<TestContainer>>, requests: Arc<Mutex<HashSet<Ticket>>>, node_type: NodeType) {
@@ -622,9 +721,11 @@ pub mod tests {
                     tokio::time::sleep(Duration::from_millis(200)).await;
                     start_client_server_stress_test(requests.clone(), remote.clone(), implicated_cid, node_type).await;
                 } else {
-                    log::info!("Client1/2 will shutoff in 1000ms");
-                    tokio::time::sleep(Duration::from_millis(1000)).await;
-                    remote.shutdown().unwrap();
+                    // at this point, client 1 will idle until the client/server stress test is done
+                    log::info!("Client1 awaiting for group command ...");
+                    assert(requests.lock().insert(GROUP_TICKET_TEST), "KPK");
+                    /*tokio::time::sleep(Duration::from_millis(1000)).await;
+                    remote.shutdown().unwrap();*/
                 }
             } else {
                 log::error!("One or more tx/rx failed for {:?}", node_type);
@@ -638,11 +739,9 @@ pub mod tests {
     async fn start_client_server_stress_test(requests: Arc<Mutex<HashSet<Ticket>>>, mut remote: HdpServerRemote, implicated_cid: u64, node_type: NodeType) {
         assert(requests.lock().insert(CLIENT_SERVER_MESSAGE_STRESS_TEST), "MV0");
         log::info!("[Server/Client Stress Test] Starting send of {} messages on {:?} [target: {}]", COUNT, node_type, implicated_cid);
-        let vals = &mut [0u8; 8];
         for x in 0..COUNT {
-            byteorder::BigEndian::write_u64(vals as &mut [u8], x as u64);
             let next_ticket = remote.get_next_ticket();
-            remote.send((next_ticket, HdpServerRequest::SendMessage(SecBuffer::from(vals.as_ref() as &[u8]), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), CLIENT_SERVER_STRESS_TEST_SEC))).await.unwrap();
+            remote.send((next_ticket, HdpServerRequest::SendMessage(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8]), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), CLIENT_SERVER_STRESS_TEST_SEC))).await.unwrap();
         }
 
         log::info!("[Server/Client Stress Test] Done sending {} messages as {:?}", COUNT, node_type)
@@ -736,15 +835,15 @@ pub mod tests {
                 {
                     let read = item_container.read();
                     if read.client_server_stress_test_done_as_server && read.client_server_stress_test_done_as_client {
-                        log::info!("[GROUP Stress test] Starting group stress test");
+                        log::info!("[GROUP Stress test] Starting group stress test w/ client2 host [members: client0 & client1]");
                         let client0_cnac = read.cnac_client0.as_ref().unwrap();
                         let client1_cnac = read.cnac_client1.as_ref().unwrap();
                         let this_cid = read.cnac_client2.as_ref().unwrap().get_cid();
 
                         let request = HdpServerRequest::GroupBroadcastCommand(this_cid, GroupBroadcast::Create(vec![client0_cnac.get_cid(), client1_cnac.get_cid()]));
                         let remote = read.remote_client2.clone().unwrap();
-                        let ticket = remote.unbounded_send(request).unwrap();
-                        assert(read.queued_requests_client2.as_ref().unwrap().lock().insert(ticket), "MDY");
+                        let _ticket = remote.unbounded_send(request).unwrap();
+                        //assert(read.queued_requests_client2.as_ref().unwrap().lock().insert(ticket), "MDY");
                         return;
                     }
                 }
@@ -754,6 +853,26 @@ pub mod tests {
         });
 
         None
+    }
+
+    fn client2_action4_fire_group(item_container: Arc<RwLock<TestContainer>>, group_key: MessageGroupKey, ticket: Ticket) {
+        tokio::task::spawn(async move {
+            let (this_cnac, mut remote) = {
+                let read = item_container.read();
+                log::info!("[GROUP Stress test] Client2/Host firing messages @ [members: client0 & client1]");
+                let this_cnac = read.cnac_client2.clone().unwrap();
+                let remote = read.remote_client2.clone().unwrap();
+                (this_cnac, remote)
+            };
+
+            let this_cid = this_cnac.get_cid();
+            let this_username = this_cnac.get_username();
+
+            let mut stream = tokio_stream::iter((0..COUNT).into_iter().map(|idx| Ok((ticket, HdpServerRequest::GroupBroadcastCommand(this_cid, GroupBroadcast::Message(this_username.clone(), group_key, SecBuffer::from(&idx.to_be_bytes() as &[u8])))))));
+            remote.send_all(&mut stream).await.unwrap();
+            log::info!("[GROUP Stress test] Client2/Host done firing messages");
+            // We don't get to remove the GROUP_TICKET_TEST quite yet. We need to receive COUNT of GroupBroadcast::MessageResponse(key, true) first
+        });
     }
 
     // client 0 will initiate the p2p *registration* to client1
