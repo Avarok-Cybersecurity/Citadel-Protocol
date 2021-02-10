@@ -396,9 +396,11 @@
       <change beforePath="$PROJECT_DIR$/flutterust/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/pubspec.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/pubspec.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/test/widget_test.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/test/widget_test.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/Cargo.toml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
