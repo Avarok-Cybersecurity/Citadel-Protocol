@@ -269,9 +269,10 @@ pub(crate) mod group {
     use crate::hdp::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
     use crate::hdp::hdp_server::Ticket;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
-    use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck, KemTransferStatus};
+    use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
     use hyxe_fs::io::SyncIO;
     use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
+    use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
 
     pub const DUAL_ENCRYPTION_ON: u8 = 1;
     // TODO: all GROUP packets require a target_cid. If target_cid != 0, then the packet will get proxied unless sent through direct-p2p
@@ -801,7 +802,7 @@ pub(crate) mod do_drill_update {
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_fs::io::SyncIO;
     use serde::{Serialize, Deserialize};
-    use crate::hdp::validation::group::KemTransferStatus;
+    use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
 
     #[allow(unused_results)]
     pub(crate) fn craft_stage0(hyper_ratchet: &HyperRatchet, transfer: AliceToBobTransfer<'_>, timestamp: i64, target_cid: u64, security_level: SecurityLevel) -> BytesMut {

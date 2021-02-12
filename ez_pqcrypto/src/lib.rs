@@ -61,6 +61,9 @@ pub const fn get_approx_bytes_per_container() -> usize {
         pqcrypto_saber::firesaber_shared_secret_bytes()
 }
 
+/// The number of bytes in a firesaber pk
+pub const FIRESABER_PK_SIZE: usize = pqcrypto_saber::firesaber_public_key_bytes();
+
 /// Contains the public keys for Alice and Bob
 pub struct PostQuantumContainer {
     pub(crate) algorithm: u8,

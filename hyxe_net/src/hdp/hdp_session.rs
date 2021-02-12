@@ -33,7 +33,6 @@ use crate::hdp::session_queue_handler::{SessionQueueWorker, QueueWorkerTicket, P
 use crate::hdp::state_subcontainers::drill_update_container::calculate_update_frequency;
 use std::sync::Arc;
 use hyxe_user::re_imports::scramble_encrypt_file;
-use hyxe_crypt::net::crypt_splitter::GroupSenderDevice;
 use crate::hdp::file_transfer::VirtualFileMetadata;
 use std::path::PathBuf;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
@@ -632,6 +631,7 @@ impl HdpSession {
             queue_worker
         };
 
+        std::mem::drop(this_main);
         queue_worker.await
     }
 
@@ -647,7 +647,7 @@ impl HdpSession {
                 let file_name = String::from(file_name);
                 let time_tracker = this.time_tracker.clone();
                 let timestamp = this.time_tracker.get_global_time_ns();
-                let (group_sender, group_sender_rx) = channel::<GroupSenderDevice>(5);
+                let (group_sender, group_sender_rx) = channel(5);
                 let mut group_sender_rx = tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
                 let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
                 // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
@@ -740,6 +740,7 @@ impl HdpSession {
                 to_primary_stream.unbounded_send(file_header).map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
                 // create the outbound file container
                 let mut state_container = inner_mut!(this.state_container);
+                let kernel_tx = state_container.kernel_tx.clone();
                 let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
                 let mut next_gs_alerter_rx = tokio_stream::wrappers::UnboundedReceiverStream::new(next_gs_alerter_rx);
                 let (start, start_rx) = tokio::sync::oneshot::channel();
@@ -778,118 +779,126 @@ impl HdpSession {
                     let mut relative_group_id = 0;
                     // while waiting, we likely have a set of GroupSenders to process
                     while let Some(sender) = group_sender_rx.next().await {
-                        let (group_id, key) = {
-                            // construct the OutboundTransmitters
-                            let mut sess = inner_mut!(this);
-                            if sess.state != SessionState::Connected {
-                                log::warn!("Since transmitting the file, the session ended");
-                                return;
-                            }
-
-                            let mut state_container = inner_mut!(sess.state_container);
-                            // TODO: Grab latest HyperRatchet instead. Holding-on to ratchets is bad!
-                            let proper_latest_hyper_ratchet = match virtual_target {
-                                VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => { cnac.get_hyper_ratchet(None) }
-                                VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid) => {
-                                    match StateContainerInner::get_peer_session_crypto(&mut state_container.active_virtual_connections, peer_cid) {
-                                        Some(peer_sess_crypt) => {
-                                            peer_sess_crypt.get_hyper_ratchet(None).cloned()
-                                        }
-
-                                        None => {
-                                            log::warn!("Since transmitting the file, the peer session ended");
-                                            return;
-                                        }
+                        match sender {
+                            Ok(sender) => {
+                                let (group_id, key) = {
+                                    // construct the OutboundTransmitters
+                                    let mut sess = inner_mut!(this);
+                                    if sess.state != SessionState::Connected {
+                                        log::warn!("Since transmitting the file, the session ended");
+                                        return;
                                     }
+
+                                    let mut state_container = inner_mut!(sess.state_container);
+                                    // TODO: Grab latest HyperRatchet instead. Holding-on to ratchets is bad!
+                                    let proper_latest_hyper_ratchet = match virtual_target {
+                                        VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => { cnac.get_hyper_ratchet(None) }
+                                        VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid) => {
+                                            match StateContainerInner::get_peer_session_crypto(&mut state_container.active_virtual_connections, peer_cid) {
+                                                Some(peer_sess_crypt) => {
+                                                    peer_sess_crypt.get_hyper_ratchet(None).cloned()
+                                                }
+
+                                                None => {
+                                                    log::warn!("Since transmitting the file, the peer session ended");
+                                                    return;
+                                                }
+                                            }
+                                        }
+
+                                        _ => unimplemented!("Not implemented")
+                                    };
+
+                                    if proper_latest_hyper_ratchet.is_none() {
+                                        log::error!("Unable to unwrap HyperRatchet (X-05)");
+                                        return;
+                                    }
+
+                                    let hyper_ratchet = proper_latest_hyper_ratchet.unwrap();
+
+                                    let mut transmitter = GroupTransmitter::new_from_group_sender(to_primary_stream.clone(), GroupSender::from(sender), hyper_ratchet.clone(), object_id, target_cid, ticket, security_level, time_tracker.clone());
+                                    // group_id is unique per session
+                                    let group_id = transmitter.group_id;
+
+                                    // We manually send the header. The tails get sent automatically
+                                    log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
+                                    if let Err(err) = sess.try_action(Some(ticket), || transmitter.transmit_group_header(virtual_target, None)) {
+                                        log::error!("Unable to send through primary stream: {}", err.to_string());
+                                        return;
+                                    }
+                                    let group_byte_len = transmitter.get_total_plaintext_bytes();
+
+
+                                    let outbound_container = OutboundTransmitterContainer::new(None, Some(next_gs_alerter.clone()), transmitter, group_byte_len, groups_needed, relative_group_id, ticket);
+                                    relative_group_id += 1;
+                                    // The payload packets won't be sent until a GROUP_HEADER_ACK is received
+                                    // the key is the target_cid coupled with the group id
+                                    let key = GroupKey::new(key_cid, group_id);
+
+                                    assert!(state_container.outbound_transmitters.insert(key, outbound_container).is_none());
+                                    // We can't just add the outbound container. We need to wait til we get the signal to. When the > 50% WAVE_ACKs
+                                    // are received, the OutboundFileContainer (which should have a group_notifier) should send a signal which we await for
+                                    // here. Also: DROP `sess`!
+                                    std::mem::drop(state_container);
+                                    sess.transfer_stats += TransferStats::new(timestamp, group_byte_len as isize);
+                                    std::mem::drop(sess);
+                                    (group_id, key)
+                                };
+
+                                // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
+                                // received a signal here
+
+                                if let None = next_gs_alerter_rx.next().await {
+                                    log::warn!("next_gs_alerter: steam ended");
+                                    return;
                                 }
 
-                                _ => unimplemented!("Not implemented")
-                            };
+                                let this = inner!(this);
 
-                            if proper_latest_hyper_ratchet.is_none() {
-                                log::error!("Unable to unwrap HyperRatchet (X-05)");
-                                return;
-                            }
-
-                            let hyper_ratchet = proper_latest_hyper_ratchet.unwrap();
-
-                            let mut transmitter = GroupTransmitter::new_from_group_sender(to_primary_stream.clone(), GroupSender::from(sender), hyper_ratchet.clone(), object_id, target_cid, ticket, security_level, time_tracker.clone());
-                            // group_id is unique per session
-                            let group_id = transmitter.group_id;
-
-                            // We manually send the header. The tails get sent automatically
-                            log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
-                            if let Err(err) = sess.try_action(Some(ticket), || transmitter.transmit_group_header(virtual_target, None)) {
-                                log::error!("Unable to send through primary stream: {}", err.to_string());
-                                return;
-                            }
-                            let group_byte_len = transmitter.get_total_plaintext_bytes();
-
-
-                            let outbound_container = OutboundTransmitterContainer::new(None, Some(next_gs_alerter.clone()), transmitter, group_byte_len, groups_needed, relative_group_id, ticket);
-                            relative_group_id += 1;
-                            // The payload packets won't be sent until a GROUP_HEADER_ACK is received
-                            // the key is the target_cid coupled with the group id
-                            let key = GroupKey::new(key_cid, group_id);
-
-                            assert!(state_container.outbound_transmitters.insert(key, outbound_container).is_none());
-                            // We can't just add the outbound container. We need to wait til we get the signal to. When the > 50% WAVE_ACKs
-                            // are received, the OutboundFileContainer (which should have a group_notifier) should send a signal which we await for
-                            // here. Also: DROP `sess`!
-                            std::mem::drop(state_container);
-                            sess.transfer_stats += TransferStats::new(timestamp, group_byte_len as isize);
-                            std::mem::drop(sess);
-                            (group_id, key)
-                        };
-
-                        // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
-                        // received a signal here
-
-                        if let None = next_gs_alerter_rx.next().await {
-                            log::warn!("next_gs_alerter: steam ended");
-                            return;
-                        }
-
-                        let this = inner!(this);
-
-                        this.queue_worker.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |sess| {
-                            let mut state_container = inner_mut!(sess.state_container);
-                            if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
-                                // as long as a wave ACK has been received, proceed with the timeout check
-                                // The reason why is because this group may be loaded, but the previous one isn't done
-                                if transmitter.has_begun {
-                                    let transmitter = inner!(transmitter.reliability_container);
-                                    if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
-                                        if state_container.meta_expiry_state.expired() {
-                                            log::error!("Outbound group {} has expired; dropping entire transfer", group_id);
-                                            std::mem::drop(transmitter);
-                                            if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
-                                                if let Some(stop) = outbound_container.stop_tx.take() {
-                                                    if let Err(_) = stop.send(()) {
-                                                        log::error!("Unable to send stop signal");
+                                this.queue_worker.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |sess| {
+                                    let mut state_container = inner_mut!(sess.state_container);
+                                    if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
+                                        // as long as a wave ACK has been received, proceed with the timeout check
+                                        // The reason why is because this group may be loaded, but the previous one isn't done
+                                        if transmitter.has_begun {
+                                            let transmitter = inner!(transmitter.reliability_container);
+                                            if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
+                                                if state_container.meta_expiry_state.expired() {
+                                                    log::error!("Outbound group {} has expired; dropping entire transfer", group_id);
+                                                    std::mem::drop(transmitter);
+                                                    if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
+                                                        if let Some(stop) = outbound_container.stop_tx.take() {
+                                                            if let Err(_) = stop.send(()) {
+                                                                log::error!("Unable to send stop signal");
+                                                            }
+                                                        }
+                                                    } else {
+                                                        log::warn!("Attempted to remove {:?}, but was already absent from map", &file_key);
                                                     }
+                                                    QueueWorkerResult::Complete
+                                                } else {
+                                                    log::info!("[X-04] Other outbound groups being processed; patiently awaiting group {}", group_id);
+                                                    QueueWorkerResult::Incomplete
                                                 }
                                             } else {
-                                                log::warn!("Attempted to remove {:?}, but was already absent from map", &file_key);
+                                                // it hasn't expired yet, and is still transmitting
+                                                QueueWorkerResult::Incomplete
                                             }
-                                            QueueWorkerResult::Complete
                                         } else {
-                                            log::info!("[X-04] Other outbound groups being processed; patiently awaiting group {}", group_id);
+                                            // WAVE_ACK hasn't been received yet; try again later
                                             QueueWorkerResult::Incomplete
                                         }
                                     } else {
-                                        // it hasn't expired yet, and is still transmitting
-                                        QueueWorkerResult::Incomplete
+                                        // it finished
+                                        QueueWorkerResult::Complete
                                     }
-                                } else {
-                                    // WAVE_ACK hasn't been received yet; try again later
-                                    QueueWorkerResult::Incomplete
-                                }
-                            } else {
-                                // it finished
-                                QueueWorkerResult::Complete
+                                });
                             }
-                        });
+
+                            Err(err) => {
+                                let _ = kernel_tx.clone().unbounded_send(HdpServerResult::InternalServerError(Some(ticket), err.to_string()));
+                            }
+                        }
                     }
                 };
 

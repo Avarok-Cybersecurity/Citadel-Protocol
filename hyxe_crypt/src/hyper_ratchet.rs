@@ -1,5 +1,5 @@
-use crate::drill::{Drill, BYTES_PER_3D_ARRAY, SecurityLevel};
-use ez_pqcrypto::PostQuantumContainer;
+use crate::drill::{Drill, SecurityLevel, get_approx_serialized_drill_len};
+use ez_pqcrypto::{PostQuantumContainer, FIRESABER_PK_SIZE};
 use std::sync::Arc;
 use crate::hyper_ratchet::constructor::HyperRatchetConstructor;
 use std::convert::TryFrom;
@@ -7,6 +7,9 @@ use bytes::BytesMut;
 use crate::misc::CryptError;
 use serde::{Serialize, Deserialize};
 use crate::net::crypt_splitter::calculate_nonce_version;
+use std::alloc::Global;
+use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+use crate::fcm::fcm_ratchet::FcmRatchet;
 
 /// A container meant to establish perfect forward secrecy AND scrambling w/ an independent key
 /// This is meant for messages, not file transfer. File transfers should use a single key throughout
@@ -16,10 +19,100 @@ pub struct HyperRatchet {
     pub(crate) inner: Arc<HyperRatchetInner>
 }
 
+/// For allowing registration inside the toolset
+pub trait Ratchet: Sized + Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {
+    type Constructor: EndpointRatchetConstructor<Self>;
+
+    fn get_cid(&self) -> u64;
+    fn version(&self) -> u32;
+    fn has_verified_packets(&self) -> bool;
+    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill);
+    fn get_scramble_drill(&self) -> &Drill;
+
+    fn protect_message_packet(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut BytesMut) -> Result<(), CryptError<String>>;
+    fn validate_message_packet<H: AsRef<[u8]>>(&self, security_level: Option<SecurityLevel>, header: H, packet: &mut BytesMut) -> Result<(), CryptError<String>>;
+
+    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
+    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
+}
+
+/// For returning a variable hyper ratchet from a function
+pub enum RatchetType<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+    Default(R),
+    Fcm(Fcm)
+}
+
+impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
+    ///
+    pub fn assume_default(self) -> Option<R> {
+        if let RatchetType::Default(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
+    ///
+    pub fn assume_fcm(self) -> Option<Fcm> {
+        if let RatchetType::Fcm(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+}
+
+impl Ratchet for HyperRatchet {
+    type Constructor = HyperRatchetConstructor;
+
+
+    fn get_cid(&self) -> u64 {
+        self.get_cid()
+    }
+
+    fn version(&self) -> u32 {
+        self.version()
+    }
+
+    fn has_verified_packets(&self) -> bool {
+        self.has_verified_packets()
+    }
+
+    fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill) {
+        self.message_pqc_drill(idx)
+    }
+
+    fn get_scramble_drill(&self) -> &Drill {
+        self.get_scramble_drill()
+    }
+
+    fn protect_message_packet(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+        self.protect_message_packet(security_level, header_len_bytes, packet)
+    }
+
+    fn validate_message_packet<H: AsRef<[u8]>>(&self, security_level: Option<SecurityLevel>, ref header: H, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+        self.validate_message_packet(security_level, header, packet)
+    }
+
+    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8, Global>, CryptError<String>> {
+        self.decrypt(contents)
+    }
+
+    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8, Global>, CryptError<String>> {
+        self.encrypt(contents)
+    }
+}
+
 /// Returns the approximate size of each hyper ratchet, assuming LOW security level (default)
 pub const fn get_approx_bytes_per_hyper_ratchet() -> usize {
     (2 * ez_pqcrypto::get_approx_bytes_per_container()) +
-        (2 * BYTES_PER_3D_ARRAY)
+        (2 * get_approx_serialized_drill_len())
+}
+
+/// Assuming low security level, the size of the first trasnfer from Alice to Bob (2x public key + 2x drill)
+pub const fn get_approx_max_transfer_size() -> usize {
+    (2 * FIRESABER_PK_SIZE) +
+        (2 * get_approx_serialized_drill_len())
 }
 
 impl HyperRatchet {
@@ -225,7 +318,6 @@ pub(crate) struct MessageRatchet {
     inner: Vec<MessageRatchetInner>
 }
 
-/// TODO: Consider using drill_out, pqc_out, drill_in, drill_out. When deserializing on other end, use std::mem::swap to
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct MessageRatchetInner {
     pub(crate) drill: Drill,
@@ -251,10 +343,12 @@ pub mod constructor {
     use ez_pqcrypto::PostQuantumContainer;
     use serde::{Serialize, Deserialize};
     use crate::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
-    use crate::hyper_ratchet::HyperRatchet;
+    use crate::hyper_ratchet::{HyperRatchet, Ratchet};
     use std::convert::TryFrom;
     use bytes::BytesMut;
     use bytes::BufMut;
+    use crate::endpoint_crypto_container::EndpointRatchetConstructor;
+    use crate::fcm::fcm_ratchet::FcmRatchet;
 
     /// Used during the key exchange process
     pub struct HyperRatchetConstructor {
@@ -265,6 +359,93 @@ pub mod constructor {
         cid: u64,
         new_version: u32,
         security_level: SecurityLevel
+    }
+
+    /// For differentiating between two types when inputting into function parameters
+    pub enum ConstructorType<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+        Default(R::Constructor),
+        Fcm(Fcm::Constructor)
+    }
+
+    impl<R: Ratchet, Fcm: Ratchet> ConstructorType<R, Fcm> {
+        ///
+        pub fn assume_default(self) -> Option<R::Constructor> {
+            if let ConstructorType::Default(r) = self {
+                Some(r)
+            } else {
+                None
+            }
+        }
+
+        ///
+        pub fn assume_fcm(self) -> Option<Fcm::Constructor> {
+            if let ConstructorType::Fcm(r) = self {
+                Some(r)
+            } else {
+                None
+            }
+        }
+    }
+
+    /// For denoting the different transfer types that have local lifetimes
+    #[derive(Serialize, Deserialize)]
+    pub enum AliceToBobTransferType<'a> {
+        #[serde(borrow)]
+        Default(AliceToBobTransfer<'a>),
+        #[serde(borrow)]
+        Fcm(crate::fcm::fcm_ratchet::FcmAliceToBobTransfer<'a>)
+    }
+
+    impl AliceToBobTransferType<'_> {
+        pub fn get_declared_new_version(&self) -> u32 {
+            match self {
+                AliceToBobTransferType::Default(tx) => tx.new_version,
+                AliceToBobTransferType::Fcm(tx) => tx.version
+            }
+        }
+    }
+
+    impl EndpointRatchetConstructor<HyperRatchet> for HyperRatchetConstructor {
+        fn new_alice(algorithm: Option<u8>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self {
+            HyperRatchetConstructor::new_alice(algorithm, cid, new_version, security_level)
+        }
+
+        fn new_bob(algorithm: u8, cid: u64, new_drill_vers: u32, transfer: AliceToBobTransferType<'_>) -> Option<Self> {
+            match transfer {
+                AliceToBobTransferType::Default(transfer) => {
+                    HyperRatchetConstructor::new_bob(algorithm, cid, new_drill_vers, transfer)
+                }
+
+                _ => {
+                    log::error!("Incompatible Ratchet Type passed! [X-22]");
+                    None
+                }
+            }
+        }
+
+        fn stage0_alice(&self) -> AliceToBobTransferType<'_> {
+            AliceToBobTransferType::Default(self.stage0_alice())
+        }
+
+        fn stage0_bob(&self) -> Option<BobToAliceTransferType> {
+            Some(BobToAliceTransferType::Default(self.stage0_bob()?))
+        }
+
+        fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+            self.stage1_alice(transfer)
+        }
+
+        fn update_version(&mut self, version: u32) -> Option<()> {
+            self.update_version(version)
+        }
+
+        fn finish_with_custom_cid(self, cid: u64) -> Option<HyperRatchet> {
+            self.finish_with_custom_cid(cid)
+        }
+
+        fn finish(self) -> Option<HyperRatchet> {
+            self.finish()
+        }
     }
 
     #[derive(Serialize, Deserialize)]
@@ -288,6 +469,13 @@ pub mod constructor {
         encrypted_scramble_drill: Vec<u8>,
         // the security level
         pub security_level: SecurityLevel
+    }
+
+    /// for denoting different types
+    #[derive(Serialize, Deserialize)]
+    pub enum BobToAliceTransferType {
+        Default(BobToAliceTransfer),
+        Fcm(crate::fcm::fcm_ratchet::FcmBobToAliceTransfer)
     }
 
     impl BobToAliceTransfer {
@@ -436,36 +624,41 @@ pub mod constructor {
         }
 
         /// Returns Some(()) if process succeeded
-        pub fn stage1_alice(&mut self, transfer: BobToAliceTransfer) -> Option<()> {
-            let ref nonce_msg = self.nonce_message;
+        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+            if let BobToAliceTransferType::Default(transfer) = transfer {
+                let ref nonce_msg = self.nonce_message;
 
-            for (idx, container) in self.message.inner.iter_mut().enumerate() {
-                container.pqc.alice_on_receive_ciphertext(&transfer.msg_bob_cts[idx][..]).ok()?;
+                for (idx, container) in self.message.inner.iter_mut().enumerate() {
+                    container.pqc.alice_on_receive_ciphertext(&transfer.msg_bob_cts[idx][..]).ok()?;
+                }
+
+                for (idx, container) in self.message.inner.iter_mut().enumerate() {
+                    // now, using the message pqc, decrypt the message drill
+                    let decrypted_msg_drill = container.pqc.decrypt(&transfer.encrypted_msg_drills[idx][..], nonce_msg).ok()?;
+                    container.drill = Some(Drill::deserialize_from(&decrypted_msg_drill[..]).ok()?);
+                }
+
+
+                let ref nonce_scramble = self.nonce_scramble;
+                self.scramble.pqc.alice_on_receive_ciphertext(&transfer.scramble_bob_ct[..]).ok()?;
+                // do the same as above
+                let decrypted_scramble_drill = self.scramble.pqc.decrypt(&transfer.encrypted_scramble_drill[..], nonce_scramble).ok()?;
+                self.scramble.drill = Some(Drill::deserialize_from(&decrypted_scramble_drill[..]).ok()?);
+
+                // version check
+                if self.scramble.drill.as_ref()?.version != self.message.inner[0].drill.as_ref()?.version {
+                    return None;
+                }
+
+                if self.scramble.drill.as_ref()?.cid != self.message.inner[0].drill.as_ref()?.cid {
+                    return None;
+                }
+
+                Some(())
+            } else {
+                log::error!("Incompatible Ratchet Type passed! [X-40]");
+                None
             }
-
-            for (idx, container) in self.message.inner.iter_mut().enumerate() {
-                // now, using the message pqc, decrypt the message drill
-                let decrypted_msg_drill = container.pqc.decrypt(&transfer.encrypted_msg_drills[idx][..], nonce_msg).ok()?;
-                container.drill = Some(Drill::deserialize_from(&decrypted_msg_drill[..]).ok()?);
-            }
-
-
-            let ref nonce_scramble = self.nonce_scramble;
-            self.scramble.pqc.alice_on_receive_ciphertext(&transfer.scramble_bob_ct[..]).ok()?;
-            // do the same as above
-            let decrypted_scramble_drill = self.scramble.pqc.decrypt(&transfer.encrypted_scramble_drill[..], nonce_scramble).ok()?;
-            self.scramble.drill = Some(Drill::deserialize_from(&decrypted_scramble_drill[..]).ok()?);
-
-            // version check
-            if self.scramble.drill.as_ref()?.version != self.message.inner[0].drill.as_ref()?.version {
-                return None;
-            }
-
-            if self.scramble.drill.as_ref()?.cid != self.message.inner[0].drill.as_ref()?.cid {
-                return None;
-            }
-
-            Some(())
         }
 
         /// Upgrades the construction into the HyperRatchet

@@ -116,8 +116,9 @@ impl std::ops::Try for PrimaryProcessorResult {
 
 
 impl From<std::option::NoneError> for PrimaryProcessorResult {
+    #[allow(unreachable_code)]
     fn from(_: std::option::NoneError) -> Self {
-        log::error!("[X-03] NoneError");
+        log::warn!("[X-03] NoneError");
         PrimaryProcessorResult::Void
     }
 }

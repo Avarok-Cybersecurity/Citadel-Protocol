@@ -11,6 +11,7 @@ use std::fmt::Error;
 use std::fmt::Formatter;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use std::convert::TryFrom;
 use std::ops::Div;
 
 use bytes::{BufMut, BytesMut};
@@ -36,7 +37,6 @@ pub const VIRTUAL_TIME_INDEX: usize = 5;
 pub const E_OF_X_START_INDEX: usize = 6;
 
 /// This should be configured by the server admin, but it is HIGHLY ADVISED NOT TO CHANGE THIS due to possible discrepancies when connecting between HyperVPN's
-/// Future TODO: Handle discrepancies
 pub const PORT_RANGE: usize = 14;
 /// We limit the number of ports in order. See the explanation for this value within the `byte_count` subroutine of Drill's implementation
 pub const MAX_PORT_RANGE: usize = 352;
@@ -70,7 +70,8 @@ pub const BYTES_IN_ULTRA: usize = 2 * BYTES_IN_HIGH;
 /// 16*(s*p_r)
 pub const BYTES_IN_DIVINE: usize = 2 * BYTES_IN_ULTRA;
 /// 31*(s*p_r)
-pub const BYTES_PER_3D_ARRAY: usize = 31 * E_OF_X_START_INDEX * PORT_RANGE;
+//pub const BYTES_PER_3D_ARRAY: usize = 31 * E_OF_X_START_INDEX * PORT_RANGE;
+pub const BYTES_PER_3D_ARRAY: usize = 256;
 
 /// The default endianness for byte storage
 pub type DrillEndian = BigEndian;
@@ -303,13 +304,17 @@ impl From<u8> for SecurityLevel {
     }
 }
 
+
 use serde_big_array::big_array;
-use std::convert::TryFrom;
+/* Use the bellow version if BYTES_PER_3D_ARRAY is a value not automatically impled
 big_array! {
     BigArray;
     +BYTES_PER_3D_ARRAY,
-}
+}*/
 
+big_array! {
+    BigArray;
+}
 
 /// A drill is a fundamental encryption dataset that continually morphs into new future sets
 #[repr(C)]
@@ -320,6 +325,11 @@ pub struct Drill {
     #[serde(with = "BigArray")]
     pub(super) entropy: [u8; BYTES_PER_3D_ARRAY],
     pub(super) scramble_mappings: Vec<(u16, u16)>,
+}
+
+/// Returns the approximate number of bytes needed to serialize a Drill
+pub const fn get_approx_serialized_drill_len() -> usize {
+    4 + 8 + BYTES_PER_3D_ARRAY + (PORT_RANGE * 16 * 2)
 }
 
 impl Debug for Drill {

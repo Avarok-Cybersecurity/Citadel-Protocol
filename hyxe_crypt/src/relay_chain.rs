@@ -1,8 +1,7 @@
 use linked_hash_map::LinkedHashMap;
-use crate::endpoint_crypto_container::PeerSessionCrypto;
 use bytes::BytesMut;
 use crate::net::crypt_splitter::calculate_aes_gcm_output_length;
-use crate::hyper_ratchet::HyperRatchet;
+use crate::hyper_ratchet::Ratchet;
 
 /// Suppose we want to communicate from A -> B -> C -> D
 /// Let definition "KA" => ordinary session key exchange.
@@ -26,14 +25,14 @@ use crate::hyper_ratchet::HyperRatchet;
 /// This process requires the A and D contain the symmetric keys between all nodes. These symmetric keys can
 /// be distributed to both ends using ***KA_S***, since we want to keep the intermediary symmetric keys free from the nodes
 /// in the middle as much as possible
-pub struct CryptoRelayChain {
+pub struct CryptoRelayChain<R: Ratchet> {
     /// NOTE: KA_S should be the first item, then KA_2, KA_1, then KA_0 the last
-    pub links: LinkedHashMap<u64, PeerSessionCrypto>,
+    pub links: LinkedHashMap<u64, PeerSessionCrypto<R>>,
     /// The list of cids in the order in which the onion packets are created
     pub target_cid_list: Option<Vec<u64>>
 }
 
-impl CryptoRelayChain {
+impl<R: Ratchet> CryptoRelayChain<R> {
     /// Creates a new RelayChain
     pub fn new(relay_len: usize) -> Option<Self> {
         if relay_len < 2 {
@@ -65,14 +64,14 @@ impl CryptoRelayChain {
     }
 
     /// Must be inserted in order
-    pub fn push(&mut self, cid: u64, container: PeerSessionCrypto) -> bool {
+    pub fn push(&mut self, cid: u64, container: PeerSessionCrypto<R>) -> bool {
         self.links.insert(cid, container).is_none()
     }
 
     /// Encrypts a singular unit into an onion packet. The innermost encryption (zeroth pass) uses the furthermost
     /// endpoint's encryption, followed by each additional endpoint between each hop in the order of increasing
     /// proximity
-    pub fn encrypt<T: AsRef<[u8]>>(&self, input: T, nonce_version: usize, header_len: usize, header_inscriber: impl Fn(&HyperRatchet, u64, &mut BytesMut)) -> Option<BytesMut> {
+    pub fn encrypt<T: AsRef<[u8]>>(&self, input: T, nonce_version: usize, header_len: usize, header_inscriber: impl Fn(&R, u64, &mut BytesMut)) -> Option<BytesMut> {
         // the zeroth entry must be applied first. Its target CID is zero
         // the last entry needs to have a target_cid equal to C's CID
         // thus, we need to zip a vector to this iter that has the target cids
@@ -100,7 +99,7 @@ impl CryptoRelayChain {
     }
 
     /// Borrow the drill and pqc
-    pub fn borrow_drill_and_pqc(&self, cid: u64, drill_version: Option<u32>) -> Option<&HyperRatchet> {
+    pub fn borrow_drill_and_pqc(&self, cid: u64, drill_version: Option<u32>) -> Option<&R> {
         self.links.get(&cid)
             .and_then(|res| res.get_hyper_ratchet(drill_version))
     }
@@ -109,9 +108,11 @@ impl CryptoRelayChain {
 
 #[cfg(debug_assertions)]
 use std::iter::FromIterator;
+use crate::endpoint_crypto_container::PeerSessionCrypto;
+
 #[cfg(debug_assertions)]
-impl FromIterator<PeerSessionCrypto> for CryptoRelayChain {
-    fn from_iter<T: IntoIterator<Item=PeerSessionCrypto>>(iter: T) -> Self {
+impl<R: Ratchet> FromIterator<PeerSessionCrypto<R>> for CryptoRelayChain<R> {
+    fn from_iter<T: IntoIterator<Item=PeerSessionCrypto<R>>>(iter: T) -> Self {
         let mut iter = iter.into_iter();
         let mut this = CryptoRelayChain { links: LinkedHashMap::new(), target_cid_list: None };
         while let Some(val) = iter.next() {
