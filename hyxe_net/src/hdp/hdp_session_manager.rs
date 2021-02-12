@@ -693,9 +693,16 @@ impl HdpSessionManagerInner {
     /// After `timeout`, the closure `on_timeout` is executed
     #[inline]
     pub fn route_signal_primary(&mut self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
+        if implicated_cid == target_cid {
+            return Err("Target CID cannot be equal to the implicated CID".to_string())
+        }
+
         if self.account_manager.hyperlan_cid_is_registered(target_cid) {
             // get the target cid's session
             if let Some(sess) = self.sessions.get(&target_cid) {
+                // BUG: calling insert_tracked posting leads to a deadlock because it calls wake. Since session manager
+                // is borrowed here, we get a concurrent deadlock on peer_cmd_packet:639 where the other call to
+                // get the session manager freezes. Will 
                 if self.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout) {
                     let sess_ref = inner!(sess);
                     let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();

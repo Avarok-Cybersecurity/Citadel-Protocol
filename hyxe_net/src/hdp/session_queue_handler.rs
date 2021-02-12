@@ -109,33 +109,28 @@ impl SessionQueueWorker {
         this.session = Some(session.as_weak());
     }
 
-    #[allow(dead_code)]
-    pub fn remove_entry(&self, key: QueueWorkerTicket) {
-        let mut this = unlock!(self);
-        if let Some((_, key, _)) = this.entries.remove(&key) {
-            let _ = this.expirations.remove(&key);
-        }
-    }
-
     /// Inserts a reserved system process. We now spawn this as a task to prevent deadlocking
     #[allow(unused_results)]
     pub fn insert_reserved(&self, key: Option<QueueWorkerTicket>, timeout: Duration, on_timeout: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements) {
-        //tokio::task::yield_now().await;
-        let mut this = unlock!(self);
-        // the zero in the default unwrap ensures that the key is going to be unique
-        let key = key.unwrap_or(QueueWorkerTicket::Oneshot(this.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1, RESERVED_CID_IDX));
-        let delay = this.expirations
-            .insert(key, timeout);
+        let this_ref = self.clone();
+        tokio::task::spawn(async move {
+            //tokio::task::yield_now().await;
+            let mut this = unlock!(this_ref);
+            // the zero in the default unwrap ensures that the key is going to be unique
+            let key = key.unwrap_or(QueueWorkerTicket::Oneshot(this.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1, RESERVED_CID_IDX));
+            let delay = this.expirations
+                .insert(key, timeout);
 
-        if let Some(key) = this.entries.insert(key, (Box::new(on_timeout), delay, timeout)) {
-            log::error!("Overwrote a session key: {:?}", key.1);
-        }
+            if let Some(key) = this.entries.insert(key, (Box::new(on_timeout), delay, timeout)) {
+                log::error!("Overwrote a session key: {:?}", key.1);
+            }
 
-        this.rolling_idx += 1;
+            this.rolling_idx += 1;
 
-        std::mem::drop(this);
-        // may not be registered yet
-        self.waker.wake();
+            std::mem::drop(this);
+            // may not be registered yet
+            this_ref.waker.wake();
+        });
     }
 
     /// A conveniant way to check on a task once sometime in the future
