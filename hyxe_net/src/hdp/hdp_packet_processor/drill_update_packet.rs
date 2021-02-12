@@ -1,6 +1,8 @@
 use super::includes::*;
-use crate::hdp::hdp_packet_processor::primary_group_packet::{ToolsetUpdate, get_proper_hyper_ratchet, get_resp_target_cid_from_header, attempt_kem_as_bob, attempt_kem_as_alice_finish};
+use crate::hdp::hdp_packet_processor::primary_group_packet::{ToolsetUpdate, get_proper_hyper_ratchet, get_resp_target_cid_from_header, attempt_kem_as_bob, attempt_kem_as_alice_finish, ConstructorType};
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
+use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransferType;
+use hyxe_crypt::hyper_ratchet::RatchetType;
 
 pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
     let session = inner!(session);
@@ -27,7 +29,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             match validation::do_drill_update::validate_stage0(payload) {
                 Some(transfer) => {
                     let resp_target_cid = get_resp_target_cid_from_header(header);
-                    let status = attempt_kem_as_bob(resp_target_cid, header, transfer, &mut state_container.active_virtual_connections, cnac_sess)?;
+                    let status = attempt_kem_as_bob(resp_target_cid, header, AliceToBobTransferType::Default(transfer), &mut state_container.active_virtual_connections, cnac_sess)?;
                     let packet = hdp_packet_crafter::do_drill_update::craft_stage1(&hyper_ratchet,status, timestamp, resp_target_cid, security_level);
                     PrimaryProcessorResult::ReplyToSender(packet)
                 }
@@ -53,7 +55,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                     let constructor = if target_cid != ENDPOINT_ENCRYPTION_OFF { state_container.drill_update_state.p2p_updates.remove(&peer_cid)? } else { state_container.drill_update_state.alice_hyper_ratchet.take()? };
                     log::info!("Obtained constructor for {}", resp_target_cid);
 
-                    let latest_hr = attempt_kem_as_alice_finish(peer_cid, target_cid, transfer.update_status, &mut state_container.active_virtual_connections, Some(constructor), cnac_sess).ok()?.unwrap_or(hyper_ratchet);
+                    let latest_hr = attempt_kem_as_alice_finish(peer_cid, target_cid, transfer.update_status, &mut state_container.active_virtual_connections, Some(ConstructorType::Default(constructor)), cnac_sess).ok()?.unwrap_or(RatchetType::Default(hyper_ratchet)).assume_default()?;
 
                     if let Some(truncate_vers) = needs_truncate {
                         let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&latest_hr, truncate_vers, resp_target_cid, timestamp, security_level);

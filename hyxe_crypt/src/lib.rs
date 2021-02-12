@@ -54,3 +54,5 @@ pub mod relay_chain;
 pub mod endpoint_crypto_container;
 /// This is a container for holding the drill and PQC, and is intended to replace the seperate use of the drill/PQC
 pub mod hyper_ratchet;
+/// Contains the cryptographic primitives for handling FCM interactions on the network
+pub mod fcm;

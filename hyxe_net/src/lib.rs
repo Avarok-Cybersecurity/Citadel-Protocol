@@ -243,3 +243,5 @@ pub mod proposed_credentials;
 pub mod functional;
 /// For handling differential function input types between single/multi-threaded modes
 pub mod inner_arg;
+/// For FCM
+pub mod fcm;

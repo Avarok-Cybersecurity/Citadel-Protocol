@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
-use crate::hdp::hdp_packet_processor::primary_group_packet::attempt_kem_as_alice_finish;
+use crate::hdp::hdp_packet_processor::primary_group_packet::{attempt_kem_as_alice_finish, ConstructorType};
 
 use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
@@ -32,16 +32,15 @@ use hyxe_crypt::drill::SecurityLevel;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::hdp::peer::channel::PeerChannel;
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
-use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
 use crate::hdp::file_transfer::{VirtualFileMetadata, FileTransferStatus};
 use tokio::io::{BufWriter, AsyncWriteExt};
 use hyxe_crypt::sec_bytes::SecBuffer;
 use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
 use crate::functional::IfEqConditional;
 use futures::StreamExt;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
 use hyxe_fs::prelude::SyncIO;
-use crate::hdp::validation::group::KemTransferStatus;
 use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
 use crate::hdp::peer::peer_layer::PeerConnectionType;
 use hyxe_fs::env::DirectoryStore;
@@ -128,14 +127,14 @@ impl FileKey {
 }
 
 /// For keeping track of connections
-pub struct VirtualConnection {
+pub struct VirtualConnection<R: Ratchet = HyperRatchet> {
     /// For determining the type of connection
     pub connection_type: VirtualConnectionType,
     pub is_active: Arc<AtomicBool>,
     // this is Some for server, None for endpoints
     pub sender: Option<(Option<OutboundUdpSender>, OutboundTcpSender)>,
     // this is None for server, Some for endpoints
-    pub endpoint_container: Option<EndpointChannelContainer>
+    pub endpoint_container: Option<EndpointChannelContainer<R>>
 }
 
 impl VirtualConnection {
@@ -147,10 +146,10 @@ impl VirtualConnection {
 }
 
 #[allow(dead_code)]
-pub struct EndpointChannelContainer {
+pub struct EndpointChannelContainer<R: Ratchet = HyperRatchet> {
     // this is only loaded if STUN-like NAT-traversal works
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
-    pub(crate) endpoint_crypto: PeerSessionCrypto,
+    pub(crate) endpoint_crypto: PeerSessionCrypto<R>,
     to_channel: UnboundedSender<SecBuffer>,
     pub(crate) peer_socket_addr: SocketAddr,
     pub(crate) rolling_group_id: u64,
@@ -173,7 +172,7 @@ impl EndpointChannelContainer {
     }
 }
 
-impl Drop for VirtualConnection {
+impl<R: Ratchet> Drop for VirtualConnection<R> {
     fn drop(&mut self) {
         self.is_active.store(false, Ordering::SeqCst);
         if let Some(endpoint_container) = self.endpoint_container.take() {
@@ -847,7 +846,7 @@ impl StateContainerInner {
         let key = GroupKey::new(peer_cid, group_id);
 
         if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
-            let constructor = outbound_container.ratchet_constructor.take();
+            let constructor = outbound_container.ratchet_constructor.take().map(ConstructorType::Default);
             if attempt_kem_as_alice_finish(peer_cid, target_cid, transfer, &mut self.active_virtual_connections, constructor, cnac_sess).is_err() {
                 return true;
             }

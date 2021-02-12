@@ -12,7 +12,7 @@ use std::str::FromStr;
 use crate::hdp::hdp_packet_processor::preconnect_packet::calculate_sync_time;
 use crate::hdp::peer::p2p_conn_handler::attempt_tcp_simultaneous_hole_punch;
 use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_ratchet;
-use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, AliceToBobTransfer, BobToAliceTransfer};
+use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, AliceToBobTransfer, BobToAliceTransfer, BobToAliceTransferType};
 use hyxe_fs::prelude::SyncIO;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
@@ -145,7 +145,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 let this_cid = conn.get_original_target_cid();
                                 let mut kem_state = state_container.peer_kem_states.remove(&peer_cid)?;
                                 let mut alice_constructor = kem_state.constructor.take()?;
-                                alice_constructor.stage1_alice(BobToAliceTransfer::deserialize_from(transfer)?)?;
+                                alice_constructor.stage1_alice(BobToAliceTransferType::Default(BobToAliceTransfer::deserialize_from(transfer)?))?;
                                 let hyper_ratchet = alice_constructor.finish_with_custom_cid(this_cid)?;
                                 let endpoint_hyper_ratchet = hyper_ratchet.clone();
                                 let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();

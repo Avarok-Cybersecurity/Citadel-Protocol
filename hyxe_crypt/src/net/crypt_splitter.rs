@@ -13,7 +13,7 @@ use crate::drill_algebra::{generate_packet_coordinates_inv, generate_packet_vect
 use crate::prelude::{CryptError, SecurityLevel};
 use rayon::prelude::*;
 use rayon::iter::IndexedParallelIterator;
-use crate::hyper_ratchet::HyperRatchet;
+use crate::hyper_ratchet::{HyperRatchet, Ratchet};
 
 /// The maximum bytes per group
 pub const MAX_BYTES_PER_GROUP: usize = 1024 * 1024 * 10;
@@ -118,7 +118,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(msg_drill: &Drill, plain_text
     Ok(GroupReceiverConfig::new(group_id as usize, packets_needed, header_size_bytes, plain_text.len(), max_packet_payload_size, debug_last_payload_size, number_of_waves, max_plaintext_bytes_per_wave, bytes_in_last_wave, max_packets_per_wave, packets_in_last_wave))
 }
 
-fn get_scramble_encrypt_config<'a>(hyper_ratchet: &'a HyperRatchet, plain_text: &'a [u8], header_size_bytes: usize, security_level: SecurityLevel, group_id: u64, starting_max_packet_size: usize) -> Result<(GroupReceiverConfig, &'a Drill, &'a PostQuantumContainer, &'a Drill), CryptError<String>> {
+fn get_scramble_encrypt_config<'a, R: Ratchet>(hyper_ratchet: &'a R, plain_text: &'a [u8], header_size_bytes: usize, security_level: SecurityLevel, group_id: u64, starting_max_packet_size: usize) -> Result<(GroupReceiverConfig, &'a Drill, &'a PostQuantumContainer, &'a Drill), CryptError<String>> {
     let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
     let scramble_drill = hyper_ratchet.get_scramble_drill();
     let cfg = generate_scrambler_metadata(msg_drill, plain_text, header_size_bytes, security_level, group_id, starting_max_packet_size)?;
@@ -138,7 +138,7 @@ pub struct PacketCoordinate {
 /// header_size_bytes: This size (in bytes) of each packet's header
 /// TODO: Handle max_plaintext_bytes_per_wave observed overflow errors. This function is unstable
 #[allow(unused_results)]
-pub fn scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: SecurityLevel, hyper_ratchet: &HyperRatchet, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, ref header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
+pub fn scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, security_level: SecurityLevel, hyper_ratchet: &R, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, ref header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
     let plain_text = plain_text.as_ref();
     let (cfg, msg_drill, msg_pqc, scramble_drill) = get_scramble_encrypt_config(hyper_ratchet, plain_text, header_size_bytes, security_level, group_id, MAX_WAVEFORM_PACKET_SIZE)?;
 
@@ -156,7 +156,7 @@ pub fn scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: Sec
 /// header_size_bytes: This size (in bytes) of each packet's header
 /// the feed order into the header_inscriber is first the target_cid, and then the object ID
 #[allow(unused_results)]
-pub fn par_scramble_encrypt_group<T: AsRef<[u8]>>(plain_text: T, security_level: SecurityLevel, hyper_ratchet: &HyperRatchet, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, ref header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
+pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, security_level: SecurityLevel, hyper_ratchet: &R, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, ref header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
     let plain_text = plain_text.as_ref();
     let (cfg, msg_drill, msg_pqc, scramble_drill) = get_scramble_encrypt_config(hyper_ratchet, plain_text, header_size_bytes, security_level, group_id, 1024*8)?;
 
@@ -396,7 +396,7 @@ impl GroupReceiver {
     }
 
     /// If a wave is complete, it gets decrypted and placed into the plaintext buffer
-    pub fn on_packet_received<T: AsRef<[u8]>>(&mut self, group_id: u64, true_sequence: usize, wave_id: u32, hyper_ratchet: &HyperRatchet, packet: T) -> GroupReceiverStatus {
+    pub fn on_packet_received<T: AsRef<[u8]>, R: Ratchet>(&mut self, group_id: u64, true_sequence: usize, wave_id: u32, hyper_ratchet: &R, packet: T) -> GroupReceiverStatus {
         let packet = packet.as_ref();
         // The wave_id is also the nonce_version
 
@@ -527,7 +527,7 @@ impl GroupReceiver {
     }
 
     /// Returns a set of vectors that need to be retransmitted
-    pub fn get_retransmission_vectors_for(&self, wave_id: u32, group_id: u64, hyper_ratchet: &HyperRatchet) -> Option<Vec<PacketVector>> {
+    pub fn get_retransmission_vectors_for<R: Ratchet>(&self, wave_id: u32, group_id: u64, hyper_ratchet: &R) -> Option<Vec<PacketVector>> {
         //println!("Getting retransmission vectors for {} ofr group {}", wave_id, group_id);
         let drill = hyper_ratchet.get_scramble_drill();
         let wave_store = self.temp_wave_store.get(&(wave_id as usize))?;

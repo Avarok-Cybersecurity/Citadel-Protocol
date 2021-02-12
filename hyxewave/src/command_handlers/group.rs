@@ -1,5 +1,6 @@
 use super::imports::*;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let ctx_cid = ctx.get_active_cid();
@@ -373,7 +374,7 @@ fn handle_send<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote,
     let message: String = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
     printf_ln!(colour::white!("Will send the following message to the broadcast group ({}): {}\n", &key.key, &message));
     let username = cnac.get_username();
-    let signal = GroupBroadcast::Message(username.clone(), key.key, message.clone());
+    let signal = GroupBroadcast::Message(username.clone(), key.key, SecBuffer::from(message.clone()));
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
     let ticket = server_remote.unbounded_send(request)?;

@@ -10,10 +10,11 @@ use futures::task::{Context, Poll};
 use tokio::macros::support::Pin;
 use std::fmt::Debug;
 use crate::hdp::peer::peer_layer::PeerConnectionType;
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncWrite, AsyncRead, ReadBuf};
 use futures::io::Error;
 use std::ops::Deref;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use bytes::{BufMut, BytesMut};
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.
 // This thus bypasses the kernel.
@@ -26,6 +27,7 @@ pub struct PeerChannel {
 impl PeerChannel {
     pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>) -> Self {
         let implicated_cid = vconn_type.get_implicated_cid();
+        let overflow = BytesMut::new();
         let send_half = PeerChannelSendHalf {
             server_remote,
             target_cid,
@@ -41,7 +43,8 @@ impl PeerChannel {
             target_cid,
             vconn_type,
             channel_id,
-            is_alive
+            is_alive,
+            overflow
         };
 
         PeerChannel { send_half, recv_half }
@@ -99,14 +102,18 @@ impl PeerChannelSendHalf {
     pub fn set_security_level(&mut self, security_level: SecurityLevel) {
         self.security_level = security_level;
     }
+
+    fn close(&self) {
+        self.is_alive.store(false, Ordering::SeqCst);
+    }
 }
 
 impl Sink<SecBuffer> for PeerChannelSendHalf {
     type Error = NetworkError;
 
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.is_alive.load(Ordering::SeqCst) {
-            Poll::Ready(Ok(()))
+            futures::Sink::<HdpServerRequest>::poll_ready(Pin::new(&mut self.server_remote), _cx)
         } else {
             Poll::Ready(Err(NetworkError::InternalError("Server closed")))
         }
@@ -121,6 +128,7 @@ impl Sink<SecBuffer> for PeerChannelSendHalf {
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.close();
         Poll::Ready(Ok(()))
     }
 }
@@ -134,7 +142,8 @@ pub struct PeerChannelRecvHalf {
     target_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
-    is_alive: Arc<AtomicBool>
+    is_alive: Arc<AtomicBool>,
+    overflow: BytesMut
 }
 
 impl Stream for PeerChannelRecvHalf {
@@ -171,7 +180,43 @@ impl AsyncWrite for PeerChannelSendHalf {
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        self.is_alive.store(false, Ordering::SeqCst);
+        self.close();
         Poll::Ready(Ok(()))
+    }
+}
+
+impl AsyncRead for PeerChannelRecvHalf {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        if self.overflow.len() != 0 {
+            let amt =  std::cmp::min(buf.remaining(), self.overflow.len());
+            let bytes = self.overflow.split_to(amt);
+            buf.put_slice(&bytes[..]);
+            if self.overflow.len() != 0 {
+                //return early, so that we can poll some more bytes immediately after. Otherwise, move-on to potentially pend for new bytes
+                return Poll::Ready(Ok(()))
+            }
+        }
+
+        match futures::ready!(self.as_mut().poll_next(cx)) {
+            Some(secbuf) => {
+                let secbuf_vec = secbuf.into_buffer();
+                let bytes = secbuf_vec.as_slice();
+                let amt = std::cmp::min(buf.remaining(), bytes.len());
+                let (left, right) = bytes.split_at(amt);
+                buf.put_slice(left);
+
+                if right.len() != 0 {
+                    // place into overflow
+                    self.overflow.put_slice(right);
+                }
+
+                Poll::Ready(Ok(()))
+            }
+
+            None => {
+                // EOF
+                Poll::Ready(Ok(()))
+            }
+        }
     }
 }
