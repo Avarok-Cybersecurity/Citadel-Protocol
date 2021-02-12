@@ -64,6 +64,7 @@ pub async fn p2p_conn_handler(p2p_listener: TcpListener, session: HdpSession) ->
                     continue;
                 }
 
+                std::mem::drop(sess);
                 if let Err(err) = handle_p2p_stream(p2p_stream,implicated_cid.clone(), session.clone(), kernel_tx.clone(), true) {
                     log::error!("[P2P-stream] Unable to handle P2P stream: {:?}", err);
                 }

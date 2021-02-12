@@ -6,7 +6,7 @@ edition = "2018"
 workspace = "../"
 
 [features]
-default = ["single-threaded"]
+default = ["multi-threaded"]
 single-threaded = ["ez_pqcrypto/aes", "hyxe_crypt/single-threaded"]
 multi-threaded = ["ez_pqcrypto/aes", "ez_pqcrypto/unordered", "hyxe_crypt/multi-threaded"]
 

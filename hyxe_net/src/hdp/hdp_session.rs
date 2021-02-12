@@ -236,6 +236,7 @@ impl HdpSession {
             let primary_outbound_rx = OutboundTcpReceiver::from(primary_outbound_rx);
 
             let mut this_ref = inner_mut!(this);
+            this_ref.queue_worker.load_session(&this_close);
             let (obfuscator, packet_opt) = HeaderObfuscator::new(this_ref.is_server);
             //let sess_id = this_ref.kernel_ticket;
             this_ref.to_primary_stream = Some(primary_outbound_tx.clone());
@@ -266,26 +267,26 @@ impl HdpSession {
 
             let session_future = if let Some(p2p_listener) = p2p_listener {
                 let p2p_listener = crate::hdp::peer::p2p_conn_handler::p2p_conn_handler(p2p_listener, this_p2p_listener);
-                spawn_handle!(async move {
-                    tokio::select! {
-                        res0 = writer_future => res0,
-                        res1 = reader_future => res1,
-                        res2 = stopper_future => res2,
-                        res3 = queue_worker_future => res3,
-                        res4 = p2p_listener => Ok(res4),
-                        res5 = socket_loader_future => res5
-                    }
-                })
+                        spawn_handle!(async move {
+                            tokio::select! {
+                                res0 = writer_future => res0,
+                                res1 = reader_future => res1,
+                                res2 = stopper_future => res2,
+                                res3 = queue_worker_future => res3,
+                                res4 = p2p_listener => Ok(res4),
+                                res5 = socket_loader_future => res5
+                            }
+                        })
             } else {
-                spawn_handle!(async move {
-                    tokio::select! {
-                        res0 = writer_future => res0,
-                        res1 = reader_future => res1,
-                        res2 = stopper_future => res2,
-                        res3 = queue_worker_future => res3,
-                        res4 = socket_loader_future => res4
-                    }
-                })
+                        spawn_handle!(async move {
+                            tokio::select! {
+                                res0 = writer_future => res0,
+                                res1 = reader_future => res1,
+                                res2 = stopper_future => res2,
+                                res3 = queue_worker_future => res3,
+                                res5 = socket_loader_future => res5
+                            }
+                        })
             };
 
             //let session_future = futures::future::try_join4(writer_future, reader_future, timer_future, socket_loader_future);
@@ -295,7 +296,8 @@ impl HdpSession {
             // as such, if it cannot, it will end the future. We do this to ensure there is no deadlocking.
             // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
             // separate task, we solve the issue of re-entrancing of mutex
-            //let _ = spawn!(queue_worker_future);
+            //#[cfg(feature = "multi-threaded")]
+            //    let _ = spawn!(queue_worker_future);
 
             (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message, sock)
         };
@@ -541,7 +543,6 @@ impl HdpSession {
             //let this_interval = this_main.clone();
             let borrow = inner!(this_main);
             let queue_worker = borrow.queue_worker.clone();
-            queue_worker.load_session(&this_main);
             let is_server = borrow.is_server;
             std::mem::drop(borrow);
 
