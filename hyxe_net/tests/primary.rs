@@ -92,6 +92,7 @@ pub mod tests {
         let test_container = Arc::new(RwLock::new(TestContainer::new()));
 
         let rt_main = rt.clone();
+
         rt_main.block_on(async move {
             log::info!("Setting up executors ...");
             let server_executor = create_executor(rt.clone(), server_bind_addr, Some(test_container.clone()), NodeType::Server, Vec::default()).await;
