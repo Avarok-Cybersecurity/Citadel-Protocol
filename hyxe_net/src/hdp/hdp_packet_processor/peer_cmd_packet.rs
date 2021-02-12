@@ -7,7 +7,6 @@ use crate::hdp::peer::peer_crypt::{KEP_STAGE1, KeyExchangeProcess};
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use hyxe_crypt::toolset::Toolset;
 use crate::constants::DEFAULT_PQC_ALGORITHM;
-use crate::macros::SessionBorrow;
 use std::str::FromStr;
 use crate::hdp::hdp_packet_processor::preconnect_packet::calculate_sync_time;
 use crate::hdp::peer::p2p_conn_handler::attempt_tcp_simultaneous_hole_punch;
@@ -15,19 +14,20 @@ use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_rat
 use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, AliceToBobTransfer, BobToAliceTransfer, BobToAliceTransferType};
 use hyxe_fs::prelude::SyncIO;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use crate::inner_arg::{ExpectedInnerTarget, InnerParameter};
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
 /// HyperLAN client and the HyperLAN Server
-pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header_drill_version: u32, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
+pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header_drill_version: u32, endpoint_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
     // ALL PEER_CMD packets require that the current session contain a CNAC
-    let mut session = inner_mut!(session_orig);
+    let session = inner!(session_orig);
     // Some PEER_CMD packets get encrypted using the endpoint crypto
     let cnac = session.cnac.as_ref()?;
 
-    log::info!("RECV PEER CMD packet (proxy: {})", proxy_cid_info.is_some());
+    log::info!("RECV PEER CMD packet (proxy: {})", endpoint_cid_info.is_some());
     let mut state_container = inner_mut!(session.state_container);
-    let sess_hyper_ratchet = get_proper_hyper_ratchet(header_drill_version, cnac, &wrap_inner_mut!(state_container), proxy_cid_info)?;
+    let sess_hyper_ratchet = get_proper_hyper_ratchet(header_drill_version, cnac, &wrap_inner_mut!(state_container), endpoint_cid_info)?;
 
     let (header, payload, peer_addr, _) = packet.decompose();
     let (header, payload) = validation::aead::validate_custom(&sess_hyper_ratchet, &header, payload)?;
@@ -344,7 +344,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                 PrimaryProcessorResult::Void
             } else {
                 std::mem::drop(state_container);
-                process_signal_command_as_server(signal, ticket, wrap_inner_mut!(session), sess_hyper_ratchet, header, timestamp, security_level)
+                process_signal_command_as_server(signal, ticket, wrap_inner!(session), sess_hyper_ratchet, header, timestamp, security_level)
             }
         }
 
@@ -360,7 +360,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
 }
 
 #[inline]
-fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: PeerSignal, ticket: Ticket, session: InnerParameterMut<K, HdpSessionInner>, sess_hyper_ratchet: HyperRatchet, _header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64, security_level: SecurityLevel) -> PrimaryProcessorResult {
+fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(signal: PeerSignal, ticket: Ticket, session: InnerParameter<K, HdpSessionInner>, sess_hyper_ratchet: HyperRatchet, _header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64, security_level: SecurityLevel) -> PrimaryProcessorResult {
     match signal {
         PeerSignal::Kem(conn, mut kep) => {
             // before just routing the signals, we also need to add socket information into intercepted stage1 and stage2 signals
@@ -378,6 +378,11 @@ fn process_signal_command_as_server<K: ExpectedInnerTargetMut<HdpSessionInner>>(
             // since this is the server, we just need to route this to the target_cid
             let sess_mgr = inner!(session.session_manager);
             let signal_to = PeerSignal::Kem(conn, kep);
+            if sess_hyper_ratchet.get_cid() == conn.get_original_target_cid() {
+                log::error!("Error X678");
+                return PrimaryProcessorResult::Void
+            }
+
             let res = sess_mgr.send_signal_to_peer_direct(conn.get_original_target_cid(),move |peer_hyper_ratchet| {
                 hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal_to, ticket, timestamp, security_level)
             });
@@ -609,11 +614,11 @@ fn reply_to_sender_err<E: ToString>(err: E, hyper_ratchet: &HyperRatchet, ticket
     PrimaryProcessorResult::ReplyToSender(err_packet)
 }
 
-fn route_signal_and_register_ticket_forwards<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: PeerSignal, timeout: Duration, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: InnerParameterMut<K, HdpSessionInner>, sess_hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> PrimaryProcessorResult {
+fn route_signal_and_register_ticket_forwards<K: ExpectedInnerTarget<HdpSessionInner>>(signal: PeerSignal, timeout: Duration, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: InnerParameter<K, HdpSessionInner>, sess_hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> PrimaryProcessorResult {
     // We use the same logic as the register post
     let to_primary_stream = session.to_primary_stream.clone()?;
 
-    let mut sess_mgr = inner_mut!(session.session_manager);
+    let sess_mgr = inner!(session.session_manager);
     let sess_hyper_ratchet_2 = sess_hyper_ratchet.clone();
     // Give the target_cid 10 seconds to respond
     let res = sess_mgr.route_signal_primary(implicated_cid, target_cid, ticket, signal.clone(), move |peer_hyper_ratchet| {
@@ -635,23 +640,25 @@ fn route_signal_and_register_ticket_forwards<K: ExpectedInnerTargetMut<HdpSessio
 }
 
 // returns (true, status) if the process was a success, or (false, success) otherwise
-fn route_signal_response<K: ExpectedInnerTargetMut<HdpSessionInner>>(signal: PeerSignal, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: InnerParameterMut<K, HdpSessionInner>, sess_hyper_ratchet: &HyperRatchet, on_route_finished: impl FnOnce(InnerParameterMut<K, HdpSessionInner>, InnerParameterMut<SessionBorrow, HdpSessionInner>, PeerSignal), security_level: SecurityLevel) -> PrimaryProcessorResult {
-    let mut sess_mgr = inner_mut!(session.session_manager);
+fn route_signal_response<K: ExpectedInnerTarget<HdpSessionInner>>(signal: PeerSignal, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: InnerParameter<K, HdpSessionInner>, sess_hyper_ratchet: &HyperRatchet, on_route_finished: impl FnOnce(InnerParameter<K, HdpSessionInner>, &dyn ExpectedInnerTarget<HdpSessionInner>, PeerSignal), security_level: SecurityLevel) -> PrimaryProcessorResult {
+    let sess_mgr = session.session_manager.clone();
+    let sess_mgr = inner!(sess_mgr);
     log::info!("impl: {} | target: {}", implicated_cid, target_cid);
 
     let res = sess_mgr.route_signal_response_primary(implicated_cid, target_cid, ticket, move |peer_hyper_ratchet| {
         hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, ticket, timestamp, security_level)
+    }, move |peer_sess, original_posting| {
+        // send a notification that the server forwarded the signal
+        let received_signal = PeerSignal::SignalReceived(ticket);
+        let ret = reply_to_sender(received_signal, sess_hyper_ratchet, ticket, timestamp, security_level);
+        log::info!("Running on_route_finished subroutine");
+        //let mut peer_sess_ref = inner_mut!(peer_sess);
+        on_route_finished(session, peer_sess, original_posting);
+        ret
     });
-    std::mem::drop(sess_mgr);
 
     match res {
-        Ok((peer_sess, original_posting)) => {
-            // send a notification that the server forwarded the signal
-            let received_signal = PeerSignal::SignalReceived(ticket);
-            let ret = reply_to_sender(received_signal, sess_hyper_ratchet, ticket, timestamp, security_level);
-            log::info!("Running on_route_finished subroutine");
-            let mut peer_sess_ref = inner_mut!(peer_sess);
-            on_route_finished(session, InnerParameterMut::from(&mut peer_sess_ref), original_posting);
+        Ok(ret) => {
             ret
         }
 

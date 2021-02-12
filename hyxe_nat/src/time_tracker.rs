@@ -15,10 +15,16 @@ pub struct TimeTracker {
 
 pub const NTP_SERVERS: &[&str] = &["time.cloudflare.com", "time.google.com", "0.us.pool.ntp.org", "1.us.pool.ntp.org", "2.us.pool.ntp.org", "3.us.pool.ntp.org"];
 const TIMEOUT: Duration = Duration::from_millis(1500);
+static LOCAL: parking_lot::Mutex<Option<TimeTracker>> = parking_lot::const_mutex(None);
 
 impl TimeTracker {
     /// Creates a new [TimeTracker]
     pub async fn new() -> io::Result<Self> {
+        let mut lock = LOCAL.lock();
+
+        if let Some(val) = lock.as_ref() {
+            return Ok(val.clone());
+        }
 
         const RETRY_COUNT: usize = NTP_SERVERS.len();
 
@@ -27,9 +33,12 @@ impl TimeTracker {
 
         for attempt in 0..RETRY_COUNT {
             log::info!("Fetching Global NTP time from {}...", NTP_SERVERS[attempt]);
-            if let Ok(sync_result) =  client.synchronize(NTP_SERVERS[attempt]).await {
+            if let Ok(sync_result) = client.synchronize(NTP_SERVERS[attempt]).await {
                 log::info!("Global NTP Time: {}", sync_result.datetime().timestamp_nanos());
-                return Ok(Self::from(sync_result))
+                let this = Self::from(sync_result);
+                *lock = Some(this.clone());
+
+                return Ok(this);
             }
         }
 
@@ -65,7 +74,7 @@ impl TimeTracker {
     pub async fn resync(&self) -> bool {
         for server in NTP_SERVERS {
             if let Ok(_) = self.resync_inner(*server).await {
-                return true
+                return true;
             }
         }
 

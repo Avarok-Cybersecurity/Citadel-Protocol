@@ -13,7 +13,7 @@ use crate::constants::{HDP_NODELAY, TCP_ONLY, KEEP_ALIVE_TIMEOUT_NS};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
 use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
-use crate::hdp::hdp_session::HdpSession;
+use crate::hdp::hdp_session::{HdpSession, HdpSessionInner};
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::proposed_credentials::ProposedCredentials;
 use hyxe_nat::hypernode_type::HyperNodeType;
@@ -30,6 +30,8 @@ use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 use crate::macros::SyncContextRequirements;
+use crate::inner_arg::ExpectedInnerTarget;
+use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -48,7 +50,7 @@ pub struct HdpSessionManagerInner {
     kernel_tx: UnboundedSender<HdpServerResult>,
     time_tracker: TimeTracker,
     /// Determines if new incoming connections should be treated as streaming types by default
-    streaming_mode_incoming: bool
+    streaming_mode_incoming: bool,
 }
 
 impl HdpSessionManager {
@@ -128,7 +130,6 @@ impl HdpSessionManager {
             let session_manager_clone = self.clone();
 
             let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt) = {
-
                 let (remote, kernel_tx, account_manager, tt) = {
                     let this = inner!(self);
                     let remote = this.server_remote.clone().unwrap();
@@ -152,7 +153,7 @@ impl HdpSessionManager {
                 (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt)
             };
 
-            let new_session = HdpSession::new(remote,quantum_algorithm, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, peer_addr, tt, implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(TCP_ONLY), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
+            let new_session = HdpSession::new(remote, quantum_algorithm, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, peer_addr, tt, implicated_cid, ticket, security_level, streaming_mode.unwrap_or(HDP_NODELAY), tcp_only.unwrap_or(TCP_ONLY), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
 
             if let Some(_implicated_cid) = implicated_cid {
                 // the cid exists which implies registration already occurred
@@ -187,7 +188,7 @@ impl HdpSessionManager {
                     //log::info!("[safe] deleting provisional connection to {}", &peer_addr);
                     session_manager.clear_provisional_session(&peer_addr);
                 }
-            },
+            }
 
             Err((_err, cid_opt)) => {
                 if let Some(cid) = cid_opt {
@@ -225,7 +226,7 @@ impl HdpSessionManager {
                     if peer_cid != implicated_cid && peer_cid != 0 {
                         let vconn = vconn.connection_type;
                         match vconn {
-                            VirtualConnectionType::HyperLANPeerToHyperLANPeer(_,_) => {
+                            VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, _) => {
                                 if peer_cid != implicated_cid {
                                     log::info!("Alerting {} that {} disconnected", peer_cid, implicated_cid);
                                     let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid);
@@ -244,7 +245,7 @@ impl HdpSessionManager {
                                         }
                                     }
                                 }
-                            },
+                            }
 
                             // TODO: HyperWAN conns
                             _ => {}
@@ -289,7 +290,7 @@ impl HdpSessionManager {
         let provisional_ticket = Ticket(this.incoming_cxn_count as u64);
         this.incoming_cxn_count += 1;
 
-        let new_session = HdpSession::new_incoming(remote, local_bind_addr, local_node_type,this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket, this.streaming_mode_incoming);
+        let new_session = HdpSession::new_incoming(remote, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket, this.streaming_mode_incoming);
         this.provisional_connections.insert(peer_addr.clone(), new_session.clone());
         std::mem::drop(this);
 
@@ -434,7 +435,7 @@ impl HdpSessionManager {
 
     /// Returns true if the disconnect was a success, false if not. An error returns if something else occurs
     pub fn initiate_disconnect(&self, implicated_cid: u64, virtual_peer: VirtualConnectionType, ticket: Ticket) -> Result<bool, NetworkError> {
-        let this = inner_mut!(self);
+        let this = inner!(self);
         match this.sessions.get(&implicated_cid) {
             Some(session) => {
                 session.initiate_disconnect(ticket, virtual_peer)
@@ -587,18 +588,18 @@ impl HdpSessionManager {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&target_cid) {
             let sess = inner!(sess);
-                if let Some(to_primary_stream) = sess.to_primary_stream.as_ref() {
-                    if let Some(cnac) = sess.cnac.as_ref() {
-                        return cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
-                            if let Some(hyper_ratchet) = hyper_ratchet_opt {
-                                let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
-                                to_primary_stream.unbounded_send(packet).is_ok()
-                            } else {
-                                false
-                            }
-                        })
-                    }
+            if let Some(to_primary_stream) = sess.to_primary_stream.as_ref() {
+                if let Some(cnac) = sess.cnac.as_ref() {
+                    return cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
+                        if let Some(hyper_ratchet) = hyper_ratchet_opt {
+                            let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
+                            to_primary_stream.unbounded_send(packet).is_ok()
+                        } else {
+                            false
+                        }
+                    });
                 }
+            }
         }
 
         false
@@ -671,7 +672,6 @@ impl HdpSessionManager {
                 } else {
                     Err("Unable to obtain peer drill".to_string())
                 }
-
             } else {
                 Err(format!("Peer {} already internally disconnected from {}", peer_cid, implicated_cid))
             }
@@ -692,45 +692,36 @@ impl HdpSessionManagerInner {
     /// Stores the `signal` inside the internal timed-queue for `implicated_cid`, and then sends `packet` to `target_cid`.
     /// After `timeout`, the closure `on_timeout` is executed
     #[inline]
-    pub fn route_signal_primary(&mut self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
+    pub fn route_signal_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
         if implicated_cid == target_cid {
-            return Err("Target CID cannot be equal to the implicated CID".to_string())
+            return Err("Target CID cannot be equal to the implicated CID".to_string());
         }
 
         if self.account_manager.hyperlan_cid_is_registered(target_cid) {
             // get the target cid's session
             if let Some(sess) = self.sessions.get(&target_cid) {
-                // BUG: calling insert_tracked posting leads to a deadlock because it calls wake. Since session manager
-                // is borrowed here, we get a concurrent deadlock on peer_cmd_packet:639 where the other call to
-                // get the session manager freezes. Will 
-                if self.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout) {
-                    let sess_ref = inner!(sess);
-                    let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
-                    let peer_cnac = sess_ref.cnac.as_ref().unwrap();
+                self.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout);
+                let sess_ref = inner!(sess);
+                let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
+                let peer_cnac = sess_ref.cnac.as_ref().unwrap();
 
-                    peer_cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
-                        if let Some(peer_latest_hyper_ratchet) = hyper_ratchet_opt {
-                            log::info!("Routing packet through primary stream ({} -> {})", implicated_cid, target_cid);
-                            let packet = packet(peer_latest_hyper_ratchet);
-                            peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
-                        } else {
-                            Err(format!("Unable to acquire peer drill for {}", target_cid))
-                        }
-                    })
-                } else {
-                    Err(format!("Unable to insert tracked posting for {}", implicated_cid))
-                }
+                peer_cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
+                    if let Some(peer_latest_hyper_ratchet) = hyper_ratchet_opt {
+                        log::info!("Routing packet through primary stream ({} -> {})", implicated_cid, target_cid);
+                        let packet = packet(peer_latest_hyper_ratchet);
+                        peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
+                    } else {
+                        Err(format!("Unable to acquire peer drill for {}", target_cid))
+                    }
+                })
             } else {
                 // session is not active, but user is registered (thus offline). Setup return ticket tracker on implicated_cid
                 // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect
-                if self.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal.clone(), on_timeout) {
-                    if self.hypernode_peer_layer.try_add_mailbox(true, target_cid, signal) {
-                        Ok(())
-                    } else {
-                        Err(format!("Peer {} is offline. Furthermore, that peer's mailbox is not accepting signals at this time", target_cid))
-                    }
+                self.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal.clone(), on_timeout);
+                if self.hypernode_peer_layer.try_add_mailbox(true, target_cid, signal) {
+                    Ok(())
                 } else {
-                    Err(format!("Unable to insert tracked posting for {}", implicated_cid))
+                    Err(format!("Peer {} is offline. Furthermore, that peer's mailbox is not accepting signals at this time", target_cid))
                 }
             }
         } else {
@@ -744,12 +735,12 @@ impl HdpSessionManagerInner {
     /// Also returns the [TrackedPosting] that was posted when the signal initially crossed through
     /// the HyperLAN Server
     #[inline]
-    pub fn route_signal_response_primary(&mut self, implicated_cid: u64, target_cid: u64, ticket: Ticket, packet: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(HdpSession, PeerSignal), String> {
+    pub fn route_signal_response_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, packet: impl FnOnce(&HyperRatchet) -> BytesMut, post_send: impl FnOnce(&dyn ExpectedInnerTarget<HdpSessionInner>, PeerSignal) -> PrimaryProcessorResult) -> Result<PrimaryProcessorResult, String> {
         // Instead of checking for registration, check the `implicated_cid`'s timed queue for a ticket corresponding to Ticket.
         if let Some(tracked_posting) = self.hypernode_peer_layer.remove_tracked_posting(target_cid, ticket) {
             // since the posting was valid, we just need to forward the signal to `implicated_cid`
             if let Some(target_sess) = self.sessions.get(&target_cid) {
-                let ret = target_sess.clone();
+                //let ret = target_sess.clone();
 
                 let sess_ref = inner!(target_sess);
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
@@ -758,11 +749,13 @@ impl HdpSessionManagerInner {
                 peer_cnac.borrow_hyper_ratchet(None, |peer_latest_hyper_ratchet_opt| {
                     if let Some(peer_latest_hyper_ratchet) = peer_latest_hyper_ratchet_opt {
                         let packet = packet(peer_latest_hyper_ratchet);
-                        peer_sender.unbounded_send(packet).map_err(|err| err.to_string()).map(|_| (ret, tracked_posting))
+                        peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
                     } else {
                         Err(format!("Unable to acquire peer drill for {}", target_cid))
                     }
-                })
+                })?;
+
+                Ok((post_send)(&sess_ref, tracked_posting))
             } else {
                 // session no longer exists. Could have been that the `implicated_cid` responded too late. Send an error back, saying it expired
                 Err(format!("Session for {} is not active, and thus no room for consent", target_cid))
@@ -777,7 +770,7 @@ impl HdpSessionManagerInner {
     pub fn send_signal_to_peer_direct(&self, target_cid: u64, packet: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), NetworkError> {
         if let Some(peer_sess) = self.sessions.get(&target_cid) {
             let peer_sess = inner!(peer_sess);
-            let peer_sender = peer_sess.to_primary_stream.as_ref().ok_or_else(||NetworkError::InternalError("Peer stream absent"))?;
+            let peer_sender = peer_sess.to_primary_stream.as_ref().ok_or_else(|| NetworkError::InternalError("Peer stream absent"))?;
             let peer_cnac = peer_sess.cnac.as_ref().ok_or_else(|| NetworkError::InternalError("Peer CNAC absent"))?;
 
             peer_cnac.borrow_hyper_ratchet(None, |latest_peer_hr_opt| {
