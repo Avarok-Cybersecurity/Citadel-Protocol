@@ -24,6 +24,7 @@ multimap = "0.8.1"
 log = { version = "0.4.8", features = ["max_level_trace", "release_max_level_error"] }
 
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
+hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0" }
 #hyxe_config = { path = "../hyxe_config", version = "0.1.0" }
 #async_ip = { path = "../async_ip", version = "0.1.0" }
 

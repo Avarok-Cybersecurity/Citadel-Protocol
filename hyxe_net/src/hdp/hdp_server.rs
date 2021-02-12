@@ -473,7 +473,7 @@ impl Sink<(Ticket, HdpServerRequest)> for HdpServerRemote {
     type Error = NetworkError;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+        <Self as Sink<HdpServerRequest>>::poll_ready(self, _cx)
     }
 
     fn start_send(self: Pin<&mut Self>, item: (Ticket, HdpServerRequest)) -> Result<(), Self::Error> {
@@ -481,11 +481,44 @@ impl Sink<(Ticket, HdpServerRequest)> for HdpServerRemote {
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        <Self as Sink<HdpServerRequest>>::poll_flush(self, _cx)
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        <Self as Sink<HdpServerRequest>>::poll_close(self, _cx)
+    }
+}
+
+impl Sink<HdpServerRequest> for HdpServerRemote {
+    type Error = NetworkError;
+
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        if self.outbound_send_request_tx.0.is_closed() {
+            Poll::Ready(Err(NetworkError::InternalError("Closed")))
+        } else {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: HdpServerRequest) -> Result<(), Self::Error> {
+        self.get_mut().unbounded_send(item)
+            .map(|_|())
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+        match self.shutdown() {
+            Ok(_) => {
+                Poll::Ready(Ok(()))
+            },
+
+            Err(err) =>{
+                Poll::Ready(Err(err))
+            }
+        }
     }
 }
 

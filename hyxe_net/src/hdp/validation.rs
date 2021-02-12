@@ -81,11 +81,11 @@ pub(crate) mod group {
     use crate::hdp::state_container::VirtualTargetType;
     use serde::{Serialize, Deserialize};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
-    use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
+    use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
     use hyxe_fs::io::SyncIO;
     use crate::hdp::hdp_packet_crafter::group::DUAL_ENCRYPTION_ON;
     use hyxe_crypt::drill::SecurityLevel;
-    use hyxe_crypt::toolset::UpdateStatus;
+    use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
     pub(crate) fn validate<'a, 'b: 'a>(hyper_ratchet: &HyperRatchet, security_level: SecurityLevel, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
@@ -132,27 +132,6 @@ pub(crate) mod group {
     pub enum GroupHeaderAck {
         ReadyToReceive { fast_msg: bool, initial_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus },
         NotReady { fast_msg: bool }
-    }
-
-    #[derive(Serialize, Deserialize)]
-    #[allow(variant_size_differences)]
-    pub enum KemTransferStatus {
-        StatusNoTransfer(UpdateStatus),
-        Empty,
-        Omitted,
-        Some(BobToAliceTransfer, UpdateStatus)
-    }
-
-    impl KemTransferStatus {
-        pub fn requires_truncation(&self) -> Option<u32> {
-            match self {
-                KemTransferStatus::StatusNoTransfer(UpdateStatus::CommittedNeedsSynchronization { old_version, ..}) | KemTransferStatus::Some(_, UpdateStatus::CommittedNeedsSynchronization { old_version, ..}) => {
-                    Some(*old_version)
-                }
-
-                _ =>  None
-            }
-        }
     }
 
     /// Returns None if the packet is invalid. Returns Some(is_ready_to_accept) if the packet is valid
@@ -294,7 +273,7 @@ pub(crate) mod pre_connect {
     use crate::hdp::hdp_packet_processor::includes::SocketAddr;
     use std::str::FromStr;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
-    use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, HyperRatchetConstructor, BobToAliceTransfer};
+    use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
 
     // +1 for node type, +2 for minimum 1 wave port inscribed
     const STAGE0_MIN_PAYLOAD_LEN: usize = 1 + 2;
@@ -335,7 +314,7 @@ pub(crate) mod pre_connect {
             let transfer = BobToAliceTransfer::deserialize_from(transfer_payload)?;
             let lvl = transfer.security_level;
             log::info!("Session security level based-on returned transfer: {:?}", lvl);
-            alice_constructor.stage1_alice(transfer)?;
+            alice_constructor.stage1_alice(BobToAliceTransferType::Default(transfer))?;
             let new_hyper_ratchet = alice_constructor.finish()?;
             debug_assert!(new_hyper_ratchet.verify_level(lvl.into()).is_ok());
             let toolset = Toolset::from((static_auxiliary_ratchet, new_hyper_ratchet.clone()));

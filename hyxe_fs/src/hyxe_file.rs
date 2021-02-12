@@ -12,7 +12,7 @@ use crate::io::FsError;
 use crate::misc::{generate_random_string, get_present_formatted_timestamp, get_pathbuf};
 use crate::async_io::AsyncIO;
 use crate::prelude::SyncIO;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::hyper_ratchet::Ratchet;
 
 /// The extension for virtually hyperencrypted files
 pub const HYXE_FILE_EXT: &str = "vxh";
@@ -68,7 +68,7 @@ impl HyxeFile {
     /// drill supplied contains an unequal CID to this HyxeFiles.
     ///
     /// if `retrieve` is true, then data that is possibly pre-existing is returned. This is synonymous to a "get and set" operation
-    pub fn replace_contents<B: ByteSlice>(&mut self, static_hyper_ratchet: &HyperRatchet, bytes: B, retrieve: bool, security_level: SecurityLevel) -> Result<Option<Vec<u8>>, FsError<String>> {
+    pub fn replace_contents<B: ByteSlice, R: Ratchet>(&mut self, static_hyper_ratchet: &R, bytes: B, retrieve: bool, security_level: SecurityLevel) -> Result<Option<Vec<u8>>, FsError<String>> {
         if self.cid != static_hyper_ratchet.get_cid() {
             return Err(FsError::Generic("Invalid HyperRatchet CID".to_string()));
         }
@@ -90,7 +90,7 @@ impl HyxeFile {
 
     /// Encrypts the data for the first-time within this HyxeFile. This returns an error if [1] the encryption fails, or; [2] if the CID of the
     /// drill supplied does not equal the CID associated with this HyxeFile.
-    pub fn drill_contents<B: ByteSlice>(&mut self, static_hyper_ratchet: &HyperRatchet, bytes: B, security_level: SecurityLevel) -> Result<(), FsError<String>> {
+    pub fn drill_contents<B: ByteSlice, R: Ratchet>(&mut self, static_hyper_ratchet: &R, bytes: B, security_level: SecurityLevel) -> Result<(), FsError<String>> {
         if self.cid != static_hyper_ratchet.get_cid() {
             return Err(FsError::Generic("Invalid CID".to_string()));
         }
@@ -134,7 +134,7 @@ impl HyxeFile {
     /// drilled within the HyxeFile (i.e., `self.data_encrypted_bytes.is_none()`). The return type is a newly allocated vector. This should NOT be called
     /// multiple times in succession (it can if needed, however) because of performance reasons. Instead, you should read the data once, and then pass
     /// references to that data.
-    pub fn read_contents(&self, static_hyper_ratchet: &HyperRatchet) -> Result<Vec<u8>, FsError<String>> {
+    pub fn read_contents<R: Ratchet>(&self, static_hyper_ratchet: &R) -> Result<Vec<u8>, FsError<String>> {
         if self.cid != static_hyper_ratchet.get_cid() {
             return Err(FsError::Generic("Invalid CID".to_string()));
         }

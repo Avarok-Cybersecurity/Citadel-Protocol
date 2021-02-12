@@ -4,13 +4,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::misc::CryptError;
 use std::ops::RangeInclusive;
-use crate::hyper_ratchet::{get_approx_bytes_per_hyper_ratchet, HyperRatchet};
+use crate::hyper_ratchet::{get_approx_bytes_per_hyper_ratchet, Ratchet, HyperRatchet};
 
 /// The maximum amount of memory per toolset in RAM is 300kb
 pub const MAX_TOOLSET_MEMORY_BYTES: usize = 1024 * 120;
 /// Returns the max number of drill that can be stored in memory
 pub const MAX_HYPER_RATCHETS_IN_MEMORY: usize = calculate_max_hyper_ratchets();
-
+///
+const MAX_NEEDED_HYPER_RATCHETS_IN_MEMORY: usize = 6;
 /// According to [Equation 1] in drill.rs, the formula to calculate the number of bytes
 /// in memory from the encryption pairs alone is 31(s*p_r). Thus, to calculate the max
 /// number of drills, we need to take the floor of MAX_TOOLSET_MEMORY_BYTES/(31(s*p_r))
@@ -18,7 +19,11 @@ pub const MAX_HYPER_RATCHETS_IN_MEMORY: usize = calculate_max_hyper_ratchets();
 const fn calculate_max_hyper_ratchets() -> usize {
     let val = (MAX_TOOLSET_MEMORY_BYTES / get_approx_bytes_per_hyper_ratchet()) as isize - 1;
     if val > 0 {
-        val as usize
+        if val > MAX_NEEDED_HYPER_RATCHETS_IN_MEMORY as isize {
+             MAX_NEEDED_HYPER_RATCHETS_IN_MEMORY
+        } else {
+            val as usize
+        }
     } else {
         1
     }
@@ -27,12 +32,13 @@ const fn calculate_max_hyper_ratchets() -> usize {
 /// The [Toolset] is the layer of abstraction between a [ClientNetworkAccount] and the
 /// inner hyper ratchets.
 #[derive(Serialize, Deserialize)]
-pub struct Toolset {
+pub struct Toolset<R: Ratchet> {
     /// the CID of the owner
     pub cid: u64,
     most_recent_hyper_ratchet_version: u32,
     oldest_hyper_ratchet_version: u32,
-    map: VecDeque<HyperRatchet>,
+    #[serde(bound="")]
+    map: VecDeque<R>,
     /// The static auxiliary drill was made to cover a unique situation that is consequence of dropping-off the back of the VecDeque upon upgrade:
     /// As the back gets dropped, any data drilled using that version now becomes undecipherable forever. The solution to this is having a static drill, but this
     /// does indeed compromise safety. This is thus marked as unsafe for use. This should NEVER be used for network data transmission, and should only
@@ -40,7 +46,8 @@ pub struct Toolset {
     /// with a complex file path, any possible hacker wouldn't necessarily be able to correlate the HyxeFile with the correct CID unless additional work was done.
     /// Local filesystems should be encrypted anyways (otherwise voids warranty), but, having the HyxeFile layer is really just a "weak" layer of protection
     /// designed to derail any currently existing or historical viruses that may look for conventional means of breaking-through data
-    static_auxiliary_hyper_ratchet: HyperRatchet
+    #[serde(bound="")]
+    static_auxiliary_hyper_ratchet: R
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
@@ -52,23 +59,23 @@ pub enum UpdateStatus {
     CommittedNeedsSynchronization { new_version: u32, old_version: u32 }
 }
 
-impl Toolset {
+impl<R: Ratchet> Toolset<R> {
     /// Creates a new [Toolset]. Designates the `hyper_ratchet` as the static auxiliary ratchet
-    pub fn new(cid: u64, hyper_ratchet: HyperRatchet) -> Self {
+    pub fn new(cid: u64, hyper_ratchet: R) -> Self {
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);
         map.push_front(hyper_ratchet.clone());
         Toolset { cid, most_recent_hyper_ratchet_version: 0, oldest_hyper_ratchet_version: 0, map, static_auxiliary_hyper_ratchet: hyper_ratchet }
     }
 
     #[cfg(debug_assertions)]
-    pub fn new_debug(cid: u64, hyper_ratchet: HyperRatchet, most_recent_hyper_ratchet_version: u32, oldest_hyper_ratchet_version: u32) -> Self {
+    pub fn new_debug(cid: u64, hyper_ratchet: R, most_recent_hyper_ratchet_version: u32, oldest_hyper_ratchet_version: u32) -> Self {
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);
         map.push_front(hyper_ratchet.clone());
         Toolset { cid, most_recent_hyper_ratchet_version, oldest_hyper_ratchet_version, map, static_auxiliary_hyper_ratchet: hyper_ratchet }
     }
 
     /// Updates from an inbound DrillUpdateObject. Returns the new Drill
-    pub fn update_from(&mut self, new_hyper_ratchet: HyperRatchet) -> Option<UpdateStatus> {
+    pub fn update_from(&mut self, new_hyper_ratchet: R) -> Option<UpdateStatus> {
         let latest_hr_version = self.get_most_recent_hyper_ratchet_version();
 
         if new_hyper_ratchet.get_cid() != self.cid {
@@ -98,7 +105,7 @@ impl Toolset {
     ///Replacing drills is not allowed, and is why this subroutine returns an error when a collision is detected
     ///
     /// Returns the new hyper ratchet version
-    fn append_hyper_ratchet(&mut self, hyper_ratchet: HyperRatchet) -> UpdateStatus {
+    fn append_hyper_ratchet(&mut self, hyper_ratchet: R) -> UpdateStatus {
         //debug_assert!(self.map.len() <= MAX_HYPER_RATCHETS_IN_MEMORY);
         let new_version = hyper_ratchet.version();
         //println!("max hypers: {} @ {} bytes ea", MAX_HYPER_RATCHETS_IN_MEMORY, get_approx_bytes_per_hyper_ratchet());
@@ -140,12 +147,12 @@ impl Toolset {
     }
 
     /// Returns the latest drill version
-    pub fn get_most_recent_hyper_ratchet(&self) -> Option<&HyperRatchet> {
+    pub fn get_most_recent_hyper_ratchet(&self) -> Option<&R> {
         self.map.front()
     }
 
     /// Returns the oldest drill in the VecDeque
-    pub fn get_oldest_hyper_ratchet(&self) -> Option<&HyperRatchet> {
+    pub fn get_oldest_hyper_ratchet(&self) -> Option<&R> {
         self.map.back()
     }
 
@@ -168,7 +175,7 @@ impl Toolset {
     /// The static auxilliary drill is used for RECOVERY MODE. I.e., if the version are out
     /// of sync, then the static auxiliary drill is used to obtain the nonce for the AES GCM
     /// mode of encryption
-    pub fn get_static_auxiliary_ratchet(&self) -> &HyperRatchet {
+    pub fn get_static_auxiliary_ratchet(&self) -> &R {
         &self.static_auxiliary_hyper_ratchet
     }
 
@@ -180,14 +187,14 @@ impl Toolset {
     }
 
     /// Returns a specific drill version
-    pub fn get_hyper_ratchet(&self, version: u32) -> Option<&HyperRatchet> {
+    pub fn get_hyper_ratchet(&self, version: u32) -> Option<&R> {
         let idx = self.get_adjusted_index(version);
         //println!("Getting idx {} which should have v{}", idx, version);
         self.map.get(idx)
     }
 
     /// Returns a range of drills. Returns None if any drill in the range is missing
-    pub fn get_hyper_ratchets(&self, versions: RangeInclusive<u32>) -> Option<Vec<&HyperRatchet>> {
+    pub fn get_hyper_ratchets(&self, versions: RangeInclusive<u32>) -> Option<Vec<&R>> {
         let mut ret = Vec::with_capacity((*versions.end() - *versions.start() + 1) as usize);
         for version in versions {
             if let Some(drill) = self.get_hyper_ratchet(version) {
@@ -227,8 +234,8 @@ impl Toolset {
 /// Makes replacing/synchronizing toolsets easier
 /// input: (static_aux_ratchet, f(0))
 pub type StaticAuxRatchet = HyperRatchet;
-impl From<(StaticAuxRatchet, HyperRatchet)> for Toolset {
-    fn from(drill: (HyperRatchet, HyperRatchet)) -> Self {
+impl From<(StaticAuxRatchet, HyperRatchet)> for Toolset<HyperRatchet> {
+    fn from(drill: (StaticAuxRatchet, HyperRatchet)) -> Self {
         let most_recent_hyper_ratchet_version = drill.1.version();
         let oldest_hyper_ratchet_version = most_recent_hyper_ratchet_version; // for init, just like in the normal constructor
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);

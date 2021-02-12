@@ -33,7 +33,7 @@ rand = "0.7.3"
 atomic = "0.5.0"
 secstr = { version = "0.4.0", features=["serde"] }
 bincode2 = "2.0.1"
-serde = { version = "1.0.104", features=["derive"] }
+serde = { version = "^1.0.123", features=["derive"] }
 net2 = "0.2.37"
 num = "0.2.1"
 either = "1.5.3"
@@ -45,6 +45,9 @@ hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
 rust-argon2 = "0.8.3"
 num_cpus = "1.13.0"
+fcm = "0.8.1"
+base64 = "0.13.0"
+serde_json = "1.0.62"
 
 
 [dev-dependencies]

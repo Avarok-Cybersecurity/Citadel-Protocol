@@ -8,7 +8,7 @@ use futures::task::{Context, Poll};
 use std::pin::Pin;
 
 
-pub struct UnboundedSender<T>(UnboundedSenderInner<T>);
+pub struct UnboundedSender<T>(pub(crate) UnboundedSenderInner<T>);
 
 impl<T> Clone for UnboundedSender<T> {
     fn clone(&self) -> Self {

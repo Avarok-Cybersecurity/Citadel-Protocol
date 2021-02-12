@@ -4,7 +4,6 @@ mod tests {
     use hyxe_fs::file_crypt_scrambler::scramble_encrypt_file;
     use tokio::sync::mpsc::channel;
     use bytes::BufMut;
-    use futures::StreamExt;
     use std::time::Instant;
     use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverStatus};
     use std::io::Write;
@@ -18,26 +17,26 @@ mod tests {
         log::error!("ERROR enabled");
     }
 
-    #[tokio::test(core_threads=4)]
+    #[tokio::test]
     async fn encrypt_decrypt_test() {
         setup_log();
         fn gen(drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
-            let mut alice_base = HyperRatchetConstructor::new_alice(None);
+            let mut alice_base = HyperRatchetConstructor::new_alice(None, 0, 0, None);
             let bob_base = HyperRatchetConstructor::new_bob(0, 0, drill_vers, alice_base.stage0_alice()).unwrap();
             alice_base.stage1_alice(bob_base.stage0_bob().unwrap()).unwrap();
 
             (alice_base.finish().unwrap(), bob_base.finish().unwrap())
         }
 
-        let (alice, bob) = gen(0);
+        let (alice, _bob) = gen(0);
         let security_level = SecurityLevel::LOW;
         const HEADER_LEN: usize = 52;
         // // C:\\satori.net\\target\\debug\\hyxewave
-        let path = "C:\\Users\\tbrau\\zoom.exe";
-        let cmp = include_bytes!("C:\\Users\\tbrau\\zoom.exe");
+        let path = "/Users/nologik/Downloads/TheBridge.pdf";
+        let cmp = include_bytes!("/Users/nologik/Downloads/TheBridge.pdf");
         let std_file = std::fs::File::open(path).unwrap();
         let (group_sender_tx, mut group_sender_rx) = channel(1);
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
         let (bytes, num_groups) = scramble_encrypt_file(std_file, None,99, group_sender_tx, stop_rx, security_level, alice.clone(), HEADER_LEN, 9, 0, |_, _, _, _, packet| {
             for x in 0..HEADER_LEN {
                 packet.put_u8((x % 255) as u8)
@@ -51,7 +50,8 @@ mod tests {
         let mut compressed_len: usize = 0;
         let mut decompressed_len: usize = 0;
 
-        while let Some(mut gs) =  group_sender_rx.next().await {
+        while let Some(gs) =  group_sender_rx.recv().await {
+            let mut gs = gs.unwrap();
             let config = gs.get_receiver_config();
             //println!("RECEIVED GS {} w {} packets", i, gs.packets_in_ram.len());
             let mut receiver = GroupReceiver::new(config.clone(),0, 0);
@@ -90,7 +90,7 @@ mod tests {
         let megabytes = bytes as f32 / 1_000_000f32;
         let mbs = megabytes / delta.as_secs_f32();
         println!("Done receiving all. {} time, {} bytes. {} Mb/s", delta.as_millis(), bytes, mbs);
-        println!("Decompressed len: {} | Compressed len: {} | Ratio: {}", decompressed_len, compressed_len, (decompressed_len as f32 / compressed_len as f32));
+        //println!("Decompressed len: {} | Compressed len: {} | Ratio: {}", decompressed_len, compressed_len, (decompressed_len as f32 / compressed_len as f32));
 
         assert_eq!(bytes, bytes_ret.len());
         if bytes_ret.as_slice() != cmp as &[u8] {

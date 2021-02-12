@@ -1,6 +1,6 @@
 use super::includes::*;
 use std::sync::atomic::Ordering;
-use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer};
+use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
 
 /// This will handle an HDP registration packet
 #[inline]
@@ -76,7 +76,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                 if let Some(mut alice_constructor) = state_container.register_state.constructor.take() {
                     let transfer = BobToAliceTransfer::deserialize_from(&payload[..])?;
                     let security_level = transfer.security_level;
-                    alice_constructor.stage1_alice(transfer)?;
+                    alice_constructor.stage1_alice(BobToAliceTransferType::Default(transfer))?;
                     let new_hyper_ratchet = alice_constructor.finish()?;
 
                     let reserved_true_cid = header.group.get();

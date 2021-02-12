@@ -193,7 +193,7 @@ impl NetKernel for CLIKernel {
                     GroupBroadcast::Message(username, key, message) => {
                         printfs!({
                             colour::yellow!("\n[{}@{}:{}]: ", username, key.cid, key.mgid);
-                            colour::white!("{}\n", message);
+                            colour::white!("{}\n", String::from_utf8(message.as_ref().to_vec()).unwrap_or("UTF-8 ERR".to_string()));
                         });
                     }
 

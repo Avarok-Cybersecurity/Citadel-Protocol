@@ -3,12 +3,11 @@ mod tests {
     use hyxe_crypt::sec_string::SecString;
     use hyxe_crypt::sec_bytes::SecBuffer;
     use hyxe_crypt::toolset::{Toolset, MAX_HYPER_RATCHETS_IN_MEMORY, UpdateStatus};
-    use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+    use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, EndpointRatchetConstructor};
     use hyxe_crypt::relay_chain::CryptoRelayChain;
     use std::iter::FromIterator;
     use bytes::{BufMut, BytesMut};
-    use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
-    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use hyxe_crypt::hyper_ratchet::{HyperRatchet, get_approx_max_transfer_size, Ratchet};
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::net::crypt_splitter::{scramble_encrypt_group, GroupReceiver, par_scramble_encrypt_group};
     use std::time::Instant;
@@ -23,17 +22,23 @@ mod tests {
     }
 
     #[test]
-    fn onion_packet() {
+    fn onion_packets() {
+        onion_packet::<HyperRatchet>();
+        #[cfg(feature = "fcm")]
+            onion_packet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+    }
+
+    fn onion_packet<R: Ratchet>() {
         setup_log();
         const LEN: usize = 5;
         const HEADER_LEN: usize = 50;
         let message = "Hello, world!";
 
-        let chain: CryptoRelayChain = CryptoRelayChain::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
+        let chain = CryptoRelayChain::<R>::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
             .map(|cid| {
-                let mut alice_hr = HyperRatchetConstructor::new_alice(None, 0, 0, None);
+                let mut alice_hr = R::Constructor::new_alice(None, 0, 0, None);
                 let transfer = alice_hr.stage0_alice();
-                let bob_hr = HyperRatchetConstructor::new_bob(0, 0, 0, transfer).unwrap();
+                let bob_hr = R::Constructor::new_bob(0, 0, 0, transfer).unwrap();
                 let transfer = bob_hr.stage0_bob().unwrap();
                 alice_hr.stage1_alice(transfer).unwrap();
                 let toolset = Toolset::new(cid, alice_hr.finish().unwrap());
@@ -114,14 +119,21 @@ mod tests {
     }
 
     #[test]
-    fn hyper_ratchet() {
+    fn hyper_ratchets() {
+        hyper_ratchet::<HyperRatchet>();
+        #[cfg(feature = "fcm")]
+            hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+    }
+
+    fn hyper_ratchet<R: Ratchet>() {
+        println!("HR size (low): {}", get_approx_max_transfer_size());
         setup_log();
         let algorithm = Some(0);
         let security_level = Some(SecurityLevel::TRANSCENDENT(10));
-        let mut alice_hyper_ratchet = HyperRatchetConstructor::new_alice(algorithm, 99, 0, security_level);
+        let mut alice_hyper_ratchet = R::Constructor::new_alice(algorithm, 99, 0, security_level);
         let transfer = alice_hyper_ratchet.stage0_alice();
 
-        let bob_hyper_ratchet = HyperRatchetConstructor::new_bob(algorithm.unwrap(), 99, 0, transfer).unwrap();
+        let bob_hyper_ratchet = R::Constructor::new_bob(algorithm.unwrap(), 99, 0, transfer).unwrap();
         let transfer = bob_hyper_ratchet.stage0_bob().unwrap();
 
         alice_hyper_ratchet.stage1_alice(transfer).unwrap();
@@ -154,24 +166,23 @@ mod tests {
     }
 
     #[test]
-    fn toolset() {
+    fn toolsets() {
+        toolset::<HyperRatchet>();
+        #[cfg(feature = "fcm")]
+        toolset::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+    }
+
+    fn toolset<R: Ratchet>() {
         setup_log();
         const COUNT: u32 = 100;
+        let security_level = SecurityLevel::LOW;
 
-        fn gen(drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
-            let mut alice_base = HyperRatchetConstructor::new_alice(None, 0, drill_vers, None);
-            let bob_base = HyperRatchetConstructor::new_bob(0, 0, drill_vers, alice_base.stage0_alice()).unwrap();
-            alice_base.stage1_alice(bob_base.stage0_bob().unwrap()).unwrap();
-
-            (alice_base.finish().unwrap(), bob_base.finish().unwrap())
-        }
-
-        let (alice, _bob) = gen(0);
+        let (alice, _bob) = gen::<R>(0, 0, security_level);
 
         let mut toolset = Toolset::new(0, alice);
 
         for x in 1..COUNT {
-            let res = toolset.update_from(gen(x).0).unwrap();
+            let res = toolset.update_from(gen::<R>(0,x, security_level).0).unwrap();
             match res {
                 UpdateStatus::Committed { .. } => {
                     assert!(x + 1 <= MAX_HYPER_RATCHETS_IN_MEMORY as u32);
@@ -197,7 +208,7 @@ mod tests {
             }
         }
 
-        let _res = toolset.update_from(gen(COUNT).0).unwrap();
+        let _res = toolset.update_from(gen::<R>(0,COUNT, security_level).0).unwrap();
         assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY + 1);
         assert_eq!(toolset.get_oldest_hyper_ratchet_version(), toolset.get_most_recent_hyper_ratchet_version() - MAX_HYPER_RATCHETS_IN_MEMORY as u32);
 
@@ -205,20 +216,26 @@ mod tests {
         assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY);
     }
 
-    fn gen(cid: u64, version: u32, sec: SecurityLevel) -> (HyperRatchet, HyperRatchet) {
+    fn gen<R: Ratchet>(cid: u64, version: u32, sec: SecurityLevel) -> (R, R) {
         let algorithm = 0;
-        let mut alice = HyperRatchetConstructor::new_alice(Some(algorithm), cid, version, Some(sec));
-        let bob = HyperRatchetConstructor::new_bob(algorithm, cid, version, alice.stage0_alice()).unwrap();
+        let mut alice = R::Constructor::new_alice(Some(algorithm), cid, version, Some(sec));
+        let bob = R::Constructor::new_bob(algorithm, cid, version, alice.stage0_alice()).unwrap();
         alice.stage1_alice(bob.stage0_bob().unwrap()).unwrap();
         (alice.finish().unwrap(), bob.finish().unwrap())
     }
 
     #[test]
-    fn toolset_wrapping_vers() {
+    fn toolset_wrapping_vers_all() {
+        toolset_wrapping_vers::<HyperRatchet>();
+        #[cfg(feature = "fcm")]
+            toolset_wrapping_vers::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+    }
+
+    fn toolset_wrapping_vers<R: Ratchet>() {
         setup_log();
         let vers = u32::MAX - 1;
         let cid = 10;
-        let hr = gen(cid, vers, SecurityLevel::LOW);
+        let hr = gen::<R>(cid, vers, SecurityLevel::LOW);
         let mut toolset = Toolset::new_debug(cid, hr.0, vers, vers);
         let r = toolset.get_hyper_ratchet(vers).unwrap();
         assert_eq!(r.version(), vers);
@@ -231,7 +248,7 @@ mod tests {
                 break;
             }
 
-            toolset.update_from(gen(cid,cur_vers, SecurityLevel::LOW).0).unwrap();
+            toolset.update_from(gen::<R>(cid,cur_vers, SecurityLevel::LOW).0).unwrap();
             let ratchet = toolset.get_hyper_ratchet(cur_vers).unwrap();
             assert_eq!(ratchet.version(), cur_vers);
             cur_vers = cur_vers.wrapping_add(1);
@@ -251,14 +268,20 @@ mod tests {
     }
 
     #[test]
-    fn scrambler_transmission() {
+    fn scrambler_transmission_all() {
+        scrambler_transmission::<HyperRatchet>();
+        #[cfg(feature = "fcm")]
+            scrambler_transmission::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+    }
+
+    fn scrambler_transmission<R: Ratchet>() {
         setup_log();
 
         const SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
         const HEADER_SIZE_BYTES: usize = 44;
 
         let mut data = BytesMut::with_capacity(1000);
-        let (ratchet_alice, ratchet_bob) = gen(10, 0, SECURITY_LEVEL);
+        let (ratchet_alice, ratchet_bob) = gen::<R>(10, 0, SECURITY_LEVEL);
         println!("Ratchet created. Creating PQC");
 
         // do 1000 for real tests on linux
@@ -296,7 +319,13 @@ mod tests {
     }
 
     #[test]
-    fn simulate_packet_loss() {
+    fn simulate_packet_loss_all() {
+        simulate_packet_loss::<HyperRatchet>();
+        #[cfg(feature = "fcm")]
+            simulate_packet_loss::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+    }
+
+    fn simulate_packet_loss<R: Ratchet>() {
         setup_log();
         let mut start_data = Vec::with_capacity(4 * 5000);
         for x in 0..5000i32 {
@@ -308,7 +337,7 @@ mod tests {
         for lvl in 0..=10 {
             let security_level: SecurityLevel = SecurityLevel::for_value(lvl).unwrap();
 
-            let (alice_ratchet, bob_ratchet) = gen(10, 0, security_level);
+            let (alice_ratchet, bob_ratchet) = gen::<R>(10, 0, security_level);
             //let input_data: &[u8] = include_bytes!("/Users/nologik/Downloads/TheBridge.pdf");
             let input_data = &start_data[..];
             let now = Instant::now();
