@@ -6,19 +6,20 @@ use tokio_util::time::{delay_queue, delay_queue::DelayQueue};
 use crate::constants::PEER_EVENT_MAILBOX_SIZE;
 use crate::error::NetworkError;
 use std::pin::Pin;
-use futures::task::{Context, Poll, AtomicWaker};
+use futures::task::{Context, Poll};
 use tokio::time::Duration;
 use futures::Stream;
 use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
 use std::fmt::{Display, Formatter};
 use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-use std::sync::Arc;
 use hyxe_crypt::drill::SecurityLevel;
 use serde::{Serialize, Deserialize};
 use hyxe_fs::prelude::SyncIO;
 use crate::macros::SyncContextRequirements;
 
+#[cfg(feature = "multi-threaded")]
+use futures::task::AtomicWaker;
 
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
 impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
@@ -31,11 +32,22 @@ pub struct HyperNodePeerLayerInner {
     // When a signal is routed to the target destination, the server needs to keep track of the state while awaiting
     pub(crate) observed_postings: HashMap<u64, HashMap<Ticket, TrackedPosting>>,
     pub(crate) message_groups: HashMap<u64, (u8, HashMap<u8, MessageGroup>)>,
-    delay_queue: DelayQueue<(u64, Ticket)>,
-    waker: Arc<AtomicWaker>
+    delay_queue: DelayQueue<(u64, Ticket)>
 }
 
-define_outer_struct_wrapper!(HyperNodePeerLayer, HyperNodePeerLayerInner);
+#[cfg(feature = "multi-threaded")]
+#[derive(Clone)]
+pub struct HyperNodePeerLayer {
+    inner: std::sync::Arc<parking_lot::RwLock<HyperNodePeerLayerInner>>,
+    waker: std::sync::Arc<AtomicWaker>
+}
+
+#[cfg(not(feature = "multi-threaded"))]
+#[derive(Clone)]
+pub struct HyperNodePeerLayer {
+    inner: std::rc::Rc<std::cell::RefCell<HyperNodePeerLayerInner>>,
+    waker: std::rc::Rc<std::cell::RefCell<Option<futures::task::Waker>>>
+}
 
 /// We don't use an "on_success" here because it would be structurally redundant. On success, the target node should
 /// provide the packet. In that case, upon reception, the correlated [TrackedPosting] should be cleared
@@ -294,59 +306,26 @@ impl HyperNodePeerLayer {
     /// NOTE: the ticket MUST be unique per session, otherwise unexpired items may disappear unnecessarily! If the ticket ID's are provided
     /// by the HyperLAN client's side, this should work out
     #[allow(unused_results)]
-    pub fn insert_tracked_posting(&self, implicated_cid: u64, timeout: Duration, ticket: Ticket, signal: PeerSignal, on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements) -> bool {
-        let mut this = inner_mut!(self);
-        let delay_key = this.delay_queue
-            .insert((implicated_cid, ticket), timeout);
-        log::info!("Creating TrackedPosting {} (Ticket: {})", implicated_cid, ticket);
+    pub fn insert_tracked_posting(&self, implicated_cid: u64, timeout: Duration, ticket: Ticket, signal: PeerSignal, on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements) {
+        let this_ref = self.clone();
+        let future = async move {
+            let mut this = inner_mut!(this_ref);
+            let delay_key = this.delay_queue
+                .insert((implicated_cid, ticket), timeout);
+            log::info!("Creating TrackedPosting {} (Ticket: {})", implicated_cid, ticket);
 
-        if let Some(map) = this.observed_postings.get_mut(&implicated_cid) {
-            let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
-            map.insert(ticket, tracked_posting);
+            if let Some(map) = this.observed_postings.get_mut(&implicated_cid) {
+                let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
+                map.insert(ticket, tracked_posting);
 
-            let waker = this.waker.clone();
-            std::mem::drop(this);
-            waker.wake();
+                std::mem::drop(this);
+                this_ref.wake();
+            } else {
+                log::error!("Unable to find implicated_cid in observed_posting. Bad init state?");
+            }
+        };
 
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Useful for entries that will only have a bried lifetime in the `observed_postings` structure. Will only allocated one spot
-    #[allow(unused_results, dead_code)]
-    pub fn insert_provisional_posting(&self, implicated_cid: u64, timeout: Duration, ticket: Ticket, signal: PeerSignal, on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements) -> bool {
-        let mut this = inner_mut!(self);
-        let delay_key = this.delay_queue
-            .insert((implicated_cid, ticket), timeout);
-        log::info!("Creating TrackedPosting {} (Ticket: {})", implicated_cid, ticket);
-
-        if !this.observed_postings.contains_key(&implicated_cid) {
-            let mut map = HashMap::with_capacity(1);
-            let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
-            map.insert(ticket, tracked_posting);
-            this.observed_postings.insert(implicated_cid, map);
-
-            let waker = this.waker.clone();
-            std::mem::drop(this);
-            waker.wake();
-
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Removes the hashmap and correspoding internal [TrackedPosting]
-    #[allow(unused_results, dead_code)]
-    pub fn remove_provisional_posting(&self, implicated_cid: u64, ticket: Ticket) -> Option<PeerSignal> {
-        let mut this = inner_mut!(self);
-        log::info!("Removing tracked posting for {} (ticket: {})", implicated_cid, ticket);
-        let mut active_postings = this.observed_postings.remove(&implicated_cid)?;
-        let active_posting = active_postings.remove(&ticket)?;
-        this.delay_queue.remove(&active_posting.key);
-        Some(active_posting.signal)
+        spawn!(future);
     }
 
     /// Removes a [TrackedPosting] from the internal queue, and returns the signal
@@ -360,9 +339,37 @@ impl HyperNodePeerLayer {
         Some(active_posting.signal)
     }
 
+    // Single-thread note: re-entrancy is okay since we can hold multiple borrow at once, but not multiple borrow_muts
+    fn register_waker(&self, waker: &futures::task::Waker) {
+        #[cfg(feature = "multi-threaded")]
+            {
+                self.waker.register(waker)
+            }
+
+        #[cfg(not(feature = "multi-threaded"))]
+            {
+                *self.waker.borrow_mut() = Some(waker.clone());
+            }
+    }
+
+    fn wake(&self) {
+        #[cfg(feature = "multi-threaded")]
+            {
+                self.waker.wake();
+            }
+
+        #[cfg(not(feature = "multi-threaded"))]
+            {
+                let borrow = self.waker.borrow();
+                if let Some(waker) = borrow.as_ref() {
+                    waker.wake_by_ref();
+                }
+            }
+    }
+
     pub(self) fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
+        self.register_waker(cx.waker());
         let mut this = inner_mut!(self);
-        this.waker.register(cx.waker());
 
         while let Some(res) = futures::ready!(this.delay_queue.poll_expired(cx)) {
             let (implicated_cid, ticket) = res?.into_inner();
@@ -530,7 +537,19 @@ impl Into<Vec<u8>> for PeerSignal {
 impl Default for HyperNodePeerLayer {
     fn default() -> Self {
         let inner = HyperNodePeerLayerInner { delay_queue: DelayQueue::new(), ..Default::default() };
-        Self::from(inner)
+        #[cfg(feature = "multi-threaded")]
+            {
+                let waker = std::sync::Arc::new(AtomicWaker::new());
+                let inner = std::sync::Arc::new(parking_lot::RwLock::new(inner));
+                Self { inner, waker }
+            }
+
+        #[cfg(not(feature = "multi-threaded"))]
+            {
+                let waker = std::rc::Rc::new(std::cell::RefCell::new(None));
+                let inner = std::rc::Rc::new(std::cell::RefCell::new(inner));
+                Self { inner, waker }
+            }
     }
 }
 

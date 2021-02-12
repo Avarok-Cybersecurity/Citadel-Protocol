@@ -259,7 +259,7 @@ impl HdpSession {
             let writer_future = spawn_handle!(Self::outbound_stream(primary_outbound_rx, writer, obfuscator.clone()));
             let reader_future = spawn_handle!(Self::execute_inbound_stream(reader, this_inbound, None, obfuscator));
             //let timer_future = Self::execute_timer(this.clone());
-            let queue_worker_future = spawn_handle!(Self::execute_queue_worker(this_queue_worker));
+            let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
             let socket_loader_future = spawn_handle!(Self::socket_loader(this_socket_loader, to_kernel_tx_clone.clone(), socket_loader_rx));
             let stopper_future = spawn_handle!(Self::stopper(stopper));
             let handle_zero_state = Self::handle_zero_state(packet_opt, primary_outbound_tx.clone(), this_outbound, this_ref.state, timestamp, local_nid, cnac_opt);
@@ -272,7 +272,7 @@ impl HdpSession {
                                 res0 = writer_future => res0,
                                 res1 = reader_future => res1,
                                 res2 = stopper_future => res2,
-                                res3 = queue_worker_future => res3,
+
                                 res4 = p2p_listener => Ok(res4),
                                 res5 = socket_loader_future => res5
                             }
@@ -283,7 +283,7 @@ impl HdpSession {
                                 res0 = writer_future => res0,
                                 res1 = reader_future => res1,
                                 res2 = stopper_future => res2,
-                                res3 = queue_worker_future => res3,
+
                                 res5 = socket_loader_future => res5
                             }
                         })
@@ -297,7 +297,7 @@ impl HdpSession {
             // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
             // separate task, we solve the issue of re-entrancing of mutex
             //#[cfg(feature = "multi-threaded")]
-            //    let _ = spawn!(queue_worker_future);
+            let _ = spawn!(queue_worker_future);
 
             (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message, sock)
         };

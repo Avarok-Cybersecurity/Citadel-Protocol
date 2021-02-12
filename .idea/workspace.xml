@@ -154,6 +154,7 @@
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/test/parse.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/verisend-d3aec-firebase-adminsdk-ciu1o-61bf96092c.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/Makefile.toml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/Makefile.toml" afterDir="false" />
@@ -400,13 +401,37 @@
       <change beforePath="$PROJECT_DIR$/flutterust/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/pubspec.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/pubspec.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/test/widget_test.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/test/widget_test.dart" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/.travis.yml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/Cargo.toml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/LICENSE" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/add_any_port.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/add_port.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/add_remove.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/aio.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/external_ip.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/remove_port.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/rustfmt.toml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/aio/gateway.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/aio/mod.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/aio/search.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/aio/soap.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/common/messages.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/common/mod.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/common/options.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/common/parsing.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/errors.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/gateway.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/lib.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/search.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/time_tracker.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/time_tracker.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/session_queue_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/session_queue_handler.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -936,7 +961,7 @@
       <workItem from="1612218858679" duration="612000" />
       <workItem from="1612224839899" duration="68387000" />
       <workItem from="1612824212961" duration="14959000" />
-      <workItem from="1612963324558" duration="72440000" />
+      <workItem from="1612963324558" duration="91010000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
@@ -1107,13 +1132,8 @@
       <breakpoints>
         <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
           <url>file://$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs</url>
-          <line>706</line>
-          <option name="timeStamp" value="1" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs</url>
-          <line>638</line>
-          <option name="timeStamp" value="2" />
+          <line>703</line>
+          <option name="timeStamp" value="6" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>
