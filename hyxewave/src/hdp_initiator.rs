@@ -11,12 +11,13 @@ pub fn execute(config: AppConfig) -> Result<(), NetworkError> {
     // CLAP will ensure this value always have Some
     let bind_addr = config.local_bind_addr.clone().unwrap();
     let hypernode_type = config.hypernode_type.unwrap();
+    let server_aux_cfg = config.aux_options.clone();
     let rt = Arc::new(build_rt(config.kernel_threads)?);
     let rt_ke = rt.clone();
     rt.block_on(async move {
         let account_manager = get_account_manager(&config).await?;
         let kernel = CLIKernel::new(config, account_manager.clone()).await;
-        match KernelExecutor::new(rt_ke, hypernode_type, account_manager, kernel, bind_addr).await {
+        match KernelExecutor::new(rt_ke, hypernode_type, account_manager, kernel, bind_addr, server_aux_cfg).await {
             Ok(server) => {
                 server.execute().await
             },

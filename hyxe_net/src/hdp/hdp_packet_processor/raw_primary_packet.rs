@@ -1,17 +1,20 @@
-use super::includes::*;
 use bytes::BytesMut;
+
 use crate::hdp::hdp_packet::HeaderObfuscator;
+use crate::hdp::hdp_packet_processor::peer::peer_cmd_packet;
+
+use super::includes::*;
 
 /// For primary-port packet types. NOT for wave ports
 pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, mut packet: BytesMut, header_obfuscator: &HeaderObfuscator) -> PrimaryProcessorResult {
     header_obfuscator.on_packet_received(&mut packet)?;
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     let (header, _payload) = packet.parse()?;
-    log::info!("RECV Raw packet: {:?}", &*header);
+    log::trace!("RECV Raw packet: {:?}", &*header);
 
     let target_cid = header.target_cid.get();
     let mut endpoint_cid_info = None;
-    // if proxying is involved, then the target_cid != 0
+    // if proxying/p2p is involved, then the target_cid != 0
     if target_cid != 0 {
         // since target cid is not zero, there are two possibilities:
         // either [A] we are at the hLAN server, in which case the this_implicated_cid != target_cid
@@ -84,7 +87,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
         }
 
         packet_flags::cmd::primary::PEER_CMD => {
-            super::peer_cmd_packet::process(session, cmd_aux, packet, header_drill_vers, endpoint_cid_info)
+            peer_cmd_packet::process(session, cmd_aux, packet, header_drill_vers, endpoint_cid_info)
         }
 
         packet_flags::cmd::primary::FILE => {

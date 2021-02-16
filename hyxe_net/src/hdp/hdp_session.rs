@@ -17,11 +17,11 @@ use hyxe_user::client_account::ClientNetworkAccount;
 use crate::constants::{DEFAULT_PQC_ALGORITHM, INITIAL_RECONNECT_LOCKOUT_TIME_NS, LOGIN_EXPIRATION_TIME, DRILL_UPDATE_FREQUENCY_LOW_BASE, KEEP_ALIVE_INTERVAL_MS, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, CODEC_BUFFER_CAPACITY, KEEP_ALIVE_TIMEOUT_NS};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags, HeaderObfuscator};
-use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter};
+use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
 //use futures_codec::Framed;
 use crate::hdp::hdp_packet_processor::{self, GroupProcessorResult, PrimaryProcessorResult};
 use crate::hdp::hdp_packet_processor::includes::{SocketAddr, Duration};
-use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote};
+use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, MessageType};
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::outbound_sender::{OutboundUdpSender, KEEP_ALIVE, OutboundTcpReceiver, OutboundTcpSender};
 use crate::hdp::state_container::{OutboundTransmitterContainer, StateContainerInner, VirtualConnectionType, VirtualTargetType, GroupKey, OutboundFileTransfer, FileKey, StateContainer, GroupSender};
@@ -40,15 +40,20 @@ use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 use atomic::{Atomic, Ordering};
 use std::sync::atomic::AtomicBool;
 use crate::inner_arg::{InnerParameterMut, ExpectedInnerTargetMut};
-use hyxe_crypt::sec_bytes::SecBuffer;
 use crate::hdp::misc::clean_shutdown::{CleanShutdownStream, CleanShutdownSink};
 use crate::hdp::misc;
 use crate::hdp::peer::p2p_conn_handler::P2PInboundHandle;
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 use crate::macros::SessionBorrow;
-use crate::functional::IfTrueConditional;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use crate::hdp::peer::peer_layer::PeerSignal;
+use crate::hdp::peer::peer_layer::{PeerSignal, PeerResponse};
+use crate::opts::ClientAuxiliaryOptions;
+use crate::fcm::fcm_server::FCMServerInstance;
+use crate::fcm::kem::FcmPostRegister;
+use hyxe_crypt::fcm::fcm_ratchet::{FcmRatchetConstructor, FcmAliceToBobTransfer};
+use hyxe_fs::io::SyncIO;
+use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
+use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+use hyxe_crypt::toolset::Toolset;
 //use crate::define_struct;
 
 pub type WeakHdpSessionBorrow = crate::macros::WeakBorrow<HdpSessionInner>;
@@ -90,7 +95,6 @@ pub struct HdpSessionInner {
     pub(super) local_bind_addr: SocketAddr,
     // if this is enabled, then UDP won't be used
     pub(super) tcp_only: bool,
-    pub(super) hdp_nodelay: bool,
     pub(super) security_level: SecurityLevel,
     pub(super) current_group_id: u64,
     pub(super) transfer_stats: TransferStats,
@@ -99,6 +103,8 @@ pub struct HdpSessionInner {
     pub(super) rolling_object_idx: u32,
     pub(super) stopper_rx: Option<Receiver<()>>,
     pub(super) queue_worker: SessionQueueWorker,
+    pub(super) client_aux_cfg: ClientAuxiliaryOptions,
+    pub(super) fcm_server_conn: Option<FCMServerInstance>
 }
 
 /// allows each session worker to check the state of the session
@@ -124,7 +130,7 @@ pub enum SessionState {
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub fn new(hdp_remote: HdpServerRemote, pqc_algorithm: Option<u8>, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, remote_peer: SocketAddr, time_tracker: TimeTracker, implicated_cid: Option<u64>, kernel_ticket: Ticket, security_level: SecurityLevel, hdp_nodelay: bool, tcp_only: bool, keep_alive_timeout_ns: i64) -> Option<Self> {
+    pub fn new(hdp_remote: HdpServerRemote, pqc_algorithm: Option<u8>, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, remote_peer: SocketAddr, time_tracker: TimeTracker, implicated_cid: Option<u64>, kernel_ticket: Ticket, security_level: SecurityLevel, client_aux_cfg: ClientAuxiliaryOptions,  tcp_only: bool, keep_alive_timeout_ns: i64) -> Option<Self> {
         let (cnac, state) = if let Some(implicated_cid) = implicated_cid {
             let cnac = account_manager.get_client_by_cid(implicated_cid)?;
             (Some(cnac), SessionState::NeedsConnect)
@@ -157,13 +163,14 @@ impl HdpSession {
             cnac,
             state,
             account_manager,
-            hdp_nodelay,
             current_group_id: 0,
             transfer_stats: TransferStats::new(timestamp, 0),
             is_server: false,
             needs_close_message: Arc::new(AtomicBool::new(true)),
             stopper_rx: Some(stopper_rx),
             queue_worker: SessionQueueWorker::new(stopper_tx),
+            fcm_server_conn: None,
+            client_aux_cfg
         };
 
         Some(Self::from(inner))
@@ -174,9 +181,11 @@ impl HdpSession {
     ///
     /// When this is called, the connection is implied to be in impersonal mode. As such, the calling closure should have a way of incrementing
     /// the provisional ticket.
-    pub fn new_incoming(hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket, hdp_nodelay: bool) -> Self {
+    pub fn new_incoming(hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket, fcm_server_conn: Option<FCMServerInstance>) -> Self {
         let timestamp = time_tracker.get_global_time_ns();
         let (stopper_tx, stopper_rx) = channel(1);
+        // During the DO_CONNECT stage, this will be set properly serverside if the client supplies custom opts
+        let client_aux_cfg = Default::default();
         let inner = HdpSessionInner {
             rolling_object_idx: 1,
             pqc_algorithm: None,
@@ -199,13 +208,14 @@ impl HdpSession {
             to_primary_stream: None,
             state: SessionState::SocketJustOpened,
             account_manager,
-            hdp_nodelay,
             current_group_id: 0,
             transfer_stats: TransferStats::new(timestamp, 0),
             is_server: true,
             needs_close_message: Arc::new(AtomicBool::new(true)),
             stopper_rx: Some(stopper_rx),
             queue_worker: SessionQueueWorker::new(stopper_tx),
+            fcm_server_conn,
+            client_aux_cfg
         };
 
         Self::from(inner)
@@ -639,7 +649,7 @@ impl HdpSession {
     /// Similar to process_outbound_packet, but optimized to handle files
     pub fn process_outbound_file(&self, ticket: Ticket, max_group_size: Option<usize>, file: PathBuf, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let mut this = inner_mut!(self);
-        let cnac = this.cnac.clone().ok_or(NetworkError::InvalidExternalRequest("CNAC no loaded"))?;
+        let cnac = this.cnac.clone().ok_or(NetworkError::InvalidExternalRequest("CNAC not loaded"))?;
         if this.state != SessionState::Connected {
             Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}, file: {:?}) outbound, but the session is not connected", ticket, file)))
         } else {
@@ -690,9 +700,9 @@ impl HdpSession {
                         let mut state_container = inner_mut!(this.state_container);
                         if let Some(vconn) = state_container.active_virtual_connections.get_mut(&target_cid) {
                             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
-                                let object_id = endpoint_container.get_and_increment_object_id();
+                                let object_id = endpoint_container.endpoint_crypto.get_and_increment_object_id();
                                 // reserve group ids
-                                let start_group_id = endpoint_container.get_and_increment_group_id();
+                                let start_group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
 
                                 let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap();
 
@@ -709,11 +719,13 @@ impl HdpSession {
                                     plaintext_length: file_size,
                                     group_count: groups_needed,
                                 };
-                                // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                                let amt_to_reserve = groups_needed - 1;
-                                endpoint_container.rolling_group_id += amt_to_reserve as u64;
 
                                 let file_header = hdp_packet_crafter::file::craft_file_header_packet(latest_usable_ratchet, start_group_id, ticket, security_level, virtual_target, file_metadata, timestamp);
+
+                                // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
+                                let amt_to_reserve = groups_needed - 1;
+                                endpoint_container.endpoint_crypto.rolling_group_id += amt_to_reserve as u64;
+
                                 (preferred_primary_stream, file_header, object_id, target_cid, target_cid, groups_needed)
                             } else {
                                 log::error!("Endpoint container not found");
@@ -817,20 +829,20 @@ impl HdpSession {
 
                                     let hyper_ratchet = proper_latest_hyper_ratchet.unwrap();
 
-                                    let mut transmitter = GroupTransmitter::new_from_group_sender(to_primary_stream.clone(), GroupSender::from(sender), hyper_ratchet.clone(), object_id, target_cid, ticket, security_level, time_tracker.clone());
+                                    let mut transmitter = GroupTransmitter::new_from_group_sender(to_primary_stream.clone(), GroupSender::from(sender), RatchetPacketCrafterContainer::default(hyper_ratchet.clone(), None), object_id, target_cid, ticket, security_level, time_tracker.clone());
                                     // group_id is unique per session
                                     let group_id = transmitter.group_id;
 
                                     // We manually send the header. The tails get sent automatically
                                     log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
-                                    if let Err(err) = sess.try_action(Some(ticket), || transmitter.transmit_group_header(virtual_target, None)) {
+                                    if let Err(err) = sess.try_action(Some(ticket), || transmitter.transmit_group_header(virtual_target)) {
                                         log::error!("Unable to send through primary stream: {}", err.to_string());
                                         return;
                                     }
                                     let group_byte_len = transmitter.get_total_plaintext_bytes();
 
 
-                                    let outbound_container = OutboundTransmitterContainer::new(None, Some(next_gs_alerter.clone()), transmitter, group_byte_len, groups_needed, relative_group_id, ticket);
+                                    let outbound_container = OutboundTransmitterContainer::new(Some(next_gs_alerter.clone()), transmitter, group_byte_len, groups_needed, relative_group_id, ticket);
                                     relative_group_id += 1;
                                     // The payload packets won't be sent until a GROUP_HEADER_ACK is received
                                     // the key is the target_cid coupled with the group id
@@ -918,11 +930,11 @@ impl HdpSession {
     ///
     /// This will send the group header too
     #[allow(unused_results)]
-    pub fn process_outbound_packet(&self, ticket: Ticket, packet: SecBuffer, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
+    pub fn process_outbound_message(&self, ticket: Ticket, packet: MessageType, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let mut this = inner_mut!(self);
         let algorithm = this.pqc_algorithm;
         if this.state != SessionState::Connected {
-            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}, len: {}) outbound, but the session is not connected", ticket, packet.len())))
+            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}) outbound, but the session is not connected", ticket)))
         } else {
             let cnac = this.cnac.clone().unwrap();
             let time_tracker = this.time_tracker.clone();
@@ -931,57 +943,74 @@ impl HdpSession {
             const OBJECT_SINGLETON: u32 = 0;
             // Drop this to ensure that it doesn't block other async closures from accessing the inner device
             // std::mem::drop(this);
-            let (mut transmitter, group_id, target_cid, alice_constructor) = match virtual_target {
+            let (mut transmitter, group_id, target_cid) = match virtual_target {
                 VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
+                    if packet.is_fcm() {
+                        return Err(NetworkError::InvalidExternalRequest("FCM packets cannot be sent solely to HyperLAN servers"))
+                    }
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
                     let group_id = this.get_and_increment_group_id();
-                    let (alice_constructor, latest_hyper_ratchet) = cnac.visit_mut(|mut inner| -> Result<(Option<HyperRatchetConstructor>, HyperRatchet), NetworkError> {
+                    let (alice_constructor, latest_hyper_ratchet) = cnac.visit_mut(|mut inner| -> Result<_, NetworkError> {
                         let latest_hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).cloned().unwrap();
                         latest_hyper_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_hyper_ratchet.get_default_security_level())))?;
-                        let constructor = if inner.crypt_container.update_in_progress {
-                            None
-                        } else {
-                            inner.crypt_container.update_in_progress = true;
-                            Some(latest_hyper_ratchet.next_alice_constructor(algorithm))
-                        };
+                        let constructor = inner.crypt_container.get_next_constructor(algorithm);
 
                         Ok((constructor, latest_hyper_ratchet.clone()))
                     })?;
 
                     let to_primary_stream = this.to_primary_stream.clone().unwrap();
 
-                    (GroupTransmitter::new_message(to_primary_stream, OBJECT_SINGLETON, ENDPOINT_ENCRYPTION_OFF, latest_hyper_ratchet, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid, alice_constructor)
+                    (GroupTransmitter::new_message(to_primary_stream, OBJECT_SINGLETON, ENDPOINT_ENCRYPTION_OFF, RatchetPacketCrafterContainer::default(latest_hyper_ratchet, alice_constructor), packet.into_buffer(), security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid)
                 }
 
                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                    log::info!("Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
-                    // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and Toolset
-                    let mut state_container = inner_mut!(this.state_container);
-                    if let Some(vconn) = state_container.active_virtual_connections.get_mut(&target_cid) {
-                        if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
-                            let group_id = endpoint_container.get_and_increment_group_id();
-                            let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
-                            let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap().clone();
-                            latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
-                            let alice_constructor = endpoint_container.endpoint_crypto.update_in_progress.if_true(None).if_false_then(|| {
-                                endpoint_container.endpoint_crypto.update_in_progress = true;
-                                Some(latest_usable_ratchet.next_alice_constructor(algorithm))
-                            });
+                    log::info!("Sending HyperLAN peer ({}) <-> HyperLAN Peer ({}) [fcm: {}]", implicated_cid, target_cid, packet.is_fcm());
+                    match packet {
+                        MessageType::Default(packet) => {
+                            // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and Toolset
+                            let mut state_container = inner_mut!(this.state_container);
+                            if let Some(vconn) = state_container.active_virtual_connections.get_mut(&target_cid) {
+                                if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
+                                    let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
+                                    let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
+                                    let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap().clone();
+                                    latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
+                                    let alice_constructor = endpoint_container.endpoint_crypto.get_next_constructor(algorithm);
 
-                            (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON, target_cid, latest_usable_ratchet, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid, alice_constructor)
-                        } else {
-                            log::error!("Endpoint container not found");
-                            return Ok(());
+                                    (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON, target_cid, RatchetPacketCrafterContainer::default(latest_usable_ratchet, alice_constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
+                                } else {
+                                    log::error!("Endpoint container not found");
+                                    return Ok(());
+                                }
+                            } else {
+                                log::error!("Unable to find active vconn for the channel");
+                                return Ok(());
+                            }
                         }
-                    } else {
-                        log::error!("Unable to find active vconn for the channel");
-                        return Ok(());
+
+                        MessageType::Fcm(packet) => {
+                            // check CNAC
+                            cnac.visit_mut(|mut inner| -> Result<_, NetworkError> {
+                                // first, get the base crypt container
+                                let base_cid = inner.cid;
+                                let base_ratchet_no_upgrade = inner.crypt_container.get_hyper_ratchet(None).cloned().ok_or(NetworkError::InternalError("HyperRatchet absent"))?;
+                                base_ratchet_no_upgrade.verify_level(Some(security_level)).map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                let base_constructor = inner.crypt_container.get_next_constructor(algorithm);
+                                let peer_crypt_container = inner.fcm_crypt_container.get_mut(&target_cid).ok_or(NetworkError::InvalidExternalRequest("Peer is not FCM connected"))?;
+                                let group_id = peer_crypt_container.get_and_increment_group_id();
+                                let to_primary_stream = this.to_primary_stream.clone().unwrap();
+                                let latest_ratchet = peer_crypt_container.get_hyper_ratchet(None).cloned().unwrap();
+                                let fcm_constructor = peer_crypt_container.get_next_constructor(None);
+
+                                Ok((GroupTransmitter::new_message(to_primary_stream, OBJECT_SINGLETON, target_cid, RatchetPacketCrafterContainer::fcm(base_ratchet_no_upgrade, base_constructor, latest_ratchet, fcm_constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, base_cid))
+                            })?
+                        }
                     }
                 }
 
                 _ => {
-                    unimplemented!("HyperWAN functionality not yet implemented")
+                    return Err(NetworkError::InvalidExternalRequest("HyperWAN functionality not yet implemented"))
                 }
             };
 
@@ -989,10 +1018,17 @@ impl HdpSession {
             // We manually send the header. The tails get sent automatically
             log::info!("[message] Sending GROUP HEADER through primary stream for group {}", group_id);
             let group_len = transmitter.get_total_plaintext_bytes();
-            this.try_action(Some(ticket), || transmitter.transmit_group_header(virtual_target, alice_constructor.as_ref()))?;
+            this.try_action(Some(ticket), || transmitter.transmit_group_header(virtual_target))?;
 
             this.transfer_stats += TransferStats::new(timestamp, group_len as isize);
-            let outbound_container = OutboundTransmitterContainer::new(alice_constructor, None, transmitter, group_len, 1, 0, ticket);
+
+            /*
+            if transmitter.is_fcm() {
+                log::info!("[FCM] Finished sending message for ticket {}", ticket);
+                return Ok(());
+            }*/
+
+            let outbound_container = OutboundTransmitterContainer::new(None, transmitter, group_len, 1, 0, ticket);
             // The payload packets won't be sent until a GROUP_HEADER_ACK is received
             // NOTE: Ever since using GroupKeys, we use either the implicated_cid (for client -> server conns) or target_cids (for peer conns)
             let key = GroupKey::new(target_cid, group_id);
@@ -1007,7 +1043,7 @@ impl HdpSession {
                             log::info!("Outbound group {} has expired; dropping from map", group_id);
                             QueueWorkerResult::Complete
                         } else {
-                            log::info!("[X-04] Other outbound groups being processed; patiently awaiting group {}", group_id);
+                            log::info!("Other outbound groups being processed; patiently awaiting group {}", group_id);
                             QueueWorkerResult::Incomplete
                         }
                     } else {
@@ -1057,20 +1093,61 @@ impl HdpSession {
         })
     }
 
+    #[allow(unused_results)]
     pub(crate) fn dispatch_peer_command(&self, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let this = inner!(self);
         let timestamp = this.time_tracker.get_global_time_ns();
         if let Some(cnac) = this.cnac.as_ref() {
             if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
                 // move into the closure without cloning the drill
-                return cnac.borrow_hyper_ratchet(None, move |drill_opt| {
-                    if let Some(hyper_ratchet) = drill_opt {
-                        let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, peer_command, ticket, timestamp, security_level);
-                        to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string()))
-                    } else {
-                        Err(NetworkError::InternalError("HyperRatchet missing"))
-                    }
-                });
+                return cnac.visit_mut(|mut inner| {
+                    let signal_processed = match peer_command {
+                        // case 1: user just initiated a post-register request that has Fcm enabled
+                        PeerSignal::PostRegister(vconn, a, b, c, FcmPostRegister::Enable) => {
+                            let target_cid = vconn.get_original_target_cid();
+                            log::info!("[FCM] client {} requested FCM post-register with {}", inner.cid, target_cid);
+                            let mut state_container = inner_mut!(this.state_container);
+                            if state_container.peer_kem_states.contains_key(&target_cid) || inner.fcm_crypt_container.contains_key(&target_cid) {
+                                return Err(NetworkError::InvalidExternalRequest("Cannot register to the specified client because a concurrent registration process is already occurring, or already registered"));
+                            }
+
+                            // create constructor
+                            let fcm_constructor = FcmRatchetConstructor::new_alice(inner.cid, 0);
+                            let fcm_post_register = FcmPostRegister::AliceToBobTransfer(fcm_constructor.stage0_alice().serialize_to_vector().unwrap());
+                            // finally, store the constructor inside the state container
+                            let mut state = PeerKemStateContainer::default();
+                            state.fcm_constructor = Some(fcm_constructor);
+                            state_container.peer_kem_states.insert(target_cid, state);
+                            PeerSignal::PostRegister(vconn, a, b, c, fcm_post_register)
+                        }
+
+                        // case 2: local just accepted, fcm is enabled
+                        PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(c)), FcmPostRegister::AliceToBobTransfer(transfer)) => {
+                            let target_cid = vconn.get_original_target_cid();
+                            let local_cid = inner.cid;
+                            log::info!("[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
+                            if inner.fcm_crypt_container.contains_key(&target_cid) {
+                                return Err(NetworkError::InvalidExternalRequest("Cannot register to the specified client because crypt container already exists"));
+                            }
+
+                            let bob_constructor = FcmRatchetConstructor::new_bob(FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| NetworkError::Generic(err.to_string()))?).ok_or(NetworkError::InvalidExternalRequest("Invalid FCM ratchet constructor"))?;
+                            let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(NetworkError::InvalidExternalRequest("Invalid FCM ratchet constructor"))?.serialize_to_vector().map_err(|err| NetworkError::Generic(err.to_string()))?);
+                            let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(NetworkError::InvalidExternalRequest("Invalid FCM Ratchet constructor"))?;
+                            // no state container, we just add the peer crypt container straight-away
+                            inner.fcm_crypt_container.insert(target_cid, PeerSessionCrypto::new(Toolset::new(local_cid, fcm_ratchet), false)); // local is NOT initiator in this case
+                            cnac.spawn_save_task_on_threadpool();
+                            PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(c)), fcm_post_register)
+                        }
+
+                        n => {
+                            n
+                        }
+                    };
+
+                    let hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).unwrap();
+                    let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
+                    to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string()))
+                })
             }
         }
 

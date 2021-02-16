@@ -40,9 +40,11 @@
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
       <change afterPath="$PROJECT_DIR$/flutterust/android/app/google-services.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/java/com/satori/svc/FirebaseHandler.java" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/java/com/satori/svc/KernelConnection.java" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/java/com/satori/svc/Restarter.java" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/java/com/satori/svc/VerisendService.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/java/com/satori/verisend/Application.java" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/res/drawable/drawable-hdpi/ic_stat_send.png" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/android/app/src/main/res/drawable/drawable-mdpi/ic_stat_send.png" afterDir="false" />
@@ -126,7 +128,6 @@
       <change afterPath="$PROJECT_DIR$/flutterust/lib/themes/default.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/lib/utils.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/native/scrap-ffi/src/ffi_object.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/flutterust/packages/awesome_notifications" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/main.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/parser.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/types/domain_specific_response.dart" afterDir="false" />
@@ -153,6 +154,11 @@
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/lib/utils.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/packages/satori_ffi_parser/test/parse.dart" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/flutterust/verisend-d3aec-firebase-adminsdk-ciu1o-61bf96092c.json" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/hyxe_net/src/fcm/kem.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/hyxe_net/src/opts.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.cargo/config" beforeDir="false" afterPath="$PROJECT_DIR$/.cargo/config" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/hyxe_wave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hyxe_wave.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust" afterDir="false" />
@@ -208,189 +214,6 @@
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/pubspec.lock" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/pubspec.yaml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/adder_ffi/test/adder_test.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/.metadata" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/build.gradle" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/debug/AndroidManifest.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/AndroidManifest.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/java/me/carda/awesome_notifications_example/MainActivity.java" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/kotlin/me/carda/awesome_notifications_example/MainActivity.kt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable-hdpi/ic_launcher_background.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable-hdpi/ic_launcher_foreground.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable-mdpi/ic_launcher_background.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable-mdpi/ic_launcher_foreground.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable-xhdpi/ic_launcher_background.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable-xhdpi/ic_launcher_foreground.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable-xxhdpi/ic_launcher_background.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable-xxhdpi/ic_launcher_foreground.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable-xxxhdpi/ic_launcher_background.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable-xxxhdpi/ic_launcher_foreground.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/launch_background.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_app_icon.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_download_icon.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_flutter_icon.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_ic_close.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_ic_next.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_ic_next_disabled.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_ic_pause.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_ic_play.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_ic_play_disabled.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_ic_prev.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_ic_prev_disabled.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_ic_stop.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_mansion.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_media_icon.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_power_ranger_thunder.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/drawable/res_schedule_icon.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/mipmap-hdpi/ic_launcher.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/mipmap-mdpi/ic_launcher.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/raw/res_morph_power_rangers.m4a" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/main/res/values/styles.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/app/src/profile/AndroidManifest.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/build.gradle" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/gradle.properties" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/gradle/wrapper/gradle-wrapper.properties" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/settings.gradle" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/android/settings_aar.gradle" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/80s-disc.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/animated-bell.gif" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/awesome-notifications-logo-black.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/awesome-notifications-logo-color.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/awesome-notifications-logo-white.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/awesome-notifications-logo.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/balloons-in-sky.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/classic-disc.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/delivery.jpeg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/dj-disc.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/fireman-hero.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/happy-dogs.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/melted-clock.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/old-disc.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/placeholder.gif" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/remix-disc.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/images/rock-disc.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/launcher/background.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/launcher/foreground.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/launcher/icon.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/launcher/push-notifications-icon.psd" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/Firebase_FCM_Example.postman_collection.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/add-notification-content-extension.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/add-notification-service-extension.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/awesome-notifications-android-examples.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/awesome-notifications-atention.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/awesome-notifications-ios-examples.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/awesome-notifications-progress.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/awesome-notifications.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/disable-bitcode.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/google-json-path.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/google-plist-path.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/notification-life-cycle.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/readme/xcode-signing-and-capabilities.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/assets/sounds/morph_power_rangers.m4a" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeContentExtension/AwesomeContentExtension.entitlements" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeContentExtension/Base.lproj/MainInterface.storyboard" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeContentExtension/Info.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeContentExtension/NotificationViewController.swift" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeNotifications/AwesomeNotifications.h" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeNotifications/Info.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeNotificationsTests/AwesomeNotificationsTests.swift" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeNotificationsTests/Info.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeServiceExtension/AwesomeServiceExtension.entitlements" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeServiceExtension/Info.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/AwesomeServiceExtension/NotificationService.swift" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/ContentExtension/Base.lproj/MainInterface.storyboard" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/ContentExtension/Info.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/ContentExtension/NotificationViewController.swift" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Flutter/.last_build_id" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Flutter/AppFrameworkInfo.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Flutter/Debug.xcconfig" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Flutter/Release.xcconfig" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/MyPlayground.playground/Contents.swift" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/MyPlayground.playground/contents.xcplayground" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/MyPlayground.playground/playground.xcworkspace/contents.xcworkspacedata" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Podfile" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Podfile.lock" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner.xcodeproj/project.pbxproj" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner.xcworkspace/contents.xcworkspacedata" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/AppDelegate.swift" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-20x20@3x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-29x29@3x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-40x40@3x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-50x50@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-50x50@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-57x57@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-57x57@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-60x60@3x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-72x72@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-72x72@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@1x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-76x76@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-83.5x83.5@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/Contents.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/LaunchImage.imageset/Contents.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@2x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage@3x.png" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/LaunchImage.imageset/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/res_mansion.imageset/Contents.json" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Assets.xcassets/res_mansion.imageset/mansion.jpg" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Base.lproj/LaunchScreen.storyboard" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Base.lproj/Main.storyboard" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Info.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Runner-Bridging-Header.h" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/Runner.entitlements" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/Runner/res_morph_power_rangers.aiff" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/StringUtilsTest/CronTest.swift" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/StringUtilsTest/Info.plist" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/ios/StringUtilsTest/StringTest.swift" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/common_widgets/check_button.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/common_widgets/led_light.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/common_widgets/remarkable_divisor.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/common_widgets/remarkble_text.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/common_widgets/service_control_panel.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/common_widgets/simple_button.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/common_widgets/text_divisor.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/common_widgets/text_note.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/datasources/common/datasource.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/datasources/common/http_datasource.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/datasources/firebase_datasource.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/main.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/models/media_model.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/pages/firebase_test_page.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/pages/media_details_page.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/pages/notification_details_page.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/pages/notification_examples_page.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/routes.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/utils/common_functions.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/utils/media_player_central.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/utils/notification_util.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/lib/utils/playback_timer.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/pubspec.lock" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/pubspec.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/example/test/widget_test.dart" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/ios/Classes/lib/notifications/models/NotificationContentModel.swift" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/awesome_notifications/ios/Classes/lib/notifications/models/NotificationContentModel.swift" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/ios/Classes/binding.h" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/ios/Classes/binding.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/ios/scrap.podspec" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/packages/scrap_ffi/ios/scrap.podspec" afterDir="false" />
@@ -401,37 +224,52 @@
       <change beforePath="$PROJECT_DIR$/flutterust/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/pubspec.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/pubspec.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/flutterust/test/widget_test.dart" beforeDir="false" afterPath="$PROJECT_DIR$/flutterust/test/widget_test.dart" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/.travis.yml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/Cargo.toml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/LICENSE" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/add_any_port.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/add_port.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/add_remove.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/aio.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/external_ip.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/examples/remove_port.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/rustfmt.toml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/aio/gateway.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/aio/mod.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/aio/search.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/aio/soap.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/common/messages.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/common/mod.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/common/options.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/common/parsing.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/errors.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/gateway.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/lib.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/rust-igd/src/search.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/time_tracker.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/time_tracker.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/endpoint_crypto_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/endpoint_crypto_container.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/fcm/fcm_ratchet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/fcm/fcm_ratchet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/hyper_ratchet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/hyper_ratchet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/net/crypt_splitter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/net/crypt_splitter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/fcm/data_structures.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/fcm/data_structures.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/fcm/fcm_client.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/fcm/fcm_client.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/fcm/fcm_server.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/fcm/fcm_server.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/fcm/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/fcm/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/connect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/connect_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/drill_update_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/drill_update_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer_cmd_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/wave_group_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/wave_group_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/session_queue_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/session_queue_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/state_subcontainers/peer_kem_state_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/state_subcontainers/peer_kem_state_container.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/kernel/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/kernel/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/app_config.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/app_config.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/connect.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/connect.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/send.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/send.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/console_context.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/console_context.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/hdp_initiator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/hdp_initiator.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/kernel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/kernel.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/mail.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/mail.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -536,11 +374,11 @@
       <recent name="C:\hyxe_wave\hyxe_net\backup" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer" />
       <recent name="$PROJECT_DIR$/hyxe_crypt/src/fcm" />
       <recent name="$PROJECT_DIR$/hyxewave/src/ffi" />
       <recent name="C:\satori.net\satori_dapp\src" />
       <recent name="C:\satori.net\hyxe_net\src\dapp\primitives" />
-      <recent name="C:\satori.net\ez_pqcrypto" />
     </key>
   </component>
   <component name="RunAnythingCache">
@@ -568,17 +406,6 @@
     <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
-      </method>
-    </configuration>
-    <configuration default="true" type="ArquillianJUnit" factoryName="" nameIsGenerated="true">
-      <option name="arquillianRunConfiguration">
-        <value>
-          <option name="containerStateName" value="" />
-        </value>
-      </option>
-      <option name="TEST_OBJECT" value="class" />
-      <method v="2">
-        <option name="Make" enabled="true" />
       </method>
     </configuration>
     <configuration name="Build HyxeWave" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
@@ -651,8 +478,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::hyper_ratchet" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_crypt --test primary tests::hyper_ratchet -- --exact" />
+    <configuration name="Test tests::fcm_message_serde" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_net --test primary tests::fcm_message_serde -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
       <option name="channel" value="NIGHTLY" />
       <option name="allFeatures" value="false" />
@@ -726,19 +553,19 @@
       <item itemvalue="Cargo.Retest tests::main (1)" />
       <item itemvalue="Cargo.Run hyxewave 127.0.0.2" />
       <item itemvalue="Cargo.Test tests::delete_all_users" />
-      <item itemvalue="Cargo.Test tests::hyper_ratchet" />
       <item itemvalue="Cargo.Test tests::onion_packets" />
       <item itemvalue="Cargo.Test tests::hyper_ratchets" />
       <item itemvalue="Cargo.Test tests::main" />
       <item itemvalue="Cargo.Test primary::tests" />
+      <item itemvalue="Cargo.Test tests::fcm_message_serde" />
     </list>
     <recent_temporary>
       <list>
         <item itemvalue="Cargo.Test tests::main" />
+        <item itemvalue="Cargo.Test tests::fcm_message_serde" />
+        <item itemvalue="Cargo.Test tests::hyper_ratchets" />
         <item itemvalue="Cargo.Test tests::onion_packets" />
         <item itemvalue="Cargo.Test primary::tests" />
-        <item itemvalue="Cargo.Test tests::hyper_ratchets" />
-        <item itemvalue="Cargo.Test tests::hyper_ratchet" />
       </list>
     </recent_temporary>
   </component>
@@ -961,7 +788,8 @@
       <workItem from="1612218858679" duration="612000" />
       <workItem from="1612224839899" duration="68387000" />
       <workItem from="1612824212961" duration="14959000" />
-      <workItem from="1612963324558" duration="91010000" />
+      <workItem from="1612963324558" duration="171007000" />
+      <workItem from="1613496467981" duration="628000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
@@ -1132,7 +960,7 @@
       <breakpoints>
         <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
           <url>file://$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs</url>
-          <line>703</line>
+          <line>705</line>
           <option name="timeStamp" value="6" />
         </line-breakpoint>
       </breakpoints>

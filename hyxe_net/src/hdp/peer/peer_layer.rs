@@ -20,6 +20,7 @@ use crate::macros::SyncContextRequirements;
 
 #[cfg(feature = "multi-threaded")]
 use futures::task::AtomicWaker;
+use crate::fcm::kem::FcmPostRegister;
 
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
 impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
@@ -416,8 +417,8 @@ impl futures::Future for HyperNodePeerLayer {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum PeerSignal {
-    // implicated_cid, icid (0 if hyperlan), target_cid (0 if all)
-    PostRegister(PeerConnectionType, Username, Option<Ticket>, Option<PeerResponse>),
+    // implicated_cid, icid (0 if hyperlan), target_cid (0 if all), use fcm
+    PostRegister(PeerConnectionType, Username, Option<Ticket>, Option<PeerResponse>, FcmPostRegister),
     // implicated_cid, icid, target_cid
     Deregister(PeerConnectionType),
     // implicated_cid, icid, target_cid

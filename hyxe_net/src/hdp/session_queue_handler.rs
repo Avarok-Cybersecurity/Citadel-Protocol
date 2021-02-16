@@ -243,7 +243,6 @@ impl SessionQueueWorker {
                 Poll::Ready(Err(Error::shutdown()))
             }
         } else {
-            log::warn!("HdpSession dropped");
             Poll::Ready(Err(Error::shutdown()))
         }
     }
@@ -274,7 +273,6 @@ impl futures::Future for SessionQueueWorker {
         match futures::ready!(self.as_mut().poll_next(cx)) {
             Some(_) => Poll::Pending,
             None => {
-                log::warn!("SessionQueueWorker stream has ended ...");
                 if let Err(_err) = unlock!(self.as_mut()).sess_shutdown.try_send(()) {
                     //log::error!("Unable to shutdown session: {:?}", err);
                 }

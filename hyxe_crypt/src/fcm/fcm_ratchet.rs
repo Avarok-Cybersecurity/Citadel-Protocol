@@ -54,6 +54,10 @@ impl<'a> Ratchet for FcmRatchet {
         self.inner.pqc.has_verified_packets()
     }
 
+    fn get_default_security_level(&self) -> SecurityLevel {
+        SecurityLevel::LOW
+    }
+
     fn message_pqc_drill(&self, _idx: Option<usize>) -> (&PostQuantumContainer, &Drill) {
         (&self.inner.pqc, &self.inner.drill)
     }

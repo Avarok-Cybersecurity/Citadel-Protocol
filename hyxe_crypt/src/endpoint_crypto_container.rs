@@ -17,7 +17,9 @@ pub struct PeerSessionCrypto<R: Ratchet = HyperRatchet> {
     #[serde(skip)]
     pub update_in_progress: bool,
     // if local is initiator, then in the case both nodes send a FastMessage at the same time (causing an update to the keys), the initiator takes preference, and the non-initiator's upgrade attempt gets dropped (if update_in_progress)
-    pub local_is_initiator: bool
+    pub local_is_initiator: bool,
+    pub rolling_object_id: u32,
+    pub rolling_group_id: u64
 }
 
 impl<R: Ratchet> PeerSessionCrypto<R> {
@@ -26,7 +28,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     /// `local_is_initiator`: May also be "local_is_server", or any constant designation used to determine
     /// priority in case of concurrent conflicts
     pub fn new(toolset: Toolset<R>, local_is_initiator: bool) -> Self {
-        Self { toolset, update_in_progress: false, local_is_initiator }
+        Self { toolset, update_in_progress: false, local_is_initiator, rolling_object_id: 1, rolling_group_id: 0 }
     }
 
     /// Gets a specific drill version, or, gets the latest version comitted
@@ -91,11 +93,33 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
 
         Ok(ret)
     }
+
+    ///
+    pub fn get_and_increment_group_id(&mut self) -> u64 {
+        self.rolling_group_id += 1;
+        self.rolling_group_id - 1
+    }
+
+    ///
+    pub fn get_and_increment_object_id(&mut self) -> u32 {
+        self.rolling_object_id += 1;
+        self.rolling_object_id - 1
+    }
+
+    /// Returns a new constructor only if a concurrent update isn't occuring
+    pub fn get_next_constructor(&mut self, algorithm: Option<u8>) -> Option<R::Constructor> {
+        if self.update_in_progress {
+            None
+        } else {
+            self.update_in_progress = true;
+            Some(self.get_hyper_ratchet(None)?.next_alice_constructor(algorithm))
+        }
+    }
 }
 
-pub trait EndpointRatchetConstructor<R: Ratchet>: Sized + Send + Sync + 'static {
-    fn new_alice(algorithm: Option<u8>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self;
-    fn new_bob(algorithm: u8, cid: u64, new_drill_vers: u32, transfer: AliceToBobTransferType<'_>) -> Option<Self>;
+pub trait EndpointRatchetConstructor<R: Ratchet>: Send + Sync + 'static {
+    fn new_alice(algorithm: Option<u8>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self where Self: Sized;
+    fn new_bob(algorithm: u8, cid: u64, new_drill_vers: u32, transfer: AliceToBobTransferType<'_>) -> Option<Self> where Self: Sized;
     fn stage0_alice(&self) -> AliceToBobTransferType<'_>;
     fn stage0_bob(&self) -> Option<BobToAliceTransferType>;
     fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()>;

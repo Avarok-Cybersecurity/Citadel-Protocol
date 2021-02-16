@@ -1,4 +1,5 @@
-use futures::Future;
+use tokio::macros::support::Future;
+
 use crate::error::NetworkError;
 use crate::macros::ContextRequirements;
 

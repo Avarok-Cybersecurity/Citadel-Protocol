@@ -8,6 +8,7 @@ use crate::ffi::FFIIO;
 use hyxe_net::constants::PRIMARY_PORT;
 use std::str::FromStr;
 use std::net::{SocketAddr, IpAddr};
+use hyxe_net::opts::ServerAuxiliaryOptions;
 
 /// The arguments, if None, will default to std::env::args, with the zeroth element removed (the binary name)
 /// Is some,
@@ -26,6 +27,7 @@ pub fn parse_command_line_arguments_into_app_config(cmd: Option<String>, ffi_io:
     app_config.ffi_io = ffi_io;
     app_config.daemon_mode = arg_matches.is_present("daemon") || app_config.is_ffi;
     app_config.kernel_threads = try_get_kthreads(&arg_matches)?;
+    app_config.aux_options = arg_matches.value_of("fcm-server").map(|api_key| ServerAuxiliaryOptions::default().with_fcm_server_api_key(api_key).build()).unwrap_or_default();
 
     parsers::parse_all_primary_commands(&arg_matches, &mut app_config)?;
 
@@ -83,6 +85,11 @@ fn setup_clap<'a>() -> App<'a, 'a> {
             .required(false)
             .takes_value(false)
             .hidden(true))
+        .arg(Arg::with_name("fcm-server")
+            .long("fcm-server")
+            .required(false)
+            .takes_value(true)
+            .help("Allow this node to relay messages to Firebase Cloud Messaging on-demand. Requires the input of the API-KEY"))
         //.arg(Arg::with_name("command").required(true).index(1))
         .arg(Arg::with_name("pipe").long("pipe").takes_value(true).required(false).help("include a locally-running TCP socket address to communicate with local processes. The following argument must be a loopback socket address"))
 }

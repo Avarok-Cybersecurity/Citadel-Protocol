@@ -1,6 +1,10 @@
 use super::imports::*;
 use hyxe_user::client_account::HYPERLAN_IDX;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_net::hdp::hdp_server::MessageType;
+use hyxe_net::fcm::data_structures::FCMMessagePayload;
+use crate::constants::INVALID_UTF8;
+use hyxe_net::fcm::kem::FcmPostRegister;
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
@@ -45,7 +49,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                                 }
                             }
 
-                            IncomingPeerRequest::Register(_ticket, username, conn, recv_time) => {
+                            IncomingPeerRequest::Register(_ticket, username, conn, recv_time, _) => {
                                 match conn {
                                     PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => {
                                         requests.add_row(prettytable::row![c => mail_id, "Register", *implicated_cid, username, "hLAN", recv_time.elapsed().as_secs()]);
@@ -94,10 +98,24 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             let target_cid = get_peer_cid_from_cnac(cnac, target_cid)?;
 
             let message: String = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
+            let buf = SecBuffer::from(message);
+            let message = if matches.is_present("fcm") { MessageType::Fcm(buf) } else { MessageType::Default(buf) };
             // now, use the console context to send the message
-            ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, SecBuffer::from(message))?;
+            ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, message)?;
             printf_ln!(colour::white!("Message sent through peer channel w/ {:?} security\n", security_level));
             return Ok(None)
+        }
+
+        if let Some(matches) = matches.subcommand_matches("fcm-parse") {
+            let json_input: String = matches.values_of("input").unwrap().collect::<Vec<&str>>().join(" ");
+            log::info!("[FCM] json input: {}", &json_input);
+            let fcm_msg = FCMMessagePayload::from_str(json_input).ok_or(ConsoleError::Default("Invalid JSON string"))?;
+            // We received this packet, which implies we need to use the target_cid for getting the CNAC
+            let cnac = ctx.account_manager.get_client_by_cid(fcm_msg.target_cid).ok_or(ConsoleError::Generic(format!("Client {} does not exist locally", fcm_msg.target_cid)))?;
+            let decrypted_message = fcm_msg.decrypt_message(&cnac).ok_or(ConsoleError::Default("Unable to decrypt message"))?;
+            log::info!("[FCM] decrypted message! {:?}", &decrypted_message);
+            // TODO: Send NodeMessage type, since we already have a defintion for it. Then, do_connect fcm tag
+            return Ok(Some(KernelResponse::NodeMessage(0, fcm_msg.session_cid, 0, fcm_msg.target_cid, String::from_utf8(decrypted_message).unwrap_or(INVALID_UTF8.into()))))
         }
 
         if let Some(matches) = matches.subcommand_matches("disconnect") {
@@ -375,15 +393,16 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         if let Some(matches) = matches.subcommand_matches("post-register") {
             // This ONLY accepts u64s, and NOT usernames.
             let target = matches.value_of("target_cid").unwrap();
-
+            let fcm = matches.is_present("fcm").then(||FcmPostRegister::Enable).unwrap_or(FcmPostRegister::Disable);
             let username = ctx.active_user.read().clone();
             let target_cid = u64::from_str(target).map_err(|_err| ConsoleError::Default("Registration: CID only"))?;
+
             let ref cnac = ctx.get_cnac_of_active_session().ok_or_else(|| ConsoleError::Generic(format!("ClientNetworkAccount not loaded. Check program logic")))?;
             if cnac.hyperlan_peer_exists(target_cid) {
                 return Err(ConsoleError::Generic(format!("Peer {} is already consented to connect with {}", target_cid, username.as_str())));
             }
 
-            let post_register_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), username, None, None));
+            let post_register_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), username, None, None, fcm));
             let ticket = server_remote.unbounded_send(post_register_request)?;
             ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, target_cid, move |ctx, ticket, response| {
                 match response {
