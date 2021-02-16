@@ -113,6 +113,8 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     /// A session-invariant container that stores the crypto container for a specific peer cid
     #[serde(bound = "")]
     pub fcm_crypt_container: HashMap<u64, PeerSessionCrypto<Fcm>>,
+    /// The registration FCM ID for this client
+    pub fcm_reg_id: Option<String>,
     #[serde(skip)]
     /// We keep the password in RAM encrypted
     password_in_ram: Option<SecVec<u8>>,
@@ -167,8 +169,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let dirs = Some(dirs);
 
         let fcm_crypt_container = HashMap::with_capacity(0);
+        let fcm_reg_id = None;
 
-        let inner = ClientNetworkAccountInner::<R, Fcm> { fcm_crypt_container, dirs, password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
+        let inner = ClientNetworkAccountInner::<R, Fcm> { fcm_reg_id, fcm_crypt_container, dirs, password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
         let this = Self::from(inner);
 
         this.blocking_save_to_local_fs()?;
@@ -551,6 +554,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Returns Some if success, None otherwise. Also syncs to the disk in via the threadpool
+    #[allow(unused_results)]
     pub fn remove_hyperlan_peer(&self, cid: u64) -> Option<MutualPeer> {
         let mut write = self.write();
         if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
@@ -565,6 +569,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
                 if idx_to_remove != -1 {
                     let removed_peer = hyperlan_peers.remove(idx_to_remove as usize);
+                    // now, remove the fcm just incase
+                    write.fcm_crypt_container.remove(&cid);
                     self.spawn_save_task_on_threadpool();
                     return Some(removed_peer);
                 }
@@ -577,15 +583,18 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Returns true if success, false otherwise
+    #[allow(unused_results)]
     pub fn remove_hyperlan_peer_by_username<T: AsRef<str>>(&self, username: T) -> Option<MutualPeer> {
         let username = username.as_ref();
         let mut write = self.write();
         if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
             let mut idx: isize = -1;
+            let mut cid = 0;
             if hyperlan_peers.len() != 0 {
                 'search: for (vec_idx, peer) in hyperlan_peers.iter().enumerate() {
                     if let Some(user) = peer.username.as_ref() {
                         if user == username {
+                            cid = peer.cid;
                             idx = vec_idx as isize;
                             break 'search;
                         }
@@ -596,7 +605,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             }
 
             if idx != -1 {
-                return Some(hyperlan_peers.remove(idx as usize));
+                let removed = hyperlan_peers.remove(idx as usize);
+                write.fcm_crypt_container.remove(&cid);
+                return Some(removed);
             }
         }
 

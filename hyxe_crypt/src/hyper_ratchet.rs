@@ -20,12 +20,13 @@ pub struct HyperRatchet {
 }
 
 /// For allowing registration inside the toolset
-pub trait Ratchet: Sized + Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {
+pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {
     type Constructor: EndpointRatchetConstructor<Self>;
 
     fn get_cid(&self) -> u64;
     fn version(&self) -> u32;
     fn has_verified_packets(&self) -> bool;
+    fn get_default_security_level(&self) -> SecurityLevel;
     fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill);
     fn get_scramble_drill(&self) -> &Drill;
 
@@ -34,6 +35,10 @@ pub trait Ratchet: Sized + Serialize + for<'a> Deserialize<'a> + Clone + Send + 
 
     fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
     fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
+
+    fn next_alice_constructor(&self, algorithm: Option<u8>) -> Self::Constructor {
+        Self::Constructor::new_alice(algorithm, self.get_cid(), self.version().wrapping_add(1), Some(self.get_default_security_level()))
+    }
 }
 
 /// For returning a variable hyper ratchet from a function
@@ -42,9 +47,20 @@ pub enum RatchetType<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
     Fcm(Fcm)
 }
 
+
+
 impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
     ///
     pub fn assume_default(self) -> Option<R> {
+        if let RatchetType::Default(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
+    ///
+    pub fn assume_default_ref(&self) -> Option<&R> {
         if let RatchetType::Default(r) = self {
             Some(r)
         } else {
@@ -60,11 +76,35 @@ impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
             None
         }
     }
+
+    ///
+    pub fn assume_fcm_ref(&self) -> Option<&Fcm> {
+        if let RatchetType::Fcm(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
+    /// returns the version
+    pub fn version(&self) -> u32 {
+        match self {
+            RatchetType::Default(r) => r.version(),
+            RatchetType::Fcm(r) => r.version()
+        }
+    }
+
+    /// returns the version
+    pub fn get_cid(&self) -> u64 {
+        match self {
+            RatchetType::Default(r) => r.get_cid(),
+            RatchetType::Fcm(r) => r.get_cid()
+        }
+    }
 }
 
 impl Ratchet for HyperRatchet {
     type Constructor = HyperRatchetConstructor;
-
 
     fn get_cid(&self) -> u64 {
         self.get_cid()
@@ -76,6 +116,10 @@ impl Ratchet for HyperRatchet {
 
     fn has_verified_packets(&self) -> bool {
         self.has_verified_packets()
+    }
+
+    fn get_default_security_level(&self) -> SecurityLevel {
+        self.get_default_security_level()
     }
 
     fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill) {
@@ -153,7 +197,7 @@ impl HyperRatchet {
             log::warn!("OOB: Security value: {}, max: {} ({:?})|| Version: {}", security_level.value() as usize, self.inner.message.inner.len(), self.get_default_security_level(), self.version());
             Err(CryptError::OutOfBoundsError)
         } else {
-            Ok(security_level.value().saturating_sub(1) as usize)
+            Ok(security_level.value() as usize)
         }
     }
 
@@ -368,19 +412,44 @@ pub mod constructor {
     }
 
     impl<R: Ratchet, Fcm: Ratchet> ConstructorType<R, Fcm> {
-        ///
+        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+            match self {
+                ConstructorType::Default(con) => {
+                    con.stage1_alice(transfer)
+                }
+
+                ConstructorType::Fcm(con) => {
+                    con.stage1_alice(transfer)
+                }
+            }
+        }
         pub fn assume_default(self) -> Option<R::Constructor> {
-            if let ConstructorType::Default(r) = self {
-                Some(r)
+            if let ConstructorType::Default(c) = self {
+                Some(c)
             } else {
                 None
             }
         }
 
-        ///
         pub fn assume_fcm(self) -> Option<Fcm::Constructor> {
-            if let ConstructorType::Fcm(r) = self {
-                Some(r)
+            if let ConstructorType::Fcm(c) = self {
+                Some(c)
+            } else {
+                None
+            }
+        }
+
+        pub fn assume_default_ref(&self) -> Option<&R::Constructor> {
+            if let ConstructorType::Default(c) = self {
+                Some(c)
+            } else {
+                None
+            }
+        }
+
+        pub fn assume_fcm_ref(&self) -> Option<&Fcm::Constructor> {
+            if let ConstructorType::Fcm(c) = self {
+                Some(c)
             } else {
                 None
             }
@@ -451,7 +520,9 @@ pub mod constructor {
     #[derive(Serialize, Deserialize)]
     /// Transferred during KEM
     pub struct AliceToBobTransfer<'a> {
+        #[serde(borrow)]
         pks: Vec<&'a [u8]>,
+        #[serde(borrow)]
         scramble_alice_pk: &'a [u8],
         scramble_nonce: [u8; AES_GCM_NONCE_LEN_BYTES],
         msg_nonce: [u8; AES_GCM_NONCE_LEN_BYTES],

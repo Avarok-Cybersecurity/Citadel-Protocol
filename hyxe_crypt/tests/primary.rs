@@ -120,16 +120,17 @@ mod tests {
 
     #[test]
     fn hyper_ratchets() {
-        hyper_ratchet::<HyperRatchet>();
-        #[cfg(feature = "fcm")]
-            hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+        for x in 0u8..10 {
+            hyper_ratchet::<HyperRatchet>(Some(x.into()));
+            #[cfg(feature = "fcm")]
+                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+        }
     }
 
-    fn hyper_ratchet<R: Ratchet>() {
+    fn hyper_ratchet<R: Ratchet>(security_level: Option<SecurityLevel>) {
         println!("HR size (low): {}", get_approx_max_transfer_size());
         setup_log();
         let algorithm = Some(0);
-        let security_level = Some(SecurityLevel::TRANSCENDENT(10));
         let mut alice_hyper_ratchet = R::Constructor::new_alice(algorithm, 99, 0, security_level);
         let transfer = alice_hyper_ratchet.stage0_alice();
 

@@ -1,6 +1,9 @@
 use super::includes::*;
 use crate::hdp::state_container::VirtualConnectionType;
 use atomic::Ordering;
+use crate::opts::ClientAuxiliaryOptions;
+use crate::inner_arg::ExpectedInnerTarget;
+use crate::error::NetworkError;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
 #[inline]
@@ -28,8 +31,15 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
         packet_flags::cmd::aux::do_connect::STAGE0 => {
             log::info!("STAGE 2 CONNECT PACKET");
             let mut state_container = inner_mut!(session.state_container);
-                match validation::do_connect::validate_stage0_packet(cnac, &header, &*payload) {
-                    Ok(_) => {
+                match validation::do_connect::validate_stage0_packet(cnac, &*payload) {
+                    Ok(client_aux_cfg) => {
+
+                        // Now, we handle the FCM setup
+                        if let Err(err) = handle_client_aux_cfg_as_server(client_aux_cfg, &session, cnac) {
+                            // We could not connect to FCM
+                            let failure_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, err.to_string(), Vec::with_capacity(0), session.time_tracker.get_global_time_ns(), security_level);
+                            return PrimaryProcessorResult::ReplyToSender(failure_packet);
+                        }
 
                         let cid = hyper_ratchet.get_cid();
                         let success_time = session.time_tracker.get_global_time_ns();
@@ -87,8 +97,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
             let kernel_ticket = session.kernel_ticket.clone();
 
             let mut state_container = inner_mut!(session.state_container);
-            if let Ok(Some((message, _, _))) = validation::do_connect::validate_final_status_packet(&header, &*payload) {
-                let message = String::from_utf8(message).unwrap_or("Invalid UTF-8 message".to_string());
+            if let Some(payload) = validation::do_connect::validate_final_status_packet( &*payload) {
+                let message = String::from_utf8(payload.message.to_vec()).unwrap_or("Invalid UTF-8 message".to_string());
                 log::info!("The server refused to login the user. Reason: {}", &message);
                 let cid = hyper_ratchet.get_cid();
                 state_container.connect_state.on_fail(current_time);
@@ -115,8 +125,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
             let last_stage = state_container.connect_state.last_stage;
 
             if last_stage == packet_flags::cmd::aux::do_connect::STAGE1 {
-                if let Ok(Some((message, mailbox_items, peers))) = validation::do_connect::validate_final_status_packet(&header, &*payload) {
-                    let message = String::from_utf8(message).unwrap_or(String::from("Invalid message"));
+                if let Some(payload) = validation::do_connect::validate_final_status_packet(&*payload) {
+                    let message = String::from_utf8(payload.message.to_vec()).unwrap_or(String::from("Invalid message"));
                     let current_time = session.time_tracker.get_global_time_ns();
                     let kernel_ticket = session.kernel_ticket;
                     let cid = hyper_ratchet.get_cid();
@@ -131,7 +141,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
                     std::mem::drop(state_container);
 
-                    cnac.synchronize_hyperlan_peer_list(&peers);
+                    cnac.synchronize_hyperlan_peer_list(&payload.peers);
                     session.implicated_cid.store(Some(cid), Ordering::SeqCst); // This makes is_provisional equal to false
                     session.state = SessionState::Connected;
 
@@ -157,7 +167,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     //session.needs_close_message = false;
 
                     //finally, if there are any mailbox items, send them to the kernel for processing
-                    if let Some(mailbox_delivery) = mailbox_items {
+                    if let Some(mailbox_delivery) = payload.mailbox {
                         session.send_to_kernel(HdpServerResult::MailboxDelivery(cid, None, mailbox_delivery))?;
                     }
                     //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
@@ -184,5 +194,26 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
             log::error!("Invalid auxiliary command: {}", n);
             PrimaryProcessorResult::Void
         }
+    }
+}
+
+fn handle_client_aux_cfg_as_server(aux_cfg: ClientAuxiliaryOptions, session: &dyn ExpectedInnerTarget<HdpSessionInner>, cnac: &ClientNetworkAccount) -> Result<(), NetworkError> {
+    if let Some(reg_id) = aux_cfg.reg_id {
+        log::info!("[FCM] REG ID: {}", &reg_id);
+        if session.fcm_server_conn.is_some() {
+            log::info!("[FCM] Registering with local FCM server connection ...");
+            cnac.visit_mut(|mut inner| {
+                inner.fcm_reg_id = Some(reg_id);
+            });
+
+            cnac.spawn_save_task_on_threadpool();
+
+            Ok(())
+        } else {
+            log::warn!("FCM reg specified, but this server does not support FCM!");
+            Err(NetworkError::InvalidExternalRequest("FCM reg specified, but this server does not support FCM!"))
+        }
+    } else {
+        Ok(())
     }
 }

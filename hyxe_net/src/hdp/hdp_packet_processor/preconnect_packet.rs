@@ -703,8 +703,9 @@ fn begin_connect_process<K: ExpectedInnerTargetMut<HdpSessionInner>>(mut session
     let mut state_container = inner_mut!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
     let proposed_credentials = state_container.connect_state.proposed_credentials.take()?;
+    let aux_cfg = session.client_aux_cfg.clone();
 
-    let stage0_connect_packet = crate::hdp::hdp_packet_crafter::do_connect::craft_stage0_packet(&hyper_ratchet, proposed_credentials, timestamp, security_level);
+    let stage0_connect_packet = crate::hdp::hdp_packet_crafter::do_connect::craft_stage0_packet(&hyper_ratchet, proposed_credentials, aux_cfg, timestamp, security_level);
     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::STAGE1;
     // we now store the pqc temporarily in the state container
     //session.post_quantum = Some(new_pqc);

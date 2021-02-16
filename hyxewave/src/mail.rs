@@ -6,6 +6,7 @@ use tokio::time::Instant;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
 use hyxe_crypt::drill::SecurityLevel;
 use serde::{Serialize, Deserialize};
+use hyxe_net::fcm::kem::FcmPostRegister;
 
 #[derive(Default)]
 pub struct ConsoleSessionMail {
@@ -87,7 +88,7 @@ pub struct IncomingGroupRequest {
 #[derive(Debug, Clone)]
 pub enum IncomingPeerRequest {
     Connection(Ticket, PeerConnectionType, Instant, SecurityLevel),
-    Register(Ticket, Username, PeerConnectionType, Instant)
+    Register(Ticket, Username, PeerConnectionType, Instant, FcmPostRegister)
 }
 
 impl Display for IncomingPeerRequest {
@@ -141,7 +142,7 @@ impl IncomingPeerRequest {
 
     pub fn get_implicated_cid(&self) -> u64 {
         match self {
-            IncomingPeerRequest::Register(_,_, conn, _) => {
+            IncomingPeerRequest::Register(_,_, conn, _, _) => {
                 match conn {
                     PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => *implicated_cid,
                     PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, _icid, _target_cid) => *implicated_cid,
@@ -199,14 +200,14 @@ impl IncomingPeerRequest {
 
     pub fn prepare_response_assert_register(self, response: PeerResponse, username: String) -> Option<PeerSignal> {
         match self {
-            IncomingPeerRequest::Register(ticket,_old_username, peer_conn_type, _) => {
+            IncomingPeerRequest::Register(ticket,_old_username, peer_conn_type, _, fcm) => {
                 match peer_conn_type {
                     PeerConnectionType::HyperLANPeerToHyperLANPeer(original_cid, original_target) => {
-                        Some(PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(original_target, original_cid), username, Some(ticket), Some(response)))
+                        Some(PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(original_target, original_cid), username, Some(ticket), Some(response), fcm))
                     }
 
                     PeerConnectionType::HyperLANPeerToHyperWANPeer(original_cid, icid, original_target) => {
-                        Some(PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperWANPeer(original_target, icid, original_cid), username, Some(ticket), Some(response)))
+                        Some(PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperWANPeer(original_target, icid, original_cid), username, Some(ticket), Some(response), fcm))
                     }
                 }
             }

@@ -1,4 +1,4 @@
-#![feature(async_closure, main, try_trait, ip, type_alias_impl_trait)]
+#![feature(async_closure, main, try_trait, ip, type_alias_impl_trait, bindings_after_at)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
 #![forbid(unsafe_code)]
@@ -229,10 +229,8 @@ pub mod re_imports {
 
 /// Contains the streams for creating connections
 pub mod kernel;
-
 /// The default error type for this crate
 pub mod error;
-
 /// Contains the constants used by this crate
 pub mod constants;
 /// The primary module of this crate
@@ -245,3 +243,5 @@ pub mod functional;
 pub mod inner_arg;
 /// For FCM
 pub mod fcm;
+/// opts
+pub mod opts;

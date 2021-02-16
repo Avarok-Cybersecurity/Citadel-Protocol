@@ -3,7 +3,7 @@
 #[cfg(test)]
 pub mod tests {
     use std::error::Error;
-    use hyxe_net::hdp::hdp_server::{HdpServerRequest, HdpServerRemote, Ticket};
+    use hyxe_net::hdp::hdp_server::{HdpServerRequest, HdpServerRemote, Ticket, MessageType};
     use crate::tests::kernel::{TestKernel, TestContainer, ActionType};
     use hyxe_net::kernel::kernel_executor::KernelExecutor;
     use hyxe_nat::hypernode_type::HyperNodeType;
@@ -29,6 +29,9 @@ pub mod tests {
     use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
     use tokio::runtime::{Builder, Runtime};
     use hyxe_net::hdp::peer::message_group::MessageGroupKey;
+    use hyxe_net::opts::ServerAuxiliaryOptions;
+    use hyxe_net::fcm::data_structures::FCMMessagePayload;
+    use hyxe_net::fcm::kem::FcmPostRegister;
 
     const COUNT: usize = 500;
     const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 50);
@@ -59,10 +62,21 @@ pub mod tests {
         Client2,
     }
 
-    // The current problems with the algorithm is that after 6 packets are sent with no re-keying yet established, packets
-    // 7,8,9,10 use version 0 even though the other adjacent endpoint no longer has version 0.
-    //
-    // If we allow only one packet sent per down-and-back, we greatly reduce the speed of the network
+    #[test]
+    fn fcm_message_serde() {
+        setup_log();
+        let message = FCMMessagePayload::new(123, 456, 999, 789, Vec::from("Hello, world!"), Vec::from("Hello, world 2!"));
+        let ser = message.serialize_json();
+        log::info!("Ser: {}", &ser);
+        let deser = FCMMessagePayload::from_str(ser).unwrap();
+        assert_eq!(deser.session_cid, 123);
+        assert_eq!(deser.target_cid, 456);
+        assert_eq!(deser.group_id, 999);
+        assert_eq!(deser.drill_version, 789);
+        assert_eq!(deser.encrypted_message, Vec::from("Hello, world!"));
+        assert_eq!(deser.re_key_bin, Vec::from("Hello, world 2!"));
+    }
+
     #[test]
     fn main() -> Result<(), Box<dyn Error>> {
         super::utils::deadlock_detector();
@@ -89,6 +103,8 @@ pub mod tests {
         static CLIENT2_USERNAME: &'static str = "nologik2";
         static CLIENT2_PASSWORD: &'static str = "mrmoney10";
 
+        const ENABLE_FCM: bool = false;
+
         let test_container = Arc::new(RwLock::new(TestContainer::new()));
 
         let rt_main = rt.clone();
@@ -100,7 +116,7 @@ pub mod tests {
             let client0_executor = create_executor(rt.clone(), client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecVec::new(Vec::from(CLIENT0_PASSWORD)), None), None, security_level)),
                      function(move |test_container| client0_action1(test_container, CLIENT0_USERNAME, CLIENT0_PASSWORD, security_level)),
-                     function(move |test_container| client0_action2(test_container)),
+                     function(move |test_container| client0_action2(test_container, ENABLE_FCM)),
                      function(move |test_container| client0_action3(test_container, p2p_security_level))
                 ]
             }).await;
@@ -114,7 +130,7 @@ pub mod tests {
             let client2_executor = create_executor(rt.clone(), client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT2_FULLNAME, CLIENT2_USERNAME, SecVec::new(Vec::from(CLIENT2_PASSWORD)), None), None, security_level)),
                      function(move |test_container| client2_action1(test_container, CLIENT2_USERNAME, CLIENT2_PASSWORD, security_level)),
-                     function(client2_action2),
+                     function(move |test_container| client2_action2(test_container, ENABLE_FCM)),
                      function(move |test_container| client2_action3_start_group(test_container))
                 ]
             }).await;
@@ -144,7 +160,8 @@ pub mod tests {
         let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port()))).await.unwrap();
         account_manager.purge();
         let kernel = TestKernel::new(node_type, commands, test_container);
-        KernelExecutor::new(rt, HyperNodeType::BehindResidentialNAT, account_manager, kernel, bind_addr).await.unwrap()
+        let opts = ServerAuxiliaryOptions::default();
+        KernelExecutor::new(rt, HyperNodeType::BehindResidentialNAT, account_manager, kernel, bind_addr, opts).await.unwrap()
     }
 
     pub mod kernel {
@@ -560,7 +577,7 @@ pub mod tests {
 
                         HdpServerResult::PeerEvent(signal, ticket) => {
                             match signal {
-                                PeerSignal::PostRegister(vconn, _peer_username, _, resp_opt) => {
+                                PeerSignal::PostRegister(vconn, _peer_username, _, resp_opt, fcm) => {
                                     if let Some(resp) = resp_opt {
                                         match resp {
                                             PeerResponse::Accept(_) => {
@@ -588,7 +605,7 @@ pub mod tests {
 
                                         let this_cid = this_cnac.get_cid();
                                         let this_username = this_cnac.get_username();
-                                        let accept_post_register = HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostRegister(vconn.reverse(), this_username, Some(ticket), Some(PeerResponse::Accept(None))));
+                                        let accept_post_register = HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostRegister(vconn.reverse(), this_username, Some(ticket), Some(PeerResponse::Accept(None)), fcm));
                                         self.remote.as_ref().unwrap().send_with_custom_ticket(ticket, accept_post_register).unwrap();
                                         //self.shutdown_in(Some(Duration::from_millis(500)));
                                     }
@@ -672,7 +689,7 @@ pub mod tests {
                         tokio::time::sleep(Duration::from_millis(1)).await
                     }
                     //tokio::time::sleep(Duration::from_millis(10)).await;
-                    sink.send_unbounded(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8])).unwrap();
+                    sink.send_unbounded(MessageType::Default(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8]))).unwrap();
                 }
 
                 log::info!("DONE sending {} messages for {:?}", COUNT, node_type);
@@ -742,7 +759,7 @@ pub mod tests {
         log::info!("[Server/Client Stress Test] Starting send of {} messages on {:?} [target: {}]", COUNT, node_type, implicated_cid);
         for x in 0..COUNT {
             let next_ticket = remote.get_next_ticket();
-            remote.send((next_ticket, HdpServerRequest::SendMessage(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8]), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), CLIENT_SERVER_STRESS_TEST_SEC))).await.unwrap();
+            remote.send((next_ticket, HdpServerRequest::SendMessage(MessageType::Default(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8])), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), CLIENT_SERVER_STRESS_TEST_SEC))).await.unwrap();
         }
 
         log::info!("[Server/Client Stress Test] Done sending {} messages as {:?}", COUNT, node_type)
@@ -763,7 +780,7 @@ pub mod tests {
         let nonce = read.password_hash.as_slice();
         let proposed_credentials = ProposedCredentials::new_unchecked(full_name, username, SecVec::from(Vec::from(password)), Some(nonce));
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, None, None, Some(true), None)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, Default::default(), None, Some(true), None)))
     }
 
     fn client1_action1(item_container: Arc<RwLock<TestContainer>>, username: &str, password: &str, security_level: SecurityLevel) -> Option<ActionType> {
@@ -776,7 +793,7 @@ pub mod tests {
         let nonce = read.password_hash.as_slice();
         let proposed_credentials = ProposedCredentials::new_unchecked(full_name, username, SecVec::from(Vec::from(password)), Some(nonce));
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, None, None, Some(true), None)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, Default::default(), None, Some(true), None)))
     }
 
     fn client2_action1(item_container: Arc<RwLock<TestContainer>>, username: &str, password: &str, security_level: SecurityLevel) -> Option<ActionType> {
@@ -789,11 +806,11 @@ pub mod tests {
         let nonce = read.password_hash.as_slice();
         let proposed_credentials = ProposedCredentials::new_unchecked(full_name, username, SecVec::from(Vec::from(password)), Some(nonce));
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, None, None, Some(true), None)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, Default::default(), None, Some(true), None)))
     }
 
     // client 2 will initiate the p2p *registration* to client1
-    fn client2_action2(item_container: Arc<RwLock<TestContainer>>) -> Option<ActionType> {
+    fn client2_action2(item_container: Arc<RwLock<TestContainer>>, enable_fcm: bool) -> Option<ActionType> {
         tokio::task::spawn(async move {
             log::info!("Executing Client2_action2");
             let write = item_container.write();
@@ -803,7 +820,8 @@ pub mod tests {
             let target_cid = cnac.get_cid();
             let client2_username = client2_cnac.get_username();
             let requests = write.queued_requests_client2.as_ref().unwrap();
-            let post_register_request = HdpServerRequest::PeerCommand(client2_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client2_id, target_cid), client2_username, None, None));
+            let fcm = enable_fcm.then(|| FcmPostRegister::Enable).unwrap_or(FcmPostRegister::Disable);
+            let post_register_request = HdpServerRequest::PeerCommand(client2_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client2_id, target_cid), client2_username, None, None, fcm));
             let ticket = write.remote_client2.as_ref().unwrap().unbounded_send(post_register_request).unwrap();
             assert(requests.lock().insert(ticket), "RDXY");
         });
@@ -877,7 +895,7 @@ pub mod tests {
     }
 
     // client 0 will initiate the p2p *registration* to client1
-    fn client0_action2(item_container: Arc<RwLock<TestContainer>>) -> Option<ActionType> {
+    fn client0_action2(item_container: Arc<RwLock<TestContainer>>, enable_fcm: bool) -> Option<ActionType> {
         tokio::task::spawn(async move {
             let write = item_container.write();
             let cnac = write.cnac_client1.clone().unwrap();
@@ -886,7 +904,8 @@ pub mod tests {
             let target_cid = cnac.get_cid();
             let client0_username = client0_cnac.get_username();
             let requests = write.queued_requests_client0.as_ref().unwrap();
-            let post_register_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), client0_username, None, None));
+            let fcm = enable_fcm.then(|| FcmPostRegister::Enable).unwrap_or(FcmPostRegister::Disable);
+            let post_register_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), client0_username, None, None, fcm));
             let ticket = write.remote_client0.as_ref().unwrap().unbounded_send(post_register_request).unwrap();
             assert(requests.lock().insert(ticket), "ABK");
         });
