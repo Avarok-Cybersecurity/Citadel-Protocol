@@ -1,7 +1,7 @@
 use super::includes::*;
-use crate::hdp::hdp_packet_processor::primary_group_packet::{ToolsetUpdate, get_proper_hyper_ratchet, get_resp_target_cid_from_header, attempt_kem_as_bob, attempt_kem_as_alice_finish, ConstructorType};
+use crate::hdp::hdp_packet_processor::primary_group_packet::{ToolsetUpdate, get_proper_hyper_ratchet, get_resp_target_cid_from_header, attempt_kem_as_bob, attempt_kem_as_alice_finish};
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
-use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransferType;
+use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use hyxe_crypt::hyper_ratchet::RatchetType;
 
 pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
@@ -29,7 +29,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             match validation::do_drill_update::validate_stage0(payload) {
                 Some(transfer) => {
                     let resp_target_cid = get_resp_target_cid_from_header(header);
-                    let status = attempt_kem_as_bob(resp_target_cid, header, AliceToBobTransferType::Default(transfer), &mut state_container.active_virtual_connections, cnac_sess)?;
+                    let status = attempt_kem_as_bob(resp_target_cid, header, Some(AliceToBobTransferType::Default(transfer)), &mut state_container.active_virtual_connections, cnac_sess)?;
                     let packet = hdp_packet_crafter::do_drill_update::craft_stage1(&hyper_ratchet,status, timestamp, resp_target_cid, security_level);
                     PrimaryProcessorResult::ReplyToSender(packet)
                 }

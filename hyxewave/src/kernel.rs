@@ -34,6 +34,7 @@ use crate::mail::IncomingPeerRequest;
 use crate::ticket_event::TicketQueueHandler;
 use hyxe_net::functional::IfEqConditional;
 use hyxe_crypt::drill::SecurityLevel;
+use hyxe_net::fcm::kem::FcmPostRegister;
 
 #[allow(dead_code)]
 pub struct CLIKernel {
@@ -334,8 +335,8 @@ impl NetKernel for CLIKernel {
                         self.on_ticket_received(ticket, PeerResponse::ServerReceivedRequest)
                     }
 
-                    PeerSignal::PostRegister(conn, username, ticket, response) => {
-                        process_post_register_signal(self, conn, username, ticket, response, true)
+                    PeerSignal::PostRegister(conn, username, ticket, response, fcm) => {
+                        process_post_register_signal(self, conn, username, ticket, response, fcm, true)
                     }
 
                     PeerSignal::PostConnect(conn, ticket, response, endpoint_security_level) => {
@@ -419,8 +420,8 @@ impl NetKernel for CLIKernel {
                                     process_post_connect_signal(self, conn, ticket, response, endpoint_security_level, false)
                                 }
 
-                                PeerSignal::PostRegister(peer_conn, peer_username, ticket, response) => {
-                                    process_post_register_signal(self, peer_conn, peer_username, ticket, response, false)
+                                PeerSignal::PostRegister(peer_conn, peer_username, ticket, response, fcm) => {
+                                    process_post_register_signal(self, peer_conn, peer_username, ticket, response, fcm, false)
                                 }
 
                                 _ => {
@@ -484,7 +485,7 @@ fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticke
     }
 }
 
-fn process_post_register_signal(this: &CLIKernel, conn: PeerConnectionType, username: String, ticket: Option<Ticket>, response: Option<PeerResponse>, do_print: bool) {
+fn process_post_register_signal(this: &CLIKernel, conn: PeerConnectionType, username: String, ticket: Option<Ticket>, response: Option<PeerResponse>, fcm: FcmPostRegister, do_print: bool) {
     // if we get a response, it means that this node's connection attempt with conn succeeded
     // else we don't get a response, it means that this node RECEIVED an INVITATION to register
     if let Some(response) = response {
@@ -494,7 +495,7 @@ fn process_post_register_signal(this: &CLIKernel, conn: PeerConnectionType, user
         if let Some(ticket) = ticket {
             let peer_cid = conn.get_original_implicated_cid();
             // now, store the mail that way the next call to peer accept-request can work
-            let mail_id = this.console_context.unread_mail.write().on_peer_request_received(IncomingPeerRequest::Register(ticket, username.clone(), conn, Instant::now()));
+            let mail_id = this.console_context.unread_mail.write().on_peer_request_received(IncomingPeerRequest::Register(ticket, username.clone(), conn, Instant::now(), fcm));
             let cmd = format!("peer accept-register {}", mail_id);
             if do_print {
                 printfs!({

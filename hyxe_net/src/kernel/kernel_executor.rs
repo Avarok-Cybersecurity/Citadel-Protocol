@@ -1,19 +1,21 @@
-use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
+use std::pin::Pin;
+use std::sync::Arc;
 
+use tokio::net::ToSocketAddrs;
+use tokio::runtime::Runtime;
+use tokio::task::LocalSet;
+use tokio_stream::StreamExt;
+
+use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_user::account_manager::AccountManager;
 
-use crate::kernel::kernel::NetKernel;
 use crate::error::NetworkError;
-use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult};
-use hyxe_nat::hypernode_type::HyperNodeType;
-use tokio::net::ToSocketAddrs;
-use tokio_stream::StreamExt;
 use crate::hdp::hdp_packet_processor::includes::Duration;
-use std::sync::Arc;
-use tokio::runtime::Runtime;
-use std::pin::Pin;
+use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult};
+use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
+use crate::kernel::kernel::NetKernel;
 use crate::kernel::RuntimeFuture;
-use tokio::task::LocalSet;
+use crate::opts::ServerAuxiliaryOptions;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
@@ -26,11 +28,11 @@ pub struct KernelExecutor<K: NetKernel> {
 
 impl<K: NetKernel> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
-    pub async fn new<T: ToSocketAddrs + std::net::ToSocketAddrs + Send + 'static>(rt: Arc<Runtime>, hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T) -> Result<Self, NetworkError> {
+    pub async fn new<T: ToSocketAddrs + std::net::ToSocketAddrs + Send + 'static>(rt: Arc<Runtime>, hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T, auxiliary_opts: ServerAuxiliaryOptions) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) = tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt) = HdpServer::init(hypernode_type, server_to_kernel_tx, bind_addr, account_manager, server_shutdown_alerter_tx).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let (remote, future, localset_opt) = HdpServer::init(hypernode_type, server_to_kernel_tx, bind_addr, account_manager, server_shutdown_alerter_tx, auxiliary_opts).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
 
         Ok(Self { shutdown_aleter_rx: Some(server_shutdown_alerter_rx), server_remote: Some(remote), server_to_kernel_rx: Some(server_to_kernel_rx), kernel, context: Some((rt, future, localset_opt)) })
     }

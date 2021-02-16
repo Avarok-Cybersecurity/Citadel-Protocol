@@ -45,7 +45,7 @@ hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
 rust-argon2 = "0.8.3"
 num_cpus = "1.13.0"
-fcm = "0.8.1"
+fcm = { path = "./fcm-rust", version = "0.8.1" }
 base64 = "0.13.0"
 serde_json = "1.0.62"
 

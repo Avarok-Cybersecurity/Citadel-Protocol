@@ -4,8 +4,8 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
-use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
-use crate::hdp::hdp_packet_processor::primary_group_packet::{attempt_kem_as_alice_finish, ConstructorType};
+use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, ConstructorType};
+use crate::hdp::hdp_packet_processor::primary_group_packet::attempt_kem_as_alice_finish;
 
 use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
@@ -20,7 +20,7 @@ use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::GroupTransmitter;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr};
-use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
+use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest, MessageType};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;
@@ -150,23 +150,11 @@ pub struct EndpointChannelContainer<R: Ratchet = HyperRatchet> {
     // this is only loaded if STUN-like NAT-traversal works
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
     pub(crate) endpoint_crypto: PeerSessionCrypto<R>,
-    to_channel: UnboundedSender<SecBuffer>,
-    pub(crate) peer_socket_addr: SocketAddr,
-    pub(crate) rolling_group_id: u64,
-    pub(crate) rolling_object_id: u32
+    to_channel: UnboundedSender<MessageType>,
+    pub(crate) peer_socket_addr: SocketAddr
 }
 
 impl EndpointChannelContainer {
-    pub fn get_and_increment_group_id(&mut self) -> u64 {
-        self.rolling_group_id += 1;
-        self.rolling_group_id - 1
-    }
-
-    pub fn get_and_increment_object_id(&mut self) -> u32 {
-        self.rolling_object_id += 1;
-        self.rolling_object_id - 1
-    }
-
     pub fn get_direct_p2p_primary_stream(&self) -> Option<&OutboundTcpSender> {
         Some(&self.direct_p2p_remote.as_ref()?.p2p_primary_stream)
     }
@@ -178,7 +166,7 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
         if let Some(endpoint_container) = self.endpoint_container.take() {
             // next, since the is_active field is false, send an empty vec through the channel
             // in order to wake the receiving end, thus causing a poll, thus ending it
-            if let Err(_) = endpoint_container.to_channel.unbounded_send(SecBuffer::empty()) {}
+            if let Err(_) = endpoint_container.to_channel.unbounded_send(MessageType::Default(SecBuffer::empty())) {}
         }
     }
 }
@@ -381,8 +369,9 @@ pub(crate) struct OutboundTransmitterContainer {
 }
 
 impl OutboundTransmitterContainer {
-    pub fn new(ratchet_constructor: Option<HyperRatchetConstructor>, object_notifier: Option<UnboundedSender<()>>, burst_transmitter: GroupTransmitter, group_plaintext_length: usize, parent_object_total_groups: usize, relative_group_id: u32, ticket: Ticket) -> Self {
+    pub fn new(object_notifier: Option<UnboundedSender<()>>, mut burst_transmitter: GroupTransmitter, group_plaintext_length: usize, parent_object_total_groups: usize, relative_group_id: u32, ticket: Ticket) -> Self {
         let reliability_container = burst_transmitter.get_reliability_container();
+        let ratchet_constructor = burst_transmitter.hyper_ratchet_container.base_constructor.take();
         let burst_transmitter = Some(burst_transmitter);
         let transmission_start_time = Instant::now();
         let has_begun = false;
@@ -551,9 +540,7 @@ impl StateContainerInner {
             direct_p2p_remote: None,
             endpoint_crypto,
             to_channel: channel_tx,
-            peer_socket_addr,
-            rolling_object_id: 1,
-            rolling_group_id: 0
+            peer_socket_addr
         });
 
         let vconn = VirtualConnection {
@@ -586,7 +573,7 @@ impl StateContainerInner {
         // when the `target_cid` disconnects, it will remove its entry from this vconn table
         if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
             let conn_type = vconn.connection_type;
-            self.hdp_server_remote.unbounded_send(HdpServerRequest::SendMessage(data, target_cid, conn_type, security_level)).is_ok()
+            self.hdp_server_remote.unbounded_send(HdpServerRequest::SendMessage(MessageType::Default(data), target_cid, conn_type, security_level)).is_ok()
         } else {
             false
         }
@@ -594,7 +581,7 @@ impl StateContainerInner {
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
     /// (thus bypassing the kernel)
-    pub fn forward_data_to_channel_as_endpoint(&mut self, peer_cid: u64, data: SecBuffer) -> bool {
+    pub fn forward_data_to_channel_as_endpoint(&mut self, peer_cid: u64, data: MessageType) -> bool {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(channel) = vconn.endpoint_container.as_mut() {
                 return match channel.to_channel.unbounded_send(data) {

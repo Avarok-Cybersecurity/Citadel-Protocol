@@ -1,50 +1,24 @@
 pub(crate) mod do_connect {
-    use byteorder::{BigEndian, ByteOrder};
     use secstr::SecVec;
-    use zerocopy::LayoutVerified;
 
     use hyxe_user::client_account::ClientNetworkAccount;
 
     use crate::error::NetworkError;
-    use crate::hdp::hdp_packet::HdpHeader;
-    use crate::hdp::peer::peer_layer::MailboxTransfer;
     use hyxe_fs::prelude::SyncIO;
+    use crate::hdp::hdp_packet_crafter::do_connect::{DoConnectStage0Packet, DoConnectFinalStatusPacket};
+    use crate::opts::ClientAuxiliaryOptions;
 
     /// Here, Bob receives a payload of the encrypted username + password. We must verify the login data is valid
-    pub(crate) fn validate_stage0_packet(cnac: &ClientNetworkAccount, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Result<(), NetworkError> {
+    pub(crate) fn validate_stage0_packet(cnac: &ClientNetworkAccount, payload: &[u8]) -> Result<ClientAuxiliaryOptions, NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
-        let split_idx = header.context_info.get() as usize;
-        if split_idx > payload.len() {
-            Err(NetworkError::InvalidPacket("Packet has an oob username/password split index. Dropping"))
-        } else {
-            let (username, password) = payload.split_at(split_idx);
-            cnac.validate_credentials(username, SecVec::new(Vec::from(password))).map_err(|err| NetworkError::Generic(err.to_string()))?;
-            log::info!("Success validating credentials!");
-            Ok(())
-        }
+        let payload = DoConnectStage0Packet::deserialize_from_vector(payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        cnac.validate_credentials(payload.username, SecVec::new(Vec::from(payload.password))).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        log::info!("Success validating credentials!");
+        Ok(payload.aux_cfg)
     }
 
-    pub(crate) fn validate_final_status_packet(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Result<Option<(Vec<u8>, Option<MailboxTransfer>, Vec<u64>)>, ()> {
-        let msg_len = header.context_info.get() as usize;
-        let mailbox_len = header.group.get() as usize;
-
-        let (msg, mailbox_transfer_and_peers_bytes) = payload.split_at(msg_len);
-        let (mailbox_transfer_bytes, peers_bytes) = mailbox_transfer_and_peers_bytes.split_at(mailbox_len);
-
-        let mailbox = if mailbox_transfer_bytes.len() != 0 {
-            Some(MailboxTransfer::deserialize_from_vector(mailbox_transfer_bytes).map_err(|_|())?)
-        } else {
-            None
-        };
-
-        if peers_bytes.len() % 8 != 0 {
-            log::error!("Final status packet has invalid peer_bytes length");
-            return Err(());
-        }
-
-        let peers = peers_bytes.chunks_exact(8).map(|vals| BigEndian::read_u64(vals)).collect::<Vec<u64>>();
-
-        Ok(Some((Vec::from(msg), mailbox, peers)))
+    pub(crate) fn validate_final_status_packet(payload: &[u8]) -> Option<DoConnectFinalStatusPacket> {
+        DoConnectFinalStatusPacket::deserialize_from_vector(payload).ok()
     }
 }
 
@@ -58,8 +32,8 @@ pub(crate) mod keep_alive {
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
     /// Returns Ok(false) if expired.
-            /// Returns Ok(true) if valid
-            /// Return Err(_) if getting the drill failed or the security params were false
+    /// Returns Ok(true) if valid
+    /// Return Err(_) if getting the drill failed or the security params were false
     pub(crate) fn validate_keep_alive<'a, 'b: 'a>(cnac: &ClientNetworkAccount, header: &'b Bytes, payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, HyperRatchet)> {
         super::aead::validate(cnac,header, payload)
     }
@@ -86,6 +60,7 @@ pub(crate) mod group {
     use crate::hdp::hdp_packet_crafter::group::DUAL_ENCRYPTION_ON;
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
+    use hyxe_crypt::fcm::fcm_ratchet::FcmAliceToBobTransfer;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
     pub(crate) fn validate<'a, 'b: 'a>(hyper_ratchet: &HyperRatchet, security_level: SecurityLevel, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
@@ -98,7 +73,8 @@ pub(crate) mod group {
     #[derive(Serialize, Deserialize)]
     pub(crate) enum GroupHeader<'a> {
         Standard(GroupReceiverConfig, VirtualTargetType),
-        FastMessage(Vec<u8>, VirtualTargetType, #[serde(borrow)]Option<AliceToBobTransfer<'a>>),
+        FastMessage(Vec<u8>, VirtualTargetType, #[serde(borrow)] Option<AliceToBobTransfer<'a>>),
+        Fcm(Vec<u8>, u32, VirtualTargetType, #[serde(borrow)] Option<AliceToBobTransfer<'a>>, Option<FcmAliceToBobTransfer<'a>>)
     }
 
     pub(crate) fn validate_header<'a>(payload: &'a [u8], hyper_ratchet: &'a HyperRatchet, header: &'a LayoutVerified<&'a [u8], HdpHeader>) -> Option<GroupHeader<'a>> {
@@ -111,16 +87,23 @@ pub(crate) mod group {
                 }
             }
 
-             GroupHeader::FastMessage(msg, _, _) => {
+             GroupHeader::FastMessage(msg, ..) => {
                  if header.algorithm == DUAL_ENCRYPTION_ON {
                      let truncated_len = hyper_ratchet.decrypt_in_place_custom_scrambler(header.wave_id.get(), header.group.get(), msg).ok()?;
                      msg.truncate(truncated_len);
                  }
 
-                 // we need to decrypt the message. Use zero for wave-id here only
+                 // we need to decrypt the message's first-pass. Use zero for wave-id here only
                  let truncated_len = hyper_ratchet.decrypt_in_place_custom(0, header.group.get(), msg).ok()?;
                  msg.truncate(truncated_len);
              }
+
+            GroupHeader::Fcm(msg, ..) => {
+                if header.algorithm == DUAL_ENCRYPTION_ON {
+                    let truncated_len = hyper_ratchet.decrypt_in_place_custom_scrambler(header.wave_id.get(), header.group.get(), msg).ok()?;
+                    msg.truncate(truncated_len);
+                }
+            }
         }
 
         Some(group_header)

@@ -1,24 +1,30 @@
-use crate::hdp::hdp_server::Ticket;
-use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal};
-
-use super::includes::*;
-use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
-use crate::hdp::peer::peer_crypt::{KEP_STAGE1, KeyExchangeProcess};
-use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
-use hyxe_crypt::toolset::Toolset;
-use crate::constants::DEFAULT_PQC_ALGORITHM;
 use std::str::FromStr;
-use crate::hdp::hdp_packet_processor::preconnect_packet::calculate_sync_time;
-use crate::hdp::peer::p2p_conn_handler::attempt_tcp_simultaneous_hole_punch;
-use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_ratchet;
-use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, AliceToBobTransfer, BobToAliceTransfer, BobToAliceTransferType};
-use hyxe_fs::prelude::SyncIO;
+
+use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer, BobToAliceTransferType, HyperRatchetConstructor};
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::toolset::Toolset;
+use hyxe_fs::prelude::SyncIO;
+
+use crate::constants::DEFAULT_PQC_ALGORITHM;
+use crate::hdp::hdp_packet_processor::includes::*;
+use crate::hdp::hdp_packet_processor::peer::group_broadcast;
+use crate::hdp::hdp_packet_processor::preconnect_packet::calculate_sync_time;
+use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_ratchet;
+use crate::hdp::hdp_server::Ticket;
+use crate::hdp::peer::p2p_conn_handler::attempt_tcp_simultaneous_hole_punch;
+use crate::hdp::peer::peer_crypt::{KEP_STAGE1, KeyExchangeProcess};
+use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal};
+use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use crate::inner_arg::{ExpectedInnerTarget, InnerParameter};
+use crate::fcm::kem::FcmPostRegister;
+use hyxe_crypt::fcm::fcm_ratchet::FcmBobToAliceTransfer;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
 /// HyperLAN client and the HyperLAN Server
+///
+/// *** IMPORTANT RULE *** : NEVER get a mutable reference to an HdpSession! IF you do, it has the potential to cause deadlocks under tight concurrent situations
 pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header_drill_version: u32, endpoint_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
     // ALL PEER_CMD packets require that the current session contain a CNAC
     let session = inner!(session_orig);
@@ -36,7 +42,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
 
     match aux_cmd {
         packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST => {
-            super::peer::group_broadcast::process(&wrap_inner!(session), header, &payload[..], &sess_hyper_ratchet)
+            group_broadcast::process(&wrap_inner!(session), header, &payload[..], &sess_hyper_ratchet)
         }
 
         packet_flags::cmd::aux::peer_cmd::SIGNAL => {
@@ -54,6 +60,25 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                         }
                         
                         session.send_to_kernel(HdpServerResult::PeerEvent(signal, ticket))?;
+                        return PrimaryProcessorResult::Void;
+                    }
+
+                    PeerSignal::PostRegister(vconn, a, b, c, FcmPostRegister::BobToAliceTransfer(transfer)) => {
+                        log::info!("[FCM] Received bob to alice transfer from {}", vconn.get_original_implicated_cid());
+                        let peer_cid = vconn.get_original_implicated_cid();
+                        let this_cid = vconn.get_original_target_cid();
+                        // we need to get the peer kem state container
+                        let mut fcm_constructor = state_container.peer_kem_states.remove(&peer_cid)?.fcm_constructor?;
+                        fcm_constructor.stage1_alice(FcmBobToAliceTransfer::deserialize_from_vector(&transfer[..]).ok()?)?;
+                        let fcm_ratchet = fcm_constructor.finish_with_custom_cid(this_cid)?;
+                        let fcm_endpoint_container = PeerSessionCrypto::new(Toolset::new(this_cid, fcm_ratchet), true);
+                        cnac.visit_mut(|mut inner| {
+                            inner.fcm_crypt_container.insert(peer_cid, fcm_endpoint_container);
+                        });
+
+                        cnac.spawn_save_task_on_threadpool();
+                        log::info!("[FCM] Successfully finished registration!");
+                        session.send_to_kernel(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, a.clone(), b.clone(), c.clone(), FcmPostRegister::Enable), ticket))?;
                         return PrimaryProcessorResult::Void;
                     }
 
@@ -394,7 +419,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
             }
         }
 
-        PeerSignal::PostRegister(peer_conn_type, username, _ticket_opt, peer_response) => {
+        PeerSignal::PostRegister(peer_conn_type, username, _ticket_opt, peer_response, fcm) => {
             // check to see if the client is connected, and if not, send to HypernodePeerLayer
             match peer_conn_type {
                 PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
@@ -402,7 +427,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                     // if the peer response is some, then HyperLAN Client B responded
                     if let Some(peer_response) = peer_response {
                         // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
-                        route_signal_response(PeerSignal::PostRegister(peer_conn_type, username.clone(), Some(ticket), Some(peer_response)), implicated_cid, target_cid, timestamp, ticket, session, &sess_hyper_ratchet,
+                        route_signal_response(PeerSignal::PostRegister(peer_conn_type, username.clone(), Some(ticket), Some(peer_response), fcm), implicated_cid, target_cid, timestamp, ticket, session, &sess_hyper_ratchet,
                         |this_sess, peer_sess, _original_tracked_posting| {
                             if let Some(this_cnac) = this_sess.cnac.as_ref() {
                                 if let Some(other_cnac) = peer_sess.cnac.as_ref() {
@@ -413,7 +438,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                         }, security_level)
                     } else {
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
-                        route_signal_and_register_ticket_forwards(PeerSignal::PostRegister(peer_conn_type, username, Some(ticket), None), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, session, &sess_hyper_ratchet, security_level)
+                        route_signal_and_register_ticket_forwards(PeerSignal::PostRegister(peer_conn_type, username, Some(ticket), None, fcm), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, session, &sess_hyper_ratchet, security_level)
                     }
                 }
 

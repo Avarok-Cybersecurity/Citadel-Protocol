@@ -190,7 +190,7 @@ fn scramble_encrypt_wave(wave_idx: usize, bytes_to_encrypt_for_this_wave: &[u8],
 /// header_size_bytes: This size (in bytes) of each packet's header
 /// the feed order into the header_inscriber is first the target_cid, and then the object ID
 #[allow(unused_results)]
-pub fn encrypt_group_unified<T: AsRef<[u8]>>(plain_text: T, hyper_ratchet: &HyperRatchet, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
+pub fn encrypt_group_unified<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, hyper_ratchet: &R, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
     let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
     let scramble_drill = hyper_ratchet.get_scramble_drill();
 
