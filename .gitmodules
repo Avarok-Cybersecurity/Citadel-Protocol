@@ -8,7 +8,3 @@
 [submodule "tokio_agnostic_uds"]
 	path = tokio_agnostic_uds
 	url = ./tokio_agnostic_uds
-
-[submodule "tokio_agnostic_uds"]
-    path = fcm-rust
-    url = ./hyxe_user/fcm-rust
