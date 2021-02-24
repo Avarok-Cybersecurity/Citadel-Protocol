@@ -334,8 +334,8 @@
       <sourceFolder url="file://$MODULE_DIR$/satori_nos/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/satori_nos/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/async_firebase/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_user/fcm-rust/examples" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_user/fcm-rust/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/fcm-rust/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/fcm-rust/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/target" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/target" />
       <excludeFolder url="file://$MODULE_DIR$/async_ip/target" />
