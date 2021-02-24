@@ -123,7 +123,7 @@ mod tests {
         for x in 0u8..10 {
             hyper_ratchet::<HyperRatchet>(Some(x.into()));
             #[cfg(feature = "fcm")]
-                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>(Some(x.into()));
         }
     }
 

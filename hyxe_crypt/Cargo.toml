@@ -13,7 +13,7 @@ exclude = [
 
 [features]
 default = ["single-threaded"]
-single-threaded = ["ez_pqcrypto/aes"]
+single-threaded = ["ez_pqcrypto/aes", "ez_pqcrypto/unordered"]
 multi-threaded = ["ez_pqcrypto/aes", "ez_pqcrypto/unordered"]
 
 [dependencies]

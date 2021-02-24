@@ -4,7 +4,7 @@ mod tests {
     use rand::prelude::ThreadRng;
     use rand::RngCore;
 
-    use ez_pqcrypto::{algorithm_dictionary, PostQuantumContainer, NONCE_LENGTH_BYTES, AntiReplayAttackContainer};
+    use ez_pqcrypto::{algorithm_dictionary, PostQuantumContainer, NONCE_LENGTH_BYTES};
 
     /*
         #[test]
@@ -177,10 +177,10 @@ mod tests {
         let mut alice_container = PostQuantumContainer::new_alice(Some(algorithm));
         let bob_container = PostQuantumContainer::new_bob(algorithm, alice_container.get_public_key()).unwrap();
         alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
-        let mut zeroth = BytesMut::default();
+        let mut zeroth = Vec::default();
         let mut zeroth_nonce = Default::default();
         for y in 0..100 {
-            let mut buf = BytesMut::with_capacity(TOTAL_LEN);
+            let mut buf = Vec::with_capacity(TOTAL_LEN);
             for x in 0..TOTAL_LEN {
                 buf.put_u8(x as u8);
             }

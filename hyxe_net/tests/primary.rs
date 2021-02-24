@@ -3,7 +3,7 @@
 #[cfg(test)]
 pub mod tests {
     use std::error::Error;
-    use hyxe_net::hdp::hdp_server::{HdpServerRequest, HdpServerRemote, Ticket, MessageType};
+    use hyxe_net::hdp::hdp_server::{HdpServerRequest, HdpServerRemote, Ticket};
     use crate::tests::kernel::{TestKernel, TestContainer, ActionType};
     use hyxe_net::kernel::kernel_executor::KernelExecutor;
     use hyxe_nat::hypernode_type::HyperNodeType;
@@ -29,12 +29,20 @@ pub mod tests {
     use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
     use tokio::runtime::{Builder, Runtime};
     use hyxe_net::hdp::peer::message_group::MessageGroupKey;
-    use hyxe_net::opts::ServerAuxiliaryOptions;
-    use hyxe_net::fcm::data_structures::FCMMessagePayload;
-    use hyxe_net::fcm::kem::FcmPostRegister;
+    use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use hyxe_user::fcm::kem::FcmPostRegister;
 
     const COUNT: usize = 500;
     const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 50);
+
+    #[allow(dead_code)]
+    fn gen(cid: u64, vers: u32, sec: Option<SecurityLevel>) -> (HyperRatchet, HyperRatchet) {
+        let mut alice_con = HyperRatchetConstructor::new_alice(None, cid, vers, sec);
+        let bob_con = HyperRatchetConstructor::new_bob(0, cid, vers, alice_con.stage0_alice()).unwrap();
+        alice_con.stage1_alice(bob_con.stage0_bob().map(BobToAliceTransferType::Default).unwrap()).unwrap();
+        (alice_con.finish().unwrap(), bob_con.finish().unwrap())
+    }
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -60,21 +68,6 @@ pub mod tests {
         Client0,
         Client1,
         Client2,
-    }
-
-    #[test]
-    fn fcm_message_serde() {
-        setup_log();
-        let message = FCMMessagePayload::new(123, 456, 999, 789, Vec::from("Hello, world!"), Vec::from("Hello, world 2!"));
-        let ser = message.serialize_json();
-        log::info!("Ser: {}", &ser);
-        let deser = FCMMessagePayload::from_str(ser).unwrap();
-        assert_eq!(deser.session_cid, 123);
-        assert_eq!(deser.target_cid, 456);
-        assert_eq!(deser.group_id, 999);
-        assert_eq!(deser.drill_version, 789);
-        assert_eq!(deser.encrypted_message, Vec::from("Hello, world!"));
-        assert_eq!(deser.re_key_bin, Vec::from("Hello, world 2!"));
     }
 
     #[test]
@@ -157,11 +150,10 @@ pub mod tests {
     }
 
     async fn create_executor(rt: Arc<Runtime>, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: NodeType, commands: Vec<ActionType>) -> KernelExecutor<TestKernel> {
-        let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port()))).await.unwrap();
+        let account_manager = AccountManager::new_local(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port()))).unwrap();
         account_manager.purge();
         let kernel = TestKernel::new(node_type, commands, test_container);
-        let opts = ServerAuxiliaryOptions::default();
-        KernelExecutor::new(rt, HyperNodeType::BehindResidentialNAT, account_manager, kernel, bind_addr, opts).await.unwrap()
+        KernelExecutor::new(rt, HyperNodeType::BehindResidentialNAT, account_manager, kernel, bind_addr).await.unwrap()
     }
 
     pub mod kernel {
@@ -689,7 +681,7 @@ pub mod tests {
                         tokio::time::sleep(Duration::from_millis(1)).await
                     }
                     //tokio::time::sleep(Duration::from_millis(10)).await;
-                    sink.send_unbounded(MessageType::Default(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8]))).unwrap();
+                    sink.send_unbounded(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8])).unwrap();
                 }
 
                 log::info!("DONE sending {} messages for {:?}", COUNT, node_type);
@@ -759,7 +751,7 @@ pub mod tests {
         log::info!("[Server/Client Stress Test] Starting send of {} messages on {:?} [target: {}]", COUNT, node_type, implicated_cid);
         for x in 0..COUNT {
             let next_ticket = remote.get_next_ticket();
-            remote.send((next_ticket, HdpServerRequest::SendMessage(MessageType::Default(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8])), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), CLIENT_SERVER_STRESS_TEST_SEC))).await.unwrap();
+            remote.send((next_ticket, HdpServerRequest::SendMessage(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8]), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), CLIENT_SERVER_STRESS_TEST_SEC))).await.unwrap();
         }
 
         log::info!("[Server/Client Stress Test] Done sending {} messages as {:?}", COUNT, node_type)
@@ -780,7 +772,7 @@ pub mod tests {
         let nonce = read.password_hash.as_slice();
         let proposed_credentials = ProposedCredentials::new_unchecked(full_name, username, SecVec::from(Vec::from(password)), Some(nonce));
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, Default::default(), None, Some(true), None)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, None, None, Some(true), None)))
     }
 
     fn client1_action1(item_container: Arc<RwLock<TestContainer>>, username: &str, password: &str, security_level: SecurityLevel) -> Option<ActionType> {
@@ -793,7 +785,7 @@ pub mod tests {
         let nonce = read.password_hash.as_slice();
         let proposed_credentials = ProposedCredentials::new_unchecked(full_name, username, SecVec::from(Vec::from(password)), Some(nonce));
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, Default::default(), None, Some(true), None)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, None, None, Some(true), None)))
     }
 
     fn client2_action1(item_container: Arc<RwLock<TestContainer>>, username: &str, password: &str, security_level: SecurityLevel) -> Option<ActionType> {
@@ -806,7 +798,7 @@ pub mod tests {
         let nonce = read.password_hash.as_slice();
         let proposed_credentials = ProposedCredentials::new_unchecked(full_name, username, SecVec::from(Vec::from(password)), Some(nonce));
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, Default::default(), None, Some(true), None)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, None, None, Some(true), None)))
     }
 
     // client 2 will initiate the p2p *registration* to client1

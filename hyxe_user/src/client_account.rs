@@ -29,6 +29,13 @@ use std::ops::RangeInclusive;
 
 use std::collections::HashMap;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
+use crate::misc::constructor_map::ConstructorMap;
+use hyxe_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
+use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
+use fcm::Client;
+use crate::fcm::fcm_instance::FCMInstance;
+use crate::fcm::data_structures::{FcmTicket, RawFcmPacket};
+use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult};
 
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network
@@ -113,8 +120,9 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     /// A session-invariant container that stores the crypto container for a specific peer cid
     #[serde(bound = "")]
     pub fcm_crypt_container: HashMap<u64, PeerSessionCrypto<Fcm>>,
-    /// The registration FCM ID for this client
-    pub fcm_reg_id: Option<String>,
+    /// For keeping track of KEX'es
+    #[serde(bound = "")]
+    pub kem_state_containers: ConstructorMap<R, Fcm>,
     #[serde(skip)]
     /// We keep the password in RAM encrypted
     password_in_ram: Option<SecVec<u8>>,
@@ -169,9 +177,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let dirs = Some(dirs);
 
         let fcm_crypt_container = HashMap::with_capacity(0);
-        let fcm_reg_id = None;
+        let kem_state_containers = ConstructorMap::new();
 
-        let inner = ClientNetworkAccountInner::<R, Fcm> { fcm_reg_id, fcm_crypt_container, dirs, password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
+        let inner = ClientNetworkAccountInner::<R, Fcm> { kem_state_containers, fcm_crypt_container, dirs, password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
         let this = Self::from(inner);
 
         this.blocking_save_to_local_fs()?;
@@ -211,7 +219,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Loads from an inner device. Performs all the necessary actions to keep the data as safe as possible
-    pub(crate) async fn load_safe_from_fs(mut inner: ClientNetworkAccountInner<R, Fcm>, local_save_path: PathBuf, dirs: &DirectoryStore) -> Result<Self, AccountError<String>> {
+    pub(crate) fn load_safe_from_fs(mut inner: ClientNetworkAccountInner<R, Fcm>, local_save_path: PathBuf, dirs: &DirectoryStore) -> Result<Self, AccountError<String>> {
         if inner.is_local_personal {
             debug_assert!(inner.hyxefile_save_path.is_none()); // onload, this should have a value
             debug_assert!(inner.password_hyxefile.is_none());
@@ -232,7 +240,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             let hyxefile = HyxeFile::deserialize_from_local_fs(hyxefile_path).map_err(|err| AccountError::IoError(err.to_string()))?;
 
             // For safety purposes, the old password file gets purged upon load
-            hyxe_fs::system_file_manager::delete_file(hyxefile_path).await.map_err(|err| AccountError::IoError(err.to_string()))?;
+            hyxe_fs::system_file_manager::delete_file_blocking(hyxefile_path).map_err(|err| AccountError::IoError(err.to_string()))?;
 
             // Now, remove the hyxefile_save_path for additional security measure
             inner.hyxefile_save_path = None;
@@ -247,6 +255,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let inner_nac = bytes_to_type::<NetworkAccountInner>(&decrypted_nac_bytes).map_err(|err| AccountError::IoError(err.to_string()))?;
         let nac = NetworkAccount::new_from_cnac(inner_nac);
         inner.adjacent_nac = Some(nac);
+        inner.kem_state_containers.clear();
 
         let this = Self::from(inner);
 
@@ -472,11 +481,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         // spawn save task on threadpool
         tokio::task::spawn(async move {
             if let Err(err) = this.async_save_to_local_fs().await {
-                log::error!("Unable to save CNAC {} to the local filesystem: {}", this_cid, err.to_string());
+                log::error!("Unable to save CNAC {} to the local filesystem: {:?}", this_cid, err);
             }
 
             if let Err(err) = other.async_save_to_local_fs().await {
-                log::error!("Unable to save CNAC {} to the local filesystem: {}", other_cid, err.to_string());
+                log::error!("Unable to save CNAC {} to the local filesystem: {:?}", other_cid, err);
             }
         });
     }
@@ -625,6 +634,68 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         write.fcm_crypt_container.insert(peer_cid, container);
     }
 
+    /// Returns the ticket for the request, and runs the asynchronous send task in the background. After done processing, ``callback`` will be triggered with the send result.
+    /// This is similar to ``fcm_send_to``, but will return instantly
+    #[allow(unused_results)]
+    pub fn background_fcm_send_to(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>, callback: impl FnOnce(FcmProcessorResult) + Send + 'static) -> Result<FcmTicket, AccountError> {
+        let (ticket, fcm_instance, packet) = self.prepare_fcm_send(target_peer_cid, message, client)?;
+        tokio::task::spawn(async move {
+            match fcm_instance.send_to_fcm_user(packet).await {
+                Ok(_res) => {
+                    (callback)(FcmProcessorResult::Value(FcmResult::MessageSent { ticket }))
+                }
+
+                Err(err) => {
+                    (callback)(FcmProcessorResult::Err(err.into_string()))
+                }
+            }
+        });
+
+        Ok(ticket)
+    }
+
+    /// Sends the request to the FCM server, returns the ticket for the request
+    pub async fn fcm_send_to(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>) -> Result<FcmTicket, AccountError> {
+        log::info!("RD0");
+        let (ticket, fcm_instance, packet) = self.prepare_fcm_send(target_peer_cid, message, client)?;
+        log::info!("RD1");
+        fcm_instance.send_to_fcm_user(packet).await.map(|_| ticket)
+    }
+
+    /// Prepares the requires abstractions needed to send data
+    fn prepare_fcm_send(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>) -> Result<(FcmTicket, FCMInstance, RawFcmPacket), AccountError> {
+        let mut write = self.write();
+        let ClientNetworkAccountInner::<R, Fcm> {
+            fcm_crypt_container,
+            kem_state_containers,
+            cid,
+            ..
+        } = &mut *write;
+
+        let crypt_container = fcm_crypt_container.get_mut(&target_peer_cid).ok_or(AccountError::ClientNonExists(target_peer_cid))?;
+
+        // construct the instance
+        let fcm_instance = FCMInstance::new(crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?, client.clone());
+
+        let ref ratchet = crypt_container.get_hyper_ratchet(None).unwrap().clone();
+        let object_id = crypt_container.get_and_increment_object_id();
+        let group_id = crypt_container.get_and_increment_group_id();
+
+        let ticket = FcmTicket::new(*cid, target_peer_cid, object_id);
+
+        let constructor = crypt_container.get_next_constructor(None);
+        let transfer = constructor.as_ref().map(|con| con.stage0_alice());
+        let packet = crate::fcm::fcm_packet_crafter::craft_group_header(ratchet, object_id, group_id, target_peer_cid, message, transfer).ok_or(AccountError::Generic("Report to developers (x-77)".to_string()))?;
+
+        // store constructor if required (may not be required if an update is already in progress)
+        if let Some(constructor) = constructor {
+            if kem_state_containers.insert(target_peer_cid, ConstructorType::Fcm(constructor)).is_some() {
+                log::error!("[FCM] overwrote pre-existing KEM constructor. Please report to developers")
+            }
+        }
+
+        Ok((ticket, fcm_instance, packet))
+    }
 
     /// Generates the bytes of the underlying [ClientNetworkAccountInner]
     pub async fn generate_bytes_async(&self) -> Result<Vec<u8>, AccountError<String>> where ClientNetworkAccountInner<R, Fcm>: AsyncIO {
@@ -681,6 +752,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         new_hyxefile.drill_contents(&static_hyper_ratchet, nac_unencrypted_bytes.as_slice(), SecurityLevel::DIVINE).map_err(|err| AccountError::IoError(err.to_string()))?;
         // Place the HyxeFile inside
         assert!(ptr.inner_encrypted_nac.replace(new_hyxefile).is_none());
+        ptr.kem_state_containers.clear();
 
         // finally, save the CNAC to the local hard drive, but using the save path for the CNAC instead of the password HyxeFile
         let save_path = ptr.local_save_path.as_path().clone();

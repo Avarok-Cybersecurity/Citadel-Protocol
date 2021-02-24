@@ -1,6 +1,6 @@
 /// Default Error type for this crate
 #[derive(Debug)]
-pub enum AccountError<T: ToString> {
+pub enum AccountError<T: Into<String> = String> {
     /// Input/Output error. Used for possibly failed Serialization/Deserialization of underlying datatypes
     IoError(T),
     /// The [NetworkMap] does not have a valid configuration
@@ -23,15 +23,15 @@ pub enum AccountError<T: ToString> {
     Generic(T),
 }
 
-impl<T: ToString> AccountError<T> {
+impl<T: Into<String>> AccountError<T> {
     /// Consumes self and returns the underlying error message
-    pub fn to_string(self) -> String {
+    pub fn into_string(self) -> String {
         match self {
-            AccountError::IoError(e) => e.to_string(),
-            AccountError::Generic(e) => e.to_string(),
+            AccountError::IoError(e) => e.into(),
+            AccountError::Generic(e) => e.into(),
             AccountError::InvalidUsername => "Invalid username".to_string(),
             AccountError::InvalidPassword => "Invalid password".to_string(),
-            AccountError::NetworkMapLoad(e) => e.to_string(),
+            AccountError::NetworkMapLoad(e) => e.into(),
             AccountError::ClientExists(cid) => format!("Client {} already exists", cid),
             AccountError::ClientNonExists(cid) => format!("Client {} does not exist", cid),
             AccountError::ServerExists(cid) => format!("Server {} already exists", cid),
@@ -98,61 +98,60 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
     Ok(())
 }
 
-/*
-use future_parking_lot::rwlock::FutureRawRwLock;
-use future_parking_lot::parking_lot::lock_api::{RwLockReadGuard, RwLockWriteGuard};
-use future_parking_lot::parking_lot::RawRwLock;
-use std::ops::{Deref, DerefMut};
+/// For convenience ser/de
+pub mod constructor_map {
+    use std::collections::HashMap;
+    use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
+    use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
+    use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
+    use std::ops::{Deref, DerefMut};
+    use serde::{Serialize, Serializer, Deserialize, Deserializer};
+    use serde::ser::SerializeMap;
 
-/// Makes awaiting thread-safe
-pub struct FutureRwLockWriteGuard<'a, T> {
-    inner: RwLockWriteGuard<'a, FutureRawRwLock<RawRwLock>, T>
-}
+    /// A no-serialization container
+    pub struct ConstructorMap<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+        inner: HashMap<u64, ConstructorType<R, Fcm>>
+    }
 
-impl<'a, T> FutureRwLockWriteGuard<'a, T> {
-    /// Wraps
-    pub fn wrap(inner: RwLockWriteGuard<'a, FutureRawRwLock<RawRwLock>, T>) -> Self {
-        Self { inner }
+    impl<R: Ratchet, Fcm: Ratchet> ConstructorMap<R, Fcm> {
+        /// Creates an empty hashmap. No allocation occurs
+        pub fn new() -> Self {
+            Self { inner: HashMap::with_capacity(0) }
+        }
+    }
+
+    impl<R: Ratchet, Fcm: Ratchet> Default for ConstructorMap<R, Fcm> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl<R: Ratchet, Fcm: Ratchet> Deref for ConstructorMap<R, Fcm> {
+        type Target = HashMap<u64, ConstructorType<R, Fcm>>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+
+    impl<R: Ratchet, Fcm: Ratchet> DerefMut for ConstructorMap<R, Fcm> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.inner
+        }
+    }
+
+    impl<R: Ratchet, Fcm: Ratchet> Serialize for ConstructorMap<R, Fcm> {
+        fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+            S: Serializer {
+            let map = serializer.serialize_map(Some(0))?;
+            map.end()
+        }
+    }
+
+    impl<'de, R: Ratchet, Fcm: Ratchet> Deserialize<'de> for ConstructorMap<R, Fcm> {
+        fn deserialize<D>(_deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
+            D: Deserializer<'de> {
+            Ok(ConstructorMap::default())
+        }
     }
 }
-
-impl<'a, T> Deref for FutureRwLockWriteGuard<'a, T> {
-    type Target = RwLockWriteGuard<'a, FutureRawRwLock<RawRwLock>, T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<'a, T> DerefMut for FutureRwLockWriteGuard<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-/// Makes awaiting thread-safe
-pub struct FutureRwLockReadGuard<'a, T> {
-    inner: RwLockReadGuard<'a, FutureRawRwLock<RawRwLock>, T>
-}
-
-impl<'a, T> FutureRwLockReadGuard<'a, T> {
-    /// Wraps
-    pub fn wrap(inner: RwLockReadGuard<'a, FutureRawRwLock<RawRwLock>, T>) -> Self {
-        Self { inner }
-    }
-}
-
-impl<'a, T> Deref for FutureRwLockReadGuard<'a, T> {
-    type Target = RwLockReadGuard<'a, FutureRawRwLock<RawRwLock>, T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<'a, T> DerefMut for FutureRwLockReadGuard<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-*/

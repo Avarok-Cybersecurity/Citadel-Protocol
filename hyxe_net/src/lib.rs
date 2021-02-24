@@ -1,4 +1,4 @@
-#![feature(async_closure, main, try_trait, ip, type_alias_impl_trait, bindings_after_at)]
+#![feature(async_closure, main, try_trait, ip, type_alias_impl_trait, bindings_after_at, panic_any)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
 #![forbid(unsafe_code)]
@@ -93,7 +93,7 @@ pub mod macros {
 
     macro_rules! spawn_handle {
     ($future:expr) => {
-        tokio::task::spawn_local($future)
+        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local($future))
     };
 }
 
@@ -164,7 +164,7 @@ pub mod macros {
                 std::sync::Arc::strong_count(&self.inner)
             }
 
-                        #[allow(dead_code)]
+            #[allow(dead_code)]
             pub fn weak_count(&self) -> usize {
                 std::sync::Arc::weak_count(&self.inner)
             }
@@ -198,7 +198,7 @@ pub mod macros {
 
     macro_rules! spawn_handle {
     ($future:expr) => {
-        tokio::task::spawn($future)
+        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future))
     };
 }
 
@@ -222,9 +222,8 @@ pub mod re_imports {
     pub use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
     pub use futures::future::try_join3;
 
-    pub use hyxe_nat::hypernode_type::HyperNodeType;
-
     pub use ez_pqcrypto::build_tag;
+    pub use hyxe_nat::hypernode_type::HyperNodeType;
 }
 
 /// Contains the streams for creating connections
@@ -241,7 +240,3 @@ pub mod proposed_credentials;
 pub mod functional;
 /// For handling differential function input types between single/multi-threaded modes
 pub mod inner_arg;
-/// For FCM
-pub mod fcm;
-/// opts
-pub mod opts;

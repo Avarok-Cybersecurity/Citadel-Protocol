@@ -15,7 +15,7 @@ fn main() -> Result<(), ConsoleError> {
             print_welcome();
             INPUT_ROUTER.init(cfg.daemon_mode)?;
             log::info!("Obtained information from console. Now beginning instantiation of HdpServer ...");
-            match execute(cfg).map_err(|err| ConsoleError::Generic(err.to_string())) {
+            match execute(cfg).map_err(|err| ConsoleError::Generic(err.into_string())) {
                 Ok(_) => {
                     shutdown_sequence(0);
                     Ok(())

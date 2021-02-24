@@ -44,25 +44,25 @@ pub fn load_node_nac(cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount>, dirs
 
 /// Loads all locally-stored CNACs, as well as the highest CID (used to update local nac incase improper shutdown)
 #[allow(unused_results)]
-pub async fn load_cnac_files(dirs: &DirectoryStore) -> Result<HashMap<u64, ClientNetworkAccount>, FsError<String>> {
+pub fn load_cnac_files(dirs: &DirectoryStore) -> Result<HashMap<u64, ClientNetworkAccount>, FsError<String>> {
     let read = dirs.inner.read();
     let hyxe_nac_dir_impersonal = read.hyxe_nac_dir_impersonal.clone();
     let hyxe_nac_dir_personal = read.hyxe_nac_dir_personal.clone();
     std::mem::drop(read);
 
-    let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccountInner, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_impersonal).await?;
-    let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccountInner, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_personal).await?;
+    let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccountInner, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_impersonal)?;
+    let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccountInner, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_personal)?;
     log::info!("[CNAC Loader] Impersonal client network accounts loaded: {} | Personal client network accounts loaded: {}", cnacs_impersonal.len(), cnacs_personal.len());
     let mut ret = HashMap::with_capacity(cnacs_impersonal.len() + cnacs_personal.len());
     for cnac in cnacs_impersonal.into_iter().chain(cnacs_personal.into_iter()) {
-        match ClientNetworkAccount::load_safe_from_fs(cnac.0, cnac.1.clone(), dirs).await {
+        match ClientNetworkAccount::load_safe_from_fs(cnac.0, cnac.1.clone(), dirs) {
             Ok(cnac) => {
                 ret.insert(cnac.get_id(), cnac);
             },
             Err(err) => {
-                log::error!("Error converting CNAC-inner into CNAC: {}. Deleting CNAC from local storage", err.to_string());
+                log::error!("Error converting CNAC-inner into CNAC: {:?}. Deleting CNAC from local storage", err);
                 // delete it. If this doesn't work, it could be because of OS error 13 (bad permissions)
-                if let Err(err) = hyxe_fs::system_file_manager::delete_file(cnac.1).await {
+                if let Err(err) = hyxe_fs::system_file_manager::delete_file_blocking(cnac.1) {
                     log::warn!("Unable to delete file: {}", err.to_string());
                 }
             }

@@ -7,6 +7,11 @@ workspace = "../"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["single-threaded"]
+multi-threaded = ["hyxe_crypt/multi-threaded"]
+single-threaded = ["hyxe_crypt/single-threaded"]
+
 [dependencies]
 #futures-preview = { version = "=0.3.0-alpha.19", features = ["compat", "async-await"]}
 serde = { version = "1.0.104", features=["rc", "derive"] }
@@ -24,7 +29,14 @@ multimap = "0.8.1"
 log = { version = "0.4.8", features = ["max_level_trace", "release_max_level_error"] }
 
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
-hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0" }
+hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }
+fcm = { path = "./fcm-rust", version = "0.8.1" }
+serde_json = "1.0.62"
+base64 = "0.13.0"
+bytes = "1.0.1"
+serde_bytes = "0.11.5"
+zerocopy = "0.3.0"
+byteorder = "1.4.2"
 #hyxe_config = { path = "../hyxe_config", version = "0.1.0" }
 #async_ip = { path = "../async_ip", version = "0.1.0" }
 

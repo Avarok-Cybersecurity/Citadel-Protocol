@@ -10,6 +10,7 @@ use crate::net::crypt_splitter::calculate_nonce_version;
 use std::alloc::Global;
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::fcm::fcm_ratchet::FcmRatchet;
+use ez_pqcrypto::bytes_in_place::EzBuffer;
 
 /// A container meant to establish perfect forward secrecy AND scrambling w/ an independent key
 /// This is meant for messages, not file transfer. File transfers should use a single key throughout
@@ -30,8 +31,8 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
     fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill);
     fn get_scramble_drill(&self) -> &Drill;
 
-    fn protect_message_packet(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut BytesMut) -> Result<(), CryptError<String>>;
-    fn validate_message_packet<H: AsRef<[u8]>>(&self, security_level: Option<SecurityLevel>, header: H, packet: &mut BytesMut) -> Result<(), CryptError<String>>;
+    fn protect_message_packet<T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>>;
+    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header: H, packet: &mut T) -> Result<(), CryptError<String>>;
 
     fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
     fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
@@ -130,11 +131,11 @@ impl Ratchet for HyperRatchet {
         self.get_scramble_drill()
     }
 
-    fn protect_message_packet(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+    fn protect_message_packet<T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {
         self.protect_message_packet(security_level, header_len_bytes, packet)
     }
 
-    fn validate_message_packet<H: AsRef<[u8]>>(&self, security_level: Option<SecurityLevel>, ref header: H, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(&self, security_level: Option<SecurityLevel>, ref header: H, packet: &mut T) -> Result<(), CryptError<String>> {
         self.validate_message_packet(security_level, header, packet)
     }
 
@@ -208,7 +209,7 @@ impl HyperRatchet {
     }
 
     /// Protects the packet, treating the header as AAD, and the payload as the data that gets encrypted
-    pub fn protect_message_packet(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+    pub fn protect_message_packet<T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {
         let idx = self.verify_level(security_level)?;
         for n in 0..=idx {
             let (pqc, drill) = self.message_pqc_drill(Some(n));
@@ -219,7 +220,7 @@ impl HyperRatchet {
     }
 
     /// Validates a packet in place
-    pub fn validate_message_packet<H: AsRef<[u8]>>(&self, security_level: Option<SecurityLevel>, ref header: H, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+    pub fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(&self, security_level: Option<SecurityLevel>, ref header: H, packet: &mut T) -> Result<(), CryptError<String>> {
         let idx = self.verify_level(security_level)?;
         for n in (0..=idx).rev() {
             let (pqc, drill) = self.message_pqc_drill(Some(n));
@@ -392,7 +393,7 @@ pub mod constructor {
     use bytes::BytesMut;
     use bytes::BufMut;
     use crate::endpoint_crypto_container::EndpointRatchetConstructor;
-    use crate::fcm::fcm_ratchet::FcmRatchet;
+    use crate::fcm::fcm_ratchet::{FcmRatchet, FcmAliceToBobTransfer};
 
     /// Used during the key exchange process
     pub struct HyperRatchetConstructor {
@@ -462,7 +463,7 @@ pub mod constructor {
         #[serde(borrow)]
         Default(AliceToBobTransfer<'a>),
         #[serde(borrow)]
-        Fcm(crate::fcm::fcm_ratchet::FcmAliceToBobTransfer<'a>)
+        Fcm(FcmAliceToBobTransfer<'a>)
     }
 
     impl AliceToBobTransferType<'_> {
@@ -470,6 +471,27 @@ pub mod constructor {
             match self {
                 AliceToBobTransferType::Default(tx) => tx.new_version,
                 AliceToBobTransferType::Fcm(tx) => tx.version
+            }
+        }
+
+        pub fn assume_default(&self) -> Option<&AliceToBobTransfer<'_>> {
+            match self {
+                Self::Default(tx) => Some(tx),
+                _ => None
+            }
+        }
+
+        pub fn assume_fcm(&self) -> Option<&FcmAliceToBobTransfer<'_>> {
+            match self {
+                Self::Fcm(tx) => Some(tx),
+                _ => None
+            }
+        }
+
+        pub fn is_fcm(&self) -> bool {
+            match self {
+                Self::Fcm(_) => true,
+                _ => false
             }
         }
     }
