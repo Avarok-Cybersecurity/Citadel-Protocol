@@ -1,0 +1,23 @@
+[package]
+name = "scrap-ffi"
+version = "0.1.0"
+authors = ["Thomas Braun <tbraun96@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "scrap_ffi"
+crate-type = ["staticlib", "staticlib", "staticlib"]
+
+[dependencies]
+
+ffi_helpers = "0.2"
+allo-isolate = "0.1.6"
+hyxewave = { path = "../../../hyxewave", version = "0.1.0" }
+parking_lot = "0.11.1"
+
+android_logger = "0.9.0"
+log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_trace"] }
+
+[build-dependencies]
+cbindgen = "0.14.3"
+dart-bindgen = "0.1.7"

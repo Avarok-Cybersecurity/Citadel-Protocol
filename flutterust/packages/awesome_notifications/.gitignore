@@ -1,0 +1,11 @@
+.DS_Store
+.dart_tool/
+
+.packages
+.pub/
+
+build/
+example/ios/Runner/GoogleService-Info.plist
+.idea/libraries/Dart_SDK.xml
+.idea/workspace.xml
+example/ios/Flutter/.last_build_id

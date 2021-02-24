@@ -1,0 +1,46 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  package="me.carda.awesome_notifications">
+
+    <!-- Samsung Badge -->
+    <uses-permission android:name="com.sec.android.provider.badge.permission.READ" />
+    <uses-permission android:name="com.sec.android.provider.badge.permission.WRITE" />
+
+    <!-- Sony Badge -->
+    <uses-permission android:name="com.sonyericsson.home.permission.BROADCAST_BADGE" />
+
+    <!-- HTC Badge -->
+    <uses-permission android:name="com.htc.launcher.permission.READ_SETTINGS" />
+    <uses-permission android:name="com.htc.launcher.permission.UPDATE_SHORTCUT" />
+
+    <application>
+
+        <service
+            android:name=".services.firebase.FCMService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".services.AutoCancelService"
+            android:stopWithTask="true" />
+
+        <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="true" />
+
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="me.carda.awesome_notifications.firebase.background_channel"/>
+
+        <receiver android:name=".notifications.broadcastReceivers.DismissedNotificationReceiver"/>
+        <receiver android:name=".notifications.broadcastReceivers.ScheduledNotificationReceiver"/>
+        <receiver android:name=".notifications.broadcastReceivers.KeepOnTopActionReceiver"/>
+        <receiver android:name=".notifications.broadcastReceivers.RefreshNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"></action>
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>
