@@ -1,4 +1,4 @@
-use crate::hdp::hdp_server::{HdpServerRemote, Ticket, HdpServerRequest, MessageType};
+use crate::hdp::hdp_server::{HdpServerRemote, Ticket, HdpServerRequest};
 use hyxe_crypt::drill::SecurityLevel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,7 +25,7 @@ pub struct PeerChannel {
 }
 
 impl PeerChannel {
-    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<MessageType>) -> Self {
+    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>) -> Self {
         let implicated_cid = vconn_type.get_implicated_cid();
         let overflow = BytesMut::new();
         let send_half = PeerChannelSendHalf {
@@ -87,12 +87,12 @@ pub struct PeerChannelSendHalf {
 
 impl PeerChannelSendHalf {
     // TODO: multithreaded mode instant send
-    fn send_unchecked(&self, data: MessageType) -> Result<(), NetworkError> {
+    fn send_unchecked(&self, data: SecBuffer) -> Result<(), NetworkError> {
         let request = HdpServerRequest::SendMessage(data, self.implicated_cid, self.vconn_type, self.security_level);
         self.server_remote.send_with_custom_ticket(self.channel_id, request)
     }
 
-    pub fn send_unbounded(&self, data: MessageType) -> Result<(), NetworkError> {
+    pub fn send_unbounded(&self, data: SecBuffer) -> Result<(), NetworkError> {
         if self.is_alive.load(Ordering::SeqCst) {
             self.send_unchecked(data)
         } else {
@@ -104,12 +104,16 @@ impl PeerChannelSendHalf {
         self.security_level = security_level;
     }
 
+    pub fn channel_id(&self) -> Ticket {
+        self.channel_id
+    }
+
     fn close(&self) {
         self.is_alive.store(false, Ordering::SeqCst);
     }
 }
 
-impl Sink<MessageType> for PeerChannelSendHalf {
+impl Sink<SecBuffer> for PeerChannelSendHalf {
     type Error = NetworkError;
 
     fn poll_ready(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -120,7 +124,7 @@ impl Sink<MessageType> for PeerChannelSendHalf {
         }
     }
 
-    fn start_send(self: Pin<&mut Self>, item: MessageType) -> Result<(), Self::Error> {
+    fn start_send(self: Pin<&mut Self>, item: SecBuffer) -> Result<(), Self::Error> {
         self.send_unchecked(item)
     }
 
@@ -139,7 +143,7 @@ impl Unpin for PeerChannelRecvHalf {}
 #[derive(Debug)]
 pub struct PeerChannelRecvHalf {
     // when the state container removes the vconn, this will get closed
-    receiver: UnboundedReceiver<MessageType>,
+    receiver: UnboundedReceiver<SecBuffer>,
     target_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
@@ -157,7 +161,7 @@ impl Stream for PeerChannelRecvHalf {
             Poll::Ready(None)
         } else {
             match futures::ready!(self.receiver.poll_recv(cx)) {
-                Some(data) => Poll::Ready(Some(data.into_buffer())),
+                Some(data) => Poll::Ready(Some(data)),
                 _ => {
                     log::info!("[PeerChannelRecvHalf] ending?");
                     Poll::Ready(None)
@@ -169,7 +173,7 @@ impl Stream for PeerChannelRecvHalf {
 
 impl AsyncWrite for PeerChannelSendHalf {
     fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
-        self.deref().send_unbounded(MessageType::Default(SecBuffer::from(buf)))
+        self.deref().send_unbounded(SecBuffer::from(buf))
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))?;
 
         Poll::Ready(Ok(buf.len()))

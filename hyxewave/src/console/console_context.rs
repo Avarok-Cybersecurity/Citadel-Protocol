@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering, AtomicBool};
 use std::collections::HashMap;
 use crate::ticket_event::{CallbackStatus, TicketQueueHandler};
 use crate::kernel::{KernelSession, PeerSession};
-use hyxe_net::hdp::hdp_server::{Ticket, HdpServerRemote, HdpServerRequest, MessageType};
+use hyxe_net::hdp::hdp_server::{Ticket, HdpServerRemote, HdpServerRequest};
 use std::path::PathBuf;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
@@ -23,6 +23,7 @@ use std::sync::atomic::AtomicUsize;
 use crate::ffi::KernelResponse;
 use crate::command_handlers::group::MessageGroupContainer;
 use crate::console::virtual_terminal::INPUT_ROUTER;
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 #[derive(Clone)]
 pub struct ConsoleContext {
@@ -175,13 +176,15 @@ impl ConsoleContext {
         }
     }
 
-    pub fn send_message_to_peer_channel(&self, cid: u64, peer_cid: u64, security_level: SecurityLevel, message: MessageType) -> Result<(), ConsoleError> {
+    pub fn send_message_to_peer_channel(&self, cid: u64, peer_cid: u64, security_level: SecurityLevel, message: SecBuffer) -> Result<Ticket, ConsoleError> {
         let mut write = self.sessions.write();
         if let Some(sess) = write.get_mut(&cid) {
             if let Some(peer_sess) = sess.concurrent_peers.get_mut(&peer_cid) {
+                let ticket = peer_sess.peer_channel_tx.channel_id();
                 peer_sess.peer_channel_tx.set_security_level(security_level);
                 peer_sess.peer_channel_tx.send_unbounded(message)
                     .map_err(|err| ConsoleError::Generic(err.to_string()))
+                    .map(|_| ticket)
             } else {
                 Err(ConsoleError::Generic(format!("Peer {} is not in an active channel with {}", peer_cid, cid)))
             }

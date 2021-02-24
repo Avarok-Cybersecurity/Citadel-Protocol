@@ -6,10 +6,8 @@ use zerocopy::{AsBytes, FromBytes, I64, LayoutVerified, U32, U64, Unaligned};
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use rand::prelude::ThreadRng;
 use rand::{RngCore, Rng};
-use atomic::{Atomic, Ordering};
 use crate::functional::PairMap;
 use std::io::Write;
 
@@ -122,7 +120,6 @@ pub(crate) mod packet_flags {
                 pub(crate) const FILE_HEADER: u8 = 0;
                 pub(crate) const FILE_HEADER_ACK: u8 = 1;
             }
-
         }
     }
 
@@ -159,7 +156,7 @@ pub(crate) mod packet_sizes {
     }
 }
 
-#[derive(Debug, AsBytes, FromBytes, Unaligned)]
+#[derive(Debug, AsBytes, FromBytes, Unaligned, Clone)]
 #[repr(C)]
 /// The header for each [HdpPacket]
 pub struct HdpHeader {
@@ -173,7 +170,7 @@ pub struct HdpHeader {
     pub security_level: u8,
     /// Some commands require arguments; the u64 can hold 8 bytes. The type is w.r.t the context
     pub context_info: U64<NetworkEndian>,
-    /// Used for defragging packets
+    /// A unique ID given to a subset of a singular object
     pub group: U64<NetworkEndian>,
     /// The wave ID in the sequence
     pub wave_id: U32<NetworkEndian>,
@@ -232,21 +229,34 @@ impl HdpHeader {
         BytesMut::from(self.as_bytes())
     }
 
+    pub fn into_vec(self) -> Vec<u8> {
+        Vec::from(self.as_ref())
+    }
+
     pub fn into_packet_mut(self) -> BytesMut {
         BytesMut::from(self.as_bytes())
+    }
+
+    /// Useful for FCM relaying
+    pub fn concat_with<T: AsRef<[u8]>>(&self, payload: T) -> Vec<u8> {
+        let payload = payload.as_ref();
+        let mut ret = Vec::<u8>::with_capacity(HDP_HEADER_BYTE_LEN + payload.len());
+        self.inscribe_into(&mut ret);
+        ret.put(payload);
+        ret
     }
 }
 
 /// The HdpPacket structure
-pub struct HdpPacket {
-    packet: BytesMut,
+pub struct HdpPacket<B: HdpBuffer= BytesMut> {
+    packet: B,
     remote_peer: SocketAddr,
-    local_port: u16,
+    local_port: u16
 }
 
-impl HdpPacket {
+impl<B: HdpBuffer> HdpPacket<B> {
     /// When a packet comes inbound, this should be used to wrap the packet
-    pub fn new_recv(packet: BytesMut, remote_peer: SocketAddr, local_port: u16) -> Self {
+    pub fn new_recv(packet: B, remote_peer: SocketAddr, local_port: u16) -> Self {
         Self { packet, remote_peer, local_port }
     }
 
@@ -273,7 +283,7 @@ impl HdpPacket {
     }
 
     /// Creates a packet out of the inner device
-    pub fn into_packet(self) -> BytesMut {
+    pub fn into_packet(self) -> B {
         self.packet
     }
 
@@ -323,7 +333,7 @@ impl HdpPacket {
     }
 
     /// Splits the header's bytes and the header's in Bytes/Mut form
-    pub fn decompose(mut self) -> (Bytes, BytesMut, SocketAddr, u16) {
+    pub fn decompose(mut self) -> (B::Immutable, B, SocketAddr, u16) {
         let header_bytes = self.packet.split_to(HDP_HEADER_BYTE_LEN).freeze();
         let payload_bytes = self.packet;
         let remote_peer = self.remote_peer;
@@ -334,9 +344,16 @@ impl HdpPacket {
 }
 
 
+#[cfg(feature = "multi-threaded")]
 #[derive(Clone)]
 pub struct HeaderObfuscator {
-    inner: Arc<Atomic<Option<u128>>>
+    inner: std::sync::Arc<atomic::Atomic<Option<u128>>>
+}
+
+#[cfg(not(feature = "multi-threaded"))]
+#[derive(Clone)]
+pub struct HeaderObfuscator {
+    inner: std::rc::Rc<std::cell::Cell<Option<u128>>>
 }
 
 impl HeaderObfuscator {
@@ -348,9 +365,10 @@ impl HeaderObfuscator {
                 .map_right(Some)
         }
     }
+
     pub fn on_packet_received(&self, packet: &mut BytesMut) -> Option<()> {
         //log::info!("[Header-scrambler] RECV {:?}", &packet[..]);
-        if let Some(val) = self.inner.load(Ordering::Acquire) {
+        if let Some(val) = self.load() {
             //log::info!("[Header-scrambler] received ordinary packet");
             apply_cipher(val, true, packet);
             Some(())
@@ -361,6 +379,7 @@ impl HeaderObfuscator {
                 let val0 = packet.get_u64();
                 let val1 = packet.get_u64();
                 self.store(val0, val1);
+                log::info!("[Header obfuscator] initial packet set");
             } else {
                 log::error!("Discarding invalid packet (LEN: {})", packet.len());
             }
@@ -373,7 +392,8 @@ impl HeaderObfuscator {
     pub fn prepare_outbound(&self, mut packet: BytesMut) -> Bytes {
         if packet.len() >= HDP_HEADER_BYTE_LEN {
             //log::info!("[Header-scrambler] Before: {:?}", &packet[..]);
-            let val = self.inner.load(Ordering::Acquire).unwrap();
+            // it is assumed that the value is already loaded
+            let val = self.load().unwrap();
             apply_cipher(val, false, &mut packet);
             //log::info!("[Header-scrambler] After: {:?}", &packet[..]);
         }
@@ -409,15 +429,33 @@ impl HeaderObfuscator {
     }
 
     pub fn new_server() -> Self {
-        Self { inner: Arc::new(Atomic::new(None)) }
+        Self::from(None)
     }
 
     fn store(&self, val0: u64, val1: u64) {
-        self.inner.store(Some(u64s_to_u128(val0, val1)), Ordering::SeqCst);
+        #[cfg(feature = "multi-threaded")]
+            {
+                self.inner.store(Some(u64s_to_u128(val0, val1)), atomic::Ordering::Acquire);
+            }
+        #[cfg(not(feature = "multi-threaded"))]
+            {
+                self.inner.set(Some(u64s_to_u128(val0, val1)))
+            }
     }
 
     fn new_from_u64s(val0: u64, val1: u64) -> Self {
-        Self { inner: Arc::new(Atomic::new(Some(u64s_to_u128(val0, val1)))) }
+        Self::from(Some(u64s_to_u128(val0, val1)))
+    }
+
+    fn load(&self) -> Option<u128> {
+        #[cfg(feature = "multi-threaded")]
+            {
+                self.inner.load(atomic::Ordering::Acquire)
+            }
+        #[cfg(not(feature = "multi-threaded"))]
+            {
+                self.inner.get()
+            }
     }
 }
 
@@ -451,5 +489,61 @@ fn cipher_inner(a: u8, b: u8, c: &mut u8, inverse: bool) {
         *c = (*c ^ b).wrapping_sub(a);
     } else {
         *c = c.wrapping_add(a) ^ b;
+    }
+}
+
+impl From<Option<u128>> for HeaderObfuscator {
+    fn from(inner: Option<u128>) -> Self {
+        #[cfg(feature = "multi-threaded")]
+        {
+            Self { inner: std::sync::Arc::new(atomic::Atomic::new(inner)) }
+        }
+        #[cfg(not(feature = "multi-threaded"))]
+            {
+                Self { inner: std::rc::Rc::new(std::cell::Cell::new(inner)) }
+            }
+    }
+}
+
+pub trait HdpBuffer: BufMut + AsRef<[u8]> + AsMut<[u8]> {
+    type Immutable;
+    fn len(&self) -> usize;
+    fn split_to(&mut self, idx: usize) -> Self;
+    fn freeze(self) -> Self::Immutable;
+}
+
+impl HdpBuffer for BytesMut {
+    type Immutable = Bytes;
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    fn split_to(&mut self, idx: usize) -> Self {
+        self.split_to(idx)
+    }
+
+    fn freeze(self) -> Self::Immutable {
+        self.freeze()
+    }
+}
+
+impl HdpBuffer for Vec<u8> {
+    type Immutable = Self;
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    // return [0, idx), leave self with [idx, len)
+    fn split_to(&mut self, idx: usize) -> Self {
+        let mut tail = self.split_off(idx);
+        // swap head into tail
+        std::mem::swap(self, &mut tail);
+        tail // now, tail is the head
+    }
+
+    fn freeze(self) -> Self::Immutable {
+        self
     }
 }

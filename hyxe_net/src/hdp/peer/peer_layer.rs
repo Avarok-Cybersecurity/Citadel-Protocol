@@ -20,7 +20,7 @@ use crate::macros::SyncContextRequirements;
 
 #[cfg(feature = "multi-threaded")]
 use futures::task::AtomicWaker;
-use crate::fcm::kem::FcmPostRegister;
+use hyxe_user::fcm::kem::FcmPostRegister;
 
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
 impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
@@ -177,14 +177,8 @@ impl HyperNodePeerLayer {
                 if let Some(peer) = entry.pending_peers.remove(&peer_cid) {
                     entry.concurrent_peers.insert(peer_cid, peer);
                     return true
-                } else {
-                    log::warn!("VDD");
                 }
-            } else {
-                log::warn!("VDX");
             }
-        } else {
-            log::warn!("VDH");
         }
 
         false

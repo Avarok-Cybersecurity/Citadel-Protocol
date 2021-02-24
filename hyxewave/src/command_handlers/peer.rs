@@ -1,10 +1,9 @@
 use super::imports::*;
 use hyxe_user::client_account::HYPERLAN_IDX;
 use hyxe_crypt::sec_bytes::SecBuffer;
-use hyxe_net::hdp::hdp_server::MessageType;
-use hyxe_net::fcm::data_structures::FCMMessagePayload;
-use crate::constants::INVALID_UTF8;
-use hyxe_net::fcm::kem::FcmPostRegister;
+use hyxe_user::fcm::kem::FcmPostRegister;
+use hyxe_user::fcm::fcm_packet_processor::FcmProcessorResult;
+use crate::ffi::FcmResponse;
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
@@ -76,7 +75,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                 }
 
                 _ => {
-                    log::error!("Thomas Braun forgot to add the mail command");
+                    log::error!("mail command not accounted for");
                 }
             }
 
@@ -91,31 +90,35 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             let read = ctx.sessions.read();
 
             let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
-            let ref cnac = sess.cnac.clone();
+            let cnac = sess.cnac.clone();
             // must drop here, otherwise get_peer_cid_from_cnac will fail
             std::mem::drop(read);
 
-            let target_cid = get_peer_cid_from_cnac(cnac, target_cid)?;
+            let target_cid = get_peer_cid_from_cnac(&cnac, target_cid)?;
 
             let message: String = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
             let buf = SecBuffer::from(message);
-            let message = if matches.is_present("fcm") { MessageType::Fcm(buf) } else { MessageType::Default(buf) };
-            // now, use the console context to send the message
-            ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, message)?;
-            printf_ln!(colour::white!("Message sent through peer channel w/ {:?} security\n", security_level));
-            return Ok(None)
+
+            return if matches.is_present("fcm") {
+                let fcm_client = ctx.account_manager.fcm_client();
+                let callback = ffi_io.map(|ffi_io| fcm_callback(ffi_io)).unwrap_or_else(fcm_console_callback);
+
+                let ticket = cnac.background_fcm_send_to(target_cid, buf, fcm_client, callback).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Fcm(FcmResponse::MessageSent(ticket)))))
+            } else {
+                // now, use the console context to send the message
+                let _ticket = ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, buf)?;
+                printf_ln!(colour::white!("Message sent through peer channel w/ {:?} security\n", security_level));
+                Ok(None)
+            }
         }
 
         if let Some(matches) = matches.subcommand_matches("fcm-parse") {
             let json_input: String = matches.values_of("input").unwrap().collect::<Vec<&str>>().join(" ");
             log::info!("[FCM] json input: {}", &json_input);
-            let fcm_msg = FCMMessagePayload::from_str(json_input).ok_or(ConsoleError::Default("Invalid JSON string"))?;
-            // We received this packet, which implies we need to use the target_cid for getting the CNAC
-            let cnac = ctx.account_manager.get_client_by_cid(fcm_msg.target_cid).ok_or(ConsoleError::Generic(format!("Client {} does not exist locally", fcm_msg.target_cid)))?;
-            let decrypted_message = fcm_msg.decrypt_message(&cnac).ok_or(ConsoleError::Default("Unable to decrypt message"))?;
-            log::info!("[FCM] decrypted message! {:?}", &decrypted_message);
-            // TODO: Send NodeMessage type, since we already have a defintion for it. Then, do_connect fcm tag
-            return Ok(Some(KernelResponse::NodeMessage(0, fcm_msg.session_cid, 0, fcm_msg.target_cid, String::from_utf8(decrypted_message).unwrap_or(INVALID_UTF8.into()))))
+            let res = hyxe_user::fcm::fcm_packet_processor::blocking_process(json_input, &ctx.account_manager);
+            log::info!("[FCM] Done parsing json");
+            return Ok(Some(res.into()))
         }
 
         if let Some(matches) = matches.subcommand_matches("disconnect") {
@@ -274,7 +277,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                     PeerResponse::Timeout => {
                         let resp = format!("Timeout on list ticket {}", ticket);
                         if let Some(ref ffi_io) = ffi_io {
-                            (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp))))
+                            (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp.into_bytes()))))
                         } else {
                             printf_ln!(colour::red!("{}\n", resp));
                         }
@@ -283,7 +286,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                     _ => {
                         let resp = format!("GetRegisteredPeers (ticket {}) has failed", ticket);
                         if let Some(ref ffi_io) = ffi_io {
-                            (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp))))
+                            (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp.into_bytes()))))
                         } else {
                             printf_ln!(colour::red!("{}\n", resp));
                         }
@@ -343,7 +346,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                     PeerResponse::Timeout => {
                         let resp = format!("Timeout on list ticket {}", ticket);
                         if let Some(ref ffi_io) = ffi_io {
-                            (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp))))
+                            (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp.into_bytes()))))
                         } else {
                             printf_ln!(colour::red!("{}\n", resp));
                         }
@@ -352,7 +355,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                     _ => {
                         let resp = format!("GetMutualPeers (ticket {}) has failed", ticket);
                         if let Some(ref ffi_io) = ffi_io {
-                            (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp))))
+                            (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp.into_bytes()))))
                         } else {
                             printf_ln!(colour::red!("{}\n", resp));
                         }
@@ -415,10 +418,10 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                         // TODO: Make the enums cleaner.
                         let username = username.unwrap();
 
-                        if ctx.account_manager.register_hyperlan_client_to_client_locally(ctx_user, target_cid, username.clone()) {
-                            printf_ln!(colour::white!("Peer {} ({}) has accepted your invitation! You may now connect to their node\n", &username, target_cid));
+                        if let Err(err) = ctx.account_manager.register_hyperlan_p2p_at_endpoints(ctx_user, target_cid, username.clone()) {
+                            printf_ln!(colour::red!("Peer {} ({}) accepted your invitation, but we were unable to sync to the local filesystem. Reason: {:?}\n", &username, target_cid, err));
                         } else {
-                            printf_ln!(colour::red!("Peer {} ({}) accepted your invitation, but we were unable to sync to the local filesystem\n", &username, target_cid));
+                            printf_ln!(colour::white!("Peer {} ({}) has accepted your invitation! You may now connect to their node\n", &username, target_cid));
                         }
 
                         CallbackStatus::TaskComplete
@@ -528,9 +531,8 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                 let ctx_username = ctx.account_manager.get_username_by_cid(implicated_cid).ok_or(ConsoleError::Default("Implicated CID of request not found"))?;
                 let peer_username = request.assert_register_get_username().unwrap();
                 let ticket = request.get_ticket_assert_register().unwrap();
-                if !ctx.account_manager.register_hyperlan_client_to_client_locally(implicated_cid, peer_cid, &peer_username) {
-                    return Err(ConsoleError::Generic(format!("Unable to register peer {} ({}) to {} ({}) locally. Will not process request", &peer_username, peer_cid, &ctx_username, ctx_user)));
-                }
+                // TODO: Pull this down to the networking layer to take the responsiblity off the kernel
+                ctx.account_manager.register_hyperlan_p2p_at_endpoints(implicated_cid, peer_cid, &peer_username).map_err(|err| ConsoleError::Generic(err.into_string()))?;
 
                 // we MUST provide the username below
                 let response = PeerResponse::Accept(Some(ctx_username.clone()));
@@ -586,4 +588,16 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     } else {
         Err(ConsoleError::Default("No currently active users. Please connect, or use 'switch <user>' if already logged-in"))
     }
+}
+
+fn fcm_callback(ffi_io: FFIIO) -> Box<dyn FnOnce(FcmProcessorResult) + Send + 'static> {
+    Box::new(move |res| {
+        (ffi_io)(Ok(Some(res.into())))
+    })
+}
+
+fn fcm_console_callback() -> Box<dyn FnOnce(FcmProcessorResult) + Send + 'static> {
+    Box::new(|result| {
+        log::info!("FCM Console: Result {:?}", result)
+    })
 }

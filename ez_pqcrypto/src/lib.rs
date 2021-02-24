@@ -8,8 +8,7 @@ use chacha20poly1305::{XChaCha20Poly1305 as AeadKey, aead::{NewAead, Aead, AeadI
 #[cfg(not(feature = "chacha20"))]
 use aes_gcm_siv::{Aes256GcmSiv as AeadKey, aead::{NewAead, Aead, AeadInPlace, generic_array::GenericArray}};
 use crate::ez_error::EzError;
-use crate::bytes_in_place::{InPlaceBytesMut, InPlaceByteSliceMut};
-use bytes::{BytesMut, BufMut};
+use crate::bytes_in_place::{InPlaceBuffer, InPlaceByteSliceMut, EzBuffer};
 use std::fmt::Debug;
 use std::fmt::Formatter;
 
@@ -196,7 +195,7 @@ impl PostQuantumContainer {
         }
     }
 
-    pub fn protect_packet_in_place<R: AsRef<[u8]>>(&self, header_len: usize, full_packet: &mut BytesMut, nonce: R) -> Result<(), EzError> {
+    pub fn protect_packet_in_place<T: EzBuffer, R: AsRef<[u8]>>(&self, header_len: usize, full_packet: &mut T, nonce: R) -> Result<(), EzError> {
         let nonce = nonce.as_ref();
         let nonce = GenericArray::from_slice(nonce);
         let mut payload = full_packet.split_off(header_len);
@@ -206,9 +205,9 @@ impl PostQuantumContainer {
         payload.put_u64(self.anti_replay_attack.get_next_pid());
         let payload_len = payload.len();
 
-        let mut in_place_payload = InPlaceBytesMut::new(&mut payload, 0..payload_len).ok_or_else(|| EzError::Generic("Bad window range"))?;
+        let mut in_place_payload = InPlaceBuffer::new(&mut payload, 0..payload_len).ok_or_else(|| EzError::Generic("Bad window range"))?;
         if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
-            aes_gcm_key.encrypt_in_place(nonce, &header[0..header_len], &mut in_place_payload).map_err(|_| EzError::AesGcmEncryptionFailure)?;
+            aes_gcm_key.encrypt_in_place(nonce, header.subset(0..header_len), &mut in_place_payload).map_err(|_| EzError::AesGcmEncryptionFailure)?;
             header.unsplit(payload);
             Ok(())
         } else {
@@ -217,13 +216,13 @@ impl PostQuantumContainer {
     }
 
     /// Validates the AAD (header) and produces the plaintext given the input of ciphertext
-    pub fn validate_packet_in_place<H: AsRef<[u8]>, R: AsRef<[u8]>>(&self, header: H, mut payload: &mut BytesMut, nonce: R) -> Result<(), EzError> {
+    pub fn validate_packet_in_place<T: EzBuffer, H: AsRef<[u8]>, R: AsRef<[u8]>>(&self, header: H, payload: &mut T, nonce: R) -> Result<(), EzError> {
         let nonce = nonce.as_ref();
         let nonce = GenericArray::from_slice(nonce);
         let header = header.as_ref();
         let payload_len = payload.len();
 
-        let mut in_place_payload = InPlaceBytesMut::new(&mut payload, 0..payload_len).ok_or_else(|| EzError::Generic("Bad window range"))?;
+        let mut in_place_payload = InPlaceBuffer::new(payload, 0..payload_len).ok_or_else(|| EzError::Generic("Bad window range"))?;
         if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
             aes_gcm_key.decrypt_in_place(nonce, header, &mut in_place_payload).map_err(|_| EzError::AesGcmDecryptionFailure)
                 .and_then(|_| {
@@ -232,7 +231,7 @@ impl PostQuantumContainer {
                     let start_idx = end_idx.saturating_sub(8);
                     if end_idx - start_idx == 8 {
                         let mut array: [u8; 8] = Default::default();
-                        array.copy_from_slice(&payload[start_idx..end_idx]);
+                        array.copy_from_slice(payload.subset(start_idx..end_idx));
                         if self.anti_replay_attack.on_pid_received(u64::from_be_bytes(array)) {
                             // remove the PID from the payload
                             payload.truncate(start_idx);

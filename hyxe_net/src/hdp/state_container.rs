@@ -20,7 +20,7 @@ use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::GroupTransmitter;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr};
-use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest, MessageType};
+use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;
@@ -150,7 +150,7 @@ pub struct EndpointChannelContainer<R: Ratchet = HyperRatchet> {
     // this is only loaded if STUN-like NAT-traversal works
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
     pub(crate) endpoint_crypto: PeerSessionCrypto<R>,
-    to_channel: UnboundedSender<MessageType>,
+    to_channel: UnboundedSender<SecBuffer>,
     pub(crate) peer_socket_addr: SocketAddr
 }
 
@@ -166,7 +166,7 @@ impl<R: Ratchet> Drop for VirtualConnection<R> {
         if let Some(endpoint_container) = self.endpoint_container.take() {
             // next, since the is_active field is false, send an empty vec through the channel
             // in order to wake the receiving end, thus causing a poll, thus ending it
-            if let Err(_) = endpoint_container.to_channel.unbounded_send(MessageType::Default(SecBuffer::empty())) {}
+            if let Err(_) = endpoint_container.to_channel.unbounded_send(SecBuffer::empty()) {}
         }
     }
 }
@@ -573,7 +573,7 @@ impl StateContainerInner {
         // when the `target_cid` disconnects, it will remove its entry from this vconn table
         if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
             let conn_type = vconn.connection_type;
-            self.hdp_server_remote.unbounded_send(HdpServerRequest::SendMessage(MessageType::Default(data), target_cid, conn_type, security_level)).is_ok()
+            self.hdp_server_remote.unbounded_send(HdpServerRequest::SendMessage(data, target_cid, conn_type, security_level)).is_ok()
         } else {
             false
         }
@@ -581,7 +581,7 @@ impl StateContainerInner {
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
     /// (thus bypassing the kernel)
-    pub fn forward_data_to_channel_as_endpoint(&mut self, peer_cid: u64, data: MessageType) -> bool {
+    pub fn forward_data_to_channel_as_endpoint(&mut self, peer_cid: u64, data: SecBuffer) -> bool {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(channel) = vconn.endpoint_container.as_mut() {
                 return match channel.to_channel.unbounded_send(data) {
@@ -825,7 +825,7 @@ impl StateContainerInner {
     /// `to_primary_stream`: If None, will use the Burst Transmitter
     /// `proposed_window`: In TCP only mode, this won't matter since reliability is handled by the TCP layer. As such, in TCP only mode
     /// the tcp sender dispatches ALL packets
-    /// TODO: NOTE! object ID is in wave_id for header ACKS
+    /// NOTE! object ID is in wave_id for header ACKS
     /// NOTE: If object id != 0, then this header ack belongs to a file transfer and must thus be transmitted via TCP
     #[allow(unused_results)]
     pub fn on_group_header_ack_received(&mut self, object_id: u32, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool, cnac_sess: &ClientNetworkAccount) -> bool {

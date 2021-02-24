@@ -14,6 +14,7 @@ use std::collections::hash_map::RandomState;
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::hypernode_account::NAC_SERIALIZED_EXTENSION;
 use hyxe_fs::env::DirectoryStore;
+use fcm::Client;
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
@@ -22,6 +23,7 @@ pub struct AccountManager {
     /// A set of all local CNACs loaded at runtime + created during network registrations
     map: Arc<ShardedLock<HashMap<u64, ClientNetworkAccount>>>,
     local_nac: NetworkAccount,
+    fcm_client: Arc<Client>,
     directory_store: DirectoryStore
 }
 
@@ -32,20 +34,27 @@ impl AccountManager {
     /// `bind_addr`: Required for determining the local save directories for this instance
     /// `home_dir`: Optional. Overrides the default storage location for files
     #[allow(unused_results)]
-    pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>) -> Result<Self, FsError<String>> {
+    pub fn new_local(bind_addr: SocketAddr, home_dir: Option<String>) -> Result<Self, FsError<String>> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
         let directory_store = hyxe_fs::env::setup_directories(bind_addr, NAC_SERIALIZED_EXTENSION, home_dir)?;
 
-        let mut map = load_cnac_files(&directory_store).await?;
-        let local_nac = load_node_nac(&mut map, &directory_store).map_err(|err| FsError::IoError(err.to_string()))?;
+        let mut map = load_cnac_files(&directory_store)?;
+        let local_nac = load_node_nac(&mut map, &directory_store).map_err(|err| FsError::IoError(err.into_string()))?;
 
         let map = Arc::new(ShardedLock::new(map));
-        Ok(Self { map, local_nac, directory_store })
+        let fcm_client = Arc::new(Client::new());
+
+        Ok(Self { map, local_nac, directory_store, fcm_client })
     }
 
     /// Returns the directory store for this local node session
     pub fn get_directory_store(&self) -> &DirectoryStore {
         &self.directory_store
+    }
+
+    /// Returns the fcm client
+    pub fn fcm_client(&self) -> &Arc<Client> {
+        &self.fcm_client
     }
 
     fn read_map(&self) -> ShardedLockReadGuard<HashMap<u64, ClientNetworkAccount, RandomState>> {
@@ -54,6 +63,13 @@ impl AccountManager {
 
     fn write_map(&self) -> ShardedLockWriteGuard<HashMap<u64, ClientNetworkAccount, RandomState>> {
         self.map.write().unwrap()
+    }
+
+    #[cfg(debug_assertions)]
+    /// For testing purposes only
+    pub fn debug_insert_cnac(&self, cnac: ClientNetworkAccount) -> bool {
+        let mut write = self.write_map();
+        write.insert(cnac.get_cid(), cnac.clone()).is_none()
     }
 
     /// Once a valid and decrypted stage 4 packet gets received by the server (Bob), this function should be called
@@ -193,16 +209,16 @@ impl AccountManager {
 
     /// Does not execute the registration process between two peers; it only consolidates the changes to the local CNAC
     /// returns true if success, false otherwise
-    pub fn register_hyperlan_client_to_client_locally<T: ToString>(&self, implicated_cid: u64, peer_cid: u64, adjacent_username: T) -> bool {
+    pub fn register_hyperlan_p2p_at_endpoints<T: ToString>(&self, implicated_cid: u64, peer_cid: u64, adjacent_username: T) -> Result<(), AccountError>{
         let adjacent_username = adjacent_username.to_string();
         log::info!("Registering {} ({}) to {} (local)", &adjacent_username, peer_cid, implicated_cid);
 
         let read = self.read_map();
         if let Some(cnac) = read.get(&implicated_cid) {
             cnac.insert_hyperlan_peer(peer_cid, adjacent_username);
-            cnac.blocking_save_to_local_fs().is_ok()
+            cnac.blocking_save_to_local_fs()
         } else {
-            false
+            Err(AccountError::Generic(format!("Implicated CID {} not found", implicated_cid)))
         }
     }
 

@@ -12,7 +12,7 @@ use futures::future::TryFutureExt;
 /// serialized. Further, it returns the PathBuf associated with the file
 ///
 /// Useful for returning NACs
-pub async fn load_file_types_by_ext<D: DeserializeOwned, P: AsRef<Path>>(ext: &str, path: P) -> Result<Vec<(D, PathBuf)>, FsError<String>> {
+pub fn load_file_types_by_ext<D: DeserializeOwned, P: AsRef<Path>>(ext: &str, path: P) -> Result<Vec<(D, PathBuf)>, FsError<String>> {
     let mut dir = std::fs::read_dir(path.as_ref()).map_err(|err| FsError::IoError(err.to_string()))?;
     let mut files = Vec::new();
     while let Some(Ok(child)) = dir.next() {
@@ -28,7 +28,7 @@ pub async fn load_file_types_by_ext<D: DeserializeOwned, P: AsRef<Path>>(ext: &s
 
     for file in files {
         //println!("[SystemFileManager] Checking {}", file.clone().into_os_string().into_string().unwrap());
-        match async_read::<D, _>(&file).await {
+        match read::<D, _>(&file) {
             Ok(val) => {
                 ret.push((val, std::path::PathBuf::from(file.as_path())));
             },
@@ -123,4 +123,9 @@ pub fn type_to_bytes<D: Serialize>(input: D) -> Result<Vec<u8>, FsError<String>>
 /// Deletes a file given an input to its location
 pub async fn delete_file<P: AsRef<Path>>(path: P) -> Result<(), FsError<String>> {
     tokio::fs::remove_file(path).map_err(|err| FsError::IoError(err.to_string())).await
+}
+
+/// Deletes a file given an input to its location
+pub fn delete_file_blocking<P: AsRef<Path>>(path: P) -> Result<(), FsError<String>> {
+    std::fs::remove_file(path).map_err(|err| FsError::IoError(err.to_string()))
 }

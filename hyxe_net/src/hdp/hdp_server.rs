@@ -34,8 +34,8 @@ use crate::hdp::peer::channel::PeerChannel;
 use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal};
 use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
 use crate::kernel::RuntimeFuture;
-use crate::opts::{ClientAuxiliaryOptions, ServerAuxiliaryOptions};
 use crate::proposed_credentials::ProposedCredentials;
+use hyxe_crypt::fcm::keys::FcmKeys;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -65,7 +65,7 @@ pub struct HdpServerInner {
 
 impl HdpServer {
     /// Creates a new [HdpServer]
-    pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, auxiliary_opts: ServerAuxiliaryOptions) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)> {
+    pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)> {
         let (primary_socket, local_bind_addr) = Self::create_tcp_listen_socket(&bind_addr)?;
         let primary_port = local_bind_addr.port();
         // Note: on Android/IOS, the below command will fail since sudo access is prohibited
@@ -74,7 +74,7 @@ impl HdpServer {
         info!("HdpServer established on {}", local_bind_addr);
 
         let time_tracker = TimeTracker::new().await?;
-        let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone(), auxiliary_opts);
+        let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone());
         let inner = HdpServerInner {
             local_bind_addr,
             local_node_type,
@@ -120,9 +120,9 @@ impl HdpServer {
             #[cfg(not(feature = "multi-threaded"))]
                 {
                     let localset = LocalSet::new();
-                    let outbound_kernel_request_handler = localset.spawn_local(Self::outbound_kernel_request_handler(this.clone(), kernel_tx.clone(), outbound_send_request_rx));
-                    let primary_stream_listener = localset.spawn_local(Self::listen_primary(this.clone(), tt, kernel_tx.clone()));
-                    let peer_container = localset.spawn_local(HdpSessionManager::run_peer_container(write.session_manager.clone()));
+                    let outbound_kernel_request_handler = crate::hdp::misc::panic_future::ExplicitPanicFuture::new(localset.spawn_local(Self::outbound_kernel_request_handler(this.clone(), kernel_tx.clone(), outbound_send_request_rx)));
+                    let primary_stream_listener = crate::hdp::misc::panic_future::ExplicitPanicFuture::new(localset.spawn_local(Self::listen_primary(this.clone(), tt, kernel_tx.clone())));
+                    let peer_container = crate::hdp::misc::panic_future::ExplicitPanicFuture::new(localset.spawn_local(HdpSessionManager::run_peer_container(write.session_manager.clone())));
                     (outbound_kernel_request_handler, primary_stream_listener, peer_container, Some(localset))
                 }
         };
@@ -130,7 +130,7 @@ impl HdpServer {
         let server_future = async move {
             let res = tokio::select! {
             res0 = outbound_kernel_request_handler => {
-                log::info!("OUTBOUND KERNEL REQUEST HANDLER ENDED");
+                log::info!("OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
                 res0
             }
 
@@ -354,15 +354,15 @@ impl HdpServer {
                 }
 
                 HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm, security_level) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, Default::default(), quantum_algorithm, None, None).await {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, None, quantum_algorithm, None, None).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
 
-                HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, client_aux_cfg, quantum_algorithm, tcp_only, keep_alive_timeout) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, client_aux_cfg, quantum_algorithm, tcp_only, keep_alive_timeout.map(|val| val as i64)).await {
+                HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout) => {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout.map(|val| val as i64)).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
@@ -533,11 +533,11 @@ pub enum HdpServerRequest {
     /// For submitting a de-register request
     DeregisterFromHypernode(u64, VirtualConnectionType),
     /// Send data to client. Peer addr, implicated cid, hdp_nodelay, quantum algorithm, tcp only,
-    ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, ClientAuxiliaryOptions, Option<u8>, Option<bool>, Option<u32>),
+    ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, Option<FcmKeys>, Option<u8>, Option<bool>, Option<u32>),
     /// Updates the drill for the given CID
     UpdateDrill(VirtualTargetType),
     /// Send data to an already existent connection
-    SendMessage(MessageType, u64, VirtualTargetType, SecurityLevel),
+    SendMessage(SecBuffer, u64, VirtualTargetType, SecurityLevel),
     /// Send a file
     SendFile(PathBuf, Option<usize>, u64, VirtualTargetType),
     /// A group-message related command
@@ -546,29 +546,6 @@ pub enum HdpServerRequest {
     DisconnectFromHypernode(u64, VirtualConnectionType),
     /// shutdown signal
     Shutdown,
-}
-
-pub enum MessageType {
-    /// The message will traverse the network per usual
-    Default(SecBuffer),
-    /// The message will reach the central server, and therefrom, get sent to FCM
-    Fcm(SecBuffer)
-}
-
-impl MessageType {
-    pub fn is_fcm(&self) -> bool {
-        match self {
-            MessageType::Fcm(..) => true,
-            _ => false
-        }
-    }
-
-    pub fn into_buffer(self) -> SecBuffer {
-        match self {
-            MessageType::Default(t) => t,
-            MessageType::Fcm(t) => t
-        }
-    }
 }
 
 /// This type is for relaying results between the lower-level server and the higher-level kernel

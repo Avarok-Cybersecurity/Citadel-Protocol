@@ -1,9 +1,7 @@
 use super::includes::*;
 use crate::hdp::state_container::VirtualConnectionType;
 use atomic::Ordering;
-use crate::opts::ClientAuxiliaryOptions;
-use crate::inner_arg::ExpectedInnerTarget;
-use crate::error::NetworkError;
+use hyxe_crypt::fcm::keys::FcmKeys;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
 #[inline]
@@ -31,64 +29,60 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
         packet_flags::cmd::aux::do_connect::STAGE0 => {
             log::info!("STAGE 2 CONNECT PACKET");
             let mut state_container = inner_mut!(session.state_container);
-                match validation::do_connect::validate_stage0_packet(cnac, &*payload) {
-                    Ok(client_aux_cfg) => {
+            match validation::do_connect::validate_stage0_packet(cnac, &*payload) {
+                Ok(fcm_keys) => {
 
-                        // Now, we handle the FCM setup
-                        if let Err(err) = handle_client_aux_cfg_as_server(client_aux_cfg, &session, cnac) {
-                            // We could not connect to FCM
-                            let failure_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, err.to_string(), Vec::with_capacity(0), session.time_tracker.get_global_time_ns(), security_level);
-                            return PrimaryProcessorResult::ReplyToSender(failure_packet);
-                        }
+                    // Now, we handle the FCM setup
+                    handle_client_fcm_keys(fcm_keys, cnac);
 
-                        let cid = hyper_ratchet.get_cid();
-                        let success_time = session.time_tracker.get_global_time_ns();
-                        let addr = session.remote_peer.clone();
-                        let is_personal = !session.is_server;
-                        let kernel_ticket = session.kernel_ticket.clone();
+                    let cid = hyper_ratchet.get_cid();
+                    let success_time = session.time_tracker.get_global_time_ns();
+                    let addr = session.remote_peer.clone();
+                    let is_personal = !session.is_server;
+                    let kernel_ticket = session.kernel_ticket.clone();
 
-                        // transmit peers to synchronize
-                        let peers = cnac.get_hyperlan_peer_list().unwrap_or(Vec::with_capacity(0));
-                        //let pqc = state_container.connect_stage.generated_pqc.take();
-                        state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::SUCCESS;
-                        state_container.connect_state.success_time = Some(success_time);
-                        state_container.connect_state.fail_time = None;
-                        state_container.connect_state.on_connect_packet_received();
+                    // transmit peers to synchronize
+                    let peers = cnac.get_hyperlan_peer_list().unwrap_or(Vec::with_capacity(0));
+                    //let pqc = state_container.connect_stage.generated_pqc.take();
+                    state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::SUCCESS;
+                    state_container.connect_state.success_time = Some(success_time);
+                    state_container.connect_state.fail_time = None;
+                    state_container.connect_state.on_connect_packet_received();
 
-                        std::mem::drop(state_container);
+                    std::mem::drop(state_container);
 
-                        // Upgrade the connect BEFORE updating the CNAC
-                        if !session.session_manager.upgrade_connection(addr, cid) {
-                            return PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection");
-                        }
-
-                        //cnac.update_post_quantum_container(post_quantum).await?;
-                        //cnac.spawn_save_task_on_threadpool();
-                        // register w/ peer layer, get mail in the process
-                        let mailbox_items = session.session_manager.register_session_with_peer_layer(cid);
-                        let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, session.create_welcome_message(cid), peers,success_time, security_level);
-
-                        session.implicated_cid.store(Some(cid), Ordering::SeqCst);
-                        session.state = SessionState::Connected;
-
-                        let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                        session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, format!("Client {} successfully established a connection to the local HyperNode", cid)))?;
-
-                        PrimaryProcessorResult::ReplyToSender(success_packet)
+                    // Upgrade the connect BEFORE updating the CNAC
+                    if !session.session_manager.upgrade_connection(addr, cid) {
+                        return PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection");
                     }
 
-                    Err(err) => {
-                        log::error!("Error validating stage2 packet. Reason: {}", err.to_string());
-                        let fail_time = session.time_tracker.get_global_time_ns();
-                        state_container.connect_state.on_fail(fail_time);
-                        state_container.connect_state.on_connect_packet_received();
-                        std::mem::drop(state_container);
+                    //cnac.update_post_quantum_container(post_quantum).await?;
+                    //cnac.spawn_save_task_on_threadpool();
+                    // register w/ peer layer, get mail in the process
+                    let mailbox_items = session.session_manager.register_session_with_peer_layer(cid);
+                    let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, session.create_welcome_message(cid), peers, success_time, security_level);
 
-                        session.state = SessionState::NeedsConnect;
-                        let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, err.to_string(), Vec::with_capacity(0),fail_time, security_level);
-                        PrimaryProcessorResult::ReplyToSender(packet)
-                    }
+                    session.implicated_cid.store(Some(cid), Ordering::SeqCst);
+                    session.state = SessionState::Connected;
+
+                    let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
+                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, format!("Client {} successfully established a connection to the local HyperNode", cid)))?;
+
+                    PrimaryProcessorResult::ReplyToSender(success_packet)
                 }
+
+                Err(err) => {
+                    log::error!("Error validating stage2 packet. Reason: {}", err.to_string());
+                    let fail_time = session.time_tracker.get_global_time_ns();
+                    state_container.connect_state.on_fail(fail_time);
+                    state_container.connect_state.on_connect_packet_received();
+                    std::mem::drop(state_container);
+
+                    session.state = SessionState::NeedsConnect;
+                    let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, err.to_string(), Vec::with_capacity(0), fail_time, security_level);
+                    PrimaryProcessorResult::ReplyToSender(packet)
+                }
+            }
         }
 
         packet_flags::cmd::aux::do_connect::FAILURE => {
@@ -97,7 +91,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
             let kernel_ticket = session.kernel_ticket.clone();
 
             let mut state_container = inner_mut!(session.state_container);
-            if let Some(payload) = validation::do_connect::validate_final_status_packet( &*payload) {
+            if let Some(payload) = validation::do_connect::validate_final_status_packet(&*payload) {
                 let message = String::from_utf8(payload.message.to_vec()).unwrap_or("Invalid UTF-8 message".to_string());
                 log::info!("The server refused to login the user. Reason: {}", &message);
                 let cid = hyper_ratchet.get_cid();
@@ -171,6 +165,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                         session.send_to_kernel(HdpServerResult::MailboxDelivery(cid, None, mailbox_delivery))?;
                     }
                     //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
+                    handle_client_fcm_keys_as_client(&mut session);
 
                     if use_ka {
                         let ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, timestamp, security_level);
@@ -197,23 +192,18 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
     }
 }
 
-fn handle_client_aux_cfg_as_server(aux_cfg: ClientAuxiliaryOptions, session: &dyn ExpectedInnerTarget<HdpSessionInner>, cnac: &ClientNetworkAccount) -> Result<(), NetworkError> {
-    if let Some(reg_id) = aux_cfg.reg_id {
-        log::info!("[FCM] REG ID: {}", &reg_id);
-        if session.fcm_server_conn.is_some() {
-            log::info!("[FCM] Registering with local FCM server connection ...");
-            cnac.visit_mut(|mut inner| {
-                inner.fcm_reg_id = Some(reg_id);
-            });
+fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNetworkAccount) {
+    if let Some(fcm_keys) = fcm_keys {
+        log::info!("[FCM KEYS]: {:?}", &fcm_keys);
+        cnac.visit_mut(|mut inner| {
+            inner.crypt_container.fcm_keys = Some(fcm_keys);
+        });
 
-            cnac.spawn_save_task_on_threadpool();
-
-            Ok(())
-        } else {
-            log::warn!("FCM reg specified, but this server does not support FCM!");
-            Err(NetworkError::InvalidExternalRequest("FCM reg specified, but this server does not support FCM!"))
-        }
-    } else {
-        Ok(())
+        cnac.spawn_save_task_on_threadpool();
     }
+}
+
+// We move the fcm keys out of the session and into the program-wide reachable CNAC
+fn handle_client_fcm_keys_as_client(sess: &mut dyn ExpectedInnerTargetMut<HdpSessionInner>) {
+    handle_client_fcm_keys(sess.fcm_keys.take(), sess.cnac.as_ref().unwrap())
 }

@@ -14,7 +14,7 @@ use std::fmt::Debug;
 use std::convert::TryFrom;
 use std::ops::Div;
 
-use bytes::{BufMut, BytesMut};
+use bytes::BufMut;
 use ez_pqcrypto::PostQuantumContainer;
 use rand::prelude::ThreadRng;
 use crate::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
@@ -196,13 +196,13 @@ impl Drill {
 
     /// Protects an already constructed packet in-place. This guarantees that replay attacks cannot happen
     /// Ordered delivery of packets is mandatory
-    pub fn protect_packet(&self, quantum_container: &PostQuantumContainer, header_len_bytes: usize, full_packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+    pub fn protect_packet<T: EzBuffer>(&self, quantum_container: &PostQuantumContainer, header_len_bytes: usize, full_packet: &mut T) -> Result<(), CryptError<String>> {
         let ref nonce = self.get_aes_gcm_nonce(0);
         quantum_container.protect_packet_in_place(header_len_bytes, full_packet, nonce).map_err(|err| CryptError::Encrypt(err.to_string()))
     }
 
     /// Unlike `protect_packet`, the returned object does NOT contain the header. The returned Bytes only contains the ciphertext
-    pub fn validate_packet_in_place_split<H: AsRef<[u8]>>(&self, quantum_container: &PostQuantumContainer, header: H, payload: &mut BytesMut) -> Result<(), CryptError<String>> {
+    pub fn validate_packet_in_place_split<H: AsRef<[u8]>, T: EzBuffer>(&self, quantum_container: &PostQuantumContainer, header: H, payload: &mut T) -> Result<(), CryptError<String>> {
         let ref nonce = self.get_aes_gcm_nonce(0);
         let header = header.as_ref();
         quantum_container.validate_packet_in_place(header, payload, nonce).map_err(|err| CryptError::Encrypt(err.to_string()))
@@ -306,6 +306,7 @@ impl From<u8> for SecurityLevel {
 
 
 use serde_big_array::big_array;
+use ez_pqcrypto::bytes_in_place::EzBuffer;
 /* Use the bellow version if BYTES_PER_3D_ARRAY is a value not automatically impled
 big_array! {
     BigArray;
