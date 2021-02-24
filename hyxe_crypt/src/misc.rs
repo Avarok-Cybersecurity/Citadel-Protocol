@@ -5,7 +5,7 @@ use std::os::raw::c_void;
 use rand::prelude::SliceRandom;
 
 /// Default Error type for this crate
-pub enum CryptError<T: ToString = String> {
+pub enum CryptError<T = String> {
     /// Encrypt Error
     Encrypt(T),
     /// Decrypt Error
@@ -18,22 +18,36 @@ pub enum CryptError<T: ToString = String> {
     BadSecuritySetting
 }
 
-impl<T: ToString> CryptError<T> {
+impl<T> CryptError<T> {
     /// Use for converting to different types
-    pub fn to_string(&self) -> String {
+    pub fn into_string(self) -> String where T: Into<String> {
         match self {
-            CryptError::Encrypt(s) => s.to_string(),
-            CryptError::Decrypt(s) => s.to_string(),
-            CryptError::DrillUpdateError(s) => s.to_string(),
+            CryptError::Encrypt(s) => s.into(),
+            CryptError::Decrypt(s) => s.into(),
+            CryptError::DrillUpdateError(s) => s.into(),
             CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception".to_string(),
             CryptError::BadSecuritySetting => "[CryptError] Bad security setting".to_string()
         }
     }
+
+    pub fn to_string(&self) -> String where T: AsRef<str> {
+        self.as_str().to_string()
+    }
+
+    pub fn as_str(&self) -> &str where T: AsRef<str> {
+        match self {
+            CryptError::Encrypt(s) => s.as_ref(),
+            CryptError::Decrypt(s) => s.as_ref(),
+            CryptError::DrillUpdateError(s) => s.as_ref(),
+            CryptError::OutOfBoundsError => "[CryptError] Out of bounds exception",
+            CryptError::BadSecuritySetting => "[CryptError] Bad security setting"
+        }
+    }
 }
 
-impl<T: ToString> std::fmt::Debug for CryptError<T> {
+impl<T: AsRef<str>> std::fmt::Debug for CryptError<T> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", self.as_str())
     }
 }
 

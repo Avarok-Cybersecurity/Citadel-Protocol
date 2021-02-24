@@ -11,11 +11,7 @@ use crate::functional::IfTrueConditional;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 use crate::error::NetworkError;
 use std::collections::HashMap;
-use hyxe_crypt::fcm::fcm_ratchet::{FcmRatchet, FcmAliceToBobTransfer};
-use crate::inner_arg::ExpectedInnerTarget;
-use crate::fcm::data_structures::FCMMessagePayload;
-use hyxe_fs::io::SyncIO;
-use crate::hdp::hdp_server::MessageType;
+use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 
 /// This will handle an inbound primary group packet
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
@@ -131,7 +127,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
 
                                     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
                                         // send to channel
-                                        if !state_container.forward_data_to_channel_as_endpoint(original_implicated_cid, MessageType::Default(plaintext)) {
+                                        if !state_container.forward_data_to_channel_as_endpoint(original_implicated_cid, plaintext) {
                                             log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
                                             return PrimaryProcessorResult::Void;
                                         }
@@ -145,33 +141,6 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                     let transfer = attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut state_container.active_virtual_connections, cnac_sess)?;
 
                                     let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer, security_level);
-                                    PrimaryProcessorResult::ReplyToSender(group_header_ack)
-                                }
-                                GroupHeader::Fcm(encrypted_message, fcm_ratchet_vers, v_target, transfer_base, transfer_fcm) => {
-                                    log::info!("[FCM] about to process FCM GroupHeader ...");
-
-                                    match send_fcm_message_as_server(encrypted_message, v_target, transfer_fcm, cnac_sess, &session, &hyper_ratchet, fcm_ratchet_vers, &header) {
-                                        Ok(_) => {
-                                            log::info!("[FCM] success executing send_fcm_message_as_server");
-                                            // TODO: Provide response back to client, even though they may be offline by now (IDEA: Send response packet to sess_cnac's FCM? Response should be small too since it's smaller than the 2KB public key exchange)
-                                        }
-
-                                        Err(err) => {
-                                            log::warn!("[FCM] error executing send_fcm_message_as_server: {:?}", err);
-                                            // TODO: Provide response back to client, even though they may be offline by now
-                                        }
-                                    }
-
-                                    // now, update base ratchet
-                                    let resp_target_cid = get_resp_target_cid_from_header(&header);
-                                    let object_id = header.wave_id.get();
-                                    let ticket = header.context_info.get().into();
-                                    let timestamp = session.time_tracker.get_global_time_ns();
-
-                                    let transfer = attempt_kem_as_bob(resp_target_cid, &header, transfer_base.map(AliceToBobTransferType::Default), &mut state_container.active_virtual_connections, cnac_sess)?;
-
-                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer, security_level);
-
                                     PrimaryProcessorResult::ReplyToSender(group_header_ack)
                                 }
                             }
@@ -368,7 +337,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                 if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
                     // send to channel
                     let mut state_container = inner_mut!(session.state_container);
-                    if !state_container.forward_data_to_channel_as_endpoint(original_implicated_cid, MessageType::Default(reconstructed_packet)) {
+                    if !state_container.forward_data_to_channel_as_endpoint(original_implicated_cid, reconstructed_packet) {
                         log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
                     }
                     PrimaryProcessorResult::Void
@@ -440,7 +409,7 @@ pub fn get_resp_target_cid_from_header(header: &LayoutVerified<&[u8], HdpHeader>
 pub enum ToolsetUpdate<'a, R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
     E2E { crypt: &'a mut PeerSessionCrypto<R>, local_cid: u64 },
     SessCNAC(&'a ClientNetworkAccount<R, Fcm>),
-    FCM { cnac: &'a ClientNetworkAccount<R, Fcm>, peer_cid: u64 }
+    FCM { fcm_crypt_container: &'a mut PeerSessionCrypto<Fcm>, peer_cid: u64, local_cid: u64 },
 }
 
 impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
@@ -460,13 +429,9 @@ impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
                 })
             }
 
-            ToolsetUpdate::FCM { cnac, peer_cid } => {
+            ToolsetUpdate::FCM { fcm_crypt_container, local_cid, .. } => {
                 let constructor = constructor.assume_fcm().ok_or(())?;
-                cnac.visit_mut(|mut inner| {
-                    let local_cid = inner.cid;
-                    let container = inner.fcm_crypt_container.get_mut(peer_cid).ok_or(())?;
-                    container.update_sync_safe(constructor, local_is_alice, local_cid)
-                })
+                fcm_crypt_container.update_sync_safe(constructor, local_is_alice, *local_cid)
             }
         }
     }
@@ -481,11 +446,8 @@ impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
                 cnac.deregister_oldest_hyper_ratchet(version).map_err(|err| NetworkError::Generic(err.to_string()))
             }
 
-            ToolsetUpdate::FCM { cnac, peer_cid } => {
-                cnac.visit_mut(|mut inner| {
-                    let container = inner.fcm_crypt_container.get_mut(peer_cid).ok_or(NetworkError::InternalError("FCM container missing"))?;
-                    container.deregister_oldest_hyper_ratchet(version).map_err(|err| NetworkError::Generic(err.to_string()))
-                })
+            ToolsetUpdate::FCM { fcm_crypt_container, .. } => {
+                fcm_crypt_container.deregister_oldest_hyper_ratchet(version).map_err(|err| NetworkError::Generic(err.to_string()))
             }
         }
     }
@@ -506,12 +468,9 @@ impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
                 })
             }
 
-            ToolsetUpdate::FCM { cnac, peer_cid, .. } => {
-                cnac.visit_mut(|mut inner| {
-                    let mut container = inner.fcm_crypt_container.get_mut(&peer_cid)?;
-                    container.update_in_progress = false;
-                    Some(RatchetType::Fcm(container.get_hyper_ratchet(None).cloned()?))
-                })
+            ToolsetUpdate::FCM { fcm_crypt_container, .. } => {
+                fcm_crypt_container.update_in_progress = false;
+                Some(RatchetType::Fcm(fcm_crypt_container.get_hyper_ratchet(None).cloned()?))
             }
         }
     }
@@ -520,7 +479,7 @@ impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
         match self {
             ToolsetUpdate::E2E { local_cid, .. } => *local_cid,
             ToolsetUpdate::SessCNAC(cnac) => cnac.get_cid(),
-            ToolsetUpdate::FCM { cnac, .. } => cnac.get_cid()
+            ToolsetUpdate::FCM { local_cid, .. } => *local_cid
         }
     }
 }
@@ -574,8 +533,8 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(peer_cid: u6
 
         // in this case, wtf? insomnia OP
         KemTransferStatus::StatusNoTransfer(_status) => {
-            log::error!("Unaccounted program logic @ StatusNoTransfer");
-            std::process::exit(-1);
+            log::error!("Unaccounted program logic @ StatusNoTransfer! Report to developers");
+            return Err(())
         }
 
         _ => {
@@ -585,7 +544,7 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(peer_cid: u6
 }
 
 // TODO: Figure out FCM
-pub(crate) fn attempt_kem_as_bob<R: Ratchet>(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: Option<AliceToBobTransferType<'_>>, vconns: &mut HashMap<u64, VirtualConnection>, cnac_sess: &ClientNetworkAccount<R>) -> Option<KemTransferStatus> {
+pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: Option<AliceToBobTransferType<'_>>, vconns: &mut HashMap<u64, VirtualConnection>, cnac_sess: &ClientNetworkAccount) -> Option<KemTransferStatus> {
     if let Some(transfer) = transfer {
         if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
             let crypt = &mut vconns.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
@@ -600,55 +559,14 @@ pub(crate) fn attempt_kem_as_bob<R: Ratchet>(resp_target_cid: u64, header: &Layo
     }
 }
 
-fn update_toolset_as_bob<R: Ratchet>(mut update_method: ToolsetUpdate<'_, R>, transfer: AliceToBobTransferType<'_>, algorithm: u8) -> Option<KemTransferStatus> {
-        let cid = update_method.get_local_cid();
-        let new_version = transfer.get_declared_new_version();
-        let constructor = R::Constructor::new_bob(algorithm, cid, new_version, transfer)?;
-        Some(update_method.update(ConstructorType::Default(constructor), false).ok()?)
-}
-
-/// In order for client A to send a message to client B, client B needs to have a reg_id inside their CNAC. As such, client B does not have to be online, however, client B is required to connect to the server at least once with its reg id.
-/// the reg id is set at connect instead of registration because the fcm reg id may change at the app-level.
-///
-/// Supposing client B has their ID ready, client A must next ensure that they are normally p2p registered to each other.
-///
-/// So long as client B has a fcm reg id, and client A is a mutual to client B, then A can send to B
-///
-/// Since we are the server here, we don't interact with the endpoint container
-fn send_fcm_message_as_server<R: Ratchet, Fcm: Ratchet>(encrypted_message: Vec<u8>, v_target: VirtualConnectionType, fcm_transfer: Option<FcmAliceToBobTransfer<'_>>, cnac: &ClientNetworkAccount<R, Fcm>, sess: &dyn ExpectedInnerTarget<HdpSessionInner>, hyper_ratchet: &R, fcm_ratchet_vers: u32, header: &LayoutVerified<&[u8], HdpHeader>) -> Result<(), NetworkError> {
-    // first, check to see they are mutuals
-    log::info!("Obtaining FCM reg id of peer {}", v_target.get_target_cid());
-    if cnac.hyperlan_peer_exists(v_target.get_target_cid()) {
-        let reg_id = sess.account_manager.visit_cnac(v_target.get_target_cid(), |peer_cnac| {
-            peer_cnac.visit(|peer_inner| {
-                peer_inner.fcm_reg_id.clone()
-            })
-        }).ok_or(NetworkError::InvalidExternalRequest("Peer cannot receive FCM messages at this time"))?;
-
-        log::info!("[FCM] Peer {} reg id: {}", v_target.get_target_cid(), &reg_id);
-        // At this point, both conditions are met. We can now send to FCM
-        let fcm = sess.fcm_server_conn.clone().ok_or(NetworkError::InvalidExternalRequest("The server is not configured to handle FCM requests"))?;
-        let fcm_packet = FCMMessagePayload::new(cnac.get_cid(), v_target.get_target_cid(), header.group.get(), fcm_ratchet_vers, encrypted_message, fcm_transfer.serialize_to_vector().map_err(|err| NetworkError::Generic(err.to_string()))?);
-        let _to_primary_stream = sess.to_primary_stream.clone().unwrap();
-        let _hyper_ratchet = hyper_ratchet.clone();
-        let _object_id = header.wave_id.get();
-        // TODO future: handle base ratchet update
-
-        let task = async move {
-            match fcm.send_message(reg_id, fcm_packet).await {
-                Ok(_resp) => {
-                    log::info!("[FCM] Success sending message to FCM service");
-                }
-
-                Err(err) => {
-                    log::warn!("[FCM] send_message failed: {:?}", &err);
-                }
-            }
-        };
-
-        spawn!(task);
-        Ok(())
+pub(crate) fn update_toolset_as_bob(mut update_method: ToolsetUpdate<'_>, transfer: AliceToBobTransferType<'_>, algorithm: u8) -> Option<KemTransferStatus> {
+    let cid = update_method.get_local_cid();
+    let new_version = transfer.get_declared_new_version();
+    if transfer.is_fcm() {
+        let constructor = EndpointRatchetConstructor::<FcmRatchet>::new_bob(algorithm, cid, new_version, transfer)?;
+        Some(update_method.update(ConstructorType::Fcm(constructor), false).ok()?)
     } else {
-        Err(NetworkError::InvalidExternalRequest("Requested peer is not a mutual to the session client"))
+        let constructor = EndpointRatchetConstructor::<HyperRatchet>::new_bob(algorithm, cid, new_version, transfer)?;
+        Some(update_method.update(ConstructorType::Default(constructor), false).ok()?)
     }
 }

@@ -1,4 +1,4 @@
-#![feature(test, rustc_private, const_fn)]
+#![feature(test, rustc_private, const_fn, async_closure)]
 
 #[macro_use]
 pub mod macros {
@@ -26,6 +26,10 @@ pub mod re_exports {
     pub use parking_lot::{const_mutex, Mutex};
     pub use tokio::runtime::{Builder, Runtime};
     pub use tokio::task::spawn;
+
+    pub use hyxe_user::account_manager::AccountManager;
+    pub use hyxe_user::fcm::fcm_packet_processor;
+    pub use hyxe_net::constants::PRIMARY_PORT;
 
     pub use hyxe_net::hdp::hdp_server::Ticket;
     pub use hyxe_net::re_imports::{BufMut, unbounded, UnboundedReceiver, UnboundedSender};

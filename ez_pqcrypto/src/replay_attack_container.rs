@@ -13,13 +13,13 @@ pub mod ordered {
     impl AntiReplayAttackContainer {
         #[inline]
         pub fn get_next_pid(&self) -> u64 {
-            self.out_counter.fetch_add(1, Ordering::SeqCst)
+            self.out_counter.fetch_add(1, Ordering::Relaxed)
         }
 
         /// Returns true if the value is valid, false otherwise
         #[inline]
         pub fn on_pid_received(&self, pid: u64) -> bool {
-            self.in_counter.compare_exchange(pid, pid + 1, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+            self.in_counter.compare_exchange(pid, pid + 1, Ordering::Relaxed, Ordering::Relaxed).is_ok()
         }
 
         pub fn has_tracked_packets(&self) -> bool {
@@ -42,7 +42,7 @@ pub mod unordered {
     use circular_queue::CircularQueue;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    /// The past 100 packets arrived will be saved to allow out-of-order delivery of packets
+    /// The past HISTORY_LEN packets arrived will be saved to allow out-of-order delivery of packets
     pub const HISTORY_LEN: u64 = 50;
     /// Helps ensure that each packet protected is only used once
     ///
@@ -63,7 +63,7 @@ pub mod unordered {
     impl AntiReplayAttackContainer {
         #[inline]
         pub fn get_next_pid(&self) -> u64 {
-            self.counter_out.fetch_add(1, Ordering::SeqCst)
+            self.counter_out.fetch_add(1, Ordering::Relaxed)
         }
 
         /// If the value already exists, this will return an error. If not, this will save

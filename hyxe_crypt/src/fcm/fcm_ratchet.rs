@@ -8,9 +8,9 @@ use std::convert::TryFrom;
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::hyper_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
 use crate::misc::CryptError;
-use bytes::BytesMut;
 use crate::net::crypt_splitter::calculate_nonce_version;
 use std::alloc::Global;
+use ez_pqcrypto::bytes_in_place::EzBuffer;
 
 #[derive(Clone, Serialize, Deserialize)]
 /// A compact ratchet meant for FCM messages
@@ -66,12 +66,12 @@ impl<'a> Ratchet for FcmRatchet {
         &self.inner.drill
     }
 
-    fn protect_message_packet(&self, _security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+    fn protect_message_packet<T: EzBuffer>(&self, _security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
         drill.protect_packet(pqc, header_len_bytes, packet)
     }
 
-    fn validate_message_packet<H: AsRef<[u8]>>(&self, _security_level: Option<SecurityLevel>, ref header: H, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(&self, _security_level: Option<SecurityLevel>, ref header: H, packet: &mut T) -> Result<(), CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
         drill.validate_packet_in_place_split(pqc, header, packet)
     }

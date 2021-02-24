@@ -6,6 +6,7 @@ use crate::hyper_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransf
 use crate::misc::CryptError;
 use serde::{Serialize, Deserialize};
 use crate::prelude::SecurityLevel;
+use crate::fcm::keys::FcmKeys;
 
 /// A container that holds the toolset as well as some boolean flags to ensure validity
 /// in tight concurrency situations. It is up to the networking protocol to ensure
@@ -14,6 +15,7 @@ use crate::prelude::SecurityLevel;
 pub struct PeerSessionCrypto<R: Ratchet = HyperRatchet> {
     #[serde(bound = "")]
     pub toolset: Toolset<R>,
+    pub fcm_keys: Option<FcmKeys>,
     #[serde(skip)]
     pub update_in_progress: bool,
     // if local is initiator, then in the case both nodes send a FastMessage at the same time (causing an update to the keys), the initiator takes preference, and the non-initiator's upgrade attempt gets dropped (if update_in_progress)
@@ -28,7 +30,11 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     /// `local_is_initiator`: May also be "local_is_server", or any constant designation used to determine
     /// priority in case of concurrent conflicts
     pub fn new(toolset: Toolset<R>, local_is_initiator: bool) -> Self {
-        Self { toolset, update_in_progress: false, local_is_initiator, rolling_object_id: 1, rolling_group_id: 0 }
+        Self { toolset, update_in_progress: false, local_is_initiator, rolling_object_id: 1, rolling_group_id: 0, fcm_keys: None }
+    }
+
+    pub fn new_fcm(toolset: Toolset<R>, local_is_initiator: bool, fcm_keys: FcmKeys) -> Self {
+        Self { toolset, update_in_progress: false, local_is_initiator, rolling_object_id: 1, rolling_group_id: 0, fcm_keys: Some(fcm_keys) }
     }
 
     /// Gets a specific drill version, or, gets the latest version comitted
@@ -94,16 +100,22 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         Ok(ret)
     }
 
+    /// Unlocks the hold on future updates, then returns the latest hyper_ratchet
+    pub fn unlock(&mut self) -> Option<&R> {
+        self.update_in_progress = false;
+        self.get_hyper_ratchet(None)
+    }
+
     ///
     pub fn get_and_increment_group_id(&mut self) -> u64 {
-        self.rolling_group_id += 1;
-        self.rolling_group_id - 1
+        self.rolling_group_id = self.rolling_group_id.wrapping_add(1);
+        self.rolling_group_id.wrapping_sub(1)
     }
 
     ///
     pub fn get_and_increment_object_id(&mut self) -> u32 {
-        self.rolling_object_id += 1;
-        self.rolling_object_id - 1
+        self.rolling_object_id = self.rolling_object_id.wrapping_add(1);
+        self.rolling_object_id.wrapping_sub(1)
     }
 
     /// Returns a new constructor only if a concurrent update isn't occuring

@@ -20,8 +20,9 @@ pub mod prelude {
     pub use crate::sec_string::SecString;
     pub use crate::sec_bytes::SecBuffer;
     pub use ::async_trait::async_trait;
-    pub use ez_pqcrypto::{PostQuantumContainer, algorithm_dictionary};
+    pub use ez_pqcrypto::{PostQuantumContainer, algorithm_dictionary, bytes_in_place::EzBuffer};
     pub use zerocopy::{ByteSlice, ByteSliceMut};
+
 }
 
 /// This serves as a lock-free method of retrieving specific

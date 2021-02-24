@@ -6,7 +6,7 @@ use tokio::time::Instant;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
 use hyxe_crypt::drill::SecurityLevel;
 use serde::{Serialize, Deserialize};
-use hyxe_net::fcm::kem::FcmPostRegister;
+use hyxe_user::fcm::kem::FcmPostRegister;
 
 #[derive(Default)]
 pub struct ConsoleSessionMail {

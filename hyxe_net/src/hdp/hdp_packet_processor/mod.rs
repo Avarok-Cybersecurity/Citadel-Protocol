@@ -142,13 +142,13 @@ impl From<Error> for PrimaryProcessorResult {
     }
 }
 
-impl<T: std::fmt::Display> From<hyxe_user::misc::AccountError<T>> for PrimaryProcessorResult {
+impl<T: Into<String>> From<hyxe_user::misc::AccountError<T>> for PrimaryProcessorResult {
     fn from(_: AccountError<T>) -> Self {
         PrimaryProcessorResult::Void
     }
 }
 
-impl<T: std::fmt::Display> From<hyxe_crypt::misc::CryptError<T>> for PrimaryProcessorResult {
+impl<T: Into<String>> From<hyxe_crypt::misc::CryptError<T>> for PrimaryProcessorResult {
     fn from(_: hyxe_crypt::misc::CryptError<T>) -> Self {
         PrimaryProcessorResult::Void
     }

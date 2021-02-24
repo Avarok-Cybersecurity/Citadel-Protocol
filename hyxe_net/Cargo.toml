@@ -6,9 +6,9 @@ edition = "2018"
 workspace = "../"
 
 [features]
-default = ["multi-threaded"]
-single-threaded = ["ez_pqcrypto/aes", "hyxe_crypt/single-threaded"]
-multi-threaded = ["ez_pqcrypto/aes", "ez_pqcrypto/unordered", "hyxe_crypt/multi-threaded"]
+default = ["single-threaded"]
+single-threaded = ["ez_pqcrypto/aes", "ez_pqcrypto/unordered", "hyxe_crypt/single-threaded", "hyxe_user/single-threaded"]
+multi-threaded = ["ez_pqcrypto/aes", "ez_pqcrypto/unordered", "hyxe_crypt/multi-threaded", "hyxe_user/multi-threaded"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -39,15 +39,12 @@ num = "0.2.1"
 either = "1.5.3"
 bitvec = "0.17.3"
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }
-hyxe_user = { path = "../hyxe_user", version = "0.1.0" }
+hyxe_user = { path = "../hyxe_user", version = "0.1.0", default-features=false }
 hyxe_nat = { path = "../hyxe_nat", version = "0.1.0" }
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
 rust-argon2 = "0.8.3"
 num_cpus = "1.13.0"
-fcm = { path = "./fcm-rust", version = "0.8.1" }
-base64 = "0.13.0"
-serde_json = "1.0.62"
 
 
 [dev-dependencies]

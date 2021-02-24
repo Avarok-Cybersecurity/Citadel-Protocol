@@ -145,7 +145,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                             }
 
                             Err(err) => {
-                                let err = err.to_string();
+                                let err = err.into_string();
                                 log::error!("Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
                                 let packet = hdp_packet_crafter::do_register::craft_failure(algorithm, local_nid, timestamp, err);
 
@@ -198,7 +198,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                                 state_container.register_state.on_fail(timestamp);
                                 std::mem::drop(state_container);
                                 //session.session_manager.clear_provisional_session(&remote_addr);
-                                session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, err.to_string()))?;
+                                session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, err.into_string()))?;
                             }
                         }
                         inner_mut!(session.state_container).register_state.on_register_packet_received();

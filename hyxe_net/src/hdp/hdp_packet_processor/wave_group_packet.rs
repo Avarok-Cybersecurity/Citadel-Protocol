@@ -1,5 +1,5 @@
 use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_ratchet;
-use crate::hdp::hdp_server::{HdpServerRequest, MessageType};
+use crate::hdp::hdp_server::HdpServerRequest;
 
 use super::includes::*;
 use atomic::Ordering;
@@ -35,7 +35,7 @@ pub fn process<K: ExpectedInnerTargetMut<HdpSessionInner>>(session: &mut InnerPa
                                     // GOOD. Now, we can reroute the packet
                                     // NOTE: This form of routing is less efficient than proxying with a nonzero target_cid in the packet headers.
                                     // However, it ensures that a packet's trajectory cannot be discerned, thus hiding a "who" in the conversation
-                                    let reroute_request = HdpServerRequest::SendMessage(MessageType::Default(reconstructed_packet), target_cid, virtual_target, security_level);
+                                    let reroute_request = HdpServerRequest::SendMessage(reconstructed_packet, target_cid, virtual_target, security_level);
                                     let _ = session.session_manager.send_local_server_request(Some(ticket), reroute_request);
                                     GroupProcessorResult::Void
                                 } else {
@@ -48,7 +48,7 @@ pub fn process<K: ExpectedInnerTargetMut<HdpSessionInner>>(session: &mut InnerPa
                                 // if the target cid is this sessions, it means the packet has arrived.
                                 // We need to route the packet to the channel
                                 //GroupProcessorResult::SendToKernel(ticket, reconstructed_packet)
-                                if !state_container.forward_data_to_channel_as_endpoint(implicated_cid, MessageType::Default(reconstructed_packet)) {
+                                if !state_container.forward_data_to_channel_as_endpoint(implicated_cid, reconstructed_packet) {
                                     log::error!("Unable to forward data to local channel");
                                 }
                                 GroupProcessorResult::Void

@@ -6,15 +6,15 @@ pub(crate) mod do_connect {
     use crate::error::NetworkError;
     use hyxe_fs::prelude::SyncIO;
     use crate::hdp::hdp_packet_crafter::do_connect::{DoConnectStage0Packet, DoConnectFinalStatusPacket};
-    use crate::opts::ClientAuxiliaryOptions;
+    use hyxe_crypt::fcm::keys::FcmKeys;
 
     /// Here, Bob receives a payload of the encrypted username + password. We must verify the login data is valid
-    pub(crate) fn validate_stage0_packet(cnac: &ClientNetworkAccount, payload: &[u8]) -> Result<ClientAuxiliaryOptions, NetworkError> {
+    pub(crate) fn validate_stage0_packet(cnac: &ClientNetworkAccount, payload: &[u8]) -> Result<Option<FcmKeys>, NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
         let payload = DoConnectStage0Packet::deserialize_from_vector(payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
-        cnac.validate_credentials(payload.username, SecVec::new(Vec::from(payload.password))).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        cnac.validate_credentials(payload.username, SecVec::new(Vec::from(payload.password))).map_err(|err| NetworkError::Generic(err.into_string()))?;
         log::info!("Success validating credentials!");
-        Ok(payload.aux_cfg)
+        Ok(payload.fcm_keys)
     }
 
     pub(crate) fn validate_final_status_packet(payload: &[u8]) -> Option<DoConnectFinalStatusPacket> {
@@ -60,7 +60,6 @@ pub(crate) mod group {
     use crate::hdp::hdp_packet_crafter::group::DUAL_ENCRYPTION_ON;
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
-    use hyxe_crypt::fcm::fcm_ratchet::FcmAliceToBobTransfer;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
     pub(crate) fn validate<'a, 'b: 'a>(hyper_ratchet: &HyperRatchet, security_level: SecurityLevel, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
@@ -73,8 +72,7 @@ pub(crate) mod group {
     #[derive(Serialize, Deserialize)]
     pub(crate) enum GroupHeader<'a> {
         Standard(GroupReceiverConfig, VirtualTargetType),
-        FastMessage(Vec<u8>, VirtualTargetType, #[serde(borrow)] Option<AliceToBobTransfer<'a>>),
-        Fcm(Vec<u8>, u32, VirtualTargetType, #[serde(borrow)] Option<AliceToBobTransfer<'a>>, Option<FcmAliceToBobTransfer<'a>>)
+        FastMessage(Vec<u8>, VirtualTargetType, #[serde(borrow)] Option<AliceToBobTransfer<'a>>)
     }
 
     pub(crate) fn validate_header<'a>(payload: &'a [u8], hyper_ratchet: &'a HyperRatchet, header: &'a LayoutVerified<&'a [u8], HdpHeader>) -> Option<GroupHeader<'a>> {
@@ -97,13 +95,6 @@ pub(crate) mod group {
                  let truncated_len = hyper_ratchet.decrypt_in_place_custom(0, header.group.get(), msg).ok()?;
                  msg.truncate(truncated_len);
              }
-
-            GroupHeader::Fcm(msg, ..) => {
-                if header.algorithm == DUAL_ENCRYPTION_ON {
-                    let truncated_len = hyper_ratchet.decrypt_in_place_custom_scrambler(header.wave_id.get(), header.group.get(), msg).ok()?;
-                    msg.truncate(truncated_len);
-                }
-            }
         }
 
         Some(group_header)

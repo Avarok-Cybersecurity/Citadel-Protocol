@@ -34,7 +34,7 @@ use crate::mail::IncomingPeerRequest;
 use crate::ticket_event::TicketQueueHandler;
 use hyxe_net::functional::IfEqConditional;
 use hyxe_crypt::drill::SecurityLevel;
-use hyxe_net::fcm::kem::FcmPostRegister;
+use hyxe_user::fcm::kem::FcmPostRegister;
 
 #[allow(dead_code)]
 pub struct CLIKernel {
@@ -223,7 +223,7 @@ impl NetKernel for CLIKernel {
                 //return Err(NetworkError::Generic(err))
 
                 if *self.console_context.is_ffi {
-                    self.console_context.proxy_to_ffi(KernelResponse::Error(ticket.unwrap_or(Ticket(0)).0, err.clone()))
+                    self.console_context.proxy_to_ffi(KernelResponse::Error(ticket.unwrap_or(Ticket(0)).0, err.into_bytes()))
                 }
 
                 // TODO: Determine mechanism for shutting down if the error is severe enough. Check global flag?
@@ -298,12 +298,12 @@ impl NetKernel for CLIKernel {
             HdpServerResult::MessageDelivery(ticket, cid, data) => {
                 // NOTE: This data should only be delivered if sent if there is n=1 hop. Otherwise,
                 // channels are used
-                let message = String::from_utf8(data.clone().into_buffer()).unwrap_or(String::from(INVALID_UTF8));
+
                 if *self.console_context.is_ffi {
-                    self.console_context.proxy_to_ffi(KernelResponse::NodeMessage(ticket.0, cid, 0, 0, message));
+                    self.console_context.proxy_to_ffi(KernelResponse::NodeMessage(ticket.0, cid, 0, 0, data.into_buffer()));
                 } else {
                     colour::white!("Server message[{}]: ", cid);
-                    colour::yellow!("{}\n", String::from_utf8_lossy(&data.into_buffer()[..]));
+                    colour::yellow!("{}\n", String::from_utf8(data.into_buffer()).unwrap_or(String::from(INVALID_UTF8)));
                 }
             }
 
@@ -571,7 +571,7 @@ async fn loopback_future(tcp_addr: Option<SocketAddr>) -> Result<(), ConsoleErro
 async fn terminal_ticket_and_loopback_future(ticket_queue_handler: TicketQueueHandler, loopback_pipe_addr: Option<SocketAddr>, ffi_io: Option<FFIIO>, server_remote: HdpServerRemote, ctx: ConsoleContext, daemon_mode: bool) {
     let unordered = FuturesUnordered::<Pin<Box<dyn Future<Output=Result<(), ConsoleError>> + Send>>>::new();
     if let Some(ffi_io) = ffi_io {
-        (ffi_io)(Ok(Some(KernelResponse::Message(String::from("Asynchronous kernel running. FFI Static is about to be set")))));
+        (ffi_io)(Ok(Some(KernelResponse::Message(String::from("Asynchronous kernel running. FFI Static is about to be set").into_bytes()))));
         let ctx = ctx.clone();
         let server_remote = server_remote.clone();
         let handle = tokio::runtime::Handle::current();

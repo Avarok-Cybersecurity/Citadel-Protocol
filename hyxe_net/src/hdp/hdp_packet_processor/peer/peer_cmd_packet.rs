@@ -17,7 +17,7 @@ use crate::hdp::peer::peer_crypt::{KEP_STAGE1, KeyExchangeProcess};
 use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use crate::inner_arg::{ExpectedInnerTarget, InnerParameter};
-use crate::fcm::kem::FcmPostRegister;
+use hyxe_user::fcm::kem::FcmPostRegister;
 use hyxe_crypt::fcm::fcm_ratchet::FcmBobToAliceTransfer;
 
 #[allow(unused_results)]
@@ -63,18 +63,21 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                         return PrimaryProcessorResult::Void;
                     }
 
-                    PeerSignal::PostRegister(vconn, a, b, c, FcmPostRegister::BobToAliceTransfer(transfer)) => {
+                    PeerSignal::PostRegister(vconn, a, b, c, FcmPostRegister::BobToAliceTransfer(transfer, fcm_keys)) => {
+                        std::mem::drop(state_container);
+                        // When using FCM, post-register requires syncing to the HD to establish static key pairs. Otherwise, normal post-registers do not since keys are re-established during post-connect stage
                         log::info!("[FCM] Received bob to alice transfer from {}", vconn.get_original_implicated_cid());
                         let peer_cid = vconn.get_original_implicated_cid();
                         let this_cid = vconn.get_original_target_cid();
                         // we need to get the peer kem state container
-                        let mut fcm_constructor = state_container.peer_kem_states.remove(&peer_cid)?.fcm_constructor?;
-                        fcm_constructor.stage1_alice(FcmBobToAliceTransfer::deserialize_from_vector(&transfer[..]).ok()?)?;
-                        let fcm_ratchet = fcm_constructor.finish_with_custom_cid(this_cid)?;
-                        let fcm_endpoint_container = PeerSessionCrypto::new(Toolset::new(this_cid, fcm_ratchet), true);
                         cnac.visit_mut(|mut inner| {
+                            let mut fcm_constructor = inner.kem_state_containers.remove(&peer_cid)?.assume_fcm()?;
+                            fcm_constructor.stage1_alice(FcmBobToAliceTransfer::deserialize_from_vector(&transfer[..]).ok()?)?;
+                            let fcm_ratchet = fcm_constructor.finish_with_custom_cid(this_cid)?;
+                            let fcm_endpoint_container = PeerSessionCrypto::new_fcm(Toolset::new(this_cid, fcm_ratchet), true, fcm_keys.clone());
                             inner.fcm_crypt_container.insert(peer_cid, fcm_endpoint_container);
-                        });
+                            Some(())
+                        })?;
 
                         cnac.spawn_save_task_on_threadpool();
                         log::info!("[FCM] Successfully finished registration!");
@@ -339,18 +342,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
 
                             KeyExchangeProcess::HolePunchFailed => {
                                 log::info!("RECV HolePunchFailed");
-                                // the other side's TCP connection attempt failed. This side's, if up, is already up by itself
-                                // as such,
-                                /*
-                                let peer_cid = conn.get_original_implicated_cid();
-                                let kem_state_container = state_container.peer_kem_states.get(&peer_cid)?;
-                                let possible_verified_conn = kem_state_container.verified_socket_addr.clone();
-                                // since the HolePunchFailed packet comes
-                                if state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
-                                    log::info!("Successfully upgraded direct p2p connection for {}@{:?}. Process complete!", peer_cid, peer_addr);
-                                    // Great. Now, tell the other end to upgrade their connection
-                                }*/
-
+                                // TODO/optional: for future consideration, but is currently not at all necessary
                                 PrimaryProcessorResult::Void
                             }
 
@@ -384,7 +376,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
     }
 }
 
-#[inline]
+
 fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(signal: PeerSignal, ticket: Ticket, session: InnerParameter<K, HdpSessionInner>, sess_hyper_ratchet: HyperRatchet, _header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64, security_level: SecurityLevel) -> PrimaryProcessorResult {
     match signal {
         PeerSignal::Kem(conn, mut kep) => {

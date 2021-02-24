@@ -9,6 +9,7 @@ use hyxe_net::hdp::hdp_server::HdpServerRemote;
 use tokio::runtime::Handle;
 use crate::re_exports::const_mutex;
 use crate::console::virtual_terminal::INPUT_ROUTER;
+use std::sync::Arc;
 
 pub static FFI_STATIC: Mutex<Option<(ConsoleContext, HdpServerRemote, FFIIO, Handle)>> = const_mutex(None);
 
@@ -16,8 +17,8 @@ pub static FFI_STATIC: Mutex<Option<(ConsoleContext, HdpServerRemote, FFIIO, Han
 ///
 /// `execute_args`: Pretend you are going to use the CLI version of Lusna, and pass the command line arguments
 /// herein (e.g., "--type pure_server --bind 127.0.0.1"
-pub fn execute_lusna_kernel<T: ToString>(execute_args: T, to_ffi_frontier: Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>) -> Result<(), ConsoleError> {
-    (to_ffi_frontier)(Ok(Some(KernelResponse::Message("Beginning execution phase of the Lusna Kernel".to_string()))));
+pub fn execute_lusna_kernel<T: ToString>(execute_args: T, to_ffi_frontier: Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>) -> Result<(), ConsoleError> {
+    (to_ffi_frontier)(Ok(Some(KernelResponse::Message("Beginning execution phase of the Lusna Kernel".to_string().into_bytes()))));
     let ffi_object = FFIIO::from(to_ffi_frontier);
     setup_shutdown_hook();
     let cfg = parse_command_line_arguments_into_app_config(Some(execute_args.to_string()), Some(ffi_object))?;

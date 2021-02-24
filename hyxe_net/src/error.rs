@@ -56,6 +56,33 @@ impl NetworkError {
             }
         }
     }
+
+    pub fn into_string(self) -> String {
+        match self {
+            NetworkError::SocketError(err) => {
+                err
+            }
+
+            NetworkError::Generic(err) => {
+                err
+            }
+            NetworkError::Timeout(val) => {
+                format!("Timeout at {}", val)
+            }
+            NetworkError::InternalError(err) => {
+                format!("{}", err)
+            }
+            NetworkError::InvalidPacketSize(size) => {
+                format!("Excess packet size requested: {}", size)
+            }
+            NetworkError::InvalidExternalRequest(err) => {
+                format!("{}", err)
+            }
+            NetworkError::InvalidPacket(err) => {
+                format!("{}", err)
+            }
+        }
+    }
 }
 
 impl Display for NetworkError {

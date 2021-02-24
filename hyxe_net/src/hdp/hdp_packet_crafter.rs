@@ -14,7 +14,6 @@ use crate::hdp::state_container::{VirtualTargetType, GroupSender};
 use hyxe_crypt::sec_bytes::SecBuffer;
 use crate::error::NetworkError;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
-use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 
 pub struct GroupTransmitter {
     pub hyper_ratchet_container: RatchetPacketCrafterContainer,
@@ -43,19 +42,14 @@ pub struct GroupTransmitter {
 /// Fcm may be present, in which case, the innermost encryption pass goes through the fcm ratchet to ensure
 /// Google can't see the information. The fcm constructor may not be present either, since a concurrent update may
 /// be occuring
-pub struct RatchetPacketCrafterContainer<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+pub struct RatchetPacketCrafterContainer<R: Ratchet = HyperRatchet> {
     pub base: R,
-    pub base_constructor: Option<R::Constructor>,
-    pub fcm: Option<(Fcm, Option<Fcm::Constructor>)>
+    pub base_constructor: Option<R::Constructor>
 }
 
-impl<R: Ratchet, Fcm: Ratchet> RatchetPacketCrafterContainer<R, Fcm> {
-    pub fn default(base: R, base_constructor: Option<R::Constructor>) -> Self {
-        Self { base, base_constructor, fcm: None }
-    }
-
-    pub fn fcm(base: R, base_constructor: Option<R::Constructor>, fcm: Fcm, fcm_constructor: Option<Fcm::Constructor>) -> Self {
-        Self { base, base_constructor, fcm: Some((fcm, fcm_constructor)) }
+impl<R: Ratchet> RatchetPacketCrafterContainer<R> {
+    pub fn new(base: R, base_constructor: Option<R::Constructor>) -> Self {
+        Self { base, base_constructor }
     }
 }
 
@@ -92,11 +86,7 @@ impl GroupTransmitter {
         // + 1 byte source port offset (needed for sending across port-address-translation networks)
         // + 1 byte recv port offset
         const HDP_HEADER_EXTENDED_BYTE_LEN: usize = HDP_HEADER_BYTE_LEN + 2;
-        let res = if let Some(ref fcm_ratchet) = hyper_ratchet.fcm {
-            encrypt_group_unified(input_packet.into_buffer(), &fcm_ratchet.0, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into)
-        } else {
-            encrypt_group_unified(input_packet.into_buffer(), &hyper_ratchet.base, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into)
-        };
+        let res = encrypt_group_unified(input_packet.into_buffer(), &hyper_ratchet.base, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into);
 
         match res {
             Ok(group_transmitter) => {
@@ -166,18 +156,9 @@ impl GroupTransmitter {
         self.group_transmitter.clone()
     }
 
-    /// Determines if FCM or not
-    pub fn is_fcm(&self) -> bool {
-        self.hyper_ratchet_container.fcm.is_some()
-    }
-
     #[allow(unused_comparisons)]
     /// NOTE: This assumes non-FCM types!
     pub fn transmit_next_window_udp(&mut self, udp_sender: &OutboundUdpSender, wave_window: RangeInclusive<u32>) -> bool {
-        if !self.is_fcm() {
-            log::error!("Is not FCM type!");
-            return false;
-        }
 
         let packets_needed = self.group_config.packets_needed;
         let security_level = self.security_level;
@@ -288,16 +269,15 @@ pub(crate) mod group {
     use crate::hdp::state_container::VirtualTargetType;
     use crate::hdp::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
     use crate::hdp::hdp_server::Ticket;
-    use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
     use hyxe_fs::io::SyncIO;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
-    use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 
     pub const DUAL_ENCRYPTION_ON: u8 = 1;
     pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType) -> BytesMut {
         // if FCM, we need a 0 ("ENDPOINT_ENCRYPTION_OFF") target cid since we don't want the server to proxy it
-        let target_cid = if processor.is_fcm() { ENDPOINT_ENCRYPTION_OFF } else { virtual_target.get_target_cid() };
+        let target_cid = virtual_target.get_target_cid();
         let mut header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER,
@@ -319,18 +299,12 @@ pub(crate) mod group {
             // set the algorithm to 1
             header.algorithm = DUAL_ENCRYPTION_ON;
             header.inscribe_into(&mut packet);
-            // we omit the scrambling, because it's the group is the same as the group in this packet's header, and the wave id is always zero
-            // However, is it possible for the drill version to be different? NO. Because it is constructed with a fixed HyperRatchet
+
             let fast_msg_payload = &fast_msg_payload[HDP_HEADER_BYTE_LEN + 1 + 1 ..];
             let inner_encrypted = processor.hyper_ratchet_container.base.encrypt_custom_scrambler(header.wave_id.get(), header.group.get(), fast_msg_payload).unwrap();
-            let header = if let Some(ref fcm_ratchet) = processor.hyper_ratchet_container.fcm {
-                GroupHeader::Fcm(inner_encrypted, fcm_ratchet.0.version(), virtual_target, processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice()), fcm_ratchet.1.as_ref().map(|res| res.stage0_alice()))
-            } else {
-                GroupHeader::FastMessage(inner_encrypted, virtual_target, processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice()))
-            };
+            let header = GroupHeader::FastMessage(inner_encrypted, virtual_target, processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice()));
 
             header.serialize_into_buf(&mut packet).unwrap();
-            //log::info!("[FAST] len: {} | {:?}", fast_msg_payload.len(), fast_msg_payload);
         } else {
             header.inscribe_into(&mut packet);
             let header = GroupHeader::Standard(processor.group_config.clone(), virtual_target);
@@ -498,8 +472,8 @@ pub(crate) mod do_connect {
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_fs::prelude::SyncIO;
-    use crate::opts::ClientAuxiliaryOptions;
     use serde::{Serialize, Deserialize};
+    use hyxe_crypt::fcm::keys::FcmKeys;
 
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectStage0Packet<'a> {
@@ -507,12 +481,12 @@ pub(crate) mod do_connect {
         pub username: &'a [u8],
         #[serde(borrow)]
         pub password: &'a [u8],
-        pub aux_cfg: ClientAuxiliaryOptions
+        pub fcm_keys: Option<FcmKeys>
     }
 
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
     #[allow(unused_results)]
-    pub(crate) fn craft_stage0_packet(hyper_ratchet: &HyperRatchet, proposed_credentials: ProposedCredentials, aux_cfg: ClientAuxiliaryOptions, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_stage0_packet(hyper_ratchet: &HyperRatchet, proposed_credentials: ProposedCredentials, fcm_keys: Option<FcmKeys>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
         let (username, password) = proposed_credentials.decompose_credentials();
 
         //let encrypted_len = hyxe_crypt::net::crypt_splitter::calculate_aes_gcm_output_length(username.len() + username.len());
@@ -532,7 +506,7 @@ pub(crate) mod do_connect {
             target_cid: U64::new(0)
         };
 
-        let payload = DoConnectStage0Packet { username, password, aux_cfg };
+        let payload = DoConnectStage0Packet { username, password, fcm_keys };
 
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + payload.serialized_size().unwrap());
         header.inscribe_into(&mut packet);

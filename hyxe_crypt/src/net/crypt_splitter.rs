@@ -476,7 +476,7 @@ impl GroupReceiver {
                     }
 
                     Err(err) => {
-                        log::error!("Unable to decrypt wave {}. Reason: {}", wave_id, err.to_string());
+                        log::error!("Unable to decrypt wave {}. Reason: {}", wave_id, err.into_string());
                         GroupReceiverStatus::CORRUPT_WAVE
                     }
                 }
