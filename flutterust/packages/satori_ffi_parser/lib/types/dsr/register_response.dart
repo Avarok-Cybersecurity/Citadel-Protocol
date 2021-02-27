@@ -4,15 +4,11 @@ import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/ticket.dart';
 
 class RegisterResponse extends DomainSpecificResponse {
-  bool success;
-  Ticket ticket;
-  String message;
+  final bool success;
+  final Ticket ticket;
+  final String message;
 
-  RegisterResponse._(bool success, Ticket ticket, String message) {
-    this.success = success;
-    this.ticket = ticket;
-    this.message = message;
-  }
+  RegisterResponse._(this.success, this.ticket, this.message);
 
   @override
   Optional<String> getMessage() {

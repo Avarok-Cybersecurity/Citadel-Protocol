@@ -114,6 +114,11 @@ impl PostQuantumContainer {
         Ok(Self { algorithm, shared_secret: aes_gcm_key, data, anti_replay_attack: AntiReplayAttackContainer::default(), node: PQNode::Bob })
     }
 
+    /// Resets the counters to zero, as well as reset and additional stateful resources
+    pub fn reset_counters(&self) {
+        self.anti_replay_attack.reset();
+    }
+
     /// This should always be called after deserialization
     fn load_aes_gcm_key(&mut self) {
         self.shared_secret = Some(AeadKey::new(&GenericArray::clone_from_slice(self.get_shared_secret().unwrap())))

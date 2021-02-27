@@ -9,6 +9,8 @@ import 'package:flutterust/handlers/login.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/themes/default.dart';
 
+import '../utils.dart';
+
 class LoginScreen extends StatefulWidget {
   static const int IDX = 0;
 
@@ -95,11 +97,8 @@ class _LoginScreen extends State<LoginScreen> {
               ),
               Padding(
                 padding: EdgeInsets.symmetric(vertical: 10),
-                child: RaisedButton(
+                child: ElevatedButton(
                     child: Text("Connect"),
-                    color: primary(),
-                    textColor: Colors.white,
-                    padding: EdgeInsets.fromLTRB(10, 10, 10, 10),
                     onPressed: () { performLogin(this.port); }
                 ),
               )
@@ -111,6 +110,7 @@ class _LoginScreen extends State<LoginScreen> {
   }
 
   void performLogin(SendPort port) async {
+    FocusManager.instance.primaryFocus.unfocus();
     await EasyLoading.show();
     print("Username: " + this.usernameController.text);
     print("Password: " + this.passwordController.text);
@@ -121,7 +121,8 @@ class _LoginScreen extends State<LoginScreen> {
         " -s " + levels.indexOf(this.securityLevel).toString() +
         " --password " + this.passwordController.text +
         " --ffi" +
-        " --keep_alive_timeout 0"; // ensure to disable the keep alive subsystem
+        " --fcm-api-key " + Utils.firebase.app.options.apiKey +
+        " --fcm-token " + Utils.nodeClientToken;
 
     print("Executing: " + cmd);
     (await RustSubsystem.bridge.executeCommand(cmd))

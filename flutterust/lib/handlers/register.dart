@@ -1,7 +1,10 @@
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/screens/register.dart';
+import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/register_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
+import 'package:satori_ffi_parser/types/root/error.dart';
 
 class RegisterHandler implements AbstractHandler {
   final RegisterIsolateTransfer info;
@@ -17,19 +20,25 @@ class RegisterHandler implements AbstractHandler {
   }
 
   @override
-  void onErrorReceived(KernelResponse kernelResponse) {
-    print("[Register Handler] Registration failed: " + kernelResponse.getMessage().value);
+  void onErrorReceived(ErrorKernelResponse kernelResponse) async {
+    await EasyLoading.dismiss();
+    print("[Register Handler] Registration failed: " + kernelResponse.message);
     this.info.sendPort.send(RegisterUISignal(RegisterUpdateSignalType.RegisterFailure, message: kernelResponse.getMessage().orElse("Unable to register (unknown)")));
   }
 
   @override
-  void onTicketReceived(KernelResponse kernelResponse) {
-    RegisterResponse resp = kernelResponse.getDSR().value;
-    if (resp.success) {
-      print("[Register Handler] SUCCESS!");
-      this.info.sendPort.send(RegisterUISignal(RegisterUpdateSignalType.RegisterSuccess, message: kernelResponse.getMessage().orElse("Successfully registered!")));
+  void onTicketReceived(KernelResponse kernelResponse) async {
+    await EasyLoading.dismiss();
+    if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.Register)) {
+      RegisterResponse resp = kernelResponse.getDSR().value;
+      if (resp.success) {
+        print("[Register Handler] SUCCESS!");
+        this.info.sendPort.send(RegisterUISignal(RegisterUpdateSignalType.RegisterSuccess, message: kernelResponse.getMessage().orElse("Successfully registered!")));
+      } else {
+        this.onErrorReceived(kernelResponse);
+      }
     } else {
-      this.onErrorReceived(kernelResponse);
+      print("Invalid DSR type!");
     }
   }
 

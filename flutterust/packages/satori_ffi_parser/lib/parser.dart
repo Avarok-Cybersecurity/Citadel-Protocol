@@ -50,10 +50,10 @@ class FFIParser {
           return NodeMessageKernelResponse.tryFrom(infoNode, mapBase64Strings);
 
         case KernelResponseType.DomainSpecificResponse:
-          return DomainSpecificResponse.tryFrom(infoNode).map((dsr) => DomainSpecificKernelResponse(dsr));
+          return DomainSpecificResponse.tryFrom(infoNode, mapBase64Strings).map((dsr) => DomainSpecificKernelResponse(dsr));
 
         case KernelResponseType.Error:
-          return ErrorKernelResponse.tryFrom(infoNode);
+          return ErrorKernelResponse.tryFrom(infoNode, mapBase64Strings);
 
         case KernelResponseType.KernelShutdown:
 

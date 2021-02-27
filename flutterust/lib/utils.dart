@@ -122,17 +122,17 @@ class Utils {
 
   }
 
-  static FirebaseMessaging _firebase = FirebaseMessaging.instance;
+  static FirebaseMessaging firebase = FirebaseMessaging.instance;
   static String nodeClientToken = "";
-  
+
   static Future<void> configureFCM() async {
     await Firebase.initializeApp();
     FirebaseMessaging.onMessage.listen(onFcmMessageReceived);
     FirebaseMessaging.onBackgroundMessage(onFcmMessageReceived);
 
-    nodeClientToken = await _firebase.getToken();
+    nodeClientToken = await firebase.getToken();
     print("[FCM] Token: " + nodeClientToken);
-    _firebase.onTokenRefresh.listen((clientRegId) {
+    firebase.onTokenRefresh.listen((clientRegId) {
       print("[FCM] Received new token: " + clientRegId);
       nodeClientToken = clientRegId;
     });

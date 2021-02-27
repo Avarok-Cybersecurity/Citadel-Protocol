@@ -7,9 +7,9 @@ import 'package:satori_ffi_parser/utils.dart';
 import '../u64.dart';
 
 class PeerListResponse extends DomainSpecificResponse {
-  List<u64> cids;
-  List<bool> is_onlines;
-  Ticket ticket;
+  final List<u64> cids;
+  final List<bool> is_onlines;
+  final Ticket ticket;
 
   PeerListResponse._(this.cids, this.is_onlines, this.ticket);
 
@@ -38,15 +38,12 @@ class PeerListResponse extends DomainSpecificResponse {
 }
    */
   static Optional<DomainSpecificResponse> tryFrom(Map<String, dynamic> infoNode) {
-    print("A");
-    List<u64> cids = filterMap(infoNode["cids"], transform: u64.tryFrom);
-    List<bool> is_onlines = filterMap(infoNode["is_onlines"]);
+    List<u64> cids = typeCastMap(infoNode["cids"], transform: u64.tryFrom);
+    List<bool> is_onlines = typeCastMap(infoNode["is_onlines"]);
     print("cids: " + cids.toString() + "\nis_onlines: "+ is_onlines.toString());
     if (!sameLengths([cids, is_onlines])) {
       return Optional.empty();
     }
-
-    print("C");
 
     return Ticket.tryFrom(infoNode["ticket"]).map((ticket) => PeerListResponse._(cids, is_onlines, ticket));
   }

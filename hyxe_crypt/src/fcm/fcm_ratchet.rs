@@ -39,7 +39,7 @@ pub struct FcmRatchetInner {
     pqc: PostQuantumContainer
 }
 
-impl<'a> Ratchet for FcmRatchet {
+impl Ratchet for FcmRatchet {
     type Constructor = FcmRatchetConstructor;
 
     fn get_cid(&self) -> u64 {
@@ -52,6 +52,10 @@ impl<'a> Ratchet for FcmRatchet {
 
     fn has_verified_packets(&self) -> bool {
         self.inner.pqc.has_verified_packets()
+    }
+
+    fn reset_ara(&self) {
+        self.inner.pqc.reset_counters()
     }
 
     fn get_default_security_level(&self) -> SecurityLevel {
@@ -86,6 +90,7 @@ impl<'a> Ratchet for FcmRatchet {
 }
 
 /// Used for constructing the ratchet
+#[derive(Serialize, Deserialize)]
 pub struct FcmRatchetConstructor {
     pqc: PostQuantumContainer,
     drill: Option<Drill>,
@@ -120,7 +125,7 @@ impl EndpointRatchetConstructor<FcmRatchet> for FcmRatchetConstructor {
         Some(BobToAliceTransferType::Fcm(self.stage0_bob()?))
     }
 
-    fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+    fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
         match transfer {
             BobToAliceTransferType::Fcm(transfer) => {
                 self.stage1_alice(transfer)
@@ -157,7 +162,7 @@ pub struct FcmAliceToBobTransfer<'a> {
     pub version: u32
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FcmBobToAliceTransfer {
     ct: Vec<u8>,
     encrypted_drill_bytes: Vec<u8>
@@ -211,9 +216,9 @@ impl FcmRatchetConstructor {
     }
 
     ///
-    pub fn stage1_alice(&mut self, transfer: FcmBobToAliceTransfer) -> Option<()> {
+    pub fn stage1_alice(&mut self, transfer: &FcmBobToAliceTransfer) -> Option<()> {
         self.pqc.alice_on_receive_ciphertext(transfer.ct.as_slice()).ok()?;
-        let bytes = self.pqc.decrypt(transfer.encrypted_drill_bytes, &self.nonce).ok()?;
+        let bytes = self.pqc.decrypt(&transfer.encrypted_drill_bytes, &self.nonce).ok()?;
         let drill = Drill::deserialize_from(&bytes[..]).ok()?;
         self.drill = Some(drill);
         Some(())

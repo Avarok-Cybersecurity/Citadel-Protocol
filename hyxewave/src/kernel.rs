@@ -35,6 +35,7 @@ use crate::ticket_event::TicketQueueHandler;
 use hyxe_net::functional::IfEqConditional;
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_user::fcm::kem::FcmPostRegister;
+use crate::command_handlers::peer::PostRegisterRequest;
 
 #[allow(dead_code)]
 pub struct CLIKernel {
@@ -494,6 +495,7 @@ fn process_post_register_signal(this: &CLIKernel, conn: PeerConnectionType, user
         // by the internal logic, `ticket` should always be Some!
         if let Some(ticket) = ticket {
             let peer_cid = conn.get_original_implicated_cid();
+            let implicated_cid = conn.get_original_target_cid();
             // now, store the mail that way the next call to peer accept-request can work
             let mail_id = this.console_context.unread_mail.write().on_peer_request_received(IncomingPeerRequest::Register(ticket, username.clone(), conn, Instant::now(), fcm));
             let cmd = format!("peer accept-register {}", mail_id);
@@ -505,7 +507,17 @@ fn process_post_register_signal(this: &CLIKernel, conn: PeerConnectionType, user
                 });
             }
 
-            INPUT_ROUTER.register_tab_action(cmd);
+            if *this.console_context.is_ffi {
+                this.console_context.proxy_to_ffi(KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterRequest(PostRegisterRequest {
+                    mail_id: mail_id as u64,
+                    username: username.into_bytes(),
+                    peer_cid,
+                    implicated_cid,
+                    ticket: ticket.0
+                })))
+            } else {
+                INPUT_ROUTER.register_tab_action(cmd);
+            }
         } else {
             log::error!("Received an empty ticket from {:?}", conn);
         }

@@ -219,13 +219,15 @@ impl<R: Ratchet> Toolset<R> {
 
     /// Resets the internal state to the default, if necessary. At the beginning of each session, this should be called
     pub fn verify_init_state(&mut self) -> Option<()> {
+        /*
         if self.static_auxiliary_hyper_ratchet.has_verified_packets() {
             log::info!("Resetting toolset ...");
             let cid = self.cid;
             let serialized_static = bincode2::serialize(&self.static_auxiliary_hyper_ratchet).ok()?;
             let static_aux = bincode2::deserialize(&serialized_static[..]).ok()?;
             *self = Toolset::new(cid, static_aux);
-        }
+        }*/
+        self.static_auxiliary_hyper_ratchet.reset_ara();
 
         Some(())
     }

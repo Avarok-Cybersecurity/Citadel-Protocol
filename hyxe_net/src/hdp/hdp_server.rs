@@ -58,7 +58,6 @@ pub struct HdpServerInner {
     /// Key: cid (to account for multiple clients from the same node)
     session_manager: HdpSessionManager,
     local_bind_addr: SocketAddr,
-    system_engaged: bool,
     to_kernel: UnboundedSender<HdpServerResult>,
     local_node_type: HyperNodeType,
 }
@@ -81,7 +80,6 @@ impl HdpServer {
             primary_socket: Some(primary_socket),
             to_kernel,
             session_manager,
-            system_engaged: false,
         };
 
         let this = Self::from(inner);
@@ -98,9 +96,8 @@ impl HdpServer {
     async fn load(this: HdpServer, shutdown: tokio::sync::oneshot::Sender<()>) -> (HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>) {
         // Allow the listeners to read data without instantly returning
         // Load the readers
-        let mut write = inner_mut!(this);
+        let write = inner!(this);
 
-        write.system_engaged = true;
         let kernel_tx = write.to_kernel.clone();
 
         let (outbound_send_request_tx, outbound_send_request_rx) = unbounded(); // for the Hdp remote
@@ -362,7 +359,7 @@ impl HdpServer {
                 }
 
                 HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout.map(|val| val as i64)).await {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000)).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }

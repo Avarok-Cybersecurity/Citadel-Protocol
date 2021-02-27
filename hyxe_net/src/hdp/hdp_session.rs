@@ -1062,10 +1062,12 @@ impl HdpSession {
     pub(crate) fn dispatch_peer_command(&self, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let this = inner!(self);
         let timestamp = this.time_tracker.get_global_time_ns();
+        let mut do_save = false;
         if let Some(cnac) = this.cnac.as_ref() {
             if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
                 // move into the closure without cloning the drill
                 return cnac.visit_mut(|mut inner| {
+                    let this_cid = inner.cid;
                     let signal_processed = match peer_command {
                         // case 1: user just initiated a post-register request that has Fcm enabled
                         PeerSignal::PostRegister(vconn, a, b, c, FcmPostRegister::Enable) => {
@@ -1078,7 +1080,7 @@ impl HdpSession {
 
                             // create constructor
                             let fcm_constructor = FcmRatchetConstructor::new_alice(inner.cid, 0);
-                            let fcm_post_register = FcmPostRegister::AliceToBobTransfer(fcm_constructor.stage0_alice().serialize_to_vector().unwrap(), inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Fcm not configured for this client"))?);
+                            let fcm_post_register = FcmPostRegister::AliceToBobTransfer(fcm_constructor.stage0_alice().serialize_to_vector().unwrap(), inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Fcm not configured for this client"))?, this_cid);
                             // finally, store the constructor inside the state container
                             if let Some(_) = inner.kem_state_containers.insert(target_cid, ConstructorType::Fcm(fcm_constructor)) {
                                 log::error!("Overwrote pre-existing FCM KEM container. Report to developers")
@@ -1087,8 +1089,8 @@ impl HdpSession {
                             PeerSignal::PostRegister(vconn, a, b, c, fcm_post_register)
                         }
 
-                        // case 2: local just accepted, fcm is enabled
-                        PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(c)), FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys)) => {
+                        // case 2: local just accepted, fcm is enabled. But, signal was not sent via FCM. Instead, was sent via normal network
+                        PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(c)), FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys, _this_cid)) => {
                             let target_cid = vconn.get_original_target_cid();
                             let local_cid = inner.cid;
                             log::info!("[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
@@ -1097,11 +1099,11 @@ impl HdpSession {
                             }
 
                             let bob_constructor = FcmRatchetConstructor::new_bob(FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| NetworkError::Generic(err.to_string()))?).ok_or(NetworkError::InvalidExternalRequest("Invalid FCM ratchet constructor"))?;
-                            let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(NetworkError::InvalidExternalRequest("Invalid FCM ratchet constructor"))?.serialize_to_vector().map_err(|err| NetworkError::Generic(err.to_string()))?, fcm_keys.clone());
+                            let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(NetworkError::InvalidExternalRequest("Invalid FCM ratchet constructor"))?, fcm_keys.clone(), local_cid);
                             let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(NetworkError::InvalidExternalRequest("Invalid FCM Ratchet constructor"))?;
                             // no state container, we just add the peer crypt container straight-away
                             inner.fcm_crypt_container.insert(target_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, fcm_keys)); // local is NOT initiator in this case
-                            cnac.spawn_save_task_on_threadpool();
+                            do_save = true;
                             PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(c)), fcm_post_register)
                         }
 
@@ -1109,6 +1111,10 @@ impl HdpSession {
                             n
                         }
                     };
+
+                    if do_save {
+                        cnac.spawn_save_task_on_threadpool();
+                    }
 
                     let hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).unwrap();
                     let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
@@ -1321,7 +1327,6 @@ impl HdpSession {
         let ref to_kernel_tx = session.kernel_tx;
 
         let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(&hyper_ratchet, ticket, timestamp, security_level);
-        inner_mut!(session.state_container).disconnect_state.ticket = ticket;
         Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket))
             .and_then(|_| Ok(true))
     }
@@ -1503,7 +1508,7 @@ impl HdpSessionInner {
         }
     }
 
-    pub(crate) fn initiate_deregister(&self, virtual_connection_type: VirtualConnectionType, ticket: Ticket) -> bool {
+    pub(crate) fn initiate_deregister(&self, _virtual_connection_type: VirtualConnectionType, ticket: Ticket) -> bool {
         log::info!("Initiating deregister process ...");
         let timestamp = self.time_tracker.get_global_time_ns();
         let cnac = self.cnac.as_ref().unwrap();
@@ -1512,7 +1517,7 @@ impl HdpSessionInner {
 
         let stage0_packet = hdp_packet_crafter::do_deregister::craft_stage0(hyper_ratchet, timestamp, security_level);
         let mut state_container = inner_mut!(self.state_container);
-        state_container.deregister_state.on_init(virtual_connection_type, timestamp, ticket);
+        state_container.deregister_state.on_init(timestamp, ticket);
         std::mem::drop(state_container);
         self.send_to_primary_stream(Some(ticket), stage0_packet).is_ok()
     }

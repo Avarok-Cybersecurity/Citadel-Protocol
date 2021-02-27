@@ -48,8 +48,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
 
                     _ => {
                         log::error!("Unable to validate STAGE0_REGISTER packet");
-                        let timestamp = session.time_tracker.get_global_time_ns();
-                        state_container.register_state.on_fail(timestamp);
+                        state_container.register_state.on_fail();
                         state_container.register_state.on_register_packet_received();
                         std::mem::drop(state_container);
 
@@ -76,7 +75,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                 if let Some(mut alice_constructor) = state_container.register_state.constructor.take() {
                     let transfer = BobToAliceTransfer::deserialize_from(&payload[..])?;
                     let security_level = transfer.security_level;
-                    alice_constructor.stage1_alice(BobToAliceTransferType::Default(transfer))?;
+                    alice_constructor.stage1_alice(&BobToAliceTransferType::Default(transfer))?;
                     let new_hyper_ratchet = alice_constructor.finish()?;
 
                     let reserved_true_cid = header.group.get();
@@ -123,7 +122,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                                 let success_message = session.create_register_success_message();
                                 let packet = hdp_packet_crafter::do_register::craft_success(hyper_ratchet, algorithm, local_nid, timestamp, success_message, security_level);
 
-                                state_container.register_state.on_success(timestamp);
+                                state_container.register_state.on_success();
                                 state_container.register_state.on_register_packet_received();
                                 std::mem::drop(state_container);
 
@@ -149,7 +148,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                                 log::error!("Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
                                 let packet = hdp_packet_crafter::do_register::craft_failure(algorithm, local_nid, timestamp, err);
 
-                                state_container.register_state.on_fail(timestamp);
+                                state_container.register_state.on_fail();
                                 state_container.register_state.on_register_packet_received();
                                 std::mem::drop(state_container);
 
@@ -181,21 +180,20 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
 
                         let credentials = state_container.register_state.proposed_credentials.take()?;
                         let (username, password, full_name, nonce) = credentials.decompose();
-                        let timestamp = session.time_tracker.get_global_time_ns();
                         let reserved_true_cid = state_container.register_state.proposed_cid.clone()?;
 
                         // &self, cnac_inner_bytes: T, username: R, full_name: V, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>
                         match session.account_manager.register_personal_hyperlan_server(reserved_true_cid, hyper_ratchet.clone(), username, full_name, adjacent_nac, password, Vec::from(&nonce as &[u8])) {
                             Ok(new_cnac) => {
                                 // Finally, alert the higher-level kernel about the success
-                                state_container.register_state.on_success(timestamp);
+                                state_container.register_state.on_success();
                                 std::mem::drop(state_container);
                                 //session.session_manager.clear_provisional_session(&remote_addr);
                                 session.send_to_kernel(HdpServerResult::RegisterOkay(session.kernel_ticket, new_cnac, success_message))?;
                             }
 
                             Err(err) => {
-                                state_container.register_state.on_fail(timestamp);
+                                state_container.register_state.on_fail();
                                 std::mem::drop(state_container);
                                 //session.session_manager.clear_provisional_session(&remote_addr);
                                 session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, err.into_string()))?;

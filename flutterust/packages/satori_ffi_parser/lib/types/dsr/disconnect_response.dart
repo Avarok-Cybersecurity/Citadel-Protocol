@@ -7,20 +7,13 @@ import '../domain_specific_response.dart';
 import '../u64.dart';
 
 class DisconnectResponse extends DomainSpecificResponse {
-  u64 implicated_cid;
-  u64 icid;
-  u64 peer_cid;
-  Optional<Ticket> ticket;
-  VirtualConnectionType virtualConnectionType;
+  final u64 implicated_cid;
+  final u64 icid;
+  final u64 peer_cid;
+  final Optional<Ticket> ticket;
+  final VirtualConnectionType virtualConnectionType;
 
-  DisconnectResponse._(VirtualConnectionType virtualConnectionType,
-      u64 implicated_cid, u64 icid, u64 peer_cid, Optional<Ticket> ticket) {
-    this.virtualConnectionType = virtualConnectionType;
-    this.implicated_cid = implicated_cid;
-    this.icid = icid;
-    this.peer_cid = peer_cid;
-    this.ticket = ticket;
-  }
+  DisconnectResponse._(this.virtualConnectionType, this.implicated_cid, this.icid, this.peer_cid, this.ticket);
 
   @override
   Optional<String> getMessage() {

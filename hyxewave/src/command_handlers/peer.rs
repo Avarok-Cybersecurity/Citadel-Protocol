@@ -3,14 +3,14 @@ use hyxe_user::client_account::HYPERLAN_IDX;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_user::fcm::kem::FcmPostRegister;
 use hyxe_user::fcm::fcm_packet_processor::FcmProcessorResult;
-use crate::ffi::FcmResponse;
+use hyxe_user::fcm::data_structures::{base64_string, string};
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
     #[serde(serialize_with = "string_vec")]
     cids: Vec<u64>,
     is_onlines: Vec<bool>,
-    #[serde(serialize_with = "string")]
+    #[serde(with = "string")]
     ticket: u64
 }
 
@@ -18,6 +18,29 @@ impl From<Ticket> for PeerList {
     fn from(ticket: Ticket) -> Self {
         Self { cids: Vec::new(), is_onlines: Vec::new(), ticket: ticket.0 }
     }
+}
+
+#[derive(Serialize, Debug)]
+pub struct PostRegisterRequest {
+    #[serde(with = "string")]
+    pub mail_id: u64,
+    #[serde(with = "base64_string")]
+    pub username: Vec<u8>,
+    #[serde(with = "string")]
+    pub peer_cid: u64,
+    #[serde(with = "string")]
+    pub implicated_cid: u64,
+    #[serde(with = "string")]
+    pub ticket: u64
+}
+
+#[derive(Serialize, Debug)]
+pub struct PostRegisterResponse {
+    #[serde(with = "string")]
+    ticket: u64,
+    accept: bool,
+    #[serde(with = "base64_string")]
+    username: Vec<u8>
 }
 
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
@@ -101,10 +124,12 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
             return if matches.is_present("fcm") {
                 let fcm_client = ctx.account_manager.fcm_client();
-                let callback = ffi_io.map(|ffi_io| fcm_callback(ffi_io)).unwrap_or_else(fcm_console_callback);
+                //let callback = ffi_io.map(|ffi_io| fcm_callback(ffi_io)).unwrap_or_else(fcm_console_callback);
 
-                let ticket = cnac.background_fcm_send_to(target_cid, buf, fcm_client, callback).map_err(|err| ConsoleError::Generic(err.into_string()))?;
-                Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Fcm(FcmResponse::MessageSent(ticket)))))
+                //let ticket = cnac.background_fcm_send_message_to(target_cid, buf, fcm_client, callback).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                //Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Fcm(FcmResponse::MessageSent(ticket)))))
+                let fcm_res = cnac.blocking_fcm_send_to(target_cid, buf, fcm_client).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                Ok(Some(KernelResponse::from(fcm_res)))
             } else {
                 // now, use the console context to send the message
                 let _ticket = ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, buf)?;
@@ -408,23 +433,32 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             let post_register_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), username, None, None, fcm));
             let ticket = server_remote.unbounded_send(post_register_request)?;
             ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, target_cid, move |ctx, ticket, response| {
-                match response {
+                let res = match response {
                     PeerResponse::ServerReceivedRequest => {
                         printf_ln!(colour::white!("Hypernode received the request; awaiting for peer to accept registration ...\n"));
-                        CallbackStatus::TaskPending
+                        return CallbackStatus::TaskPending
                     }
 
                     PeerResponse::Accept(username) => {
                         // TODO: Make the enums cleaner.
                         let username = username.unwrap();
 
+                        // TODO: pull this down to the networking layer to take responsibility off the kernel
                         if let Err(err) = ctx.account_manager.register_hyperlan_p2p_at_endpoints(ctx_user, target_cid, username.clone()) {
                             printf_ln!(colour::red!("Peer {} ({}) accepted your invitation, but we were unable to sync to the local filesystem. Reason: {:?}\n", &username, target_cid, err));
                         } else {
                             printf_ln!(colour::white!("Peer {} ({}) has accepted your invitation! You may now connect to their node\n", &username, target_cid));
                         }
 
-                        CallbackStatus::TaskComplete
+                        if let Some(ref ffi_io) = ffi_io {
+                            (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterResponse(PostRegisterResponse {
+                                ticket: ticket.0,
+                                accept: true,
+                                username: username.into_bytes()
+                            })))))
+                        }
+
+                        return CallbackStatus::TaskComplete
                     }
 
                     PeerResponse::Err(err_opt) => {
@@ -448,7 +482,18 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                         printf_ln!(colour::red!("PostRegister (ticket {}) was unable to complete\n", ticket));
                         CallbackStatus::TaskComplete
                     }
+                };
+
+                // if we get here, request failed
+                if let Some(ref ffi_io) = ffi_io {
+                    (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterResponse(PostRegisterResponse {
+                        ticket: ticket.0,
+                        accept: false,
+                        username: Vec::with_capacity(0)
+                    })))))
                 }
+
+                res
             });
 
             return Ok(Some(KernelResponse::ResponseTicket(ticket.0)));
@@ -510,6 +555,8 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         }
 
         if let Some(matches) = matches.subcommand_matches("accept-register") {
+            let use_fcm = matches.is_present("fcm");
+
             let mail_id_target = matches.value_of("mail_id").unwrap();
             let is_numeric = mail_id_target.chars().all(|val| char::is_numeric(val));
             if !is_numeric {
@@ -517,36 +564,49 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             }
 
             let mail_id = usize::from_str(mail_id_target).map_err(|err| ConsoleError::Generic(err.to_string()))?;
-            let mut write = ctx.unread_mail.write();
-            return if let Some(request) = write.remove_request(mail_id) {
-                if !request.is_register() {
-                    write.incoming_requests.insert(mail_id, request);
-                    return Err(ConsoleError::Generic(format!("Mail item {} is not a registration request type", mail_id)));
-                }
 
-                // Registration accept is VALID. Now, register p2p locally
-                // we get the implicated_cid below, since the order has not yet been reversed
-                let peer_cid = request.get_implicated_cid();
-                let implicated_cid = request.get_target_cid();
-                let ctx_username = ctx.account_manager.get_username_by_cid(implicated_cid).ok_or(ConsoleError::Default("Implicated CID of request not found"))?;
-                let peer_username = request.assert_register_get_username().unwrap();
-                let ticket = request.get_ticket_assert_register().unwrap();
-                // TODO: Pull this down to the networking layer to take the responsiblity off the kernel
-                ctx.account_manager.register_hyperlan_p2p_at_endpoints(implicated_cid, peer_cid, &peer_username).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+            return if use_fcm {
+                let cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Default("Active session CNAC absent"))?;
+                let fcm_post_register = cnac.fcm_prepare_accept_register(mail_id as u64, true).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let username = cnac.get_username();
+                let response = PeerResponse::Accept(Some(username.clone()));
+                let vconn = PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), mail_id as u64);
+                let outbound_request = HdpServerRequest::PeerCommand(cnac.get_cid(), PeerSignal::PostRegister(vconn, username, None, Some(response), fcm_post_register));
+                let ticket = server_remote.unbounded_send(outbound_request).map_err(|err| ConsoleError::Generic(err.into_string()))?;
 
-                // we MUST provide the username below
-                let response = PeerResponse::Accept(Some(ctx_username.clone()));
-                // this handles the flipping of the signal
-                let outbound_request = request.prepare_response_assert_register(response, ctx_username).unwrap();
-                // now, send the signal outbound and we are good to go
-                let peer_request = HdpServerRequest::PeerCommand(implicated_cid, outbound_request);
-                // use the same ticket
-                server_remote.send_with_custom_ticket(ticket, peer_request)?;
-                colour::white_ln!("Registration consent request sent back to peer");
-                // No registering tickets needed since this is just a registration request
                 Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
             } else {
-                Err(ConsoleError::Generic(format!("Mail ID {} does not map to a mail item", mail_id)))
+                let mut write = ctx.unread_mail.write();
+                if let Some(request) = write.remove_request(mail_id) {
+                    if !request.is_register() {
+                        write.incoming_requests.insert(mail_id, request);
+                        return Err(ConsoleError::Generic(format!("Mail item {} is not a registration request type", mail_id)));
+                    }
+
+                    // Registration accept is VALID. Now, register p2p locally
+                    // we get the implicated_cid below, since the order has not yet been reversed
+                    let peer_cid = request.get_implicated_cid();
+                    let implicated_cid = request.get_target_cid();
+                    let ctx_username = ctx.account_manager.get_username_by_cid(implicated_cid).ok_or(ConsoleError::Default("Implicated CID of request not found"))?;
+                    let peer_username = request.assert_register_get_username().unwrap();
+                    let ticket = request.get_ticket_assert_register().unwrap();
+                    // TODO: Pull this down to the networking layer to take the responsiblity off the kernel
+                    ctx.account_manager.register_hyperlan_p2p_at_endpoints(implicated_cid, peer_cid, &peer_username).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+
+                    // we MUST provide the username below
+                    let response = PeerResponse::Accept(Some(ctx_username.clone()));
+                    // this handles the flipping of the signal
+                    let outbound_request = request.prepare_response_assert_register(response, ctx_username).unwrap();
+                    // now, send the signal outbound and we are good to go
+                    let peer_request = HdpServerRequest::PeerCommand(implicated_cid, outbound_request);
+                    // use the same ticket
+                    server_remote.send_with_custom_ticket(ticket, peer_request)?;
+                    colour::white_ln!("Registration consent request sent back to peer");
+                    // No registering tickets needed since this is just a registration request
+                    Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
+                } else {
+                    Err(ConsoleError::Generic(format!("Mail ID {} does not map to a mail item", mail_id)))
+                }
             }
         }
 
@@ -590,12 +650,14 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     }
 }
 
+#[allow(dead_code)]
 fn fcm_callback(ffi_io: FFIIO) -> Box<dyn FnOnce(FcmProcessorResult) + Send + 'static> {
     Box::new(move |res| {
         (ffi_io)(Ok(Some(res.into())))
     })
 }
 
+#[allow(dead_code)]
 fn fcm_console_callback() -> Box<dyn FnOnce(FcmProcessorResult) + Send + 'static> {
     Box::new(|result| {
         log::info!("FCM Console: Result {:?}", result)

@@ -66,10 +66,15 @@ pub unsafe extern "C" fn background_processor(
     let packet = CStr::from_ptr(packet).to_str().unwrap();
     let home_dir = CStr::from_ptr(home_dir).to_str().unwrap();
     log::info!("[Rust BG processor] Received packet: {:?}", &packet);
-    log::info!(
-        "Primary instance existent in memory? {}",
-        hyxewave::ffi::ffi_entry::FFI_STATIC.lock().is_some()
-    ); // for debug to monitor behavior
+
+    // if the primary instance is in memory already, don't bother using the account manager. Delegate to "peer fcm-parse <packet/raw>"
+    if hyxewave::ffi::ffi_entry::FFI_STATIC.lock().is_some() {
+        log::info!(
+            "FFI_STATIC exists, therefore, will route packet from BG to primary processor ..."
+        );
+        return kernel_response_into_raw(packet);
+    }
+
     let mut lock = BACKGROUND_PROCESSOR_INSTANCE.lock();
     if lock.is_none() {
         // setup
@@ -111,9 +116,12 @@ pub unsafe extern "C" fn background_processor(
 pub unsafe extern "C" fn send_to_kernel(packet: *const raw::c_char) -> *mut raw::c_char {
     let packet = CStr::from_ptr(packet).to_str().unwrap();
     log::info!("[Rust] Received packet: {:?}", &packet);
+    //let packet: Vec<u8> = Vec::from(packet);
 
-    let packet: Vec<u8> = Vec::from(packet);
+    kernel_response_into_raw(packet)
+}
 
+fn kernel_response_into_raw(packet: &str) -> *mut raw::c_char {
     let kernel_response = KernelResponse::from(
         hyxewave::ffi::command_handler::on_ffi_bytes_received(packet),
     );
