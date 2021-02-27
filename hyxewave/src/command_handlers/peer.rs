@@ -567,12 +567,13 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
             return if use_fcm {
                 let cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Default("Active session CNAC absent"))?;
-                let fcm_post_register = cnac.fcm_prepare_accept_register(mail_id as u64, true).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let (fcm_post_register, ticket_id) = cnac.fcm_prepare_accept_register(mail_id as u64, true).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let ticket = ticket_id.into();
                 let username = cnac.get_username();
                 let response = PeerResponse::Accept(Some(username.clone()));
                 let vconn = PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), mail_id as u64);
-                let outbound_request = HdpServerRequest::PeerCommand(cnac.get_cid(), PeerSignal::PostRegister(vconn, username, None, Some(response), fcm_post_register));
-                let ticket = server_remote.unbounded_send(outbound_request).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let outbound_request = HdpServerRequest::PeerCommand(cnac.get_cid(), PeerSignal::PostRegister(vconn, username, Some(ticket), Some(response), fcm_post_register));
+                server_remote.send_with_custom_ticket(ticket, outbound_request).map_err(|err| ConsoleError::Generic(err.into_string()))?;
 
                 Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
             } else {

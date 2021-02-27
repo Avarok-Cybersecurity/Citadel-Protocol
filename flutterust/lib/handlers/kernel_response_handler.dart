@@ -4,8 +4,10 @@ import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/utils.dart';
 import 'package:satori_ffi_parser/parser.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
+import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response_type.dart';
+import 'package:satori_ffi_parser/types/dsr/post_register_request.dart';
 import 'package:satori_ffi_parser/types/root/error.dart';
 import 'package:satori_ffi_parser/types/root/node_message.dart';
 import 'package:satori_ffi_parser/types/ticket.dart';
@@ -79,12 +81,20 @@ class KernelResponseHandler {
     }
 
     if (message.getType() == KernelResponseType.NodeMessage) {
-
+      print("Message received, but no callback action yet");
     }
   }
 
   static void handleDSR(DomainSpecificResponse dsr) {
+    switch (dsr.getType()) {
+      case DomainSpecificResponseType.PostRegisterRequest:
+        PostRegisterRequest req = dsr;
+        Utils.pushNotification("Peer request from " + req.username, req.username + " would like to connect to " + req.implicatedCid.toString());
+        return;
 
+      default:
+        print("Unaccounted DSR message type");
+    }
   }
 
 }

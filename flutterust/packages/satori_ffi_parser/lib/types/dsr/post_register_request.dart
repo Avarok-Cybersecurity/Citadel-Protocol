@@ -1,4 +1,3 @@
-
 import 'package:optional/optional_internal.dart';
 import 'package:satori_ffi_parser/parser.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
@@ -12,9 +11,10 @@ class PostRegisterRequest extends DomainSpecificResponse {
   final String username;
   final u64 peerCid;
   final u64 implicatedCid;
-  final Optional<Ticket> ticket;
+  final Ticket ticket;
+  final bool isFcm;
 
-  PostRegisterRequest._(this.mid, this.username, this.implicatedCid, this.peerCid, this.ticket);
+  PostRegisterRequest._(this.mid, this.username, this.implicatedCid, this.peerCid, this.ticket, this.isFcm);
 
   @override
   Optional<String> getMessage() {
@@ -23,7 +23,7 @@ class PostRegisterRequest extends DomainSpecificResponse {
 
   @override
   Optional<Ticket> getTicket() {
-    return this.ticket;
+    return Optional.of(this.ticket);
   }
 
   @override
@@ -32,8 +32,8 @@ class PostRegisterRequest extends DomainSpecificResponse {
   }
 
   /// If no ticket is specified, then the invitation is implied to be of FCM type
-  bool isFcm() {
-    return this.ticket.isEmpty && this.mid == 0;
+  bool isFCM() {
+    return this.isFcm;
   }
 
   /*
@@ -57,9 +57,9 @@ class PostRegisterRequest extends DomainSpecificResponse {
       String username = mapBase64(infoNode["username"], base64MapMode);
       u64 peerCid = u64.tryFrom(infoNode["peer_cid"]).value;
       u64 implicatedCid = u64.tryFrom(infoNode["implicated_cid"]).value;
+      bool isFcm = infoNode["is_fcm"];
 
-      Optional<Ticket> ticket = Ticket.tryFrom(infoNode["ticket"]);
-      return Optional.of(PostRegisterRequest._(mid, username, implicatedCid, peerCid, ticket));
+      return Ticket.tryFrom(infoNode["ticket"]).map((ticket) => PostRegisterRequest._(mid, username, implicatedCid, peerCid, ticket, isFcm));
     } on Exception catch(_) {
       return Optional.empty();
     }

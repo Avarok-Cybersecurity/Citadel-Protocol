@@ -57,7 +57,7 @@ class SessionViewInner extends State<SessionView> {
     if (dsr is DomainSpecificResponse) {
       switch (dsr.getType()) {
         case DomainSpecificResponseType.PeerList:
-          this.addView(PeerListView(Optional.of(dsr)), PeerListView.IDX);
+          this.addView(PeerListView(Optional.of(dsr), widget.cid), PeerListView.IDX);
       }
     } else {
       print("Recv return to home signal");
@@ -97,7 +97,7 @@ class SessionViewInner extends State<SessionView> {
                               ])))
                 ],
               )))),
-      PeerListView(Optional.empty())
+      PeerListView(Optional.empty(), widget.cid)
     ];
   }
 
