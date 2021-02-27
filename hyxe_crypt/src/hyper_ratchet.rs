@@ -22,11 +22,12 @@ pub struct HyperRatchet {
 
 /// For allowing registration inside the toolset
 pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + 'static {
-    type Constructor: EndpointRatchetConstructor<Self>;
+    type Constructor: EndpointRatchetConstructor<Self> + Serialize + for<'a> Deserialize<'a>;
 
     fn get_cid(&self) -> u64;
     fn version(&self) -> u32;
     fn has_verified_packets(&self) -> bool;
+    fn reset_ara(&self);
     fn get_default_security_level(&self) -> SecurityLevel;
     fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill);
     fn get_scramble_drill(&self) -> &Drill;
@@ -117,6 +118,14 @@ impl Ratchet for HyperRatchet {
 
     fn has_verified_packets(&self) -> bool {
         self.has_verified_packets()
+    }
+
+    fn reset_ara(&self) {
+        for ratchet in self.inner.message.inner.iter() {
+            ratchet.pqc.reset_counters();
+        }
+
+        self.inner.scramble.pqc.reset_counters();
     }
 
     fn get_default_security_level(&self) -> SecurityLevel {
@@ -393,9 +402,10 @@ pub mod constructor {
     use bytes::BytesMut;
     use bytes::BufMut;
     use crate::endpoint_crypto_container::EndpointRatchetConstructor;
-    use crate::fcm::fcm_ratchet::{FcmRatchet, FcmAliceToBobTransfer};
+    use crate::fcm::fcm_ratchet::{FcmRatchet, FcmAliceToBobTransfer, FcmBobToAliceTransfer};
 
     /// Used during the key exchange process
+    #[derive(Serialize, Deserialize)]
     pub struct HyperRatchetConstructor {
         pub(super) message: MessageRatchetConstructor,
         pub(super) scramble: ScrambleRatchetConstructor,
@@ -407,13 +417,14 @@ pub mod constructor {
     }
 
     /// For differentiating between two types when inputting into function parameters
+    #[derive(Serialize, Deserialize)]
     pub enum ConstructorType<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
         Default(R::Constructor),
         Fcm(Fcm::Constructor)
     }
 
     impl<R: Ratchet, Fcm: Ratchet> ConstructorType<R, Fcm> {
-        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+        pub fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
             match self {
                 ConstructorType::Default(con) => {
                     con.stage1_alice(transfer)
@@ -453,6 +464,13 @@ pub mod constructor {
                 Some(c)
             } else {
                 None
+            }
+        }
+
+        pub fn is_fcm(&self) -> bool {
+            match self {
+                Self::Fcm(..) => true,
+                _ => false
             }
         }
     }
@@ -522,7 +540,7 @@ pub mod constructor {
             Some(BobToAliceTransferType::Default(self.stage0_bob()?))
         }
 
-        fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+        fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
             self.stage1_alice(transfer)
         }
 
@@ -568,7 +586,23 @@ pub mod constructor {
     #[derive(Serialize, Deserialize)]
     pub enum BobToAliceTransferType {
         Default(BobToAliceTransfer),
-        Fcm(crate::fcm::fcm_ratchet::FcmBobToAliceTransfer)
+        Fcm(FcmBobToAliceTransfer)
+    }
+
+    impl BobToAliceTransferType {
+        pub fn assume_fcm(self) -> Option<FcmBobToAliceTransfer> {
+            match self {
+                Self::Fcm(this) => Some(this),
+                _ => None
+            }
+        }
+
+        pub fn assume_default(self) -> Option<BobToAliceTransfer> {
+            match self {
+                Self::Default(this) => Some(this),
+                _ => None
+            }
+        }
     }
 
     impl BobToAliceTransfer {
@@ -717,7 +751,7 @@ pub mod constructor {
         }
 
         /// Returns Some(()) if process succeeded
-        pub fn stage1_alice(&mut self, transfer: BobToAliceTransferType) -> Option<()> {
+        pub fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
             if let BobToAliceTransferType::Default(transfer) = transfer {
                 let ref nonce_msg = self.nonce_message;
 
@@ -785,18 +819,18 @@ pub mod constructor {
         }
     }
 
-    ///
+    #[derive(Serialize, Deserialize)]
     pub(super) struct MessageRatchetConstructor {
         pub(super) inner: Vec<MessageRatchetConstructorInner>
     }
 
-    ///
+    #[derive(Serialize, Deserialize)]
     pub(super) struct MessageRatchetConstructorInner {
         pub(super) drill: Option<Drill>,
         pub(super) pqc: PostQuantumContainer
     }
 
-    ///
+    #[derive(Serialize, Deserialize)]
     pub(super) struct ScrambleRatchetConstructor {
         pub(super) drill: Option<Drill>,
         pub(super) pqc: PostQuantumContainer

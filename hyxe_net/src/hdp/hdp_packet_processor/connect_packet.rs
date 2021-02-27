@@ -45,7 +45,6 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     let peers = cnac.get_hyperlan_peer_list().unwrap_or(Vec::with_capacity(0));
                     //let pqc = state_container.connect_stage.generated_pqc.take();
                     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::SUCCESS;
-                    state_container.connect_state.success_time = Some(success_time);
                     state_container.connect_state.fail_time = None;
                     state_container.connect_state.on_connect_packet_received();
 
@@ -74,7 +73,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                 Err(err) => {
                     log::error!("Error validating stage2 packet. Reason: {}", err.to_string());
                     let fail_time = session.time_tracker.get_global_time_ns();
-                    state_container.connect_state.on_fail(fail_time);
+                    state_container.connect_state.on_fail();
                     state_container.connect_state.on_connect_packet_received();
                     std::mem::drop(state_container);
 
@@ -87,7 +86,6 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
         packet_flags::cmd::aux::do_connect::FAILURE => {
             log::info!("STAGE FAILURE CONNECT PACKET");
-            let current_time = session.time_tracker.get_global_time_ns();
             let kernel_ticket = session.kernel_ticket.clone();
 
             let mut state_container = inner_mut!(session.state_container);
@@ -95,8 +93,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                 let message = String::from_utf8(payload.message.to_vec()).unwrap_or("Invalid UTF-8 message".to_string());
                 log::info!("The server refused to login the user. Reason: {}", &message);
                 let cid = hyper_ratchet.get_cid();
-                state_container.connect_state.on_fail(current_time);
-                state_container.connect_state.on_connect_packet_received();
+                state_container.connect_state.on_fail();
                 std::mem::drop(state_container);
 
                 //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
@@ -121,17 +118,14 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
             if last_stage == packet_flags::cmd::aux::do_connect::STAGE1 {
                 if let Some(payload) = validation::do_connect::validate_final_status_packet(&*payload) {
                     let message = String::from_utf8(payload.message.to_vec()).unwrap_or(String::from("Invalid message"));
-                    let current_time = session.time_tracker.get_global_time_ns();
                     let kernel_ticket = session.kernel_ticket;
                     let cid = hyper_ratchet.get_cid();
 
                     log::info!("The login to the server was a success. Welcome Message: {}", &message);
-                    state_container.connect_state.on_success(current_time);
+                    state_container.connect_state.on_success();
                     state_container.connect_state.on_connect_packet_received();
 
                     let use_ka = state_container.keep_alive_timeout_ns != 0;
-                    // now that we are done with the PQC, we can insert it where with an rc into the session
-                    state_container.cnac = Some(cnac.clone());
 
                     std::mem::drop(state_container);
 

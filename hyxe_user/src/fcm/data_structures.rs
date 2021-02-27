@@ -6,6 +6,7 @@ use bytes::BufMut;
 use byteorder::BigEndian;
 use std::fmt::Formatter;
 use hyxe_fs::hyxe_crypt::prelude::EzBuffer;
+use crate::fcm::kem::FcmPostRegister;
 
 pub struct FcmPacket {
     header: Vec<u8>,
@@ -91,7 +92,8 @@ impl FcmTicket {
 pub enum FCMPayloadType<'a> {
     GroupHeader { #[serde(borrow)] alice_to_bob_transfer: Option<FcmAliceToBobTransfer<'a>>, #[serde(with = "serde_bytes")] message: &'a [u8] },
     GroupHeaderAck { bob_to_alice_transfer: KemTransferStatus },
-    Truncate { truncate_vers: u32 }
+    Truncate { truncate_vers: u32 },
+    PeerPostRegister { transfer: FcmPostRegister, username: String } // the rest of the info will exist in the FCM header
 }
 
 #[derive(Serialize, Deserialize)]

@@ -288,7 +288,7 @@ pub(crate) mod pre_connect {
             let transfer = BobToAliceTransfer::deserialize_from(transfer_payload)?;
             let lvl = transfer.security_level;
             log::info!("Session security level based-on returned transfer: {:?}", lvl);
-            alice_constructor.stage1_alice(BobToAliceTransferType::Default(transfer))?;
+            alice_constructor.stage1_alice(&BobToAliceTransferType::Default(transfer))?;
             let new_hyper_ratchet = alice_constructor.finish()?;
             debug_assert!(new_hyper_ratchet.verify_level(lvl.into()).is_ok());
             let toolset = Toolset::from((static_auxiliary_ratchet, new_hyper_ratchet.clone()));

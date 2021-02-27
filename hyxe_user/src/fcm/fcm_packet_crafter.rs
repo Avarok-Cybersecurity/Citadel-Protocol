@@ -9,6 +9,7 @@ use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
 use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
 use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransferType;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use crate::fcm::kem::FcmPostRegister;
 
 pub fn craft_group_header<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, message: SecBuffer, alice_to_bob_transfer: Option<AliceToBobTransferType<'_>>) -> Option<RawFcmPacket> {
     let header = FcmHeader {
@@ -61,13 +62,27 @@ pub fn craft_truncate<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id:
     base64_packet(fcm_ratchet, &header, &payload)
 }
 
+pub fn craft_post_register<R: Ratchet>(base_ratchet: &R, transfer: FcmPostRegister, username: String) -> RawFcmPacket {
+    let header = FcmHeader {
+        session_cid: U64::new(base_ratchet.get_cid()),
+        target_cid: U64::new(0), // required to be 0 b/c we want to use the base ratchet at the endpoints
+        group_id: U64::new(0),
+        object_id: U32::new(0),
+        ratchet_version: U32::new(base_ratchet.version())
+    };
+
+    let payload = FCMPayloadType::PeerPostRegister { transfer, username };
+
+    base64_packet(base_ratchet, &header, &payload)
+}
+
 #[inline]
-fn base64_packet<Fcm: Ratchet>(fcm_ratchet: &Fcm, header: &FcmHeader, packet_payload: &FCMPayloadType) -> RawFcmPacket {
+fn base64_packet<R: Ratchet>(ratchet: &R, header: &FcmHeader, packet_payload: &FCMPayloadType) -> RawFcmPacket {
     let mut packet = packet_buf(packet_payload);
     header.inscribe_into(&mut packet);
     packet_payload.serialize_into_buf(&mut packet).unwrap();
 
-    fcm_ratchet.protect_message_packet(None, FCM_HEADER_BYTES, &mut packet).unwrap();
+    ratchet.protect_message_packet(None, FCM_HEADER_BYTES, &mut packet).unwrap();
 
     base64::encode(packet).into()
 }

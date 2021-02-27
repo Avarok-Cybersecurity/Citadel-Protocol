@@ -7,7 +7,7 @@ use crate::command_handlers::connect::ConnectResponse;
 use crate::command_handlers::disconnect::DisconnectResponse;
 use crate::command_handlers::list_accounts::ActiveAccounts;
 use crate::command_handlers::list_sessions::ActiveSessions;
-use crate::command_handlers::peer::PeerList;
+use crate::command_handlers::peer::{PeerList, PostRegisterRequest, PostRegisterResponse};
 use crate::command_handlers::register::RegisterResponse;
 use crate::console_error::ConsoleError;
 use ser::string;
@@ -78,6 +78,8 @@ pub enum DomainResponse {
     Connect(ConnectResponse),
     Disconnect(DisconnectResponse),
     PeerList(PeerList),
+    PostRegisterRequest(PostRegisterRequest),
+    PostRegisterResponse(PostRegisterResponse),
     Fcm(FcmResponse)
 }
 
@@ -131,6 +133,15 @@ impl From<FcmProcessorResult> for KernelResponse {
                     }
                     FcmResult::MessageSent { ticket } => {
                         KernelResponse::DomainSpecificResponse(DomainResponse::Fcm(FcmResponse::MessageSent(ticket)))
+                    }
+                    FcmResult::PostRegisterInvitation { invite } => {
+                        KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterRequest(PostRegisterRequest {
+                            mail_id: 0,
+                            username: invite.username,
+                            peer_cid: invite.peer_cid,
+                            implicated_cid: invite.local_cid,
+                            ticket: 0
+                        }))
                     }
                 }
             }

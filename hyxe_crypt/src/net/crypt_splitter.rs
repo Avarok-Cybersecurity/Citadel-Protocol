@@ -343,6 +343,7 @@ impl GroupReceiverConfig {
 struct TempWaveStore {
     packets_received: usize,
     packets_in_wave: usize,
+    #[allow(dead_code)]
     last_packet_recv_time: Option<Instant>,
     ciphertext_buffer: Vec<u8>,
 }

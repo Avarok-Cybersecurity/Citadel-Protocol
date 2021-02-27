@@ -14,27 +14,21 @@ pub struct RegisterState {
     pub(crate) constructor: Option<HyperRatchetConstructor>,
     pub(crate) created_hyper_ratchet: Option<HyperRatchet>,
     pub(crate) proposed_cid: Option<u64>,
-    pub(crate) last_packet_time: Option<Instant>,
-    pub(crate) fail_time: Option<i64>,
-    pub(crate) success_time: Option<i64>
+    pub(crate) last_packet_time: Option<Instant>
 }
 
 impl RegisterState {
     /// When the registration stage fails along any step, call this closure
-    pub fn on_fail(&mut self, fail_time: i64) {
+    pub fn on_fail(&mut self) {
         self.last_stage = packet_flags::cmd::aux::do_register::FAILURE;
-        self.fail_time = Some(fail_time);
-        self.success_time = None;
         self.constructor = None;
         self.on_register_packet_received();
     }
 
     /// When the registration stage succeeds, call this closure
-    pub fn on_success(&mut self, success_time: i64) {
+    pub fn on_success(&mut self) {
         self.last_stage = packet_flags::cmd::aux::do_register::SUCCESS;
-        self.success_time = Some(success_time);
         self.constructor = None;
-        self.fail_time = None;
         self.on_register_packet_received();
     }
 

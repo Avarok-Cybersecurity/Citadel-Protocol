@@ -11,6 +11,7 @@ use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 /// For keeping track of the pre-connect state
 pub struct PreConnectState {
     pub(crate) last_stage: u8,
+    #[allow(dead_code)]
     pub(crate) adjacent_node_type: Option<HyperNodeType>,
     pub(crate) adjacent_unnated_ports: Option<Vec<u16>>,
     // This drill should be turned .into() the next toolset once the other side updated

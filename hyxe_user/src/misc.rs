@@ -108,7 +108,7 @@ pub mod constructor_map {
     use serde::{Serialize, Serializer, Deserialize, Deserializer};
     use serde::ser::SerializeMap;
 
-    /// A no-serialization container
+    /// A no-serialization container (except for FCM, since we need to preserve them)
     pub struct ConstructorMap<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
         inner: HashMap<u64, ConstructorType<R, Fcm>>
     }
