@@ -639,9 +639,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     #[allow(unused_results)]
-    /// Returns the FcmPostRegister instance meant to be sent through the ordinary network. Required, since the central node must acknowledge the
-    /// connection
-    pub fn fcm_prepare_accept_register(&self, peer_cid: u64, accept: bool) -> Result<FcmPostRegister, AccountError> {
+    /// Returns the FcmPostRegister instance meant to be sent through the ordinary network. Additionally, returns the ticket associated with the transaction
+    pub fn fcm_prepare_accept_register(&self, peer_cid: u64, accept: bool) -> Result<(FcmPostRegister, u64), AccountError> {
         let mut write = self.write();
         let local_cid = write.cid;
 
@@ -653,7 +652,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         }
 
         match invite {
-            InvitationType::PostRegister(FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys, ..), username) => {
+            InvitationType::PostRegister(FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys, ..), username, ticket) => {
                 //let fcm_instance = FCMInstance::new(fcm_keys.clone(), client.clone());
 
                 if accept {
@@ -664,9 +663,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
                     write.fcm_crypt_container.insert(peer_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, fcm_keys));
                     write.mutuals.insert(HYPERLAN_IDX, MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(username) });
-                    Ok(fcm_post_register)
+                    Ok((fcm_post_register, ticket))
                 } else {
-                    Ok(FcmPostRegister::Disable)
+                    Ok((FcmPostRegister::Disable, ticket))
                 }
             }
 

@@ -140,7 +140,7 @@ impl From<FcmProcessorResult> for KernelResponse {
                             username: invite.username,
                             peer_cid: invite.peer_cid,
                             implicated_cid: invite.local_cid,
-                            ticket: 0
+                            ticket: invite.ticket
                         }))
                     }
                 }
