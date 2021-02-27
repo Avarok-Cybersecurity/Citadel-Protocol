@@ -19,7 +19,7 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
     let next_ratchet: Option<&Fcm> = match bob_to_alice_transfer {
         KemTransferStatus::Some(transfer, ..) => {
             if let Some(ConstructorType::Fcm(mut constructor)) = constructors.remove(&peer_cid) {
-                if let None = constructor.stage1_alice(transfer) {
+                if let None = constructor.stage1_alice(&transfer) {
                     return FcmProcessorResult::Err("Unable to construct hyper ratchet".to_string())
                 }
 
@@ -29,7 +29,7 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
 
                 if let Some(version) = requires_truncation {
                     if let Err(err) = endpoint_crypto.deregister_oldest_hyper_ratchet(version) {
-                        return FcmProcessorResult::Err(format!("[Toolset Update/deregister] Unable to update Alice's toolset: {:?}", err));
+                        return FcmProcessorResult::Err(format!("[Toolset Update/deregister] Unable to update Alice's toolset: {:?}", err))
                     }
                 }
 

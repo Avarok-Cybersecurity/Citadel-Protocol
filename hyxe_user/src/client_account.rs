@@ -28,14 +28,15 @@ use hyxe_fs::hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use std::ops::RangeInclusive;
 
 use std::collections::HashMap;
-use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
-use crate::misc::constructor_map::ConstructorMap;
+use hyxe_crypt::fcm::fcm_ratchet::{FcmRatchet, FcmAliceToBobTransfer};
 use hyxe_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
-use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
-use fcm::Client;
+use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, AliceToBobTransferType};
+use fcm::{Client, FcmResponse};
 use crate::fcm::fcm_instance::FCMInstance;
 use crate::fcm::data_structures::{FcmTicket, RawFcmPacket};
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult};
+use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, block_on_async};
+use crate::fcm::fcm_packet_processor::peer_post_register::InvitationType;
+use crate::fcm::kem::FcmPostRegister;
 
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network
@@ -122,7 +123,9 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     pub fcm_crypt_container: HashMap<u64, PeerSessionCrypto<Fcm>>,
     /// For keeping track of KEX'es
     #[serde(bound = "")]
-    pub kem_state_containers: ConstructorMap<R, Fcm>,
+    pub kem_state_containers: HashMap<u64, ConstructorType<R, Fcm>>,
+    /// For storing FCM invites
+    pub fcm_invitations: HashMap<u64, InvitationType>,
     #[serde(skip)]
     /// We keep the password in RAM encrypted
     password_in_ram: Option<SecVec<u8>>,
@@ -177,9 +180,10 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let dirs = Some(dirs);
 
         let fcm_crypt_container = HashMap::with_capacity(0);
-        let kem_state_containers = ConstructorMap::new();
+        let kem_state_containers = HashMap::with_capacity(0);
+        let fcm_invitations = HashMap::with_capacity(0);
 
-        let inner = ClientNetworkAccountInner::<R, Fcm> { kem_state_containers, fcm_crypt_container, dirs, password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
+        let inner = ClientNetworkAccountInner::<R, Fcm> { fcm_invitations, kem_state_containers, fcm_crypt_container, dirs, password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
         let this = Self::from(inner);
 
         this.blocking_save_to_local_fs()?;
@@ -255,7 +259,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let inner_nac = bytes_to_type::<NetworkAccountInner>(&decrypted_nac_bytes).map_err(|err| AccountError::IoError(err.to_string()))?;
         let nac = NetworkAccount::new_from_cnac(inner_nac);
         inner.adjacent_nac = Some(nac);
-        inner.kem_state_containers.clear();
+        inner.kem_state_containers.retain(|_, con| con.is_fcm());
 
         let this = Self::from(inner);
 
@@ -634,36 +638,74 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         write.fcm_crypt_container.insert(peer_cid, container);
     }
 
-    /// Returns the ticket for the request, and runs the asynchronous send task in the background. After done processing, ``callback`` will be triggered with the send result.
-    /// This is similar to ``fcm_send_to``, but will return instantly
     #[allow(unused_results)]
-    pub fn background_fcm_send_to(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>, callback: impl FnOnce(FcmProcessorResult) + Send + 'static) -> Result<FcmTicket, AccountError> {
-        let (ticket, fcm_instance, packet) = self.prepare_fcm_send(target_peer_cid, message, client)?;
-        tokio::task::spawn(async move {
-            match fcm_instance.send_to_fcm_user(packet).await {
-                Ok(_res) => {
-                    (callback)(FcmProcessorResult::Value(FcmResult::MessageSent { ticket }))
-                }
+    /// Returns the FcmPostRegister instance meant to be sent through the ordinary network. Required, since the central node must acknowledge the
+    /// connection
+    pub fn fcm_prepare_accept_register(&self, peer_cid: u64, accept: bool) -> Result<FcmPostRegister, AccountError> {
+        let mut write = self.write();
+        let local_cid = write.cid;
 
-                Err(err) => {
-                    (callback)(FcmProcessorResult::Err(err.into_string()))
+        // remove regardless
+        let invite = write.fcm_invitations.remove(&peer_cid).ok_or(AccountError::Generic("Invitation for client does not exist, or, expired".to_string()))?;
+
+        if write.fcm_crypt_container.contains_key(&peer_cid) {
+            return Err(AccountError::ClientExists(peer_cid))
+        }
+
+        match invite {
+            InvitationType::PostRegister(FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys, ..), username) => {
+                //let fcm_instance = FCMInstance::new(fcm_keys.clone(), client.clone());
+
+                if accept {
+                    // now, construct the endpoint container
+                    let bob_constructor = Fcm::Constructor::new_bob(0, local_cid, 0,AliceToBobTransferType::Fcm(FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| AccountError::Generic(err.to_string()))?)).ok_or(AccountError::IoError("Bad ratchet container".to_string()))?;
+                    let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(AccountError::IoError("Stage0/Bob failed".to_string()))?.assume_fcm().unwrap(), fcm_keys.clone(), local_cid);
+                    let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(AccountError::IoError("Unable to construct Bob's ratchet".to_string()))?;
+
+                    write.fcm_crypt_container.insert(peer_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, fcm_keys));
+                    write.mutuals.insert(HYPERLAN_IDX, MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(username) });
+                    Ok(fcm_post_register)
+                } else {
+                    Ok(FcmPostRegister::Disable)
                 }
             }
-        });
 
-        Ok(ticket)
+            _ => {
+                Err(AccountError::Generic("package is not a valid post-register type".to_string()))
+            }
+        }
+    }
+
+    /// For sending a pre-prepared packet. Specifying a nonzero target cid will send to target's FCM. If target cid is zero, then will send to self
+    pub async fn fcm_raw_send(&self, target_cid: u64, raw_fcm_packet: RawFcmPacket, fcm_client: &Arc<Client>) -> Result<FcmResponse, AccountError> {
+        let mut write = self.write();
+        let fcm_keys = if target_cid == 0 {
+            write.crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?
+        } else {
+            write.fcm_crypt_container.get_mut(&target_cid).ok_or(AccountError::ClientNonExists(target_cid))?.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?
+        };
+
+        let instance = FCMInstance::new(fcm_keys, fcm_client.clone());
+        instance.send_to_fcm_user(raw_fcm_packet).await
+    }
+
+    /// sends, blocking on an independent single-threaded executor
+    pub fn blocking_fcm_send_to(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>) -> Result<FcmProcessorResult, AccountError> {
+        let this = self.clone();
+        let client = client.clone();
+        block_on_async(move || async move {
+            this.fcm_send_message_to(target_peer_cid, message, &client).await
+        })?
     }
 
     /// Sends the request to the FCM server, returns the ticket for the request
-    pub async fn fcm_send_to(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>) -> Result<FcmTicket, AccountError> {
-        log::info!("RD0");
-        let (ticket, fcm_instance, packet) = self.prepare_fcm_send(target_peer_cid, message, client)?;
-        log::info!("RD1");
-        fcm_instance.send_to_fcm_user(packet).await.map(|_| ticket)
+    pub async fn fcm_send_message_to(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>) -> Result<FcmProcessorResult, AccountError> {
+        let (ticket, fcm_instance, packet) = self.prepare_fcm_send_message(target_peer_cid, message, client)?;
+        fcm_instance.send_to_fcm_user(packet).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }))
     }
 
     /// Prepares the requires abstractions needed to send data
-    fn prepare_fcm_send(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>) -> Result<(FcmTicket, FCMInstance, RawFcmPacket), AccountError> {
+    fn prepare_fcm_send_message(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>) -> Result<(FcmTicket, FCMInstance, RawFcmPacket), AccountError> {
         let mut write = self.write();
         let ClientNetworkAccountInner::<R, Fcm> {
             fcm_crypt_container,
@@ -696,6 +738,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
         Ok((ticket, fcm_instance, packet))
     }
+
+
 
     /// Generates the bytes of the underlying [ClientNetworkAccountInner]
     pub async fn generate_bytes_async(&self) -> Result<Vec<u8>, AccountError<String>> where ClientNetworkAccountInner<R, Fcm>: AsyncIO {
@@ -752,7 +796,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         new_hyxefile.drill_contents(&static_hyper_ratchet, nac_unencrypted_bytes.as_slice(), SecurityLevel::DIVINE).map_err(|err| AccountError::IoError(err.to_string()))?;
         // Place the HyxeFile inside
         assert!(ptr.inner_encrypted_nac.replace(new_hyxefile).is_none());
-        ptr.kem_state_containers.clear();
+        ptr.kem_state_containers.retain(|_, con| con.is_fcm());
 
         // finally, save the CNAC to the local hard drive, but using the save path for the CNAC instead of the password HyxeFile
         let save_path = ptr.local_save_path.as_path().clone();

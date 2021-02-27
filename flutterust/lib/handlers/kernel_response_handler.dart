@@ -6,6 +6,7 @@ import 'package:satori_ffi_parser/parser.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response_type.dart';
+import 'package:satori_ffi_parser/types/root/error.dart';
 import 'package:satori_ffi_parser/types/root/node_message.dart';
 import 'package:satori_ffi_parser/types/ticket.dart';
 
@@ -27,7 +28,7 @@ class KernelResponseHandler {
         break;
 
       case KernelResponseType.Error:
-        handler.onErrorReceived(kernelResponse);
+        handler.onErrorReceived(kernelResponse as ErrorKernelResponse);
         break;
     }
   }

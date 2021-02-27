@@ -28,11 +28,14 @@ use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, Me
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
-use crate::macros::SyncContextRequirements;
+use crate::macros::{SyncContextRequirements, ContextRequirements};
 use crate::inner_arg::ExpectedInnerTarget;
 use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_user::fcm::data_structures::RawFcmPacket;
+use hyxe_user::misc::AccountError;
+use hyxe_user::fcm::fcm_instance::FCMInstance;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -205,6 +208,13 @@ impl HdpSessionManager {
         let sess_mgr = inner!(session_manager);
         // the final step is to take all virtual conns inside the session, and remove them from other sessions
         let sess = inner!(new_session);
+
+        if let Some(cnac) = sess.cnac.as_ref() {
+            // we do not need to save here. When the ratchet is reloaded, it will be zeroed out anyways.
+            // the only reason we call this is to ensure that FCM packets that get protected on their way out
+            // don't cause false-positives on the anti-replay-attack container
+            let _ = cnac.refresh_static_hyper_ratchet();
+        }
         // the following shutdown sequence is valid for only for the HyperLAN server
         // This final sequence alerts all CIDs in the network
         if sess.is_server {
@@ -464,6 +474,31 @@ impl HdpSessionManager {
     pub fn deliver_signal_to_mailbox(&self, target_cid: u64, signal: PeerSignal) -> bool {
         let this = inner!(self);
         this.hypernode_peer_layer.try_add_mailbox(true, target_cid, signal)
+    }
+
+    /// Sends to user, but does not block. Once the send is complete, will run ``on_send_complete``, which gives the sender the option to return a packet back to the initiator
+    ///
+    /// This is usually to send packets to another client who may or may not have an endpoint crypt container yet. It doesn't matter here, since we're only using the base ratchet
+    ///
+    /// Since the user may or may not be online, we use the static aux ratchet
+    #[allow(unused_results)]
+    pub fn fcm_send_to(&self, implicated_cid: u64, peer_cid: u64, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
+        let this = inner!(self);
+        if implicated_cid != peer_cid {
+            let peer_cnac = this.account_manager.get_client_by_cid(peer_cid).ok_or(NetworkError::InvalidExternalRequest("Peer CID does not exist"))?;
+            peer_cnac.visit(|inner| {
+                let fcm_instance = FCMInstance::new(inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Client cannot receive FCM messages at this time"))?, this.account_manager.fcm_client().clone());
+                let packet = packet_crafter(inner.crypt_container.toolset.get_static_auxiliary_ratchet());
+                let task = async move {
+                    on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()))
+                };
+
+                spawn!(task);
+                Ok(())
+            })
+        } else {
+            Err(NetworkError::InvalidExternalRequest("implicated cid == peer_cid"))
+        }
     }
 
     /// Creates a new message group. Returns a key if successful

@@ -40,7 +40,7 @@ pub mod tests {
     fn gen(cid: u64, vers: u32, sec: Option<SecurityLevel>) -> (HyperRatchet, HyperRatchet) {
         let mut alice_con = HyperRatchetConstructor::new_alice(None, cid, vers, sec);
         let bob_con = HyperRatchetConstructor::new_bob(0, cid, vers, alice_con.stage0_alice()).unwrap();
-        alice_con.stage1_alice(bob_con.stage0_bob().map(BobToAliceTransferType::Default).unwrap()).unwrap();
+        alice_con.stage1_alice(&bob_con.stage0_bob().map(BobToAliceTransferType::Default).unwrap()).unwrap();
         (alice_con.finish().unwrap(), bob_con.finish().unwrap())
     }
 

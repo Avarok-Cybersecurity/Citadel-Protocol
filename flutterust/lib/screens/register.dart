@@ -6,7 +6,6 @@ import 'package:flutterust/components/text_form_field.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/register.dart';
 import 'package:flutterust/main.dart';
-import 'package:flutterust/themes/default.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 
 import '../utils.dart';
@@ -118,11 +117,8 @@ class _RegisterScreen extends State<RegisterScreen> {
               ),
               Padding(
                 padding: EdgeInsets.symmetric(vertical: 10),
-                child: RaisedButton(
+                child: ElevatedButton(
                     child: Text("Register"),
-                    color: primary(),
-                    textColor: Colors.white,
-                    padding: EdgeInsets.fromLTRB(10, 10, 10, 10),
                     onPressed: () {
                       performRegister(this.sendPort);
                     }),
@@ -133,6 +129,8 @@ class _RegisterScreen extends State<RegisterScreen> {
   }
 
   void performRegister(SendPort sendPort) async {
+    FocusManager.instance.primaryFocus.unfocus();
+    await EasyLoading.show();
     print("Federation addr: " + this.federationAddrController.text);
     print("Full name: " + this.fullnameController.text);
     print("Username: " + this.usernameController.text);
@@ -170,7 +168,7 @@ class _RegisterScreen extends State<RegisterScreen> {
             KernelResponseHandler.handleFirstCommand(kResp,
                 handler: RegisterHandler(transfer)));
       } else {
-
+        await EasyLoading.dismiss();
         await Utils.popup(context, "Check Federation Address",
             "Please make sure your address is valid. If using a domain, ensure the server is online");
       }

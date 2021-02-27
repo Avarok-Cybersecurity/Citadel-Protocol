@@ -6,18 +6,13 @@ import 'package:satori_ffi_parser/types/ticket.dart';
 import '../u64.dart';
 
 class ConnectResponse extends DomainSpecificResponse {
-  String message;
-  Ticket ticket;
-  u64 implicated_cid;
-  bool success;
-  Optional<String> username;
+  final String message;
+  final Ticket ticket;
+  final u64 implicated_cid;
+  final bool success;
+  Optional<String> username = Optional.empty();
 
-  ConnectResponse._(bool success, Ticket ticket, u64 implicated_cid, String message) {
-    this.message = message;
-    this.ticket = ticket;
-    this.implicated_cid = implicated_cid;
-    this.success = success;
-  }
+  ConnectResponse._(this.success, this.ticket, this.implicated_cid, this.message);
 
   @override
   Optional<String> getMessage() {

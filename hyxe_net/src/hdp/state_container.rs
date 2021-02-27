@@ -24,7 +24,6 @@ use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, HdpServer
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;
-use crate::hdp::state_subcontainers::disconnect_state_container::DisconnectState;
 use crate::hdp::state_subcontainers::drill_update_container::DrillUpdateState;
 use crate::hdp::state_subcontainers::preconnect_state_container::PreConnectState;
 use crate::hdp::state_subcontainers::register_state_container::RegisterState;
@@ -45,7 +44,6 @@ use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
 use crate::hdp::peer::peer_layer::PeerConnectionType;
 use hyxe_fs::env::DirectoryStore;
 
-pub type WeakStateContainerBorrow = crate::macros::WeakBorrow<StateContainerInner>;
 define_outer_struct_wrapper!(StateContainer, StateContainerInner);
 
 /// For keeping track of the stages
@@ -56,7 +54,6 @@ pub struct StateContainerInner {
     pub(super) register_state: RegisterState,
     /// No hashmap here, since connect is only for a single target
     pub(super) connect_state: ConnectState,
-    pub(super) disconnect_state: DisconnectState,
     pub(super) drill_update_state: DrillUpdateState,
     pub(super) deregister_state: DeRegisterState,
     pub(super) meta_expiry_state: MetaExpiryState,
@@ -70,8 +67,6 @@ pub struct StateContainerInner {
     pub(super) kernel_tx: UnboundedSender<HdpServerResult>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection>,
     pub(super) provisional_direct_p2p_conns: HashMap<SocketAddr, DirectP2PRemote>,
-    pub(super) cnac: Option<ClientNetworkAccount>,
-    pub(super) this: Option<WeakStateContainerBorrow>,
     pub(crate) keep_alive_timeout_ns: i64
 }
 
@@ -480,10 +475,8 @@ impl GroupReceiverContainer {
 impl StateContainerInner {
     /// Creates a new container
     pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote, keep_alive_timeout_ns: i64) -> StateContainer {
-        let inner = Self { keep_alive_timeout_ns, this: None, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), cnac: None, udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), disconnect_state: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
+        let inner = Self { keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
         let this = StateContainer::from(inner);
-        let weak_borrow = this.as_weak();
-        inner_mut!(this).this = Some(weak_borrow);
         this
     }
 

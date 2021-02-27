@@ -502,7 +502,7 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(peer_cid: u6
     match transfer {
         KemTransferStatus::Some(transfer, ..) => {
             if let Some(mut constructor) = constructor {
-                if let None = constructor.stage1_alice(transfer) {
+                if let None = constructor.stage1_alice(&transfer) {
                     log::error!("Unable to construct hyper ratchet");
                     return Err(()); // return true, otherwise, the session ends
                 }

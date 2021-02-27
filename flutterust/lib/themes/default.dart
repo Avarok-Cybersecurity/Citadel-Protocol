@@ -14,6 +14,8 @@ Color primaryColor() {
   return const Color(0xFF9575CD);
 }
 
+const Color primaryColorValue = Color(0xFF9575CD);
+
 MaterialColor createMaterialColor(Color color) {
   List strengths = <double>[.05];
   Map swatch = <int, Color>{};

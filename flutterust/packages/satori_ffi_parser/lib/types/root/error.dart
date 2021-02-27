@@ -1,4 +1,5 @@
 import 'package:optional/optional.dart';
+import 'package:satori_ffi_parser/parser.dart';
 
 import '../domain_specific_response.dart';
 import '../kernel_response.dart';
@@ -35,12 +36,12 @@ class ErrorKernelResponse extends KernelResponse {
   }
 
   // String ErrorTypeExample = "{\"type\":\"Error\",\"info\":[\"10\",\"User nologik.test is already an active session ...\"]}";
-  static Optional<KernelResponse> tryFrom(List<dynamic> infoNode) {
+  static Optional<KernelResponse> tryFrom(List<dynamic> infoNode, MessageParseMode mapBase64Strings) {
     if (infoNode.length != 2) {
       return Optional.empty();
     } else {
       String id = infoNode[0];
-      String message = infoNode[1];
+      String message = mapBase64(infoNode[1], mapBase64Strings);
       return Optional.of(ErrorKernelResponse(Ticket.tryFrom(id), message));
     }
   }

@@ -8,8 +8,10 @@ import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/screens/login.dart';
 import 'package:flutterust/screens/session/home.dart';
 import 'package:flutterust/utils.dart';
+import 'package:satori_ffi_parser/types/dsr/get_accounts_response.dart';
 import 'package:scrap/scrap.dart';
 
+import 'components/fade_indexed_stack.dart';
 import 'screens/register.dart';
 import 'themes/default.dart';
 
@@ -35,7 +37,8 @@ class RustSubsystem {
       print("Initializing FFI/Rust subsystem ...");
       RustSubsystem.bridge = FFIBridge();
       FFIBridge.setup();
-      await RustSubsystem.bridge.initRustSubsystem(KernelResponseHandler.handleRustKernelRawMessage);
+      await RustSubsystem.bridge
+          .initRustSubsystem(KernelResponseHandler.handleRustKernelRawMessage);
     }
   }
 }
@@ -58,6 +61,7 @@ class MyApp extends StatelessWidget {
 
 class HomePage extends StatefulWidget {
   final String title;
+
   HomePage(this.title, {Key key}) : super(key: key);
 
   @override
@@ -73,24 +77,41 @@ class MyHomePage extends State<HomePage> {
     // TODO: on first run, set to register instead of login screen
     this.curIdx = LoginScreen.IDX;
 
-      AwesomeNotifications().actionStream.listen(
-              (receivedNotification){
-            print("~~~ Received notification route ~~~");
-            /*Navigator.of(context).pushNamed(
+    AwesomeNotifications().actionStream.listen((receivedNotification) {
+      print("~~~ Received notification route ~~~");
+      /*Navigator.of(context).pushNamed(
               '/NotificationPage',
               arguments: { id: receivedNotification.id } // your page params. I recommend to you to pass all *receivedNotification* object
           );*/
-            // TODO: Handle routes for notifications
+      // TODO: Handle routes for notifications
+    });
+  }
 
+  @override
+  void initState() {
+    super.initState();
+    this.onStart();
+  }
+
+  void onStart() async {
+    (await RustSubsystem.bridge.executeCommand("list-accounts"))
+        .ifPresent((kResp) {
+      kResp.getDSR().ifPresent((dsr) {
+        if (dsr is GetAccountsResponse) {
+          print("Found " + dsr.cids.length.toString() + " local accounts");
+          if (dsr.cids.isEmpty) {
+            this.curIdx = RegisterScreen.IDX;
           }
-      );
+        }
+      });
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: IndexedStack(
+      body: FadeIndexedStack(
         children: <Widget>[
           LoginScreen(),
           RegisterScreen(),
@@ -107,17 +128,13 @@ class MyHomePage extends State<HomePage> {
           padding: EdgeInsets.zero,
           children: <Widget>[
             DrawerHeader(
-              child: Text(
-                  'Menu',
-                style: TextStyle(
-                  color: Colors.white
-                )
-              ),
+              child: Text('Menu', style: TextStyle(color: Colors.white)),
               decoration: BoxDecoration(
                 color: primary(),
               ),
             ),
-            ListTile( // login screen
+            ListTile(
+              // login screen
               title: Text(sidebarMenuItems[LoginScreen.IDX]),
               onTap: () {
                 // Update the state of the app

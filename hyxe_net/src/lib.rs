@@ -1,4 +1,4 @@
-#![feature(async_closure, main, try_trait, ip, type_alias_impl_trait, bindings_after_at, panic_any)]
+#![feature(async_closure, main, try_trait, ip, type_alias_impl_trait, bindings_after_at)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
 #![forbid(unsafe_code)]

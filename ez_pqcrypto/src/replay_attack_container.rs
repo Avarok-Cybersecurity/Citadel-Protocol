@@ -26,6 +26,11 @@ pub mod ordered {
             self.in_counter.load(Ordering::Relaxed) != 0
             || self.out_counter.load(Ordering::Relaxed) != 0
         }
+
+        pub fn reset(&self) {
+            self.in_counter.store(0, Ordering::Relaxed);
+            self.out_counter.store(0, Ordering::Relaxed);
+        }
     }
 
     impl Default for AntiReplayAttackContainer {
@@ -94,6 +99,13 @@ pub mod unordered {
         pub fn has_tracked_packets(&self) -> bool {
             (self.counter_out.load(Ordering::Relaxed) != 0)
             || (self.history.lock().0 != 0)
+        }
+
+        pub fn reset(&self) {
+            self.counter_out.store(0, Ordering::Relaxed);
+            let mut lock = self.history.lock();
+            lock.0 = 0;
+            lock.1 = CircularQueue::with_capacity(HISTORY_LEN as usize);
         }
     }
 

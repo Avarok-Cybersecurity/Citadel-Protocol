@@ -71,7 +71,7 @@ mod tests {
         });
 
         // now, start the simulation
-        user0.fcm_send_to(user1.get_cid(), SecBuffer::from("Hello, bob! From alice"), acc_mgr_0.fcm_client()).await.unwrap();
+        user0.blocking_fcm_send_to(user1.get_cid(), SecBuffer::from("Hello, bob! From alice"), acc_mgr_0.fcm_client()).unwrap();
 
         acc_mgr_0.purge();
         acc_mgr_1.purge();
@@ -116,7 +116,7 @@ mod tests {
     fn gen_fcm(cid: u64, version: u32, endpoint_bob_cid: Option<u64>) -> (FcmRatchet, FcmRatchet) {
         let mut alice = FcmRatchetConstructor::new_alice(cid, version);
         let bob = FcmRatchetConstructor::new_bob(alice.stage0_alice()).unwrap();
-        alice.stage1_alice(bob.stage0_bob().unwrap()).unwrap();
+        alice.stage1_alice(&bob.stage0_bob().unwrap()).unwrap();
         let bob = if let Some(cid) = endpoint_bob_cid { bob.finish_with_custom_cid(cid).unwrap() } else { bob.finish().unwrap() };
         (alice.finish().unwrap(), bob)
     }
@@ -124,7 +124,7 @@ mod tests {
     fn gen(cid: u64, version: u32, endpoint_bob_cid: Option<u64>) -> (HyperRatchet, HyperRatchet) {
         let mut alice = HyperRatchetConstructor::new_alice(None, cid, version, None);
         let bob = HyperRatchetConstructor::new_bob(0, cid, version, alice.stage0_alice()).unwrap();
-        alice.stage1_alice(BobToAliceTransferType::Default(bob.stage0_bob().unwrap())).unwrap();
+        alice.stage1_alice(&BobToAliceTransferType::Default(bob.stage0_bob().unwrap())).unwrap();
         let bob = if let Some(cid) = endpoint_bob_cid { bob.finish_with_custom_cid(cid).unwrap() } else { bob.finish().unwrap() };
         (alice.finish().unwrap(), bob)
     }

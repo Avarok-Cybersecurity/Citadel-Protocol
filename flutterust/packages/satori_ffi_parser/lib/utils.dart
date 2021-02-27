@@ -12,7 +12,7 @@ Iterable<List<T>> zip<T>(Iterable<Iterable<T>> iterables) sync* {
 }
 
 /// Maps a list of T's to a list of U's
-List<U> filterMap<T, U>(Iterable<T> list, {Optional<U> transform(T t)}) {
+List<U> typeCastMap<T, U>(Iterable<T> list, {Optional<U> transform(T t)}) {
   if (transform != null) {
     return list.map((t) => transform(t)).where((tOpt) => tOpt.isPresent).map((t) => t.value).toList(growable: false);
   } else {
