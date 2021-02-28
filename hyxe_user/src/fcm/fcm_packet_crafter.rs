@@ -11,11 +11,12 @@ use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransferType;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use crate::fcm::kem::FcmPostRegister;
 
-pub fn craft_group_header<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, message: SecBuffer, alice_to_bob_transfer: Option<AliceToBobTransferType<'_>>) -> Option<RawFcmPacket> {
+pub fn craft_group_header<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u64, message: SecBuffer, alice_to_bob_transfer: Option<AliceToBobTransferType<'_>>) -> Option<RawFcmPacket> {
     let header = FcmHeader {
         session_cid: U64::new(fcm_ratchet.get_cid()),
         target_cid: U64::new(target_cid),
         group_id: U64::new(group_id),
+        ticket: U64::new(ticket),
         object_id: U32::new(object_id),
         ratchet_version: U32::new(fcm_ratchet.version())
     };
@@ -34,11 +35,12 @@ pub fn craft_group_header<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group
     Some(base64_packet(fcm_ratchet, &header, &payload))
 }
 
-pub fn craft_group_header_ack<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, bob_to_alice_transfer: KemTransferStatus) -> RawFcmPacket {
+pub fn craft_group_header_ack<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u64, bob_to_alice_transfer: KemTransferStatus) -> RawFcmPacket {
     let header = FcmHeader {
         session_cid: U64::new(fcm_ratchet.get_cid()),
         target_cid: U64::new(target_cid),
         group_id: U64::new(group_id),
+        ticket: U64::new(ticket),
         object_id: U32::new(object_id),
         ratchet_version: U32::new(fcm_ratchet.version())
     };
@@ -48,11 +50,12 @@ pub fn craft_group_header_ack<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, g
     base64_packet(fcm_ratchet, &header, &payload)
 }
 
-pub fn craft_truncate<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, truncate_vers: u32) -> RawFcmPacket {
+pub fn craft_truncate<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u64, truncate_vers: u32) -> RawFcmPacket {
     let header = FcmHeader {
         session_cid: U64::new(fcm_ratchet.get_cid()),
         target_cid: U64::new(target_cid),
         group_id: U64::new(group_id),
+        ticket: U64::new(ticket),
         object_id: U32::new(object_id),
         ratchet_version: U32::new(fcm_ratchet.version())
     };
@@ -66,7 +69,8 @@ pub fn craft_post_register<R: Ratchet>(base_static_ratchet: &R, ticket: u64, tra
     let header = FcmHeader {
         session_cid: U64::new(base_static_ratchet.get_cid()),
         target_cid: U64::new(0), // required to be 0 b/c we want to use the base ratchet at the endpoints
-        group_id: U64::new(ticket),
+        group_id: U64::new(0),
+        ticket: U64::new(ticket),
         object_id: U32::new(0),
         ratchet_version: U32::new(base_static_ratchet.version())
     };
