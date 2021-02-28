@@ -44,7 +44,7 @@ impl FcmPacket {
     }
 }
 
-pub const FCM_HEADER_BYTES: usize = 36;
+pub const FCM_HEADER_BYTES: usize = std::mem::size_of::<FcmHeader>();
 ///
 #[derive(Debug, AsBytes, FromBytes, Unaligned)]
 #[repr(C)]

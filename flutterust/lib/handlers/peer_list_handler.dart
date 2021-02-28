@@ -25,13 +25,15 @@ class PeerListHandler implements AbstractHandler {
   }
 
   @override
-  void onTicketReceived(KernelResponse kernelResponse) {
+  CallbackStatus onTicketReceived(KernelResponse kernelResponse) {
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.PeerList)) {
       PeerListResponse peerList = kernelResponse.getDSR().value;
       this.sendPort.send(peerList);
     } else {
       print("Invalid DSR type!");
     }
+
+    return CallbackStatus.Complete;
   }
 
 }

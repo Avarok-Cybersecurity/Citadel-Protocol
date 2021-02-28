@@ -21,14 +21,16 @@ class PostRegisterHandler implements AbstractHandler {
   }
 
   @override
-  void onTicketReceived(KernelResponse kernelResponse) {
+  CallbackStatus onTicketReceived(KernelResponse kernelResponse) {
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.PostRegisterResponse)) {
       PostRegisterResponse resp = kernelResponse.getDSR().value;
       print(this.peerCid.toString() + " accepted? " + resp.accept.toString());
       String message = resp.accept ? resp.username + " accepted your request" : this.peerCid.toString() + " did not consent to registering at this time";
       Utils.pushNotification("Register request " + this.peerCid.toString(), message);
+      return CallbackStatus.Complete;
     } else {
-      print("Invalid DSR type!");
+      print("[Post-register] DSR type not yet what's required ...");
+      return CallbackStatus.Pending;
     }
   }
 

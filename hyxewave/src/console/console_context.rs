@@ -217,19 +217,11 @@ impl ConsoleContext {
     pub fn user_is_connected(&self, cid: Option<u64>, username: Option<&str>) -> bool {
         let write = self.sessions.read();
         if let Some(cid) = cid {
-            for session in write.values() {
-                if session.cid == cid {
-                    return true;
-                }
-            }
+            return write.values().any(|v| v.cid == cid);
         }
 
         if let Some(username) = username {
-            for session in write.values() {
-                if session.username == username {
-                    return true;
-                }
-            }
+            return write.values().any(|v| v.username == username)
         }
 
         false

@@ -21,7 +21,7 @@ class LoginHandler implements AbstractHandler {
   }
 
   @override
-  void onTicketReceived(KernelResponse kernelResponse) {
+  CallbackStatus onTicketReceived(KernelResponse kernelResponse) {
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.Connect)) {
       ConnectResponse resp = kernelResponse.getDSR().value;
       if (resp.success) {
@@ -35,6 +35,8 @@ class LoginHandler implements AbstractHandler {
     } else {
       print("Invalid DSR type!");
     }
+
+    return CallbackStatus.Complete;
   }
 
   @override

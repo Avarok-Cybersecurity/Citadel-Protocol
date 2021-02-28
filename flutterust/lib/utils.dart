@@ -5,6 +5,7 @@ import 'package:dns/dns.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/themes/default.dart';
 import 'package:optional/optional.dart';
@@ -83,7 +84,7 @@ class Utils {
     );
   }
 
-  static const NOTIFICATION_CHANNEL = "basic_channel";
+  static const NOTIFICATION_CHANNEL = "primary_channel";
 
   // On android, Java automatically sets up the notification subsystem
   static void initNotificationSubsystem() {
@@ -109,11 +110,13 @@ class Utils {
       });
   }
 
+  static int idx = 0;
+
   // TODO: Handle ID for routing notification
-  static void pushNotification(String title, String message) {
+  static void pushNotification(String title, String message, { int id }) {
       AwesomeNotifications().createNotification(
           content: NotificationContent(
-              id: 10,
+              id: id != null ? id : idx++,
               channelKey: NOTIFICATION_CHANNEL,
               title: title,
               body: message
@@ -124,6 +127,7 @@ class Utils {
 
   static FirebaseMessaging firebase = FirebaseMessaging.instance;
   static String nodeClientToken = "";
+  static const String apiKey = "AAAAsdc2buM:APA91bFGIgSp9drZGpM6rsTVWD_4A28QZVjBG9ty0ijwXn0k-peMNiivzCuSzojR7ESN13txcD7pZMyYJC_LPdjRk56EdXnUfIYDgVVbTN8VmWiVd82uJv2kEgcoGL-Flh1HXWZlVSf8";
 
   static Future<void> configureFCM() async {
     await Firebase.initializeApp();
@@ -139,7 +143,8 @@ class Utils {
   }
 
   static Future<dynamic> onFcmMessageReceived(RemoteMessage message) async {
-    String json = message.data.toString();
+    String json = message.data["inner"];
+
     print("[FCM] Received FCM message! " + json);
       pushNotification("Received a FCM message", json);
       if (RustSubsystem.bridge == null) {
@@ -150,7 +155,8 @@ class Utils {
 
       print("[FCM] awaiting kernel response ...");
       Optional<KernelResponse> kResp = await RustSubsystem.bridge.handleFcmMessage(json);
-      print("[FCM] response received. Is valid?" + kResp.isPresent.toString());
+      print("[FCM] response received. Is valid? " + kResp.isPresent.toString());
+      kResp.ifPresent(KernelResponseHandler.handleRustKernelMessage);
     // Or do other work.
   }
 }
