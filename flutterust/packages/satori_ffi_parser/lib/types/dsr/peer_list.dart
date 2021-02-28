@@ -28,6 +28,11 @@ class PeerListResponse extends DomainSpecificResponse {
     return DomainSpecificResponseType.PeerList;
   }
 
+  @override
+  bool isFcm() {
+    return false;
+  }
+
   /*
     pub struct PeerList {
     #[serde(serialize_with = "string_vec")]

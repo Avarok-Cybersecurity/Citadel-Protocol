@@ -30,6 +30,11 @@ class GetAccountsResponse extends DomainSpecificResponse {
     return DomainSpecificResponseType.GetAccounts;
   }
 
+  @override
+  bool isFcm() {
+    return false;
+  }
+
   static Optional<DomainSpecificResponse> tryFrom(Map<String, dynamic> infoNode) {
     try {
       List<u64> cids = typeCastMap(infoNode["cids"], transform: u64.tryFrom);

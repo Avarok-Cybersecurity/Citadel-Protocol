@@ -53,6 +53,7 @@ pub struct FcmHeader {
     pub session_cid: U64<BigEndian>,
     pub target_cid: U64<BigEndian>,
     pub group_id: U64<BigEndian>,
+    pub ticket: U64<BigEndian>,
     pub object_id: U32<BigEndian>,
     pub ratchet_version: U32<BigEndian>
 }
@@ -62,6 +63,7 @@ impl FcmHeader {
         packet.put_u64(self.session_cid.get());
         packet.put_u64(self.target_cid.get());
         packet.put_u64(self.group_id.get());
+        packet.put_u64(self.ticket.get());
         packet.put_u32(self.object_id.get());
         packet.put_u32(self.ratchet_version.get());
     }
@@ -74,16 +76,16 @@ impl FcmHeader {
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct FcmTicket {
     #[serde(with = "string")]
-    cid: u64,
+    source_cid: u64,
     #[serde(with = "string")]
     target_cid: u64,
     #[serde(with = "string")]
-    object_id: u32
+    ticket: u64
 }
 
 impl FcmTicket {
-    pub fn new(cid: u64, target_cid: u64, object_id: u32) -> Self {
-        Self { cid, target_cid, object_id }
+    pub fn new(source_cid: u64, target_cid: u64, ticket: u64) -> Self {
+        Self { source_cid, target_cid, ticket }
     }
 }
 

@@ -691,22 +691,22 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// sends, blocking on an independent single-threaded executor
-    pub fn blocking_fcm_send_to(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>) -> Result<FcmProcessorResult, AccountError> {
+    pub fn blocking_fcm_send_to(&self, target_peer_cid: u64, message: SecBuffer, ticket: u64, client: &Arc<Client>) -> Result<FcmProcessorResult, AccountError> {
         let this = self.clone();
         let client = client.clone();
         block_on_async(move || async move {
-            this.fcm_send_message_to(target_peer_cid, message, &client).await
+            this.fcm_send_message_to(target_peer_cid, message, ticket, &client).await
         })?
     }
 
     /// Sends the request to the FCM server, returns the ticket for the request
-    pub async fn fcm_send_message_to(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>) -> Result<FcmProcessorResult, AccountError> {
-        let (ticket, fcm_instance, packet) = self.prepare_fcm_send_message(target_peer_cid, message, client)?;
+    pub async fn fcm_send_message_to(&self, target_peer_cid: u64, message: SecBuffer, ticket: u64, client: &Arc<Client>) -> Result<FcmProcessorResult, AccountError> {
+        let (ticket, fcm_instance, packet) = self.prepare_fcm_send_message(target_peer_cid, message, ticket, client)?;
         fcm_instance.send_to_fcm_user(packet).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }))
     }
 
     /// Prepares the requires abstractions needed to send data
-    fn prepare_fcm_send_message(&self, target_peer_cid: u64, message: SecBuffer, client: &Arc<Client>) -> Result<(FcmTicket, FCMInstance, RawFcmPacket), AccountError> {
+    fn prepare_fcm_send_message(&self, target_peer_cid: u64, message: SecBuffer, ticket_id: u64, client: &Arc<Client>) -> Result<(FcmTicket, FCMInstance, RawFcmPacket), AccountError> {
         let mut write = self.write();
         let ClientNetworkAccountInner::<R, Fcm> {
             fcm_crypt_container,
@@ -724,16 +724,16 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let object_id = crypt_container.get_and_increment_object_id();
         let group_id = crypt_container.get_and_increment_group_id();
 
-        let ticket = FcmTicket::new(*cid, target_peer_cid, object_id);
+        let ticket = FcmTicket::new(*cid, target_peer_cid, ticket_id);
 
         let constructor = crypt_container.get_next_constructor(None);
         let transfer = constructor.as_ref().map(|con| con.stage0_alice());
-        let packet = crate::fcm::fcm_packet_crafter::craft_group_header(ratchet, object_id, group_id, target_peer_cid, message, transfer).ok_or(AccountError::Generic("Report to developers (x-77)".to_string()))?;
+        let packet = crate::fcm::fcm_packet_crafter::craft_group_header(ratchet, object_id, group_id, target_peer_cid, ticket_id, message, transfer).ok_or(AccountError::Generic("Report to developers (x-77)".to_string()))?;
 
         // store constructor if required (may not be required if an update is already in progress)
         if let Some(constructor) = constructor {
             if kem_state_containers.insert(target_peer_cid, ConstructorType::Fcm(constructor)).is_some() {
-                log::error!("[FCM] overwrote pre-existing KEM constructor. Please report to developers")
+                log::warn!("[FCM] overwrote pre-existing KEM constructor. Please report to developers")
             }
         }
 

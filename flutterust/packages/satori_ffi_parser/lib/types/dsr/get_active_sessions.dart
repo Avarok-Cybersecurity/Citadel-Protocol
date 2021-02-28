@@ -33,6 +33,11 @@ class GetSessionsResponse extends DomainSpecificResponse {
     return DomainSpecificResponseType.GetActiveSessions;
   }
 
+  @override
+  bool isFcm() {
+    return false;
+  }
+
   // String DSRlistSessions = "{\"type\":\"DomainSpecificResponse\",\"info\":{\"dtype\":\"GetActiveSessions\",\"usernames\":[\"nologik.test4\", \"nologik.test5\"],\"cids\":[\"2865279926\", \"123456789\"],\"endpoints\":[\"51.81.35.200:25000\", \"51.81.35.201:25001\"],\"is_personals\":[true, false],\"runtime_sec\":[\"8\", \"1000\"]}}";
   static Optional<DomainSpecificResponse> tryFrom(Map<String, dynamic> infoNode) {
     try {

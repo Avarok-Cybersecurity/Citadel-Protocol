@@ -3,8 +3,8 @@ import 'dart:isolate';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutterust/components/custom_tab_view.dart';
+import 'package:flutterust/database_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/screens/session/session_view.dart';
 import 'package:quiver/iterables.dart';
@@ -56,16 +56,17 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
   }
 
   /// handles either Connect or Disconnect dsr types, or, message types
-  void handle(DomainSpecificResponse dsr) {
+  void handle(DomainSpecificResponse dsr) async {
     print("[SessionHomeScreen] recv'd dsr " + dsr.getType().toString());
       switch (dsr.getType()) {
         case DomainSpecificResponseType.Connect:
           ConnectResponse conn = dsr;
           print("Adding session to sessions list for " + conn.implicated_cid.toString());
-          final String username = conn.getAttachedUsername().orElse("UNATTACHED USERNAME");
-          tabs.add(username);
+          //final String username = conn.getAttachedUsername().orElse("UNATTACHED USERNAME");
+          var cnac = (await ClientNetworkAccount.getCnacByCid(conn.implicated_cid)).value;
+          tabs.add(cnac.username);
 
-          sessionViews.add(SessionView(conn.implicated_cid, username, widget.key));
+          sessionViews.add(SessionView(cnac, widget.key));
 
           print("Len: " + tabs.length.toString() + ", len: " + sessionViews.length.toString());
           break;
@@ -75,13 +76,14 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
           if (resp.cids.length != 0) {
             List<List<Object>> vals = zip(([resp.cids, resp.usernames])).where((data) {
               u64 cid = data[0];
-              return this.sessionViews.indexWhere((widget) => (widget as SessionView).cid == cid) == -1;
+              return this.sessionViews.indexWhere((widget) => (widget as SessionView).cnac.implicatedCid == cid) == -1;
             }).toList(growable: false);
 
             print("Found " + vals.length.toString() + " sessions unaccounted for in the GUI");
-            vals.forEach((element) {
+            vals.forEach((element) async {
               tabs.add(element[1]);
-              sessionViews.add(SessionView(element[0], element[1], widget.key));
+              var cnac = await ClientNetworkAccount.getCnacByCid(element[0]);
+              sessionViews.add(SessionView(cnac.value, widget.key));
             });
 
             print("Len: " + tabs.length.toString() + ", len: " + sessionViews.length.toString());

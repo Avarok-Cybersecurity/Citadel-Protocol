@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
@@ -8,10 +6,12 @@ import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/screens/login.dart';
 import 'package:flutterust/screens/session/home.dart';
 import 'package:flutterust/utils.dart';
+import 'package:quiver/iterables.dart';
 import 'package:satori_ffi_parser/types/dsr/get_accounts_response.dart';
 import 'package:scrap/scrap.dart';
-
+import 'package:satori_ffi_parser/types/u64.dart';
 import 'components/fade_indexed_stack.dart';
+import 'database_handler.dart';
 import 'screens/register.dart';
 import 'themes/default.dart';
 
@@ -96,11 +96,16 @@ class MyHomePage extends State<HomePage> {
   void onStart() async {
     (await RustSubsystem.bridge.executeCommand("list-accounts"))
         .ifPresent((kResp) {
-      kResp.getDSR().ifPresent((dsr) {
+      kResp.getDSR().ifPresent((dsr) async {
         if (dsr is GetAccountsResponse) {
           print("Found " + dsr.cids.length.toString() + " local accounts");
           if (dsr.cids.isEmpty) {
             this.curIdx = RegisterScreen.IDX;
+          } else {
+            await DatabaseHandler.clearDatabase();
+            DatabaseHandler.insertClients(zip([dsr.cids, dsr.usernames, dsr.full_names, dsr.is_personals, dsr.creation_dates]).map((e) => ClientNetworkAccount(e[0], e[1], e[2], e[3], e[4])).toList(growable: false));
+            var username = await ClientNetworkAccount.getCnacByCid(u64.tryFrom("10810377489972841717").value);
+            print("username of cid: " + username.toString());
           }
         }
       });

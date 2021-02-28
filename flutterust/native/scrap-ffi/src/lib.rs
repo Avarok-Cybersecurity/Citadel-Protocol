@@ -72,7 +72,7 @@ pub unsafe extern "C" fn background_processor(
         log::info!(
             "FFI_STATIC exists, therefore, will route packet from BG to primary processor ..."
         );
-        return kernel_response_into_raw(&*("peer fcm-parse ".to_string() + packet));
+        return kernel_response_into_raw(&*("fcm-process ".to_string() + packet));
     }
 
     let mut lock = BACKGROUND_PROCESSOR_INSTANCE.lock();

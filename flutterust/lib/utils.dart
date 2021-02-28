@@ -156,6 +156,7 @@ class Utils {
       print("[FCM] awaiting kernel response ...");
       Optional<KernelResponse> kResp = await RustSubsystem.bridge.handleFcmMessage(json);
       print("[FCM] response received. Is valid? " + kResp.isPresent.toString());
+      // Here, we delegate the response to the default handler
       kResp.ifPresent(KernelResponseHandler.handleRustKernelMessage);
     // Or do other work.
   }

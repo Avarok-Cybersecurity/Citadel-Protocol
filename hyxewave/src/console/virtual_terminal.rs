@@ -202,6 +202,7 @@ pub mod clap_commands {
         subcommands.push(setup_disconnect_command());
         subcommands.push(setup_deregister_command());
         subcommands.push(setup_clear_command());
+        subcommands.push(setup_fcm_process());
         subcommands.push(setup_peer_command());
         subcommands.push(setup_group_command());
         subcommands
@@ -270,6 +271,11 @@ pub mod clap_commands {
             .arg(Arg::with_name("command").required(false).takes_value(true).multiple(true).help("An optional command to run after switching to a new CID (runs with new context CID)"))
     }
 
+    fn setup_fcm_process() -> App<'static, 'static> {
+        SubCommand::with_name("fcm-process").about("parses an JSON string, returning the decrypted result. Only input the 'inner' value in the raw json packet, without quotations")
+            .arg(Arg::with_name("input").required(true).takes_value(true).multiple(true))
+    }
+
     fn setup_peer_command() -> App<'static, 'static> {
         SubCommand::with_name("peer")
             .subcommand(SubCommand::with_name("list").about("Fetch the set of peers that exist on the client network account's HyperLAN"))
@@ -297,8 +303,6 @@ pub mod clap_commands {
                 .arg(Arg::with_name("message").required(true).takes_value(true).multiple(true))
                 .arg(Arg::with_name("security").long("security").short("s").required(false).takes_value(true).default_value("0").help("Sets the security level for the transmission. 0 is low, 4 is divine"))
                 .arg(Arg::with_name("fcm").required(false).takes_value(false).long("fcm").help("Sends to the target using FCM at the HyperLAN Server")))
-            .subcommand(SubCommand::with_name("fcm-parse").about("parses an JSON string, returning the decrypted result")
-                .arg(Arg::with_name("input").required(true).takes_value(true).multiple(true)))
             .subcommand(SubCommand::with_name("transfer").about("Send a target file to a target peer")
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true))
                 .arg(Arg::with_name("file_path").required(true).takes_value(true).multiple(true))
@@ -490,6 +494,10 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
 
     if let Some(matches) = matches.subcommand_matches("peer") {
         return crate::command_handlers::peer::handle(matches, server_remote, ctx, ffi_io);
+    }
+
+    if let Some(matches) = matches.subcommand_matches("fcm-process") {
+        return crate::command_handlers::fcm_process::handle(matches, ctx)
     }
 
     if let Some(matches) = matches.subcommand_matches("group") {

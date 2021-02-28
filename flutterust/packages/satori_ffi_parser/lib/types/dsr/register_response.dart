@@ -25,6 +25,11 @@ class RegisterResponse extends DomainSpecificResponse {
     return DomainSpecificResponseType.Register;
   }
 
+  @override
+  bool isFcm() {
+    return false;
+  }
+
   static Optional<DomainSpecificResponse> tryFrom(Map<String, dynamic> infoNode) {
     //String DSRRegisterTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Register\",\"Failure\":[2,\"Invalid username\"]}}";
     bool success = infoNode.containsKey("Success");
