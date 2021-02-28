@@ -112,7 +112,7 @@ class SessionViewInner extends State<SessionView> {
 
   void listPeers() async {
     print("Listing peers ...");
-    String cmd = "switch " + widget.username + " --cmd peer list";
+    String cmd = "switch " + widget.username + " peer list";
     (await RustSubsystem.bridge.executeCommand(cmd)).ifPresent((kResp) =>
         KernelResponseHandler.handleFirstCommand(kResp,
             handler: PeerListHandler(context, widget.sendPort)));

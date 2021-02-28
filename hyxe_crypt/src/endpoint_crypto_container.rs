@@ -129,6 +129,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     }
 }
 
+// TODO: Use GAT's to have a type AliceToBobConstructor<'a>. Get rid of these enums
 pub trait EndpointRatchetConstructor<R: Ratchet>: Send + Sync + 'static {
     fn new_alice(algorithm: Option<u8>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self where Self: Sized;
     fn new_bob(algorithm: u8, cid: u64, new_drill_vers: u32, transfer: AliceToBobTransferType<'_>) -> Option<Self> where Self: Sized;

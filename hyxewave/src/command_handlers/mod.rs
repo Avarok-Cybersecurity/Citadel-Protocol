@@ -29,6 +29,16 @@ mod imports {
     pub use serde::Serialize;
     pub use crate::ffi::ser::{string, string_vec};
     pub use super::super::console::virtual_terminal::INPUT_ROUTER;
+    use hyxe_user::account_manager::AccountManager;
+
+    pub fn get_cid_from_str(acc_mgr: &AccountManager, input: &str) -> Result<ClientNetworkAccount, ConsoleError> {
+        let is_numeric = input.chars().all(|c| char::is_numeric(c));
+        if is_numeric {
+            acc_mgr.get_client_by_cid(u64::from_str(input).map_err(|err| ConsoleError::Generic(err.to_string()))?).ok_or(ConsoleError::Default("Username does not map to a local client"))
+        } else {
+            acc_mgr.get_client_by_username(input).ok_or(ConsoleError::Default("Username does not map to a local client"))
+        }
+    }
 
     pub fn get_peer_cid_from_cnac(cnac: &ClientNetworkAccount, target_cid: &str) -> Result<u64, ConsoleError> {
         let ctx_user = cnac.get_id();

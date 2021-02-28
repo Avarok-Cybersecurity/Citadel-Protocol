@@ -140,9 +140,8 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
         if let Some(matches) = matches.subcommand_matches("fcm-parse") {
             let json_input: String = matches.values_of("input").unwrap().collect::<Vec<&str>>().join(" ");
-            log::info!("[FCM] json input: {}", &json_input);
             let res = hyxe_user::fcm::fcm_packet_processor::blocking_process(json_input, &ctx.account_manager);
-            log::info!("[FCM] Done parsing json");
+            log::info!("[FCM] Done handling json");
             return Ok(Some(res.into()))
         }
 

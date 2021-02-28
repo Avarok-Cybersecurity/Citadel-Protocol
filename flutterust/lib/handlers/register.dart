@@ -27,8 +27,8 @@ class RegisterHandler implements AbstractHandler {
   }
 
   @override
-  void onTicketReceived(KernelResponse kernelResponse) async {
-    await EasyLoading.dismiss();
+  CallbackStatus onTicketReceived(KernelResponse kernelResponse) {
+    EasyLoading.dismiss();
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.Register)) {
       RegisterResponse resp = kernelResponse.getDSR().value;
       if (resp.success) {
@@ -40,6 +40,8 @@ class RegisterHandler implements AbstractHandler {
     } else {
       print("Invalid DSR type!");
     }
+
+    return CallbackStatus.Complete;
   }
 
 }

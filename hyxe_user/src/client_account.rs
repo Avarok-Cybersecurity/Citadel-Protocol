@@ -647,9 +647,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         // remove regardless
         let invite = write.fcm_invitations.remove(&peer_cid).ok_or(AccountError::Generic("Invitation for client does not exist, or, expired".to_string()))?;
 
-        if write.fcm_crypt_container.contains_key(&peer_cid) {
+        /*if write.fcm_crypt_container.contains_key(&peer_cid) {
             return Err(AccountError::ClientExists(peer_cid))
-        }
+        }*/
 
         match invite {
             InvitationType::PostRegister(FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys, ..), username, ticket) => {
@@ -663,6 +663,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
                     write.fcm_crypt_container.insert(peer_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, fcm_keys));
                     write.mutuals.insert(HYPERLAN_IDX, MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(username) });
+                    std::mem::drop(write);
+                    self.clone().spawn_save_task_on_threadpool();
                     Ok((fcm_post_register, ticket))
                 } else {
                     Ok((FcmPostRegister::Disable, ticket))

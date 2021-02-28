@@ -35,3 +35,9 @@ abstract class KernelResponse {
     return this._oneshot;
   }
 }
+
+/// A callback that returns complete will not be triggered again. A callback that returns Pending is not yet complete, and should not be removed from any registrars
+enum CallbackStatus {
+  Complete,
+  Pending
+}

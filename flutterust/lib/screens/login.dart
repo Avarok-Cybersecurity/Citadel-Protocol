@@ -121,7 +121,7 @@ class _LoginScreen extends State<LoginScreen> {
         " -s " + levels.indexOf(this.securityLevel).toString() +
         " --password " + this.passwordController.text +
         " --ffi" +
-        " --fcm-api-key " + Utils.firebase.app.options.apiKey +
+        " --fcm-api-key " + Utils.apiKey +
         " --fcm-token " + Utils.nodeClientToken;
 
     print("Executing: " + cmd);

@@ -55,7 +55,13 @@ class KernelResponseHandler {
         print("Pre-existing entry for " + message.getTicket().value.toString() + " found, will maybe trigger callback");
         var callback = entry.getCallbackAction();
         if (callback.isPresent) {
-          callback.value(message);
+          switch (callback.value(message)) {
+            case CallbackStatus.Complete:
+              pendingTickets.remove(message.getTicket().value);
+              break;
+
+            default:
+          }
         } else {
           print("No callback registered");
         }
@@ -83,6 +89,10 @@ class KernelResponseHandler {
     if (message.getType() == KernelResponseType.NodeMessage) {
       print("Message received, but no callback action yet");
     }
+
+    if (message is ErrorKernelResponse) {
+      print("Error: " + message.message);
+    }
   }
 
   static void handleDSR(DomainSpecificResponse dsr) {
@@ -103,8 +113,9 @@ class DefaultHandler implements AbstractHandler {
   const DefaultHandler();
 
   @override
-  void onTicketReceived(KernelResponse kernelResponse) {
+  CallbackStatus onTicketReceived(KernelResponse kernelResponse) {
     print("Default handler triggered: " + kernelResponse.getType().toString() + " [ticket: " + kernelResponse.getTicket().toString() + "]");
+    return CallbackStatus.Complete;
   }
 
   @override

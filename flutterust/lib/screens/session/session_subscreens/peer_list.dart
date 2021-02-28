@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutterust/handlers/kernel_response_handler.dart';
+import 'package:flutterust/handlers/login.dart';
+import 'package:flutterust/handlers/peer_list_handler.dart';
+import 'package:flutterust/handlers/post_register_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/themes/default.dart';
 import 'package:optional/optional.dart';
@@ -140,8 +144,8 @@ class PeerListView extends StatelessWidget {
 
   void onAddPressed(u64 cid) async {
     print("About to peer post-register to " + cid.toString());
-    (await RustSubsystem.bridge.executeCommand("switch " + this.ctxCid.toString() + " --cmd peer post-register " + cid.toString() + " --fcm"))
-    .// .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: LoginHandler(port, this.usernameController.text)))
+    (await RustSubsystem.bridge.executeCommand("switch " + this.ctxCid.toString() + " peer post-register --fcm " + cid.toString()))
+    .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: PostRegisterHandler(cid)));
   }
 
   @override

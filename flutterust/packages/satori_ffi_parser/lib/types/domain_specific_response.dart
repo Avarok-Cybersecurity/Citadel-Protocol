@@ -59,4 +59,4 @@ abstract class DomainSpecificResponse {
   }
 }
 
-typedef void Callback(KernelResponse kernelResponse);
+typedef CallbackStatus Callback(KernelResponse kernelResponse);
