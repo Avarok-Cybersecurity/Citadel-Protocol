@@ -240,7 +240,7 @@ pub mod clap_commands {
     }
 
     fn setup_waitfor_command() -> App<'static, 'static> {
-        SubCommand::with_name("waitfor")
+        SubCommand::with_name("waitfor").setting(AppSettings::TrailingVarArg)
             .arg(Arg::with_name("timeout").display_order(1).long("timeout").short("t").required(false).takes_value(true).default_value("10000").help("Specifies the timeout (millis) for the action. 0 implies infinite"))
             .arg(Arg::with_name("command").required(true).takes_value(true).display_order(2).multiple(true))
     }
@@ -265,9 +265,9 @@ pub mod clap_commands {
     }
 
     fn setup_switch_command() -> App<'static, 'static> {
-        SubCommand::with_name("switch").help("Switches the focused session to the desired username. Enables the use of the send and peer commands")
+        SubCommand::with_name("switch").setting(AppSettings::TrailingVarArg).help("Switches the focused session to the desired username. Enables the use of the send and peer commands")
             .arg(Arg::with_name("session").takes_value(true).required(true).help("Session username"))
-            .arg(Arg::with_name("command").long("cmd").required(false).takes_value(true).multiple(true).help("An optional command to run after switching to a new CID (runs with new context CID)"))
+            .arg(Arg::with_name("command").required(false).takes_value(true).multiple(true).help("An optional command to run after switching to a new CID (runs with new context CID)"))
     }
 
     fn setup_peer_command() -> App<'static, 'static> {
@@ -290,7 +290,7 @@ pub mod clap_commands {
                 .arg(Arg::with_name("mail_id").required(true).help("Mail item ID")))
             .subcommand(SubCommand::with_name("mail").about("Checks the mail (connection/registration consent requests, events, etc)")
                 .arg(Arg::with_name("mail_cmd").required(true).possible_values(&["print", "clear"])))
-            .subcommand(SubCommand::with_name("deregister").about("Deregistered a target client from the context user")
+            .subcommand(SubCommand::with_name("deregister").about("Deregister a target client from the context user")
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true)))
             .subcommand(SubCommand::with_name("send").about("Sends a message to a target peer using the context user")
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true))

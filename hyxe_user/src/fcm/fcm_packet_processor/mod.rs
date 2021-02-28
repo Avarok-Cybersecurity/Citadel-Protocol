@@ -15,9 +15,10 @@ pub(crate) mod group_header_ack;
 pub(crate) mod truncate;
 pub(crate) mod peer_post_register;
 
-pub fn blocking_process<T: AsRef<[u8]>>(raw_base64_json: T, account_manager: &AccountManager) -> FcmProcessorResult {
+/// If the raw packet was: {"inner": "ABCDEF"}, then, the input here should be simply ABCDEF without quotations.
+pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &AccountManager) -> FcmProcessorResult {
     log::info!("A0");
-    let raw_packet = RawFcmPacket::deserialize_from_vector(raw_base64_json.as_ref()).map_err(|err| AccountError::IoError(err.to_string()))?;
+    let raw_packet = RawFcmPacket::from(base64_value);
     log::info!("A1");
     let packet = FcmPacket::from_raw_fcm_packet(&raw_packet)?;
     log::info!("A2");
@@ -32,59 +33,60 @@ pub fn blocking_process<T: AsRef<[u8]>>(raw_base64_json: T, account_manager: &Ac
     let (header, mut payload) = packet.split();
     let fcm_client = account_manager.fcm_client();
 
-    let (res, do_save) = account_manager.visit_cnac(local_cid, |cnac| {
-        cnac.visit_mut(|mut inner| {
-            // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other
-            let ClientNetworkAccountInner {
-                fcm_crypt_container,
-                kem_state_containers,
-                crypt_container,
-                fcm_invitations,
-                ..
-            } = &mut *inner;
+    let cnac = account_manager.get_client_by_cid(local_cid).ok_or(AccountError::<String>::ClientNonExists(local_cid))?;
+    let (res, do_save) = cnac.visit_mut(|mut inner| -> Result<(FcmProcessorResult, bool), AccountError> {
+        // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other
+        let ClientNetworkAccountInner {
+            fcm_crypt_container,
+            kem_state_containers,
+            crypt_container,
+            fcm_invitations,
+            ..
+        } = &mut *inner;
 
-            log::info!("A3");
+        log::info!("A3");
 
-            let res = if use_client_server_ratchet {
-                log::info!("A4-CS");
-                let ratchet = crypt_container.get_hyper_ratchet(Some(ratchet_version))?.clone();
-                log::info!("A5");
-                ratchet.validate_message_packet(None, &header, &mut payload).ok()?;
-                log::info!("[FCM] Successfully validated packet. Parsing payload ...");
-                let payload = FCMPayloadType::deserialize_from_vector(&payload).ok()?;
-                let ticket = group_id; // for c2s conns, the group id is used for the ticket id
+        let res = if use_client_server_ratchet {
+            log::info!("A4-CS");
+            let ratchet = crypt_container.toolset.get_static_auxiliary_ratchet();
+            log::info!("A5");
+            ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
+            log::info!("[FCM] Successfully validated packet. Parsing payload ...");
+            let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
+            let ticket = group_id; // for c2s conns, the group id is used for the ticket id
+            log::info!("A6");
 
-                match payload {
-                    FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(fcm_invitations, local_cid, ticket, transfer, username),
-                    _ => {
-                        log::warn!("[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
-                        FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
-                    }
+            match payload {
+                FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(fcm_invitations, local_cid, ticket, transfer, username),
+                _ => {
+                    log::warn!("[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
+                    FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
                 }
-            } else {
-                let crypt_container = fcm_crypt_container.get_mut(&implicated_cid)?;
-                log::info!("A4-E2E");
-                let ratchet = crypt_container.get_hyper_ratchet(Some(ratchet_version))?.clone();
-                log::info!("A5");
-                ratchet.validate_message_packet(None, &header, &mut payload).ok()?;
-                log::info!("[FCM] Successfully validated packet. Parsing payload ...");
-                let payload = FCMPayloadType::deserialize_from_vector(&payload).ok()?;
+            }
+        } else {
+            let crypt_container = fcm_crypt_container.get_mut(&implicated_cid).ok_or_else(|| AccountError::Generic("FCM Peer session crypto nonexistant".to_string()))?;
+            log::info!("A4-E2E");
+            let ratchet = crypt_container.get_hyper_ratchet(Some(ratchet_version)).cloned().ok_or_else(|| AccountError::Generic("FCM Ratchet version not found".to_string()))?;
+            log::info!("A5");
+            ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
+            log::info!("[FCM] Successfully validated packet. Parsing payload ...");
+            let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
 
-                match payload {
-                    FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet,FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
-                    FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(fcm_client, crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer),
-                    FCMPayloadType::Truncate { truncate_vers } => truncate::process(crypt_container,  truncate_vers),
-                    FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
-                }
-            };
+            match payload {
+                FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet,FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
+                FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(fcm_client, crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer),
+                FCMPayloadType::Truncate { truncate_vers } => truncate::process(crypt_container,  truncate_vers),
+                FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
+            }
+        };
 
-            let do_save = res.implies_save_needed();
+        let do_save = res.implies_save_needed();
 
-            Some((res, do_save.then(|| cnac.clone())))
-        })
-    }).ok_or::<AccountError>(AccountError::ClientNonExists(local_cid))?;
+        Ok((res, do_save))
+    })?;
 
-    if let Some(cnac) = do_save {
+
+    if do_save {
         cnac.blocking_save_to_local_fs()?;
     }
 
