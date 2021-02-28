@@ -12,9 +12,9 @@ class PostRegisterRequest extends DomainSpecificResponse {
   final u64 peerCid;
   final u64 implicatedCid;
   final Ticket ticket;
-  final bool isFcm;
+  final bool isFcmType;
 
-  PostRegisterRequest._(this.mid, this.username, this.implicatedCid, this.peerCid, this.ticket, this.isFcm);
+  PostRegisterRequest._(this.mid, this.username, this.implicatedCid, this.peerCid, this.ticket, this.isFcmType);
 
   @override
   Optional<String> getMessage() {
@@ -31,9 +31,10 @@ class PostRegisterRequest extends DomainSpecificResponse {
     return DomainSpecificResponseType.PostRegisterRequest;
   }
 
-  /// If no ticket is specified, then the invitation is implied to be of FCM type
-  bool isFCM() {
-    return this.isFcm;
+
+  @override
+  bool isFcm() {
+    return this.isFcmType;
   }
 
   /*

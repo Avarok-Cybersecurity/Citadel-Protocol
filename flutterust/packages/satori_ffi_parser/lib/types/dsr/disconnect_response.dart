@@ -30,6 +30,11 @@ class DisconnectResponse extends DomainSpecificResponse {
     return DomainSpecificResponseType.Disconnect;
   }
 
+  @override
+  bool isFcm() {
+    return false;
+  }
+
   /*
     HyperLANPeerToHyperLANServer(#[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64),
     HyperLANPeerToHyperLANPeer(#[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64)

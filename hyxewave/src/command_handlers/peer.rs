@@ -124,11 +124,8 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
             return if matches.is_present("fcm") {
                 let fcm_client = ctx.account_manager.fcm_client();
-                //let callback = ffi_io.map(|ffi_io| fcm_callback(ffi_io)).unwrap_or_else(fcm_console_callback);
-
-                //let ticket = cnac.background_fcm_send_message_to(target_cid, buf, fcm_client, callback).map_err(|err| ConsoleError::Generic(err.into_string()))?;
-                //Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Fcm(FcmResponse::MessageSent(ticket)))))
-                let fcm_res = cnac.blocking_fcm_send_to(target_cid, buf, fcm_client).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let ticket = server_remote.get_next_ticket().0;
+                let fcm_res = cnac.blocking_fcm_send_to(target_cid, buf, ticket, fcm_client).map_err(|err| ConsoleError::Generic(err.into_string()))?;
                 Ok(Some(KernelResponse::from(fcm_res)))
             } else {
                 // now, use the console context to send the message
@@ -136,13 +133,6 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                 printf_ln!(colour::white!("Message sent through peer channel w/ {:?} security\n", security_level));
                 Ok(None)
             }
-        }
-
-        if let Some(matches) = matches.subcommand_matches("fcm-parse") {
-            let json_input: String = matches.values_of("input").unwrap().collect::<Vec<&str>>().join(" ");
-            let res = hyxe_user::fcm::fcm_packet_processor::blocking_process(json_input, &ctx.account_manager);
-            log::info!("[FCM] Done handling json");
-            return Ok(Some(res.into()))
         }
 
         if let Some(matches) = matches.subcommand_matches("disconnect") {

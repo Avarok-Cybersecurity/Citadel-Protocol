@@ -17,6 +17,7 @@ abstract class DomainSpecificResponse {
   DomainSpecificResponseType getType();
   Optional<Ticket> getTicket();
   Optional<String> getMessage();
+  bool isFcm();
 
   static Optional<DomainSpecificResponse> tryFrom(Map<String, dynamic> infoNode, MessageParseMode base64MapMode) {
     try {

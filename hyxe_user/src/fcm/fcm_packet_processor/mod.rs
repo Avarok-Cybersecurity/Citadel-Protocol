@@ -23,7 +23,7 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
     let packet = FcmPacket::from_raw_fcm_packet(&raw_packet)?;
     log::info!("A2");
     let header = packet.header();
-    let group_id = header.group_id.get();
+    let ticket = header.ticket.get();
     let use_client_server_ratchet = header.target_cid.get() == 0;
     // if the target cid is zero, it means we aren't using endpoint containers (only client -> server container)
     let local_cid = if use_client_server_ratchet { header.session_cid.get() } else { header.target_cid.get() };
@@ -53,7 +53,7 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
             ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
             log::info!("[FCM] Successfully validated packet. Parsing payload ...");
             let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
-            let ticket = group_id; // for c2s conns, the group id is used for the ticket id
+
             log::info!("A6");
 
             match payload {

@@ -3,6 +3,7 @@ import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 import 'package:flutterust/components/fade_indexed_stack.dart';
+import 'package:flutterust/database_handler.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/peer_list_handler.dart';
 import 'package:flutterust/screens/session/session_subscreens/peer_list.dart';
@@ -11,17 +12,15 @@ import 'package:material_design_icons_flutter/material_design_icons_flutter.dart
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
-import 'package:satori_ffi_parser/types/u64.dart';
 
 import '../../main.dart';
 
 class SessionView extends StatefulWidget {
-  final u64 cid;
-  final String username;
+  final ClientNetworkAccount cnac;
   ReceivePort recvPort;
   SendPort sendPort;
 
-  SessionView(this.cid, this.username, Key key) : super(key: key) {
+  SessionView(this.cnac, Key key) : super(key: key) {
     this.recvPort = ReceivePort();
     this.sendPort = this.recvPort.sendPort;
   }
@@ -57,7 +56,7 @@ class SessionViewInner extends State<SessionView> {
     if (dsr is DomainSpecificResponse) {
       switch (dsr.getType()) {
         case DomainSpecificResponseType.PeerList:
-          this.addView(PeerListView(Optional.of(dsr), widget.cid), PeerListView.IDX);
+          this.addView(PeerListView(Optional.of(dsr), widget.cnac.implicatedCid), PeerListView.IDX);
       }
     } else {
       print("Recv return to home signal");
@@ -97,7 +96,7 @@ class SessionViewInner extends State<SessionView> {
                               ])))
                 ],
               )))),
-      PeerListView(Optional.empty(), widget.cid)
+      PeerListView(Optional.empty(), widget.cnac.implicatedCid)
     ];
   }
 
@@ -112,7 +111,7 @@ class SessionViewInner extends State<SessionView> {
 
   void listPeers() async {
     print("Listing peers ...");
-    String cmd = "switch " + widget.username + " peer list";
+    String cmd = "switch " + widget.cnac.username + " peer list";
     (await RustSubsystem.bridge.executeCommand(cmd)).ifPresent((kResp) =>
         KernelResponseHandler.handleFirstCommand(kResp,
             handler: PeerListHandler(context, widget.sendPort)));

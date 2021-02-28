@@ -27,6 +27,11 @@ class PostRegisterResponse extends DomainSpecificResponse {
     return DomainSpecificResponseType.PostRegisterResponse;
   }
 
+  @override
+  bool isFcm() {
+    return true;
+  }
+
   /*
 
     pub struct PostRegisterResponse {

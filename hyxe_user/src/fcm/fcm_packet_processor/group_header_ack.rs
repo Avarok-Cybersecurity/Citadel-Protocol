@@ -58,11 +58,11 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
 
     if let Some(truncate_vers) = requires_truncation {
         // send TRUNCATE packet
-        let truncate_packet = super::super::fcm_packet_crafter::craft_truncate(next_ratchet?, header.object_id.get(), header.group_id.get(), header.session_cid.get(), truncate_vers);
+        let truncate_packet = super::super::fcm_packet_crafter::craft_truncate(next_ratchet?, header.object_id.get(), header.group_id.get(), header.session_cid.get(), header.ticket.get(), truncate_vers);
         let _res = block_on_async(|| async move {
             fcm_instance.send_to_fcm_user(truncate_packet).await
         })??;
     }
 
-    FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.object_id.get()) })
+    FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) })
 }

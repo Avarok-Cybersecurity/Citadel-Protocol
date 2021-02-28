@@ -50,4 +50,9 @@ class ConnectResponse extends DomainSpecificResponse {
   Optional<String> getAttachedUsername() {
     return this.username;
   }
+
+  @override
+  bool isFcm() {
+    return false;
+  }
 }

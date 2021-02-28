@@ -23,15 +23,13 @@ pub fn process<'a, Fcm: Ratchet>(client: &'a Arc<Client>, endpoint_crypto: &'a m
         KemTransferStatus::Empty
     };
 
-    let packet = super::super::fcm_packet_crafter::craft_group_header_ack(&ratchet, header.object_id.get(), header.group_id.get(), header.session_cid.get(), kem_transfer_status);
+    let packet = super::super::fcm_packet_crafter::craft_group_header_ack(&ratchet, header.object_id.get(), header.group_id.get(), header.session_cid.get(), header.ticket.get(), kem_transfer_status);
 
-    log::info!("AX");
     let _res = block_on_async(|| async move {
         instance.send_to_fcm_user(packet).await
     })??;
-    log::info!("AX-2");
 
-    let ticket = FcmTicket::new(header.session_cid.get(), header.target_cid.get(), header.object_id.get());
+    let ticket = FcmTicket::new(header.session_cid.get(), header.target_cid.get(), header.ticket.get());
 
     // now that we sent the response to FCM, the next step is to return with the original message
     FcmProcessorResult::Value(FcmResult::GroupHeader { ticket, message: message.to_vec() })
