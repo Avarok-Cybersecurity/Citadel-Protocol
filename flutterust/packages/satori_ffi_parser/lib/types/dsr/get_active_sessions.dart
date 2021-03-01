@@ -4,7 +4,7 @@ import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/socket_addr.dart';
-import 'package:satori_ffi_parser/types/ticket.dart';
+import 'package:satori_ffi_parser/types/standard_ticket.dart';
 import 'package:satori_ffi_parser/utils.dart';
 
 import '../u64.dart';
@@ -24,7 +24,7 @@ class GetSessionsResponse extends DomainSpecificResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
     return Optional.empty();
   }
 
@@ -52,7 +52,7 @@ class GetSessionsResponse extends DomainSpecificResponse {
       }
 
       return Optional.of(GetSessionsResponse._(cids, usernames, endpoints, is_personals, runtime_secs));
-    } on Exception catch(_) {
+    } catch(_) {
       return Optional.empty();
     }
   }

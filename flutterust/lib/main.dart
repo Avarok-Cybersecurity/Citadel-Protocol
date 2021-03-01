@@ -94,22 +94,9 @@ class MyHomePage extends State<HomePage> {
   }
 
   void onStart() async {
-    (await RustSubsystem.bridge.executeCommand("list-accounts"))
-        .ifPresent((kResp) {
-      kResp.getDSR().ifPresent((dsr) async {
-        if (dsr is GetAccountsResponse) {
-          print("Found " + dsr.cids.length.toString() + " local accounts");
-          if (dsr.cids.isEmpty) {
-            this.curIdx = RegisterScreen.IDX;
-          } else {
-            await DatabaseHandler.clearDatabase();
-            DatabaseHandler.insertClients(zip([dsr.cids, dsr.usernames, dsr.full_names, dsr.is_personals, dsr.creation_dates]).map((e) => ClientNetworkAccount(e[0], e[1], e[2], e[3], e[4])).toList(growable: false));
-            var username = await ClientNetworkAccount.getCnacByCid(u64.tryFrom("10810377489972841717").value);
-            print("username of cid: " + username.toString());
-          }
-        }
-      });
-    });
+    if ((await ClientNetworkAccount.resyncClients()) == 0) {
+      this.curIdx = RegisterScreen.IDX;
+    }
   }
 
   @override

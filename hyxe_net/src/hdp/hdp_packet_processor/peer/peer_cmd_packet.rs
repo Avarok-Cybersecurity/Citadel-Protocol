@@ -427,7 +427,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
 
                                 match session.account_manager.register_hyperlan_p2p_as_server(peer_conn_type.get_original_implicated_cid(), peer_conn_type.get_original_target_cid()) {
                                     Ok(_) => {
-                                        let res = session.session_manager.fcm_send_to(header.session_cid.get(), peer_conn_type.get_original_target_cid(), move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, FcmPostRegister::BobToAliceTransfer(transfer, fcm_keys, inscribed_local_cid), username) },
+                                        let res = session.session_manager.fcm_send_to(header.session_cid.get(), peer_conn_type.get_original_target_cid(), move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid,FcmPostRegister::BobToAliceTransfer(transfer, fcm_keys, inscribed_local_cid), username) },
                                                                                       move |res| {
                                                                                           post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
                                                                                       });
@@ -470,7 +470,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                                 let implicated_cid = header.session_cid.get();
                                 let sess_mgr = session.session_manager.clone(); // we must clone since the session may end after the FCM send occurs. We don't want to hold a strong ref
 
-                                let res = session.session_manager.fcm_send_to(implicated_cid, target_cid, move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0,fcm, username) }, move |res| {
+                                let res = session.session_manager.fcm_send_to(implicated_cid, target_cid, move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, fcm, username) }, move |res| {
                                     post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
                                 });
 

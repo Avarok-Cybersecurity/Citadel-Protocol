@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:flutterust/database_handler.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/utils.dart';
 import 'package:satori_ffi_parser/parser.dart';
@@ -35,6 +36,7 @@ class KernelResponseHandler {
     }
   }
 
+  // FFI packets get sent here when the rust kernel sends messages
   static void handleRustKernelRawMessage(String ffiPacket) {
     FFIParser.tryFrom(ffiPacket)
         .ifPresent(handleRustKernelMessage, orElse: () {
@@ -42,7 +44,7 @@ class KernelResponseHandler {
     });
   }
 
-  static void handleRustKernelMessage(KernelResponse message) {
+  static void handleRustKernelMessage(KernelResponse message) async {
     print("Received valid kernel message");
     // Essentially, any delayed response that has a ticket should be handled via the stored callbacks inside pendingTickets
     if (message.getTicket().isPresent) {
@@ -70,8 +72,9 @@ class KernelResponseHandler {
 
         if (message.getType() == KernelResponseType.NodeMessage) {
           NodeMessageKernelResponse resp = message;
+          String username = (await ClientNetworkAccount.getUsernameByCid(resp.cid)).value;
           // TODO: map CIDs to Usernames
-          Utils.pushNotification("Message for " + resp.cid.toString(), resp.message);
+          Utils.pushNotification("Message for " + username, resp.message);
         }
       }
     } else {

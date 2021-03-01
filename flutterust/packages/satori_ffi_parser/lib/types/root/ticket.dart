@@ -3,17 +3,17 @@ import 'package:optional/optional.dart';
 import '../domain_specific_response.dart';
 import '../kernel_response.dart';
 import '../kernel_response_type.dart';
-import '../ticket.dart';
+import '../standard_ticket.dart';
 
 class TicketKernelResponse extends KernelResponse {
-  Ticket ticket;
+  StandardTicket ticket;
 
-  TicketKernelResponse(Ticket ticket) {
+  TicketKernelResponse(StandardTicket ticket) {
     this.ticket = ticket;
   }
 
   static Optional<TicketKernelResponse> tryFrom(String input) {
-    var ticket = Ticket.tryFrom(input);
+    var ticket = StandardTicket.tryFrom(input);
     if (ticket.isPresent) {
       return Optional.of(TicketKernelResponse(ticket.value));
     } else {
@@ -32,7 +32,7 @@ class TicketKernelResponse extends KernelResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
     return Optional.of(this.ticket);
   }
 

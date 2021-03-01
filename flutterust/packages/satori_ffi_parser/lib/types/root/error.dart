@@ -4,13 +4,13 @@ import 'package:satori_ffi_parser/parser.dart';
 import '../domain_specific_response.dart';
 import '../kernel_response.dart';
 import '../kernel_response_type.dart';
-import '../ticket.dart';
+import '../standard_ticket.dart';
 
 class ErrorKernelResponse extends KernelResponse {
-  Optional<Ticket> ticket;
+  Optional<StandardTicket> ticket;
   String message;
 
-  ErrorKernelResponse(Optional<Ticket> ticket, String message) {
+  ErrorKernelResponse(Optional<StandardTicket> ticket, String message) {
     this.ticket = ticket;
     this.message = message;
   }
@@ -26,7 +26,7 @@ class ErrorKernelResponse extends KernelResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
      return this.ticket;
   }
 
@@ -42,7 +42,7 @@ class ErrorKernelResponse extends KernelResponse {
     } else {
       String id = infoNode[0];
       String message = mapBase64(infoNode[1], mapBase64Strings);
-      return Optional.of(ErrorKernelResponse(Ticket.tryFrom(id), message));
+      return Optional.of(ErrorKernelResponse(StandardTicket.tryFrom(id), message));
     }
   }
 }

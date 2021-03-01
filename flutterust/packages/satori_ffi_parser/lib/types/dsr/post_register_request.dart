@@ -2,8 +2,10 @@ import 'package:optional/optional_internal.dart';
 import 'package:satori_ffi_parser/parser.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
+import 'package:satori_ffi_parser/types/standard_ticket.dart';
 import 'package:satori_ffi_parser/types/ticket.dart';
 
+import '../fcm_ticket.dart';
 import '../u64.dart';
 
 class PostRegisterRequest extends DomainSpecificResponse {
@@ -58,10 +60,13 @@ class PostRegisterRequest extends DomainSpecificResponse {
       String username = mapBase64(infoNode["username"], base64MapMode);
       u64 peerCid = u64.tryFrom(infoNode["peer_cid"]).value;
       u64 implicatedCid = u64.tryFrom(infoNode["implicated_cid"]).value;
-      bool isFcm = infoNode["is_fcm"];
-
-      return Ticket.tryFrom(infoNode["ticket"]).map((ticket) => PostRegisterRequest._(mid, username, implicatedCid, peerCid, ticket, isFcm));
-    } on Exception catch(_) {
+      u64 rawTicket = u64.tryFrom(infoNode["ticket"]).value;
+      bool isFcm = infoNode["fcm"];
+      
+      var ticket = isFcm ? FcmTicket(peerCid, implicatedCid, rawTicket) : StandardTicket(rawTicket);
+      
+      return Optional.of(PostRegisterRequest._(mid, username, implicatedCid, peerCid, ticket, isFcm));
+    } catch(_) {
       return Optional.empty();
     }
   }

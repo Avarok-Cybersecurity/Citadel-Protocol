@@ -513,7 +513,8 @@ fn process_post_register_signal(this: &CLIKernel, conn: PeerConnectionType, user
                     username: username.into_bytes(),
                     peer_cid,
                     implicated_cid,
-                    ticket: ticket.0
+                    ticket: ticket.0,
+                    fcm: false
                 })))
             } else {
                 INPUT_ROUTER.register_tab_action(cmd);
