@@ -31,16 +31,22 @@ pub struct PostRegisterRequest {
     #[serde(with = "string")]
     pub implicated_cid: u64,
     #[serde(with = "string")]
-    pub ticket: u64
+    pub ticket: u64,
+    pub fcm: bool
 }
 
 #[derive(Serialize, Debug)]
 pub struct PostRegisterResponse {
     #[serde(with = "string")]
-    ticket: u64,
-    accept: bool,
+    pub implicated_cid: u64,
+    #[serde(with = "string")]
+    pub peer_cid: u64,
+    #[serde(with = "string")]
+    pub ticket: u64,
+    pub accept: bool,
     #[serde(with = "base64_string")]
-    username: Vec<u8>
+    pub username: Vec<u8>,
+    pub fcm: bool
 }
 
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
@@ -410,6 +416,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         if let Some(matches) = matches.subcommand_matches("post-register") {
             // This ONLY accepts u64s, and NOT usernames.
             let target = matches.value_of("target_cid").unwrap();
+            let use_fcm = matches.is_present("fcm");
             let fcm = matches.is_present("fcm").then(||FcmPostRegister::Enable).unwrap_or(FcmPostRegister::Disable);
             let username = ctx.active_user.read().clone();
             let target_cid = u64::from_str(target).map_err(|_err| ConsoleError::Default("Registration: CID only"))?;
@@ -421,37 +428,42 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
             let post_register_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), username, None, None, fcm));
             let ticket = server_remote.unbounded_send(post_register_request)?;
-            ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, target_cid, move |ctx, ticket, response| {
-                let res = match response {
-                    PeerResponse::ServerReceivedRequest => {
-                        printf_ln!(colour::white!("Hypernode received the request; awaiting for peer to accept registration ...\n"));
-                        return CallbackStatus::TaskPending
-                    }
 
-                    PeerResponse::Accept(username) => {
-                        // TODO: Make the enums cleaner.
-                        let username = username.unwrap();
-
-                        // TODO: pull this down to the networking layer to take responsibility off the kernel
-                        if let Err(err) = ctx.account_manager.register_hyperlan_p2p_at_endpoints(ctx_user, target_cid, username.clone()) {
-                            printf_ln!(colour::red!("Peer {} ({}) accepted your invitation, but we were unable to sync to the local filesystem. Reason: {:?}\n", &username, target_cid, err));
-                        } else {
-                            printf_ln!(colour::white!("Peer {} ({}) has accepted your invitation! You may now connect to their node\n", &username, target_cid));
+            if !use_fcm {
+                ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, target_cid, move |ctx, ticket, response| {
+                    let res = match response {
+                        PeerResponse::ServerReceivedRequest => {
+                            printf_ln!(colour::white!("Hypernode received the request; awaiting for peer to accept registration ...\n"));
+                            return CallbackStatus::TaskPending
                         }
 
-                        if let Some(ref ffi_io) = ffi_io {
-                            (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterResponse(PostRegisterResponse {
-                                ticket: ticket.0,
-                                accept: true,
-                                username: username.into_bytes()
-                            })))))
+                        PeerResponse::Accept(username) => {
+                            // TODO: Make the enums cleaner.
+                            let username = username.unwrap();
+
+                            // TODO: pull this down to the networking layer to take responsibility off the kernel
+                            if let Err(err) = ctx.account_manager.register_hyperlan_p2p_at_endpoints(ctx_user, target_cid, username.clone()) {
+                                printf_ln!(colour::red!("Peer {} ({}) accepted your invitation, but we were unable to sync to the local filesystem. Reason: {:?}\n", &username, target_cid, err));
+                            } else {
+                                printf_ln!(colour::white!("Peer {} ({}) has accepted your invitation! You may now connect to their node\n", &username, target_cid));
+                            }
+
+                            if let Some(ref ffi_io) = ffi_io {
+                                (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterResponse(PostRegisterResponse {
+                                    implicated_cid: ctx_user,
+                                    peer_cid: target_cid,
+                                    ticket: ticket.0,
+                                    accept: true,
+                                    username: username.into_bytes(),
+                                    fcm: false
+                                })))))
+                            }
+
+                            return CallbackStatus::TaskComplete
                         }
 
-                        return CallbackStatus::TaskComplete
-                    }
-
-                    PeerResponse::Err(err_opt) => {
-                        printfs!({
+                        PeerResponse::Err(err_opt) => {
+                            printfs!({
                             colour::red_ln!("\rPeer {} was unable to handle your registration", target_cid);
                             if let Some(err) = err_opt {
                                 colour::red_ln!("{}", &err);
@@ -459,31 +471,35 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                             println!();
                         });
 
-                        CallbackStatus::TaskComplete
+                            CallbackStatus::TaskComplete
+                        }
+
+                        PeerResponse::Timeout => {
+                            printf_ln!(colour::red!("Timeout on post-register ticket {}\n", ticket));
+                            CallbackStatus::TaskComplete
+                        }
+
+                        _ => {
+                            printf_ln!(colour::red!("PostRegister (ticket {}) was unable to complete\n", ticket));
+                            CallbackStatus::TaskComplete
+                        }
+                    };
+
+                    // if we get here, request failed
+                    if let Some(ref ffi_io) = ffi_io {
+                        (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterResponse(PostRegisterResponse {
+                            implicated_cid: ctx_user,
+                            peer_cid: target_cid,
+                            ticket: ticket.0,
+                            accept: false,
+                            username: Vec::with_capacity(0),
+                            fcm: false
+                        })))))
                     }
 
-                    PeerResponse::Timeout => {
-                        printf_ln!(colour::red!("Timeout on post-register ticket {}\n", ticket));
-                        CallbackStatus::TaskComplete
-                    }
-
-                    _ => {
-                        printf_ln!(colour::red!("PostRegister (ticket {}) was unable to complete\n", ticket));
-                        CallbackStatus::TaskComplete
-                    }
-                };
-
-                // if we get here, request failed
-                if let Some(ref ffi_io) = ffi_io {
-                    (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterResponse(PostRegisterResponse {
-                        ticket: ticket.0,
-                        accept: false,
-                        username: Vec::with_capacity(0)
-                    })))))
-                }
-
-                res
-            });
+                    res
+                });
+            }
 
             return Ok(Some(KernelResponse::ResponseTicket(ticket.0)));
         }

@@ -14,6 +14,7 @@ use ser::string;
 use hyxe_user::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult};
 use hyxe_user::fcm::data_structures::FcmTicket;
 use hyxe_user::fcm::data_structures::base64_string;
+use hyxe_user::fcm::fcm_packet_processor::peer_post_register::FcmPostRegisterResponse;
 
 pub mod ffi_entry;
 
@@ -80,15 +81,28 @@ pub enum DomainResponse {
     PeerList(PeerList),
     PostRegisterRequest(PostRegisterRequest),
     PostRegisterResponse(PostRegisterResponse),
-    Fcm(FcmResponse)
+    FcmMessage(FcmMessage),
+    FcmMessageSent(FcmMessageSent),
+    FcmMessageReceived(FcmMessageReceived)
 }
 
 #[derive(Serialize, Debug)]
-pub enum FcmResponse {
-    Message(FcmTicket, #[serde(with = "base64_string")] Vec<u8>),
-    MessageSent(FcmTicket),
-    MessageReceived(FcmTicket)
+pub struct FcmMessage {
+    pub fcm_ticket: FcmTicket,
+    #[serde(with = "base64_string")]
+    pub message: Vec<u8>
 }
+
+#[derive(Serialize, Debug)]
+pub struct FcmMessageSent {
+    pub fcm_ticket: FcmTicket
+}
+
+#[derive(Serialize, Debug)]
+pub struct FcmMessageReceived {
+    pub fcm_ticket: FcmTicket
+}
+
 
 impl From<Result<Option<KernelResponse>, ConsoleError>> for KernelResponse {
     fn from(res: Result<Option<KernelResponse>, ConsoleError>) -> Self {
@@ -126,13 +140,13 @@ impl From<FcmProcessorResult> for KernelResponse {
             FcmProcessorResult::Value(fcm_res) => {
                 match fcm_res {
                     FcmResult::GroupHeader { ticket, message } => {
-                        KernelResponse::DomainSpecificResponse(DomainResponse::Fcm(FcmResponse::Message(ticket, message)))
+                        KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessage(FcmMessage { fcm_ticket: ticket, message }))
                     }
                     FcmResult::GroupHeaderAck { ticket } => {
-                        KernelResponse::DomainSpecificResponse(DomainResponse::Fcm(FcmResponse::MessageReceived(ticket)))
+                        KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessageReceived(FcmMessageReceived { fcm_ticket: ticket }))
                     }
                     FcmResult::MessageSent { ticket } => {
-                        KernelResponse::DomainSpecificResponse(DomainResponse::Fcm(FcmResponse::MessageSent(ticket)))
+                        KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessageSent(FcmMessageSent { fcm_ticket: ticket }))
                     }
                     FcmResult::PostRegisterInvitation { invite } => {
                         KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterRequest(PostRegisterRequest {
@@ -140,7 +154,18 @@ impl From<FcmProcessorResult> for KernelResponse {
                             username: invite.username,
                             peer_cid: invite.peer_cid,
                             implicated_cid: invite.local_cid,
-                            ticket: invite.ticket
+                            ticket: invite.ticket,
+                            fcm: true
+                        }))
+                    }
+                    FcmResult::PostRegisterResponse { response: FcmPostRegisterResponse { local_cid, peer_cid, ticket, accept, username } } => {
+                        KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterResponse(PostRegisterResponse {
+                            implicated_cid: local_cid,
+                            peer_cid,
+                            ticket,
+                            accept,
+                            username: username.into_bytes(),
+                            fcm: true
                         }))
                     }
                 }

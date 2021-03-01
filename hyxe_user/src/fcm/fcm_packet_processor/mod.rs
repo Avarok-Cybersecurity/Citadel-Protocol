@@ -8,12 +8,12 @@ use hyxe_fs::io::SyncIO;
 use std::future::Future;
 use crate::prelude::ClientNetworkAccountInner;
 use std::sync::Arc;
-use crate::fcm::fcm_packet_processor::peer_post_register::PostRegisterInvitation;
+use crate::fcm::fcm_packet_processor::peer_post_register::{PostRegisterInvitation, FcmPostRegisterResponse};
 
 pub(crate) mod group_header;
 pub(crate) mod group_header_ack;
 pub(crate) mod truncate;
-pub(crate) mod peer_post_register;
+pub mod peer_post_register;
 
 /// If the raw packet was: {"inner": "ABCDEF"}, then, the input here should be simply ABCDEF without quotations.
 pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &AccountManager) -> FcmProcessorResult {
@@ -23,6 +23,7 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
     let packet = FcmPacket::from_raw_fcm_packet(&raw_packet)?;
     log::info!("A2");
     let header = packet.header();
+    let group_id = header.group_id.get();
     let ticket = header.ticket.get();
     let use_client_server_ratchet = header.target_cid.get() == 0;
     // if the target cid is zero, it means we aren't using endpoint containers (only client -> server container)
@@ -34,13 +35,14 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
     let fcm_client = account_manager.fcm_client();
 
     let cnac = account_manager.get_client_by_cid(local_cid).ok_or(AccountError::<String>::ClientNonExists(local_cid))?;
-    let (res, do_save) = cnac.visit_mut(|mut inner| -> Result<(FcmProcessorResult, bool), AccountError> {
+    let res = cnac.visit_mut(|mut inner| -> Result<FcmProcessorResult, AccountError> {
         // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other
         let ClientNetworkAccountInner {
             fcm_crypt_container,
             kem_state_containers,
             crypt_container,
             fcm_invitations,
+            mutuals,
             ..
         } = &mut *inner;
 
@@ -53,11 +55,11 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
             ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
             log::info!("[FCM] Successfully validated packet. Parsing payload ...");
             let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
-
+            let source_cid = group_id;
             log::info!("A6");
 
             match payload {
-                FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(fcm_invitations, local_cid, ticket, transfer, username),
+                FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(fcm_invitations, kem_state_containers, fcm_crypt_container, mutuals, local_cid, source_cid, ticket, transfer, username),
                 _ => {
                     log::warn!("[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
                     FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
@@ -80,13 +82,11 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
             }
         };
 
-        let do_save = res.implies_save_needed();
-
-        Ok((res, do_save))
+        Ok(res)
     })?;
 
 
-    if do_save {
+    if res.implies_save_needed() {
         cnac.blocking_save_to_local_fs()?;
     }
 
@@ -152,7 +152,8 @@ pub enum FcmResult {
     GroupHeader { ticket: FcmTicket, message: Vec<u8> },
     GroupHeaderAck { ticket: FcmTicket },
     MessageSent { ticket: FcmTicket },
-    PostRegisterInvitation { invite: PostRegisterInvitation }
+    PostRegisterInvitation { invite: PostRegisterInvitation },
+    PostRegisterResponse { response: FcmPostRegisterResponse }
 }
 
 #[allow(unused_results)]
