@@ -4,13 +4,13 @@ import '../../parser.dart';
 import '../domain_specific_response.dart';
 import '../kernel_response.dart';
 import '../kernel_response_type.dart';
-import '../ticket.dart';
+import '../standard_ticket.dart';
 
 class HybridKernelResponse extends KernelResponse {
-  Ticket ticket;
+  StandardTicket ticket;
   String message;
 
-  HybridKernelResponse(Ticket ticket, String message) {
+  HybridKernelResponse(StandardTicket ticket, String message) {
     this.ticket = ticket;
     this.message = message;
   }
@@ -26,7 +26,7 @@ class HybridKernelResponse extends KernelResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
     return Optional.of(this.ticket);
   }
 
@@ -39,7 +39,7 @@ class HybridKernelResponse extends KernelResponse {
     if (infoNode.length != 2) {
       return Optional.empty();
     } else {
-      var id = Ticket.tryFrom(infoNode[0]);
+      var id = StandardTicket.tryFrom(infoNode[0]);
       String message = mapBase64(infoNode[1], mapBase64Strings);
       return id != null ? Optional.of(HybridKernelResponse(id.value, message)) : Optional.empty();
     }

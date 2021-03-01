@@ -62,13 +62,11 @@ class _RegisterScreen extends State<RegisterScreen> {
         //Utils.popup(context, "Registration failed", signal.message);
       await EasyLoading.dismiss();
       await EasyLoading.showError(signal.message, dismissOnTap: true);
-      //await EasyLoading.dismiss();
         break;
 
       case RegisterUpdateSignalType.RegisterSuccess:
         await EasyLoading.dismiss();
         await EasyLoading.showSuccess(signal.message, dismissOnTap: true);
-        //await EasyLoading.dismiss();
         break;
 
       default: return;

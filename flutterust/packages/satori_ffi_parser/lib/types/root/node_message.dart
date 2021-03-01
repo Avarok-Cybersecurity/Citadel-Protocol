@@ -4,18 +4,18 @@ import '../../parser.dart';
 import '../domain_specific_response.dart';
 import '../kernel_response.dart';
 import '../kernel_response_type.dart';
-import '../ticket.dart';
+import '../standard_ticket.dart';
 import '../u64.dart';
 import '../virtual_connection_type.dart';
 
 class NodeMessageKernelResponse extends KernelResponse {
-  Ticket ticket;
+  StandardTicket ticket;
   u64 cid;
   u64 icid;
   u64 peerCid;
   String message;
 
-  NodeMessageKernelResponse(Ticket ticket, u64 cid, u64 icid, u64 peerCid, String message) {
+  NodeMessageKernelResponse(StandardTicket ticket, u64 cid, u64 icid, u64 peerCid, String message) {
     this.ticket = ticket;
     this.cid = cid;
     this.icid = icid;
@@ -34,7 +34,7 @@ class NodeMessageKernelResponse extends KernelResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
     return Optional.ofNullable(this.ticket);
   }
 
@@ -67,7 +67,7 @@ class NodeMessageKernelResponse extends KernelResponse {
     if (infoNode.length != 5) {
       return Optional.empty();
     } else {
-      var ticket = Ticket.tryFrom(infoNode[0]);
+      var ticket = StandardTicket.tryFrom(infoNode[0]);
       var cid = u64.tryFrom(infoNode[1]);
       var icid = u64.tryFrom(infoNode[2]);
       var peerCid = u64.tryFrom(infoNode[3]);

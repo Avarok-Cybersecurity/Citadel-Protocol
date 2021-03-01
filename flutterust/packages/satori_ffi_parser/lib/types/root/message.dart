@@ -3,7 +3,7 @@ import 'package:optional/optional.dart';
 import '../domain_specific_response.dart';
 import '../kernel_response.dart';
 import '../kernel_response_type.dart';
-import '../ticket.dart';
+import '../standard_ticket.dart';
 
 class MessageKernelResponse extends KernelResponse {
   String message;
@@ -23,7 +23,7 @@ class MessageKernelResponse extends KernelResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
     return Optional.empty();
   }
 

@@ -1,7 +1,7 @@
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
-import 'package:satori_ffi_parser/types/ticket.dart';
+import 'package:satori_ffi_parser/types/standard_ticket.dart';
 import 'package:satori_ffi_parser/utils.dart';
 
 import '../u64.dart';
@@ -9,7 +9,7 @@ import '../u64.dart';
 class PeerListResponse extends DomainSpecificResponse {
   final List<u64> cids;
   final List<bool> is_onlines;
-  final Ticket ticket;
+  final StandardTicket ticket;
 
   PeerListResponse._(this.cids, this.is_onlines, this.ticket);
 
@@ -19,7 +19,7 @@ class PeerListResponse extends DomainSpecificResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
     return Optional.of(this.ticket);
   }
 
@@ -50,6 +50,6 @@ class PeerListResponse extends DomainSpecificResponse {
       return Optional.empty();
     }
 
-    return Ticket.tryFrom(infoNode["ticket"]).map((ticket) => PeerListResponse._(cids, is_onlines, ticket));
+    return StandardTicket.tryFrom(infoNode["ticket"]).map((ticket) => PeerListResponse._(cids, is_onlines, ticket));
   }
 }

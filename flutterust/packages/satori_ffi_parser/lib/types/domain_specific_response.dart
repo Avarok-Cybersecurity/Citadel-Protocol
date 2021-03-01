@@ -1,16 +1,19 @@
 import 'package:satori_ffi_parser/parser.dart';
 import 'package:satori_ffi_parser/types/dsr/connect_response.dart';
 import 'package:satori_ffi_parser/types/dsr/disconnect_response.dart';
+import 'package:satori_ffi_parser/types/dsr/fcm/fcm_message.dart';
+import 'package:satori_ffi_parser/types/dsr/fcm/fcm_message_received.dart';
+import 'package:satori_ffi_parser/types/dsr/fcm/fcm_message_sent.dart';
 import 'package:satori_ffi_parser/types/dsr/get_accounts_response.dart';
 import 'package:satori_ffi_parser/types/dsr/get_active_sessions.dart';
 import 'package:satori_ffi_parser/types/dsr/peer_list.dart';
 import 'package:satori_ffi_parser/types/dsr/post_register_request.dart';
 import 'package:satori_ffi_parser/types/dsr/post_register_response.dart';
+import 'package:satori_ffi_parser/types/ticket.dart';
 
 import 'domain_specific_response_type.dart';
 import 'dsr/register_response.dart';
 import 'kernel_response.dart';
-import 'ticket.dart';
 import 'package:optional/optional.dart';
 
 abstract class DomainSpecificResponse {
@@ -51,8 +54,13 @@ abstract class DomainSpecificResponse {
         case DomainSpecificResponseType.PostRegisterResponse:
           return PostRegisterResponse.tryFrom(infoNode, base64MapMode);
 
-        default:
-          return Optional.empty();
+        case DomainSpecificResponseType.FcmMessage:
+          return FcmMessage.tryFrom(infoNode, base64MapMode);
+        case DomainSpecificResponseType.FcmMessageSent:
+          return FcmMessageSent.tryFrom(infoNode);
+        case DomainSpecificResponseType.FcmMessageReceived:
+          return FcmMessageReceived.tryFrom(infoNode);
+
       }
     } catch(_) {}
 

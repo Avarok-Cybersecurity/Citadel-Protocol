@@ -19,6 +19,7 @@ mod tests {
     use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
     use hyxe_crypt::fcm::keys::FcmKeys;
     use hyxe_crypt::sec_bytes::SecBuffer;
+    use hyxe_user::fcm::data_structures::FcmTicket;
 
     #[allow(unused_must_use)]
     fn setup_log() {
@@ -75,10 +76,22 @@ mod tests {
         log::info!("{:?}", hyxe_user::fcm::fcm_packet_processor::blocking_process(input, &acc_mgr_0));
 
         // now, start the simulation
-        user0.blocking_fcm_send_to(user1.get_cid(), SecBuffer::from("Hello, bob! From alice"), acc_mgr_0.fcm_client()).unwrap();
+        user0.blocking_fcm_send_to(user1.get_cid(), SecBuffer::from("Hello, bob! From alice"), 0,acc_mgr_0.fcm_client()).unwrap();
 
         acc_mgr_0.purge();
         acc_mgr_1.purge();
+    }
+
+    #[test]
+    fn fcm_ticket() {
+        use serde::{Serialize, Deserialize};
+        #[derive(Serialize, Deserialize)]
+        enum Test {
+            Stars(FcmTicket),
+            Banners(FcmTicket, u8)
+        }
+        let ticket = Test::Stars(FcmTicket::new(123, 456, 789));
+        println!("{}", serde_json::to_string(&ticket).unwrap());
     }
 
     #[tokio::test]

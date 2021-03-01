@@ -3,7 +3,7 @@ import 'package:optional/optional_internal.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response_type.dart';
-import 'package:satori_ffi_parser/types/ticket.dart';
+import 'package:satori_ffi_parser/types/standard_ticket.dart';
 
 import '../../parser.dart';
 
@@ -23,7 +23,7 @@ class KernelShutdown extends KernelResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
     return Optional.empty();
   }
 

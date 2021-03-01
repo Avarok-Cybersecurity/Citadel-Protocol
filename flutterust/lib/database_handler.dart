@@ -1,13 +1,15 @@
+import 'package:flutterust/main.dart';
 import 'package:optional/optional.dart';
 import 'package:path/path.dart';
+import 'package:quiver/iterables.dart';
+import 'package:satori_ffi_parser/types/dsr/get_accounts_response.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 import 'package:sqflite/sqflite.dart';
 
 class DatabaseHandler {
-
   static Future<Database> database() async {
     return openDatabase(
-        join(await getDatabasesPath(), 'verisend.db'),
+      join(await getDatabasesPath(), 'verisend.db'),
       onCreate: (db, version) {
         // Run the CREATE TABLE statement on the database.
         return db.execute(
@@ -30,7 +32,8 @@ class DatabaseHandler {
 
     Batch batch = db.batch();
     cnacs.forEach((element) {
-      batch.insert(ClientNetworkAccount.DB_TABLE, element.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+      batch.insert(ClientNetworkAccount.DB_TABLE, element.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace);
     });
 
     var results = await batch.commit();
@@ -54,19 +57,19 @@ class DatabaseHandler {
 
     print("[INSERT] Result: " + result.toString());
   }
-
 }
 
 class ClientNetworkAccount {
   static const String DB_TABLE = "cnacs";
-  
+
   final u64 implicatedCid;
   final String username;
   final String fullName;
   final bool isPersonal;
   final String creationDate;
 
-  ClientNetworkAccount(this.implicatedCid, this.username, this.fullName, this.isPersonal, this.creationDate);
+  ClientNetworkAccount(this.implicatedCid, this.username, this.fullName,
+      this.isPersonal, this.creationDate);
 
   Map<String, dynamic> toMap() {
     return {
@@ -79,13 +82,19 @@ class ClientNetworkAccount {
   }
 
   static ClientNetworkAccount fromMap(Map<String, dynamic> sqlMap) {
-    return ClientNetworkAccount(u64.tryFrom(sqlMap["id"]).value, sqlMap["username"], sqlMap["fullName"], sqlMap["isPersonal"] == 1, sqlMap["creationDate"]);
+    return ClientNetworkAccount(
+        u64.tryFrom(sqlMap["id"]).value,
+        sqlMap["username"],
+        sqlMap["fullName"],
+        sqlMap["isPersonal"] == 1,
+        sqlMap["creationDate"]);
   }
-  
+
   static Future<Optional<u64>> getCidByUsername(String username) async {
     var db = await DatabaseHandler.database();
-    
-    var query = await db.query(ClientNetworkAccount.DB_TABLE, where: "username = ?", whereArgs: [username]);
+
+    var query = await db.query(ClientNetworkAccount.DB_TABLE,
+        where: "username = ?", whereArgs: [username]);
     if (query.length > 0) {
       return Optional.of(u64.tryFrom(query.first["id"].toString()).value);
     } else {
@@ -100,7 +109,8 @@ class ClientNetworkAccount {
   static Future<Optional<ClientNetworkAccount>> getCnacByCid(u64 cid) async {
     var db = await DatabaseHandler.database();
 
-    var query = await db.query(ClientNetworkAccount.DB_TABLE, where: "id= ?", whereArgs: [cid.toString()]);
+    var query = await db.query(ClientNetworkAccount.DB_TABLE,
+        where: "id= ?", whereArgs: [cid.toString()]);
     if (query.length > 0) {
       return Optional.of(ClientNetworkAccount.fromMap(query.first));
     } else {
@@ -108,4 +118,28 @@ class ClientNetworkAccount {
     }
   }
 
+  static Future<int> resyncClients() async {
+    return (await RustSubsystem.bridge.executeCommand("list-accounts"))
+        .map((kResp) {
+      return kResp.getDSR().map((dsr) async {
+        if (dsr is GetAccountsResponse) {
+          print("Found " + dsr.cids.length.toString() + " local accounts");
+          if (dsr.cids.isEmpty) {
+            return 0;
+          } else {
+            DatabaseHandler.insertClients(zip([
+              dsr.cids,
+              dsr.usernames,
+              dsr.full_names,
+              dsr.is_personals,
+              dsr.creation_dates
+            ])
+                .map((e) => ClientNetworkAccount(e[0], e[1], e[2], e[3], e[4]))
+                .toList(growable: false));
+            return dsr.cids.length;
+          }
+        }
+      }).orElse(Future.value(-1));
+    }).orElse(Future.value(-1));
+  }
 }

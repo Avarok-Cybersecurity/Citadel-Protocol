@@ -6,12 +6,15 @@ import 'package:satori_ffi_parser/types/dsr/get_accounts_response.dart';
 import 'package:satori_ffi_parser/types/dsr/get_active_sessions.dart';
 import 'package:satori_ffi_parser/types/dsr/peer_list.dart';
 import 'package:satori_ffi_parser/types/dsr/register_response.dart';
+import 'package:satori_ffi_parser/types/fcm_ticket.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/root/domain_specific.dart';
 import 'package:satori_ffi_parser/types/root/error.dart';
 import 'package:satori_ffi_parser/types/root/hybrid.dart';
 import 'package:satori_ffi_parser/types/root/message.dart';
 import 'package:satori_ffi_parser/types/root/node_message.dart';
+import 'package:satori_ffi_parser/types/standard_ticket.dart';
+import 'package:satori_ffi_parser/types/ticket.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 import 'package:satori_ffi_parser/types/virtual_connection_type.dart';
 import 'package:test/test.dart';
@@ -35,10 +38,34 @@ void main() {
       assert(u64.from(999) == u64.from(999));
     });
 
+    test('ticket impl', () {
+      StandardTicket stdTicket = StandardTicket(u64.two);
+      StandardTicket stdTicket2 = StandardTicket(u64.two);
+      FcmTicket fcmTicket = FcmTicket(u64.one, u64.two, u64.MAX);
+      FcmTicket fcmTicket2 = FcmTicket(u64.one, u64.two, u64.MAX);
+      assert(stdTicket.eq(stdTicket2));
+      assert((stdTicket as Ticket).eq(stdTicket2 as Ticket));
+      assert((stdTicket as Ticket).eq(stdTicket2));
+
+      assert(fcmTicket as Ticket == fcmTicket2 as Ticket);
+      assert(!(fcmTicket as Ticket).eq(stdTicket as Ticket));
+    });
+
+    test('fcm-message', () {
+      String str = "{\"type\":\"DomainSpecificResponse\",\"info\":{\"dtype\":\"FcmMessage\",\"fcm_ticket\":{\"source_cid\":\"123\",\"target_cid\":\"456\",\"ticket\":\"789\"},\"message\":\"SGVsbG8sIHdvcmxkIQ==\"}}";
+      print("Parsing: " + str);
+      KernelResponse resp = FFIParser.tryFrom(str).value;
+      expect(resp.getMessage().value, "Hello, world!");
+      FcmTicket ticket = resp.getTicket().value;
+      expect(ticket.sourceCid, u64.tryFrom("123").value);
+      expect(ticket.targetCid, u64.tryFrom("456").value);
+      expect(ticket.ticket, u64.tryFrom("789").value);
+    });
+
     test('message', () {
       String messageTypeExample = "{\"type\":\"Message\",\"info\":\"Asynchronous kernel running. FFI Static is about to be set\"}";
       print("Parsing: " + messageTypeExample);
-      KernelResponse resp = FFIParser.tryFrom(messageTypeExample).value;
+      KernelResponse resp = FFIParser.tryFrom(messageTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is MessageKernelResponse);
       expect(resp.getMessage().value, "Asynchronous kernel running. FFI Static is about to be set");
       assert(resp.getDSR().isEmpty);
@@ -50,7 +77,7 @@ void main() {
       String hybridResponseTypeExample = "{\"type\":\"ResponseHybrid\",\"info\":[\"123\", \"Hello world!\"]}";
 
       print("Parsing: " + hybridResponseTypeExample);
-      KernelResponse resp = FFIParser.tryFrom(hybridResponseTypeExample).value;
+      KernelResponse resp = FFIParser.tryFrom(hybridResponseTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is HybridKernelResponse);
       expect(resp.getMessage().value, "Hello world!");
       assert(resp.getDSR().isEmpty);
@@ -61,7 +88,7 @@ void main() {
     test('error', () {
       String errorTypeExample = "{\"type\":\"Error\",\"info\":[\"10\",\"User nologik.test is already an active session ...\"]}";
       print("Parsing: " + errorTypeExample);
-      KernelResponse resp = FFIParser.tryFrom(errorTypeExample).value;
+      KernelResponse resp = FFIParser.tryFrom(errorTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is ErrorKernelResponse);
       expect(resp.getMessage().value, "User nologik.test is already an active session ...");
       assert(resp.getDSR().isEmpty);
@@ -72,7 +99,7 @@ void main() {
     test('error no-ticket', () {
       String errorTypeExample = "{\"type\":\"Error\",\"info\":[\"0\",\"User nologik.test is already an active session ...\"]}";
       print("Parsing: " + errorTypeExample);
-      KernelResponse resp = FFIParser.tryFrom(errorTypeExample).value;
+      KernelResponse resp = FFIParser.tryFrom(errorTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is ErrorKernelResponse);
       expect(resp.getMessage().value, "User nologik.test is already an active session ...");
       assert(resp.getDSR().isEmpty);
@@ -83,7 +110,7 @@ void main() {
     test('node message', () {
       String nodeMessageTypeExample = "{\"type\":\"NodeMessage\",\"info\":[\"10\", \"1\", \"2\", \"3\", \"Hello, message!\"]}";
       print("Parsing: " + nodeMessageTypeExample);
-      KernelResponse resp = FFIParser.tryFrom(nodeMessageTypeExample).value;
+      KernelResponse resp = FFIParser.tryFrom(nodeMessageTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is NodeMessageKernelResponse);
       NodeMessageKernelResponse nResp = resp;
       expect(nResp.cid, u64.one);
@@ -100,7 +127,7 @@ void main() {
       String DSRRegisterTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Register\",\"Failure\":[\"2\",\"Invalid username\"]}}";
 
       print("Parsing: " + DSRRegisterTypeExample);
-      KernelResponse resp = FFIParser.tryFrom(DSRRegisterTypeExample).value;
+      KernelResponse resp = FFIParser.tryFrom(DSRRegisterTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is DomainSpecificKernelResponse);
       expect(resp.getMessage().value, "Invalid username");
       assert(resp.getDSR().isPresent);
@@ -116,7 +143,7 @@ void main() {
     test('DSR - Register - Success', () {
       String DSRRegisterTypeExample2 = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Register\",\"Success\":[\"18446744073709551615\",\"Valid username\"]}}";
       print("Parsing: " + DSRRegisterTypeExample2);
-      KernelResponse resp = FFIParser.tryFrom(DSRRegisterTypeExample2).value;
+      KernelResponse resp = FFIParser.tryFrom(DSRRegisterTypeExample2, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is DomainSpecificKernelResponse);
       expect(resp.getMessage().value, "Valid username");
       assert(resp.getDSR().isPresent);
@@ -133,7 +160,7 @@ void main() {
       String DSRConnectTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Connect\",\"Failure\":[\"2\",\"999\",\"Invalid username\"]}}";
 
       print("Parsing: " + DSRConnectTypeExample);
-      KernelResponse resp = FFIParser.tryFrom(DSRConnectTypeExample).value;
+      KernelResponse resp = FFIParser.tryFrom(DSRConnectTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is DomainSpecificKernelResponse);
       expect(resp.getMessage().value, "Invalid username");
       assert(resp.getDSR().isPresent);
@@ -151,7 +178,7 @@ void main() {
       String DSRConnectTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Connect\",\"Success\":[\"2\",\"999\",\"Invalid username\"]}}";
 
       print("Parsing: " + DSRConnectTypeExample);
-      KernelResponse resp = FFIParser.tryFrom(DSRConnectTypeExample).value;
+      KernelResponse resp = FFIParser.tryFrom(DSRConnectTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is DomainSpecificKernelResponse);
       expect(resp.getMessage().value, "Invalid username");
       assert(resp.getDSR().isPresent);
@@ -169,7 +196,7 @@ void main() {
       String DSRgetAccounts = "{\"type\":\"DomainSpecificResponse\",\"info\":{\"dtype\":\"GetAccounts\",\"cids\":[\"2865279923\",\"2865279924\",\"2865279925\",\"2865279926\"],\"usernames\":[\"nologik.test\",\"nologik.test2\",\"nologik.test3\",\"nologik.test4\"],\"full_names\":[\"thomas braun\",\"thomas braun2\",\"thomas braun3\",\"thomas braun4\"],\"is_personals\":[true,true,true,false],\"creation_dates\":[\"Thu Sep  3 20:43:12 2020\",\"Fri Sep  4 20:40:50 2020\",\"Mon Sep  7 01:22:46 2020\",\"Mon Sep  7 01:47:05 2020\"]}}";
 
       print("Parsing: " + DSRgetAccounts);
-      KernelResponse resp = FFIParser.tryFrom(DSRgetAccounts).value;
+      KernelResponse resp = FFIParser.tryFrom(DSRgetAccounts, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is DomainSpecificKernelResponse);
       assert(!resp.getMessage().isPresent);
       assert(resp.getDSR().isPresent);
@@ -200,7 +227,7 @@ void main() {
       String DSRlistSessions = "{\"type\":\"DomainSpecificResponse\",\"info\":{\"dtype\":\"GetActiveSessions\",\"usernames\":[\"nologik.test4\", \"nologik.test5\"],\"cids\":[\"2865279926\", \"123456789\"],\"endpoints\":[\"51.81.35.200:25000\", \"51.81.35.201:25001\"],\"is_personals\":[true, false],\"runtime_sec\":[\"8\", \"1000\"]}}";
 
       print("Parsing: " + DSRlistSessions);
-      KernelResponse resp = FFIParser.tryFrom(DSRlistSessions).value;
+      KernelResponse resp = FFIParser.tryFrom(DSRlistSessions, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is DomainSpecificKernelResponse);
       assert(resp.getMessage().isEmpty);
       assert(resp.getDSR().isPresent);
@@ -219,7 +246,7 @@ void main() {
       String DSRDisconnectTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Disconnect\",\"HyperLANPeerToHyperLANServer\":[\"2\",\"999\"]}}";
 
       print("Parsing: " + DSRDisconnectTypeExample);
-      KernelResponse resp = FFIParser.tryFrom(DSRDisconnectTypeExample).value;
+      KernelResponse resp = FFIParser.tryFrom(DSRDisconnectTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is DomainSpecificKernelResponse);
       assert(resp.getMessage().isEmpty);
       assert(resp.getDSR().isPresent);
@@ -239,7 +266,7 @@ void main() {
       String DSRDisconnectTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Disconnect\",\"HyperLANPeerToHyperLANPeer\":[\"2\",\"999\",\"1000\"]}}";
 
       print("Parsing: " + DSRDisconnectTypeExample);
-      KernelResponse resp = FFIParser.tryFrom(DSRDisconnectTypeExample).value;
+      KernelResponse resp = FFIParser.tryFrom(DSRDisconnectTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is DomainSpecificKernelResponse);
       assert(resp.getMessage().isEmpty);
       assert(resp.getDSR().isPresent);
@@ -259,7 +286,7 @@ void main() {
       String DSRlistSessions = "{\"type\":\"DomainSpecificResponse\",\"info\":{\"dtype\":\"PeerList\",\"cids\":[\"123456789\", \"987654321\"],\"is_onlines\":[true, false],\"ticket\":\"98\"}}";
 
       print("Parsing: " + DSRlistSessions);
-      KernelResponse resp = FFIParser.tryFrom(DSRlistSessions).value;
+      KernelResponse resp = FFIParser.tryFrom(DSRlistSessions, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is DomainSpecificKernelResponse);
       assert(resp.getMessage().isEmpty);
       assert(resp.getDSR().isPresent);

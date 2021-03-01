@@ -1,6 +1,6 @@
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
-import 'package:satori_ffi_parser/types/ticket.dart';
+import 'package:satori_ffi_parser/types/standard_ticket.dart';
 import 'package:satori_ffi_parser/types/virtual_connection_type.dart';
 
 import '../domain_specific_response.dart';
@@ -10,7 +10,7 @@ class DisconnectResponse extends DomainSpecificResponse {
   final u64 implicated_cid;
   final u64 icid;
   final u64 peer_cid;
-  final Optional<Ticket> ticket;
+  final Optional<StandardTicket> ticket;
   final VirtualConnectionType virtualConnectionType;
 
   DisconnectResponse._(this.virtualConnectionType, this.implicated_cid, this.icid, this.peer_cid, this.ticket);
@@ -21,7 +21,7 @@ class DisconnectResponse extends DomainSpecificResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
     return this.ticket;
   }
 
@@ -48,7 +48,7 @@ class DisconnectResponse extends DomainSpecificResponse {
         return Optional.empty();
       }
 
-      Optional<Ticket> ticket = Ticket.tryFrom(leaf[0]);
+      Optional<StandardTicket> ticket = StandardTicket.tryFrom(leaf[0]);
       return u64.tryFrom(leaf[1]).flatMap((implicated_cid) {
         Optional<u64> peer_cid;
         u64 icid = u64.zero;

@@ -1,13 +1,13 @@
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
-import 'package:satori_ffi_parser/types/ticket.dart';
+import 'package:satori_ffi_parser/types/standard_ticket.dart';
 
 import '../u64.dart';
 
 class ConnectResponse extends DomainSpecificResponse {
   final String message;
-  final Ticket ticket;
+  final StandardTicket ticket;
   final u64 implicated_cid;
   final bool success;
   Optional<String> username = Optional.empty();
@@ -20,7 +20,7 @@ class ConnectResponse extends DomainSpecificResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
     return Optional.of(this.ticket);
   }
 
@@ -36,7 +36,7 @@ class ConnectResponse extends DomainSpecificResponse {
       return Optional.empty();
     }
 
-    var ticket = Ticket.tryFrom(leaf[0]);
+    var ticket = StandardTicket.tryFrom(leaf[0]);
     var implicated_cid = u64.tryFrom(leaf[1]);
     String message = leaf[2];
 

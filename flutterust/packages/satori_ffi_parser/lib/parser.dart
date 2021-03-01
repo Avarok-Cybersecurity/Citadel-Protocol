@@ -12,7 +12,7 @@ import 'types/root/hybrid.dart';
 import 'types/root/message.dart';
 import 'types/root/node_message.dart';
 import 'types/root/ticket.dart';
-import 'types/ticket.dart';
+import 'types/standard_ticket.dart';
 
 const MessageParseMode DEFAULT_PARSE_MODE = MessageParseMode.UTF8;
 
@@ -41,7 +41,7 @@ class FFIParser {
           return Optional.of(MessageKernelResponse(mapBase64(infoNode, mapBase64Strings)));
 
         case KernelResponseType.ResponseTicket:
-          return Ticket.tryFrom(infoNode).map((ticket) => TicketKernelResponse(ticket));
+          return StandardTicket.tryFrom(infoNode).map((ticket) => TicketKernelResponse(ticket));
 
         case KernelResponseType.ResponseHybrid:
           return HybridKernelResponse.tryFrom(infoNode, mapBase64Strings);
@@ -59,8 +59,8 @@ class FFIParser {
 
       }
 
-    } on Exception catch (_) {
-      print("Invalid input Json");
+    } catch (e) {
+      print("Invalid input Json: " + e.toString());
       return Optional.empty();
     }
   }

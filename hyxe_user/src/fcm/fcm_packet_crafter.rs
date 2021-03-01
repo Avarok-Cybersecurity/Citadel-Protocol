@@ -65,11 +65,11 @@ pub fn craft_truncate<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id:
     base64_packet(fcm_ratchet, &header, &payload)
 }
 
-pub fn craft_post_register<R: Ratchet>(base_static_ratchet: &R, ticket: u64, transfer: FcmPostRegister, username: String) -> RawFcmPacket {
+pub fn craft_post_register<R: Ratchet>(base_static_ratchet: &R, ticket: u64, initial_cid: u64, transfer: FcmPostRegister, username: String) -> RawFcmPacket {
     let header = FcmHeader {
         session_cid: U64::new(base_static_ratchet.get_cid()),
         target_cid: U64::new(0), // required to be 0 b/c we want to use the base ratchet at the endpoints
-        group_id: U64::new(0),
+        group_id: U64::new(initial_cid),
         ticket: U64::new(ticket),
         object_id: U32::new(0),
         ratchet_version: U32::new(base_static_ratchet.version())

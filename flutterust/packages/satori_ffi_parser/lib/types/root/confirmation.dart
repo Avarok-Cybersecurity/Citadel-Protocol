@@ -1,7 +1,7 @@
 import '../domain_specific_response.dart';
 import '../kernel_response.dart';
 import '../kernel_response_type.dart';
-import '../ticket.dart';
+import '../standard_ticket.dart';
 import 'package:optional/optional.dart';
 
 class ConfirmationKernelResponse extends KernelResponse {
@@ -17,7 +17,7 @@ class ConfirmationKernelResponse extends KernelResponse {
   }
 
   @override
-  Optional<Ticket> getTicket() {
+  Optional<StandardTicket> getTicket() {
     return Optional.empty();
   }
 
