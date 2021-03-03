@@ -475,7 +475,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                                     post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
                                 });
 
-                                match res {
+                                return match res {
                                     Ok(_) => {
                                         // We won't reply until AFTER the fcm message send
                                         PrimaryProcessorResult::Void
@@ -497,7 +497,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                 }
 
                 PeerConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, _target_cid) => {
-                    unimplemented!("HyperWAN functionality not implemented")
+                    log::warn!("HyperWAN functionality not implemented")
                 }
             }
         }
