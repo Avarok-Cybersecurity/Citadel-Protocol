@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -7,6 +8,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/main.dart';
+import 'package:flutterust/screens/login.dart';
 import 'package:flutterust/themes/default.dart';
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
@@ -112,14 +114,22 @@ class Utils {
 
   static int idx = 0;
 
+  static HashMap<String, dynamic> notificationPayloads = HashMap();
+
   // TODO: Handle ID for routing notification
-  static void pushNotification(String title, String message, { int id }) {
+  static void pushNotification(String title, String message, { int id, String route = LoginScreen.routeName, dynamic arguments }) {
+    notificationPayloads[arguments.hashCode.toString()] = arguments;
+
       AwesomeNotifications().createNotification(
           content: NotificationContent(
-              id: id != null ? id : idx++,
+              id: id ?? idx++,
               channelKey: NOTIFICATION_CHANNEL,
               title: title,
-              body: message
+              body: message,
+              payload: {
+                'route': route,
+                'arguments': arguments.hashCode.toString()
+              }
           )
       );
 
@@ -146,9 +156,11 @@ class Utils {
     String json = message.data["inner"];
 
     print("[FCM] Received FCM message! " + json);
-      pushNotification("Received a FCM message", json);
+      //pushNotification("Received a FCM message", json);
+
+      // subsystem may be null if we're in the background isolate
       if (RustSubsystem.bridge == null) {
-        print("[FCM] RustSubsystem not loaded. Will load basic connection ...");
+        print("[FCM] RustSubsystem not loaded. Will load *basic* FFI connection ...");
         RustSubsystem.bridge = FFIBridge();
         FFIBridge.setup();
       }

@@ -101,6 +101,7 @@ pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state
 
         // Bob denied the request
         FcmPostRegister::Disable => {
+            kem_state_containers.remove(&source_cid);
             FcmProcessorResult::Value(FcmResult::PostRegisterResponse { response: FcmPostRegisterResponse {
                 local_cid,
                 peer_cid: source_cid,
@@ -110,6 +111,7 @@ pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state
             }})
         }
         FcmPostRegister::Enable => {
+            // We should never reach here
             FcmProcessorResult::Void
         }
     }

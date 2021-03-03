@@ -7,6 +7,7 @@ import 'package:satori_ffi_parser/types/dsr/fcm/fcm_message_sent.dart';
 import 'package:satori_ffi_parser/types/dsr/get_accounts_response.dart';
 import 'package:satori_ffi_parser/types/dsr/get_active_sessions.dart';
 import 'package:satori_ffi_parser/types/dsr/peer_list.dart';
+import 'package:satori_ffi_parser/types/dsr/peer_mutuals.dart';
 import 'package:satori_ffi_parser/types/dsr/post_register_request.dart';
 import 'package:satori_ffi_parser/types/dsr/post_register_response.dart';
 import 'package:satori_ffi_parser/types/ticket.dart';
@@ -56,11 +57,15 @@ abstract class DomainSpecificResponse {
 
         case DomainSpecificResponseType.FcmMessage:
           return FcmMessage.tryFrom(infoNode, base64MapMode);
+
         case DomainSpecificResponseType.FcmMessageSent:
           return FcmMessageSent.tryFrom(infoNode);
+
         case DomainSpecificResponseType.FcmMessageReceived:
           return FcmMessageReceived.tryFrom(infoNode);
 
+        case DomainSpecificResponseType.PeerMutuals:
+          return PeerMutualsResponse.tryFrom(infoNode);
       }
     } catch(_) {}
 

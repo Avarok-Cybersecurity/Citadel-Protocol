@@ -3,9 +3,13 @@ import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 import 'package:flutterust/components/fade_indexed_stack.dart';
+import 'package:flutterust/components/nest_safe_gesture_detector.dart';
+import 'package:flutterust/components/shadowed_container.dart';
 import 'package:flutterust/database_handler.dart';
+import 'package:flutterust/handlers/PeerMutualsHandler.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/peer_list_handler.dart';
+import 'package:flutterust/screens/session/session_subscreens/mutuals.dart';
 import 'package:flutterust/screens/session/session_subscreens/peer_list.dart';
 import 'package:flutterust/themes/default.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
@@ -32,7 +36,6 @@ class SessionView extends StatefulWidget {
 }
 
 class SessionViewInner extends State<SessionView> {
-
   List<Widget> subscreens = [];
   int selectedIdx = 0;
 
@@ -56,7 +59,16 @@ class SessionViewInner extends State<SessionView> {
     if (dsr is DomainSpecificResponse) {
       switch (dsr.getType()) {
         case DomainSpecificResponseType.PeerList:
-          this.addView(PeerListView(Optional.of(dsr), widget.cnac.implicatedCid), PeerListView.IDX);
+          this.addView(
+              PeerListView(Optional.of(dsr), widget.cnac.implicatedCid),
+              PeerListView.IDX);
+          break;
+
+        case DomainSpecificResponseType.PeerMutuals:
+          this.addView(
+              MutualsView(Optional.of(dsr)),
+              MutualsView.IDX);
+          break;
       }
     } else {
       print("Recv return to home signal");
@@ -73,30 +85,48 @@ class SessionViewInner extends State<SessionView> {
   List<Widget> generateInitStack() {
     return <Widget>[
       Container(
-          padding: EdgeInsets.all(2),
-          height: 120,
-          child: GestureDetector(
-              onTap: listPeers,
-              child: Card(
-                  child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: <Widget>[
-                  Icon(MdiIcons.lan,
-                      color: primaryColorValue, size: 100),
-                  Expanded(
-                      child: Container(
-                          padding: EdgeInsets.all(5),
-                          child: Column(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                              children: <Widget>[
-                                Text(
-                                  "Discover Network Contacts",
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                )
-                              ])))
-                ],
-              )))),
-      PeerListView(Optional.empty(), widget.cnac.implicatedCid)
+          padding: EdgeInsets.all(10),
+            child: SingleChildScrollView(
+             child: Container(
+              child: ListView(
+                shrinkWrap: true,
+                physics: NeverScrollableScrollPhysics(),
+                  children: [
+                    ShadowContainer(
+                      padding: EdgeInsets.all(2),
+                      height: 120,
+                      child: ListTile(
+                        leading: Icon(MdiIcons.lan, color: primaryColorValue, size: 100),
+                        title: Text(
+                          "Discover Network Contacts",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+
+                        onTap: listPeers,
+                      ),
+                    ),
+
+                    ShadowContainer(
+                      padding: EdgeInsets.all(2),
+                      height: 120,
+                      child: ListTile(
+                        leading: Icon(MdiIcons.accountMultipleCheck, color: primaryColorValue, size: 100),
+                        title: Text(
+                          "Verified Contacts",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+
+                        onTap: listMutuals,
+
+                      ),
+                    )
+                  ]
+              )
+            ),
+          ),
+        ),
+      PeerListView(Optional.empty(), widget.cnac.implicatedCid),
+      MutualsView(Optional.empty())
     ];
   }
 
@@ -115,5 +145,13 @@ class SessionViewInner extends State<SessionView> {
     (await RustSubsystem.bridge.executeCommand(cmd)).ifPresent((kResp) =>
         KernelResponseHandler.handleFirstCommand(kResp,
             handler: PeerListHandler(context, widget.sendPort)));
+  }
+
+  void listMutuals() async {
+    print("Listing mutuals ...");
+    String cmd = "switch " + widget.cnac.username + " peer mutuals";
+    (await RustSubsystem.bridge.executeCommand(cmd)).ifPresent((kResp) =>
+        KernelResponseHandler.handleFirstCommand(kResp,
+            handler: PeerMutualsHandler(context, widget.sendPort)));
   }
 }

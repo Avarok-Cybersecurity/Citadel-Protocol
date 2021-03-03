@@ -653,7 +653,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
         match invite {
             InvitationType::PostRegister(FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys, ..), username, ticket) => {
-                //let fcm_instance = FCMInstance::new(fcm_keys.clone(), client.clone());
 
                 if accept {
                     // now, construct the endpoint container
@@ -664,7 +663,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                     write.fcm_crypt_container.insert(peer_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, fcm_keys));
                     write.mutuals.insert(HYPERLAN_IDX, MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(username) });
                     std::mem::drop(write);
-                    self.clone().spawn_save_task_on_threadpool();
+                    self.blocking_save_to_local_fs()?;
                     Ok((fcm_post_register, ticket))
                 } else {
                     Ok((FcmPostRegister::Disable, ticket))
@@ -735,6 +734,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             if kem_state_containers.insert(target_peer_cid, ConstructorType::Fcm(constructor)).is_some() {
                 log::warn!("[FCM] overwrote pre-existing KEM constructor. Please report to developers")
             }
+
+            std::mem::drop(write);
+            self.blocking_save_to_local_fs()?;
         }
 
         Ok((ticket, fcm_instance, packet))

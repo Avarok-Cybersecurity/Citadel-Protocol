@@ -32,13 +32,9 @@ class KernelShutdown extends KernelResponse {
     return KernelResponseType.KernelShutdown;
   }
 
-  static Optional<KernelResponse> tryFrom(List<dynamic> infoNode, MessageParseMode mapBase64Strings) {
-    if (infoNode.length != 1) {
-      return Optional.empty();
-    } else {
-      String message = mapBase64(infoNode[0], mapBase64Strings);
-      return Optional.of(KernelShutdown(message));
-    }
+  static Optional<KernelResponse> tryFrom(String infoNode, MessageParseMode mapBase64Strings) {
+    String message = mapBase64(infoNode, mapBase64Strings);
+    return Optional.of(KernelShutdown(message));
   }
 
 }

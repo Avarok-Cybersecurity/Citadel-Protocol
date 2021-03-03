@@ -84,10 +84,18 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
         return Err(AccountError::Generic(format!("Username must be between {} and {} characters", MIN_USERNAME_LENGTH, MAX_USERNAME_LENGTH)));
     }
 
+    if username.contains(' ') {
+        return Err(AccountError::Generic("Username cannot contain spaces. Use a period instead".to_string()));
+    }
+
     if let Some(password) = password {
         let password = password.as_ref();
         if password.len() < MIN_PASSWORD_LENGTH || password.len() > MAX_PASSWORD_LENGTH {
             return Err(AccountError::Generic(format!("Password must be between {} and {} characters", MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH)));
+        }
+
+        if password.contains(' ') {
+            return Err(AccountError::Generic("Password cannot contain spaces".to_string()));
         }
     }
 

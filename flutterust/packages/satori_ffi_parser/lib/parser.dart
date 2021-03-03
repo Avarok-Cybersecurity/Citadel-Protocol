@@ -1,5 +1,7 @@
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/root/domain_specific.dart';
+import 'package:satori_ffi_parser/types/root/fcm_ticket.dart';
+import 'package:satori_ffi_parser/types/root/kernel_shutdown.dart';
 
 import 'types/kernel_response.dart';
 import 'package:optional/optional.dart';
@@ -54,9 +56,11 @@ class FFIParser {
 
         case KernelResponseType.Error:
           return ErrorKernelResponse.tryFrom(infoNode, mapBase64Strings);
+        case KernelResponseType.ResponseFcmTicket:
+          return FcmTicketResponse.tryFrom(infoNode);
 
         case KernelResponseType.KernelShutdown:
-
+          return KernelShutdown.tryFrom(infoNode, mapBase64Strings);
       }
 
     } catch (e) {

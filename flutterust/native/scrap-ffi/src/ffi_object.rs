@@ -68,6 +68,8 @@ impl FFIObject {
                 hyxewave::ffi::ffi_entry::execute_lusna_kernel(args, to_ffi_frontier.clone())
             {
                 log::error!("Err executing kernel: {:?}", &err);
+                *FFI_STATIC.lock() = None;
+
                 (to_ffi_frontier)(Ok(Some(KernelResponse::KernelShutdown(
                     err.into_string().into_bytes(),
                 ))))
