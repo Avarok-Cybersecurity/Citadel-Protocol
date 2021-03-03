@@ -439,6 +439,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                                             }
 
                                             Err(err) => {
+                                                log::warn!("Unable to return accept/deny request packet: {:?}", &err);
                                                 reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level)
                                             }
                                         }
@@ -481,6 +482,7 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                                     }
 
                                     Err(err) => {
+                                        log::warn("Unable to post-register: {:?}", &err);
                                         reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level)
                                     }
                                 }
