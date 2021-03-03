@@ -7,7 +7,7 @@ use crate::command_handlers::connect::ConnectResponse;
 use crate::command_handlers::disconnect::DisconnectResponse;
 use crate::command_handlers::list_accounts::ActiveAccounts;
 use crate::command_handlers::list_sessions::ActiveSessions;
-use crate::command_handlers::peer::{PeerList, PostRegisterRequest, PostRegisterResponse};
+use crate::command_handlers::peer::{PeerList, PostRegisterRequest, PostRegisterResponse, PeerMutuals};
 use crate::command_handlers::register::RegisterResponse;
 use crate::console_error::ConsoleError;
 use ser::string;
@@ -57,6 +57,7 @@ pub enum KernelResponse {
     // ticket, implicated_cid, icid (0 if HyperLAN server), peer_cid
     NodeMessage(#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
     ResponseTicket(#[serde(serialize_with = "string")] u64),
+    ResponseFcmTicket(FcmTicket),
     ResponseHybrid(#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
     DomainSpecificResponse(DomainResponse),
     KernelShutdown(#[serde(with = "base64_string")] Vec<u8>),
@@ -79,6 +80,7 @@ pub enum DomainResponse {
     Connect(ConnectResponse),
     Disconnect(DisconnectResponse),
     PeerList(PeerList),
+    PeerMutuals(PeerMutuals),
     PostRegisterRequest(PostRegisterRequest),
     PostRegisterResponse(PostRegisterResponse),
     FcmMessage(FcmMessage),

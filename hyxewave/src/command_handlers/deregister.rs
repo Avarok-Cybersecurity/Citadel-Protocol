@@ -1,10 +1,16 @@
 use super::imports::*;
 
 #[allow(unused_results)]
-pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<Ticket>, ConsoleError> {
     let do_purge = matches.is_present("purge");
 
     if do_purge {
+        if ffi_io.is_some() {
+            ctx.disconnect_all(server_remote, false);
+            ctx.account_manager.purge();
+            return Ok(None);
+        }
+
         let value = INPUT_ROUTER.read_line(ctx, Some(|| colour::white!("Are you sure you wish to purge all users? [y/n]: ")));
         let value = value.to_lowercase();
 

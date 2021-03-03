@@ -3,7 +3,7 @@ use hyxe_user::client_account::HYPERLAN_IDX;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_user::fcm::kem::FcmPostRegister;
 use hyxe_user::fcm::fcm_packet_processor::FcmProcessorResult;
-use hyxe_user::fcm::data_structures::{base64_string, string};
+use hyxe_user::fcm::data_structures::{base64_string, string, FcmTicket};
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
@@ -14,9 +14,28 @@ pub struct PeerList {
     ticket: u64
 }
 
+#[derive(Debug, Serialize)]
+pub struct PeerMutuals {
+    #[serde(serialize_with = "string_vec")]
+    cids: Vec<u64>,
+    usernames: Vec<String>,
+    is_onlines: Vec<bool>,
+    fcm_reachable: Vec<bool>,
+    #[serde(with = "string")]
+    implicated_cid: u64,
+    #[serde(with = "string")]
+    ticket: u64
+}
+
 impl From<Ticket> for PeerList {
     fn from(ticket: Ticket) -> Self {
         Self { cids: Vec::new(), is_onlines: Vec::new(), ticket: ticket.0 }
+    }
+}
+
+impl From<(Ticket, u64)> for PeerMutuals {
+    fn from(this: (Ticket, u64)) -> Self {
+        Self { cids: Vec::new(), usernames: Vec::new(), is_onlines: Vec::new(), fcm_reachable: Vec::new(), implicated_cid: this.1, ticket: this.0.0 }
     }
 }
 
@@ -320,23 +339,38 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         }
 
         if let Some(_matches) = matches.subcommand_matches("mutuals") {
+            let cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Default("Session CNAC non-existant"))?;
             let get_consented_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None));
             let ticket = server_remote.unbounded_send(get_consented_request)?;
-            ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |ctx, ticket, success| {
+            ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |_ctx, ticket, success| {
                 match success {
                     PeerResponse::RegisteredCids(cids, online_status) => {
-                        // at least one user exists (the context user!)
                         if let Some(ref ffi_io) = ffi_io {
-                            let mut peer_list = PeerList::from(ticket);
-                            for (cid, is_online) in cids.into_iter().zip(online_status.into_iter()) {
-                                peer_list.cids.push(cid);
-                                peer_list.is_onlines.push(is_online);
-                            }
+                            let mut peer_mutuals = PeerMutuals::from((ticket, ctx_user));
+                            if cids.is_empty() {
+                                (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PeerMutuals(peer_mutuals)))));
+                            } else {
+                                cnac.visit(|cnac| {
+                                    log::info!("CNAC {} has {} mutuals", ctx_user, cnac.mutuals.len());
+                                    if let Some(hyperlan_peers) = cnac.mutuals.get_vec(&HYPERLAN_IDX) {
+                                        for (cid, is_online) in cids.into_iter().zip(online_status.into_iter()) {
+                                            let username = hyperlan_peers.iter().find(|peer| peer.cid == cid)
+                                                .map(|res| res.username.clone().unwrap_or_default()).unwrap_or_default();
+                                            peer_mutuals.cids.push(cid);
+                                            peer_mutuals.is_onlines.push(is_online);
+                                            peer_mutuals.usernames.push(username);
+                                            peer_mutuals.fcm_reachable.push(cnac.fcm_crypt_container.contains_key(&cid));
+                                        }
 
-                            (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PeerList(peer_list)))))
+                                        (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PeerMutuals(peer_mutuals)))))
+                                    } else {
+                                        // TODO: Resync process
+                                        log::warn!("Server returned a set of HyperLAN peers, but was not synced locally. Report to developers (server claims: {:?})", cids)
+                                    }
+                                })
+                            }
                         } else {
                             if cids.len() != 0 {
-                                let _: Option<()> = ctx.account_manager.visit_cnac(ctx_user, move |cnac| {
                                     cnac.visit(move |cnac| {
                                         if let Some(hyperlan_peers) = cnac.mutuals.get_vec(&HYPERLAN_IDX) {
                                             let mut table = Table::new();
@@ -353,10 +387,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                                         } else {
                                             printf_ln!(colour::red!("Server returned a set of HyperLAN peers, but was not synced locally. Report to developers\n"))
                                         }
-
-                                        None
-                                    })
-                                });
+                                    });
                             } else {
                                 printf_ln!(colour::yellow!("No other consensual users exist on the HyperLAN server\n"));
                             }
@@ -366,7 +397,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                     PeerResponse::Timeout => {
                         let resp = format!("Timeout on list ticket {}", ticket);
                         if let Some(ref ffi_io) = ffi_io {
-                            (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp.into_bytes()))))
+                            (ffi_io)(Ok(Some(KernelResponse::Error(ticket.0, resp.into_bytes()))))
                         } else {
                             printf_ln!(colour::red!("{}\n", resp));
                         }
@@ -375,7 +406,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                     _ => {
                         let resp = format!("GetMutualPeers (ticket {}) has failed", ticket);
                         if let Some(ref ffi_io) = ffi_io {
-                            (ffi_io)(Ok(Some(KernelResponse::ResponseHybrid(ticket.0, resp.into_bytes()))))
+                            (ffi_io)(Ok(Some(KernelResponse::Error(ticket.0, resp.into_bytes()))))
                         } else {
                             printf_ln!(colour::red!("{}\n", resp));
                         }
@@ -499,9 +530,13 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
                     res
                 });
+
+                return Ok(Some(KernelResponse::ResponseTicket(ticket.0)));
+            } else {
+                return Ok(Some(KernelResponse::ResponseFcmTicket(FcmTicket::new(ctx_user, target_cid, ticket.0))))
             }
 
-            return Ok(Some(KernelResponse::ResponseTicket(ticket.0)));
+
         }
 
         if let Some(matches) = matches.subcommand_matches("post-connect") {
@@ -559,7 +594,10 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             return Ok(Some(KernelResponse::ResponseTicket(ticket.0)));
         }
 
-        if let Some(matches) = matches.subcommand_matches("accept-register") {
+
+        if matches.subcommand_matches("accept-register").is_some() || matches.subcommand_matches("deny-register").is_some() {
+            let accept = matches.subcommand_matches("accept-register").is_some();
+            let matches = matches.subcommand_matches("accept-register").unwrap_or_else(|| matches.subcommand_matches("deny-register").unwrap());
             let use_fcm = matches.is_present("fcm");
 
             let mail_id_target = matches.value_of("mail_id").unwrap();
@@ -572,7 +610,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
             return if use_fcm {
                 let cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Default("Active session CNAC absent"))?;
-                let (fcm_post_register, ticket_id) = cnac.fcm_prepare_accept_register(mail_id as u64, true).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let (fcm_post_register, ticket_id) = cnac.fcm_prepare_accept_register(mail_id as u64, accept).map_err(|err| ConsoleError::Generic(err.into_string()))?;
                 let ticket = ticket_id.into();
                 let username = cnac.get_username();
                 let response = PeerResponse::Accept(Some(username.clone()));
@@ -580,7 +618,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                 let outbound_request = HdpServerRequest::PeerCommand(cnac.get_cid(), PeerSignal::PostRegister(vconn, username, Some(ticket), Some(response), fcm_post_register));
                 server_remote.send_with_custom_ticket(ticket, outbound_request).map_err(|err| ConsoleError::Generic(err.into_string()))?;
 
-                Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
+                Ok(Some(KernelResponse::ResponseFcmTicket(FcmTicket::new(mail_id as u64, ctx_user, ticket.0))))
             } else {
                 let mut write = ctx.unread_mail.write();
                 if let Some(request) = write.remove_request(mail_id) {
@@ -600,6 +638,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                     ctx.account_manager.register_hyperlan_p2p_at_endpoints(implicated_cid, peer_cid, &peer_username).map_err(|err| ConsoleError::Generic(err.into_string()))?;
 
                     // we MUST provide the username below
+                    // TODO: handle decline-register
                     let response = PeerResponse::Accept(Some(ctx_username.clone()));
                     // this handles the flipping of the signal
                     let outbound_request = request.prepare_response_assert_register(response, ctx_username).unwrap();
