@@ -62,6 +62,7 @@ pub enum KernelResponse {
     DomainSpecificResponse(DomainResponse),
     KernelShutdown(#[serde(with = "base64_string")] Vec<u8>),
     Error(#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
+    FcmError(FcmTicket, #[serde(with = "base64_string")] Vec<u8>)
 }
 
 impl KernelResponse {

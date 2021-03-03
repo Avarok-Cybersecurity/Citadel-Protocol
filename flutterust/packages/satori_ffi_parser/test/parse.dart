@@ -108,7 +108,7 @@ void main() {
       print("Success");
     });
 
-    test('error', () {
+    test('error-std', () {
       String errorTypeExample = "{\"type\":\"Error\",\"info\":[\"10\",\"User nologik.test is already an active session ...\"]}";
       print("Parsing: " + errorTypeExample);
       KernelResponse resp = FFIParser.tryFrom(errorTypeExample, mapBase64Strings: MessageParseMode.None).value;
@@ -116,6 +116,18 @@ void main() {
       expect(resp.getMessage().value, "User nologik.test is already an active session ...");
       assert(resp.getDSR().isEmpty);
       expect(resp.getTicket().value.id, u64.from(10));
+      print("Success");
+    });
+
+    test('fcm-error', () {
+      // {"type":"FcmError","info":[{"source_cid":"123","target_cid":"456","ticket":"789"},"SGVsbG8sIHdvcmxkIQ=="]}
+      String errorTypeExample = "{\"type\":\"FcmError\",\"info\":[{\"source_cid\":\"123\",\"target_cid\":\"456\",\"ticket\":\"789\"},\"SGVsbG8sIHdvcmxkIQ==\"]}";
+      print("Parsing: " + errorTypeExample);
+      KernelResponse resp = FFIParser.tryFrom(errorTypeExample, mapBase64Strings: MessageParseMode.UTF8).value;
+      assert(resp is ErrorKernelResponse);
+      expect(resp.getMessage().value, "Hello, world!");
+      assert(resp.getDSR().isEmpty);
+      expect(resp.getTicket().value, FcmTicket(u64.from(123), u64.from(456), u64.from(789)));
       print("Success");
     });
 

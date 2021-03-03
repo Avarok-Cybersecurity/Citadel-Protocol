@@ -31,9 +31,9 @@ class FFIParser {
       String typeString = outerNode["type"];
 
       KernelResponseType type = KernelResponseType.values.firstWhere((element) => element.toString().split('.')[1] == typeString);
-      print("Found type: " + type.toString());
+      print("[Parser] Found type: " + type.toString());
       var infoNode = outerNode["info"];
-      print("infoNode: " + infoNode.toString());
+      print("[Parser] infoNode: " + infoNode.toString());
 
       switch (type) {
         case KernelResponseType.Confirmation:
@@ -55,7 +55,11 @@ class FFIParser {
           return DomainSpecificResponse.tryFrom(infoNode, mapBase64Strings).map((dsr) => DomainSpecificKernelResponse(dsr));
 
         case KernelResponseType.Error:
-          return ErrorKernelResponse.tryFrom(infoNode, mapBase64Strings);
+          return ErrorKernelResponse.tryFromStd(infoNode, mapBase64Strings);
+
+        case KernelResponseType.FcmError:
+          return ErrorKernelResponse.tryFromFcm(infoNode, mapBase64Strings);
+
         case KernelResponseType.ResponseFcmTicket:
           return FcmTicketResponse.tryFrom(infoNode);
 
