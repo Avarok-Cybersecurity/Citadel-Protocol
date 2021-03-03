@@ -421,16 +421,16 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                     // if the peer response is some, then HyperLAN Client B responded
                     if let Some(peer_response) = peer_response {
                         match fcm {
-                            FcmPostRegister::BobToAliceTransfer(transfer, fcm_keys, inscribed_local_cid) => {
+                            tx @ FcmPostRegister::BobToAliceTransfer(..) | tx @ FcmPostRegister::Disable => {
                                 // Now, register the two account together
                                 let sess_mgr = session.session_manager.clone();
 
                                 match session.account_manager.register_hyperlan_p2p_as_server(peer_conn_type.get_original_implicated_cid(), peer_conn_type.get_original_target_cid()) {
                                     Ok(_) => {
-                                        let res = session.session_manager.fcm_post_register_to(header.session_cid.get(), peer_conn_type.get_original_target_cid(), true,move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid,FcmPostRegister::BobToAliceTransfer(transfer, fcm_keys, inscribed_local_cid), username) },
-                                                                                      move |res| {
-                                                                                          post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
-                                                                                      });
+                                        let res = session.session_manager.fcm_post_register_to(header.session_cid.get(), peer_conn_type.get_original_target_cid(), true, move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, tx, username) },
+                                                                                               move |res| {
+                                                                                                   post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
+                                                                                               });
 
                                         match res {
                                             Ok(_) => {
@@ -471,11 +471,11 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                                 let implicated_cid = header.session_cid.get();
                                 let sess_mgr = session.session_manager.clone(); // we must clone since the session may end after the FCM send occurs. We don't want to hold a strong ref
 
-                                let res = session.session_manager.fcm_post_register_to(implicated_cid, target_cid, false,move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, fcm, username) }, move |res| {
+                                let res = session.session_manager.fcm_post_register_to(implicated_cid, target_cid, false, move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, fcm, username) }, move |res| {
                                     post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
                                 });
 
-                                return match res {
+                                match res {
                                     Ok(_) => {
                                         // We won't reply until AFTER the fcm message send
                                         PrimaryProcessorResult::Void
@@ -497,7 +497,8 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                 }
 
                 PeerConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, _target_cid) => {
-                    log::warn!("HyperWAN functionality not implemented")
+                    log::warn!("HyperWAN functionality not implemented");
+                    PrimaryProcessorResult::Void
                 }
             }
         }

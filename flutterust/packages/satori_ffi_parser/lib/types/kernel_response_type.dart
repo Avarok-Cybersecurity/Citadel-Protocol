@@ -6,6 +6,7 @@ enum KernelResponseType {
   ResponseHybrid,
   NodeMessage,
   DomainSpecificResponse,
+  FcmError,
   Error,
   KernelShutdown
 }

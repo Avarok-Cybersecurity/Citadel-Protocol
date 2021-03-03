@@ -1,5 +1,7 @@
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/parser.dart';
+import 'package:satori_ffi_parser/types/fcm_ticket.dart';
+import 'package:satori_ffi_parser/types/ticket.dart';
 
 import '../domain_specific_response.dart';
 import '../kernel_response.dart';
@@ -7,10 +9,10 @@ import '../kernel_response_type.dart';
 import '../standard_ticket.dart';
 
 class ErrorKernelResponse extends KernelResponse {
-  Optional<StandardTicket> ticket;
+  Optional<Ticket> ticket;
   String message;
 
-  ErrorKernelResponse(Optional<StandardTicket> ticket, String message) {
+  ErrorKernelResponse._(Optional<Ticket> ticket, String message) {
     this.ticket = ticket;
     this.message = message;
   }
@@ -26,7 +28,7 @@ class ErrorKernelResponse extends KernelResponse {
   }
 
   @override
-  Optional<StandardTicket> getTicket() {
+  Optional<Ticket> getTicket() {
      return this.ticket;
   }
 
@@ -36,13 +38,23 @@ class ErrorKernelResponse extends KernelResponse {
   }
 
   // String ErrorTypeExample = "{\"type\":\"Error\",\"info\":[\"10\",\"User nologik.test is already an active session ...\"]}";
-  static Optional<KernelResponse> tryFrom(List<dynamic> infoNode, MessageParseMode mapBase64Strings) {
+  static Optional<KernelResponse> tryFromStd(List<dynamic> infoNode, MessageParseMode mapBase64Strings) {
     if (infoNode.length != 2) {
       return Optional.empty();
     } else {
       String id = infoNode[0];
       String message = mapBase64(infoNode[1], mapBase64Strings);
-      return Optional.of(ErrorKernelResponse(StandardTicket.tryFrom(id), message));
+      return Optional.of(ErrorKernelResponse._(StandardTicket.tryFrom(id), message));
+    }
+  }
+
+  static Optional<KernelResponse> tryFromFcm(List<dynamic> infoNode, MessageParseMode mapBase64Strings) {
+    try {
+      FcmTicket ticket = FcmTicket.tryFromMap(infoNode[0]).value;
+      String message = mapBase64(infoNode[1], mapBase64Strings);
+      return Optional.of(ErrorKernelResponse._(Optional.of(ticket), message));
+    } catch(e) {
+      return Optional.empty();
     }
   }
 }
