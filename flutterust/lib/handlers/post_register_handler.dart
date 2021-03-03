@@ -1,4 +1,6 @@
 
+import 'package:flutter/material.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/utils.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
@@ -13,11 +15,15 @@ class PostRegisterHandler implements AbstractHandler {
   PostRegisterHandler(this.peerCid);
 
   @override
-  void onConfirmation(KernelResponse kernelResponse) {}
+  CallbackStatus onConfirmation(KernelResponse kernelResponse) {
+    EasyLoading.showInfo("Request sent. Please wait for the user to confirm ...", dismissOnTap: true);
+    return CallbackStatus.Pending;
+  }
 
   @override
-  void onErrorReceived(ErrorKernelResponse kernelResponse) {
+  void onErrorReceived(ErrorKernelResponse kernelResponse) async {
     print("[PostRegisterHandler] Error received: " + kernelResponse.message);
+    await EasyLoading.showError(kernelResponse.message, dismissOnTap: true);
   }
 
   @override
@@ -33,5 +39,4 @@ class PostRegisterHandler implements AbstractHandler {
       return CallbackStatus.Pending;
     }
   }
-
 }

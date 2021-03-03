@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 
@@ -51,8 +51,21 @@ pub struct HdpSessionManagerInner {
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [HdpSessionManager] and thereafter placed inside an appropriate session
     provisional_connections: HashMap<SocketAddr, HdpSession>,
+    fcm_post_registrations: HashSet<FcmPeerRegisterTicket>,
     kernel_tx: UnboundedSender<HdpServerResult>,
     time_tracker: TimeTracker
+}
+
+#[derive(Copy, Clone, Hash, Eq, PartialEq)]
+struct FcmPeerRegisterTicket {
+    initiator: u64,
+    receiver: u64
+}
+
+impl FcmPeerRegisterTicket {
+    fn create_bidirectional(a: u64, b: u64) -> (Self, Self) {
+        (FcmPeerRegisterTicket { initiator: a, receiver: b }, FcmPeerRegisterTicket { initiator: b, receiver: a })
+    }
 }
 
 impl HdpSessionManager {
@@ -60,6 +73,7 @@ impl HdpSessionManager {
     pub fn new(local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, account_manager: AccountManager, time_tracker: TimeTracker) -> Self {
         let incoming_cxn_count = 0;
         let inner = HdpSessionManagerInner {
+            fcm_post_registrations: Default::default(),
             hypernode_peer_layer: Default::default(),
             server_remote: None,
             local_node_type,
@@ -482,6 +496,49 @@ impl HdpSessionManager {
     ///
     /// Since the user may or may not be online, we use the static aux ratchet
     #[allow(unused_results)]
+    pub fn fcm_post_register_to(&self, implicated_cid: u64, peer_cid: u64, is_response: bool, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
+        let mut this = inner_mut!(self);
+        if implicated_cid != peer_cid {
+            let tickets = FcmPeerRegisterTicket::create_bidirectional(implicated_cid, peer_cid);
+            if !is_response {
+                if this.fcm_post_registrations.contains(&tickets.0) || this.fcm_post_registrations.contains(&tickets.1) {
+                    return Err(NetworkError::InvalidExternalRequest("A concurrent registration request between the two peers is already occurring"))
+                }
+            }
+
+            let peer_cnac = this.account_manager.get_client_by_cid(peer_cid).ok_or(NetworkError::InvalidExternalRequest("Peer CID does not exist"))?;
+            peer_cnac.visit(|inner| {
+                let fcm_instance = FCMInstance::new(inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Client cannot receive FCM messages at this time"))?, this.account_manager.fcm_client().clone());
+                let packet = packet_crafter(inner.crypt_container.toolset.get_static_auxiliary_ratchet());
+
+                if is_response {
+                    // remove the tickets
+                    this.fcm_post_registrations.remove(&tickets.0);
+                    this.fcm_post_registrations.remove(&tickets.1);
+                } else {
+                    // add the tickets
+                    this.fcm_post_registrations.insert(tickets.0);
+                    this.fcm_post_registrations.insert(tickets.1);
+                }
+
+                let task = async move {
+                    on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()))
+                };
+
+                spawn!(task);
+                Ok(())
+            })
+        } else {
+            Err(NetworkError::InvalidExternalRequest("implicated cid == peer_cid"))
+        }
+    }
+
+    /// Sends to user, but does not block. Once the send is complete, will run ``on_send_complete``, which gives the sender the option to return a packet back to the initiator
+    ///
+    /// This is usually to send packets to another client who may or may not have an endpoint crypt container yet. It doesn't matter here, since we're only using the base ratchet
+    ///
+    /// Since the user may or may not be online, we use the static aux ratchet
+    #[allow(unused_results)]
     pub fn fcm_send_to(&self, implicated_cid: u64, peer_cid: u64, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
         let this = inner!(self);
         if implicated_cid != peer_cid {
@@ -489,6 +546,7 @@ impl HdpSessionManager {
             peer_cnac.visit(|inner| {
                 let fcm_instance = FCMInstance::new(inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Client cannot receive FCM messages at this time"))?, this.account_manager.fcm_client().clone());
                 let packet = packet_crafter(inner.crypt_container.toolset.get_static_auxiliary_ratchet());
+
                 let task = async move {
                     on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()))
                 };

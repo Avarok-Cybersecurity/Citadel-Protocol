@@ -13,18 +13,20 @@ class RegisterHandler implements AbstractHandler {
   RegisterHandler(this.info);
 //224533
   @override
-  void onConfirmation(KernelResponse kernelResponse) async {
-    if (kernelResponse.getTicket().isPresent) {
-      print("Showing loader");
-      //await EasyLoading.show();
-    }
+  CallbackStatus onConfirmation(KernelResponse kernelResponse) {
+    return CallbackStatus.Pending;
   }
 
   @override
   void onErrorReceived(ErrorKernelResponse kernelResponse) async {
     await EasyLoading.dismiss();
     print("[Register Handler] Registration failed: " + kernelResponse.message);
-    this.info.sendPort.send(RegisterUISignal(RegisterUpdateSignalType.RegisterFailure, message: kernelResponse.getMessage().orElse("Unable to register (unknown)")));
+    onError(kernelResponse.message);
+  }
+
+  void onError(String err) async {
+    await EasyLoading.dismiss();
+    this.info.sendPort.send(RegisterUISignal(RegisterUpdateSignalType.RegisterFailure, message: err));
   }
 
   @override
@@ -37,7 +39,7 @@ class RegisterHandler implements AbstractHandler {
         ClientNetworkAccount.resyncClients();
         this.info.sendPort.send(RegisterUISignal(RegisterUpdateSignalType.RegisterSuccess, message: kernelResponse.getMessage().orElse("Successfully registered!")));
       } else {
-        this.onErrorReceived(kernelResponse);
+        this.onError(kernelResponse.getMessage().value);
       }
     } else {
       print("Invalid DSR type!");

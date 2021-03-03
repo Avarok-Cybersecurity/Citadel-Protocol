@@ -12,9 +12,10 @@ import 'package:flutterust/themes/default.dart';
 import '../utils.dart';
 
 class LoginScreen extends StatefulWidget {
+  static const String routeName = "/login";
   static const int IDX = 0;
 
-  LoginScreen({Key key}) : super(key: key);
+  const LoginScreen({Key key}) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _LoginScreen();

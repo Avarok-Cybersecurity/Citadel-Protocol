@@ -3,8 +3,7 @@
 use crate::ffi_object::load_and_execute_ffi_static;
 use ffi_helpers::null_pointer_check;
 use hyxewave::ffi::KernelResponse;
-use hyxewave::re_exports::{const_mutex, AccountManager, PRIMARY_PORT};
-use parking_lot::Mutex;
+use hyxewave::re_exports::{AccountManager, PRIMARY_PORT};
 use std::ffi::CString;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -55,7 +54,7 @@ pub extern "C" fn load_page(port: i64, home_dir: *const raw::c_char) -> i32 {
     load_and_execute_ffi_static(port, cstr!(home_dir))
 }
 
-static BACKGROUND_PROCESSOR_INSTANCE: Mutex<Option<AccountManager>> = const_mutex(None);
+//static BACKGROUND_PROCESSOR_INSTANCE: Mutex<Option<AccountManager>> = const_mutex(None);
 #[no_mangle]
 /// Meant to be executed by background isolates needing access to the account manager (e.g., FCM)
 pub unsafe extern "C" fn background_processor(
@@ -75,41 +74,34 @@ pub unsafe extern "C" fn background_processor(
         return kernel_response_into_raw(&*("fcm-process ".to_string() + packet));
     }
 
-    let mut lock = BACKGROUND_PROCESSOR_INSTANCE.lock();
-    if lock.is_none() {
-        // setup
-        log::info!("[Rust BG processor] Setting up background processor ...");
-        // TODO: Since it's possible this gets called multiple times per program (for whatever reason), make sure that the CNAC gets
-        // saved after EVERY alteration made to a CNAC in processor
-        match AccountManager::new_local(
-            SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),
-            Some(home_dir.to_string()),
-        ) {
-            Ok(acc_mgr) => {
-                log::info!("[Rust BG processor] Success setting-up account manager");
-                *lock = Some(acc_mgr);
-            }
-
-            Err(err) => {
-                let err = err.to_string();
-                return CString::new(
-                    KernelResponse::Error(0, err.into_bytes())
-                        .serialize_json()
-                        .unwrap(),
-                )
+    // setup account manager. We MUST reload each time this gets called, because the main instance may have
+    // experienced changes that wouldn't otherwise register in this background isolate
+    log::info!("[Rust BG processor] Setting up background processor ...");
+    match AccountManager::new_local(
+        SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),
+        Some(home_dir.to_string()),
+    ) {
+        Ok(acc_mgr) => {
+            log::info!("[Rust BG processor] Success setting-up account manager");
+            let fcm_res = KernelResponse::from(
+                hyxewave::re_exports::fcm_packet_processor::blocking_process(packet, &acc_mgr),
+            );
+            CString::new(fcm_res.serialize_json().unwrap())
                 .unwrap()
-                .into_raw();
-            }
+                .into_raw()
+        }
+
+        Err(err) => {
+            let err = err.to_string();
+            return CString::new(
+                KernelResponse::Error(0, err.into_bytes())
+                    .serialize_json()
+                    .unwrap(),
+            )
+            .unwrap()
+            .into_raw();
         }
     }
-
-    let acc_mgr = lock.as_ref().unwrap();
-    let fcm_res = KernelResponse::from(
-        hyxewave::re_exports::fcm_packet_processor::blocking_process(packet, acc_mgr),
-    );
-    CString::new(fcm_res.serialize_json().unwrap())
-        .unwrap()
-        .into_raw()
 }
 
 #[no_mangle]

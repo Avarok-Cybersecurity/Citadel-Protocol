@@ -11,9 +11,10 @@ import 'package:flutter_easyloading/flutter_easyloading.dart';
 import '../utils.dart';
 
 class RegisterScreen extends StatefulWidget {
+  static const String routeName = '/register';
   static const int IDX = 1;
 
-  RegisterScreen({Key key}) : super(key: key);
+  const RegisterScreen({Key key}) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _RegisterScreen();
@@ -67,6 +68,11 @@ class _RegisterScreen extends State<RegisterScreen> {
       case RegisterUpdateSignalType.RegisterSuccess:
         await EasyLoading.dismiss();
         await EasyLoading.showSuccess(signal.message, dismissOnTap: true);
+        break;
+
+      case RegisterUpdateSignalType.BadPassword:
+        await EasyLoading.dismiss();
+        await EasyLoading.showError(signal.message, dismissOnTap: true);
         break;
 
       default: return;
@@ -140,7 +146,7 @@ class _RegisterScreen extends State<RegisterScreen> {
 
     if (this.passwordController.text != this.password2Controller.text) {
       print("Passwords are NOT equal");
-      sendPort.send(RegisterUpdateSignalType.BadPassword);
+      sendPort.send(RegisterUISignal(RegisterUpdateSignalType.BadPassword));
     } else {
       print("Passwords are equal");
       await EasyLoading.show();

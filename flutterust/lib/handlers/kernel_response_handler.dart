@@ -2,14 +2,20 @@ import 'dart:collection';
 
 import 'package:flutterust/database_handler.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
+import 'package:flutterust/main.dart';
+import 'package:flutterust/screens/session/home.dart';
+import 'package:flutterust/screens/session/session_subscreens/post_register_invitation.dart';
 import 'package:flutterust/utils.dart';
 import 'package:satori_ffi_parser/parser.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
+import 'package:satori_ffi_parser/types/dsr/disconnect_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/post_register_request.dart';
 import 'package:satori_ffi_parser/types/root/error.dart';
+import 'package:satori_ffi_parser/types/root/kernel_shutdown.dart';
+import 'package:satori_ffi_parser/types/root/message.dart';
 import 'package:satori_ffi_parser/types/root/node_message.dart';
 import 'package:satori_ffi_parser/types/ticket.dart';
 
@@ -21,13 +27,22 @@ class KernelResponseHandler {
   /// If set to false, then an inbound ticket can indefinitely trigger the callback, so long as the callback continues to exist (useful for peer channels, groups, file-transfers, etc)
   static void handleFirstCommand(KernelResponse kernelResponse, { AbstractHandler handler = const DefaultHandler(), bool oneshot = true}) {
     kernelResponse.setCallbackAction(handler.onTicketReceived); // by DEFAULT, this runs when handleRustKernelMessage executes
+    kernelResponse.setOneshot(oneshot);
 
     // TODO: Handle DSRs, as we get results on first command response
     switch (kernelResponse.getType()) {
       case KernelResponseType.ResponseTicket:
       case KernelResponseType.ResponseHybrid:
-        pendingTickets.putIfAbsent(kernelResponse.getTicket().value, () => kernelResponse);
-        handler.onConfirmation(kernelResponse);
+      case KernelResponseType.ResponseFcmTicket:
+        switch (handler.onConfirmation(kernelResponse)) {
+          case CallbackStatus.Pending:
+            pendingTickets[kernelResponse.getTicket().value] = kernelResponse;
+            break;
+
+          default:
+            print("onConfirmation implied completion of task. Will not store into hashmap");
+        }
+
         break;
 
       case KernelResponseType.Error:
@@ -69,13 +84,7 @@ class KernelResponseHandler {
         }
       } else {
         print("Ticket " + message.getTicket().value.toString() + " did not map to an expected kernel response. Maybe relevant");
-
-        if (message.getType() == KernelResponseType.NodeMessage) {
-          NodeMessageKernelResponse resp = message;
-          String username = (await ClientNetworkAccount.getUsernameByCid(resp.cid)).value;
-          // TODO: map CIDs to Usernames
-          Utils.pushNotification("Message for " + username, resp.message);
-        }
+        handleUnexpectedSignal(message);
       }
     } else {
       // no ticket present; we don't interact with the message through callbacks. We need another way to handle these messages
@@ -84,26 +93,47 @@ class KernelResponseHandler {
     }
   }
 
-  static void handleUnexpectedSignal(KernelResponse message) {
+  static void handleUnexpectedSignal(KernelResponse message) async {
     if (message.getDSR().isPresent) {
-      return handleDSR(message.getDSR().value);
+      return handleUnexpectedDSR(message.getDSR().value);
     }
 
-    if (message.getType() == KernelResponseType.NodeMessage) {
-      print("Message received, but no callback action yet");
-    }
+    switch (message.getType()) {
+      case KernelResponseType.Message:
+        MessageKernelResponse resp = message;
+        print("Received kernel message: " + resp.message);
+        break;
 
-    if (message is ErrorKernelResponse) {
-      print("Error: " + message.message);
+      case KernelResponseType.NodeMessage:
+        NodeMessageKernelResponse resp = message;
+        String username = (await ClientNetworkAccount.getUsernameByCid(resp.cid)).value;
+        // TODO: route to chat screen/
+        Utils.pushNotification("Message for " + username, resp.message);
+        break;
+        
+      case KernelResponseType.Error:
+        ErrorKernelResponse eRsp = message;
+        print("ERR: " + eRsp.message);
+        break;
+
+      case KernelResponseType.KernelShutdown:
+        KernelShutdown shutdown = message;
+        print("The kernel has been shut down. Reason: ${shutdown.message}");
+        RustSubsystem.init(force: true);
     }
   }
 
-  static void handleDSR(DomainSpecificResponse dsr) {
+  static void handleUnexpectedDSR(DomainSpecificResponse dsr) async {
     switch (dsr.getType()) {
       case DomainSpecificResponseType.PostRegisterRequest:
         PostRegisterRequest req = dsr;
-        Utils.pushNotification("Peer request from " + req.username, req.username + " would like to connect to " + req.implicatedCid.toString());
+        String username = (await ClientNetworkAccount.getUsernameByCid(req.implicatedCid)).value;
+        Utils.pushNotification("Peer request from " + req.username, req.username + " would like to connect to " + username, route: PostRegisterInvitation.routeName, arguments: req);
         return;
+
+      case DomainSpecificResponseType.Disconnect:
+        (HomePage.screens[SessionHomeScreen.IDX] as SessionHomeScreen).sendPort.send(dsr);
+        break;
 
       default:
         print("Unaccounted DSR message type");
@@ -127,8 +157,9 @@ class DefaultHandler implements AbstractHandler {
   }
 
   @override
-  void onConfirmation(KernelResponse kernelResponse) {
+  CallbackStatus onConfirmation(KernelResponse kernelResponse) {
     print("Default handler triggered. Confirmation for " + kernelResponse.getTicket().toString());
+    return CallbackStatus.Pending;
   }
 
 }

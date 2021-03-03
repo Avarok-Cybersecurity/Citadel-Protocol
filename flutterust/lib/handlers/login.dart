@@ -40,7 +40,9 @@ class LoginHandler implements AbstractHandler {
   }
 
   @override
-  void onConfirmation(KernelResponse kernelResponse) {}
+  CallbackStatus onConfirmation(KernelResponse kernelResponse) {
+    return CallbackStatus.Pending;
+  }
 
 
 }

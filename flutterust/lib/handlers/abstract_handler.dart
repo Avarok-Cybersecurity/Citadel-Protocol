@@ -4,7 +4,7 @@ import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/root/error.dart';
 
 abstract class AbstractHandler {
-  void onConfirmation(KernelResponse kernelResponse);
+  CallbackStatus onConfirmation(KernelResponse kernelResponse);
   CallbackStatus onTicketReceived(KernelResponse kernelResponse);
   void onErrorReceived(ErrorKernelResponse kernelResponse);
 

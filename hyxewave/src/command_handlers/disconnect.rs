@@ -16,11 +16,9 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     }
 
     let account = matches.value_of("account").unwrap();
-    let cnac = ctx.account_manager.get_client_by_username(account)
-        .ok_or_else(|| ConsoleError::Generic(format!("Username {} does not exist", account)))?;
+    let cnac = get_cid_from_str(&ctx.account_manager, account)?;
     let cid = cnac.get_id();
 
-    // TODO: Handle WAN connection types
     let ticket = ctx.disconnect_session(cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), server_remote)?;
     printf_ln!(colour::green!("Successfully initiated disconnect sequence for {} (CID: {})\n", account, cid));
     Ok(Some(ticket))

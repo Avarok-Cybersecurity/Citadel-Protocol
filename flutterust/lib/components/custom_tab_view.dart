@@ -17,7 +17,7 @@ class CustomTabView extends StatefulWidget {
     this.stub,
     this.onPositionChange,
     this.onScroll,
-    this.initPosition,
+    this.initPosition
   });
 
   @override

@@ -7,6 +7,7 @@ enum DomainSpecificResponseType {
   FcmMessageReceived,
   GetAccounts,
   PeerList,
+  PeerMutuals,
   Register,
   Connect,
   Disconnect

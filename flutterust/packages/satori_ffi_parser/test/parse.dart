@@ -11,6 +11,7 @@ import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/root/domain_specific.dart';
 import 'package:satori_ffi_parser/types/root/error.dart';
 import 'package:satori_ffi_parser/types/root/hybrid.dart';
+import 'package:satori_ffi_parser/types/root/kernel_shutdown.dart';
 import 'package:satori_ffi_parser/types/root/message.dart';
 import 'package:satori_ffi_parser/types/root/node_message.dart';
 import 'package:satori_ffi_parser/types/standard_ticket.dart';
@@ -60,6 +61,28 @@ void main() {
       expect(ticket.sourceCid, u64.tryFrom("123").value);
       expect(ticket.targetCid, u64.tryFrom("456").value);
       expect(ticket.ticket, u64.tryFrom("789").value);
+    });
+
+    test('fcm-ticket', () {
+      String str = "{\"type\":\"ResponseFcmTicket\",\"info\":{\"source_cid\":\"123\",\"target_cid\":\"456\",\"ticket\":\"789\"}}";
+      print("Parsing: " + str);
+      KernelResponse resp = FFIParser.tryFrom(str).value;
+
+      FcmTicket ticket = resp.getTicket().value;
+      expect(ticket.sourceCid, u64.tryFrom("123").value);
+      expect(ticket.targetCid, u64.tryFrom("456").value);
+      expect(ticket.ticket, u64.tryFrom("789").value);
+    });
+
+    test('kernel-shutdown', () {
+      String messageTypeExample = "{\"type\":\"KernelShutdown\",\"info\":\"SGVsbG8sIHdvcmxkIQ==\"}";
+      print("Parsing: " + messageTypeExample);
+      KernelResponse resp = FFIParser.tryFrom(messageTypeExample).value;
+      assert(resp is KernelShutdown);
+      expect(resp.getMessage().value, "Hello, world!");
+      assert(resp.getDSR().isEmpty);
+      assert(resp.getTicket().isEmpty);
+      print("Success");
     });
 
     test('message', () {

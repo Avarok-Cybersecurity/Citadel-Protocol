@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutterust/main.dart';
 
 class AppRetainWidget extends StatelessWidget {
-  AppRetainWidget({Key key, this.child}) : super(key: key);
+  const AppRetainWidget({Key key, this.child}) : super(key: key);
 
   final Widget child;
 

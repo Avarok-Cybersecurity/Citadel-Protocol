@@ -292,6 +292,9 @@ pub mod clap_commands {
             .subcommand(SubCommand::with_name("accept-register").about("Consent to a registration request. Check the mailbox to see a list of registrations requesting consent")
                 .arg(Arg::with_name("mail_id").required(true).help("Mail item ID (or, peer CID if using --fcm)"))
                 .arg(Arg::with_name("fcm").long("fcm").required(false).takes_value(false)))
+            .subcommand(SubCommand::with_name("deny-register").about("Denies consent to a registration request")
+                .arg(Arg::with_name("mail_id").required(true).help("Mail item ID (or, peer CID if using --fcm)"))
+                .arg(Arg::with_name("fcm").long("fcm").required(false).takes_value(false)))
             .subcommand(SubCommand::with_name("accept-connect").about("Consent to a connection request. Check the mailbox to see a list of connections requesting consent")
                 .arg(Arg::with_name("mail_id").required(true).help("Mail item ID")))
             .subcommand(SubCommand::with_name("mail").about("Checks the mail (connection/registration consent requests, events, etc)")
@@ -483,7 +486,7 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
     }
 
     if let Some(matches) = matches.subcommand_matches("deregister") {
-        return crate::command_handlers::deregister::handle(matches, server_remote, ctx)
+        return crate::command_handlers::deregister::handle(matches, server_remote, ctx, ffi_io)
             .map(|_| Some(KernelResponse::Confirmation));
     }
 

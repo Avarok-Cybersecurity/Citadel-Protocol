@@ -5,11 +5,10 @@ import 'package:flutterust/components/app_retain_widget.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/screens/login.dart';
 import 'package:flutterust/screens/session/home.dart';
+import 'package:flutterust/screens/session/session_subscreens/post_register_invitation.dart';
+import 'package:flutterust/screens/settings.dart';
 import 'package:flutterust/utils.dart';
-import 'package:quiver/iterables.dart';
-import 'package:satori_ffi_parser/types/dsr/get_accounts_response.dart';
 import 'package:scrap/scrap.dart';
-import 'package:satori_ffi_parser/types/u64.dart';
 import 'components/fade_indexed_stack.dart';
 import 'database_handler.dart';
 import 'screens/register.dart';
@@ -23,7 +22,7 @@ void main() async {
   //await RustSubsystem.init();
   await RustSubsystem.init();
   Utils.initNotificationSubsystem();
-  Utils.pushNotification("title", "message");
+  //Utils.pushNotification("title", "message");
   await Utils.configureFCM();
   print("Done initializing FFI/Rust subsystem ...");
   runApp(MyApp());
@@ -32,8 +31,8 @@ void main() async {
 class RustSubsystem {
   static FFIBridge bridge;
 
-  static Future<void> init() async {
-    if (bridge == null) {
+  static Future<void> init({bool force = false}) async {
+    if (bridge == null || force) {
       print("Initializing FFI/Rust subsystem ...");
       RustSubsystem.bridge = FFIBridge();
       FFIBridge.setup();
@@ -45,22 +44,30 @@ class RustSubsystem {
 
 class MyApp extends StatelessWidget {
   static const APP_TITLE = 'Verisend';
-
+  final Widget main = AppRetainWidget(child: HomePage(APP_TITLE));
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: APP_TITLE,
       theme: defaultTheme(),
-      home: AppRetainWidget(
-        child: HomePage(APP_TITLE),
-      ),
       builder: EasyLoading.init(),
+      //home: main,
+      initialRoute: '/',
+      routes: {
+        '/': (context) => main,
+
+        RegisterScreen.routeName: (context) => const RegisterScreen(),
+        LoginScreen.routeName: (context) => const LoginScreen(),
+        SessionHomeScreen.routeName: (context) => SessionHomeScreen(),
+        PostRegisterInvitation.routeName: (content) => const PostRegisterInvitation()
+      },
     );
   }
 }
 
 class HomePage extends StatefulWidget {
   final String title;
+  static final List<Widget> screens = [const LoginScreen(), const RegisterScreen(), SessionHomeScreen(), const SettingsScreen()];
 
   HomePage(this.title, {Key key}) : super(key: key);
 
@@ -74,17 +81,6 @@ class MyHomePage extends State<HomePage> {
 
   MyHomePage(this.title) {
     print("CONSTRUCTING HOME PAGE");
-    // TODO: on first run, set to register instead of login screen
-    this.curIdx = LoginScreen.IDX;
-
-    AwesomeNotifications().actionStream.listen((receivedNotification) {
-      print("~~~ Received notification route ~~~");
-      /*Navigator.of(context).pushNamed(
-              '/NotificationPage',
-              arguments: { id: receivedNotification.id } // your page params. I recommend to you to pass all *receivedNotification* object
-          );*/
-      // TODO: Handle routes for notifications
-    });
   }
 
   @override
@@ -94,8 +90,20 @@ class MyHomePage extends State<HomePage> {
   }
 
   void onStart() async {
+    AwesomeNotifications().actionStream.listen((receivedNotification) {
+      String route = receivedNotification.payload["route"];
+      String key = receivedNotification.payload["arguments"];
+      dynamic content = Utils.notificationPayloads[key];
+
+      print("~~~ Received notification route to $route ~~~");
+      Navigator.of(context).pushNamed(
+          route,
+          arguments: content
+      );
+    });
+
     if ((await ClientNetworkAccount.resyncClients()) == 0) {
-      this.curIdx = RegisterScreen.IDX;
+      Navigator.pushNamed(context, RegisterScreen.routeName);
     }
   }
 
@@ -104,11 +112,7 @@ class MyHomePage extends State<HomePage> {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: FadeIndexedStack(
-        children: <Widget>[
-          LoginScreen(),
-          RegisterScreen(),
-          SessionHomeScreen()
-        ],
+        children: HomePage.screens,
         index: curIdx,
       ),
       drawer: Drawer(
@@ -125,54 +129,33 @@ class MyHomePage extends State<HomePage> {
                 color: primary(),
               ),
             ),
-            ListTile(
-              // login screen
-              title: Text(sidebarMenuItems[LoginScreen.IDX]),
-              onTap: () {
-                // Update the state of the app
-                // ...
-                // Then close the drawer
-                Navigator.pop(context);
-                if (this.curIdx != LoginScreen.IDX) {
-                  setState(() {
-                    this.curIdx = LoginScreen.IDX;
-                  });
-                }
-              },
-            ),
-            ListTile(
-              title: Text(sidebarMenuItems[RegisterScreen.IDX]),
-              onTap: () {
-                // Update the state of the app
-                // ...
-                // Then close the drawer
-                Navigator.pop(context);
-                if (this.curIdx != RegisterScreen.IDX) {
-                  setState(() {
-                    this.curIdx = RegisterScreen.IDX;
-                  });
-                }
-              },
-            ),
-            ListTile(
-              title: Text(sidebarMenuItems[SessionHomeScreen.IDX]),
-              onTap: () {
-                // Update the state of the app
-                // ...
-                // Then close the drawer
-                Navigator.pop(context);
-                if (this.curIdx != SessionHomeScreen.IDX) {
-                  setState(() {
-                    this.curIdx = SessionHomeScreen.IDX;
-                  });
-                }
-              },
-            ),
+            createMenuTile(LoginScreen.IDX, leading: Icon(Icons.login)),
+            createMenuTile(RegisterScreen.IDX, leading: Icon(Icons.app_registration)),
+            createMenuTile(SessionHomeScreen.IDX, leading: Icon(Icons.list)),
+            createMenuTile(SettingsScreen.IDX, leading: Icon(Icons.settings))
           ],
         ),
       ),
     );
   }
+  
+  ListTile createMenuTile(final int idx, {Widget leading}) {
+    return ListTile(
+      leading: leading,
+      title: Text(sidebarMenuItems[idx]),
+      onTap: () {
+        // Update the state of the app
+        // ...
+        // Then close the drawer
+        Navigator.pop(context);
+        if (this.curIdx != idx) {
+          setState(() {
+            this.curIdx = idx;
+          });
+        }
+      },
+    );
+  }
 }
 
-const List<String> sidebarMenuItems = ["Login", "Register", "Sessions"];
+const List<String> sidebarMenuItems = ["Login", "Register", "Sessions", "Device Settings"];

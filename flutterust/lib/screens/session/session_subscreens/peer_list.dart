@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
-import 'package:flutterust/handlers/login.dart';
-import 'package:flutterust/handlers/peer_list_handler.dart';
 import 'package:flutterust/handlers/post_register_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/themes/default.dart';
@@ -122,14 +120,14 @@ class PeerListView extends StatelessWidget {
     ];
   }
 
-  Icon createOnlineIcon() {
+  static Icon createOnlineIcon() {
     return const Icon(
         Icons.wifi,
         color: Colors.green
     );
   }
 
-  Icon createOfflineIcon() {
+  static Icon createOfflineIcon() {
     return const Icon(
         Icons.wifi_off,
         color: Colors.red
