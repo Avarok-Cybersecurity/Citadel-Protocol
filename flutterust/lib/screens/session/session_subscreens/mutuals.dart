@@ -18,36 +18,40 @@ class MutualsView extends StatelessWidget {
       child: Container(
         padding: EdgeInsets.all(10),
         child: SingleChildScrollView(
-          child: Container(
-              child: ListView(
-                  shrinkWrap: true,
-                  physics: NeverScrollableScrollPhysics(),
-                  children: generateList()
-              )
-          ),
+          child: generateWidget()
         ),
       ),
     );
   }
 
-  List<Widget> generateList() {
+  Widget generateWidget() {
     if (this.response.isPresent) {
-      var resp = this.response.value;
-      const image = NetworkImage('https://flutter.github.io/assets-for-api-docs/assets/widgets/owl.jpg');
-      return zip([resp.usernames, resp.is_onlines, resp.fcm_reachable, resp.cids]).map((e) {
-        return ListTile(
-          leading: CircleAvatar(
-            backgroundImage: image,
-          ),
-          subtitle: e[1] || e[2] ? PeerListView.createOnlineIcon() : PeerListView.createOfflineIcon(),
-          title: Text(e[0]),
-          trailing: Icon(Icons.keyboard_arrow_right),
-          onTap: () { onClick(e[0], e[3]); },
+      if (this.response.value.cids.isNotEmpty) {
+        var resp = this.response.value;
+        const image = const NetworkImage('https://flutter.github.io/assets-for-api-docs/assets/widgets/owl.jpg');
+        List<ListTile> tiles = zip([resp.usernames, resp.is_onlines, resp.fcm_reachable, resp.cids]).map((e) {
+          return ListTile(
+            leading: CircleAvatar(
+              backgroundImage: image,
+            ),
+            subtitle: e[1] || e[2] ? PeerListView.createOnlineIcon() : PeerListView.createOfflineIcon(),
+            title: Text(e[0]),
+            trailing: Icon(Icons.keyboard_arrow_right),
+            onTap: () { onClick(e[0], e[3]); },
+          );
+        }).toList(growable: false);
+
+        return Container(
+            child: ListView(
+                shrinkWrap: true,
+                physics: NeverScrollableScrollPhysics(),
+                children: tiles
+            )
         );
-      }).toList(growable: false);
-    } else {
-      return [];
+      }
     }
+
+    return Text("No mutually-consented peers. Find peers in 'Discover Network Contacts'");
   }
 
   void onClick(String username, u64 cid) {

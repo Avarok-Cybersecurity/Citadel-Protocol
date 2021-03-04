@@ -100,7 +100,7 @@ pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state
         }
 
         // Bob denied the request
-        FcmPostRegister::Disable => {
+        FcmPostRegister::Decline => {
             kem_state_containers.remove(&source_cid);
             FcmProcessorResult::Value(FcmResult::PostRegisterResponse { response: FcmPostRegisterResponse {
                 local_cid,
@@ -110,7 +110,8 @@ pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state
                 username
             }})
         }
-        FcmPostRegister::Enable => {
+        s @ FcmPostRegister::Enable | s @ FcmPostRegister::Disable => {
+            log::warn!("Received unexpected signal: {:?}", s);
             // We should never reach here
             FcmProcessorResult::Void
         }

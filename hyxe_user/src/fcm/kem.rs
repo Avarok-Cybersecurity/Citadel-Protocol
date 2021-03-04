@@ -6,6 +6,7 @@ use hyxe_crypt::fcm::fcm_ratchet::FcmBobToAliceTransfer;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum FcmPostRegister {
     Disable,
+    Decline,
     Enable,
     AliceToBobTransfer(#[serde(with = "serde_bytes")] Vec<u8>, FcmKeys, u64),
     BobToAliceTransfer(FcmBobToAliceTransfer, FcmKeys, u64)
@@ -17,6 +18,13 @@ impl PartialEq for FcmPostRegister {
             Self::Disable => {
                 match other {
                     Self::Disable => true,
+                    _ => false
+                }
+            }
+
+            Self::Decline => {
+                match other {
+                    Self::Decline => true,
                     _ => false
                 }
             }
