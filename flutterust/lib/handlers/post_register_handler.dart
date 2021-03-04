@@ -1,9 +1,12 @@
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
+import 'package:flutterust/screens/session/session_subscreens/post_register_invitation.dart';
 import 'package:flutterust/utils.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
+import 'package:satori_ffi_parser/types/dsr/post_register_request.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/root/error.dart';
 import 'package:satori_ffi_parser/types/dsr/post_register_response.dart';
@@ -36,6 +39,13 @@ class PostRegisterHandler implements AbstractHandler {
       return CallbackStatus.Complete;
     } else {
       print("[Post-register] DSR type not yet what's required ...");
+      if (kernelResponse.getDSR().isPresent) {
+        if (kernelResponse.getDSR().value is PostRegisterRequest) {
+          print("[DEBUG] received PostRegisterInvitation type, implying the initiator and recipient on the same node");
+          return CallbackStatus.Unexpected;
+        }
+      }
+
       return CallbackStatus.Pending;
     }
   }

@@ -424,28 +424,26 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
                             tx @ FcmPostRegister::BobToAliceTransfer(..) | tx @ FcmPostRegister::Disable => {
                                 // Now, register the two account together
                                 let sess_mgr = session.session_manager.clone();
+                                let disable = tx == FcmPostRegister::Disable;
+                                if !disable {
+                                    if let Err(err) = session.account_manager.register_hyperlan_p2p_as_server(peer_conn_type.get_original_implicated_cid(), peer_conn_type.get_original_target_cid()) {
+                                        return reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level);
+                                    }
+                                }
 
-                                match session.account_manager.register_hyperlan_p2p_as_server(peer_conn_type.get_original_implicated_cid(), peer_conn_type.get_original_target_cid()) {
+                                let res = session.session_manager.fcm_post_register_to(header.session_cid.get(), peer_conn_type.get_original_target_cid(), true, move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, tx, username) },
+                                                                                       move |res| {
+                                                                                           post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
+                                                                                       });
+
+                                match res {
                                     Ok(_) => {
-                                        let res = session.session_manager.fcm_post_register_to(header.session_cid.get(), peer_conn_type.get_original_target_cid(), true, move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, tx, username) },
-                                                                                               move |res| {
-                                                                                                   post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
-                                                                                               });
-
-                                        match res {
-                                            Ok(_) => {
-                                                // response will occur in the future via on_send_complete
-                                                PrimaryProcessorResult::Void
-                                            }
-
-                                            Err(err) => {
-                                                log::warn!("Unable to return accept/deny request packet: {:?}", &err);
-                                                reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level)
-                                            }
-                                        }
+                                        // response will occur in the future via on_send_complete
+                                        PrimaryProcessorResult::Void
                                     }
 
                                     Err(err) => {
+                                        log::warn!("Unable to return accept/deny request packet: {:?}", &err);
                                         reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level)
                                     }
                                 }

@@ -26,6 +26,7 @@ class KernelResponseHandler {
   /// `oneshot`: If oneshot is left as default, then once the ticket's callback is triggered, the callback will never again be called.
   /// If set to false, then an inbound ticket can indefinitely trigger the callback, so long as the callback continues to exist (useful for peer channels, groups, file-transfers, etc)
   static void handleFirstCommand(KernelResponse kernelResponse, { AbstractHandler handler = const DefaultHandler(), bool oneshot = true}) {
+    print("Handing first command for kResp w/ticket ${kernelResponse.getTicket()}");
     kernelResponse.setCallbackAction(handler.onTicketReceived); // by DEFAULT, this runs when handleRustKernelMessage executes
     kernelResponse.setOneshot(oneshot);
 
@@ -36,6 +37,11 @@ class KernelResponseHandler {
       case KernelResponseType.ResponseFcmTicket:
         switch (handler.onConfirmation(kernelResponse)) {
           case CallbackStatus.Pending:
+            if (pendingTickets.containsKey(kernelResponse.getTicket().value)) {
+              print("***WARNING*** PendingTickets already has a pre-existing entry. If this is a local debug test, this is expected when communicating between two clients on the same phone. Else, error");
+              return;
+            }
+
             pendingTickets[kernelResponse.getTicket().value] = kernelResponse;
             break;
 
@@ -55,7 +61,7 @@ class KernelResponseHandler {
   static void handleRustKernelRawMessage(String ffiPacket) {
     FFIParser.tryFrom(ffiPacket)
         .ifPresent(handleRustKernelMessage, orElse: () {
-          print("Unable to decode FFI Packet: " + ffiPacket);
+          print("***ERROR*** Unable to decode FFI Packet: " + ffiPacket);
     });
   }
 
@@ -74,10 +80,16 @@ class KernelResponseHandler {
         if (callback.isPresent) {
           switch (callback.value(message)) {
             case CallbackStatus.Complete:
+              print("Callback signalled completion. Removing from pending tickets ...");
               pendingTickets.remove(message.getTicket().value);
               break;
 
+            case CallbackStatus.Unexpected:
+              handleUnexpectedSignal(message);
+              break;
+
             default:
+              // if pending, then this can be triggered again
           }
         } else {
           print("No callback registered");
