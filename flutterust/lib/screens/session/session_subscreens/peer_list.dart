@@ -143,7 +143,7 @@ class PeerListView extends StatelessWidget {
   void onAddPressed(u64 cid) async {
     print("About to peer post-register to " + cid.toString());
     (await RustSubsystem.bridge.executeCommand("switch " + this.ctxCid.toString() + " peer post-register --fcm " + cid.toString()))
-    .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: PostRegisterHandler(cid)));
+    .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: PostRegisterHandler(cid), oneshot: false));
   }
 
   @override

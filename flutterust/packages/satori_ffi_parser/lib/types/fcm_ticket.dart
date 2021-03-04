@@ -10,6 +10,7 @@
 */
 
 import 'package:optional/optional.dart';
+import 'package:quiver/core.dart' show hash3;
 import 'package:satori_ffi_parser/types/ticket.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 
@@ -45,4 +46,7 @@ class FcmTicket extends Ticket {
 
   @override
   u64 get id => this.ticket;
+
+  @override
+  int get hashCode => hash3(this.ticket, this.sourceCid, this.targetCid);
 }

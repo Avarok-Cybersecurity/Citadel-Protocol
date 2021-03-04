@@ -512,7 +512,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             //log::info!("Checking through {} peers", hyperlan_peers.len());
             hyperlan_peers.iter().any(|peer| peer.cid == cid)
         } else {
-            log::info!("mutuals vec is missing the hyperlan idx");
+            log::info!("No mutuals registered on this accounts");
             false
         }
     }
@@ -520,7 +520,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Returns true if a registration is currently pending
     pub fn fcm_hyperlan_peer_registration_pending(&self, target_cid: u64) -> bool {
         let read = self.read();
-        read.fcm_crypt_container.contains_key(&target_cid)
+        read.kem_state_containers.contains_key(&target_cid) || read.fcm_invitations.contains_key(&target_cid)
     }
 
     /// Returns true if and only if all the peers in `peers` exist

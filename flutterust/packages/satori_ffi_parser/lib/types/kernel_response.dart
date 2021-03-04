@@ -38,7 +38,10 @@ abstract class KernelResponse {
 }
 
 /// A callback that returns complete will not be triggered again. A callback that returns Pending is not yet complete, and should not be removed from any registrars
+/// For debugging only when testing tickets that may or may not be on the same phone: unexpected. Allows a signal to be processed
+/// by the unexpected handler instead of the registered callback
 enum CallbackStatus {
   Complete,
-  Pending
+  Pending,
+  Unexpected
 }

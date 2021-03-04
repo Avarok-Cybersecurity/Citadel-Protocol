@@ -1090,7 +1090,7 @@ impl HdpSession {
                         }
 
                         // case 2: local just accepted, fcm is enabled. But, signal was not sent via FCM. Instead, was sent via normal network
-                        PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(c)), FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys, _this_cid)) => {
+                        PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys, _this_cid)) => {
                             let target_cid = vconn.get_original_target_cid();
                             let local_cid = inner.cid;
                             log::info!("[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
@@ -1104,7 +1104,7 @@ impl HdpSession {
                             // no state container, we just add the peer crypt container straight-away
                             inner.fcm_crypt_container.insert(target_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, fcm_keys)); // local is NOT initiator in this case
                             do_save = true;
-                            PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(c)), fcm_post_register)
+                            PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), fcm_post_register)
                         }
 
                         n => {

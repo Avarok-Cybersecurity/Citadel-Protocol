@@ -44,6 +44,7 @@ void main() {
       StandardTicket stdTicket2 = StandardTicket(u64.two);
       FcmTicket fcmTicket = FcmTicket(u64.one, u64.two, u64.MAX);
       FcmTicket fcmTicket2 = FcmTicket(u64.one, u64.two, u64.MAX);
+      expect(fcmTicket.hashCode, fcmTicket2.hashCode);
       assert(stdTicket.eq(stdTicket2));
       assert((stdTicket as Ticket).eq(stdTicket2 as Ticket));
       assert((stdTicket as Ticket).eq(stdTicket2));

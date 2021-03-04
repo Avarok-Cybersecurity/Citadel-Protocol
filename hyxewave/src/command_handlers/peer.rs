@@ -475,10 +475,14 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                         return CallbackStatus::TaskPending;
                     }
 
-                    PeerResponse::Accept(username) => {
+                    PeerResponse::Accept(None) => {
+                        return_err = Some(format!("Client {} did not accept your request", target_cid));
+                        CallbackStatus::TaskComplete
+                    }
+
+                    PeerResponse::Accept(Some(username)) => {
                         // note: FCM will never reach here
                         // TODO: Make the enums cleaner.
-                        let username = username.unwrap();
 
                         // TODO: pull this down to the networking layer to take responsibility off the kernel
                         if let Err(err) = ctx.account_manager.register_hyperlan_p2p_at_endpoints(ctx_user, target_cid, username.clone()) {
@@ -529,7 +533,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
                 // if we get here, request failed
                 if let Some(ref ffi_io) = ffi_io {
-                    let err_bytes = return_err.map(|res| res.into_bytes()).unwrap_or(Vec::with_capacity(0));
+                    let err_bytes = return_err.map(|res| res.into_bytes()).unwrap_or(Vec::from("Registration failed"));
                     let resp = if use_fcm { KernelResponse::FcmError(FcmTicket::new(ctx_user, target_cid, ticket.0), err_bytes) } else { KernelResponse::Error(ctx_user, err_bytes) };
                     (ffi_io)(Ok(Some(resp)))
                 }
@@ -602,9 +606,11 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         }
 
 
-        if matches.subcommand_matches("accept-register").is_some() || matches.subcommand_matches("deny-register").is_some() {
-            let accept = matches.subcommand_matches("accept-register").is_some();
-            let matches = matches.subcommand_matches("accept-register").unwrap_or_else(|| matches.subcommand_matches("deny-register").unwrap());
+        let accept_register_matches = matches.subcommand_matches("accept-register");
+        let deny_register_matches = matches.subcommand_matches("deny-register");
+        if accept_register_matches.is_some() || deny_register_matches.is_some() {
+            let accept = accept_register_matches.is_some();
+            let matches = accept_register_matches.unwrap_or_else(|| deny_register_matches.unwrap());
             let use_fcm = matches.is_present("fcm");
 
             let mail_id_target = matches.value_of("mail_id").unwrap();
