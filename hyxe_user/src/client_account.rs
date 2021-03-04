@@ -494,6 +494,15 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         });
     }
 
+    /// Deregisters two peers as server
+    #[allow(unused_results)]
+    pub fn deregister_hyperlan_p2p_as_server(&self, other: &ClientNetworkAccount) -> Result<(), AccountError> {
+        self.remove_hyperlan_peer(other.get_cid()).ok_or(AccountError::ClientNonExists(other.get_cid()))?;
+        other.remove_hyperlan_peer(self.get_cid()).ok_or(AccountError::Generic("Could not remove self from other cnac".to_string()))?;
+
+        Ok(())
+    }
+
     /// Returns the number of peers found
     pub fn view_hyperlan_peers(&self, mut fx: impl FnMut(&Vec<MutualPeer>)) -> usize {
         let read = self.read();
@@ -577,24 +586,16 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     pub fn remove_hyperlan_peer(&self, cid: u64) -> Option<MutualPeer> {
         let mut write = self.write();
         if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
-            if hyperlan_peers.len() != 0 {
-                let mut idx_to_remove = -1;
-                'search: for (idx, peer) in hyperlan_peers.iter().enumerate() {
-                    if peer.cid == cid {
-                        idx_to_remove = idx as isize;
-                        break 'search;
-                    }
-                }
+            if let Some(idx) = hyperlan_peers.iter().position(|peer| peer.cid == cid) {
+                let removed_peer = hyperlan_peers.remove(idx);
+                // now, remove the fcm just incase we're at the endpoints
+                write.fcm_crypt_container.remove(&cid);
+                std::mem::drop(write);
 
-                if idx_to_remove != -1 {
-                    let removed_peer = hyperlan_peers.remove(idx_to_remove as usize);
-                    // now, remove the fcm just incase
-                    write.fcm_crypt_container.remove(&cid);
-                    self.spawn_save_task_on_threadpool();
-                    return Some(removed_peer);
-                }
+                self.spawn_save_task_on_threadpool();
+                return Some(removed_peer);
             } else {
-                log::info!("Attempted to remove a HyperLAN Peer, but it doesn't exist!");
+                log::warn!("Peer {} not found within cnac {}", cid, write.cid);
             }
         }
 
@@ -607,28 +608,14 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let username = username.as_ref();
         let mut write = self.write();
         if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
-            let mut idx: isize = -1;
-            let mut cid = 0;
-            if hyperlan_peers.len() != 0 {
-                'search: for (vec_idx, peer) in hyperlan_peers.iter().enumerate() {
-                    if let Some(user) = peer.username.as_ref() {
-                        if user == username {
-                            cid = peer.cid;
-                            idx = vec_idx as isize;
-                            break 'search;
-                        }
-                    }
-                }
-            } else {
-                log::info!("Attempted to remove a HyperLAN Peer, but it doesn't exist!");
-            }
-
-            if idx != -1 {
-                let removed = hyperlan_peers.remove(idx as usize);
-                write.fcm_crypt_container.remove(&cid);
+            if let Some(idx) = hyperlan_peers.iter().position(|peer| peer.username.as_ref().map(|name| name == username).unwrap_or(false)) {
+                let removed = hyperlan_peers.remove(idx);
+                write.fcm_crypt_container.remove(&removed.cid);
                 return Some(removed);
             }
         }
+
+        log::info!("Attempted to remove a HyperLAN Peer, but it doesn't exist!");
 
         None
     }
@@ -684,15 +671,32 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
     /// For sending a pre-prepared packet. Specifying a nonzero target cid will send to target's FCM. If target cid is zero, then will send to self
     pub async fn fcm_raw_send(&self, target_cid: u64, raw_fcm_packet: RawFcmPacket, fcm_client: &Arc<Client>) -> Result<FcmResponse, AccountError> {
-        let mut write = self.write();
+        let read = self.read();
         let fcm_keys = if target_cid == 0 {
-            write.crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?
+            read.crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?
         } else {
-            write.fcm_crypt_container.get_mut(&target_cid).ok_or(AccountError::ClientNonExists(target_cid))?.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?
+            read.fcm_crypt_container.get(&target_cid).ok_or(AccountError::ClientNonExists(target_cid))?.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?
         };
 
         let instance = FCMInstance::new(fcm_keys, fcm_client.clone());
         instance.send_to_fcm_user(raw_fcm_packet).await
+    }
+
+    /// For sending a raw packet obtained as a result of using the function-supplied ratchet. Target_cid must be nonzero
+    pub async fn fcm_raw_send_to_peer(&self, target_cid: u64, raw_fcm_packet: impl FnOnce(&Fcm) -> RawFcmPacket, fcm_client: &Arc<Client>) -> Result<FcmResponse, AccountError> {
+        if target_cid == 0 {
+            return Err(AccountError::Generic("Target CID cannot be zero".to_string()))
+        }
+
+        let read = self.read();
+        let crypt_container = read.fcm_crypt_container.get(&target_cid).ok_or(AccountError::ClientNonExists(target_cid))?;
+
+        let fcm_keys = crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?;
+
+        let latest_fcm_ratchet = crypt_container.get_hyper_ratchet(None).ok_or(AccountError::Generic("Ratchet missing".to_string()))?;
+
+        let instance = FCMInstance::new(fcm_keys, fcm_client.clone());
+        instance.send_to_fcm_user(raw_fcm_packet(latest_fcm_ratchet)).await
     }
 
     /// sends, blocking on an independent single-threaded executor

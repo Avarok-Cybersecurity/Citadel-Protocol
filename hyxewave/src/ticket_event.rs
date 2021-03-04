@@ -62,6 +62,22 @@ impl TicketQueueHandler {
     }
 
     #[allow(unused_results)]
+    pub fn remove_ticket(&self, ticket: Ticket) -> bool {
+        let mut this = self.inner.lock();
+        if let Some(tt) = this.tracked_tickets.remove(&ticket) {
+            this.queue.remove(&tt.key);
+
+            if let Some(waker) = this.waker.as_ref() {
+                waker.wake_by_ref()
+            }
+
+            true
+        } else {
+            false
+        }
+    }
+
+    #[allow(unused_results)]
     /// This is the only closure where the callback gets measured. If the callback returns
     /// as TaskComplete, the entry is removed. Otherwise, the task will remain
     pub fn on_ticket_received(&self, ticket: Ticket, response: PeerResponse) {

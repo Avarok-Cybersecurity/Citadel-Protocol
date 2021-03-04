@@ -410,11 +410,12 @@ impl futures::Future for HyperNodePeerLayer {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[allow(variant_size_differences)]
 pub enum PeerSignal {
     // implicated_cid, icid (0 if hyperlan), target_cid (0 if all), use fcm
     PostRegister(PeerConnectionType, Username, Option<Ticket>, Option<PeerResponse>, FcmPostRegister),
-    // implicated_cid, icid, target_cid
-    Deregister(PeerConnectionType),
+    // implicated_cid, icid, target_cid, use_fcm
+    Deregister(PeerConnectionType, bool),
     // implicated_cid, icid, target_cid
     PostConnect(PeerConnectionType, Option<Ticket>, Option<PeerResponse>, SecurityLevel),
     // implicated_cid, icid, target cid
@@ -431,6 +432,8 @@ pub enum PeerSignal {
     GetMutuals(HypernodeConnectionType, Option<PeerResponse>),
     // Returned when an error occurs
     SignalError(Ticket, String),
+    // deregistration succeeded (contains peer cid)
+    DeregistrationSuccess(u64, bool),
     // Signal has been processed; response may or may not occur
     SignalReceived(Ticket),
     // for key-exchange
@@ -502,9 +505,11 @@ impl HypernodeConnectionType {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[allow(variant_size_differences)]
 pub enum PeerResponse {
     Ok(Option<String>),
     Accept(Option<String>),
+    Decline,
     Err(Option<String>),
     Disconnected(String),
     Group(GroupBroadcast),

@@ -348,20 +348,16 @@ impl NetKernel for CLIKernel {
                         self.on_ticket_received(ticket, PeerResponse::Err(Some(err)))
                     }
 
-                    PeerSignal::Deregister(conn) => {
-                        if let Some(peer) = self.console_context.account_manager.visit_cnac(conn.get_original_target_cid(), |cnac| cnac.remove_hyperlan_peer(conn.get_original_implicated_cid())) {
-                            printf_ln!(colour::yellow!("Peer {} ({}) deregistered from {}", peer.username.unwrap_or_default(), peer.cid, conn.get_original_target_cid()));
-                        } else {
-                            printf_ln!(colour::red!("Unable to deregister peer {} from {}", conn.get_original_implicated_cid(), conn.get_original_target_cid()));
-                        }
+                    PeerSignal::Deregister(conn, _fcm) => {
+                        printf_ln!(colour::yellow!("Peer {} deregistered from {}\n", conn.get_original_implicated_cid(), conn.get_original_target_cid()));
 
                         match self.console_context.remove_peer_connection_from_kernel(conn.get_original_target_cid(), conn.get_original_implicated_cid()) {
                             Ok(peer_sess) => {
-                                printf_ln!(colour::yellow!("Removed peer session {} from {}", peer_sess.peer_info.username.unwrap_or_default(), conn.get_original_target_cid()));
+                                printf_ln!(colour::yellow!("Removed peer session {} from {}\n", peer_sess.peer_info.username.unwrap_or_default(), conn.get_original_target_cid()));
                             }
 
-                            Err(err) => {
-                                printf_ln!(colour::red!("Unable to remove peer sess {} from {} ({})", conn.get_original_implicated_cid(), conn.get_original_target_cid(), err.into_string()));
+                            _ => {
+                                // user not connected to channel; doesn't matter
                             }
                         }
 

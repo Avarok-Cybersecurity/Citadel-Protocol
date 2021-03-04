@@ -232,6 +232,17 @@ impl AccountManager {
         Ok(())
     }
 
+    /// Deregisters the two peers from each other
+    pub fn deregister_hyperlan_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
+        let read = self.read_map();
+        let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;
+        let cnac1 = read.get(&cid1).ok_or(AccountError::ClientNonExists(cid1))?;
+
+        cnac0.deregister_hyperlan_p2p_as_server(cnac1)?;
+
+        Ok(())
+    }
+
     /// Deletes a client by username
     pub fn delete_client_by_username<T: AsRef<str>>(&self, username: T) -> bool {
         if let Some(cid) = self.get_cid_by_username(username) {

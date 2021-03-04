@@ -539,7 +539,7 @@ impl HdpSessionManager {
     ///
     /// Since the user may or may not be online, we use the static aux ratchet
     #[allow(unused_results)]
-    pub fn fcm_send_to(&self, implicated_cid: u64, peer_cid: u64, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
+    pub fn fcm_send_to_as_server(&self, implicated_cid: u64, peer_cid: u64, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
         let this = inner!(self);
         if implicated_cid != peer_cid {
             let peer_cnac = this.account_manager.get_client_by_cid(peer_cid).ok_or(NetworkError::InvalidExternalRequest("Peer CID does not exist"))?;
