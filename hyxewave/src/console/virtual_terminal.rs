@@ -196,6 +196,7 @@ pub mod clap_commands {
         subcommands.push(setup_switch_command());
         subcommands.push(setup_list_command());
         subcommands.push(setup_quit_command());
+        subcommands.push(setup_ticket_command());
         subcommands.push(setup_connect_subcommand());
         subcommands.push(setup_register_subcommand());
         subcommands.push(setup_list_local_command());
@@ -276,6 +277,12 @@ pub mod clap_commands {
             .arg(Arg::with_name("input").required(true).takes_value(true).multiple(true))
     }
 
+    fn setup_ticket_command() -> App<'static, 'static> {
+        SubCommand::with_name("ticket").about("Handler for internally-queued tickets awaiting responses")
+            .subcommand(SubCommand::with_name("remove").about("Clears a raw ticket ID from the internal tracker. Useful for overriding default behavior")
+                .arg(Arg::with_name("id").required(true).takes_value(true).help("The ticket ID to remove")))
+    }
+
     fn setup_peer_command() -> App<'static, 'static> {
         SubCommand::with_name("peer")
             .subcommand(SubCommand::with_name("list").about("Fetch the set of peers that exist on the client network account's HyperLAN"))
@@ -300,7 +307,8 @@ pub mod clap_commands {
             .subcommand(SubCommand::with_name("mail").about("Checks the mail (connection/registration consent requests, events, etc)")
                 .arg(Arg::with_name("mail_cmd").required(true).possible_values(&["print", "clear"])))
             .subcommand(SubCommand::with_name("deregister").about("Deregister a target client from the context user")
-                .arg(Arg::with_name("target_cid").required(true).takes_value(true)))
+                .arg(Arg::with_name("target_cid").required(true).takes_value(true))
+                .arg(Arg::with_name("fcm").required(false).takes_value(false)))
             .subcommand(SubCommand::with_name("send").about("Sends a message to a target peer using the context user")
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true))
                 .arg(Arg::with_name("message").required(true).takes_value(true).multiple(true))
@@ -506,6 +514,10 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
     if let Some(matches) = matches.subcommand_matches("group") {
         return crate::command_handlers::group::handle(matches, server_remote, ctx)
             .map(|_| Some(KernelResponse::Confirmation));
+    }
+
+    if let Some(matches) = matches.subcommand_matches("ticket") {
+        return crate::command_handlers::ticket::handle(matches, ctx);
     }
 
     Ok(None)

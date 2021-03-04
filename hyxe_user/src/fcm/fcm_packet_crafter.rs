@@ -65,6 +65,22 @@ pub fn craft_truncate<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id:
     base64_packet(fcm_ratchet, &header, &payload)
 }
 
+pub fn craft_deregistered<Fcm: Ratchet>(fcm_ratchet: &Fcm, target_cid: u64, ticket: u64) -> RawFcmPacket {
+    let header = FcmHeader {
+        session_cid: U64::new(fcm_ratchet.get_cid()),
+        target_cid: U64::new(target_cid),
+        group_id: U64::new(0),
+        ticket: U64::new(ticket),
+        object_id: U32::new(0),
+        ratchet_version: U32::new(fcm_ratchet.version())
+    };
+
+    let payload = FCMPayloadType::PeerDeregistered;
+
+    base64_packet(fcm_ratchet, &header, &payload)
+}
+
+/// Send from the central node to the edge
 pub fn craft_post_register<R: Ratchet>(base_static_ratchet: &R, ticket: u64, initial_cid: u64, transfer: FcmPostRegister, username: String) -> RawFcmPacket {
     let header = FcmHeader {
         session_cid: U64::new(base_static_ratchet.get_cid()),

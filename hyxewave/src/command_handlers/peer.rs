@@ -4,6 +4,7 @@ use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_user::fcm::kem::FcmPostRegister;
 use hyxe_user::fcm::fcm_packet_processor::FcmProcessorResult;
 use hyxe_user::fcm::data_structures::{base64_string, string, FcmTicket};
+use crate::constants::FCM_POST_REGISTER_TIMEOUT;
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
@@ -66,6 +67,17 @@ pub struct PostRegisterResponse {
     #[serde(with = "base64_string")]
     pub username: Vec<u8>,
     pub fcm: bool,
+}
+
+#[derive(Serialize, Debug)]
+pub struct DeregisterResponse {
+    #[serde(with = "string")]
+    pub implicated_cid: u64,
+    #[serde(with = "string")]
+    pub peer_cid: u64,
+    #[serde(with = "string")]
+    pub ticket: u64,
+    pub success: bool
 }
 
 pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
@@ -204,26 +216,31 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
         if let Some(matches) = matches.subcommand_matches("deregister") {
             let target_cid_orig = matches.value_of("target_cid").unwrap();
+            let use_fcm = matches.is_present("fcm");
             let ref cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Generic(format!("Context CNAC doesn't exist")))?;
-            let target_cid = get_peer_cid_from_cnac(cnac, target_cid_orig)?;
+            let target_cid_raw = get_peer_cid_from_cnac(cnac, target_cid_orig)?;
 
-            let signal = PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid));
+            let signal = PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid_raw), use_fcm);
             let request = HdpServerRequest::PeerCommand(ctx_user, signal);
+
             let ticket = server_remote.unbounded_send(request)?;
 
-            // the below is safe to unwrap since the existence is implies by the get_peer_cid_from_cnac
-            let _ = cnac.remove_hyperlan_peer(target_cid).unwrap();
-
-            let target_cid = target_cid.to_string();
+            let target_cid = target_cid_raw.to_string();
             ctx.register_ticket(ticket, DISCONNECT_TIMEOUT, ctx_user, move |_ctx, _ticket, response| {
                 let target_cid = target_cid.as_str();
                 match response {
                     PeerResponse::ServerReceivedRequest => {
-                        printf_ln!(colour::green!("Server successfully deregistered from {}\n", target_cid))
+                        printf_ln!(colour::green!("Server successfully deregistered from {}\n", target_cid));
+                        if let Some(ref ffi_io) = ffi_io {
+                            (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::DeregisterResponse(DeregisterResponse { implicated_cid: ctx_user, peer_cid: target_cid_raw, ticket: ticket.0, success: true })))))
+                        }
                     }
 
                     _ => {
                         printf_ln!(colour::red!("Unable to deregister from {}. Local node nonetheless will require re-registration with {} before sharing information\n", target_cid, target_cid));
+                        if let Some(ref ffi_io) = ffi_io {
+                            (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::DeregisterResponse(DeregisterResponse { implicated_cid: ctx_user, peer_cid: target_cid_raw, ticket: ticket.0, success: false})))))
+                        }
                     }
                 }
 
@@ -466,7 +483,10 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             let post_register_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), username, None, None, fcm));
             let ticket = server_remote.unbounded_send(post_register_request)?;
 
-            ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, target_cid, move |ctx, ticket, response| {
+            let timeout = if use_fcm { FCM_POST_REGISTER_TIMEOUT } else { POST_REGISTER_TIMEOUT };
+
+            // if using FCM, we still need to register here to subscribe to error events. The FCM processor can call upon this after processing to remove the raw ticket from the queue
+            ctx.register_ticket(ticket, timeout, target_cid, move |ctx, ticket, response| {
                 #[allow(unused_assignments)]
                 let mut return_err = None;
                 let res = match response {
@@ -475,8 +495,9 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                         return CallbackStatus::TaskPending;
                     }
 
-                    PeerResponse::Accept(None) => {
+                    PeerResponse::Decline => {
                         return_err = Some(format!("Client {} did not accept your request", target_cid));
+                        colour::red_ln!("Client {} did not accept your request\n", target_cid);
                         CallbackStatus::TaskComplete
                     }
 
@@ -624,12 +645,13 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             return if use_fcm {
                 let cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Default("Active session CNAC absent"))?;
                 let (fcm_post_register, ticket_id) = cnac.fcm_prepare_accept_register(mail_id as u64, accept).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let fcm_post_register = if accept { fcm_post_register } else { FcmPostRegister::Decline };
                 let ticket = ticket_id.into();
                 let username = accept.then(|| cnac.get_username());
                 let response = PeerResponse::Accept(username.clone());
                 let vconn = PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), mail_id as u64);
                 // TODO: Get rid of redundant use of username
-                let outbound_request = HdpServerRequest::PeerCommand(cnac.get_cid(), PeerSignal::PostRegister(vconn, username.unwrap_or("DENIED".to_string()), Some(ticket), Some(response), fcm_post_register));
+                let outbound_request = HdpServerRequest::PeerCommand(cnac.get_cid(), PeerSignal::PostRegister(vconn, username.unwrap_or("DECLINED".to_string()), Some(ticket), Some(response), fcm_post_register));
                 server_remote.send_with_custom_ticket(ticket, outbound_request).map_err(|err| ConsoleError::Generic(err.into_string()))?;
 
                 Ok(Some(KernelResponse::ResponseFcmTicket(FcmTicket::new(mail_id as u64, ctx_user, ticket.0))))
@@ -645,15 +667,17 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                     // we get the implicated_cid below, since the order has not yet been reversed
                     let peer_cid = request.get_implicated_cid();
                     let implicated_cid = request.get_target_cid();
-                    let ctx_username = ctx.account_manager.get_username_by_cid(implicated_cid).ok_or(ConsoleError::Default("Implicated CID of request not found"))?;
-                    let peer_username = request.assert_register_get_username().unwrap();
-                    let ticket = request.get_ticket_assert_register().unwrap();
-                    // TODO: Pull this down to the networking layer to take the responsiblity off the kernel
-                    ctx.account_manager.register_hyperlan_p2p_at_endpoints(implicated_cid, peer_cid, &peer_username).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                    let ctx_username = if accept { ctx.account_manager.get_username_by_cid(implicated_cid).ok_or(ConsoleError::Default("Implicated CID of request not found"))? } else { "DECLINED".to_string() };
 
-                    // we MUST provide the username below
-                    // TODO: handle decline-register
-                    let response = PeerResponse::Accept(Some(ctx_username.clone()));
+                    let ticket = request.get_ticket_assert_register().unwrap();
+
+                    if accept {
+                        let peer_username = request.assert_register_get_username().unwrap();
+                        // TODO: Pull this down to the networking layer to take the responsiblity off the kernel
+                        ctx.account_manager.register_hyperlan_p2p_at_endpoints(implicated_cid, peer_cid, &peer_username).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                    }
+
+                    let response = if accept { PeerResponse::Accept(Some(ctx_username.clone())) } else { PeerResponse::Decline };
                     // this handles the flipping of the signal
                     let outbound_request = request.prepare_response_assert_register(response, ctx_username).unwrap();
                     // now, send the signal outbound and we are good to go

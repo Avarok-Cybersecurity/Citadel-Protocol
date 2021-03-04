@@ -7,7 +7,7 @@ use crate::command_handlers::connect::ConnectResponse;
 use crate::command_handlers::disconnect::DisconnectResponse;
 use crate::command_handlers::list_accounts::ActiveAccounts;
 use crate::command_handlers::list_sessions::ActiveSessions;
-use crate::command_handlers::peer::{PeerList, PostRegisterRequest, PostRegisterResponse, PeerMutuals};
+use crate::command_handlers::peer::{PeerList, PostRegisterRequest, PostRegisterResponse, PeerMutuals, DeregisterResponse};
 use crate::command_handlers::register::RegisterResponse;
 use crate::console_error::ConsoleError;
 use ser::string;
@@ -84,6 +84,7 @@ pub enum DomainResponse {
     PeerMutuals(PeerMutuals),
     PostRegisterRequest(PostRegisterRequest),
     PostRegisterResponse(PostRegisterResponse),
+    DeregisterResponse(DeregisterResponse),
     FcmMessage(FcmMessage),
     FcmMessageSent(FcmMessageSent),
     FcmMessageReceived(FcmMessageReceived)
@@ -145,12 +146,24 @@ impl From<FcmProcessorResult> for KernelResponse {
                     FcmResult::GroupHeader { ticket, message } => {
                         KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessage(FcmMessage { fcm_ticket: ticket, message }))
                     }
+
                     FcmResult::GroupHeaderAck { ticket } => {
                         KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessageReceived(FcmMessageReceived { fcm_ticket: ticket }))
                     }
+
                     FcmResult::MessageSent { ticket } => {
                         KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessageSent(FcmMessageSent { fcm_ticket: ticket }))
                     }
+
+                    FcmResult::Deregistered { peer_cid, requestor_cid, ticket } => {
+                        KernelResponse::DomainSpecificResponse(DomainResponse::DeregisterResponse(DeregisterResponse {
+                            implicated_cid: requestor_cid,
+                            peer_cid,
+                            ticket,
+                            success: true
+                        }))
+                    }
+
                     FcmResult::PostRegisterInvitation { invite } => {
                         KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterRequest(PostRegisterRequest {
                             mail_id: 0,
@@ -161,6 +174,7 @@ impl From<FcmProcessorResult> for KernelResponse {
                             fcm: true
                         }))
                     }
+
                     FcmResult::PostRegisterResponse { response: FcmPostRegisterResponse { local_cid, peer_cid, ticket, accept, username } } => {
                         KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterResponse(PostRegisterResponse {
                             implicated_cid: local_cid,
