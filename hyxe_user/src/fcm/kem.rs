@@ -11,6 +11,40 @@ pub enum FcmPostRegister {
     BobToAliceTransfer(FcmBobToAliceTransfer, FcmKeys, u64)
 }
 
+impl PartialEq for FcmPostRegister {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Self::Disable => {
+                match other {
+                    Self::Disable => true,
+                    _ => false
+                }
+            }
+
+            Self::Enable => {
+                match other {
+                    Self::Enable => true,
+                    _ => false
+                }
+            }
+
+            Self::AliceToBobTransfer(a, b, c) => {
+                match other {
+                    Self::AliceToBobTransfer(a1, b1, c1) => a == a1 && b.api_key == b1.api_key && b.client_id == b1.client_id && *c == *c1,
+                    _ => false
+                }
+            }
+
+            Self::BobToAliceTransfer(_a, b, c) => {
+                match other {
+                    Self::BobToAliceTransfer(_a1, b1, c1) => b.api_key == b1.api_key && b.client_id == b1.client_id && *c == *c1,
+                    _ => false
+                }
+            }
+        }
+    }
+}
+
 impl FcmPostRegister {
     pub fn get_peer_cid(&self) -> Option<u64> {
         match self {
