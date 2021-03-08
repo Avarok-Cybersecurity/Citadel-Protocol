@@ -186,7 +186,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
     }
 }
 
-fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNetworkAccount) {
+pub(super) fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNetworkAccount) {
     if let Some(fcm_keys) = fcm_keys {
         log::info!("[FCM KEYS]: {:?}", &fcm_keys);
         cnac.visit_mut(|mut inner| {
@@ -198,6 +198,6 @@ fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNetworkAccount
 }
 
 // We move the fcm keys out of the session and into the program-wide reachable CNAC
-fn handle_client_fcm_keys_as_client(sess: &mut dyn ExpectedInnerTargetMut<HdpSessionInner>) {
+pub(super) fn handle_client_fcm_keys_as_client(sess: &mut dyn ExpectedInnerTargetMut<HdpSessionInner>) {
     handle_client_fcm_keys(sess.fcm_keys.take(), sess.cnac.as_ref().unwrap())
 }

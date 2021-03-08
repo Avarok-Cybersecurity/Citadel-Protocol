@@ -1,6 +1,7 @@
 use super::imports::*;
 use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
 use crate::primary_terminal::parse_custom_addr;
+use hyxe_crypt::fcm::keys::FcmKeys;
 
 #[derive(Debug, Serialize)]
 pub enum RegisterResponse {
@@ -19,6 +20,8 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         handle_console(ctx, &target_addr, security_level)?
     };
 
+    let fcm_keys = matches.value_of("fcm-token").map(|fcm_token| FcmKeys::new(matches.value_of("fcm-api-key").unwrap(), fcm_token));
+
     // check local
     if ctx.account_manager.get_cid_by_username(proposed_credentials.username.as_str()).is_some() {
         return Err(ConsoleError::Generic(format!("username {} is already taken", proposed_credentials.username.as_str())));
@@ -26,7 +29,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
     let username = proposed_credentials.username.clone();
 
-    let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, None, security_level);
+    let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, None, fcm_keys, security_level);
     let ticket = server_remote.unbounded_send(request)?;
     ctx.register_ticket(ticket, DO_REGISTER_EXPIRE_TIME_MS, 0, move |_ctx, _, response| {
         match response {

@@ -1,6 +1,7 @@
 import 'package:satori_ffi_parser/parser.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/connect_response.dart';
+import 'package:satori_ffi_parser/types/dsr/deregister_response.dart';
 import 'package:satori_ffi_parser/types/dsr/disconnect_response.dart';
 import 'package:satori_ffi_parser/types/dsr/get_accounts_response.dart';
 import 'package:satori_ffi_parser/types/dsr/get_active_sessions.dart';
@@ -335,6 +336,20 @@ void main() {
 
       print("Success");
 
+    });
+
+    test('DSR - deregister', () {
+      String input = "{\"type\":\"DomainSpecificResponse\",\"info\":{\"dtype\":\"DeregisterResponse\",\"implicated_cid\":\"456\",\"peer_cid\":\"123\",\"ticket\":\"789\",\"success\":true}}";
+
+      print("Parsing $input");
+
+      KernelResponse kResp = FFIParser.tryFrom(input).value;
+      DeregisterResponse dResp = kResp.getDSR().value;
+
+      expect(dResp.implicatedCid, u64.from(456));
+      expect(dResp.peerCid, u64.from(123));
+      expect(dResp.ticket.value, StandardTicket.from(789));
+      expect(dResp.success, true);
     });
 
   });

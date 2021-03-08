@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutterust/database_handler.dart';
+import 'package:flutterust/database/client_network_account.dart';
+import 'package:flutterust/database/database_handler.dart';
 import 'package:flutterust/main.dart';
 
 class SettingsScreen extends StatefulWidget {

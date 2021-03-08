@@ -62,7 +62,7 @@ class FFIBridge {
   static void ffiInitRustSubsystem(Tuple2<SendPort, String> initInput) {
     String homeDir = initInput.item2;
     int port = initInput.item1.nativePort;
-    Pointer<Utf8> dirPtr = Utf8.toUtf8(homeDir);
+    Pointer<Utf8> dirPtr = homeDir.toNativeUtf8();
     // pass the port and pointer to the ffi frontier
     int initResult = native.load_page(port, dirPtr);
     print("Done setting up rust subsystem. Result: " + initResult.toString());
@@ -81,30 +81,23 @@ class FFIBridge {
   }
 
   Future<String> sendToKernel(String cmd) async {
-    Pointer<Utf8> ptr = Utf8.toUtf8(cmd);
-    return Utf8.fromUtf8(native.send_to_kernel(ptr));
+    Pointer<Utf8> ptr = cmd.toNativeUtf8();
+    return native.send_to_kernel(ptr).toDartString();
   }
 
   /// payload should be in the form of: {"inner": "BASE_64_STRING"}
   /// Note: the inner function call may block depending on the command
   Future<Optional<KernelResponse>> handleFcmMessage(String rawPayload) async {
-    Pointer<Utf8> ptr = Utf8.toUtf8(rawPayload);
-    Pointer<Utf8> dirPtr = Utf8.toUtf8(await this.localPath());
-    return FFIParser.tryFrom(Utf8.fromUtf8(native.background_processor(ptr, dirPtr)));
+
+    rawPayload.toNativeUtf8();
+    Pointer<Utf8> ptr = rawPayload.toNativeUtf8();
+    Pointer<Utf8> dirPtr = (await this.localPath()).toNativeUtf8();
+    return FFIParser.tryFrom(native.background_processor(ptr, dirPtr).toDartString());
   }
 
   void memfree(String ptr) {
     if (!Platform.isAndroid) {
-      native.memfree(Utf8.toUtf8(ptr));
+      native.memfree(ptr.toNativeUtf8());
     }
-  }
-
-  void _throwError() {
-    final length = native.last_error_length();
-    final Pointer<Utf8> message = allocate(count: length);
-    native.error_message_utf8(message, length);
-    final error = Utf8.fromUtf8(message);
-    print(error);
-    throw error;
   }
 }

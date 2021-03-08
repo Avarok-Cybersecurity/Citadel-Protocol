@@ -1,11 +1,10 @@
-use bytes::{BytesMut, BufMut};
-use secstr::SecVec;
-
 use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
 use bstr::ByteSlice;
 use rand::prelude::ThreadRng;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
+use hyxe_crypt::sec_bytes::SecBuffer;
+use secstr::SecVec;
 
 
 /// When creating credentials, this is required
@@ -14,7 +13,7 @@ pub struct ProposedCredentials {
     ///
     pub username: String,
     ///
-    pub password: SecVec<u8>,
+    pub password: SecBuffer,
     ///
     pub full_name: String,
 
@@ -49,13 +48,13 @@ impl ProposedCredentials {
     pub fn new_from_hashed<T: Into<String>, R: Into<String>>(full_name: T, username: R, hashed_password: SecVec<u8>, hash_nonce: [u8; AES_GCM_NONCE_LEN_BYTES]) -> Self {
         let username = username.into();
         let full_name = full_name.into();
-        let password = hashed_password;
+        let password = SecBuffer::from(hashed_password.unsecure());
         let nonce = hash_nonce;
 
         Self { username, password, full_name, nonce }
     }
 
-    fn sanitize_and_prepare<T: Into<String>, R: Into<String>>(username: T, full_name: R, password: &[u8], nonce: Option<&[u8]>) -> (String, String, SecVec<u8>, [u8; AES_GCM_NONCE_LEN_BYTES]) {
+    fn sanitize_and_prepare<T: Into<String>, R: Into<String>>(username: T, full_name: R, password: &[u8], nonce: Option<&[u8]>) -> (String, String, SecBuffer, [u8; AES_GCM_NONCE_LEN_BYTES]) {
         let username = username.into();
         let full_name = full_name.into();
 
@@ -67,13 +66,14 @@ impl ProposedCredentials {
         log::info!("\n\rPassword Raw({}): {:?}", password.len(), password);
 
         let nonce = get_nonce(nonce);
-        let password_hash = SecVec::new(argon2::hash_raw(password, &nonce as &[u8], &get_argon2id_config(num_cpus::get() as u32, username)).unwrap());
+        let password_hash = SecBuffer::from(argon2::hash_raw(password, &nonce as &[u8], &get_argon2id_config(num_cpus::get() as u32, username)).unwrap());
 
-        log::info!("\n\rHashed passwd({}): {:?}", password_hash.unsecure().len(), password_hash.unsecure());
+        log::info!("\n\rHashed passwd({}): {:?}", password_hash.len(), password_hash.as_ref());
         (username.to_string(), full_name.to_string(), password_hash, nonce)
     }
 
     /// Inscribed self into the proposed buffer, and then returns the length of the plaintext username, password, and full_name, respectively
+    /*
     pub fn inscribe_into(&self, input: &mut BytesMut) -> (usize, usize, usize, usize) {
         let username_bytes = self.username.as_bytes();
         let password_bytes = self.password.unsecure();
@@ -91,25 +91,25 @@ impl ProposedCredentials {
         bincode2::serialize_into(input.writer(), self).unwrap();
 
         (plaintext_username_len, plaintext_password_len, plaintext_fullname_len, nonce_len)
-    }
+    }*/
 
     /// Useful for determining the length for a pre-allocated buffer
     pub fn get_expected_ciphertext_length(&self) -> usize {
-        hyxe_crypt::net::crypt_splitter::calculate_aes_gcm_output_length(self.username.as_bytes().len() + self.password.unsecure().len() + self.full_name.as_bytes().len())
+        hyxe_crypt::net::crypt_splitter::calculate_aes_gcm_output_length(self.username.as_bytes().len() + self.password.len() + self.full_name.as_bytes().len())
     }
 
     /// Returns the plaintext length of the username, password, and full_name, respectively
     pub fn get_item_lengths(&self) -> (usize, usize, usize) {
-        (self.username.as_bytes().len(), self.password.unsecure().len(), self.full_name.as_bytes().len())
+        (self.username.as_bytes().len(), self.password.len(), self.full_name.as_bytes().len())
     }
 
     /// Consumes self and returns the individual elements
-    pub fn decompose(self) -> (String, SecVec<u8>, String, [u8; AES_GCM_NONCE_LEN_BYTES]) {
+    pub fn decompose(self) -> (String, SecBuffer, String, [u8; AES_GCM_NONCE_LEN_BYTES]) {
         (self.username, self.password, self.full_name, self.nonce)
     }
 
     pub fn decompose_credentials(&self) -> (&[u8], &[u8]) {
-        (self.username.as_bytes(), self.password.unsecure())
+        (self.username.as_bytes(), self.password.as_ref())
     }
 }
 

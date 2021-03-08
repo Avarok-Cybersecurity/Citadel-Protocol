@@ -4,7 +4,6 @@ use std::fmt::Formatter;
 use serde::{Serialize, Serializer, Deserialize, Deserializer};
 
 /// A memory-secure wrapper for shipping around Bytes
-#[derive(Clone)]
 pub struct SecBuffer {
     inner: Vec<u8>
 }
@@ -80,6 +79,12 @@ impl Debug for SecBuffer {
 impl<T: AsRef<[u8]>> PartialEq<T> for SecBuffer {
     fn eq(&self, other: &T) -> bool {
         self.as_ref() == other.as_ref()
+    }
+}
+
+impl Clone for SecBuffer {
+    fn clone(&self) -> Self {
+        SecBuffer::from(self.as_ref())
     }
 }
 

@@ -1,5 +1,6 @@
 import 'package:satori_ffi_parser/parser.dart';
 import 'package:satori_ffi_parser/types/dsr/connect_response.dart';
+import 'package:satori_ffi_parser/types/dsr/deregister_response.dart';
 import 'package:satori_ffi_parser/types/dsr/disconnect_response.dart';
 import 'package:satori_ffi_parser/types/dsr/fcm/fcm_message.dart';
 import 'package:satori_ffi_parser/types/dsr/fcm/fcm_message_received.dart';
@@ -66,6 +67,9 @@ abstract class DomainSpecificResponse {
 
         case DomainSpecificResponseType.PeerMutuals:
           return PeerMutualsResponse.tryFrom(infoNode);
+
+        case DomainSpecificResponseType.DeregisterResponse:
+          return DeregisterResponse.tryFrom(infoNode);
       }
     } catch(_) {}
 
@@ -73,4 +77,4 @@ abstract class DomainSpecificResponse {
   }
 }
 
-typedef CallbackStatus Callback(KernelResponse kernelResponse);
+typedef Future<CallbackStatus> Callback(KernelResponse kernelResponse);

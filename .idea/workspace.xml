@@ -39,27 +39,21 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change afterPath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_processor/deregister.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/ticket.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/sec_bytes.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/sec_bytes.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/account_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/account_manager.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/fcm/data_structures.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/fcm/data_structures.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_crafter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/connect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/connect_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/register_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/register_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/proposed_credentials.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/proposed_credentials.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_processor/deregister.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_processor/deregister.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_processor/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_processor/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_processor/peer_post_register.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_processor/peer_post_register.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/fcm/kem.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/fcm/kem.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/register.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/register.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/ffi/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/kernel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/kernel.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/ticket_event.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/ticket_event.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/tests/primary.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -192,19 +186,21 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test tests::misc (1)">
+  <component name="RunManager" selected="Cargo.Test tests::main">
     <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
-    <configuration default="true" type="ArquillianJUnit" factoryName="" nameIsGenerated="true">
+    <configuration default="true" type="ArquillianTestNG" factoryName="" nameIsGenerated="true">
       <option name="arquillianRunConfiguration">
         <value>
           <option name="containerStateName" value="" />
         </value>
       </option>
-      <option name="TEST_OBJECT" value="class" />
+      <option name="TEST_OBJECT" value="CLASS" />
+      <properties />
+      <listeners />
       <method v="2">
         <option name="Make" enabled="true" />
       </method>
@@ -362,10 +358,10 @@
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Cargo.Test tests::main" />
         <item itemvalue="Cargo.Test tests::misc (1)" />
         <item itemvalue="Cargo.Test tests::misc" />
         <item itemvalue="Cargo.Test tests::fcm_ticket" />
-        <item itemvalue="Cargo.Test tests::main" />
         <item itemvalue="Cargo.Test tests::fcm" />
       </list>
     </recent_temporary>
@@ -593,7 +589,8 @@
       <workItem from="1613496467981" duration="192379000" />
       <workItem from="1614357251492" duration="43635000" />
       <workItem from="1614543905569" duration="31835000" />
-      <workItem from="1614787657467" duration="40923000" />
+      <workItem from="1614787657467" duration="44929000" />
+      <workItem from="1615156538109" duration="5768000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

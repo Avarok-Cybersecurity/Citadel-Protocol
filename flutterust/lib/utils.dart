@@ -114,11 +114,10 @@ class Utils {
 
   static int idx = 0;
 
-  static HashMap<String, dynamic> notificationPayloads = HashMap();
+  static HashMap<String, Widget> notificationPayloads = HashMap();
 
-  // TODO: Handle ID for routing notification
-  static void pushNotification(String title, String message, { int id, String route = LoginScreen.routeName, dynamic arguments }) {
-    notificationPayloads[arguments.hashCode.toString()] = arguments;
+  static void pushNotification(String title, String message, { int id, Widget widget = const LoginScreen() }) {
+    notificationPayloads[widget.hashCode.toString()] = widget;
 
       AwesomeNotifications().createNotification(
           content: NotificationContent(
@@ -127,12 +126,10 @@ class Utils {
               title: title,
               body: message,
               payload: {
-                'route': route,
-                'arguments': arguments.hashCode.toString()
+                'widgetHashcode': widget.hashCode.toString()
               }
           )
       );
-
   }
 
   static FirebaseMessaging firebase = FirebaseMessaging.instance;
@@ -171,5 +168,17 @@ class Utils {
       // Here, we delegate the response to the default handler
       kResp.ifPresent(KernelResponseHandler.handleRustKernelMessage);
     // Or do other work.
+  }
+
+  static Route createDefaultRoute(Widget widget) {
+    return PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => widget,
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
+          );
+        }
+    );
   }
 }

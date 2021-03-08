@@ -1,14 +1,21 @@
 import 'dart:collection';
 
-import 'package:flutterust/database_handler.dart';
+import 'package:flutterust/database/client_network_account.dart';
+import 'package:flutterust/database/database_handler.dart';
+import 'package:flutterust/database/notification_subtypes/deregister_signal.dart';
+import 'package:flutterust/database/notification_subtypes/message.dart';
+import 'package:flutterust/database/notification_subtypes/post_register.dart';
+import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/screens/session/home.dart';
 import 'package:flutterust/screens/session/session_subscreens/post_register_invitation.dart';
 import 'package:flutterust/utils.dart';
+import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/parser.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
+import 'package:satori_ffi_parser/types/dsr/deregister_response.dart';
 import 'package:satori_ffi_parser/types/dsr/disconnect_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response_type.dart';
@@ -78,7 +85,7 @@ class KernelResponseHandler {
         print("Pre-existing entry for " + message.getTicket().value.toString() + " found, will maybe trigger callback");
         var callback = entry.getCallbackAction();
         if (callback.isPresent) {
-          switch (callback.value(message)) {
+          switch (await callback.value(message)) {
             case CallbackStatus.Complete:
               print("Callback signalled completion. Removing from pending tickets ...");
               pendingTickets.remove(message.getTicket().value);
@@ -118,9 +125,23 @@ class KernelResponseHandler {
 
       case KernelResponseType.NodeMessage:
         NodeMessageKernelResponse resp = message;
+
         String username = (await ClientNetworkAccount.getUsernameByCid(resp.cid)).value;
+        MessageNotification notification = MessageNotification.receivedNow(resp.cid, resp.peerCid, resp.message);
+        int id = await notification.sync();
+        print("Message DB-id: $id");
+        // push to the session screen, if possible.
+        // if this is invoked in the background, the static memory may not be loaded. In this case,
+        // since the notification is already in the database, once the session screen reloads, the
+        // notifications will repopulate
+        if (HomePage.screens != null) {
+          HomePage.pushNotificationToSession(notification);
+        }
         // TODO: route to chat screen/
-        Utils.pushNotification("Message for " + username, resp.message);
+        // TODO: Don't pass the id from above below into the id field. Instead ... pass the notification id inside the widget
+        // NOTE: Even though the above code executed and the notification is in the DB,
+        // the below is to have a notification to appear on the user's phone
+        Utils.pushNotification("Message for $username ", resp.message, id: id);
         break;
         
       case KernelResponseType.Error:
@@ -139,12 +160,41 @@ class KernelResponseHandler {
     switch (dsr.getType()) {
       case DomainSpecificResponseType.PostRegisterRequest:
         PostRegisterRequest req = dsr;
+
         String username = (await ClientNetworkAccount.getUsernameByCid(req.implicatedCid)).value;
-        Utils.pushNotification("Peer request from " + req.username, req.username + " would like to connect to " + username, route: PostRegisterInvitation.routeName, arguments: req);
+        PostRegisterNotification notification = PostRegisterNotification.from(req);
+        int id = await notification.sync();
+        print("Message DB-id: $id");
+
+        if (HomePage.screens != null) {
+          HomePage.pushNotificationToSession(notification);
+        }
+
+        Utils.pushNotification("Peer request from " + req.username, req.username + " would like to connect to " + username, widget: PostRegisterInvitation(notification));
         return;
 
       case DomainSpecificResponseType.Disconnect:
         (HomePage.screens[SessionHomeScreen.IDX] as SessionHomeScreen).sendPort.send(dsr);
+        break;
+
+      case DomainSpecificResponseType.DeregisterResponse:
+        DeregisterResponse resp = dsr;
+        if (resp.success) {
+          DeregisterSignal notification = DeregisterSignal.now(resp.implicatedCid, resp.peerCid);
+          int id = await notification.sync();
+          print("[Deregister] notification ID: $id");
+          if (HomePage.screens != null) {
+            HomePage.pushNotificationToSession(notification);
+          }
+          
+          String username = await PeerNetworkAccount.getPeerByCid(resp.peerCid).then((value) => value.value.peerUsername);
+          String localUsername = await ClientNetworkAccount.getUsernameByCid(resp.implicatedCid).then((value) => value.value);
+
+          Utils.pushNotification("Deregistration", "$username no longer registered to $localUsername");
+        } else {
+          print("**ERROR: Unaccounted Deregister signal that failed");
+        }
+
         break;
 
       default:
@@ -158,7 +208,7 @@ class DefaultHandler implements AbstractHandler {
   const DefaultHandler();
 
   @override
-  CallbackStatus onTicketReceived(KernelResponse kernelResponse) {
+  Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse) async {
     print("Default handler triggered: " + kernelResponse.getType().toString() + " [ticket: " + kernelResponse.getTicket().toString() + "]");
     return CallbackStatus.Complete;
   }

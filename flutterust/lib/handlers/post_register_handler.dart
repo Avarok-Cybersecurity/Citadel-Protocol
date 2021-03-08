@@ -31,7 +31,7 @@ class PostRegisterHandler implements AbstractHandler {
   }
 
   @override
-  CallbackStatus onTicketReceived(KernelResponse kernelResponse) {
+  Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse) async {
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.PostRegisterResponse)) {
       PostRegisterResponse resp = kernelResponse.getDSR().value;
       print(this.peerCid.toString() + " accepted? " + resp.accept.toString());
