@@ -1086,6 +1086,7 @@ impl HdpSession {
                                 log::error!("Overwrote pre-existing FCM KEM container. Report to developers")
                             }
 
+                            do_save = true;
                             PeerSignal::PostRegister(vconn, a, b, c, fcm_post_register)
                         }
 
