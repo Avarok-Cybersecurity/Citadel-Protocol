@@ -1,82 +1,79 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_easyloading/flutter_easyloading.dart';
+import 'package:flutterust/components/default_widget.dart';
+import 'package:flutterust/database/notification_subtypes/post_register.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/main.dart';
-import 'package:flutterust/utils.dart';
-import 'package:satori_ffi_parser/types/dsr/post_register_request.dart';
 
 class PostRegisterInvitation extends StatelessWidget {
-  static String routeName = "/post-register-invitation";
-  const PostRegisterInvitation();
+  final PostRegisterNotification args;
+
+  const PostRegisterInvitation(this.args);
 
   @override
   Widget build(BuildContext context) {
-    final PostRegisterRequest args = ModalRoute.of(context).settings.arguments;
-
-    return Center(
-        child: Container(
-          child: Table(
-              children: [
-                TableRow(
-                    children: [
-                      Column(
-                          children: [
-                            Padding(
-                                padding: EdgeInsets.all(10),
-                                child: Text("${args.username} would like to register to ${args.implicatedCid}",
-                                    style: TextStyle(
-                                        fontWeight: FontWeight.bold
-                                    )
-                                )
-                            )
-                          ]
-                      ),
-
-                      Column(
+    return DefaultPageWidget(
+        title: Text("Invitation from ${args.peerUsername}"),
+        child: Table(
+            children: [
+              TableRow(
+                  children: [
+                    Column(
                         children: [
                           Padding(
-                            padding: EdgeInsets.all(10),
-                            child: IconButton(
-                              icon: Icon(
-                                Icons.check_circle,
-                                color: Colors.green,
-                              ),
-                              onPressed: () { handle(true, args, context); },
-                            ),
+                              padding: EdgeInsets.all(10),
+                              child: Text("${args.peerUsername} would like to register to ${args.implicatedCid}",
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold
+                                  )
+                              )
                           )
-                        ],
-                      ),
+                        ]
+                    ),
 
-                      Column(
-                        children: [
-                          Padding(
-                            padding: EdgeInsets.all(10),
-                            child: IconButton(
-                              icon: Icon(
-                                  Icons.not_interested,
-                                  color: Colors.red
-                              ),
-                              onPressed: () { handle(false, args, context); },
+                    Column(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.all(10),
+                          child: IconButton(
+                            icon: Icon(
+                              Icons.check_circle,
+                              color: Colors.green,
                             ),
-                          )
-                        ],
-                      )
-                    ]
-                ),
-              ]
-          )
+                            onPressed: () => handle(true, context),
+                          ),
+                        )
+                      ],
+                    ),
+
+                    Column(
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.all(10),
+                          child: IconButton(
+                            icon: Icon(
+                                Icons.not_interested,
+                                color: Colors.red
+                            ),
+                            onPressed: () => handle(false, context),
+                          ),
+                        )
+                      ],
+                    )
+                  ]
+              ),
+            ]
         )
-      );
+    );
   }
 
-  void handle(bool accept, final PostRegisterRequest request, BuildContext ctx) async {
+  void handle(bool accept, BuildContext ctx) async {
     final String cmd = accept ? "accept-register" : "deny-register";
 
-      (await RustSubsystem.bridge.executeCommand("switch ${request.implicatedCid.toString()} peer $cmd --fcm ${request.peerCid.toString()}"))
-          .ifPresent((kResp) { KernelResponseHandler.handleFirstCommand(kResp); });
+      (await RustSubsystem.bridge.executeCommand("switch ${this.args.implicatedCid.toString()} peer $cmd --fcm ${this.args.peerCid.toString()}"))
+          .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp));
 
-    // TODO: Make notifications list
+    await this.args.delete();
     Navigator.of(ctx).pop();
   }
 

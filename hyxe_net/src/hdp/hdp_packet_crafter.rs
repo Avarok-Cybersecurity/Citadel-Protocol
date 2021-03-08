@@ -598,6 +598,9 @@ pub(crate) mod do_register {
     use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
+    use hyxe_crypt::fcm::keys::FcmKeys;
+    use hyxe_fs::io::SyncIO;
+    use serde::{Serialize, Deserialize};
 
     /// At this stage, the drill does not exist. There is no verifying such packets. The payload contains Alice's public key.
     ///
@@ -652,30 +655,35 @@ pub(crate) mod do_register {
         packet
     }
 
+    #[derive(Serialize, Deserialize)]
+    pub struct DoRegisterStage2Packet {
+        pub credentials: ProposedCredentials,
+        pub fcm_keys: Option<FcmKeys>
+    }
+
     /// Alice sends this. The stage 3 packet contains the encrypted username, password, and full name of the registering client
     #[allow(unused_results)]
-    pub(crate) fn craft_stage2(hyper_ratchet: &HyperRatchet, algorithm: u8, local_nid: u64, timestamp: i64, proposed_credentials: &ProposedCredentials, security_level: SecurityLevel) -> BytesMut {
-        let (username_len, password_len, full_name_len) = proposed_credentials.get_item_lengths();
-        let ciphertext_payload_len = proposed_credentials.get_expected_ciphertext_length();
-
+    pub(crate) fn craft_stage2(hyper_ratchet: &HyperRatchet, algorithm: u8, local_nid: u64, timestamp: i64, credentials: &ProposedCredentials, fcm_keys: Option<FcmKeys>, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE2,
             algorithm,
             security_level: security_level.value(),
-            context_info: U64::new(username_len as u64),
-            group: U64::new(password_len as u64),
-            wave_id: U32::new(full_name_len as u32),
+            context_info: U64::new(0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
             session_cid: U64::new(local_nid),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)
         };
 
-        let total_len = HDP_HEADER_BYTE_LEN + ciphertext_payload_len;
+        let total_len = HDP_HEADER_BYTE_LEN;
         let mut packet = BytesMut::with_capacity(total_len);
+        let payload = DoRegisterStage2Packet { credentials: credentials.clone(), fcm_keys };
         header.inscribe_into(&mut packet);
-        proposed_credentials.inscribe_into(&mut packet);
+        payload.serialize_into_buf(&mut packet).unwrap();
+
         hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
         packet

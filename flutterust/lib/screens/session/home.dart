@@ -4,11 +4,16 @@ import 'dart:isolate';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutterust/components/custom_tab_view.dart';
-import 'package:flutterust/database_handler.dart';
+import 'package:flutterust/database/client_network_account.dart';
+import 'package:flutterust/database/database_handler.dart';
+import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
+import 'package:flutterust/database/notifications.dart';
 import 'package:flutterust/main.dart';
-import 'package:flutterust/misc/notification.dart';
+import 'package:flutterust/screens/session/session_subscreens/notifications_screen.dart';
 import 'package:flutterust/screens/session/session_view.dart';
 import 'package:flutterust/themes/default.dart';
+import 'package:flutterust/utils.dart';
+import 'package:optional/optional.dart';
 import 'package:quiver/iterables.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
@@ -40,7 +45,7 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
 
   List<String> tabs = [];
   List<SessionView> sessionViews = [];
-  List<List<NotificationItem>> notifications = [];
+  List<List<AbstractNotification>> notifications = [];
 
   int pos = 0;
 
@@ -52,7 +57,15 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
     sendPort = this.widget.sendPort;
 
     this.widget.recv.listen((message) async {
-      await handle(message);
+      if (message is AbstractNotification) {
+        var cid = message.recipientCid;
+        int idx = this.sessionViews.indexWhere((element) => element.cnac.implicatedCid == cid);
+        if (idx != -1) {
+          this.notifications[idx].add(message);
+        }
+      } else {
+        await handle(message);
+      }
       setState(() {});
     });
 
@@ -62,7 +75,7 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
   /// initState cannot be async, so the function is moved to a separate fn
   void onStart() async {
     (await RustSubsystem.bridge.executeCommand("list-sessions"))
-        .ifPresent((kResp) { kResp.getDSR().ifPresent((dsr) { this.widget.sendPort.send(dsr); }); });
+        .ifPresent((kResp) => kResp.getDSR().ifPresent((dsr) => this.widget.sendPort.send(dsr)));
   }
 
   /// handles either Connect or Disconnect dsr types, or, message types
@@ -74,9 +87,11 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
           print("Adding session to sessions list for " + conn.implicated_cid.toString());
           //final String username = conn.getAttachedUsername().orElse("UNATTACHED USERNAME");
           var cnac = (await ClientNetworkAccount.getCnacByCid(conn.implicated_cid)).value;
+          var storedNotifications = await RawNotification.loadNotificationsFor(cnac.implicatedCid);
+          print("[Notification-Loader] Loaded: ${storedNotifications.length} notifications");
 
           tabs.add(cnac.username);
-          notifications.add([]);
+          notifications.add(storedNotifications);
           sessionViews.add(SessionView(cnac, widget.key));
 
           print("Len: " + tabs.length.toString() + ", len: " + sessionViews.length.toString());
@@ -134,24 +149,33 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
             itemCount: this.tabs.length,
             tabBuilder: (context, index) => Tab(text: this.tabs[index]),
             pageBuilder: (context, index) => Center(child: this.sessionViews[index]),
-            onPositionChange: (index){
+            onPositionChange: (index) {
               print("Pos changing: " + index.toString());
               pos = index;
+              setState(() {});
             },
           ),
         ),
 
         bottomNavigationBar: BottomNavigationBar(
           fixedColor: primaryColor(),
-          onTap: (idx) {
+          onTap: (idx) async {
             if (this.sessionViews.length != 0) {
               if (idx == 0) {
-                this.sessionViews[this.pos].sendPort.send(0);
-              } else if (idx == 1) {
                 // handle notifications. Idea: route push
-              } else if (idx == 2) {
+                var cnac = getClientOfCurrentView().value;
+                List<AbstractNotification> notifications = await RawNotification.loadNotificationsFor(cnac.implicatedCid);
+                this.notifications[pos] = notifications;
+                print("Loaded ${notifications.length} notifications for ${cnac.username}");
+                Navigator.push(context, Utils.createDefaultRoute(NotificationsScreen(cnac, notifications, (idx) {
+                  try {
+                    this.notifications[pos].removeAt(idx);
+                    setState(() {});
+                  } catch(_) {}
+                })));
+              } else if (idx == 1) {
 
-              } else if (idx == 3) {
+              } else if (idx == 2) {
                 print("Logging out!");
                 disconnectCurrentSession();
               }
@@ -159,12 +183,8 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
               setState(() {});
             }
           },
-          items: [
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.home, color: Colors.black26),
-              label: "Session Home"
-            ),
 
+          items: [
             getNotificationItem(),
 
             const BottomNavigationBarItem(
@@ -222,4 +242,19 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
     RustSubsystem.bridge.executeCommand("disconnect ${view.cnac.username}");
   }
 
+
+  Optional<ClientNetworkAccount> getClientOfCurrentView() {
+    if (this.sessionViews.isEmpty) {
+      return Optional.empty();
+    } else {
+      return Optional.of(this.sessionViews[pos].cnac);
+    }
+  }
+}
+
+class RemoveNotification {
+  final int idx;
+  final u64 implicatedCid;
+
+  const RemoveNotification(this.idx, this.implicatedCid);
 }

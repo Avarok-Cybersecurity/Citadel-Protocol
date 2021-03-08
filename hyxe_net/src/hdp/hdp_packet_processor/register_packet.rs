@@ -1,6 +1,7 @@
 use super::includes::*;
 use std::sync::atomic::Ordering;
 use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
+use crate::hdp::hdp_packet_processor::connect_packet::handle_client_fcm_keys;
 
 /// This will handle an HDP registration packet
 #[inline]
@@ -83,8 +84,9 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                     let local_nid = session.account_manager.get_local_nid();
 
                     let proposed_credentials = state_container.register_state.proposed_credentials.as_ref()?;
+                    let fcm_keys = session.fcm_keys.clone();
 
-                    let stage2_packet = hdp_packet_crafter::do_register::craft_stage2(&new_hyper_ratchet, algorithm, local_nid, timestamp, proposed_credentials, security_level);
+                    let stage2_packet = hdp_packet_crafter::do_register::craft_stage2(&new_hyper_ratchet, algorithm, local_nid, timestamp, proposed_credentials, fcm_keys, security_level);
                     //let mut state_container = inner_mut!(session.state_container);
 
                     state_container.register_state.proposed_cid = Some(reserved_true_cid);
@@ -110,13 +112,13 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
             if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE1 {
                 let algorithm = header.algorithm;
                 let hyper_ratchet = state_container.register_state.created_hyper_ratchet.as_ref()?;
-                    if let Some((proposed_credentials, adjacent_nac)) = validation::do_register::validate_stage2(hyper_ratchet, header, payload, remote_addr, session.account_manager.get_directory_store()) {
-                        let (username, password, full_name, password_nonce) = proposed_credentials.decompose();
+                    if let Some((stage2_packet, adjacent_nac)) = validation::do_register::validate_stage2(hyper_ratchet, header, payload, remote_addr, session.account_manager.get_directory_store()) {
+                        let (username, password, full_name, password_nonce) = stage2_packet.credentials.decompose();
                         let timestamp = session.time_tracker.get_global_time_ns();
                         let local_nid = session.account_manager.get_local_nid();
                         let reserved_true_cid = state_container.register_state.proposed_cid.clone()?;
                         // we must now create the CNAC
-                        match session.account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid, adjacent_nac, &username, password, full_name, Vec::from(&password_nonce as &[u8]), hyper_ratchet) {
+                        match session.account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid, adjacent_nac, &username, SecVec::new(password.into_buffer()), full_name, Vec::from(&password_nonce as &[u8]), hyper_ratchet) {
                             Ok(peer_cnac) => {
                                 log::info!("Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_id());
                                 let success_message = session.create_register_success_message();
@@ -131,6 +133,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                                 //PrimaryProcessorResult::FinalReply(packet)
                                 // We set this that way, once the adjacent node closes, this node won't get a propagated error message
                                 session.needs_close_message.store(false, Ordering::SeqCst);
+                                // TODO: Move the below process into the CNAC constructor above to not have double saving
+                                handle_client_fcm_keys(stage2_packet.fcm_keys, &peer_cnac);
                                 // we no longer use FinalReply, because that cuts the connection and end the future on the other end. Let the other end terminate it
                                 PrimaryProcessorResult::ReplyToSender(packet)
                             }
@@ -183,12 +187,13 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                         let reserved_true_cid = state_container.register_state.proposed_cid.clone()?;
 
                         // &self, cnac_inner_bytes: T, username: R, full_name: V, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>
-                        match session.account_manager.register_personal_hyperlan_server(reserved_true_cid, hyper_ratchet.clone(), username, full_name, adjacent_nac, password, Vec::from(&nonce as &[u8])) {
+                        match session.account_manager.register_personal_hyperlan_server(reserved_true_cid, hyper_ratchet.clone(), username, full_name, adjacent_nac, SecVec::new(password.into_buffer()), Vec::from(&nonce as &[u8])) {
                             Ok(new_cnac) => {
                                 // Finally, alert the higher-level kernel about the success
                                 state_container.register_state.on_success();
                                 std::mem::drop(state_container);
                                 //session.session_manager.clear_provisional_session(&remote_addr);
+                                handle_client_fcm_keys(session.fcm_keys.take(), &new_cnac);
                                 session.send_to_kernel(HdpServerResult::RegisterOkay(session.kernel_ticket, new_cnac, success_message))?;
                             }
 

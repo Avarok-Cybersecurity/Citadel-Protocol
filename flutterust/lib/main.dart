@@ -2,15 +2,20 @@ import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:flutterust/components/app_retain_widget.dart';
+import 'package:flutterust/database/client_network_account.dart';
+import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/screens/login.dart';
 import 'package:flutterust/screens/session/home.dart';
+import 'package:flutterust/screens/session/session_subscreens/mutual_peer.dart';
+import 'package:flutterust/screens/session/session_subscreens/mutuals.dart';
+import 'package:flutterust/screens/session/session_subscreens/peer_list.dart';
 import 'package:flutterust/screens/session/session_subscreens/post_register_invitation.dart';
 import 'package:flutterust/screens/settings.dart';
 import 'package:flutterust/utils.dart';
 import 'package:scrap/scrap.dart';
 import 'components/fade_indexed_stack.dart';
-import 'database_handler.dart';
+import 'database/database_handler.dart';
 import 'screens/register.dart';
 import 'themes/default.dart';
 
@@ -48,6 +53,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       title: APP_TITLE,
       theme: defaultTheme(),
       builder: EasyLoading.init(),
@@ -56,10 +62,9 @@ class MyApp extends StatelessWidget {
       routes: {
         '/': (context) => main,
 
-        RegisterScreen.routeName: (context) => const RegisterScreen(),
+        RegisterScreen.routeName: (context) => const RegisterScreen(false),
         LoginScreen.routeName: (context) => const LoginScreen(),
-        SessionHomeScreen.routeName: (context) => SessionHomeScreen(),
-        PostRegisterInvitation.routeName: (content) => const PostRegisterInvitation()
+        SessionHomeScreen.routeName: (context) => SessionHomeScreen()
       },
     );
   }
@@ -67,9 +72,14 @@ class MyApp extends StatelessWidget {
 
 class HomePage extends StatefulWidget {
   final String title;
-  static final List<Widget> screens = [const LoginScreen(), const RegisterScreen(), SessionHomeScreen(), const SettingsScreen()];
+  static final List<Widget> screens = [const LoginScreen(), const RegisterScreen(false), SessionHomeScreen(), const SettingsScreen()];
 
   HomePage(this.title, {Key key}) : super(key: key);
+
+  static void pushNotificationToSession(AbstractNotification notification) {
+    SessionHomeScreen screen = screens[SessionHomeScreen.IDX];
+    screen.sendPort.send(notification);
+  }
 
   @override
   State<StatefulWidget> createState() => MyHomePage(this.title);
@@ -91,19 +101,16 @@ class MyHomePage extends State<HomePage> {
 
   void onStart() async {
     AwesomeNotifications().actionStream.listen((receivedNotification) {
-      String route = receivedNotification.payload["route"];
-      String key = receivedNotification.payload["arguments"];
-      dynamic content = Utils.notificationPayloads[key];
+      String hashcode = receivedNotification.payload["widgetHashcode"];
 
-      print("~~~ Received notification route to $route ~~~");
-      Navigator.of(context).pushNamed(
-          route,
-          arguments: content
-      );
+      Widget widget = Utils.notificationPayloads[hashcode];
+
+      print("~~~ Received notification route to ${widget.toStringShort()} ~~~");
+      Navigator.push(context, Utils.createDefaultRoute(widget));
     });
 
     if ((await ClientNetworkAccount.resyncClients()) == 0) {
-      Navigator.pushNamed(context, RegisterScreen.routeName);
+      Navigator.push(context, Utils.createDefaultRoute(const RegisterScreen(true)));
     }
   }
 

@@ -9,7 +9,7 @@ use crate::misc::AccountError;
 /// Here, we're receiving a notification that we've been deregistered from. We thus have no responsibility of making confirmation to the source. Just need to remove
 /// the entries in the cnac
 #[allow(unused_results)]
-pub fn process(peer_cid: u64, ticket: u64, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>) -> FcmProcessorResult {
+pub fn process(peer_cid: u64, local_cid: u64, ticket: u64, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>) -> FcmProcessorResult {
     if let None = fcm_crypt_container.remove(&peer_cid) {
         log::warn!("[Deregister] Unable to remove fcm crypt container");
     }
@@ -26,6 +26,6 @@ pub fn process(peer_cid: u64, ticket: u64, fcm_crypt_container: &mut HashMap<u64
         FcmProcessorResult::Err(err.into_string())
     } else {
         // requestor is the peer, since we are receiving the notification here that the other endpoint deregistered
-        FcmProcessorResult::Value(FcmResult::Deregistered { peer_cid, requestor_cid: peer_cid, ticket })
+        FcmProcessorResult::Value(FcmResult::Deregistered { peer_cid: local_cid, requestor_cid: peer_cid, ticket })
     }
 }

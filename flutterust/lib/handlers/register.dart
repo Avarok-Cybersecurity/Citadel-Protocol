@@ -1,5 +1,6 @@
 import 'package:flutter_easyloading/flutter_easyloading.dart';
-import 'package:flutterust/database_handler.dart';
+import 'package:flutterust/database/client_network_account.dart';
+import 'package:flutterust/database/database_handler.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/screens/register.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
@@ -30,13 +31,13 @@ class RegisterHandler implements AbstractHandler {
   }
 
   @override
-  CallbackStatus onTicketReceived(KernelResponse kernelResponse) {
+  Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse) async {
     EasyLoading.dismiss();
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.Register)) {
       RegisterResponse resp = kernelResponse.getDSR().value;
       if (resp.success) {
         print("[Register Handler] SUCCESS!");
-        ClientNetworkAccount.resyncClients();
+        await ClientNetworkAccount.resyncClients();
         this.info.sendPort.send(RegisterUISignal(RegisterUpdateSignalType.RegisterSuccess, message: kernelResponse.getMessage().orElse("Successfully registered!")));
       } else {
         this.onError(kernelResponse.getMessage().value);

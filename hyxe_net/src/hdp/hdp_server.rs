@@ -350,8 +350,8 @@ impl HdpServer {
                     }
                 }
 
-                HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm, security_level) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, None, quantum_algorithm, None, None).await {
+                HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm, fcm_keys,  security_level) => {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, fcm_keys, quantum_algorithm, None, None).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
@@ -524,7 +524,7 @@ impl Sink<HdpServerRequest> for HdpServerRemote {
 /// in order for processes sitting above the [Kernel] to know how the request went
 pub enum HdpServerRequest {
     /// Sends a request to the underlying [HdpSessionManager] to begin connecting to a new client
-    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<u8>, SecurityLevel),
+    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<u8>, Option<FcmKeys>, SecurityLevel),
     /// A high-level peer command. Can be used to facilitate communications between nodes in the HyperLAN
     PeerCommand(u64, PeerSignal),
     /// For submitting a de-register request

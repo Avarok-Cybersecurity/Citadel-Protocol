@@ -1,9 +1,10 @@
 name: flutterust
 description: A new Flutter project.
 version: 1.0.0+1
+publish_to: none
 
 environment:
-  sdk: '>=2.5.0 <3.0.0'
+  sdk: '>=2.6.0 <3.0.0'
 
 
 dependencies:
@@ -11,8 +12,10 @@ dependencies:
     sdk: flutter
 
   firebase_core: any
+  bubble: ^1.1.9+1
   sqflite:
   path:
+  cached_network_image: ^2.5.0
   firebase_messaging: 9.0.0-1.0.nullsafety.0
   cupertino_icons: any
   optional: ^5.0.0+1
@@ -65,3 +68,9 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/custom-fonts/#from-packages
+  fonts:
+    - family: Oxygen
+      fonts:
+        - asset: assets/fonts/Oxygen-Regular.ttf
+        - asset: assets/fonts/Oxygen-Bold.ttf
+        - asset: assets/fonts/Oxygen-Light.ttf

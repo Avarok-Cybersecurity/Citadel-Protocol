@@ -81,7 +81,7 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
                 FCMPayloadType::Truncate { truncate_vers } => truncate::process(crypt_container,  truncate_vers),
                 FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string()),
                 // below, the implicated cid is obtained from the session_cid, and as such, is the peer_cid
-                FCMPayloadType::PeerDeregistered => deregister::process(implicated_cid, ticket, fcm_crypt_container, mutuals)
+                FCMPayloadType::PeerDeregistered => deregister::process(implicated_cid, local_cid, ticket, fcm_crypt_container, mutuals)
             }
         };
 

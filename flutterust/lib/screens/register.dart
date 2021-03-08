@@ -13,8 +13,9 @@ import '../utils.dart';
 class RegisterScreen extends StatefulWidget {
   static const String routeName = '/register';
   static const int IDX = 1;
+  final bool fromEmptyAccountList;
 
-  const RegisterScreen({Key key}) : super(key: key);
+  const RegisterScreen(this.fromEmptyAccountList, {Key key}) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _RegisterScreen();
@@ -81,55 +82,66 @@ class _RegisterScreen extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return widget.fromEmptyAccountList ?
+        Scaffold(
+          appBar: AppBar(
+            title: Text("Create your first account")
+          ),
+
+          body: buildForm(),
+        ) : buildForm();
+  }
+
+  Form buildForm() {
     return Form(
         key: _formKey,
         child: SingleChildScrollView(
             child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 100, horizontal: 50),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: <Widget>[
-              DefaultTextFormField(true, "Federation Address",
-                  controller: this.federationAddrController,
-                  isFilled: this.badAddr,
-                  fillColor: this.badAddr ? ERROR : Colors.white),
-              DefaultTextFormField(true, "Full Name",
-                  controller: this.fullnameController),
-              DefaultTextFormField(true, "Username",
-                  controller: this.usernameController),
-              DefaultTextFormField(false, "Proposed Password",
-                  isPassword: true, controller: this.passwordController),
-              DefaultTextFormField(false, "Verify Password",
-                  isPassword: true,
-                  controller: this.password2Controller,
-                  isFilled: this.passwordsMismatch,
-                  fillColor: this.passwordsMismatch ? ERROR : Colors.white),
-              DropdownButtonFormField(
-                value: securityLevel,
-                onChanged: (String newValue) {
-                  setState(() {
-                    this.securityLevel = newValue;
-                  });
-                },
-                items: levels.map<DropdownMenuItem<String>>((String value) {
-                  return DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value),
-                  );
-                }).toList(),
-                decoration: InputDecoration(labelText: "Security Level"),
+              padding: EdgeInsets.symmetric(vertical: 100, horizontal: 50),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  DefaultTextFormField(true, "Federation Address",
+                      controller: this.federationAddrController,
+                      isFilled: this.badAddr,
+                      fillColor: this.badAddr ? ERROR : Colors.white),
+                  DefaultTextFormField(true, "Full Name",
+                      controller: this.fullnameController),
+                  DefaultTextFormField(true, "Username",
+                      controller: this.usernameController),
+                  DefaultTextFormField(false, "Proposed Password",
+                      isPassword: true, controller: this.passwordController),
+                  DefaultTextFormField(false, "Verify Password",
+                      isPassword: true,
+                      controller: this.password2Controller,
+                      isFilled: this.passwordsMismatch,
+                      fillColor: this.passwordsMismatch ? ERROR : Colors.white),
+                  DropdownButtonFormField(
+                    value: securityLevel,
+                    onChanged: (String newValue) {
+                      setState(() {
+                        this.securityLevel = newValue;
+                      });
+                    },
+                    items: levels.map<DropdownMenuItem<String>>((String value) {
+                      return DropdownMenuItem<String>(
+                        value: value,
+                        child: Text(value),
+                      );
+                    }).toList(),
+                    decoration: InputDecoration(labelText: "Security Level"),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 10),
+                    child: ElevatedButton(
+                        child: Text("Register"),
+                        onPressed: () {
+                          performRegister(this.sendPort);
+                        }),
+                  )
+                ],
               ),
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: 10),
-                child: ElevatedButton(
-                    child: Text("Register"),
-                    onPressed: () {
-                      performRegister(this.sendPort);
-                    }),
-              )
-            ],
-          ),
-        )));
+            )));
   }
 
   void performRegister(SendPort sendPort) async {

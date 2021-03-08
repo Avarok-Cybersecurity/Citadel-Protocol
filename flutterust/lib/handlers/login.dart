@@ -21,7 +21,7 @@ class LoginHandler implements AbstractHandler {
   }
 
   @override
-  CallbackStatus onTicketReceived(KernelResponse kernelResponse) {
+  Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse) async {
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.Connect)) {
       ConnectResponse resp = kernelResponse.getDSR().value;
       if (resp.success) {

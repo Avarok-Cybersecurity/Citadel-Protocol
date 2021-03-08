@@ -9,6 +9,10 @@ class StandardTicket extends Ticket {
     this.id = id;
   }
 
+  StandardTicket.from(num id) {
+    this.id = u64.from(id);
+  }
+
   static Optional<StandardTicket> tryFrom<T>(T input) {
     if (input is String) {
       var id = u64.tryFrom(input);

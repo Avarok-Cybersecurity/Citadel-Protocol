@@ -32,6 +32,7 @@ pub mod tests {
     use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_user::fcm::kem::FcmPostRegister;
+    use hyxe_crypt::fcm::keys::FcmKeys;
 
     const COUNT: usize = 500;
     const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 50);
@@ -97,6 +98,9 @@ pub mod tests {
         static CLIENT2_PASSWORD: &'static str = "mrmoney10";
 
         const ENABLE_FCM: bool = false;
+        let keys0 = ENABLE_FCM.then(||FcmKeys::new("123", "456"));
+        let keys1 = keys0.clone();
+        let keys2 = keys0.clone();
 
         let test_container = Arc::new(RwLock::new(TestContainer::new()));
 
@@ -107,7 +111,7 @@ pub mod tests {
             let server_executor = create_executor(rt.clone(), server_bind_addr, Some(test_container.clone()), NodeType::Server, Vec::default()).await;
             log::info!("Done setting up server executor");
             let client0_executor = create_executor(rt.clone(), client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
-                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecVec::new(Vec::from(CLIENT0_PASSWORD)), None), None, security_level)),
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecVec::new(Vec::from(CLIENT0_PASSWORD)), None), None, keys0, security_level)),
                      function(move |test_container| client0_action1(test_container, CLIENT0_USERNAME, CLIENT0_PASSWORD, security_level)),
                      function(move |test_container| client0_action2(test_container, ENABLE_FCM)),
                      function(move |test_container| client0_action3(test_container, p2p_security_level))
@@ -115,13 +119,13 @@ pub mod tests {
             }).await;
 
             let client1_executor = create_executor(rt.clone(), client1_bind_addr, Some(test_container.clone()), NodeType::Client1, {
-                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT1_FULLNAME, CLIENT1_USERNAME, SecVec::new(Vec::from(CLIENT1_PASSWORD)), None), None, security_level)),
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT1_FULLNAME, CLIENT1_USERNAME, SecVec::new(Vec::from(CLIENT1_PASSWORD)), None), None, keys1, security_level)),
                      function(move |test_container| client1_action1(test_container, CLIENT1_USERNAME, CLIENT1_PASSWORD, security_level))
                 ]
             }).await;
 
             let client2_executor = create_executor(rt.clone(), client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
-                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT2_FULLNAME, CLIENT2_USERNAME, SecVec::new(Vec::from(CLIENT2_PASSWORD)), None), None, security_level)),
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, ProposedCredentials::new_unchecked(CLIENT2_FULLNAME, CLIENT2_USERNAME, SecVec::new(Vec::from(CLIENT2_PASSWORD)), None), None, keys2, security_level)),
                      function(move |test_container| client2_action1(test_container, CLIENT2_USERNAME, CLIENT2_PASSWORD, security_level)),
                      function(move |test_container| client2_action2(test_container, ENABLE_FCM)),
                      function(move |test_container| client2_action3_start_group(test_container))

@@ -5,7 +5,7 @@ import 'package:satori_ffi_parser/types/root/error.dart';
 
 abstract class AbstractHandler {
   CallbackStatus onConfirmation(KernelResponse kernelResponse);
-  CallbackStatus onTicketReceived(KernelResponse kernelResponse);
+  Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse);
   void onErrorReceived(ErrorKernelResponse kernelResponse);
 
   static bool validTypes(KernelResponse kernelResponse, DomainSpecificResponseType dsrType) {
