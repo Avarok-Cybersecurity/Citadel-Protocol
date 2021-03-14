@@ -1,6 +1,10 @@
 import 'package:flutterust/database/abstract_sql_object.dart';
 import 'package:flutterust/database/database_handler.dart';
+import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/main.dart';
+import 'package:flutterust/misc/auto_login.dart';
+import 'package:flutterust/misc/secure_storage_handler.dart';
+import 'package:flutterust/utils.dart';
 import 'package:optional/optional.dart';
 import 'package:quiver/iterables.dart';
 import 'package:satori_ffi_parser/types/dsr/get_accounts_response.dart';
@@ -65,15 +69,21 @@ class ClientNetworkAccount extends AbstractSqlObject {
             await DatabaseHandler.clearDatabase();
             return 0;
           } else {
-            await DatabaseHandler.upsertObjects(zip([
+            List<ClientNetworkAccount> cnacs = zip([
               dsr.cids,
               dsr.usernames,
               dsr.full_names,
               dsr.is_personals,
               dsr.creation_dates
-            ])
-                .map((e) => ClientNetworkAccount(e[0], e[1], e[2], e[3], e[4]))
-                .toList(growable: false));
+            ]).map((e) => ClientNetworkAccount(e[0], e[1], e[2], e[3], e[4]))
+                .toList(growable: false);
+
+            await DatabaseHandler.upsertObjects(cnacs);
+
+            // Also, add the default PeerNetworkAccounts for the peerCid of zero (representing a client/server communication session, useful for community messages)
+            await DatabaseHandler.upsertObjects(dsr.cids.map((e) => PeerNetworkAccount(u64.from(0), e, "Community")).toList(growable: false));
+            // additionally, get a list of clients that have autologin enabled
+            await AutoLogin.setupAutologin(cnacs);
             return dsr.cids.length;
           }
         }

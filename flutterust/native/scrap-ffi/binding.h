@@ -14,6 +14,8 @@ char *background_processor(const char *packet, const char *home_dir);
 
 int32_t error_message_utf8(char *buf, int32_t length);
 
+int32_t is_kernel_loaded(void);
+
 int32_t last_error_length(void);
 
 int32_t load_page(int64_t port, const char *home_dir);

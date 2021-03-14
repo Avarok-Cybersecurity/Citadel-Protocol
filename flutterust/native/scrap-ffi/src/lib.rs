@@ -54,6 +54,15 @@ pub extern "C" fn load_page(port: i64, home_dir: *const raw::c_char) -> i32 {
     load_and_execute_ffi_static(port, cstr!(home_dir))
 }
 
+#[no_mangle]
+pub extern "C" fn is_kernel_loaded() -> i32 {
+    if hyxewave::ffi::ffi_entry::kernel_ready() {
+        1
+    } else {
+        0
+    }
+}
+
 //static BACKGROUND_PROCESSOR_INSTANCE: Mutex<Option<AccountManager>> = const_mutex(None);
 #[no_mangle]
 /// Meant to be executed by background isolates needing access to the account manager (e.g., FCM)

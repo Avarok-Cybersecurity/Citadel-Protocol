@@ -100,4 +100,8 @@ class FFIBridge {
       native.memfree(ptr.toNativeUtf8());
     }
   }
+
+  bool isKernelLoaded() {
+    return native.is_kernel_loaded() == 1;
+  }
 }

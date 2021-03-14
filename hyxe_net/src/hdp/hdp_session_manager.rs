@@ -9,7 +9,7 @@ use tokio::net::{TcpStream, TcpListener};
 use hyxe_crypt::prelude::SecurityLevel;
 use hyxe_user::account_manager::AccountManager;
 
-use crate::constants::{TCP_ONLY, KEEP_ALIVE_TIMEOUT_NS};
+use crate::constants::{TCP_ONLY, KEEP_ALIVE_TIMEOUT_NS, DO_CONNECT_EXPIRE_TIME_MS};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
 use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
@@ -20,7 +20,7 @@ use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::time_tracker::TimeTracker;
 use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, PeerSignal, MailboxTransfer, PeerConnectionType, PeerResponse};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
-use crate::hdp::hdp_packet_processor::includes::{Duration, HyperNodeAccountInformation};
+use crate::hdp::hdp_packet_processor::includes::{Duration, HyperNodeAccountInformation, Instant};
 use std::sync::atomic::Ordering;
 use std::path::PathBuf;
 use crate::hdp::peer::message_group::MessageGroupKey;
@@ -50,7 +50,7 @@ pub struct HdpSessionManagerInner {
     /// Connections which have no implicated CID go herein. They are strictly expected to be
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [HdpSessionManager] and thereafter placed inside an appropriate session
-    provisional_connections: HashMap<SocketAddr, HdpSession>,
+    provisional_connections: HashMap<SocketAddr, (Instant, HdpSession)>,
     fcm_post_registrations: HashSet<FcmPeerRegisterTicket>,
     kernel_tx: UnboundedSender<HdpServerResult>,
     time_tracker: TimeTracker
@@ -146,15 +146,22 @@ impl HdpSessionManager {
 
             let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt) = {
                 let (remote, kernel_tx, account_manager, tt) = {
-                    let this = inner!(self);
+                    let mut this = inner_mut!(self);
                     let remote = this.server_remote.clone().unwrap();
                     let kernel_tx = this.kernel_tx.clone();
                     let account_manager = this.account_manager.clone();
                     let tt = this.time_tracker.clone();
 
-                    if this.provisional_connections.contains_key(&peer_addr) {
-                        // Localhost is already trying to connect
-                        return Err(NetworkError::Generic(format!("Localhost is already trying to connect to {}", peer_addr)));
+                    // TODO: remove if timed-out. On android/ios, sleeping causes a provisional conn to linger
+                    if let Some((init_time, _sess)) = this.provisional_connections.get(&peer_addr) {
+                        // Localhost is already trying to connect. However, it's possible that the entry has expired,
+                        // especially on IOS where the background timer just stops completely
+                        if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
+                            // remove the entry, since it's expired anyways
+                            this.provisional_connections.remove(&peer_addr);
+                        } else {
+                            return Err(NetworkError::Generic(format!("Localhost is already trying to connect to {}", peer_addr)));
+                        }
                     }
 
                     (remote, kernel_tx, account_manager, tt)
@@ -173,10 +180,10 @@ impl HdpSessionManager {
             if let Some(_implicated_cid) = implicated_cid {
                 // the cid exists which implies registration already occurred
                 new_session.store_proposed_credentials(proposed_credentials, packet_flags::cmd::primary::DO_CONNECT);
-                inner_mut!(self).provisional_connections.insert(peer_addr, new_session.clone());
+                inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), new_session.clone()));
             } else {
                 new_session.store_proposed_credentials(proposed_credentials, packet_flags::cmd::primary::DO_REGISTER);
-                inner_mut!(self).provisional_connections.insert(peer_addr, new_session.clone());
+                inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), new_session.clone()));
             }
 
             (session_manager_clone, new_session, peer_addr, p2p_listener, primary_stream)
@@ -217,7 +224,9 @@ impl HdpSessionManager {
             }
         };
 
-        // TODO: Use RAII w/ HdpSessionInner & StateContainerInner
+        // TODO: Use RAII w/ HdpSessionInner & StateContainerInner ? Hmm ... seems good on PC/Linux/Mac,
+        // but not good with android when connections really have the tendency to linger since background
+        // async subroutines get shutoff
 
         let sess_mgr = inner!(session_manager);
         // the final step is to take all virtual conns inside the session, and remove them from other sessions
@@ -301,8 +310,12 @@ impl HdpSessionManager {
         let mut this = inner_mut!(self);
         let remote = this.server_remote.clone().unwrap();
 
-        if this.provisional_connections.contains_key(&peer_addr) {
-            return Err(NetworkError::Generic(format!("Peer from {} is already a provisional connection. Denying attempt", &peer_addr)));
+        if let Some((init_time, _sess)) = this.provisional_connections.get(&peer_addr) {
+            if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
+                this.provisional_connections.remove(&peer_addr);
+            } else {
+                return Err(NetworkError::Generic(format!("Peer from {} is already a provisional connection. Denying attempt", &peer_addr)));
+            }
         }
 
         // Regardless if the IpAddr existed as a client before, we must treat the connection temporarily as provisional
@@ -313,7 +326,7 @@ impl HdpSessionManager {
         this.incoming_cxn_count += 1;
 
         let new_session = HdpSession::new_incoming(remote, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket);
-        this.provisional_connections.insert(peer_addr.clone(), new_session.clone());
+        this.provisional_connections.insert(peer_addr.clone(), (Instant::now(), new_session.clone()));
         std::mem::drop(this);
 
         // Note: Must send TICKET on finish
@@ -433,17 +446,20 @@ impl HdpSessionManager {
     ///
     /// Adds the internal queues to the hypernode_peer_layer. This function thus MUST be called during the
     /// DO_CONNECT stage
+    ///
+    /// This will return false if the provisional connection was already removed. This can happen to really
+    /// slow connections, or during background execution on android/ios
     pub fn upgrade_connection(&self, socket_addr: SocketAddr, implicated_cid: u64) -> bool {
         let mut this = inner_mut!(self);
         if let Some(connection) = this.provisional_connections.remove(&socket_addr) {
             //let _ = this.hypernode_peer_layer.register_peer(implicated_cid, true);
-            if this.sessions.insert(implicated_cid, connection).is_some() {
+            if this.sessions.insert(implicated_cid, connection.1).is_some() {
                 // sometimes (especially on cellular networks), when the network changes due to
                 // changing cell towers (or between WIFI/Cellular modes), the session lingers
                 // without cleaning itself up. It will automatically drop by itself, however,
                 // sometimes when the client attempts to re-connect, the old session will still
                 // be in place, and hence removing the old session when attemping to upgrade
-                // from a provisional to a protected connection must be allowed As such, issue a warning here,
+                // from a provisional to a protected connection must be allowed. As such, issue a warning here,
                 // then return true to allow the new connection to proceed instead of returning false
                 // due to overlapping connection
                 log::warn!("Cleaned up lingering session for {}", implicated_cid);

@@ -51,9 +51,11 @@ impl From<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync
 // respresentation
 #[derive(Debug, Serialize)]
 #[serde(tag="type", content="info")]
+#[allow(variant_size_differences)]
 pub enum KernelResponse {
     Confirmation,
     Message(#[serde(with = "base64_string")] Vec<u8>),
+    KernelStatus(bool),
     // ticket, implicated_cid, icid (0 if HyperLAN server), peer_cid
     NodeMessage(#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
     ResponseTicket(#[serde(serialize_with = "string")] u64),
@@ -61,6 +63,7 @@ pub enum KernelResponse {
     ResponseHybrid(#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
     DomainSpecificResponse(DomainResponse),
     KernelShutdown(#[serde(with = "base64_string")] Vec<u8>),
+    KernelInitiated,
     Error(#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
     FcmError(FcmTicket, #[serde(with = "base64_string")] Vec<u8>)
 }

@@ -637,6 +637,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let mut write = self.write();
         let local_cid = write.cid;
 
+        let local_fcm_keys = write.crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Local client cannot accept an FCM request since local has no FCM keys to reciprocate".to_string()))?;
         // remove regardless
         let invite = write.fcm_invitations.remove(&peer_cid).ok_or(AccountError::Generic("Invitation for client does not exist, or, expired".to_string()))?;
 
@@ -645,15 +646,15 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         }*/
 
         match invite {
-            InvitationType::PostRegister(FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys, ..), username, ticket) => {
+            InvitationType::PostRegister(FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, ..), username, ticket) => {
 
                 if accept {
                     // now, construct the endpoint container
                     let bob_constructor = Fcm::Constructor::new_bob(0, local_cid, 0,AliceToBobTransferType::Fcm(FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| AccountError::Generic(err.to_string()))?)).ok_or(AccountError::IoError("Bad ratchet container".to_string()))?;
-                    let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(AccountError::IoError("Stage0/Bob failed".to_string()))?.assume_fcm().unwrap(), fcm_keys.clone(), local_cid);
+                    let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(AccountError::IoError("Stage0/Bob failed".to_string()))?.assume_fcm().unwrap(), local_fcm_keys, local_cid);
                     let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(AccountError::IoError("Unable to construct Bob's ratchet".to_string()))?;
 
-                    write.fcm_crypt_container.insert(peer_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, fcm_keys));
+                    write.fcm_crypt_container.insert(peer_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, peer_fcm_keys));
                     write.mutuals.insert(HYPERLAN_IDX, MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(username) });
                     std::mem::drop(write);
                     self.blocking_save_to_local_fs()?;

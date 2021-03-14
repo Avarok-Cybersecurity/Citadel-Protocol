@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:isolate';
 
 import 'package:flutter/cupertino.dart';
@@ -7,19 +8,20 @@ import 'package:flutterust/components/text_form_field.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/login.dart';
 import 'package:flutterust/main.dart';
-import 'package:flutterust/themes/default.dart';
-
-import '../utils.dart';
+import 'package:flutterust/misc/secure_storage_handler.dart';
+import 'package:optional/optional.dart';
+import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 
 class LoginScreen extends StatefulWidget {
   static const String routeName = "/login";
   static const int IDX = 0;
+  final StreamController<dynamic> coms = StreamController();
 
-  const LoginScreen({Key key}) : super(key: key);
+  LoginScreen({Key key}) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _LoginScreen();
-  
+
 }
 
 class _LoginScreen extends State<LoginScreen> {
@@ -29,16 +31,24 @@ class _LoginScreen extends State<LoginScreen> {
 
   static const List<String> levels = ["High", "Very High", "Extreme", "Ultra", "Maximum"];
   String securityLevel = levels.first;
+  bool autoLogin = true;
+  bool loginButtonEnabled = false;
 
-  SendPort port;
+  StreamSubscription<dynamic> coms;
 
-  _LoginScreen() {
-    ReceivePort port = ReceivePort("Login Screen Recv Port");
-    this.port = port.sendPort;
+  _LoginScreen();
 
-    port.listen((message) async {
+  @override
+  void initState() {
+    super.initState();
+
+    this.coms = this.widget.coms.stream.listen((message) async {
       print("RECV signal to update state");
-      await handleUISignal(message);
+      if (message is KernelInitiated) {
+        this.loginButtonEnabled = true;
+      } else {
+        await handleUISignal(message);
+      }
 
       setState(() {});
     });
@@ -96,12 +106,28 @@ class _LoginScreen extends State<LoginScreen> {
                     labelText: "Security Level"
                 ),
               ),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text("Auto login"),
+                    Checkbox(
+                      value: this.autoLogin,
+                      onChanged: (newValue) {
+                        setState(() {
+                          this.autoLogin = newValue;
+                        });
+                      },
+                    )
+                  ],
+                ),
+
               Padding(
                 padding: EdgeInsets.symmetric(vertical: 10),
-                child: ElevatedButton(
-                    child: Text("Connect"),
-                    onPressed: () { performLogin(this.port); }
-                ),
+                child: this.loginButtonEnabled ? ElevatedButton(
+                  child: Text("Connect"),
+                  onPressed: () => performLogin(),
+                ) : CircularProgressIndicator(),
               )
             ],
           ),
@@ -110,31 +136,34 @@ class _LoginScreen extends State<LoginScreen> {
     );
   }
 
-  void performLogin(SendPort port) async {
+  void performLogin() async {
     FocusManager.instance.primaryFocus.unfocus();
     await EasyLoading.show();
     print("Username: " + this.usernameController.text);
     print("Password: " + this.passwordController.text);
     print("Security setting: " + this.securityLevel);
+    print("AutoLogin: $autoLogin");
+
     this._formKey.currentState.save();
-    var cmd = "connect " +
-        this.usernameController.text +
-        " -s " + levels.indexOf(this.securityLevel).toString() +
-        " --password " + this.passwordController.text +
-        " --ffi" +
-        " --fcm-api-key " + Utils.apiKey +
-        " --fcm-token " + Utils.nodeClientToken;
+    String username = this.usernameController.text;
+    String password = this.passwordController.text;
+    int securityLevel = levels.indexOf(this.securityLevel);
+
+    Optional<Credentials> creds = this.autoLogin ? Optional.of(Credentials(username, password, securityLevel)) : Optional.empty();
+
+    var cmd = LoginHandler.constructConnectCommand(username, password, securityLevel);
 
     print("Executing: " + cmd);
     (await RustSubsystem.bridge.executeCommand(cmd))
-    .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: LoginHandler(port, this.usernameController.text)));
+    .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: LoginHandler(this.widget.coms.sink, this.usernameController.text, creds)));
   }
 
   @override
   void dispose() {
+    super.dispose();
     this.usernameController.dispose();
     this.passwordController.dispose();
-    super.dispose();
+    this.coms.cancel();
   }
 }
 

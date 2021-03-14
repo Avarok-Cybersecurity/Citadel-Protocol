@@ -1,23 +1,52 @@
-import 'dart:isolate';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutterust/components/default_widget.dart';
 import 'package:flutterust/database/client_network_account.dart';
+import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
+import 'package:flutterust/themes/default.dart';
+import 'package:flutterust/utils.dart';
 
-class NotificationsScreen extends StatelessWidget {
+class NotificationsScreen extends StatefulWidget {
   final List<AbstractNotification> notifications;
   final ClientNetworkAccount cnac;
   final void Function(int) removeFromParent;
 
-  const NotificationsScreen(this.cnac, this.notifications, this.removeFromParent);
+  NotificationsScreen(this.cnac, this.notifications, this.removeFromParent, { Key key }) : super(key: key);
+
+  @override
+  State<StatefulWidget> createState() {
+    return NotificationsScreenInner();
+  }
+}
+
+class NotificationsScreenInner extends State<NotificationsScreen> {
+
+  StreamSubscription<Message> messages;
+
+  @override
+  void initState() {
+    super.initState();
+    this.messages = Utils.broadcaster.stream.stream.listen((message) {
+      // we don't need to add to the list since the notifications item is a pointer
+      // to the parent who owns its object. We just need to refresh the view
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    this.messages.cancel();
+  }
 
   @override
   Widget build(BuildContext context) {
     return DefaultPageWidget(
       align: Alignment.topCenter,
-        title: Text("Notifications for ${this.cnac.username}"),
-        child: this.notifications.isEmpty ? Text("No notifications!") : compileWidget(context)
+        title: Text("Notifications for ${this.widget.cnac.username}"),
+        child: this.widget.notifications.isEmpty ? Text("No notifications!") : compileWidget(context)
     );
   }
 
@@ -25,39 +54,67 @@ class NotificationsScreen extends StatelessWidget {
     return FutureBuilder(
       future: compileNotifications(context),
       builder: (context, snapshot) {
-        return snapshot.data;
+        if (snapshot.hasData) {
+          return snapshot.data;
+        } else {
+          return Container(
+            child: Center(
+                child: CircularProgressIndicator()
+            ),
+          );
+        }
       },
     );
   }
 
   Future<ListView> compileNotifications(BuildContext context) async {
     return ListView(
+      key: UniqueKey(),
       shrinkWrap: true,
       // we want the most recent notification on top, and as such, must add the entries in reverse
-      children: await Stream.fromIterable(this.notifications.asMap().entries.toList().reversed).asyncMap((e) async {
+      children: await Stream.fromIterable(this.widget.notifications.asMap().entries.toList().reversed).asyncMap((e) async {
       return Card(
           child: InkWell(
-            child: ListTile(
-              onTap: () => onNotificationTapped(e.value, e.key, context),
-              leading: Icon(e.value.notificationIcon, size: 56.0),
-              title: Text(
-                await e.value.getNotificationTitle(this.cnac),
-                style: TextStyle(
-                    fontWeight: FontWeight.bold
+            child: Dismissible(
+              key: Key(e.value.hashCode.toString()),
+              background: Container(color: Colors.red),
+              onDismissed: (direction) {
+                onNotificationTapped(e.value, e.key, context, dismissOnly: true);
+
+                ScaffoldMessenger
+                    .of(context).removeCurrentSnackBar();
+                ScaffoldMessenger
+                    .of(context).showSnackBar(SnackBar(duration: Duration(seconds: 1), key: UniqueKey(), content: Text("Notification dismissed")));
+              },
+              child: ListTile(
+                onTap: () => onNotificationTapped(e.value, e.key, context),
+                leading: Icon(e.value.notificationIcon, size: 56.0),
+                title: Text(
+                  await e.value.getNotificationTitle(this.widget.cnac),
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold
+                  ),
                 ),
+                subtitle: Text("Received ${getDisplayTime(e.value.receiveTime)}"),
+                trailing: Icon(Icons.arrow_right),
               ),
-              subtitle: Text("Received ${getDisplayTime(e.value.receiveTime)}"),
-              trailing: Icon(Icons.arrow_right),
-            ),
+            )
           ));
     }).toList()
     );
   }
 
-  void onNotificationTapped(AbstractNotification notification, int idx, BuildContext context) async {
+  void onNotificationTapped(AbstractNotification notification, int idx, BuildContext context, {bool dismissOnly = false}) async {
     print("Tap pressed on ${notification.type}, idx in parent = $idx");
-    await notification.onNotificationOpened(this.cnac, context);
-    this.removeFromParent(idx);
+    if (!dismissOnly) {
+      await notification.onNotificationOpened(this.widget.cnac, context);
+    } else {
+      await notification.delete();
+    }
+
+    this.widget.removeFromParent(idx);
+
+    setState(() {});
   }
 
   String getDisplayTime(DateTime time) {

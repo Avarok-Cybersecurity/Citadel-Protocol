@@ -1,5 +1,6 @@
 import 'package:flutterust/database/abstract_sql_object.dart';
 import 'package:flutterust/database/client_network_account.dart';
+import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/notifications.dart';
 import 'package:flutterust/database/peer_network_account.dart';
 import 'package:optional/optional.dart';
@@ -8,10 +9,12 @@ import 'package:sqflite/sqflite.dart';
 
 class DatabaseHandler {
   static const String DB_NAME = "verisend.db";
+  // The holy commandments
   static const List<String> genesisCommands = [
     ClientNetworkAccount.GENESIS,
     RawNotification.GENESIS,
-    PeerNetworkAccount.GENESIS
+    PeerNetworkAccount.GENESIS,
+    Message.GENESIS
   ];
 
   static Future<Database> database() async {
@@ -30,7 +33,7 @@ class DatabaseHandler {
       },
       // Set the version. This executes the onCreate function and provides a
       // path to perform database upgrades and downgrades.
-      version: 9,
+      version: 11,
     );
   }
 
@@ -150,6 +153,18 @@ class DatabaseHandler {
         where: "$fieldName = ?", whereArgs: [fieldValue]);
     if (query.length > 0) {
       return Optional.of(keyMapper.call(query.first["id"]));
+    } else {
+      return Optional.empty();
+    }
+  }
+
+  static Future<Optional<List<T>>> getKeyByIdAndFieldValue<T>(String tableName, dynamic id, String fieldName, dynamic fieldValue, T Function(Object) deserializer) async {
+    var db = await DatabaseHandler.database();
+
+    var query = await db.query(tableName,
+        where: "id = ? and $fieldName = ?", whereArgs: [id, fieldValue]);
+    if (query.length > 0) {
+      return Optional.of(query.map((e) => deserializer.call(e)).toList());
     } else {
       return Optional.empty();
     }

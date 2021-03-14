@@ -3,12 +3,14 @@ import 'dart:collection';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/database_handler.dart';
 import 'package:flutterust/database/notification_subtypes/deregister_signal.dart';
-import 'package:flutterust/database/notification_subtypes/message.dart';
+import 'package:flutterust/database/notification_subtypes/notification_message.dart';
 import 'package:flutterust/database/notification_subtypes/post_register.dart';
 import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/main.dart';
+import 'package:flutterust/misc/auto_login.dart';
 import 'package:flutterust/screens/session/home.dart';
+import 'package:flutterust/screens/session/session_subscreens/messaging_screen.dart';
 import 'package:flutterust/screens/session/session_subscreens/post_register_invitation.dart';
 import 'package:flutterust/utils.dart';
 import 'package:optional/optional.dart';
@@ -17,6 +19,7 @@ import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/deregister_response.dart';
 import 'package:satori_ffi_parser/types/dsr/disconnect_response.dart';
+import 'package:satori_ffi_parser/types/dsr/fcm/fcm_message.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/post_register_request.dart';
@@ -25,6 +28,7 @@ import 'package:satori_ffi_parser/types/root/kernel_shutdown.dart';
 import 'package:satori_ffi_parser/types/root/message.dart';
 import 'package:satori_ffi_parser/types/root/node_message.dart';
 import 'package:satori_ffi_parser/types/ticket.dart';
+import 'package:satori_ffi_parser/types/u64.dart';
 
 class KernelResponseHandler {
   static final pendingTickets = HashMap<Ticket, KernelResponse>();
@@ -126,22 +130,7 @@ class KernelResponseHandler {
       case KernelResponseType.NodeMessage:
         NodeMessageKernelResponse resp = message;
 
-        String username = (await ClientNetworkAccount.getUsernameByCid(resp.cid)).value;
-        MessageNotification notification = MessageNotification.receivedNow(resp.cid, resp.peerCid, resp.message);
-        int id = await notification.sync();
-        print("Message DB-id: $id");
-        // push to the session screen, if possible.
-        // if this is invoked in the background, the static memory may not be loaded. In this case,
-        // since the notification is already in the database, once the session screen reloads, the
-        // notifications will repopulate
-        if (HomePage.screens != null) {
-          HomePage.pushNotificationToSession(notification);
-        }
-        // TODO: route to chat screen/
-        // TODO: Don't pass the id from above below into the id field. Instead ... pass the notification id inside the widget
-        // NOTE: Even though the above code executed and the notification is in the DB,
-        // the below is to have a notification to appear on the user's phone
-        Utils.pushNotification("Message for $username ", resp.message, id: id);
+        await _handleMessage(resp.cid, resp.peerCid, resp.message);
         break;
         
       case KernelResponseType.Error:
@@ -153,6 +142,12 @@ class KernelResponseHandler {
         KernelShutdown shutdown = message;
         print("The kernel has been shut down. Reason: ${shutdown.message}");
         RustSubsystem.init(force: true);
+        break;
+
+      case KernelResponseType.KernelInitiated:
+        print("Received signal that the kernel has been initiated. Sending signal to allow continuation of other subroutines. ...");
+        Utils.kernelInitiatedSink.add(message);
+        break;
     }
   }
 
@@ -175,6 +170,7 @@ class KernelResponseHandler {
 
       case DomainSpecificResponseType.Disconnect:
         (HomePage.screens[SessionHomeScreen.IDX] as SessionHomeScreen).sendPort.send(dsr);
+        AutoLogin.onDisconnectSignalReceived(dsr);
         break;
 
       case DomainSpecificResponseType.DeregisterResponse:
@@ -187,7 +183,7 @@ class KernelResponseHandler {
             HomePage.pushNotificationToSession(notification);
           }
           
-          String username = await PeerNetworkAccount.getPeerByCid(resp.peerCid).then((value) => value.value.peerUsername);
+          String username = await PeerNetworkAccount.getPeerByCid(resp.implicatedCid, resp.peerCid).then((value) => value.value.peerUsername);
           String localUsername = await ClientNetworkAccount.getUsernameByCid(resp.implicatedCid).then((value) => value.value);
 
           Utils.pushNotification("Deregistration", "$username no longer registered to $localUsername");
@@ -197,9 +193,41 @@ class KernelResponseHandler {
 
         break;
 
+      case DomainSpecificResponseType.FcmMessage:
+        FcmMessage message = dsr;
+        await _handleMessage(message.ticket.targetCid, message.ticket.sourceCid, message.message);
+        break;
+
       default:
         print("Unaccounted DSR message type");
     }
+  }
+
+  static Future<void> _handleMessage(u64 implicatedCid, u64 peerCid, String message) async {
+    ClientNetworkAccount implicatedCnac = await ClientNetworkAccount.getCnacByCid(implicatedCid).then((value) => value.value);
+    String username = implicatedCnac.username;
+
+    // TODO: incorporate FCM post-register ACKS to ensure the below doesn't return null
+    PeerNetworkAccount peerNac = await PeerNetworkAccount.getPeerByCid(implicatedCid, peerCid).then((value) => value.value);
+
+    MessageNotification notification = MessageNotification.receivedNow(implicatedCid, peerCid, message);
+    int id = await notification.sync();
+    print("Message DB-id: $id");
+    // push to the session screen, if possible.
+    // if this is invoked in the background, the static memory may not be loaded. In this case,
+    // since the notification is already in the database, once the session screen reloads, the
+    // notifications will repopulate
+    if (HomePage.screens != null) {
+      HomePage.pushNotificationToSession(notification);
+      // we don't have to sync the message form below since that was already done in notification.sync() above
+      Utils.broadcaster.broadcast(notification.toMessage());
+    }
+
+    // TODO: Don't push notification below unless the user is NOT in the active chat screen (setup a static variable showing which is the active screen)
+    // NOTE: Even though the above code executed and the notification is in the DB,
+    // the below is to have a notification to appear on the user's phone
+    var screen = MessagingScreen(implicatedCnac, peerNac);
+    Utils.pushNotification("Message for $username ", message, widget: screen);
   }
 
 }

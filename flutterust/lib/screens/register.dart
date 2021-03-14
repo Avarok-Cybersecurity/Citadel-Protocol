@@ -171,7 +171,10 @@ class _RegisterScreen extends State<RegisterScreen> {
       if (socketAddrOpt.isPresent) {
         String cmd = "register " +
             socketAddrOpt.value.toString() +
-            " --ffi --security " +
+            " --ffi" +
+            " --fcm-api-key " + Utils.apiKey +
+            " --fcm-token " + Utils.nodeClientToken +
+            " --security " +
             levels.indexOf(this.securityLevel).toString() +
             " --username " +
             this.usernameController.text +

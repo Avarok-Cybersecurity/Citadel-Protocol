@@ -2,10 +2,13 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutterust/components/cached_image.dart';
 import 'package:flutterust/database/client_network_account.dart';
+import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/deregister_handler.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/main.dart';
+import 'package:flutterust/screens/session/session_subscreens/messaging_screen.dart';
+import 'package:flutterust/utils.dart';
 
 class MutualPeerScreen extends StatelessWidget {
   static const String routeName = "/mutual_peer_screen";
@@ -58,6 +61,16 @@ class MutualPeerScreen extends StatelessWidget {
                   padding: EdgeInsets.symmetric(vertical: 10),
                   margin: EdgeInsets.symmetric(horizontal: 10),
                 )
+              ),
+
+              Container(
+                padding: EdgeInsets.all(10),
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: Icon(Icons.message_outlined),
+                  label: Text("Message"),
+                  onPressed: () => openMessageScreen(context),
+                ),
               )
             ],
           ),
@@ -77,6 +90,11 @@ class MutualPeerScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  void openMessageScreen(BuildContext context) async {
+    var screen = MessagingScreen(this.implicatedUser, this.peerNac);
+    Navigator.push(context, Utils.createDefaultRoute(screen));
   }
 
   void deregister(BuildContext ctx) async {

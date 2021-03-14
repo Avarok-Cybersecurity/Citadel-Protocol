@@ -40,7 +40,7 @@ class DeregisterSignal extends AbstractNotification {
 
   @override
   Future<String> getNotificationTitle(ClientNetworkAccount implicatedCid) async {
-    return await PeerNetworkAccount.getPeerByCid(this.peerCid).then((value) => value.value.peerUsername + " deregistered from ${implicatedCid.username}");
+    return await PeerNetworkAccount.getPeerByCid(this.recipientCid, this.peerCid).then((value) => value.value.peerUsername + " deregistered from ${implicatedCid.username}");
   }
 
   @override
