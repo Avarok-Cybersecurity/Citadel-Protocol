@@ -32,3 +32,8 @@ pub fn execute_lusna_kernel<T: ToString>(execute_args: T, to_ffi_frontier: Arc<B
             Ok(())
         })
 }
+
+/// This should be called before running the kernel via FFI to determine if the kernel needs to be executed or not
+pub fn kernel_ready() -> bool {
+    FFI_STATIC.lock().is_some()
+}

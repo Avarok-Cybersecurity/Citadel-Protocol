@@ -1,4 +1,4 @@
-pub const BUILD_VERSION: usize = 4000;
+pub const BUILD_VERSION: usize = 4012;
 /// Signal for closing the stream_wrapper
 pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper
@@ -54,10 +54,9 @@ pub const FIREWALL_KEEP_ALIVE_UDP: std::time::Duration = std::time::Duration::fr
 /// The largest size, in bytes, that a single group can hold (~8 Megs)
 pub const MAX_GROUP_SIZE_BYTES: usize = 1_000_000 * 8;
 /// How many bytes are stored
-pub const CODEC_BUFFER_CAPACITY: usize = u16::max_value() as usize;
+pub const CODEC_BUFFER_CAPACITY: usize = u16::MAX as usize;
 /// The minimum number of bytes allocated in the codec
 pub const CODEC_MIN_BUFFER: usize = 8192;
-
 /// After the time defined below, any incomplete packet groups will be discarded
 pub const GROUP_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(4000);
 /// After this time, the registration state is invalidated
@@ -83,7 +82,6 @@ pub const DRILL_UPDATE_FREQUENCY_HIGH_BASE: u64 = 1 * 480 * 1_000_000_000;
 pub const DRILL_UPDATE_FREQUENCY_ULTRA_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
 pub const DRILL_UPDATE_FREQUENCY_DIVINE_BASE: u64 = 1 * 480 * 1_000_000_000;
-
 /// For ensuring that the hole-punching process begin at about the same time (required)
 /// this is applied to the ping. If the ping is 200ms, the a multiplier of 2.0 will mean that in 200*2.0 = 400ms,
 /// the hole-punching process will begin
