@@ -6,7 +6,7 @@ import 'package:flutterust/database/abstract_sql_object.dart';
 import 'package:flutterust/database/database_handler.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
 import 'package:flutterust/database/notification_subtypes/deregister_signal.dart';
-import 'package:flutterust/database/notification_subtypes/message.dart';
+import 'package:flutterust/database/notification_subtypes/notification_message.dart';
 import 'package:flutterust/database/notification_subtypes/post_register.dart';
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/u64.dart';

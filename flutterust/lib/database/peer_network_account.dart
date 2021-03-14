@@ -19,7 +19,7 @@ class PeerNetworkAccount extends AbstractSqlObject {
   @override
   Map<String, dynamic> toMap() {
     return {
-      'id': this.peerCid.toString(),
+      'id': this.getDatabaseKey().value,
       'implicatedCid': this.implicatedCid.toString(),
       'peerUsername': this.peerUsername,
       'avatarUrl': this.avatarUrl
@@ -27,13 +27,13 @@ class PeerNetworkAccount extends AbstractSqlObject {
   }
 
   PeerNetworkAccount.fromMap(final Map<String, dynamic> sqlMap)
-      : this.peerCid = u64.tryFrom(sqlMap["id"]).value,
+      : this.peerCid = u64.tryFrom(sqlMap["id"].toString().split(".").first).value,
         this.implicatedCid = u64.tryFrom(sqlMap["implicatedCid"]).value,
         this.peerUsername = sqlMap["peerUsername"],
         this.avatarUrl = sqlMap["avatarUrl"];
 
-  static Future<Optional<PeerNetworkAccount>> getPeerByCid(u64 peerCid) async {
-    return await DatabaseHandler.getObjectByID(PeerNetworkAccount.DB_TABLE, peerCid.toString(), (map) => PeerNetworkAccount.fromMap(map));
+  static Future<Optional<PeerNetworkAccount>> getPeerByCid(u64 implicatedCid, u64 peerCid) async {
+    return await DatabaseHandler.getObjectByID(PeerNetworkAccount.DB_TABLE, _getKeyFrom(implicatedCid, peerCid), (map) => PeerNetworkAccount.fromMap(map));
   }
 
   static Future<Optional<u64>> getCidByUsername(String username) async {
@@ -50,7 +50,11 @@ class PeerNetworkAccount extends AbstractSqlObject {
   }
 
   @override
-  Optional getDatabaseKey() {
-    return Optional.of(this.peerCid.toString());
+  Optional<String> getDatabaseKey() {
+    return Optional.of(_getKeyFrom(this.implicatedCid, this.peerCid));
+  }
+
+  static String _getKeyFrom(u64 implicatedCid, u64 peerCid) {
+    return peerCid.toString() + "." + implicatedCid.toString();
   }
 }

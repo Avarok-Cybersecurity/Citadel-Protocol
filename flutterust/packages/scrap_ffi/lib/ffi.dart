@@ -48,6 +48,14 @@ typedef _error_message_utf8_Dart = int Function(
   int length,
 );
 
+/// C function `is_kernel_loaded`.
+int is_kernel_loaded() {
+  return _is_kernel_loaded();
+}
+final _is_kernel_loaded_Dart _is_kernel_loaded = _dl.lookupFunction<_is_kernel_loaded_C, _is_kernel_loaded_Dart>('is_kernel_loaded');
+typedef _is_kernel_loaded_C = Int32 Function();
+typedef _is_kernel_loaded_Dart = int Function();
+
 /// C function `last_error_length`.
 int last_error_length() {
   return _last_error_length();

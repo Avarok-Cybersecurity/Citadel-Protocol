@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutterust/components/default_widget.dart';
 import 'package:flutterust/database/notification_subtypes/post_register.dart';
+import 'package:flutterust/handlers/accept_post_register.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/main.dart';
 
@@ -71,7 +72,7 @@ class PostRegisterInvitation extends StatelessWidget {
     final String cmd = accept ? "accept-register" : "deny-register";
 
       (await RustSubsystem.bridge.executeCommand("switch ${this.args.implicatedCid.toString()} peer $cmd --fcm ${this.args.peerCid.toString()}"))
-          .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp));
+          .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: AcceptPostRegisterHandler(this.args.implicatedCid, this.args.peerCid, this.args.peerUsername)));
 
     await this.args.delete();
     Navigator.of(ctx).pop();

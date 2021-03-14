@@ -8,7 +8,7 @@ class DefaultPageWidget extends StatelessWidget {
   final Alignment align;
   final Widget bottomSheet;
 
-  const DefaultPageWidget({@required this.title, @required this.child, this.align, this.padding = const EdgeInsets.all(20), this.bottomSheet});
+  const DefaultPageWidget({@required this.title, @required this.child, this.align, this.padding = const EdgeInsets.all(20), this.bottomSheet, Key key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {

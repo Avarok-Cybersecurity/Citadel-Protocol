@@ -1,6 +1,7 @@
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/database_handler.dart';
+import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/screens/register.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
@@ -6,8 +7,11 @@ import 'package:dns/dns.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/main.dart';
+import 'package:flutterust/misc/active_message_broadcast.dart';
+import 'package:flutterust/misc/secure_storage_handler.dart';
 import 'package:flutterust/screens/login.dart';
 import 'package:flutterust/themes/default.dart';
 import 'package:optional/optional.dart';
@@ -15,6 +19,7 @@ import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/socket_addr.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:scrap/scrap.dart';
+import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 
 const int DEFAULT_PORT = 25021;
 
@@ -91,7 +96,8 @@ class Utils {
   // On android, Java automatically sets up the notification subsystem
   static void initNotificationSubsystem() {
       AwesomeNotifications().initialize(
-          'resource://drawable/lusna_notification_icon2_background',
+          //'resource://drawable/ic_launcher',
+        null,
           [
             NotificationChannel(
                 channelKey: NOTIFICATION_CHANNEL,
@@ -116,7 +122,7 @@ class Utils {
 
   static HashMap<String, Widget> notificationPayloads = HashMap();
 
-  static void pushNotification(String title, String message, { int id, Widget widget = const LoginScreen() }) {
+  static void pushNotification(String title, String message, { int id, Widget widget }) {
     notificationPayloads[widget.hashCode.toString()] = widget;
 
       AwesomeNotifications().createNotification(
@@ -126,7 +132,7 @@ class Utils {
               title: title,
               body: message,
               payload: {
-                'widgetHashcode': widget.hashCode.toString()
+                'widgetHashcode': widget != null ? widget.hashCode.toString() : "NULL"
               }
           )
       );
@@ -170,7 +176,7 @@ class Utils {
     // Or do other work.
   }
 
-  static Route createDefaultRoute(Widget widget) {
+  static Route createDefaultRoute(final Widget widget) {
     return PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) => widget,
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -181,4 +187,16 @@ class Utils {
         }
     );
   }
+
+  // This is only for when the screen is on and a user has a messaging screen open
+  static final MessageStreamer broadcaster = MessageStreamer();
+
+  static void setupDebugListener() {
+    broadcaster.stream.stream.listen((event) {
+      print("[Broadcaster Default Sink] Received message: ${event.message}");
+      // TODO: Make the messaging interface subscribe directly to the static above
+    });
+  }
+
+  static StreamSink<KernelInitiated> kernelInitiatedSink;
 }

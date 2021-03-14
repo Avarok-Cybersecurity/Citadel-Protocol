@@ -580,13 +580,12 @@ async fn loopback_future(tcp_addr: Option<SocketAddr>) -> Result<(), ConsoleErro
 async fn terminal_ticket_and_loopback_future(ticket_queue_handler: TicketQueueHandler, loopback_pipe_addr: Option<SocketAddr>, ffi_io: Option<FFIIO>, server_remote: HdpServerRemote, ctx: ConsoleContext, daemon_mode: bool) {
     let unordered = FuturesUnordered::<Pin<Box<dyn Future<Output=Result<(), ConsoleError>> + Send>>>::new();
     if let Some(ffi_io) = ffi_io {
-        (ffi_io)(Ok(Some(KernelResponse::Message(String::from("Asynchronous kernel running. FFI Static is about to be set").into_bytes()))));
         let ctx = ctx.clone();
         let server_remote = server_remote.clone();
         let handle = tokio::runtime::Handle::current();
         // set this, that way the ffi can run a command later
-        let _ = crate::ffi::ffi_entry::FFI_STATIC.lock().replace((ctx, server_remote, ffi_io, handle));
-        //unordered.push(Box::pin(super::ffi::command_handler::ffi_future(server_remote, ctx, ffi_io.receiver, ffi_io.to_ffi_frontier)))
+        let _ = crate::ffi::ffi_entry::FFI_STATIC.lock().replace((ctx, server_remote, ffi_io.clone(), handle));
+        (ffi_io)(Ok(Some(KernelResponse::KernelInitiated)));
     } else {
         if !daemon_mode {
             unordered.push(Box::pin(terminal_future(server_remote, ctx)));

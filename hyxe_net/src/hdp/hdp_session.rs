@@ -1060,6 +1060,7 @@ impl HdpSession {
 
     #[allow(unused_results)]
     pub(crate) fn dispatch_peer_command(&self, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
+        log::info!("Dispatching peer command ...");
         let this = inner!(self);
         let timestamp = this.time_tracker.get_global_time_ns();
         let mut do_save = false;
@@ -1091,7 +1092,8 @@ impl HdpSession {
                         }
 
                         // case 2: local just accepted, fcm is enabled. But, signal was not sent via FCM. Instead, was sent via normal network
-                        PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, fcm_keys, _this_cid)) => {
+                        // TODO: This doesn't make sense. Why is it switching on AliceToBobTransfer, and not BobToAliceTransfer??? ANSWER: check the else statement in hyxewave:[..]/peer.rs. It does not switch-out the transfer type. that must instead be done here
+                        PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, _this_cid)) => {
                             let target_cid = vconn.get_original_target_cid();
                             let local_cid = inner.cid;
                             log::info!("[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
@@ -1099,12 +1101,15 @@ impl HdpSession {
                                 return Err(NetworkError::InvalidExternalRequest("Cannot register to the specified client because crypt container already exists"));
                             }
 
+                            let fcm_keys_local = inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Local node does not have FCM keys to share with the endpoint"))?;
+
                             let bob_constructor = FcmRatchetConstructor::new_bob(FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| NetworkError::Generic(err.to_string()))?).ok_or(NetworkError::InvalidExternalRequest("Invalid FCM ratchet constructor"))?;
-                            let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(NetworkError::InvalidExternalRequest("Invalid FCM ratchet constructor"))?, fcm_keys.clone(), local_cid);
+                            let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(NetworkError::InvalidExternalRequest("Invalid FCM ratchet constructor"))?, fcm_keys_local.clone(), local_cid);
                             let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(NetworkError::InvalidExternalRequest("Invalid FCM Ratchet constructor"))?;
                             // no state container, we just add the peer crypt container straight-away
-                            inner.fcm_crypt_container.insert(target_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, fcm_keys)); // local is NOT initiator in this case
+                            inner.fcm_crypt_container.insert(target_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, peer_fcm_keys)); // local is NOT initiator in this case
                             do_save = true;
+
                             PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), fcm_post_register)
                         }
 

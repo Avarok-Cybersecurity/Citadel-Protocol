@@ -27,6 +27,7 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
     let group_id = header.group_id.get();
     let ticket = header.ticket.get();
     let use_client_server_ratchet = header.target_cid.get() == 0;
+    log::info!("Using {} ratchet", use_client_server_ratchet.then(|| "client/server").unwrap_or("FCM endpoint"));
     // if the target cid is zero, it means we aren't using endpoint containers (only client -> server container)
     let local_cid = if use_client_server_ratchet { header.session_cid.get() } else { header.target_cid.get() };
     let implicated_cid = header.session_cid.get();

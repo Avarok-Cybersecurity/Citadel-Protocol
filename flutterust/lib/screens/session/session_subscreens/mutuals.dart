@@ -64,7 +64,7 @@ class MutualsView extends StatelessWidget {
     // navigator route to peer screen
     print("Click selected for $cid");
     // TODO: Get mutual from
-    PeerNetworkAccount peerNac = (await PeerNetworkAccount.getPeerByCid(cid)).value;
+    PeerNetworkAccount peerNac = (await PeerNetworkAccount.getPeerByCid(this.implicatedCnac.implicatedCid, cid)).value;
     Navigator.push(ctx, Utils.createDefaultRoute(MutualPeerScreen(this.implicatedCnac, peerNac)));
   }
 }

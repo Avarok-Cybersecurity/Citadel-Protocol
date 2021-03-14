@@ -84,6 +84,14 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
       switch (dsr.getType()) {
         case DomainSpecificResponseType.Connect:
           ConnectResponse conn = dsr;
+          // first, check to see that the session isn't already added. Sometimes, an old session stays stored
+          // in memory because of background mode preventing a signal from reaching here
+          var idxPrev = this.sessionViews.indexWhere((element) => element.cnac.implicatedCid == conn.implicated_cid);
+          if (idxPrev != -1) {
+            print("Will omit adding session ${conn.implicated_cid} because it already exists");
+            return;
+          }
+
           print("Adding session to sessions list for " + conn.implicated_cid.toString());
           //final String username = conn.getAttachedUsername().orElse("UNATTACHED USERNAME");
           var cnac = (await ClientNetworkAccount.getCnacByCid(conn.implicated_cid)).value;
