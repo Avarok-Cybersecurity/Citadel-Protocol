@@ -33,7 +33,7 @@ class DatabaseHandler {
       },
       // Set the version. This executes the onCreate function and provides a
       // path to perform database upgrades and downgrades.
-      version: 11,
+      version: 12,
     );
   }
 
@@ -206,5 +206,15 @@ class DatabaseHandler {
   static Future<bool> removeObjectById(String tableName, dynamic id) async {
     var db = await DatabaseHandler.database();
     return await db.delete(tableName, where: "id = ?", whereArgs: [id]).then((value) => value == 1);
+  }
+
+  static Future<int> removeAllByFieldValue(String tableName, String fieldName, dynamic fieldValue) async {
+    var db = await DatabaseHandler.database();
+    return await db.delete(tableName, where: "$fieldName = ?", whereArgs: [fieldValue]);
+  }
+
+  static Future<int> removeAllByBidirectionalConditional(String tableName, String fieldName1, dynamic fieldValue1, String fieldName2, dynamic fieldValue2) async {
+    var db = await DatabaseHandler.database();
+    return await db.delete(tableName, where: "($fieldName1 = ? AND $fieldName2 = ?) OR ($fieldName1 = ? AND $fieldName2 = ?)", whereArgs: [fieldValue1, fieldValue2, fieldValue2, fieldValue1]);
   }
 }

@@ -2,6 +2,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
+import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/screens/session/session_subscreens/post_register_invitation.dart';
@@ -34,10 +35,17 @@ class PostRegisterHandler implements AbstractHandler {
   Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse) async {
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.PostRegisterResponse)) {
       PostRegisterResponse resp = kernelResponse.getDSR().value;
+
       print(this.peerCid.toString() + " accepted? " + resp.accept.toString());
       String message = resp.accept ? resp.username + " accepted your request" : this.peerCid.toString() + " did not consent to registering at this time";
+      // TODO: Create PostRegisterResponsePushNotification
       Utils.pushNotification("Register request " + this.peerCid.toString(), message);
       RustSubsystem.bridge.executeCommand("ticket remove ${resp.ticket.id}");
+
+      if (resp.accept) {
+        await PeerNetworkAccount(this.peerCid, resp.implicatedCid, resp.username).sync();
+      }
+
       return CallbackStatus.Complete;
     } else {
       print("[Post-register] DSR type not yet what's required ...");

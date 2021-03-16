@@ -1,4 +1,5 @@
 
+import 'dart:async';
 import 'dart:isolate';
 
 import 'package:flutter/cupertino.dart';
@@ -26,13 +27,10 @@ import 'package:satori_ffi_parser/types/virtual_connection_type.dart';
 class SessionHomeScreen extends StatefulWidget {
   static const String routeName = "/sessions";
   static const IDX = 2;
-  ReceivePort recv;
-  SendPort sendPort;
 
-  SessionHomeScreen({Key key}) : super(key: key) {
-    this.recv = ReceivePort();
-    this.sendPort = this.recv.sendPort;
-  }
+  final StreamController<dynamic> controller = StreamController();
+
+  SessionHomeScreen({Key key}) : super(key: key);
 
   @override
   State<StatefulWidget> createState() {
@@ -41,22 +39,19 @@ class SessionHomeScreen extends StatefulWidget {
 }
 
 class SessionHomeScreenInner extends State<SessionHomeScreen> {
-  static SendPort sendPort;
-
   List<String> tabs = [];
   List<SessionView> sessionViews = [];
   List<List<AbstractNotification>> notifications = [];
+
+  StreamSubscription<dynamic> listener;
 
   int pos = 0;
 
   @override
   void initState() {
     super.initState();
-    this.widget.recv = ReceivePort();
-    this.widget.sendPort = this.widget.recv.sendPort;
-    sendPort = this.widget.sendPort;
 
-    this.widget.recv.listen((message) async {
+    this.listener = this.widget.controller.stream.listen((message) async {
       if (message is AbstractNotification) {
         var cid = message.recipientCid;
         int idx = this.sessionViews.indexWhere((element) => element.cnac.implicatedCid == cid);
@@ -66,16 +61,23 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
       } else {
         await handle(message);
       }
+
       setState(() {});
     });
 
     this.onStart();
   }
 
+  @override
+  void dispose() {
+    super.dispose();
+    this.listener?.cancel();
+  }
+
   /// initState cannot be async, so the function is moved to a separate fn
   void onStart() async {
     (await RustSubsystem.bridge.executeCommand("list-sessions"))
-        .ifPresent((kResp) => kResp.getDSR().ifPresent((dsr) => this.widget.sendPort.send(dsr)));
+        .ifPresent((kResp) => kResp.getDSR().ifPresent((dsr) => this.widget.controller.sink.add(dsr)));
   }
 
   /// handles either Connect or Disconnect dsr types, or, message types
@@ -84,25 +86,28 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
       switch (dsr.getType()) {
         case DomainSpecificResponseType.Connect:
           ConnectResponse conn = dsr;
-          // first, check to see that the session isn't already added. Sometimes, an old session stays stored
-          // in memory because of background mode preventing a signal from reaching here
-          var idxPrev = this.sessionViews.indexWhere((element) => element.cnac.implicatedCid == conn.implicated_cid);
-          if (idxPrev != -1) {
-            print("Will omit adding session ${conn.implicated_cid} because it already exists");
-            return;
+          if (conn.success) {
+            // first, check to see that the session isn't already added. Sometimes, an old session stays stored
+            // in memory because of background mode preventing a signal from reaching here
+            var idxPrev = this.sessionViews.indexWhere((element) => element.cnac.implicatedCid == conn.implicated_cid);
+            if (idxPrev != -1) {
+              print("Will omit adding session ${conn.implicated_cid} because it already exists");
+              return;
+            }
+
+            print("Adding session to sessions list for " + conn.implicated_cid.toString());
+            //final String username = conn.getAttachedUsername().orElse("UNATTACHED USERNAME");
+            var cnac = (await ClientNetworkAccount.getCnacByCid(conn.implicated_cid)).value;
+            var storedNotifications = await RawNotification.loadNotificationsFor(cnac.implicatedCid);
+            print("[Notification-Loader] Loaded: ${storedNotifications.length} notifications");
+
+            tabs.add(cnac.username);
+            notifications.add(storedNotifications);
+            sessionViews.add(SessionView(cnac, widget.key));
+
+            print("Len: " + tabs.length.toString() + ", len: " + sessionViews.length.toString());
           }
-
-          print("Adding session to sessions list for " + conn.implicated_cid.toString());
-          //final String username = conn.getAttachedUsername().orElse("UNATTACHED USERNAME");
-          var cnac = (await ClientNetworkAccount.getCnacByCid(conn.implicated_cid)).value;
-          var storedNotifications = await RawNotification.loadNotificationsFor(cnac.implicatedCid);
-          print("[Notification-Loader] Loaded: ${storedNotifications.length} notifications");
-
-          tabs.add(cnac.username);
-          notifications.add(storedNotifications);
-          sessionViews.add(SessionView(cnac, widget.key));
-
-          print("Len: " + tabs.length.toString() + ", len: " + sessionViews.length.toString());
+          
           break;
 
         case DomainSpecificResponseType.GetActiveSessions:
@@ -135,6 +140,7 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
               int idx = this.sessionViews.indexWhere((element) => element.cnac.implicatedCid == dc.implicated_cid);
               if (idx != -1) {
                 print("Disconnect occurred. Will remove idx $idx");
+
                 this.tabs.removeAt(idx);
                 this.notifications.removeAt(idx);
                 this.sessionViews.removeAt(idx);

@@ -12,12 +12,14 @@ import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/active_message_broadcast.dart';
 import 'package:flutterust/misc/secure_storage_handler.dart';
+import 'package:flutterust/notifications/abstract_push_notification.dart';
 import 'package:flutterust/screens/login.dart';
 import 'package:flutterust/themes/default.dart';
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/socket_addr.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
+import 'package:satori_ffi_parser/types/u64.dart';
 import 'package:scrap/scrap.dart';
 import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 
@@ -120,10 +122,8 @@ class Utils {
 
   static int idx = 0;
 
-  static HashMap<String, Widget> notificationPayloads = HashMap();
-
-  static void pushNotification(String title, String message, { int id, Widget widget }) {
-    notificationPayloads[widget.hashCode.toString()] = widget;
+  static void pushNotification(String title, String message, { int id, AbstractPushNotification apn }) {
+    //notificationPayloads[widget.hashCode.toString()] = widget;
 
       AwesomeNotifications().createNotification(
           content: NotificationContent(
@@ -131,9 +131,7 @@ class Utils {
               channelKey: NOTIFICATION_CHANNEL,
               title: title,
               body: message,
-              payload: {
-                'widgetHashcode': widget != null ? widget.hashCode.toString() : "NULL"
-              }
+              payload: apn?.getPreservableMap()
           )
       );
   }
@@ -194,9 +192,10 @@ class Utils {
   static void setupDebugListener() {
     broadcaster.stream.stream.listen((event) {
       print("[Broadcaster Default Sink] Received message: ${event.message}");
-      // TODO: Make the messaging interface subscribe directly to the static above
     });
   }
 
   static StreamSink<KernelInitiated> kernelInitiatedSink;
+
+  static Optional<u64> currentlyOpenedMessenger = Optional.empty();
 }

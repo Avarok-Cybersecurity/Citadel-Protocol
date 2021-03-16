@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/database_handler.dart';
 import 'package:flutterust/database/notifications.dart';
+import 'package:flutterust/notifications/abstract_push_notification.dart';
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 
@@ -20,6 +21,8 @@ abstract class AbstractNotification {
 
   Future<String> getNotificationTitle(ClientNetworkAccount implicatedCid);
   Future<void> onNotificationOpened(ClientNetworkAccount implicatedCid, BuildContext context);
+
+  AbstractPushNotification toAbstractPushNotification();
 
   DateTime get receiveTime;
   IconData get notificationIcon;

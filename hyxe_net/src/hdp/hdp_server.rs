@@ -566,6 +566,7 @@ pub enum HdpServerResult {
     /// will be returned in the delivery, thus enabling higher-level abstractions to listen for data
     /// returns
     MessageDelivery(Ticket, u64, SecBuffer),
+    MessageDelivered(Ticket),
     /// Mailbox
     MailboxDelivery(u64, Option<Ticket>, MailboxTransfer),
     /// Peer result

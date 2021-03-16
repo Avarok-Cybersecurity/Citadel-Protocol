@@ -2,6 +2,7 @@ name: scrap
 description: A new flutter plugin project.
 version: 0.0.1
 author:
+publish_to: none
 homepage:
 
 environment:

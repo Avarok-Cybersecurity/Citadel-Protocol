@@ -134,7 +134,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                                 // We set this that way, once the adjacent node closes, this node won't get a propagated error message
                                 session.needs_close_message.store(false, Ordering::SeqCst);
                                 // TODO: Move the below process into the CNAC constructor above to not have double saving
-                                handle_client_fcm_keys(stage2_packet.fcm_keys, &peer_cnac);
+                                let _ = handle_client_fcm_keys(stage2_packet.fcm_keys, &peer_cnac);
                                 // we no longer use FinalReply, because that cuts the connection and end the future on the other end. Let the other end terminate it
                                 PrimaryProcessorResult::ReplyToSender(packet)
                             }
@@ -193,7 +193,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                                 state_container.register_state.on_success();
                                 std::mem::drop(state_container);
                                 //session.session_manager.clear_provisional_session(&remote_addr);
-                                handle_client_fcm_keys(session.fcm_keys.take(), &new_cnac);
+                                let _ = handle_client_fcm_keys(session.fcm_keys.take(), &new_cnac);
                                 session.send_to_kernel(HdpServerResult::RegisterOkay(session.kernel_ticket, new_cnac, success_message))?;
                             }
 

@@ -12,6 +12,7 @@
     <application
         android:name="io.flutter.app.FlutterApplication"
         android:label="Verisend"
+        tools:replace="android:label"
         android:icon="@mipmap/ic_launcher">
 
         <!-- Set custom default icon. This is used when no icon is set for incoming notification messages.

@@ -8,6 +8,7 @@ import 'package:flutterust/handlers/login.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/secure_storage_handler.dart';
 import 'package:flutterust/screens/session/home.dart';
+import 'package:optional/optional.dart';
 import 'package:retry/retry.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/connect_response.dart';
@@ -57,17 +58,27 @@ class AutoLogin {
     }
   }
 
-  static Future<void> initiateAutoLogin(u64 implicatedCid, String username) async {
+  static Future<Optional<KernelResponse>> executeCommandRequiresConnected(u64 implicatedCid, String username, String command) async {
+    if (await initiateAutoLogin(implicatedCid, username)) {
+      print("Account successfully logged-in; will now execute enqueued command ...");
+      return await RustSubsystem.bridge.executeCommand(command);
+    } else {
+      return Optional.empty();
+    }
+  }
+
+  static Future<bool> initiateAutoLogin(u64 implicatedCid, String username) async {
     print("[AutoLogin] disconnect received for $implicatedCid. Will engage reconnection mechanism ...");
     final Credentials creds = autologinAccounts[implicatedCid];
     // initiate exponential backoff ...
     final String connectCmd = LoginHandler.constructConnectCommand(creds.username, creds.password, creds.securityLevel);
 
-    await retry(() async {
-      // first step is to always make sure that we're not already connected. It's possible the user logs-in manually between the rest period
+    // Returns true if end-result is connected, reguardless if connection attempts required
+    var future = retry(() async {
+      // first step is to always make sure that we're not already connected
       if (await implicatedCid.isLocallyConnected()) {
         print("[AutoLoginHandler] User is already connected; no need to continue autologin ...");
-        return;
+        return true;
       }
 
       StreamController<bool> controller = StreamController();
@@ -88,7 +99,7 @@ class AutoLogin {
 
         if (loginResult) {
           print("[AutoLogin] Login success!");
-          return;
+          return true;
         } else {
           print("[AutoLogin] Login failure ...");
           throw Exception("Login failed");
@@ -105,6 +116,12 @@ class AutoLogin {
         retryIf: (e) => e is TimeoutException || e is Exception,
         maxAttempts: MAX_RETRY_ATTEMPTS
     );
+
+    try {
+      return await future;
+    } catch(_) {
+      return false;
+    }
   }
 }
 
@@ -131,7 +148,7 @@ class AutoLoginHandler implements AbstractHandler {
       ConnectResponse resp = kernelResponse.getDSR().value;
       resp.attachUsername(this.username);
       this.sink.add(resp.success);
-      SessionHomeScreenInner.sendPort.send(resp);
+      HomePage.pushObjectToSession(resp);
       return CallbackStatus.Complete;
     } else {
       print("[AutoLoginHandler] unexpected kernel response $kernelResponse");
