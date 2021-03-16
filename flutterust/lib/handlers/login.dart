@@ -3,6 +3,7 @@ import 'dart:isolate';
 
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
+import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/auto_login.dart';
 import 'package:flutterust/misc/secure_storage_handler.dart';
 import 'package:flutterust/screens/login.dart';
@@ -36,7 +37,7 @@ class LoginHandler implements AbstractHandler {
         print("[Login Handler] SUCCESS!");
         resp.attachUsername(this.username);
         this.sink.add(LoginUISignal(LoginUpdateSignalType.LoginSuccess, message: kernelResponse.getMessage().orElse("Successfully connected!")));
-        SessionHomeScreenInner.sendPort.send(resp);
+        HomePage.pushObjectToSession(resp);
         u64 cid = await ClientNetworkAccount.getCidByUsername(this.username).then((value) => value.value);
         if (creds.isPresent) {
           var credentials = creds.value;

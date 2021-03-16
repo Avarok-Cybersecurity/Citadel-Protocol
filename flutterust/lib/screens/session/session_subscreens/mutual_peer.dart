@@ -25,7 +25,7 @@ class MutualPeerScreen extends StatelessWidget {
       ),
 
       body: Container(
-        child: SafeArea(
+        child: SingleChildScrollView(
           child: Column(
             children: [
               Center(

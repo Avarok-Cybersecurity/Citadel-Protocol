@@ -5,6 +5,9 @@ import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
 import 'package:flutterust/database/notifications.dart';
 import 'package:flutterust/database/peer_network_account.dart';
+import 'package:flutterust/handlers/peer_sent_handler.dart';
+import 'package:flutterust/notifications/abstract_push_notification.dart';
+import 'package:flutterust/notifications/message_push_notification.dart';
 import 'package:flutterust/screens/session/session_subscreens/messaging_screen.dart';
 import 'package:flutterust/utils.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
@@ -15,13 +18,11 @@ class MessageNotification extends AbstractNotification {
   final String message;
   final DateTime recvTime;
   final bool recipientIsLocal;
+  final PeerSendState status;
 
-  MessageNotification(this.recipient, this.sender, this.message, this.recvTime, this.recipientIsLocal);
+  MessageNotification(this.recipient, this.sender, this.message, this.recvTime, this.recipientIsLocal, this.status);
   /// This should be called when receiving a message
-  MessageNotification.receivedNow(this.recipient, this.sender, this.message): this.recvTime = DateTime.now(), this.recipientIsLocal = true;
-  /// This should be called when sending a message to keep tally in the DB for the chat screens
-  /// Note the order here; it's in reverse compared to Self::receivedNow
-  MessageNotification.sentNow(this.sender, this.recipient, this.message) : this.recvTime = DateTime.now(), this.recipientIsLocal = false;
+  MessageNotification.receivedNow(this.recipient, this.sender, this.message): this.recvTime = DateTime.now(), this.recipientIsLocal = true, this.status = PeerSendState.MessageReceived;
 
   MessageNotification.fromMap(Map<String, dynamic> sqlMap, int id) :
         this.recipient = u64.tryFrom(sqlMap["recipient"]).value,
@@ -29,6 +30,7 @@ class MessageNotification extends AbstractNotification {
   this.message = sqlMap["message"],
   this.recvTime = DateTime.parse(sqlMap["recvTime"]),
   this.recipientIsLocal = sqlMap["recipientIsLocal"],
+  this.status = PeerSendStateExt.fromString(sqlMap["status"]).value,
         super.withId(id);
 
   @override
@@ -38,7 +40,8 @@ class MessageNotification extends AbstractNotification {
       'sender': this.sender.toString(),
       'message': this.message,
       'recvTime': this.recvTime.toIso8601String(),
-      'recipientIsLocal': this.recipientIsLocal
+      'recipientIsLocal': this.recipientIsLocal,
+      'status': this.status.asString()
     };
   }
 
@@ -53,10 +56,10 @@ class MessageNotification extends AbstractNotification {
   Message toMessage() {
     if (this.recipientIsLocal) {
       // implies peer sent it
-      return Message(this.recipient, this.sender, this.message, this.recvTime, true);
+      return Message(this.recipient, this.sender, this.message, this.recvTime, true, this.status);
     } else {
       // implies local sent it
-      return Message(this.sender, this.recipient, this.message, this.recvTime, false);
+      return Message(this.sender, this.recipient, this.message, this.recvTime, false, this.status);
     }
   }
 
@@ -94,5 +97,10 @@ class MessageNotification extends AbstractNotification {
     await this.delete();
     PeerNetworkAccount.getPeerByCid(implicatedCnac.implicatedCid, this.recipientIsLocal ? this.sender : this.recipientCid)
     .then((value) => value.map((peerNac) => Navigator.push(context, Utils.createDefaultRoute(MessagingScreen(implicatedCnac, peerNac)))).orElseGet(() => EasyLoading.showError("Peer not found locally", dismissOnTap: true)));
+  }
+
+  @override
+  AbstractPushNotification toAbstractPushNotification() {
+    return MessagePushNotification.from(this);
   }
 }

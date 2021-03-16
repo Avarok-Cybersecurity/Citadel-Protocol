@@ -3,6 +3,8 @@ import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
 import 'package:flutterust/database/notifications.dart';
 import 'package:flutterust/database/peer_network_account.dart';
+import 'package:flutterust/notifications/abstract_push_notification.dart';
+import 'package:flutterust/notifications/deregister_push_notification.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 
@@ -51,4 +53,7 @@ class DeregisterSignal extends AbstractNotification {
       Navigator.pop(context);
     }
   }
+
+  @override
+  AbstractPushNotification toAbstractPushNotification() => DeregisterPushNotification.from(this);
 }

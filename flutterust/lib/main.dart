@@ -9,10 +9,12 @@ import 'package:flutterust/components/app_retain_widget.dart';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
+import 'package:flutterust/notifications/abstract_push_notification.dart';
 import 'package:flutterust/screens/login.dart';
 import 'package:flutterust/screens/session/home.dart';
 import 'package:flutterust/screens/settings.dart';
 import 'package:flutterust/utils.dart';
+import 'package:optional/optional.dart';
 import 'package:scrap/scrap.dart';
 import 'components/fade_indexed_stack.dart';
 import 'screens/register.dart';
@@ -83,9 +85,10 @@ class HomePage extends StatefulWidget {
 
   HomePage(this.preInitializedKernel, {Key key}) : super(key: key);
 
-  static void pushNotificationToSession(AbstractNotification notification) {
+  /// Either an abstract notification of kernel response can be pushed herein
+  static void pushObjectToSession(dynamic value) {
     SessionHomeScreen screen = screens[SessionHomeScreen.IDX];
-    screen.sendPort.send(notification);
+    screen.controller.sink.add(value);
   }
 
   @override
@@ -108,18 +111,20 @@ class MyHomePage extends State<HomePage> {
   }
 
   void onStart() async {
-    AwesomeNotifications().actionStream.listen((receivedNotification) {
-      // TODO: When app restarts and notification lingers, receivedNotification becomes NULL
-      String hashcode = receivedNotification.payload["widgetHashcode"];
-      print("hashCode: $hashCode");
+    AwesomeNotifications().actionStream.listen((receivedNotification) async {
+      print("[Notification] recv payload: ${receivedNotification.payload}");
 
-      if (Utils.notificationPayloads.containsKey(hashcode)) {
-        final Widget widget = Utils.notificationPayloads[hashcode];
+      Optional<AbstractPushNotification> apn = AbstractPushNotification.tryFromMap(receivedNotification.payload.map((key, value) => MapEntry(key, value.toString())));
 
-        print("~~~ Received notification route to ${widget.toStringShort()} ~~~");
-        Navigator.push(context, Utils.createDefaultRoute(widget));
+      if (apn.isPresent) {
+        Optional<Widget> widget = await apn.value.constructWidget();
+        if (widget.isPresent) {
+          Navigator.push(context, Utils.createDefaultRoute(widget.value));
+        } else {
+          print("Widget not specified for the APN");
+        }
       } else {
-        print("Navigator could not find the entry in the widgets hashmap");
+        print("Navigator could not route b/c APN did not compile from map");
       }
     });
 

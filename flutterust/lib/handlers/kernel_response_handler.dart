@@ -9,6 +9,8 @@ import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/auto_login.dart';
+import 'package:flutterust/notifications/deregister_push_notification.dart';
+import 'package:flutterust/notifications/post_register_push_notification.dart';
 import 'package:flutterust/screens/session/home.dart';
 import 'package:flutterust/screens/session/session_subscreens/messaging_screen.dart';
 import 'package:flutterust/screens/session/session_subscreens/post_register_invitation.dart';
@@ -162,14 +164,14 @@ class KernelResponseHandler {
         print("Message DB-id: $id");
 
         if (HomePage.screens != null) {
-          HomePage.pushNotificationToSession(notification);
+          HomePage.pushObjectToSession(notification);
         }
 
-        Utils.pushNotification("Peer request from " + req.username, req.username + " would like to connect to " + username, widget: PostRegisterInvitation(notification));
+        Utils.pushNotification("Peer request from " + req.username, req.username + " would like to connect to " + username, apn: notification.toAbstractPushNotification());
         return;
 
       case DomainSpecificResponseType.Disconnect:
-        (HomePage.screens[SessionHomeScreen.IDX] as SessionHomeScreen).sendPort.send(dsr);
+        HomePage.pushObjectToSession(dsr);
         AutoLogin.onDisconnectSignalReceived(dsr);
         break;
 
@@ -180,13 +182,13 @@ class KernelResponseHandler {
           int id = await notification.sync();
           print("[Deregister] notification ID: $id");
           if (HomePage.screens != null) {
-            HomePage.pushNotificationToSession(notification);
+            HomePage.pushObjectToSession(notification);
           }
           
           String username = await PeerNetworkAccount.getPeerByCid(resp.implicatedCid, resp.peerCid).then((value) => value.value.peerUsername);
           String localUsername = await ClientNetworkAccount.getUsernameByCid(resp.implicatedCid).then((value) => value.value);
 
-          Utils.pushNotification("Deregistration", "$username no longer registered to $localUsername");
+          Utils.pushNotification("Deregistration", "$username no longer registered to $localUsername", apn: notification.toAbstractPushNotification());
         } else {
           print("**ERROR: Unaccounted Deregister signal that failed");
         }
@@ -208,7 +210,7 @@ class KernelResponseHandler {
     String username = implicatedCnac.username;
 
     // TODO: incorporate FCM post-register ACKS to ensure the below doesn't return null
-    PeerNetworkAccount peerNac = await PeerNetworkAccount.getPeerByCid(implicatedCid, peerCid).then((value) => value.value);
+    //PeerNetworkAccount peerNac = await PeerNetworkAccount.getPeerByCid(implicatedCid, peerCid).then((value) => value.value);
 
     MessageNotification notification = MessageNotification.receivedNow(implicatedCid, peerCid, message);
     int id = await notification.sync();
@@ -218,16 +220,17 @@ class KernelResponseHandler {
     // since the notification is already in the database, once the session screen reloads, the
     // notifications will repopulate
     if (HomePage.screens != null) {
-      HomePage.pushNotificationToSession(notification);
+      HomePage.pushObjectToSession(notification);
       // we don't have to sync the message form below since that was already done in notification.sync() above
       Utils.broadcaster.broadcast(notification.toMessage());
     }
 
-    // TODO: Don't push notification below unless the user is NOT in the active chat screen (setup a static variable showing which is the active screen)
-    // NOTE: Even though the above code executed and the notification is in the DB,
-    // the below is to have a notification to appear on the user's phone
-    var screen = MessagingScreen(implicatedCnac, peerNac);
-    Utils.pushNotification("Message for $username ", message, widget: screen);
+    if (Utils.currentlyOpenedMessenger != Optional.of(implicatedCid)) {
+      //var screen = MessagingScreen(implicatedCnac, peerNac);
+      Utils.pushNotification("Message for $username ", message, apn: notification.toAbstractPushNotification());
+    } else {
+      print("Will not push message to notifications (already in messenger screen)");
+    }
   }
 
 }

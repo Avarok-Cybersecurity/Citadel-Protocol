@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
 import 'package:flutterust/database/notifications.dart';
+import 'package:flutterust/notifications/abstract_push_notification.dart';
+import 'package:flutterust/notifications/post_register_push_notification.dart';
 import 'package:flutterust/screens/session/session_subscreens/post_register_invitation.dart';
 import 'package:flutterust/utils.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
@@ -63,4 +65,6 @@ class PostRegisterNotification extends AbstractNotification {
     Navigator.push(context, Utils.createDefaultRoute(PostRegisterInvitation(this)));
   }
 
+  @override
+  AbstractPushNotification toAbstractPushNotification() => PostRegisterPushNotification.from(this);
 }

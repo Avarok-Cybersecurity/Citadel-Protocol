@@ -3,6 +3,7 @@ import 'package:satori_ffi_parser/types/root/domain_specific.dart';
 import 'package:satori_ffi_parser/types/root/fcm_ticket.dart';
 import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 import 'package:satori_ffi_parser/types/root/kernel_shutdown.dart';
+import 'package:satori_ffi_parser/types/root/message_received.dart';
 
 import 'types/kernel_response.dart';
 import 'package:optional/optional.dart';
@@ -69,12 +70,16 @@ class FFIParser {
 
         case KernelResponseType.KernelInitiated:
           return Optional.of(KernelInitiated());
+
+        case KernelResponseType.MessageReceived:
+          return StandardTicket.tryFrom(infoNode).map((ticket) => MessageReceived(ticket));
       }
 
     } catch (e) {
       print("Invalid input Json: " + e.toString());
-      return Optional.empty();
     }
+
+    return Optional.empty();
   }
 
   //static Optional<KernelResponse> parseHybridResponse(List<>)

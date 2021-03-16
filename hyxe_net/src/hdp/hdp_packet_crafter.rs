@@ -519,12 +519,13 @@ pub(crate) mod do_connect {
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectFinalStatusPacket<'a> {
         pub mailbox: Option<MailboxTransfer>,
-        pub peers: Vec<u64>,
+        pub peers: Vec<(u64, Option<FcmKeys>)>,
         #[serde(borrow)]
         pub message: &'a [u8]
     }
+
     #[allow(unused_results)]
-    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, success: bool, mailbox: Option<MailboxTransfer>, message: T, peers: Vec<u64>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, success: bool, mailbox: Option<MailboxTransfer>, message: T, peers: Vec<(u64, Option<FcmKeys>)>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
         let payload = DoConnectFinalStatusPacket { mailbox, peers, message: message.as_ref() };
 
         let cmd_aux = if success {

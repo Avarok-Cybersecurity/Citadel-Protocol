@@ -33,7 +33,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                 Ok(fcm_keys) => {
 
                     // Now, we handle the FCM setup
-                    handle_client_fcm_keys(fcm_keys, cnac);
+                    let _ = handle_client_fcm_keys(fcm_keys, cnac);
 
                     let cid = hyper_ratchet.get_cid();
                     let success_time = session.time_tracker.get_global_time_ns();
@@ -42,7 +42,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     let kernel_ticket = session.kernel_ticket.clone();
 
                     // transmit peers to synchronize
-                    let peers = cnac.get_hyperlan_peer_list().unwrap_or(Vec::with_capacity(0));
+                    let peers = cnac.get_hyperlan_peer_list_with_fcm_keys().unwrap_or(Vec::with_capacity(0));
                     //let pqc = state_container.connect_stage.generated_pqc.take();
                     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::SUCCESS;
                     state_container.connect_state.fail_time = None;
@@ -117,6 +117,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
             if last_stage == packet_flags::cmd::aux::do_connect::STAGE1 {
                 if let Some(payload) = validation::do_connect::validate_final_status_packet(&*payload) {
+                    let cnac = cnac.clone();
                     let message = String::from_utf8(payload.message.to_vec()).unwrap_or(String::from("Invalid message"));
                     let kernel_ticket = session.kernel_ticket;
                     let cid = hyper_ratchet.get_cid();
@@ -129,9 +130,9 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
                     std::mem::drop(state_container);
 
-                    cnac.synchronize_hyperlan_peer_list(&payload.peers);
+                    let needs_save = cnac.synchronize_hyperlan_peer_list(&payload.peers);
                     session.implicated_cid.store(Some(cid), Ordering::SeqCst); // This makes is_provisional equal to false
-                    session.state = SessionState::Connected;
+
 
                     let addr = session.remote_peer.clone();
                     let is_personal = !session.is_server;
@@ -159,7 +160,13 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                         session.send_to_kernel(HdpServerResult::MailboxDelivery(cid, None, mailbox_delivery))?;
                     }
                     //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
-                    handle_client_fcm_keys_as_client(&mut session);
+                    let did_save = handle_client_fcm_keys_as_client(&mut session);
+
+                    if !did_save && needs_save {
+                        cnac.spawn_save_task_on_threadpool();
+                    }
+
+                    session.state = SessionState::Connected;
 
                     if use_ka {
                         let ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, timestamp, security_level);
@@ -186,7 +193,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
     }
 }
 
-pub(super) fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNetworkAccount) {
+/// returns true if saving occured
+pub(super) fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNetworkAccount) -> bool {
     if let Some(fcm_keys) = fcm_keys {
         log::info!("[FCM KEYS]: {:?}", &fcm_keys);
         cnac.visit_mut(|mut inner| {
@@ -194,10 +202,13 @@ pub(super) fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNet
         });
 
         cnac.spawn_save_task_on_threadpool();
+        return true;
     }
+
+    false
 }
 
 // We move the fcm keys out of the session and into the program-wide reachable CNAC
-pub(super) fn handle_client_fcm_keys_as_client(sess: &mut dyn ExpectedInnerTargetMut<HdpSessionInner>) {
+pub(super) fn handle_client_fcm_keys_as_client(sess: &mut dyn ExpectedInnerTargetMut<HdpSessionInner>) -> bool {
     handle_client_fcm_keys(sess.fcm_keys.take(), sess.cnac.as_ref().unwrap())
 }

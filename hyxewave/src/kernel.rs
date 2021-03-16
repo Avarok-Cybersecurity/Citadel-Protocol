@@ -430,6 +430,12 @@ impl NetKernel for CLIKernel {
                 }
             }
 
+            HdpServerResult::MessageDelivered(ticket) => {
+                if *self.console_context.is_ffi {
+                    self.console_context.proxy_to_ffi(KernelResponse::MessageReceived(ticket.0))
+                }
+            }
+
             _ => {}
         }
 

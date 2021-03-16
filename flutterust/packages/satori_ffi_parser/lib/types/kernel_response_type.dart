@@ -1,6 +1,7 @@
 enum KernelResponseType {
   Confirmation,
   Message,
+  MessageReceived,
   KernelInitiated,
   ResponseTicket,
   ResponseFcmTicket,
