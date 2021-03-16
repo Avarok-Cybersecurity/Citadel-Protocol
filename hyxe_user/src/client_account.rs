@@ -37,6 +37,7 @@ use crate::fcm::data_structures::{FcmTicket, RawFcmPacket};
 use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, block_on_async};
 use crate::fcm::fcm_packet_processor::peer_post_register::InvitationType;
 use crate::fcm::kem::FcmPostRegister;
+use hyxe_crypt::fcm::keys::FcmKeys;
 
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network
@@ -430,6 +431,23 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Returns a set of hyperlan peers
+    pub fn get_hyperlan_peer_list_with_fcm_keys(&self) -> Option<Vec<(u64, Option<FcmKeys>)>> {
+        let this = self.read();
+        let hyperlan_peers = this.mutuals.get_vec(&HYPERLAN_IDX)?;
+
+        Some(hyperlan_peers.into_iter()
+            .map(|peer| {
+                if let Some(fcm_crypt_container) = this.fcm_crypt_container.get(&peer.cid) {
+                    if let Some(keys) = fcm_crypt_container.fcm_keys.clone() {
+                        return (peer.cid, Some(keys))
+                    }
+                }
+
+                (peer.cid, None)
+            }).collect())
+    }
+
+    /// Returns a set of hyperlan peers
     pub fn get_hyperwan_peer_list(&self, icid: u64) -> Option<Vec<u64>> {
         let this = self.read();
         let hyperwan_peers = this.mutuals.get_vec(&icid)?;
@@ -544,11 +562,15 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
     /// Removes any inputs from the internal map that are not present in `peers`. The set `peers` should be
     /// obtained from the HyperLAN Server
-    pub fn synchronize_hyperlan_peer_list(&self, peers: &Vec<u64>) {
+    ///
+    /// Returns true if the data was mutated
+    pub fn synchronize_hyperlan_peer_list(&self, peers: &Vec<(u64, Option<FcmKeys>)>) -> bool {
         let mut this = self.write();
+        let mut needs_save = false;
+
         if let Some(hyperlan_peers) = this.mutuals.get_vec_mut(&HYPERLAN_IDX) {
             hyperlan_peers.retain(|hyperlan_peer| {
-                for peer in peers {
+                for (peer, _) in peers {
                     if *peer == hyperlan_peer.cid {
                         // found a match; retain the entry
                         return true;
@@ -556,9 +578,27 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                 }
                 // no match found; do no retain the entry
                 log::warn!("[CNAC Synchronize]: peer {} does not exist in the HyperLAN Server; removing", hyperlan_peer.cid);
+                needs_save = true;
                 false
             });
+
+
+            for (peer_cid, fcm_keys) in peers {
+                if let Some(fcm_keys) = fcm_keys {
+                    if let Some(fcm_crypt_container) = this.fcm_crypt_container.get_mut(peer_cid) {
+                        fcm_crypt_container.fcm_keys = Some(fcm_keys.clone());
+                        needs_save = true;
+                    } else {
+                        log::warn!("Attemped to synchronize peer list, but local's state is corrupt (fcm)");
+                    }
+                }
+            }
+        } else {
+            // TODO: Network recovery mode
+            log::warn!("Attempted to synchronize peer list, but local's state is corrupt")
         }
+
+        needs_save
     }
 
     /// Determines if the username is a known hyperlan client to self

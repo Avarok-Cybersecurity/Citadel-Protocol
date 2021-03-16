@@ -41,7 +41,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
         let hyper_ratchet = get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess, &wrap_inner_mut!(state_container), proxy_cid_info)?;
         let security_level = header.security_level.into();
-        log::info!("[Peer HyperRatchet] Obtained version {} w/ CID {} (this CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
+        log::info!("[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
         match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
             Some((header, payload)) => {
                 state_container.meta_expiry_state.on_event_confirmation();
@@ -164,7 +164,6 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
                                     initial_window
                                 };
 
-                                // A weird exception for obj_id location .. usually in context info, but in wave if for this unique case
                                 let peer_cid = header.session_cid.get();
                                 //let mut state_container = session.state_container.borrow_mut();
                                 let object_id = header.wave_id.get();
@@ -175,6 +174,7 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
 
                                 if state_container.on_group_header_ack_received(object_id, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg, cnac_sess) {
                                     log::info!("[Toolset Update] Needs truncation? {:?}", &needs_truncate);
+                                    session.send_to_kernel(HdpServerResult::MessageDelivered(header.context_info.get().into()))?;
                                     // now, we need to do one last thing. If the previous function performed an update inside the toolset, it is also possible that we need to truncate
                                     if let Some(truncate_vers) = needs_truncate {
                                         // we need to send a truncate packet

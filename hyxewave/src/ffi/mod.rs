@@ -55,6 +55,7 @@ impl From<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync
 pub enum KernelResponse {
     Confirmation,
     Message(#[serde(with = "base64_string")] Vec<u8>),
+    MessageReceived(#[serde(serialize_with = "string")] u64),
     KernelStatus(bool),
     // ticket, implicated_cid, icid (0 if HyperLAN server), peer_cid
     NodeMessage(#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
