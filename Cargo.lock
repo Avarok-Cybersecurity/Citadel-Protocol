@@ -429,6 +429,7 @@ version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d34327ead1c743a10db339de35fb58957564b99d248a67985c55638b22c59b5"
 dependencies = [
+ "serde",
  "version_check",
 ]
 
@@ -780,9 +781,9 @@ dependencies = [
 
 [[package]]
 name = "env_logger"
-version = "0.8.2"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f26ecb66b4bdca6c1409b40fb255eefc2bd4f6d135dab3c3124f80ffa2a9661e"
+checksum = "17392a012ea30ef05a610aa97dfb49496e71c9f676b27879922ea5bdf60d9d3f"
 dependencies = [
  "atty",
  "humantime 2.0.1",
@@ -818,6 +819,8 @@ dependencies = [
  "bytes 1.0.1",
  "chacha20poly1305",
  "circular-queue",
+ "env_logger 0.8.3",
+ "log",
  "parking_lot 0.11.1",
  "pqcrypto-saber",
  "pqcrypto-traits",
@@ -1316,7 +1319,7 @@ dependencies = [
  "byteorder",
  "bytes 1.0.1",
  "criterion",
- "env_logger 0.8.2",
+ "env_logger 0.8.3",
  "ez_pqcrypto",
  "futures",
  "kernel32-sys",
@@ -1343,7 +1346,7 @@ dependencies = [
  "bytes 1.0.1",
  "chrono",
  "dirs-2",
- "env_logger 0.8.2",
+ "env_logger 0.8.3",
  "futures",
  "hyxe_crypt",
  "log",
@@ -1390,7 +1393,7 @@ dependencies = [
  "byteorder",
  "bytes 1.0.1",
  "either",
- "env_logger 0.8.2",
+ "env_logger 0.8.3",
  "ez_pqcrypto",
  "futures",
  "hyxe_crypt",
@@ -1422,7 +1425,7 @@ dependencies = [
  "bytes 1.0.1",
  "crossbeam-utils",
  "dirs2",
- "env_logger 0.8.2",
+ "env_logger 0.8.3",
  "fcm",
  "hyxe_crypt",
  "hyxe_fs",
@@ -1628,6 +1631,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd96ffd135b2fd7b973ac026d28085defbe8983df057ced3eb4f2130b0831312"
 dependencies = [
  "scopeguard",
+ "serde",
 ]
 
 [[package]]
@@ -2657,7 +2661,7 @@ name = "satori_nos"
 version = "0.1.0"
 dependencies = [
  "bincode2",
- "env_logger 0.8.2",
+ "env_logger 0.8.3",
  "futures",
  "log",
  "parking_lot 0.11.1",

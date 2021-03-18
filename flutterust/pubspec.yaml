@@ -15,6 +15,7 @@ dependencies:
   flutter_secure_storage: ^4.1.0
   retry: ^3.1.0
   background_fetch: ^0.7.1
+  intl: ^0.16.1
   firebase_core: any
   dependencies:
   flutter_chat_bubble: ^1.0.2

@@ -260,6 +260,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let inner_nac = bytes_to_type::<NetworkAccountInner>(&decrypted_nac_bytes).map_err(|err| AccountError::IoError(err.to_string()))?;
         let nac = NetworkAccount::new_from_cnac(inner_nac);
         inner.adjacent_nac = Some(nac);
+        // We only retain the FCM containers, since these must remain stateful across app shutdowns.
+        // On the other hands, ordinary containers are re-negotiated at the beginning of each session
         inner.kem_state_containers.retain(|_, con| con.is_fcm());
 
         let this = Self::from(inner);

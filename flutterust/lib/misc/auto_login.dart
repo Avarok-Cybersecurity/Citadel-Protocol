@@ -73,13 +73,21 @@ class AutoLogin {
     // initiate exponential backoff ...
     final String connectCmd = LoginHandler.constructConnectCommand(creds.username, creds.password, creds.securityLevel);
 
-    // Returns true if end-result is connected, reguardless if connection attempts required
+    // Returns true if end-result is connected, regaurdless if connection attempts required
     var future = retry(() async {
       // first step is to always make sure that we're not already connected
       if (await implicatedCid.isLocallyConnected()) {
         print("[AutoLoginHandler] User is already connected; no need to continue autologin ...");
         return true;
       }
+
+      // Make sure the account exists in the local db
+      if (!await ClientNetworkAccount.getCnacByCid(implicatedCid).then((value) => value.isPresent)) {
+        print("Account does not exist locally. Will not connect");
+        return false;
+      }
+
+      // We also want to make sure that the account is registered
 
       StreamController<bool> controller = StreamController();
       var res = await RustSubsystem.bridge.executeCommand(connectCmd).then((value) {

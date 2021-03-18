@@ -1,5 +1,6 @@
 
 import 'package:flutter_easyloading/flutter_easyloading.dart';
+import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/deregister_response.dart';
@@ -24,6 +25,7 @@ class DeregisterHandler extends AbstractHandler {
       DeregisterResponse dResp = kernelResponse.getDSR().value;
       if (dResp.success) {
         print("[Deregister] Deregistration success!");
+        await PeerNetworkAccount.deletePeerByCid(dResp.implicatedCid, dResp.peerCid);
         EasyLoading.showSuccess("Deregistration from ${dResp.peerCid} success!", dismissOnTap: true);
       } else {
         print("[Deregister] Deregistration failed");

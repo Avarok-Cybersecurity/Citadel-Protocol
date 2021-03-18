@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_chat_bubble/bubble_type.dart';
 import 'package:flutter_chat_bubble/chat_bubble.dart';
 import 'package:flutter_chat_bubble/clippers/chat_bubble_clipper_1.dart';
+import 'package:flutterust/components/chat_bubble.dart';
 import 'package:flutterust/components/text_form_field.dart';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/message.dart';
@@ -14,6 +15,7 @@ import 'package:flutterust/handlers/peer_sent_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/auto_login.dart';
 import 'package:flutterust/utils.dart';
+import 'package:intl/intl.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:optional/optional.dart';
 import 'package:rxdart/rxdart.dart';
@@ -26,7 +28,8 @@ class MessagingScreen extends StatefulWidget {
   final TextEditingController messageField = TextEditingController();
   final List<Widget> bubbles = [];
 
-  MessagingScreen(this.implicatedCnac, this.peerNac, {Key key}) : super(key: key);
+  MessagingScreen(this.implicatedCnac, this.peerNac, {Key key})
+      : super(key: key);
 
   @override
   State<StatefulWidget> createState() {
@@ -36,38 +39,64 @@ class MessagingScreen extends StatefulWidget {
 
 class MessagingScreenInner extends State<MessagingScreen> {
 
-
   ScrollController _scrollController = ScrollController();
   Stream<Widget> messageStream;
-  StreamController<Message> sendIntake = StreamController();
+  StreamController<MessageWidgetUpdateStore> sendIntake = StreamController();
   int initMessageCount = 0;
-  //StreamSubscription<dynamic> messageListener;
 
 
-  Stream<Message> initStream() async* {
+  Stream<MessageWidgetUpdateStore> initStream() async* {
     print("initStream executed");
-    var initMessages = await Message.getMessagesBetween(this.widget.implicatedCnac.implicatedCid, this.widget.peerNac.peerCid);
-    print("Loaded ${initMessages.length} messages between ${this.widget.implicatedCnac.implicatedCid} and ${this.widget.peerNac.peerCid}");
+    var initMessages = await Message.getMessagesBetween(
+        this.widget.implicatedCnac.implicatedCid, this.widget.peerNac.peerCid);
+    print(
+        "Loaded ${initMessages.length} messages between ${this.widget.implicatedCnac.implicatedCid} and ${this.widget.peerNac.peerCid}");
     this.initMessageCount = initMessages.length;
 
     for (Message message in initMessages) {
-      yield message;
+      yield MessageWidgetUpdateStore.insert(
+          bubbleFrom(message, message.status));
     }
   }
 
   @override
   void initState() {
     super.initState();
-    Utils.currentlyOpenedMessenger = Optional.of(this.widget.implicatedCnac.implicatedCid);
+    Utils.currentlyOpenedMessenger =
+        Optional.of(this.widget.implicatedCnac.implicatedCid);
 
-    this.messageStream = Rx.merge<Message>([sendIntake.stream, Utils.broadcaster.stream.stream.where((message) => this.widget.implicatedCnac.implicatedCid == message.implicatedCid && this.widget.peerNac.peerCid == message.peerCid), this.initStream()]).map((message) {
-      if (message != null) {
-        print("[MERGE] stream recv $message");
-        this.widget.bubbles.add(Container(key: UniqueKey(), child: bubbleFrom(message)));
-        this._scrollController = _scrollController.hasClients ? ScrollController(initialScrollOffset:  _scrollController.position.maxScrollExtent) : ScrollController();
-      } else {
-        this.widget.bubbles.clear();
-        this._scrollController = ScrollController();
+    this.messageStream = Rx.merge([
+      sendIntake.stream,
+      Utils.broadcaster.stream.stream
+          .where((message) =>
+              this.widget.implicatedCnac.implicatedCid ==
+                  message.implicatedCid &&
+              this.widget.peerNac.peerCid == message.peerCid)
+          .map((message) => MessageWidgetUpdateStore.insert(
+              bubbleFrom(message, message.status))),
+      this.initStream()
+    ]).map((message) {
+      print("[MERGE] Stream recv");
+
+      switch (message.type) {
+        case MessageWidgetUpdate.New:
+          this.widget.bubbles.add(message.bubble.value);
+          this._scrollController = _scrollController.hasClients
+              ? ScrollController(
+                  initialScrollOffset:
+                      _scrollController.position.maxScrollExtent)
+              : ScrollController();
+          break;
+
+        case MessageWidgetUpdate.Clear:
+          this.widget.bubbles.clear();
+          this._scrollController = ScrollController();
+          break;
+
+        case MessageWidgetUpdate.Replace:
+          print("[MERGE/REPLACE] altering idx ${message.idx}");
+          this.widget.bubbles[message.idx] = message.bubble.value;
+          break;
       }
 
       return ListView(
@@ -78,7 +107,6 @@ class MessagingScreenInner extends State<MessagingScreen> {
         children: this.widget.bubbles,
       );
     });
-
   }
 
   @override
@@ -92,9 +120,10 @@ class MessagingScreenInner extends State<MessagingScreen> {
   Widget compileWidget(BuildContext context) {
     final stream = this.messageStream;
     return StreamBuilder(
-      stream: stream,
+        stream: stream,
         builder: (context, snapshot) {
-        print("[StreamBuilder] Refresh. Current Bubbles:  ${this.widget.bubbles.length} && ${snapshot.connectionState}");
+          print(
+              "[StreamBuilder] Refresh. Current Bubbles:  ${this.widget.bubbles.length} && ${snapshot.connectionState}");
           if (snapshot.hasData) {
             WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
               this.scrollToBottom();
@@ -105,9 +134,7 @@ class MessagingScreenInner extends State<MessagingScreen> {
           } else {
             if (this.initMessageCount != 0) {
               return Container(
-                child: Center(
-                    child: CircularProgressIndicator()
-                ),
+                child: Center(child: CircularProgressIndicator()),
               );
             } else {
               return Center(
@@ -115,8 +142,7 @@ class MessagingScreenInner extends State<MessagingScreen> {
               );
             }
           }
-        }
-    );
+        });
   }
 
   @override
@@ -127,18 +153,15 @@ class MessagingScreenInner extends State<MessagingScreen> {
         title: Row(
           children: [
             CircleAvatar(
-                backgroundImage: CachedNetworkImageProvider(this.widget.peerNac.avatarUrl)
-            ),
-
+                backgroundImage:
+                    CachedNetworkImageProvider(this.widget.peerNac.avatarUrl)),
             VerticalDivider(),
-
             Text(
               "${this.widget.peerNac.peerUsername}",
               style: TextStyle(height: 1),
             )
           ],
         ),
-
         actions: [
           PopupMenuButton<String>(
             onSelected: onSettingsPressed,
@@ -153,19 +176,14 @@ class MessagingScreenInner extends State<MessagingScreen> {
           )
         ],
       ),
-
       body: compileWidget(context),
-
       bottomSheet: Row(
         children: [
           Expanded(
-              child: DefaultTextFormField(true, null, hintText: "Message ...", controller: this.widget.messageField)
-          ),
-
-          IconButton(
-              icon: Icon(Icons.send),
-              onPressed: onSendPressed
-          )
+              child: DefaultTextFormField(true, null,
+                  hintText: "Message ...",
+                  controller: this.widget.messageField)),
+          IconButton(icon: Icon(Icons.send), onPressed: onSendPressed)
         ],
       ),
     );
@@ -174,120 +192,111 @@ class MessagingScreenInner extends State<MessagingScreen> {
   void onSettingsPressed(String cmd) async {
     switch (cmd.toLowerCase()) {
       case "clear":
-        await Message.deleteAll(this.widget.implicatedCnac.implicatedCid, this.widget.peerNac.peerCid);
-        this.sendIntake.sink.add(null);
+        await Message.deleteAll(this.widget.implicatedCnac.implicatedCid,
+            this.widget.peerNac.peerCid);
+        this.sendIntake.sink.add(MessageWidgetUpdateStore.clear());
     }
-
-    setState(() {});
   }
 
   void onSendPressed() async {
     String text = this.widget.messageField.text;
     print("Text: $text");
     if (text.isNotEmpty) {
-      print("Going to send '$text' from ${this.widget.implicatedCnac.username} to ${this.widget.peerNac.peerUsername}");
+      print(
+          "Going to send '$text' from ${this.widget.implicatedCnac.username} to ${this.widget.peerNac.peerUsername}");
       Message message = this.constructMessageInstance(text);
-      this.sendIntake.sink.add(message);
+      this
+          .sendIntake
+          .sink
+          .add(MessageWidgetUpdateStore.insert(bubbleFrom(message)));
       await message.sync();
 
-      String command = this.widget.peerNac.peerCid == u64.zero ? "switch ${this.widget.implicatedCnac.implicatedCid} send $text" : "switch ${this.widget.implicatedCnac.implicatedCid} peer send ${this.widget.peerNac.peerUsername} --fcm $text";
+      String command = this.widget.peerNac.peerCid == u64.zero
+          ? "switch ${this.widget.implicatedCnac.implicatedCid} send $text"
+          : "switch ${this.widget.implicatedCnac.implicatedCid} peer send ${this.widget.peerNac.peerUsername} --fcm $text";
 
-      await AutoLogin.executeCommandRequiresConnected(this.widget.implicatedCnac.implicatedCid, this.widget.implicatedCnac.username, command)
-      .then((value) => value.ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: PeerSendHandler(onMessageStatusUpdateSent, message, this.widget.bubbles.length - 1), oneshot: false)));
+      await AutoLogin.executeCommandRequiresConnected(
+              this.widget.implicatedCnac.implicatedCid,
+              this.widget.implicatedCnac.username,
+              command)
+          .then((value) => value.ifPresent((kResp) =>
+              KernelResponseHandler.handleFirstCommand(kResp,
+                  handler: PeerSendHandler(onMessageStatusUpdateSent, message,
+                      this.widget.bubbles.length - 1),
+                  oneshot: false)));
       this.widget.messageField.clear();
     }
   }
 
   void onMessageStatusUpdateSent(PeerSendUpdate update) {
     print("onMessageStatusUpdateSent called");
-    setState(() {
-      this.widget.bubbles[update.messageIdxInChat] = bubbleFrom(update.message, update.state);
-    });
+    this.sendIntake.add(MessageWidgetUpdateStore.replace(
+        bubbleFrom(update.message, update.state), update.messageIdxInChat));
   }
 
   Message constructMessageInstance(String messageOut) {
-    return Message(this.widget.implicatedCnac.implicatedCid, this.widget.peerNac.peerCid, messageOut, DateTime.now(), false, PeerSendState.Unprocessed);
+    return Message(
+        this.widget.implicatedCnac.implicatedCid,
+        this.widget.peerNac.peerCid,
+        messageOut,
+        DateTime.now(),
+        false,
+        PeerSendState.Unprocessed
+    );
   }
 
-  ChatBubble bubbleFrom(Message message, [ PeerSendState state = PeerSendState.Unprocessed ]) {
-    if (message.fromPeer) {
-      return ChatBubble(
-        clipper: ChatBubbleClipper1(type: BubbleType.receiverBubble),
-        backGroundColor: Color(0xffE7E7ED),
-        margin: EdgeInsets.all(10),
-        child: Container(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.7,
-          ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10),
-            child: Stack(
-              children: [
-                Text(
-                  message.message,
-                  style: TextStyle(color: Colors.black),
-                ),
-
-                Align(
-                  alignment: Alignment.bottomRight,
-                  child: getAppropriateIconByCheckCount(state),
-                )
-              ],
-            )
-          ),
-        ),
-      );
-    } else {
-      return ChatBubble(
-        clipper: ChatBubbleClipper1(type: BubbleType.sendBubble),
-        alignment: Alignment.topRight,
-        margin: EdgeInsets.all(10),
-        backGroundColor: Colors.blue,
-        child: Container(
-          constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.7,
-          ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10),
-            child: Stack(
-              children: [
-                Text(
-                  message.message,
-                  style: TextStyle(color: Colors.white),
-                ),
-
-                Align(
-                  alignment: Alignment.bottomRight,
-                  child: getAppropriateIconByCheckCount(state),
-                )
-              ],
-            )
-          ),
-        ),
-      );
-    }
+  Widget bubbleFrom(Message message, [PeerSendState state = PeerSendState.Unprocessed, Key key]) {
+    return DefaultBubble(
+      key: key ?? UniqueKey(),
+      message: message.message,
+      time: DateFormat.jm().format(message.recvTime),
+      icon: getAppropriateIconByCheckCount(state),
+      iconColorMe: state == PeerSendState.MessageReceived ? Colors.lightGreenAccent : null,
+      iconColorPeer: Colors.blueAccent,
+      isMe: !message.fromPeer,
+      onTap: () => print("onTap called for $message"),
+    );
   }
 
-  Widget getAppropriateIconByCheckCount(PeerSendState state) {
+  IconData getAppropriateIconByCheckCount(PeerSendState state) {
     switch (state) {
       case PeerSendState.Unprocessed:
-        return const Icon(MdiIcons.timerSandEmpty);
+        return Icons.hourglass_bottom;
       case PeerSendState.MessageSent:
-        return const Icon(MdiIcons.check);
+        return Icons.done;
       case PeerSendState.MessageReceived:
-        return const Icon(MdiIcons.checkAll);
+        return Icons.done_all;
       case PeerSendState.Failure:
-        return const Icon(MdiIcons.alertCircle);
+        return MdiIcons.alertCircle;
     }
   }
 
   void scrollToBottom() {
     if (this._scrollController.hasClients) {
       this._scrollController.animateTo(
-        this._scrollController.position.maxScrollExtent,
-        curve: Curves.easeOut,
-        duration: const Duration(milliseconds: 300),
-      );
+            this._scrollController.position.maxScrollExtent,
+            curve: Curves.easeOut,
+            duration: const Duration(milliseconds: 300),
+          );
     }
   }
+}
+
+enum MessageWidgetUpdate { New, Replace, Clear }
+
+class MessageWidgetUpdateStore {
+  final Optional<Widget> bubble;
+  final MessageWidgetUpdate type;
+  final int idx;
+
+  MessageWidgetUpdateStore(this.bubble, this.type, this.idx);
+
+  MessageWidgetUpdateStore.clear()
+      : this(Optional.empty(), MessageWidgetUpdate.Clear, -1);
+
+  MessageWidgetUpdateStore.insert(Widget bubble)
+      : this(Optional.of(bubble), MessageWidgetUpdate.New, -1);
+
+  MessageWidgetUpdateStore.replace(Widget bubble, int idx)
+      : this(Optional.of(bubble), MessageWidgetUpdate.Replace, idx);
 }

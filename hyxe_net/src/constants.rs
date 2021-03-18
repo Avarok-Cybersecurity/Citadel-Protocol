@@ -1,4 +1,4 @@
-pub const BUILD_VERSION: usize = 4022;
+pub const BUILD_VERSION: usize = 4026;
 /// Signal for closing the stream_wrapper
 pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper

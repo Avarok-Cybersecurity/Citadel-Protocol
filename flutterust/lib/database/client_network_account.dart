@@ -67,6 +67,7 @@ class ClientNetworkAccount extends AbstractSqlObject {
           if (dsr.cids.isEmpty) {
             // clear the database just incase there are lingering clients
             await DatabaseHandler.clearDatabase();
+            await SecureStorageHandler.deleteAll();
             return 0;
           } else {
             List<ClientNetworkAccount> cnacs = zip([

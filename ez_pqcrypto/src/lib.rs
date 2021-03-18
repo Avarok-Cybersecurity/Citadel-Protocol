@@ -240,11 +240,13 @@ impl PostQuantumContainer {
                         if self.anti_replay_attack.on_pid_received(u64::from_be_bytes(array)) {
                             // remove the PID from the payload
                             payload.truncate(start_idx);
-                            return Ok(())
+                            Ok(())
+                        } else {
+                            Err(EzError::Generic("Anti-replay-attack: invalid"))
                         }
+                    } else {
+                        Err(EzError::Generic("Anti-replay-attack: Invalid inscription length"))
                     }
-
-                    Err(EzError::Generic("Anti-replay-attack: invalid"))
                 })
         } else {
             Err(EzError::SharedSecretNotLoaded)
@@ -346,8 +348,9 @@ impl TryFrom<PostQuantumExport> for PostQuantumContainer {
         if let Some(shared_secret) = export.shared_secret {
             let shared_secret_slice = shared_secret.as_slice();
             container.data.set_shared_secret(shared_secret_slice)?;
-
         }
+
+        container.anti_replay_attack = bincode2::deserialize(&export.ara).map_err(|_err| generic_err())?;
 
         container.load_aes_gcm_key();
 

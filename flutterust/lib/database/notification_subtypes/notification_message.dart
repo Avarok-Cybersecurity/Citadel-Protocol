@@ -33,6 +33,9 @@ class MessageNotification extends AbstractNotification {
   this.status = PeerSendStateExt.fromString(sqlMap["status"]).value,
         super.withId(id);
 
+  /// This should only be called when expecting to immediately call delete or some function that does not depend on the internal valued other than the id
+  MessageNotification.fromRawIdDirty(int dbKey, {this.recipient, this.sender, this.message, this.recvTime, this.recipientIsLocal, this.status}): super.withId(dbKey);
+
   @override
   Map<String, dynamic> toMap() {
     return {

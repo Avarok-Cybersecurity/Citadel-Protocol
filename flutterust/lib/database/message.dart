@@ -18,7 +18,7 @@ class Message extends AbstractSqlObject {
   final String message;
   final DateTime recvTime;
   final bool fromPeer;
-  final PeerSendState status;
+  PeerSendState status;
   int _id;
 
   Message(this.implicatedCid, this.peerCid, this.message, this.recvTime, this.fromPeer, this.status);

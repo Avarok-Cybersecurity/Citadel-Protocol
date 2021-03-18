@@ -107,7 +107,7 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
 
             print("Len: " + tabs.length.toString() + ", len: " + sessionViews.length.toString());
           }
-          
+
           break;
 
         case DomainSpecificResponseType.GetActiveSessions:
