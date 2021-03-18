@@ -9,6 +9,7 @@ pub struct PostQuantumExport {
     pub(super) secret_key: Option<Vec<u8>>,
     pub(super) ciphertext: Option<Vec<u8>>,
     pub(super) shared_secret: Option<Vec<u8>>,
+    pub(super) ara: Vec<u8>,
     pub(super) node: u8
 }
 
@@ -25,8 +26,9 @@ impl From<&'_ PostQuantumContainer> for PostQuantumExport {
         let secret_key = container.get_secret_key().map(|res| res.to_vec()).ok();
         let ciphertext = container.get_ciphertext().map(|res| res.to_vec()).ok();
         let shared_secret = container.get_shared_secret().map(|res| res.to_vec()).ok();
+        let ara = bincode2::serialize(&container.anti_replay_attack).unwrap();
 
-        Self { algorithm, public_key, secret_key, ciphertext, shared_secret, node }
+        Self { algorithm, public_key, secret_key, ciphertext, shared_secret, ara, node }
     }
 }
 

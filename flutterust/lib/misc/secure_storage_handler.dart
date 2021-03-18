@@ -24,6 +24,10 @@ class SecureStorageHandler {
     await secureStorage.delete(key: SECURITY_LEVEL_KEY + username);
   }
 
+  static Future<void> deleteAll() async {
+    await secureStorage.deleteAll();
+  }
+
   static Future<Optional<Credentials>> getCredentialsByUsername(String username) async {
     String uname = await secureStorage.read(key: USERNAME_KEY + username);
     if (uname != null) {

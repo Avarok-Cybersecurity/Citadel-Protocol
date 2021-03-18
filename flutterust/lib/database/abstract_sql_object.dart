@@ -10,8 +10,13 @@ abstract class AbstractSqlObject {
   Optional<dynamic> getDatabaseKey();
   
   /// Saves to the database. Returns the id of the row
-  Future<int> sync({ConflictAlgorithm conflictAlgorithm}) async {
-    return await DatabaseHandler.insertObject(this, conflictAlgorithm: conflictAlgorithm);
+  Future<dynamic> sync({ConflictAlgorithm conflictAlgorithm}) async {
+    return await DatabaseHandler.upsertObject(this);
+  }
+
+  Future<bool> delete() async {
+    return await this.getDatabaseKey()
+    .map((key) => DatabaseHandler.removeObjectById(this.getTableName(), key)).orElse(Future.value(false));
   }
 }
 

@@ -221,11 +221,11 @@ class KernelResponseHandler {
     // notifications will repopulate
     if (HomePage.screens != null) {
       HomePage.pushObjectToSession(notification);
-      // we don't have to sync the message form below since that was already done in notification.sync() above
-      Utils.broadcaster.broadcast(notification.toMessage());
+      Utils?.broadcaster?.broadcast(notification.toMessage());
     }
 
     if (Utils.currentlyOpenedMessenger != Optional.of(implicatedCid)) {
+      // only save the notification if not in the screen
       //var screen = MessagingScreen(implicatedCnac, peerNac);
       Utils.pushNotification("Message for $username ", message, apn: notification.toAbstractPushNotification());
     } else {

@@ -7,6 +7,7 @@ import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
 import 'package:flutterust/themes/default.dart';
 import 'package:flutterust/utils.dart';
+import 'package:intl/intl.dart';
 
 class NotificationsScreen extends StatefulWidget {
   final List<AbstractNotification> notifications;
@@ -124,11 +125,11 @@ class NotificationsScreenInner extends State<NotificationsScreen> {
     DateTime dayRecv = DateTime(time.year, time.month, time.day);
 
     if (dayRecv == today) {
-      return "Today ${time.hour}:${time.minute}" + (time.hour < 12 ? "AM" : "PM");
+      return "Today ${DateFormat.jm().format(time)}";
     } else if (dayRecv == yesterday) {
-      return "Yesterday ${time.hour}:${time.minute}" + (time.hour < 12 ? "AM" : "PM");
+      return "Yesterday ${DateFormat.jm().format(time)}}";
     } else {
-      return "${time.year}-${time.month}-${time.day} @ ${time.hour}:${time.minute}" + (time.hour < 12 ? "AM" : "PM");
+      return DateFormat.MMMMd().format(time) + " " + DateFormat.jm().format(time);
     }
   }
 }

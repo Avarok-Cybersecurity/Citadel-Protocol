@@ -44,6 +44,10 @@ class PeerNetworkAccount extends AbstractSqlObject {
     return await DatabaseHandler.getObjectsByFieldValue(PeerNetworkAccount.DB_TABLE, "implicatedCid", implicatedCid.toString(), (sqlMap) => PeerNetworkAccount.fromMap(sqlMap)).then((value) => value.orElse([]));
   }
 
+  static Future<bool> deletePeerByCid(u64 implicatedCid, u64 peerCid) async {
+    return await DatabaseHandler.removeObjectById(DB_TABLE, _getKeyFrom(implicatedCid, peerCid));
+  }
+
   @override
   String getTableName() {
     return DB_TABLE;

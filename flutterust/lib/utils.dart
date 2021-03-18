@@ -123,8 +123,6 @@ class Utils {
   static int idx = 0;
 
   static void pushNotification(String title, String message, { int id, AbstractPushNotification apn }) {
-    //notificationPayloads[widget.hashCode.toString()] = widget;
-
       AwesomeNotifications().createNotification(
           content: NotificationContent(
               id: id ?? idx++,

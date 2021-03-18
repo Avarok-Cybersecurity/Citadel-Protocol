@@ -5,9 +5,9 @@ import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
+import 'package:flutterust/background_executor.dart';
 import 'package:flutterust/components/app_retain_widget.dart';
 import 'package:flutterust/database/client_network_account.dart';
-import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/notifications/abstract_push_notification.dart';
 import 'package:flutterust/screens/login.dart';
@@ -23,8 +23,8 @@ import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 
 // color: 0xFF9575CD
 
-// TODO: Fix bug where the ticket ID on the adjacent node collides with a ticket ID client-side (may be fixed with FcmTickets)
-// TODO: Add a call on init checking for kernel health just incase the kernel is already running and the primary screen is rebuilt
+// TODO: Fix bug where the ticket ID on the adjacent node collides with a ticket ID client-side (A uniqueness problem. May already be fixed with FcmTickets for ~100% of FCM interactions. Client/server interactions will require Tickets to have a boolean flag denoting source)
+// TODO: individual deregister + ensure SecureStorage + database wiped
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   //await RustSubsystem.init();
@@ -33,6 +33,7 @@ void main() async {
   Utils.setupDebugListener();
   //Utils.pushNotification("title", "message");
   await Utils.configureFCM();
+  await BackgroundExecutor.setupBackground();
   print("Done initializing FFI/Rust subsystem ...");
   runApp(MyApp(AppRetainWidget(child: HomePage(RustSubsystem.bridge.isKernelLoaded()))));
 }

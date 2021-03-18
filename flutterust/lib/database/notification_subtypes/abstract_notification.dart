@@ -51,4 +51,8 @@ abstract class AbstractNotification {
   Future<bool> delete() async {
     return await this._dbKey.map((key) => DatabaseHandler.removeObjectById(RawNotification.DB_TABLE, key)).orElse(Future.value(false));
   }
+
+  Optional<int> getDbKey() {
+    return this._dbKey;
+  }
 }

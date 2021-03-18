@@ -11,7 +11,7 @@ MaterialColor primary() {
 }
 
 Color primaryColor() {
-  return const Color(0xFF9575CD);
+  return primaryColorValue;
 }
 
 const Color primaryColorValue = Color(0xFF9575CD);

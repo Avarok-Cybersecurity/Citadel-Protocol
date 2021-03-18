@@ -1,10 +1,12 @@
 #[cfg(not(feature = "unordered"))]
 pub mod ordered {
     use std::sync::atomic::{AtomicU64, Ordering};
+    use serde::{Serialize, Deserialize};
 
     /// Uses compare-and-swap operations to determine that an in-order packet is valid
     ///
     /// Use this when anticipating the use of TCP
+    #[derive(Serialize, Deserialize)]
     pub struct AntiReplayAttackContainer {
         in_counter: AtomicU64,
         out_counter: AtomicU64
@@ -46,6 +48,7 @@ pub mod unordered {
     use parking_lot::Mutex;
     use circular_queue::CircularQueue;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use serde::{Serialize, Deserialize};
 
     /// The past HISTORY_LEN packets arrived will be saved to allow out-of-order delivery of packets
     pub const HISTORY_LEN: u64 = 50;
@@ -58,6 +61,7 @@ pub mod unordered {
     /// be kept tracked of within a small range (maybe 100)
     ///
     /// This should be session-unique. There's no point to saving this, especially since re-keying occurs in the networking stack
+    #[derive(Serialize, Deserialize)]
     pub struct AntiReplayAttackContainer {
         // the first value is the number of packets received
         history: Mutex<(u64, CircularQueue<u64>)>,
@@ -77,6 +81,7 @@ pub mod unordered {
         pub fn on_pid_received(&self, pid_received: u64) -> bool {
             let mut queue = self.history.lock();
             if let Some(_) = queue.1.iter().find(|already_arrived| **already_arrived == pid_received) {
+                log::warn!("[ARA] packet already arrived!");
                 false
             } else {
                 // this means the PID is not in the history. HOWEVER, it may still be possible that the packet
@@ -86,11 +91,13 @@ pub mod unordered {
                 let min = queue.0.saturating_sub(HISTORY_LEN);
                 let max = queue.0 + HISTORY_LEN;
 
+                // TODO: Consider logic of this section of code. This may not do what I want it to do
                 if pid_received >= min && pid_received < max {
                     queue.0 += 1;
                     queue.1.push(pid_received);
                     true
                 } else {
+                    log::warn!("[ARA] out of range! Recv: {}. Expected >= {} and < {}", pid_received, min, max);
                     false
                 }
             }
