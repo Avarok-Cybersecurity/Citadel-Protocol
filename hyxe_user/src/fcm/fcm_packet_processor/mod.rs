@@ -80,7 +80,7 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
                 FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet,FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
                 FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(fcm_client, crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer),
                 FCMPayloadType::Truncate { truncate_vers } => truncate::process(crypt_container,  truncate_vers),
-                FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string()),
+                FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-7890)".to_string()),
                 // below, the implicated cid is obtained from the session_cid, and as such, is the peer_cid
                 FCMPayloadType::PeerDeregistered => deregister::process(implicated_cid, local_cid, ticket, fcm_crypt_container, mutuals)
             }

@@ -5,6 +5,18 @@ mod tests {
     use rand::RngCore;
 
     use ez_pqcrypto::{algorithm_dictionary, PostQuantumContainer, NONCE_LENGTH_BYTES};
+    use ez_pqcrypto::bytes_in_place::EzBuffer;
+    use ez_pqcrypto::replay_attack_container::unordered::HISTORY_LEN;
+
+    #[allow(unused_must_use)]
+    fn setup_log() {
+        std::env::set_var("RUST_LOG", "info");
+        let _ = env_logger::try_init();
+        log::trace!("TRACE enabled");
+        log::info!("INFO enabled");
+        log::warn!("WARN enabled");
+        log::error!("ERROR enabled");
+    }
 
     /*
         #[test]
@@ -187,7 +199,7 @@ mod tests {
 
             let mut buf2 = buf.clone();
 
-            println!("[ {} ] {:?}", buf.len(), &buf[..]);
+            println!("[{} @ {} ] {:?}", y, buf.len(), &buf[..]);
             let nonce: [u8; NONCE_LENGTH_BYTES] = Default::default();
             alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
             alice_container.protect_packet_in_place(HEADER_LEN, &mut buf2, &nonce).unwrap();
@@ -200,7 +212,7 @@ mod tests {
             }
 
             // to simulate out-of order delivery, protect a new packet in place and validate that one
-            println!("[ {} ] {:?}", buf2.len(), &buf2[..]);
+            println!("[{} @ {} ] {:?}", y, buf2.len(), &buf2[..]);
             let header2 = buf2.split_to(HEADER_LEN);
             assert!(bob_container.validate_packet_in_place(&header2, &mut buf2, &nonce).is_ok());
             // now do them in order
@@ -218,10 +230,38 @@ mod tests {
             header.unsplit(buf);
             let buf = header;
 
-            println!("[ {} ] {:?}", buf.len(), &buf[..]);
+            println!("[{} @ {} ] {:?}", y, buf.len(), &buf[..]);
         }
         let header = zeroth.split_to(HEADER_LEN);
         assert!(bob_container.validate_packet_in_place(header, &mut zeroth, zeroth_nonce).is_err());
+    }
+
+    #[test]
+    fn unordered_mode() {
+        const HEADER_LEN: usize = 50;
+        const TOTAL_LEN: usize = HEADER_LEN + 150;
+
+        setup_log();
+
+        let algorithm = algorithm_dictionary::FIRESABER;
+        println!("Test algorithm {}", algorithm);
+        let mut alice_container = PostQuantumContainer::new_alice(Some(algorithm));
+        let bob_container = PostQuantumContainer::new_bob(algorithm, alice_container.get_public_key()).unwrap();
+        alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
+
+        let mut packet0 = (0..TOTAL_LEN as u8).into_iter().collect::<Vec<u8>>();
+        let nonce: [u8; NONCE_LENGTH_BYTES] = Default::default();
+        // encrypt the packet, but don't verify it
+        alice_container.protect_packet_in_place(HEADER_LEN, &mut packet0, &nonce).unwrap();
+        // In theory, in unordered mode, we don't have to verify packet0 before HISTORY_LEN+1 packets
+        for _y in 0..HISTORY_LEN+1 {
+            let mut packet_n = (0..TOTAL_LEN as u8).into_iter().collect::<Vec<u8>>();
+            alice_container.protect_packet_in_place(HEADER_LEN, &mut packet_n, &nonce).unwrap();
+            let header = packet_n.split_to(HEADER_LEN);
+            bob_container.validate_packet_in_place(&header, &mut packet_n, &nonce).unwrap();
+        }
+        let header = packet0.split_to(HEADER_LEN);
+        assert!(bob_container.validate_packet_in_place(&header, &mut packet0, &nonce).is_err());
     }
 
     /*
