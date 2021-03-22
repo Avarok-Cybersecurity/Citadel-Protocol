@@ -2,7 +2,7 @@ use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use crate::fcm::data_structures::{FcmHeader, FcmTicket};
 use zerocopy::LayoutVerified;
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, block_on_async, FcmResult};
+use crate::fcm::fcm_packet_processor::{FcmProcessorResult, block_on_async, FcmResult, FcmPacketMaybeNeedsDuplication};
 use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransferType;
 use crate::misc::AccountError;
 use crate::fcm::fcm_instance::FCMInstance;
@@ -24,13 +24,14 @@ pub fn process<'a, Fcm: Ratchet>(client: &'a Arc<Client>, endpoint_crypto: &'a m
     };
 
     let packet = super::super::fcm_packet_crafter::craft_group_header_ack(&ratchet, header.object_id.get(), header.group_id.get(), header.session_cid.get(), header.ticket.get(), kem_transfer_status);
+    let packet2 = packet.clone();
 
     let _res = block_on_async(|| async move {
-        instance.send_to_fcm_user(packet).await
+        instance.send_to_fcm_user(&packet).await
     })??;
 
     let ticket = FcmTicket::new(header.session_cid.get(), header.target_cid.get(), header.ticket.get());
 
     // now that we sent the response to FCM, the next step is to return with the original message
-    FcmProcessorResult::Value(FcmResult::GroupHeader { ticket, message: message.to_vec() })
+    FcmProcessorResult::Value(FcmResult::GroupHeader { ticket, message: message.to_vec() }, FcmPacketMaybeNeedsDuplication::some(packet2))
 }

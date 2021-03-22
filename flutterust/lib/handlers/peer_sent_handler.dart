@@ -18,6 +18,8 @@ class PeerSendHandler extends AbstractHandler {
   @override
   CallbackStatus onConfirmation(KernelResponse kernelResponse) {
     print("PeerSendHandler: onConfirmation called");
+    this.message.rawTicket = kernelResponse.getTicket().value.id;
+
     this.updateMessageState(PeerSendState.MessageSent);
     this.onStatusUpdateReceived.call(PeerSendUpdate(PeerSendState.MessageSent, kernelResponse.getTicket(), this.message, this.messageIdxInChat));
     return CallbackStatus.Pending;

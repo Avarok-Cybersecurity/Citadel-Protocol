@@ -2,11 +2,13 @@ import 'dart:collection';
 
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/database_handler.dart';
+import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/notification_subtypes/deregister_signal.dart';
 import 'package:flutterust/database/notification_subtypes/notification_message.dart';
 import 'package:flutterust/database/notification_subtypes/post_register.dart';
 import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
+import 'package:flutterust/handlers/peer_sent_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/auto_login.dart';
 import 'package:flutterust/notifications/deregister_push_notification.dart';
@@ -22,6 +24,7 @@ import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/deregister_response.dart';
 import 'package:satori_ffi_parser/types/dsr/disconnect_response.dart';
 import 'package:satori_ffi_parser/types/dsr/fcm/fcm_message.dart';
+import 'package:satori_ffi_parser/types/dsr/fcm/fcm_message_received.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/post_register_request.dart';
@@ -43,30 +46,27 @@ class KernelResponseHandler {
     kernelResponse.setCallbackAction(handler.onTicketReceived); // by DEFAULT, this runs when handleRustKernelMessage executes
     kernelResponse.setOneshot(oneshot);
 
-    // TODO: Handle DSRs, as we get results on first command response
+
     switch (kernelResponse.getType()) {
-      case KernelResponseType.ResponseTicket:
-      case KernelResponseType.ResponseHybrid:
-      case KernelResponseType.ResponseFcmTicket:
-        switch (handler.onConfirmation(kernelResponse)) {
-          case CallbackStatus.Pending:
-            if (pendingTickets.containsKey(kernelResponse.getTicket().value)) {
-              print("***WARNING*** PendingTickets already has a pre-existing entry. If this is a local debug test, this is expected when communicating between two clients on the same phone. Else, error");
-              return;
-            }
-
-            pendingTickets[kernelResponse.getTicket().value] = kernelResponse;
-            break;
-
-          default:
-            print("onConfirmation implied completion of task. Will not store into hashmap");
-        }
-
-        break;
-
       case KernelResponseType.Error:
         handler.onErrorReceived(kernelResponse as ErrorKernelResponse);
-        break;
+        return;
+    }
+
+    if (kernelResponse.getTicket().isPresent) {
+      switch (handler.onConfirmation(kernelResponse)) {
+        case CallbackStatus.Pending:
+          if (pendingTickets.containsKey(kernelResponse.getTicket().value)) {
+            print("***WARNING*** PendingTickets already has a pre-existing entry. If this is a local debug test, this is expected when communicating between two clients on the same phone. Else, error");
+            return;
+          }
+
+          pendingTickets[kernelResponse.getTicket().value] = kernelResponse;
+          break;
+
+        default:
+          print("onConfirmation implied completion of task. Will not store into hashmap");
+      }
     }
   }
 
@@ -131,8 +131,7 @@ class KernelResponseHandler {
 
       case KernelResponseType.NodeMessage:
         NodeMessageKernelResponse resp = message;
-
-        await _handleMessage(resp.cid, resp.peerCid, resp.message);
+        await _handleMessage(resp.cid, resp.peerCid, resp.message, resp.ticket.id);
         break;
         
       case KernelResponseType.Error:
@@ -197,22 +196,31 @@ class KernelResponseHandler {
 
       case DomainSpecificResponseType.FcmMessage:
         FcmMessage message = dsr;
-        await _handleMessage(message.ticket.targetCid, message.ticket.sourceCid, message.message);
+        await _handleMessage(message.ticket.targetCid, message.ticket.sourceCid, message.message, message.ticket.ticket);
         break;
 
+      case DomainSpecificResponseType.FcmMessageReceived:
+        // A message's ACK may return when in the background (this is pretty likely). We need to access the message's notification and update it,
+        // thus allowing the user to see the "received" sign once the message is back up.
+        FcmMessageReceived message = dsr;
+        Message msg = await Message.getMessage(message.ticket.sourceCid, message.ticket.targetCid, message.ticket.ticket).then((value) => value.value);
+        msg.status = PeerSendState.MessageReceived;
+        await msg.sync();
+        print("Updated message state for $msg");
+        break;
       default:
         print("Unaccounted DSR message type");
     }
   }
 
-  static Future<void> _handleMessage(u64 implicatedCid, u64 peerCid, String message) async {
+  static Future<void> _handleMessage(u64 implicatedCid, u64 peerCid, String message, u64 rawTicket) async {
     ClientNetworkAccount implicatedCnac = await ClientNetworkAccount.getCnacByCid(implicatedCid).then((value) => value.value);
     String username = implicatedCnac.username;
 
     // TODO: incorporate FCM post-register ACKS to ensure the below doesn't return null
     //PeerNetworkAccount peerNac = await PeerNetworkAccount.getPeerByCid(implicatedCid, peerCid).then((value) => value.value);
 
-    MessageNotification notification = MessageNotification.receivedNow(implicatedCid, peerCid, message);
+    MessageNotification notification = MessageNotification.receivedNow(implicatedCid, peerCid, message, rawTicket);
     int id = await notification.sync();
     print("Message DB-id: $id");
     // push to the session screen, if possible.

@@ -85,14 +85,11 @@ class FFIBridge {
     return native.send_to_kernel(ptr).toDartString();
   }
 
-  /// payload should be in the form of: {"inner": "BASE_64_STRING"}
-  /// Note: the inner function call may block depending on the command
   Future<Optional<KernelResponse>> handleFcmMessage(String rawPayload) async {
-
     rawPayload.toNativeUtf8();
     Pointer<Utf8> ptr = rawPayload.toNativeUtf8();
     Pointer<Utf8> dirPtr = (await this.localPath()).toNativeUtf8();
-    return FFIParser.tryFrom(native.background_processor(ptr, dirPtr).toDartString());
+    return FFIParser.tryFrom(native.fcm_process(ptr, dirPtr).toDartString());
   }
 
   void memfree(String ptr) {

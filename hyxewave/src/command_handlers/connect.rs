@@ -2,6 +2,7 @@ use tokio_stream::StreamExt;
 
 use super::imports::*;
 use hyxe_crypt::fcm::keys::FcmKeys;
+use hyxe_net::hdp::hdp_server::ConnectMode;
 
 #[derive(Debug, Serialize)]
 pub enum ConnectResponse {
@@ -35,8 +36,9 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let adjacent_socket = adjacent_nac.get_addr(true).ok_or(ConsoleError::Default("Adjacent NAC does not have an IP address. Corrupt. Please remove CNAC"))?;
     let nonce = read.password_hash.as_slice();
     let proposed_credentials = get_proposed_credentials(matches, ctx, username, nonce,adjacent_socket.ip(), security_level, cid, full_name)?;
+    let connect_mode = matches.is_present("fetch").then(|| ConnectMode::Fetch).unwrap_or(ConnectMode::Standard);
 
-    let request = HdpServerRequest::ConnectToHypernode(adjacent_socket, cid, proposed_credentials, security_level, fcm_keys, None, Some(tcp_only), kat);
+    let request = HdpServerRequest::ConnectToHypernode(adjacent_socket, cid, proposed_credentials, security_level, connect_mode, fcm_keys, None, Some(tcp_only), kat);
     let ticket = server_remote.unbounded_send(request)?;
 
     let tx = parking_lot::Mutex::new(None);

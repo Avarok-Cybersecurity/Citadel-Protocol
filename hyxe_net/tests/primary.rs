@@ -3,7 +3,7 @@
 #[cfg(test)]
 pub mod tests {
     use std::error::Error;
-    use hyxe_net::hdp::hdp_server::{HdpServerRequest, HdpServerRemote, Ticket};
+    use hyxe_net::hdp::hdp_server::{HdpServerRequest, HdpServerRemote, Ticket, ConnectMode};
     use crate::tests::kernel::{TestKernel, TestContainer, ActionType};
     use hyxe_net::kernel::kernel_executor::KernelExecutor;
     use hyxe_nat::hypernode_type::HyperNodeType;
@@ -776,7 +776,7 @@ pub mod tests {
         let nonce = read.password_hash.as_slice();
         let proposed_credentials = ProposedCredentials::new_unchecked(full_name, username, SecVec::from(Vec::from(password)), Some(nonce));
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, None, None, Some(true), None)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, ConnectMode::Standard, None, None, Some(true), None)))
     }
 
     fn client1_action1(item_container: Arc<RwLock<TestContainer>>, username: &str, password: &str, security_level: SecurityLevel) -> Option<ActionType> {
@@ -789,7 +789,7 @@ pub mod tests {
         let nonce = read.password_hash.as_slice();
         let proposed_credentials = ProposedCredentials::new_unchecked(full_name, username, SecVec::from(Vec::from(password)), Some(nonce));
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, None, None, Some(true), None)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, ConnectMode::Standard, None, None, Some(true), None)))
     }
 
     fn client2_action1(item_container: Arc<RwLock<TestContainer>>, username: &str, password: &str, security_level: SecurityLevel) -> Option<ActionType> {
@@ -802,7 +802,7 @@ pub mod tests {
         let nonce = read.password_hash.as_slice();
         let proposed_credentials = ProposedCredentials::new_unchecked(full_name, username, SecVec::from(Vec::from(password)), Some(nonce));
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, None, None, Some(true), None)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, ConnectMode::Standard, None, None, Some(true), None)))
     }
 
     // client 2 will initiate the p2p *registration* to client1

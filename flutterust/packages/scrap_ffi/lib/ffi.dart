@@ -14,23 +14,6 @@ DynamicLibrary _open() {
   throw UnsupportedError('This platform is not supported.');
 }
 
-/// <p class="para-brief"> Meant to be executed by background isolates needing access to the account manager (e.g., FCM)</p>
-Pointer<ffi.Utf8> background_processor(
-  Pointer<ffi.Utf8> packet,
-  Pointer<ffi.Utf8> home_dir,
-) {
-  return _background_processor(packet, home_dir);
-}
-final _background_processor_Dart _background_processor = _dl.lookupFunction<_background_processor_C, _background_processor_Dart>('background_processor');
-typedef _background_processor_C = Pointer<ffi.Utf8> Function(
-  Pointer<ffi.Utf8> packet,
-  Pointer<ffi.Utf8> home_dir,
-);
-typedef _background_processor_Dart = Pointer<ffi.Utf8> Function(
-  Pointer<ffi.Utf8> packet,
-  Pointer<ffi.Utf8> home_dir,
-);
-
 /// C function `error_message_utf8`.
 int error_message_utf8(
   Pointer<ffi.Utf8> buf,
@@ -46,6 +29,23 @@ typedef _error_message_utf8_C = Int32 Function(
 typedef _error_message_utf8_Dart = int Function(
   Pointer<ffi.Utf8> buf,
   int length,
+);
+
+/// <p class="para-brief"> Meant to be executed by background isolates needing access to the account manager (e.g., FCM)</p>
+Pointer<ffi.Utf8> fcm_process(
+  Pointer<ffi.Utf8> packet,
+  Pointer<ffi.Utf8> home_dir,
+) {
+  return _fcm_process(packet, home_dir);
+}
+final _fcm_process_Dart _fcm_process = _dl.lookupFunction<_fcm_process_C, _fcm_process_Dart>('fcm_process');
+typedef _fcm_process_C = Pointer<ffi.Utf8> Function(
+  Pointer<ffi.Utf8> packet,
+  Pointer<ffi.Utf8> home_dir,
+);
+typedef _fcm_process_Dart = Pointer<ffi.Utf8> Function(
+  Pointer<ffi.Utf8> packet,
+  Pointer<ffi.Utf8> home_dir,
 );
 
 /// C function `is_kernel_loaded`.

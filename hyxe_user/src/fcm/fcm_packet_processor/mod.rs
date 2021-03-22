@@ -1,6 +1,6 @@
 use crate::account_manager::AccountManager;
 use std::ops::Try;
-use crate::fcm::data_structures::{FcmPacket, FCMPayloadType, FcmHeader, FcmTicket, RawFcmPacket};
+use crate::fcm::data_structures::{FcmPacket, FCMPayloadType, FcmHeader, FcmTicket, RawFcmPacket, RawFcmPacketStore};
 use std::option::NoneError;
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use crate::misc::AccountError;
@@ -9,6 +9,7 @@ use std::future::Future;
 use crate::prelude::ClientNetworkAccountInner;
 use std::sync::Arc;
 use crate::fcm::fcm_packet_processor::peer_post_register::{PostRegisterInvitation, FcmPostRegisterResponse};
+use hyxe_crypt::sec_bytes::SecBuffer;
 
 pub(crate) mod group_header;
 pub(crate) mod group_header_ack;
@@ -17,6 +18,12 @@ pub(crate) mod deregister;
 pub mod peer_post_register;
 
 /// If the raw packet was: {"inner": "ABCDEF"}, then, the input here should be simply ABCDEF without quotations.
+///
+/// Reliability note: Google FCM does NOT guarantee ordered delivery. This is a problem for key exchanges. As such, the higher-level protocol needs to ensure several things.
+/// One, that ALL packets returned from the FcmProcessorResult get sent to the central server for redundant delivery. This allows for 2), which is that before calling this on a new
+/// inbound FCM packet, the user first FETCH_LOGINS to the server to fetch any pending data that has not yet been processed. The processing will take place sequentially
+///
+/// NOTE: This implies that sending the re-key payloads is redundant over FCM. We can have notification packets that wake-up the device instead later-on
 pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &AccountManager) -> FcmProcessorResult {
     log::info!("A0");
     let raw_packet = RawFcmPacket::from(base64_value);
@@ -97,20 +104,60 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
     res
 }
 
+/// The goal of the function is to perform any and all internal updates/re-keys from a set of packets. Most have probably already been processed, and will fail the anti-replay attack stage for being an already received packet
+/// This is needed for packets that don't get delivered
+///
+/// If this receives GROUP_HEADER_ACKS or DO_TRUNCATES
+pub fn blocking_process_packet_store(mut raw_fcm_packet_store: RawFcmPacketStore, account_manager: &AccountManager) -> FcmProcessorResult {
+    // for each client, perform the inner subroutine
+    let cids = raw_fcm_packet_store.inner.keys().map(|r| *r).collect::<Vec<u64>>();
+    let mut ret = Vec::new();
+    for cid in cids {
+        let entry = raw_fcm_packet_store.inner.remove(&cid).unwrap();
+        // in the btreemap, entries are already sorted by key (which is optimal for this stage of processing, since any re-keys need to happen in order)
+        // we collect each result inside the ret vec
+        for (_raw_ticket, raw_packet) in entry {
+            match blocking_process(raw_packet.inner, account_manager) {
+                FcmProcessorResult::Value(res, packet) => {
+                    ret.push((res, packet));
+                }
 
+                _ => {}
+            }
+        }
+    }
+
+    FcmProcessorResult::Values(ret)
+}
 
 #[allow(variant_size_differences)]
 #[derive(Debug)]
 pub enum FcmProcessorResult {
     Void,
     Err(String),
-    Value(FcmResult)
+    Value(FcmResult, FcmPacketMaybeNeedsDuplication),
+    Values(Vec<(FcmResult, FcmPacketMaybeNeedsDuplication)>)
+}
+
+#[derive(Debug)]
+pub struct FcmPacketMaybeNeedsDuplication {
+    pub packet: Option<SecBuffer>
+}
+
+impl FcmPacketMaybeNeedsDuplication {
+    pub fn none() -> Self {
+        Self { packet: None }
+    }
+
+    pub fn some(packet: RawFcmPacket) -> Self {
+        Self { packet: Some(SecBuffer::from(packet.inner.into_bytes())) }
+    }
 }
 
 impl FcmProcessorResult {
     pub fn implies_save_needed(&self) -> bool {
         match self {
-            Self::Value(FcmResult::MessageSent { .. } | FcmResult::GroupHeaderAck { .. } | FcmResult::GroupHeader { .. } | FcmResult::PostRegisterInvitation { .. } | FcmResult::PostRegisterResponse { .. } | FcmResult::Deregistered { .. })=> true,
+            Self::Value(FcmResult::MessageSent { .. } | FcmResult::GroupHeaderAck { .. } | FcmResult::GroupHeader { .. } | FcmResult::PostRegisterInvitation { .. } | FcmResult::PostRegisterResponse { .. } | FcmResult::Deregistered { .. }, ..)=> true,
             _ => false
         }
     }

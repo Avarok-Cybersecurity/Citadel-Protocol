@@ -12,7 +12,7 @@ use hyxe_user::account_manager::AccountManager;
 use crate::constants::{TCP_ONLY, KEEP_ALIVE_TIMEOUT_NS, DO_CONNECT_EXPIRE_TIME_MS};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
-use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
+use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest, ConnectMode};
 use crate::hdp::hdp_session::{HdpSession, HdpSessionInner};
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::proposed_credentials::ProposedCredentials;
@@ -140,7 +140,7 @@ impl HdpSessionManager {
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: SocketAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, fcm_keys: Option<FcmKeys>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>, keep_alive_timeout_ns: Option<i64>) -> Result<(), NetworkError> {
+    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: SocketAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, connect_mode: Option<ConnectMode>, fcm_keys: Option<FcmKeys>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>, keep_alive_timeout_ns: Option<i64>) -> Result<(), NetworkError> {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
@@ -190,16 +190,16 @@ impl HdpSessionManager {
         };
 
 
-        spawn!(Self::execute_session_with_safe_shutdown(session_manager, new_session, peer_addr, Some(p2p_listener), primary_stream));
+        spawn!(Self::execute_session_with_safe_shutdown(session_manager, new_session, peer_addr, Some(p2p_listener), primary_stream, connect_mode));
 
         Ok(())
     }
 
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
     /// TODO: Make this code less hacky, and make the removal process cleaner. Use RAII on HdpSessionInner?
-    async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, p2p_listener: Option<TcpListener>, tcp_stream: TcpStream) -> Result<(), NetworkError> {
+    async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, p2p_listener: Option<TcpListener>, tcp_stream: TcpStream, connect_mode: Option<ConnectMode>) -> Result<(), NetworkError> {
         log::info!("Beginning pre-execution of session");
-        match new_session.execute(p2p_listener, tcp_stream).await {
+        match new_session.execute(p2p_listener, tcp_stream, connect_mode).await {
             Ok(cid_opt) => {
                 if let Some(cid) = cid_opt {
                     //log::info!("[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
@@ -331,7 +331,7 @@ impl HdpSessionManager {
 
         // Note: Must send TICKET on finish
         //self.insert_provisional_expiration(peer_addr, provisional_ticket);
-        spawn!(Self::execute_session_with_safe_shutdown(this_dc, new_session,peer_addr, None, primary_stream));
+        spawn!(Self::execute_session_with_safe_shutdown(this_dc, new_session,peer_addr, None, primary_stream, None));
 
         Ok(())
     }

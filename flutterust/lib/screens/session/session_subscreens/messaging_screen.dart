@@ -217,8 +217,8 @@ class MessagingScreenInner extends State<MessagingScreen> {
 
       await AutoLogin.executeCommandRequiresConnected(
               this.widget.implicatedCnac.implicatedCid,
-              this.widget.implicatedCnac.username,
-              command)
+              command,
+              username: this.widget.implicatedCnac.username)
           .then((value) => value.ifPresent((kResp) =>
               KernelResponseHandler.handleFirstCommand(kResp,
                   handler: PeerSendHandler(onMessageStatusUpdateSent, message,
@@ -241,7 +241,8 @@ class MessagingScreenInner extends State<MessagingScreen> {
         messageOut,
         DateTime.now(),
         false,
-        PeerSendState.Unprocessed
+        PeerSendState.Unprocessed,
+      null
     );
   }
 

@@ -27,14 +27,14 @@ use hyxe_fs::hyxe_crypt::toolset::UpdateStatus;
 use hyxe_fs::hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use std::ops::RangeInclusive;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 use hyxe_crypt::fcm::fcm_ratchet::{FcmRatchet, FcmAliceToBobTransfer};
 use hyxe_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, AliceToBobTransferType};
 use fcm::{Client, FcmResponse};
 use crate::fcm::fcm_instance::FCMInstance;
 use crate::fcm::data_structures::{FcmTicket, RawFcmPacket};
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, block_on_async};
+use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, block_on_async, FcmPacketMaybeNeedsDuplication};
 use crate::fcm::fcm_packet_processor::peer_post_register::InvitationType;
 use crate::fcm::kem::FcmPostRegister;
 use hyxe_crypt::fcm::keys::FcmKeys;
@@ -127,6 +127,8 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     pub kem_state_containers: HashMap<u64, ConstructorType<R, Fcm>>,
     /// For storing FCM invites
     pub fcm_invitations: HashMap<u64, InvitationType>,
+    /// Only the server should store these values. The first key is the peer cid, the second key is the raw ticket ID, used for organizing proper order
+    fcm_packet_store: Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>,
     #[serde(skip)]
     /// We keep the password in RAM encrypted
     password_in_ram: Option<SecVec<u8>>,
@@ -183,8 +185,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let fcm_crypt_container = HashMap::with_capacity(0);
         let kem_state_containers = HashMap::with_capacity(0);
         let fcm_invitations = HashMap::with_capacity(0);
+        let fcm_packet_store = None;
 
-        let inner = ClientNetworkAccountInner::<R, Fcm> { fcm_invitations, kem_state_containers, fcm_crypt_container, dirs, password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
+        let inner = ClientNetworkAccountInner::<R, Fcm> { fcm_packet_store, fcm_invitations, kem_state_containers, fcm_crypt_container, dirs, password_hash, creation_date, cid: valid_cid, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, hyxefile_save_path: None, password_hyxefile, crypt_container, password_in_ram };
         let this = Self::from(inner);
 
         this.blocking_save_to_local_fs()?;
@@ -754,7 +757,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Sends the request to the FCM server, returns the ticket for the request
     pub async fn fcm_send_message_to(&self, target_peer_cid: u64, message: SecBuffer, ticket: u64, client: &Arc<Client>) -> Result<FcmProcessorResult, AccountError> {
         let (ticket, fcm_instance, packet) = self.prepare_fcm_send_message(target_peer_cid, message, ticket, client)?;
-        fcm_instance.send_to_fcm_user(packet).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }))
+        fcm_instance.send_to_fcm_user(packet.clone()).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }, FcmPacketMaybeNeedsDuplication::some(packet)))
     }
 
     /// Prepares the requires abstractions needed to send data
@@ -815,6 +818,47 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Visit the inner device mutably
     pub fn visit_mut<J>(&self, fx: impl FnOnce(ShardedLockWriteGuard<'_, ClientNetworkAccountInner<R, Fcm>>) -> J) -> J {
         fx(self.write())
+    }
+
+    /// This should only be called by the server. The `from_peer_cid` argument should be from whom the packet was sent, while this CNAC should be the recipient
+    ///
+    /// NOTE: Ordering should be consequent. I.e.. no missing values, 3,4,5,6 is OK, 3,4,6,7 is not
+    #[allow(unused_results)]
+    pub fn store_raw_fcm_packet_into_recipient(&self, ticket: FcmTicket, packet: RawFcmPacket) -> Result<(), AccountError> {
+        let mut write = self.write();
+
+        if write.fcm_packet_store.is_none() {
+            write.fcm_packet_store = Some(HashMap::new());
+        }
+
+        let map = write.fcm_packet_store.as_mut().unwrap();
+
+        if !map.contains_key(&ticket.source_cid) {
+            map.insert(ticket.source_cid, BTreeMap::new());
+        }
+
+        let peer_store = map.get_mut(&ticket.source_cid).unwrap();
+        if peer_store.contains_key(&ticket.ticket) {
+           return Err(AccountError::Generic(format!("Packet with ID {} already stored", ticket.ticket)))
+        }
+
+        peer_store.insert(ticket.ticket, packet);
+
+        std::mem::drop(write);
+        self.spawn_save_task_on_threadpool();
+
+        Ok(())
+    }
+
+    /// Retrieves the raw packets delivered to this CNAC
+    pub fn retrieve_raw_fcm_packets(&self) -> Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>> {
+        let ret = self.write().fcm_packet_store.take();
+
+        if ret.is_some() {
+            self.spawn_save_task_on_threadpool();
+        }
+
+        ret
     }
 
     /// Blocking version of `async_save_to_local_fs`

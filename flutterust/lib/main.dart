@@ -16,6 +16,7 @@ import 'package:flutterust/screens/settings.dart';
 import 'package:flutterust/utils.dart';
 import 'package:optional/optional.dart';
 import 'package:scrap/scrap.dart';
+import 'package:splashscreen/splashscreen.dart';
 import 'components/fade_indexed_stack.dart';
 import 'screens/register.dart';
 import 'themes/default.dart';
@@ -25,9 +26,22 @@ import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 
 // TODO: Fix bug where the ticket ID on the adjacent node collides with a ticket ID client-side (A uniqueness problem. May already be fixed with FcmTickets for ~100% of FCM interactions. Client/server interactions will require Tickets to have a boolean flag denoting source)
 // TODO: individual deregister + ensure SecureStorage + database wiped
+// Problem: ERR: [Toolset Update/deregister] Unable to update Alice's toolset: Unable to deregister. Provided version: 1, expected version: 0
+// The above occurred when: I sent a message outbound that hadn't received the FcmMessageReceived re-key completion. Instead, Dad sent a message BEFORE receiving mine (maybe?), then I received his message, triggering the error
+// Update from above: It appears the trigger of the error message was a GROUP_HEADER_ACK, thus, dad didn't actually send a message
+// Also: That error implies that a truncation value was supplied that was wrong. Where is it going wrong?
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  //await RustSubsystem.init();
+  runApp(MaterialApp(
+    home: Splash(),
+    debugShowCheckedModeBanner: false,
+    title: MyApp.APP_TITLE,
+    theme: defaultTheme(),
+    builder: EasyLoading.init(),
+  ));
+}
+
+Future<void> loadInit() async {
   await RustSubsystem.init();
   Utils.initNotificationSubsystem();
   Utils.setupDebugListener();
@@ -35,7 +49,39 @@ void main() async {
   await Utils.configureFCM();
   await BackgroundExecutor.setupBackground();
   print("Done initializing FFI/Rust subsystem ...");
-  runApp(MyApp(AppRetainWidget(child: HomePage(RustSubsystem.bridge.isKernelLoaded()))));
+}
+
+
+
+class Splash extends StatefulWidget {
+  @override
+  _MyAppState createState() => new _MyAppState();
+}
+
+class _MyAppState extends State<Splash> {
+
+  /// All requires loading should occur here
+  Future<Widget> loadFromFuture() async {
+    await loadInit();
+    return AppRetainWidget(child: HomePage(RustSubsystem.bridge.isKernelLoaded()));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return new SplashScreen(
+        navigateAfterFuture: loadFromFuture(),
+        title: new Text('Verisend',
+          style: new TextStyle(
+            color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 40.0
+          ),),
+        backgroundColor: primaryColor(),
+        styleTextUnderTheLoader: new TextStyle(),
+        photoSize: 100.0,
+        loaderColor: Colors.white,
+    );
+  }
 }
 
 class RustSubsystem {
@@ -63,10 +109,6 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: APP_TITLE,
-      theme: defaultTheme(),
-      builder: EasyLoading.init(),
       //home: main,
       initialRoute: '/',
       routes: {
@@ -89,7 +131,7 @@ class HomePage extends StatefulWidget {
   /// Either an abstract notification of kernel response can be pushed herein
   static void pushObjectToSession(dynamic value) {
     SessionHomeScreen screen = screens[SessionHomeScreen.IDX];
-    screen.controller.sink.add(value);
+    screen?.controller?.sink?.add(value);
   }
 
   @override

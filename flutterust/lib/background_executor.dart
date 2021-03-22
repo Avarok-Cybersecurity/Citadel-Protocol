@@ -1,9 +1,9 @@
 
 import 'package:background_fetch/background_fetch.dart';
-import 'package:flutterust/utils.dart';
 
 class BackgroundExecutor {
   static final config = BackgroundFetchConfig(minimumFetchInterval: 15, stopOnTerminate: false, enableHeadless: true, startOnBoot: true, requiredNetworkType: NetworkType.ANY);
+
   static Future<void> setupBackground() async {
     await BackgroundFetch.configure(config, poll, onTimeout);
     await BackgroundFetch.registerHeadlessTask(headlessExecution);

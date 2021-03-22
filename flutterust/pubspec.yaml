@@ -16,14 +16,15 @@ dependencies:
   retry: ^3.1.0
   background_fetch: ^0.7.1
   intl: ^0.16.1
-  firebase_core: any
+  splashscreen: ^1.3.5
+  firebase_core: ^1.0.1
   dependencies:
   flutter_chat_bubble: ^1.0.2
   rxdart: any
   sqflite:
-  path:
+  path: ^1.8.0
   cached_network_image: ^2.5.0
-  firebase_messaging: 9.0.0-1.0.nullsafety.0
+  firebase_messaging: ^9.0.0
   cupertino_icons: any
   optional: ^5.0.0+1
   quiver: any

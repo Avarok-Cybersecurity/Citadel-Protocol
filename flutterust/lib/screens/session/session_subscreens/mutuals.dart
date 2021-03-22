@@ -57,13 +57,12 @@ class MutualsView extends StatelessWidget {
         );
       }
 
-    return Text("No mutually-consented peers. Find peers in 'Discover Network Contacts'");
+    return Center(child: Text("No mutually-consented peers. Find peers in 'Discover Network Contacts'"));
   }
 
   void onClick(BuildContext ctx, String username, u64 cid) async {
     // navigator route to peer screen
     print("Click selected for $cid");
-    // TODO: Get mutual from
     PeerNetworkAccount peerNac = (await PeerNetworkAccount.getPeerByCid(this.implicatedCnac.implicatedCid, cid)).value;
     Navigator.push(ctx, Utils.createDefaultRoute(MutualPeerScreen(this.implicatedCnac, peerNac)));
   }

@@ -7,12 +7,12 @@
 extern "C" {
 #endif // __cplusplus
 
+int32_t error_message_utf8(char *buf, int32_t length);
+
 /**
  * Meant to be executed by background isolates needing access to the account manager (e.g., FCM)
  */
-char *background_processor(const char *packet, const char *home_dir);
-
-int32_t error_message_utf8(char *buf, int32_t length);
+char *fcm_process(const char *packet, const char *home_dir);
 
 int32_t is_kernel_loaded(void);
 

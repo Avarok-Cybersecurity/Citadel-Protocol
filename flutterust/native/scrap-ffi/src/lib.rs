@@ -66,7 +66,7 @@ pub extern "C" fn is_kernel_loaded() -> i32 {
 //static BACKGROUND_PROCESSOR_INSTANCE: Mutex<Option<AccountManager>> = const_mutex(None);
 #[no_mangle]
 /// Meant to be executed by background isolates needing access to the account manager (e.g., FCM)
-pub unsafe extern "C" fn background_processor(
+pub unsafe extern "C" fn fcm_process(
     packet: *const raw::c_char,
     home_dir: *const raw::c_char,
 ) -> *mut raw::c_char {

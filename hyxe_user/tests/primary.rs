@@ -19,7 +19,8 @@ mod tests {
     use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
     use hyxe_crypt::fcm::keys::FcmKeys;
     use hyxe_crypt::sec_bytes::SecBuffer;
-    use hyxe_user::fcm::data_structures::FcmTicket;
+    use hyxe_user::fcm::data_structures::{FcmTicket, RawFcmPacket, RawFcmPacketStore};
+    use std::collections::HashMap;
 
     #[allow(unused_must_use)]
     fn setup_log() {
@@ -36,6 +37,20 @@ mod tests {
         setup_log();
         let account_manager = acc_mgr(None).await;
         println!("Loaded NAC: {:?}", account_manager.get_local_nac());
+    }
+
+    #[test]
+    fn serde() {
+        let mut map = HashMap::new();
+        map.insert(0u64, RawFcmPacket::from("Hello, world!"));
+        let mut map2 = HashMap::new();
+        map2.insert(1u64, map);
+        let val = RawFcmPacketStore::from(map2);
+        let serded = val.serialize();
+        println!("{:?}", &serded);
+        let deserded = RawFcmPacketStore::deserialize_from(serded.as_bytes()).unwrap();
+        println!("{:?}", deserded.inner.len());
+        deserded.inner.get(&1).unwrap().get(&0).unwrap();
     }
 
     #[tokio::test]
