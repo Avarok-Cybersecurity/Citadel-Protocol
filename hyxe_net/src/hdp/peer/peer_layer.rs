@@ -1,4 +1,4 @@
-use std::collections::{VecDeque, HashMap};
+use std::collections::{VecDeque, HashMap, BTreeMap};
 use crate::hdp::file_transfer::VirtualFileMetadata;
 use crate::hdp::hdp_server::Ticket;
 use tokio::time::error::Error;
@@ -21,6 +21,7 @@ use crate::macros::SyncContextRequirements;
 #[cfg(feature = "multi-threaded")]
 use futures::task::AtomicWaker;
 use hyxe_user::fcm::kem::FcmPostRegister;
+use hyxe_user::fcm::data_structures::{RawFcmPacket, FcmTicket};
 
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
 impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
@@ -437,7 +438,11 @@ pub enum PeerSignal {
     // Signal has been processed; response may or may not occur
     SignalReceived(Ticket),
     // for key-exchange
-    Kem(PeerConnectionType, KeyExchangeProcess)
+    Kem(PeerConnectionType, KeyExchangeProcess),
+    // For redundant fcm transfers, ensuring no loss of packets when using FCM
+    Fcm(FcmTicket, RawFcmPacket),
+    // For polling for packets
+    FcmFetch(Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>)
 }
 
 // Channel packets don't get decrypted/encrypted at the central node; only at the endpoints
@@ -557,14 +562,6 @@ impl Default for HyperNodePeerLayer {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MailboxTransfer {
     Signals(Vec<PeerSignal>)
-}
-
-impl MailboxTransfer {
-    pub fn len(&self) -> usize {
-        match self {
-            MailboxTransfer::Signals(signals) => signals.len()
-        }
-    }
 }
 
 impl From<Vec<PeerSignal>> for MailboxTransfer {

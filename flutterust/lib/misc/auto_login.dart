@@ -58,8 +58,23 @@ class AutoLogin {
     }
   }
 
-  static Future<Optional<KernelResponse>> executeCommandRequiresConnected(u64 implicatedCid, String username, String command) async {
-    if (await initiateAutoLogin(implicatedCid, username)) {
+  /// If supplied, username needs to belong to the implicatedCid
+  static Future<Optional<KernelResponse>> executeCommandRequiresConnected(u64 implicatedCid, String command, { String username }) async {
+    String uname;
+
+    if (username != null) {
+      uname = username;
+    } else {
+      var unameOpt = await ClientNetworkAccount.getUsernameByCid(implicatedCid);
+      if (unameOpt.isEmpty) {
+        print("Username for $implicatedCid not found!");
+        return Optional.empty();
+      }
+
+      uname = unameOpt.value;
+    }
+
+    if (await initiateAutoLogin(implicatedCid, uname)) {
       print("Account successfully logged-in; will now execute enqueued command ...");
       return await RustSubsystem.bridge.executeCommand(command);
     } else {
@@ -68,7 +83,7 @@ class AutoLogin {
   }
 
   static Future<bool> initiateAutoLogin(u64 implicatedCid, String username) async {
-    print("[AutoLogin] disconnect received for $implicatedCid. Will engage reconnection mechanism ...");
+    print("[AutoLogin] Engaging reconnection mechanism ...");
     final Credentials creds = autologinAccounts[implicatedCid];
     // initiate exponential backoff ...
     final String connectCmd = LoginHandler.constructConnectCommand(creds.username, creds.password, creds.securityLevel);

@@ -11,24 +11,26 @@ import 'package:sqflite/sqflite.dart';
 /// Unlike its AbstractNotification counterpart, this is meant for long-term storage
 class Message extends AbstractSqlObject {
   static const String DB_TABLE = "messages";
-  static const String GENESIS = "CREATE TABLE $DB_TABLE (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, implicatedCid TEXT, peerCid TEXT, message TEXT, recvTime TEXT, fromPeer INTEGER, status TEXT)";
+  static const String GENESIS = "CREATE TABLE $DB_TABLE (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, implicatedCid TEXT, peerCid TEXT, message TEXT, recvTime TEXT, fromPeer INTEGER, status TEXT, rawTicket TEXT)";
 
   final u64 implicatedCid;
   final u64 peerCid;
   final String message;
   final DateTime recvTime;
   final bool fromPeer;
+  u64 rawTicket;
   PeerSendState status;
   int _id;
 
-  Message(this.implicatedCid, this.peerCid, this.message, this.recvTime, this.fromPeer, this.status);
+  Message(this.implicatedCid, this.peerCid, this.message, this.recvTime, this.fromPeer, this.status, this.rawTicket);
   Message.fromMap(Map<String, dynamic> sql) :
       this.implicatedCid = u64.tryFrom(sql["implicatedCid"]).value,
   this.peerCid = u64.tryFrom(sql["peerCid"]).value,
   this.message = sql["message"],
   this.recvTime = DateTime.parse(sql["recvTime"]),
   this.status = PeerSendStateExt.fromString(sql["status"]).value,
-  this.fromPeer = sql["fromPeer"] == 1;
+  this.fromPeer = sql["fromPeer"] == 1,
+  this.rawTicket = u64.tryFrom(sql["rawTicket"]).value;
 
   @override
   Optional getDatabaseKey() {
@@ -48,7 +50,8 @@ class Message extends AbstractSqlObject {
       'message': this.message,
       'recvTime': this.recvTime.toIso8601String(),
       'fromPeer': this.fromPeer ? 1 : 0,
-      'status' : this.status.asString()
+      'status' : this.status.asString(),
+      'rawTicket': this.rawTicket.toString()
     };
   }
 
@@ -64,14 +67,18 @@ class Message extends AbstractSqlObject {
 
   AbstractNotification toAbstractNotification() {
     if (this.fromPeer) {
-      return MessageNotification(this.implicatedCid, this.peerCid, this.message, this.recvTime, true, this.status);
+      return MessageNotification(this.implicatedCid, this.peerCid, this.message, this.recvTime, true, this.status, this.rawTicket);
     } else {
-      return MessageNotification(this.peerCid, this.implicatedCid, this.message, this.recvTime, false, this.status);
+      return MessageNotification(this.peerCid, this.implicatedCid, this.message, this.recvTime, false, this.status, this.rawTicket);
     }
   }
 
   static Future<int> deleteAll(u64 implicatedCid, u64 peerCid) async {
     return await DatabaseHandler.removeAllByBidirectionalConditional(DB_TABLE, "implicatedCid", implicatedCid.toString(), "peerCid", peerCid.toString());
+  }
+
+  static Future<Optional<Message>> getMessage(u64 implicatedCid, u64 peerCid, u64 rawTicket) async {
+    return await DatabaseHandler.getObjectByTriconditional(DB_TABLE, "implicatedCid", implicatedCid.toString(), "peerCid", peerCid.toString(), "rawTicket", rawTicket.toString(), (map) => Message.fromMap(map));
   }
 
   @override

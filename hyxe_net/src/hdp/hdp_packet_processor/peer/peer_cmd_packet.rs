@@ -716,8 +716,30 @@ fn process_signal_command_as_server<K: ExpectedInnerTarget<HdpSessionInner>>(sig
             session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(signal, ticket))?;
             PrimaryProcessorResult::Void
         }
+
         PeerSignal::DeregistrationSuccess(..) => {
             PrimaryProcessorResult::Void
+        }
+
+        PeerSignal::Fcm(fcm_ticket, raw_fcm_packet) => {
+            // since we are at the server, the raw fcm packet can't be accessed. We only need to store the packet inside
+            if let Some(recipient_cnac) = session.account_manager.get_client_by_cid(fcm_ticket.target_cid) {
+                match recipient_cnac.store_raw_fcm_packet_into_recipient(fcm_ticket, raw_fcm_packet) {
+                    Ok(_) => {
+                        reply_to_sender(PeerSignal::SignalReceived(ticket), &sess_hyper_ratchet, ticket, timestamp, security_level)
+                    }
+
+                    Err(err) => {
+                        reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level)
+                    }
+                }
+            } else {
+                reply_to_sender_err(format!("Peer {} does not exist on this server", fcm_ticket.target_cid), &sess_hyper_ratchet, ticket, timestamp, security_level)
+            }
+        }
+
+        PeerSignal::FcmFetch(..) => {
+            reply_to_sender(PeerSignal::FcmFetch(session.cnac.as_ref()?.retrieve_raw_fcm_packets()), &sess_hyper_ratchet, ticket, timestamp, security_level)
         }
     }
 }

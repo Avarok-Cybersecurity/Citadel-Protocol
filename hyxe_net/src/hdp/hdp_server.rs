@@ -36,6 +36,7 @@ use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetT
 use crate::kernel::RuntimeFuture;
 use crate::proposed_credentials::ProposedCredentials;
 use hyxe_crypt::fcm::keys::FcmKeys;
+use hyxe_user::fcm::data_structures::RawFcmPacketStore;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -351,15 +352,15 @@ impl HdpServer {
                 }
 
                 HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm, fcm_keys,  security_level) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, fcm_keys, quantum_algorithm, None, None).await {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, None, fcm_keys, quantum_algorithm, None, None).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
 
-                HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000)).await {
+                HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, connect_mode, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout) => {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, Some(connect_mode), fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000)).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
@@ -522,6 +523,7 @@ impl Sink<HdpServerRequest> for HdpServerRemote {
 
 /// These are sent down the stack into the server. Most of the requests expect a ticket ID
 /// in order for processes sitting above the [Kernel] to know how the request went
+#[allow(variant_size_differences)]
 pub enum HdpServerRequest {
     /// Sends a request to the underlying [HdpSessionManager] to begin connecting to a new client
     RegisterToHypernode(SocketAddr, ProposedCredentials, Option<u8>, Option<FcmKeys>, SecurityLevel),
@@ -530,7 +532,7 @@ pub enum HdpServerRequest {
     /// For submitting a de-register request
     DeregisterFromHypernode(u64, VirtualConnectionType),
     /// Send data to client. Peer addr, implicated cid, hdp_nodelay, quantum algorithm, tcp only,
-    ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, Option<FcmKeys>, Option<u8>, Option<bool>, Option<u32>),
+    ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, ConnectMode, Option<FcmKeys>, Option<u8>, Option<bool>, Option<u32>),
     /// Updates the drill for the given CID
     UpdateDrill(VirtualTargetType),
     /// Send data to an already existent connection
@@ -545,6 +547,12 @@ pub enum HdpServerRequest {
     Shutdown,
 }
 
+#[derive(Eq, PartialEq, Copy, Clone)]
+pub enum ConnectMode {
+    Standard,
+    Fetch
+}
+
 /// This type is for relaying results between the lower-level server and the higher-level kernel
 #[derive(Debug)]
 pub enum HdpServerResult {
@@ -555,7 +563,7 @@ pub enum HdpServerResult {
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(VirtualConnectionType, Option<Ticket>, bool, bool),
     /// Connection succeeded for the cid self.0. bool is "is personal". Final arg is fcm_reg_status
-    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, String),
+    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, Option<RawFcmPacketStore>, String),
     /// The connection was a failure
     ConnectFail(Ticket, Option<u64>, String),
     /// The outbound request was rejected

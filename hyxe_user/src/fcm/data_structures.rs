@@ -7,6 +7,8 @@ use byteorder::BigEndian;
 use std::fmt::Formatter;
 use hyxe_fs::hyxe_crypt::prelude::EzBuffer;
 use crate::fcm::kem::FcmPostRegister;
+use std::collections::{HashMap, BTreeMap};
+use std::collections::hash_map::RandomState;
 
 pub struct FcmPacket {
     header: Vec<u8>,
@@ -76,11 +78,11 @@ impl FcmHeader {
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct FcmTicket {
     #[serde(with = "string")]
-    source_cid: u64,
+    pub source_cid: u64,
     #[serde(with = "string")]
-    target_cid: u64,
+    pub target_cid: u64,
     #[serde(with = "string")]
-    ticket: u64
+    pub ticket: u64
 }
 
 impl FcmTicket {
@@ -100,7 +102,7 @@ pub enum FCMPayloadType<'a> {
     PeerDeregistered
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RawFcmPacket {
     pub(crate) inner: String
 }
@@ -108,6 +110,28 @@ pub struct RawFcmPacket {
 impl<T: Into<String>> From<T> for RawFcmPacket {
     fn from(val: T) -> Self {
         Self { inner: val.into() }
+    }
+}
+
+#[derive(Debug)]
+pub struct RawFcmPacketStore {
+    pub inner: HashMap<u64, BTreeMap<u64, RawFcmPacket>>
+}
+
+impl RawFcmPacketStore {
+    pub fn serialize(&self) -> String {
+        base64::encode(serde_json::to_string(&self.inner).unwrap())
+    }
+
+    pub fn deserialize_from(input: &[u8]) -> Option<Self> {
+        let inner = serde_json::from_slice(&base64::decode(input).ok()?).ok()?;
+        Some(Self { inner })
+    }
+}
+
+impl From<HashMap<u64, BTreeMap<u64, RawFcmPacket>>> for RawFcmPacketStore {
+    fn from(inner: HashMap<u64, BTreeMap<u64, RawFcmPacket>, RandomState>) -> Self {
+        Self { inner }
     }
 }
 

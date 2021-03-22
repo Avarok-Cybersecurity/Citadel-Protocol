@@ -19,10 +19,11 @@ class MessageNotification extends AbstractNotification {
   final DateTime recvTime;
   final bool recipientIsLocal;
   final PeerSendState status;
+  final u64 rawTicket;
 
-  MessageNotification(this.recipient, this.sender, this.message, this.recvTime, this.recipientIsLocal, this.status);
+  MessageNotification(this.recipient, this.sender, this.message, this.recvTime, this.recipientIsLocal, this.status, this.rawTicket);
   /// This should be called when receiving a message
-  MessageNotification.receivedNow(this.recipient, this.sender, this.message): this.recvTime = DateTime.now(), this.recipientIsLocal = true, this.status = PeerSendState.MessageReceived;
+  MessageNotification.receivedNow(this.recipient, this.sender, this.message, this.rawTicket): this.recvTime = DateTime.now(), this.recipientIsLocal = true, this.status = PeerSendState.MessageReceived;
 
   MessageNotification.fromMap(Map<String, dynamic> sqlMap, int id) :
         this.recipient = u64.tryFrom(sqlMap["recipient"]).value,
@@ -31,10 +32,11 @@ class MessageNotification extends AbstractNotification {
   this.recvTime = DateTime.parse(sqlMap["recvTime"]),
   this.recipientIsLocal = sqlMap["recipientIsLocal"],
   this.status = PeerSendStateExt.fromString(sqlMap["status"]).value,
+  this.rawTicket = u64.tryFrom(sqlMap["rawTicket"]).value,
         super.withId(id);
 
   /// This should only be called when expecting to immediately call delete or some function that does not depend on the internal valued other than the id
-  MessageNotification.fromRawIdDirty(int dbKey, {this.recipient, this.sender, this.message, this.recvTime, this.recipientIsLocal, this.status}): super.withId(dbKey);
+  MessageNotification.fromRawIdDirty(int dbKey, {this.recipient, this.sender, this.message, this.recvTime, this.recipientIsLocal, this.status, this.rawTicket}): super.withId(dbKey);
 
   @override
   Map<String, dynamic> toMap() {
@@ -44,7 +46,8 @@ class MessageNotification extends AbstractNotification {
       'message': this.message,
       'recvTime': this.recvTime.toIso8601String(),
       'recipientIsLocal': this.recipientIsLocal,
-      'status': this.status.asString()
+      'status': this.status.asString(),
+      'rawTicket': this.rawTicket.toString()
     };
   }
 
@@ -59,10 +62,10 @@ class MessageNotification extends AbstractNotification {
   Message toMessage() {
     if (this.recipientIsLocal) {
       // implies peer sent it
-      return Message(this.recipient, this.sender, this.message, this.recvTime, true, this.status);
+      return Message(this.recipient, this.sender, this.message, this.recvTime, true, this.status, this.rawTicket);
     } else {
       // implies local sent it
-      return Message(this.sender, this.recipient, this.message, this.recvTime, false, this.status);
+      return Message(this.sender, this.recipient, this.message, this.recvTime, false, this.status, this.rawTicket);
     }
   }
 

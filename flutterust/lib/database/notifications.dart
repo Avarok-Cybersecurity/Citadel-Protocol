@@ -62,7 +62,9 @@ class RawNotification extends AbstractSqlObject {
         case NotificationType.PostRegisterRequest:
           return PostRegisterNotification.fromMap(jsonMap, id).toOptional;
       }
-    } catch(_) {}
+    } catch(e) {
+      print("Unable to convert toNotification: $e");
+    }
 
     return Optional.empty();
   }

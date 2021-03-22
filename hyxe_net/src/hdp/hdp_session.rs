@@ -21,7 +21,7 @@ use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter, RatchetPacketCrafte
 //use futures_codec::Framed;
 use crate::hdp::hdp_packet_processor::{self, GroupProcessorResult, PrimaryProcessorResult};
 use crate::hdp::hdp_packet_processor::includes::{SocketAddr, Duration};
-use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote};
+use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, ConnectMode};
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::outbound_sender::{OutboundUdpSender, KEEP_ALIVE, OutboundTcpReceiver, OutboundTcpSender};
 use crate::hdp::state_container::{OutboundTransmitterContainer, StateContainerInner, VirtualConnectionType, VirtualTargetType, GroupKey, OutboundFileTransfer, FileKey, StateContainer, GroupSender};
@@ -214,7 +214,7 @@ impl HdpSession {
     ///
     /// `tcp_stream`: this goes to the adjacent HyperNode
     /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
-    pub async fn execute(&self, p2p_listener: Option<TcpListener>, tcp_stream: TcpStream) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
+    pub async fn execute(&self, p2p_listener: Option<TcpListener>, tcp_stream: TcpStream, connect_mode: Option<ConnectMode>) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
         log::info!("HdpSession is executing ...");
         let this = self.clone();
         let this_outbound = self.clone();
@@ -260,7 +260,7 @@ impl HdpSession {
             let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
             let socket_loader_future = spawn_handle!(Self::socket_loader(this_socket_loader, to_kernel_tx_clone.clone(), socket_loader_rx));
             let stopper_future = spawn_handle!(Self::stopper(stopper));
-            let handle_zero_state = Self::handle_zero_state(packet_opt, primary_outbound_tx.clone(), this_outbound, this_ref.state, timestamp, local_nid, cnac_opt);
+            let handle_zero_state = Self::handle_zero_state(packet_opt, primary_outbound_tx.clone(), this_outbound, this_ref.state, timestamp, local_nid, cnac_opt, connect_mode);
             std::mem::drop(this_ref);
 
             let session_future = if let Some(p2p_listener) = p2p_listener {
@@ -343,7 +343,7 @@ impl HdpSession {
     }
 
     /// Before going through the usual loopy business, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
-    async fn handle_zero_state(zero_packet: Option<BytesMut>, to_outbound: OutboundTcpSender, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
+    async fn handle_zero_state(zero_packet: Option<BytesMut>, to_outbound: OutboundTcpSender, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>, connect_mode: Option<ConnectMode>) -> Result<(), NetworkError> {
         if let Some(zero) = zero_packet {
             to_outbound.unbounded_send(zero).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
         }
@@ -389,6 +389,8 @@ impl HdpSession {
 
                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                 state_container.pre_connect_state.constructor = Some(alice_constructor);
+                state_container.connect_state.connect_mode = connect_mode;
+
                 to_outbound.unbounded_send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
 
                 log::info!("Successfully sent SYN pre-connect packet");
@@ -1092,7 +1094,7 @@ impl HdpSession {
                         }
 
                         // case 2: local just accepted, fcm is enabled. But, signal was not sent via FCM. Instead, was sent via normal network
-                        // TODO: This doesn't make sense. Why is it switching on AliceToBobTransfer, and not BobToAliceTransfer??? ANSWER: check the else statement in hyxewave:[..]/peer.rs. It does not switch-out the transfer type. that must instead be done here
+                        // TODO: This doesn't make sense. Why is it switching on AliceToBobTransfer, and not BobToAliceTransfer??? ANSWER: check the else statement in hyxewave:[..]/peer.rs. It does not switch-out the transfer type. that must instead be done here (delegation of responsibility as desired)
                         PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, _this_cid)) => {
                             let target_cid = vconn.get_original_target_cid();
                             let local_cid = inner.cid;

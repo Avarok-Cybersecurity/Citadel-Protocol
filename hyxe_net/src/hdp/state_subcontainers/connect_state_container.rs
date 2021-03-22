@@ -3,6 +3,7 @@ use tokio::time::Instant;
 use crate::constants::DO_CONNECT_EXPIRE_TIME_MS;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::proposed_credentials::ProposedCredentials;
+use crate::hdp::hdp_server::ConnectMode;
 
 /// These values should correlate directly to the packet_flags::cmd::aux::do_connect::*
 #[derive(Default)]
@@ -10,7 +11,8 @@ pub struct ConnectState {
     pub(crate) last_stage: u8,
     pub(crate) proposed_credentials: Option<ProposedCredentials>,
     pub(crate) last_packet_time: Option<Instant>,
-    pub(crate) fail_time: Option<i64>
+    pub(crate) fail_time: Option<i64>,
+    pub(crate) connect_mode: Option<ConnectMode>
 }
 
 impl ConnectState {

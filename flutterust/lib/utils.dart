@@ -148,6 +148,7 @@ class Utils {
     firebase.onTokenRefresh.listen((clientRegId) {
       print("[FCM] Received new token: " + clientRegId);
       nodeClientToken = clientRegId;
+      // TODO: Implement update mechanism
     });
   }
 
@@ -163,6 +164,7 @@ class Utils {
         RustSubsystem.bridge = FFIBridge();
         FFIBridge.setup();
       }
+
 
       print("[FCM] awaiting kernel response ...");
       Optional<KernelResponse> kResp = await RustSubsystem.bridge.handleFcmMessage(json);

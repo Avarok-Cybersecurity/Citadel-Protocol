@@ -34,13 +34,28 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="1faa2612-9045-4d1d-a9ed-1ced1f561f92" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/../hyxewave/src/constants.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/../Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/../Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/database/database_handler.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/database/database_handler.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/database/message.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/database/message.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/database/notification_subtypes/notification_message.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/database/notification_subtypes/notification_message.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/database/notifications.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/database/notifications.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/handlers/kernel_response_handler.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/handlers/kernel_response_handler.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/handlers/peer_sent_handler.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/handlers/peer_sent_handler.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/main.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/main.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/misc/auto_login.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/misc/auto_login.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/screens/session/session_subscreens/messaging_screen.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/screens/session/session_subscreens/messaging_screen.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/screens/session/session_subscreens/mutuals.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/screens/session/session_subscreens/mutuals.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/screens/session/session_subscreens/post_register_invitation.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/screens/session/session_subscreens/post_register_invitation.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/lib/utils.dart" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/lib/utils.dart" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/packages/awesome_notifications/example/ios/Flutter/Debug.xcconfig" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/packages/awesome_notifications/example/ios/Flutter/Debug.xcconfig" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/packages/awesome_notifications/example/ios/Flutter/Release.xcconfig" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/packages/awesome_notifications/example/ios/Flutter/Release.xcconfig" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/packages/awesome_notifications/example/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/packages/awesome_notifications/example/pubspec.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/packages/awesome_notifications/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/packages/awesome_notifications/pubspec.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/packages/awesome_notifications/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/packages/awesome_notifications/pubspec.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/pubspec.lock" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/pubspec.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../flutterust/pubspec.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/../flutterust/pubspec.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../hyxewave/.idea/hyxewave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/../hyxewave/.idea/hyxewave.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../hyxewave/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/../hyxewave/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/../hyxewave/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../hyxewave/src/main.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -69,7 +84,9 @@
     <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
     <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
     <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="aspect.path.notification.shown" value="true" />
     <property name="cf.first.check.clang-format" value="false" />
+    <property name="dart.analysis.tool.window.visible" value="false" />
     <property name="last_opened_file_path" value="$PROJECT_DIR$" />
     <property name="node.js.detected.package.eslint" value="true" />
     <property name="node.js.detected.package.tslint" value="true" />
@@ -89,7 +106,7 @@
       <command value="cargo clean" />
     </option>
   </component>
-  <component name="RunManager" selected="Cargo Command.Test tests::create_cnac (1)">
+  <component name="RunManager">
     <configuration name="Test tests::create_cnac (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
       <option name="channel" value="DEFAULT" />
       <option name="command" value="test --package hyxe_user --test primary tests::create_cnac -- --exact" />
@@ -162,23 +179,6 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <list>
-      <item itemvalue="Cargo Command.Test tests::create_cnac" />
-      <item itemvalue="Cargo Command.Test tests::create_cnac_then_ser_deser_then_check_login" />
-      <item itemvalue="Cargo Command.Test tests::create_cnac (1)" />
-      <item itemvalue="Cargo Command.Test tests::load_cnacs" />
-      <item itemvalue="Cargo Command.Test tests::encrypt_decrypt_from_cnac" />
-      <item itemvalue="Cargo Command.Test tests::create_nac" />
-    </list>
-    <recent_temporary>
-      <list>
-        <item itemvalue="Cargo Command.Test tests::create_cnac (1)" />
-        <item itemvalue="Cargo Command.Test tests::create_nac" />
-        <item itemvalue="Cargo Command.Test tests::create_cnac_then_ser_deser_then_check_login" />
-        <item itemvalue="Cargo Command.Test tests::encrypt_decrypt_from_cnac" />
-        <item itemvalue="Cargo Command.Test tests::load_cnacs" />
-      </list>
-    </recent_temporary>
   </component>
   <component name="RustProjectSettings">
     <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
@@ -227,6 +227,7 @@
       <workItem from="1593452812654" duration="63702000" />
       <workItem from="1594070720047" duration="621000" />
       <workItem from="1594075263269" duration="13767000" />
+      <workItem from="1616260755455" duration="79000" />
     </task>
     <servers />
   </component>

@@ -66,7 +66,8 @@ pub enum KernelResponse {
     KernelShutdown(#[serde(with = "base64_string")] Vec<u8>),
     KernelInitiated,
     Error(#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
-    FcmError(FcmTicket, #[serde(with = "base64_string")] Vec<u8>)
+    FcmError(FcmTicket, #[serde(with = "base64_string")] Vec<u8>),
+    Multiple(Vec<KernelResponse>)
 }
 
 impl KernelResponse {
@@ -145,7 +146,7 @@ impl From<FcmProcessorResult> for KernelResponse {
                 KernelResponse::Error(0, err.into_bytes())
             }
 
-            FcmProcessorResult::Value(fcm_res) => {
+            FcmProcessorResult::Value(fcm_res, ..) => {
                 match fcm_res {
                     FcmResult::GroupHeader { ticket, message } => {
                         KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessage(FcmMessage { fcm_ticket: ticket, message }))
@@ -190,6 +191,11 @@ impl From<FcmProcessorResult> for KernelResponse {
                         }))
                     }
                 }
+            }
+
+
+            FcmProcessorResult::Values(vals) => {
+                KernelResponse::Multiple(vals.into_iter().map(|(r,v)| KernelResponse::from(FcmProcessorResult::Value(r, v))).collect::<Vec<KernelResponse>>())
             }
         }
     }

@@ -213,6 +213,23 @@ class DatabaseHandler {
     return await db.delete(tableName, where: "$fieldName = ?", whereArgs: [fieldValue]);
   }
 
+  static Future<bool> removeByTriconditional(String tableName, String fieldName1, dynamic fieldValue1, String fieldName2, dynamic fieldValue2, String fieldName3, dynamic fieldValue3) async {
+    var db = await DatabaseHandler.database();
+    return await db.delete(tableName, where: "fieldName1 = ? AND fieldName2 = ? AND fieldName3 = ?", whereArgs: [fieldValue1, fieldValue2, fieldValue3]).then((value) => value == 1);
+  }
+
+  static Future<Optional<T>> getObjectByTriconditional<T>(String tableName, String fieldName1, dynamic fieldValue1, String fieldName2, dynamic fieldValue2, String fieldName3, dynamic fieldValue3, T Function(Map<String, dynamic>) deserializer) async {
+    var db = await DatabaseHandler.database();
+
+    var query = await db.query(tableName, where: "$fieldName1 = ? AND $fieldName2 = ? AND $fieldName3 = ?", whereArgs: [fieldValue1, fieldValue2, fieldValue3]);
+
+    if (query.length != 0) {
+      return deserializer.call(query.first).toOptional;
+    } else {
+      return Optional.empty();
+    }
+  }
+
   static Future<int> removeAllByBidirectionalConditional(String tableName, String fieldName1, dynamic fieldValue1, String fieldName2, dynamic fieldValue2) async {
     var db = await DatabaseHandler.database();
     return await db.delete(tableName, where: "($fieldName1 = ? AND $fieldName2 = ?) OR ($fieldName1 = ? AND $fieldName2 = ?)", whereArgs: [fieldValue1, fieldValue2, fieldValue2, fieldValue1]);
