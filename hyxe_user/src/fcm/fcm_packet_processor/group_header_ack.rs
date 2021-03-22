@@ -2,7 +2,7 @@ use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus, EndpointRatchetConstructor};
 use zerocopy::LayoutVerified;
 use crate::fcm::data_structures::{FcmHeader, FcmTicket};
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, block_on_async};
+use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, block_on_async, FcmPacketMaybeNeedsDuplication};
 use std::sync::Arc;
 use fcm::Client;
 use crate::fcm::fcm_instance::FCMInstance;
@@ -45,24 +45,33 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
             Some(endpoint_crypto.unlock().ok_or(AccountError::Generic("Unable to unlock crypt container".to_string()))?)
         }
 
-        // in this case, wtf? insomnia OP
         KemTransferStatus::StatusNoTransfer(_status) => {
             log::error!("Unaccounted program logic @ StatusNoTransfer. Report to developers");
             None
         }
 
         _ => {
+            log::error!("[NONE] reached (x-12b)");
             None
         }
     };
 
-    if let Some(truncate_vers) = requires_truncation {
-        // send TRUNCATE packet
-        let truncate_packet = super::super::fcm_packet_crafter::craft_truncate(next_ratchet?, header.object_id.get(), header.group_id.get(), header.session_cid.get(), header.ticket.get(), truncate_vers);
-        let _res = block_on_async(|| async move {
-            fcm_instance.send_to_fcm_user(truncate_packet).await
-        })??;
-    }
+    let duplicate = if let Some(truncate_vers) = requires_truncation {
+        if let Some(ratchet) = next_ratchet {
+            // send TRUNCATE packet
+            let truncate_packet = super::super::fcm_packet_crafter::craft_truncate(ratchet, header.object_id.get(), header.group_id.get(), header.session_cid.get(), header.ticket.get(), truncate_vers);
+            let duplicate = truncate_packet.clone();
 
-    FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) })
+            let _res = block_on_async(|| async move {
+                fcm_instance.send_to_fcm_user(truncate_packet).await
+            })??;
+            FcmPacketMaybeNeedsDuplication::some(duplicate)
+        } else {
+            FcmPacketMaybeNeedsDuplication::none()
+        }
+    } else {
+      FcmPacketMaybeNeedsDuplication::none()
+    };
+
+    FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) }, duplicate)
 }

@@ -259,7 +259,7 @@ impl NetKernel for CLIKernel {
             }
 
             // FFI handler built-in to the ticket callback
-            HdpServerResult::ConnectSuccess(ticket, cid, ip_addr, is_personal, virtual_cxn_type, message) => {
+            HdpServerResult::ConnectSuccess(ticket, cid, ip_addr, is_personal, virtual_cxn_type, raw_fcm_packet_store, message) => {
                 self.on_ticket_received(ticket, PeerResponse::Ok(Some(message)));
                 let cnac = self.console_context.account_manager.get_client_by_cid(cid).unwrap();
                 let username = cnac.get_username();

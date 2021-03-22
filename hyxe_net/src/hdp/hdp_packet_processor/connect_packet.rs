@@ -2,6 +2,7 @@ use super::includes::*;
 use crate::hdp::state_container::VirtualConnectionType;
 use atomic::Ordering;
 use hyxe_crypt::fcm::keys::FcmKeys;
+use crate::hdp::hdp_server::ConnectMode;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
 #[inline]
@@ -59,13 +60,14 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     //cnac.spawn_save_task_on_threadpool();
                     // register w/ peer layer, get mail in the process
                     let mailbox_items = session.session_manager.register_session_with_peer_layer(cid);
-                    let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, session.create_welcome_message(cid), peers, success_time, security_level);
+                    let fcm_packets = cnac.retrieve_raw_fcm_packets();
+                    let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, fcm_packets,session.create_welcome_message(cid), peers, success_time, security_level);
 
                     session.implicated_cid.store(Some(cid), Ordering::SeqCst);
                     session.state = SessionState::Connected;
 
                     let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, format!("Client {} successfully established a connection to the local HyperNode", cid)))?;
+                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, format!("Client {} successfully established a connection to the local HyperNode", cid)))?;
 
                     PrimaryProcessorResult::ReplyToSender(success_packet)
                 }
@@ -78,7 +80,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     std::mem::drop(state_container);
 
                     session.state = SessionState::NeedsConnect;
-                    let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, err.to_string(), Vec::with_capacity(0), fail_time, security_level);
+                    let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, None,err.to_string(), Vec::with_capacity(0), fail_time, security_level);
                     PrimaryProcessorResult::ReplyToSender(packet)
                 }
             }
@@ -127,12 +129,12 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     state_container.connect_state.on_connect_packet_received();
 
                     let use_ka = state_container.keep_alive_timeout_ns != 0;
+                    let connect_mode = state_container.connect_state.connect_mode.clone()?;
 
                     std::mem::drop(state_container);
 
                     let needs_save = cnac.synchronize_hyperlan_peer_list(&payload.peers);
                     session.implicated_cid.store(Some(cid), Ordering::SeqCst); // This makes is_provisional equal to false
-
 
                     let addr = session.remote_peer.clone();
                     let is_personal = !session.is_server;
@@ -142,13 +144,9 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                         return PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection");
                     }
 
-                    // synchronize the cnac
-                    //cnac.update_post_quantum_container(pqc).await?;
-                    //cnac.spawn_save_task_on_threadpool();
-
                     //session.post_quantum = pqc;
                     let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, message))?;
+                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), message))?;
 
                     // Now, send keep alives!
                     let timestamp = session.time_tracker.get_global_time_ns();
@@ -168,9 +166,14 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
                     session.state = SessionState::Connected;
 
+                    if connect_mode == ConnectMode::Fetch {
+                        log::info!("[FETCH] complete ...");
+                        // we can end the session now. The fcm packets have already been sent alongside the connect signal above
+                        return PrimaryProcessorResult::EndSession("Fetch succeeded")
+                    }
+
                     if use_ka {
                         let ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, timestamp, security_level);
-                        //session.post_quantum = Some(Arc::new(pqc));
                         PrimaryProcessorResult::ReplyToSender(ka)
                     } else {
                         log::warn!("Keep-alive subsystem will not be used for this session as requested");
