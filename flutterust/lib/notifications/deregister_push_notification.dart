@@ -30,7 +30,7 @@ class DeregisterPushNotification extends AbstractPushNotification {
   }
 
   static AbstractPushNotification fromMap(Map<String, String> preservedMap) {
-    return DeregisterPushNotification(u64.tryFrom(preservedMap["recipientCid"]).value, u64.tryFrom(preservedMap["peerCid"]).value, DateTime.parse(preservedMap["recvTime"]));
+    return DeregisterPushNotification(u64.tryFrom(preservedMap["recipientCid"]).value, u64.tryFrom(preservedMap["peerCid"]).value, DateTime.parse(preservedMap["recvTime"]!));
   }
 
 }

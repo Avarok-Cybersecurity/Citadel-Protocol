@@ -1,7 +1,6 @@
 import 'dart:collection';
 
 import 'package:flutterust/database/client_network_account.dart';
-import 'package:flutterust/database/database_handler.dart';
 import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/notification_subtypes/deregister_signal.dart';
 import 'package:flutterust/database/notification_subtypes/notification_message.dart';
@@ -11,11 +10,6 @@ import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/handlers/peer_sent_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/auto_login.dart';
-import 'package:flutterust/notifications/deregister_push_notification.dart';
-import 'package:flutterust/notifications/post_register_push_notification.dart';
-import 'package:flutterust/screens/session/home.dart';
-import 'package:flutterust/screens/session/session_subscreens/messaging_screen.dart';
-import 'package:flutterust/screens/session/session_subscreens/post_register_invitation.dart';
 import 'package:flutterust/utils.dart';
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/parser.dart';
@@ -29,6 +23,7 @@ import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/kernel_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/post_register_request.dart';
 import 'package:satori_ffi_parser/types/root/error.dart';
+import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 import 'package:satori_ffi_parser/types/root/kernel_shutdown.dart';
 import 'package:satori_ffi_parser/types/root/message.dart';
 import 'package:satori_ffi_parser/types/root/node_message.dart';
@@ -51,6 +46,9 @@ class KernelResponseHandler {
       case KernelResponseType.Error:
         handler.onErrorReceived(kernelResponse as ErrorKernelResponse);
         return;
+
+      default:
+        break;
     }
 
     if (kernelResponse.getTicket().isPresent) {
@@ -125,29 +123,32 @@ class KernelResponseHandler {
 
     switch (message.getType()) {
       case KernelResponseType.Message:
-        MessageKernelResponse resp = message;
+        MessageKernelResponse resp = message as MessageKernelResponse;
         print("Received kernel message: " + resp.message);
         break;
 
       case KernelResponseType.NodeMessage:
-        NodeMessageKernelResponse resp = message;
+        NodeMessageKernelResponse resp = message as NodeMessageKernelResponse;
         await _handleMessage(resp.cid, resp.peerCid, resp.message, resp.ticket.id);
         break;
         
       case KernelResponseType.Error:
-        ErrorKernelResponse eRsp = message;
+        ErrorKernelResponse eRsp = message as ErrorKernelResponse;
         print("ERR: " + eRsp.message);
         break;
 
       case KernelResponseType.KernelShutdown:
-        KernelShutdown shutdown = message;
+        KernelShutdown shutdown = message as KernelShutdown;
         print("The kernel has been shut down. Reason: ${shutdown.message}");
         RustSubsystem.init(force: true);
         break;
 
       case KernelResponseType.KernelInitiated:
         print("Received signal that the kernel has been initiated. Sending signal to allow continuation of other subroutines. ...");
-        Utils.kernelInitiatedSink.add(message);
+        Utils.kernelInitiatedSink.sink.add(message as KernelInitiated);
+        break;
+
+      default:
         break;
     }
   }
@@ -155,7 +156,7 @@ class KernelResponseHandler {
   static void handleUnexpectedDSR(DomainSpecificResponse dsr) async {
     switch (dsr.getType()) {
       case DomainSpecificResponseType.PostRegisterRequest:
-        PostRegisterRequest req = dsr;
+        PostRegisterRequest req = dsr as PostRegisterRequest;
 
         String username = (await ClientNetworkAccount.getUsernameByCid(req.implicatedCid)).value;
         PostRegisterNotification notification = PostRegisterNotification.from(req);
@@ -171,11 +172,11 @@ class KernelResponseHandler {
 
       case DomainSpecificResponseType.Disconnect:
         HomePage.pushObjectToSession(dsr);
-        AutoLogin.onDisconnectSignalReceived(dsr);
+        AutoLogin.onDisconnectSignalReceived(dsr as DisconnectResponse);
         break;
 
       case DomainSpecificResponseType.DeregisterResponse:
-        DeregisterResponse resp = dsr;
+        DeregisterResponse resp = dsr as DeregisterResponse;
         if (resp.success) {
           DeregisterSignal notification = DeregisterSignal.now(resp.implicatedCid, resp.peerCid);
           int id = await notification.sync();
@@ -195,14 +196,14 @@ class KernelResponseHandler {
         break;
 
       case DomainSpecificResponseType.FcmMessage:
-        FcmMessage message = dsr;
+        FcmMessage message = dsr as FcmMessage;
         await _handleMessage(message.ticket.targetCid, message.ticket.sourceCid, message.message, message.ticket.ticket);
         break;
 
       case DomainSpecificResponseType.FcmMessageReceived:
         // A message's ACK may return when in the background (this is pretty likely). We need to access the message's notification and update it,
         // thus allowing the user to see the "received" sign once the message is back up.
-        FcmMessageReceived message = dsr;
+        FcmMessageReceived message = dsr as FcmMessageReceived;
         Message msg = await Message.getMessage(message.ticket.sourceCid, message.ticket.targetCid, message.ticket.ticket).then((value) => value.value);
         msg.status = PeerSendState.MessageReceived;
         await msg.sync();
@@ -229,7 +230,7 @@ class KernelResponseHandler {
     // notifications will repopulate
     if (HomePage.screens != null) {
       HomePage.pushObjectToSession(notification);
-      Utils?.broadcaster?.broadcast(notification.toMessage());
+      Utils.broadcaster.broadcast(notification.toMessage());
     }
 
     if (Utils.currentlyOpenedMessenger != Optional.of(implicatedCid)) {

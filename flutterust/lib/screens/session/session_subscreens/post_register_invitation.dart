@@ -4,7 +4,6 @@ import 'package:flutterust/components/default_widget.dart';
 import 'package:flutterust/database/notification_subtypes/post_register.dart';
 import 'package:flutterust/handlers/accept_post_register.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
-import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/auto_login.dart';
 
 class PostRegisterInvitation extends StatelessWidget {

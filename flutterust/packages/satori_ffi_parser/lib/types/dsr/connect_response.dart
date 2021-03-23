@@ -8,11 +8,11 @@ import '../u64.dart';
 class ConnectResponse extends DomainSpecificResponse {
   final String message;
   final StandardTicket ticket;
-  final u64 implicated_cid;
+  final u64 implicatedCid;
   final bool success;
   Optional<String> username = Optional.empty();
 
-  ConnectResponse._(this.success, this.ticket, this.implicated_cid, this.message);
+  ConnectResponse._(this.success, this.ticket, this.implicatedCid, this.message);
 
   @override
   Optional<String> getMessage() {
@@ -37,10 +37,10 @@ class ConnectResponse extends DomainSpecificResponse {
     }
 
     var ticket = StandardTicket.tryFrom(leaf[0]);
-    var implicated_cid = u64.tryFrom(leaf[1]);
+    var implicatedCid = u64.tryFrom(leaf[1]);
     String message = leaf[2];
 
-    return ticket.isPresent && implicated_cid.isPresent ? Optional.of(ConnectResponse._(success, ticket.value, implicated_cid.value, message)) : Optional.empty();
+    return ticket.isPresent && implicatedCid.isPresent ? Optional.of(ConnectResponse._(success, ticket.value, implicatedCid.value, message)) : Optional.empty();
   }
 
   void attachUsername(String username) {

@@ -13,13 +13,13 @@ import 'package:flutterust/utils.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 
 class MessageNotification extends AbstractNotification {
-  final u64 recipient;
-  final u64 sender;
-  final String message;
-  final DateTime recvTime;
-  final bool recipientIsLocal;
-  final PeerSendState status;
-  final u64 rawTicket;
+  final u64? recipient;
+  final u64? sender;
+  final String? message;
+  final DateTime? recvTime;
+  final bool? recipientIsLocal;
+  final PeerSendState? status;
+  final u64? rawTicket;
 
   MessageNotification(this.recipient, this.sender, this.message, this.recvTime, this.recipientIsLocal, this.status, this.rawTicket);
   /// This should be called when receiving a message
@@ -44,9 +44,9 @@ class MessageNotification extends AbstractNotification {
       'recipient': this.recipient.toString(),
       'sender': this.sender.toString(),
       'message': this.message,
-      'recvTime': this.recvTime.toIso8601String(),
+      'recvTime': this.recvTime!.toIso8601String(),
       'recipientIsLocal': this.recipientIsLocal,
-      'status': this.status.asString(),
+      'status': this.status!.asString(),
       'rawTicket': this.rawTicket.toString()
     };
   }
@@ -60,31 +60,31 @@ class MessageNotification extends AbstractNotification {
 
   /// Note: this returns none if the provided localImplicatedCid does not match one of the internally-stored clients
   Message toMessage() {
-    if (this.recipientIsLocal) {
+    if (this.recipientIsLocal!) {
       // implies peer sent it
-      return Message(this.recipient, this.sender, this.message, this.recvTime, true, this.status, this.rawTicket);
+      return Message(this.recipient!, this.sender!, this.message!, this.recvTime!, true, this.status!, this.rawTicket!);
     } else {
       // implies local sent it
-      return Message(this.sender, this.recipient, this.message, this.recvTime, false, this.status, this.rawTicket);
+      return Message(this.sender!, this.recipient!, this.message!, this.recvTime!, false, this.status!, this.rawTicket!);
     }
   }
 
   @override
-  u64 get recipientCid => this.recipient;
+  u64 get recipientCid => this.recipient!;
 
   @override
   NotificationType get type => NotificationType.Message;
 
   @override
-  DateTime get receiveTime => this.recvTime;
+  DateTime get receiveTime => this.recvTime!;
 
   @override
   IconData get notificationIcon => Icons.mail_outline;
 
   @override
   Future<String> getNotificationTitle(ClientNetworkAccount implicatedCid) async {
-    u64 implicatedCid = this.recipientIsLocal ? this.recipientCid : this.sender;
-    u64 peerCid = this.recipientIsLocal ? this.sender : this.recipientCid;
+    u64 implicatedCid = this.recipientIsLocal! ? this.recipientCid : this.sender!;
+    u64 peerCid = this.recipientIsLocal! ? this.sender! : this.recipientCid;
 
     return await PeerNetworkAccount.getPeerByCid(implicatedCid, peerCid).then((value) => "Message from " +  value.map((pnac) => pnac.peerUsername).value);
   }
@@ -101,7 +101,7 @@ class MessageNotification extends AbstractNotification {
   Future<void> onNotificationOpened(ClientNetworkAccount implicatedCnac, BuildContext context) async {
     print("Deleting message from notifications list ...");
     await this.delete();
-    PeerNetworkAccount.getPeerByCid(implicatedCnac.implicatedCid, this.recipientIsLocal ? this.sender : this.recipientCid)
+    PeerNetworkAccount.getPeerByCid(implicatedCnac.implicatedCid, this.recipientIsLocal! ? this.sender! : this.recipientCid)
     .then((value) => value.map((peerNac) => Navigator.push(context, Utils.createDefaultRoute(MessagingScreen(implicatedCnac, peerNac)))).orElseGet(() => EasyLoading.showError("Peer not found locally", dismissOnTap: true)));
   }
 

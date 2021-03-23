@@ -102,7 +102,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                         return PrimaryProcessorResult::Void;
                     }
 
-                    PeerSignal::PostRegister(vconn, a, b, c, FcmPostRegister::BobToAliceTransfer(transfer, fcm_keys, _cid)) => {
+                    PeerSignal::PostRegister(vconn, a, b, peer_resp, FcmPostRegister::BobToAliceTransfer(transfer, fcm_keys, _cid)) => {
                         std::mem::drop(state_container);
                         // When using FCM, post-register requires syncing to the HD to establish static key pairs. Otherwise, normal post-registers do not since keys are re-established during post-connect stage
                         log::info!("[FCM] Received bob to alice transfer from {}", vconn.get_original_implicated_cid());
@@ -118,9 +118,29 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                             Some(())
                         })?;
 
+                        if let Some(peer_resp_) = peer_resp.as_ref() {
+                            match peer_resp_ {
+                                PeerResponse::Accept(Some(peer_uname)) => {
+                                    match session.account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_uname) {
+                                        Ok(_) => {
+                                            log::info!("[FCM] Successfully finished registration!");
+                                            session.send_to_kernel(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, a.clone(), b.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
+                                            return PrimaryProcessorResult::Void;
+                                        },
+
+                                        Err(err) => {
+                                            log::error!("Unable to register hyperlan p2p at endpoint: {:#?}", err);
+                                        }
+                                    }
+                                }
+
+                                _ => {}
+                            }
+                        }
+
                         cnac.spawn_save_task_on_threadpool();
                         log::info!("[FCM] Successfully finished registration!");
-                        session.send_to_kernel(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, a.clone(), b.clone(), c.clone(), FcmPostRegister::Enable), ticket))?;
+                        session.send_to_kernel(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, a.clone(), b.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
                         return PrimaryProcessorResult::Void;
                     }
 

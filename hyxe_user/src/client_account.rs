@@ -38,6 +38,8 @@ use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, block_on_a
 use crate::fcm::fcm_packet_processor::peer_post_register::InvitationType;
 use crate::fcm::kem::FcmPostRegister;
 use hyxe_crypt::fcm::keys::FcmKeys;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network
@@ -743,6 +745,26 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
         let instance = FCMInstance::new(fcm_keys, fcm_client.clone());
         instance.send_to_fcm_user(raw_fcm_packet(latest_fcm_ratchet)).await
+    }
+
+    /// Sends to all FCM-registered peers. Enforces the use of endpoint encryption
+    pub async fn fcm_raw_broadcast_to_all_peers(&self, fcm_client: Arc<Client>, raw_fcm_constructor: impl Fn(&Fcm, u64) -> RawFcmPacket) -> Result<(), AccountError> {
+        let read = self.read();
+        let tasks = FuturesUnordered::new();
+
+        for (peer_cid, container) in &read.fcm_crypt_container {
+            if let Some(fcm_keys) = container.fcm_keys.clone() {
+                let instance = FCMInstance::new(fcm_keys, fcm_client.clone());
+                let packet = (raw_fcm_constructor)(container.get_hyper_ratchet(None).unwrap(), *peer_cid);
+                let future = instance.send_to_fcm_user_by_value(packet);
+                tasks.push(Box::pin(future));
+            }
+        }
+
+        std::mem::drop(read);
+
+        tasks.map(|_| ()).collect::<()>().await;
+        Ok(())
     }
 
     /// sends, blocking on an independent single-threaded executor

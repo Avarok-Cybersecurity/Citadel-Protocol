@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutterust/main.dart';
 
 class AppRetainWidget extends StatelessWidget {
-  const AppRetainWidget({Key key, this.child}) : super(key: key);
+  const AppRetainWidget({Key? key, required this.child}) : super(key: key);
 
   final Widget child;
 
@@ -17,7 +17,7 @@ class AppRetainWidget extends StatelessWidget {
             return true;
           } else {
             print("Sending program to background safely ...");
-            RustSubsystem.bridge.sendToBackground();
+            RustSubsystem.bridge?.sendToBackground();
             return false;
           }
         } else {

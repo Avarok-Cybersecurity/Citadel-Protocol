@@ -17,7 +17,7 @@ class RawNotification extends AbstractSqlObject {
   static const String DB_TABLE = "notifications";
   static const String GENESIS = "CREATE TABLE $DB_TABLE (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, cid TEXT, type TEXT, payload TEXT)";
 
-  int _id;
+  int? _id;
   final u64 cid;
   final NotificationType notificationType;
   final String payload;
@@ -48,9 +48,7 @@ class RawNotification extends AbstractSqlObject {
 
   Optional<AbstractNotification> toNotification() {
     try {
-      assert (this._id != null);
-
-      final int id = this._id;
+      final int id = this._id!;
       final Map<String, dynamic> jsonMap = json.decode(this.payload);
       switch (this.notificationType) {
         case NotificationType.Message:
@@ -70,9 +68,9 @@ class RawNotification extends AbstractSqlObject {
   }
 
   @override
-  Future<int> sync({ConflictAlgorithm conflictAlgorithm}) async {
+  Future<int> sync({ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace}) async {
     this._id = await super.sync(conflictAlgorithm: conflictAlgorithm);
-    return this._id;
+    return this._id!;
   }
 
   static Future<List<AbstractNotification>> loadNotificationsFor(u64 cid) {

@@ -1427,6 +1427,7 @@ dependencies = [
  "dirs2",
  "env_logger 0.8.3",
  "fcm",
+ "futures",
  "hyxe_crypt",
  "hyxe_fs",
  "log",

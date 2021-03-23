@@ -1,10 +1,8 @@
 
-import 'dart:collection';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:optional/optional.dart';
-import 'package:satori_ffi_parser/types/u64.dart';
 
 class SecureStorageHandler {
   static final secureStorage = FlutterSecureStorage();
@@ -29,13 +27,13 @@ class SecureStorageHandler {
   }
 
   static Future<Optional<Credentials>> getCredentialsByUsername(String username) async {
-    String uname = await secureStorage.read(key: USERNAME_KEY + username);
+    String? uname = await secureStorage.read(key: USERNAME_KEY + username);
     if (uname != null) {
-      String password = await secureStorage.read(key: PASSWORD_KEY + username);
+      String? password = await secureStorage.read(key: PASSWORD_KEY + username);
       if (password != null) {
-        String secLevel = await secureStorage.read(key: SECURITY_LEVEL_KEY + username);
+        String? secLevel = await secureStorage.read(key: SECURITY_LEVEL_KEY + username);
         if (secLevel != null) {
-          int val = int.tryParse(secLevel);
+          int? val = int.tryParse(secLevel);
           if (val != null) {
             return Optional.of(Credentials(uname, password, val));
           }

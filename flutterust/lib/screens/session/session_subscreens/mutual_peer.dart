@@ -1,8 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutterust/components/cached_image.dart';
 import 'package:flutterust/database/client_network_account.dart';
-import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/deregister_handler.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
@@ -105,7 +103,7 @@ class MutualPeerScreen extends StatelessWidget {
     // temporarily to check to see if it works using the BG processor. Plus, this will allow us to see how
     // endpoint crypto works using the FCM ratchets for once. Because once that is proven to work, then getting
     // p2p messages to work is very close to happening
-    (await RustSubsystem.bridge.executeCommand("switch ${this.implicatedUser.implicatedCid} peer deregister ${this.peerNac.peerUsername} --fcm"))
+    (await RustSubsystem.bridge!.executeCommand("switch ${this.implicatedUser.implicatedCid} peer deregister ${this.peerNac.peerUsername} --fcm"))
     .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: DeregisterHandler(), oneshot: false));
     Navigator.of(ctx).pop();
   }

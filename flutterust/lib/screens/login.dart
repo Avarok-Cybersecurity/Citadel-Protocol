@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:isolate';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -17,11 +16,10 @@ class LoginScreen extends StatefulWidget {
   static const int IDX = 0;
   final StreamController<dynamic> coms = StreamController();
 
-  LoginScreen({Key key}) : super(key: key);
+  LoginScreen({Key? key}) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _LoginScreen();
-
 }
 
 class _LoginScreen extends State<LoginScreen> {
@@ -34,9 +32,7 @@ class _LoginScreen extends State<LoginScreen> {
   bool autoLogin = true;
   bool loginButtonEnabled = false;
 
-  StreamSubscription<dynamic> coms;
-
-  _LoginScreen();
+  late final StreamSubscription<dynamic> coms;
 
   @override
   void initState() {
@@ -88,10 +84,12 @@ class _LoginScreen extends State<LoginScreen> {
               DropdownButtonFormField(
                 value: securityLevel,
 
-                onChanged: (String newValue) {
-                  setState(() {
-                    this.securityLevel = newValue;
-                  });
+                onChanged: (String? newValue) {
+                  if (newValue != null) {
+                    setState(() {
+                      this.securityLevel = newValue;
+                    });
+                  }
                 },
 
                 items: levels
@@ -114,9 +112,11 @@ class _LoginScreen extends State<LoginScreen> {
                     Checkbox(
                       value: this.autoLogin,
                       onChanged: (newValue) {
-                        setState(() {
-                          this.autoLogin = newValue;
-                        });
+                        if (newValue != null) {
+                          setState(() {
+                            this.autoLogin = newValue;
+                          });
+                        }
                       },
                     )
                   ],
@@ -137,14 +137,14 @@ class _LoginScreen extends State<LoginScreen> {
   }
 
   void performLogin() async {
-    FocusManager.instance.primaryFocus.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
     await EasyLoading.show();
     print("Username: " + this.usernameController.text);
     print("Password: " + this.passwordController.text);
     print("Security setting: " + this.securityLevel);
     print("AutoLogin: $autoLogin");
 
-    this._formKey.currentState.save();
+    this._formKey.currentState?.save();
     String username = this.usernameController.text;
     String password = this.passwordController.text;
     int securityLevel = levels.indexOf(this.securityLevel);
@@ -154,7 +154,7 @@ class _LoginScreen extends State<LoginScreen> {
     var cmd = LoginHandler.constructConnectCommand(username, password, securityLevel);
 
     print("Executing: " + cmd);
-    (await RustSubsystem.bridge.executeCommand(cmd))
+    (await RustSubsystem.bridge!.executeCommand(cmd))
     .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: LoginHandler(this.widget.coms.sink, this.usernameController.text, creds)));
   }
 

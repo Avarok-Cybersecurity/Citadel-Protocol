@@ -11,6 +11,7 @@ use fcm::Client;
 use hyxe_crypt::fcm::fcm_ratchet::FcmAliceToBobTransfer;
 
 pub fn process<'a, Fcm: Ratchet>(client: &'a Arc<Client>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, ratchet: Fcm, header: LayoutVerified<&'a [u8], FcmHeader>, alice_to_bob_transfer: Option<FcmAliceToBobTransfer<'a>>, message: &'a [u8]) -> FcmProcessorResult {
+    log::info!("FCM RECV GROUP_HEADER");
     let instance = FCMInstance::new(endpoint_crypto.fcm_keys.clone()?, client.clone());
     // at this point, the packet was verified to be valid. Calculate return packet, send it via fcm to target. Finally, return the message
     let local_cid = header.target_cid.get();
@@ -32,6 +33,7 @@ pub fn process<'a, Fcm: Ratchet>(client: &'a Arc<Client>, endpoint_crypto: &'a m
 
     let ticket = FcmTicket::new(header.session_cid.get(), header.target_cid.get(), header.ticket.get());
 
+    log::info!("SUBROUTINE COMPLETE: PROCESS GROUP_HEADER");
     // now that we sent the response to FCM, the next step is to return with the original message
     FcmProcessorResult::Value(FcmResult::GroupHeader { ticket, message: message.to_vec() }, FcmPacketMaybeNeedsDuplication::some(packet2))
 }

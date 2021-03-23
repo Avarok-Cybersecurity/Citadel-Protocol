@@ -24,7 +24,7 @@ class FFIBridge {
     print("FFI post-cobject loaded");
   }
 
-  Isolate isolate;
+  Isolate? isolate;
 
   void sendToBackground() {
     if (Platform.isAndroid) {

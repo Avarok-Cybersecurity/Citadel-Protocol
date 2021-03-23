@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 class DefaultBubble extends StatelessWidget {
-  DefaultBubble({this.message, this.time, this.icon, this.iconColorPeer, this.iconColorMe, this.isMe, this.onTap, Key key}) : super(key: key);
+  DefaultBubble({required this.message, required this.time, required this.icon, required this.iconColorPeer, required this.iconColorMe, required this.isMe, required this.onTap, Key? key}) : super(key: key);
 
   final String message, time;
   final bool isMe;
   final IconData icon;
-  final Color iconColorPeer;
-  final Color iconColorMe;
+  final Color? iconColorPeer;
+  final Color? iconColorMe;
   final void Function() onTap;
 
   @override

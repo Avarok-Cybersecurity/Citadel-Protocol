@@ -1212,6 +1212,7 @@ dependencies = [
  "bytes 1.0.1",
  "crossbeam-utils",
  "fcm",
+ "futures",
  "hyxe_crypt",
  "hyxe_fs",
  "log",

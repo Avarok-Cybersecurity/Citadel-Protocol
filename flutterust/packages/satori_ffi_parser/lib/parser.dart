@@ -85,10 +85,7 @@ class FFIParser {
   //static Optional<KernelResponse> parseHybridResponse(List<>)
 }
 
-bool isNumeric(String s) {
-  print("parse: " + double.tryParse(s).toString());
-  return s != null ? double.tryParse(s) != null : false;
-}
+bool isNumeric(String s) => double.tryParse(s) != null;
 
 String mapBase64(String value, MessageParseMode mode) {
   switch (mode) {

@@ -30,6 +30,10 @@ import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 // The above occurred when: I sent a message outbound that hadn't received the FcmMessageReceived re-key completion. Instead, Dad sent a message BEFORE receiving mine (maybe?), then I received his message, triggering the error
 // Update from above: It appears the trigger of the error message was a GROUP_HEADER_ACK, thus, dad didn't actually send a message
 // Also: That error implies that a truncation value was supplied that was wrong. Where is it going wrong?
+//
+// More updates (day 2): It appears that one of the sides isn't deregistering properly (Sending to a phone that's app is closed and in the background triggers this).
+// As a result, the toolset grows to 8/6 size, then the deregistration error occurs, causing the initial error.
+// By requiring a save after a TRUNCATE packet, the problem may now be fixed. Not saving after receiving a truncation packet would explain all the prior errors
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(MaterialApp(
@@ -63,7 +67,7 @@ class _MyAppState extends State<Splash> {
   /// All requires loading should occur here
   Future<Widget> loadFromFuture() async {
     await loadInit();
-    return AppRetainWidget(child: HomePage(RustSubsystem.bridge.isKernelLoaded()));
+    return AppRetainWidget(child: HomePage(RustSubsystem.bridge!.isKernelLoaded()));
   }
 
   @override
@@ -85,7 +89,7 @@ class _MyAppState extends State<Splash> {
 }
 
 class RustSubsystem {
-  static FFIBridge bridge;
+  static FFIBridge? bridge;
 
   // Returns true if pre-initialized
   static Future<void> init({bool force = false}) async {
@@ -94,7 +98,7 @@ class RustSubsystem {
       RustSubsystem.bridge = FFIBridge();
       FFIBridge.setup();
 
-      await RustSubsystem.bridge
+      await RustSubsystem.bridge!
           .initRustSubsystem(KernelResponseHandler.handleRustKernelRawMessage);
     }
   }
@@ -126,12 +130,12 @@ class HomePage extends StatefulWidget {
   static final List<Widget> screens = [LoginScreen(), const RegisterScreen(false), SessionHomeScreen(), const SettingsScreen()];
   final bool preInitializedKernel;
 
-  HomePage(this.preInitializedKernel, {Key key}) : super(key: key);
+  HomePage(this.preInitializedKernel, {Key? key}) : super(key: key);
 
   /// Either an abstract notification of kernel response can be pushed herein
   static void pushObjectToSession(dynamic value) {
-    SessionHomeScreen screen = screens[SessionHomeScreen.IDX];
-    screen?.controller?.sink?.add(value);
+    SessionHomeScreen screen = screens[SessionHomeScreen.IDX] as SessionHomeScreen;
+    screen.controller.sink.add(value);
   }
 
   @override
@@ -174,28 +178,23 @@ class MyHomePage extends State<HomePage> {
     if (this.widget.preInitializedKernel) {
       print("Kernel pre-initialized. Skipping ordinary init phase ...");
       await this._maybeResyncClients();
-      LoginScreen screen = HomePage.screens[LoginScreen.IDX];
+      LoginScreen screen = HomePage.screens[LoginScreen.IDX] as LoginScreen;
       screen.coms.sink.add(KernelInitiated());
       return;
     }
 
-    StreamController<KernelInitiated> initController = StreamController();
-    Utils.kernelInitiatedSink = initController.sink;
-
     try {
-      await initController.stream.first.timeout(Duration(seconds: 7)).then((value) async {
-        LoginScreen screen = HomePage.screens[LoginScreen.IDX];
+      await Utils.kernelInitiatedSink.stream.first.timeout(Duration(seconds: 7)).then((value) async {
+        LoginScreen screen = HomePage.screens[LoginScreen.IDX] as LoginScreen;
         screen.coms.sink.add(value);
 
         await this._maybeResyncClients();
 
         await Utils.kernelInitiatedSink.close();
-        await initController.close();
       });
 
     } catch(_) {
       await Utils.kernelInitiatedSink.close();
-      await initController.close();
 
       // The only reason this happens is really if NTP can't be reached, usually implying the user's internet is down
       if (Platform.isAndroid) {
@@ -239,7 +238,7 @@ class MyHomePage extends State<HomePage> {
     );
   }
   
-  ListTile createMenuTile(final int idx, {Widget leading}) {
+  ListTile createMenuTile(final int idx, {Widget? leading}) {
     return ListTile(
       leading: leading,
       title: Text(sidebarMenuItems[idx]),

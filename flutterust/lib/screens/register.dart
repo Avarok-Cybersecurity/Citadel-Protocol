@@ -15,7 +15,7 @@ class RegisterScreen extends StatefulWidget {
   static const int IDX = 1;
   final bool fromEmptyAccountList;
 
-  const RegisterScreen(this.fromEmptyAccountList, {Key key}) : super(key: key);
+  const RegisterScreen(this.fromEmptyAccountList, {Key? key}) : super(key: key);
 
   @override
   State<StatefulWidget> createState() => _RegisterScreen();
@@ -45,7 +45,7 @@ class _RegisterScreen extends State<RegisterScreen> {
 
   String securityLevel = levels.first;
 
-  SendPort sendPort;
+  late final SendPort sendPort;
 
   _RegisterScreen() {
     ReceivePort recv = ReceivePort("Register Screen Recv Port");
@@ -118,10 +118,12 @@ class _RegisterScreen extends State<RegisterScreen> {
                       fillColor: this.passwordsMismatch ? ERROR : Colors.white),
                   DropdownButtonFormField(
                     value: securityLevel,
-                    onChanged: (String newValue) {
-                      setState(() {
-                        this.securityLevel = newValue;
-                      });
+                    onChanged: (String? newValue) {
+                      if (newValue != null) {
+                        setState(() {
+                          this.securityLevel = newValue;
+                        });
+                      }
                     },
                     items: levels.map<DropdownMenuItem<String>>((String value) {
                       return DropdownMenuItem<String>(
@@ -145,7 +147,7 @@ class _RegisterScreen extends State<RegisterScreen> {
   }
 
   void performRegister(SendPort sendPort) async {
-    FocusManager.instance.primaryFocus.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
     await EasyLoading.show();
     print("Federation addr: " + this.federationAddrController.text);
     print("Full name: " + this.fullnameController.text);
@@ -183,7 +185,7 @@ class _RegisterScreen extends State<RegisterScreen> {
             " --password " +
             this.passwordController.text;
 
-        (await RustSubsystem.bridge.executeCommand(cmd)).ifPresent((kResp) =>
+        (await RustSubsystem.bridge!.executeCommand(cmd)).ifPresent((kResp) =>
             KernelResponseHandler.handleFirstCommand(kResp,
                 handler: RegisterHandler(transfer)));
       } else {

@@ -4,7 +4,6 @@ import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/auto_login.dart';
 import 'package:flutterust/misc/secure_storage_handler.dart';
-import 'package:flutterust/utils.dart';
 import 'package:optional/optional.dart';
 import 'package:quiver/iterables.dart';
 import 'package:satori_ffi_parser/types/dsr/get_accounts_response.dart';
@@ -59,7 +58,11 @@ class ClientNetworkAccount extends AbstractSqlObject {
   }
 
   static Future<int> resyncClients() async {
-    return (await RustSubsystem.bridge.executeCommand("list-accounts"))
+    if (RustSubsystem.bridge == null) {
+      return -1;
+    }
+
+    return (await RustSubsystem.bridge!.executeCommand("list-accounts"))
         .map((kResp) {
       return kResp.getDSR().map((dsr) async {
         if (dsr is GetAccountsResponse) {
@@ -73,10 +76,10 @@ class ClientNetworkAccount extends AbstractSqlObject {
             List<ClientNetworkAccount> cnacs = zip([
               dsr.cids,
               dsr.usernames,
-              dsr.full_names,
-              dsr.is_personals,
-              dsr.creation_dates
-            ]).map((e) => ClientNetworkAccount(e[0], e[1], e[2], e[3], e[4]))
+              dsr.fullNames,
+              dsr.isPersonals,
+              dsr.creationDates
+            ]).map((e) => ClientNetworkAccount(e[0] as u64, e[1] as String, e[2] as String, e[3] as bool, e[4] as String))
                 .toList(growable: false);
 
             await DatabaseHandler.upsertObjects(cnacs);
@@ -89,7 +92,7 @@ class ClientNetworkAccount extends AbstractSqlObject {
           }
         }
       }).orElse(Future.value(-1));
-    }).orElse(Future.value(-1));
+    }).orElse(Future.value(-1)) as Future<int>;
   }
 
   @override

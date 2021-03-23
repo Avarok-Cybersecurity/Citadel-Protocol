@@ -138,7 +138,7 @@ impl From<Result<Option<KernelResponse>, ConsoleError>> for KernelResponse {
 impl From<FcmProcessorResult> for KernelResponse {
     fn from(res: FcmProcessorResult) -> Self {
         match res {
-            FcmProcessorResult::Void => {
+            FcmProcessorResult::Void | FcmProcessorResult::RequiresSave => {
                 KernelResponse::Confirmation
             }
 

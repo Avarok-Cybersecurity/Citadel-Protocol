@@ -48,7 +48,7 @@ class DatabaseHandler {
 
   /// Inserts a row if non-existant. If the entry already exists, updates it
   /// Returns the database key. If key is already supplied, then returns the pre-existing key
-  static Future<dynamic> upsertObject(AbstractSqlObject object, {Database databaseInstance}) async {
+  static Future<dynamic> upsertObject(AbstractSqlObject object, {Database? databaseInstance}) async {
     final Database db = databaseInstance ?? await database();
     if (object.getDatabaseKey().isPresent) {
       print("Database key present");
@@ -90,7 +90,7 @@ class DatabaseHandler {
     var results = await batch.commit();
 
     print("[INSERT] Result: " + results.toString());
-    return results;
+    return results as List<Object>;
   }
 
   static Future<int> insertObject(AbstractSqlObject object, { ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace }) async {
@@ -152,7 +152,8 @@ class DatabaseHandler {
     var query = await db.query(tableName,
         where: "$fieldName = ?", whereArgs: [fieldValue]);
     if (query.length > 0) {
-      return Optional.of(keyMapper.call(query.first["id"]));
+      var val = query.first["id"];
+      return val != null ? Optional.of(keyMapper.call(val)) : Optional.empty();
     } else {
       return Optional.empty();
     }
@@ -224,7 +225,7 @@ class DatabaseHandler {
     var query = await db.query(tableName, where: "$fieldName1 = ? AND $fieldName2 = ? AND $fieldName3 = ?", whereArgs: [fieldValue1, fieldValue2, fieldValue3]);
 
     if (query.length != 0) {
-      return deserializer.call(query.first).toOptional;
+      return Optional.of(deserializer.call(query.first));
     } else {
       return Optional.empty();
     }

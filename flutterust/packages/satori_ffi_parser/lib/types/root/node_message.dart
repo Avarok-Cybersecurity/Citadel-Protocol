@@ -9,19 +9,13 @@ import '../u64.dart';
 import '../virtual_connection_type.dart';
 
 class NodeMessageKernelResponse extends KernelResponse {
-  StandardTicket ticket;
-  u64 cid;
-  u64 icid;
-  u64 peerCid;
-  String message;
+  final StandardTicket ticket;
+  final u64 cid;
+  final u64 icid;
+  final u64 peerCid;
+  final String message;
 
-  NodeMessageKernelResponse(StandardTicket ticket, u64 cid, u64 icid, u64 peerCid, String message) {
-    this.ticket = ticket;
-    this.cid = cid;
-    this.icid = icid;
-    this.peerCid = peerCid;
-    this.message = message;
-  }
+  NodeMessageKernelResponse(this.ticket, this.cid, this.icid, this.peerCid, this.message);
 
   @override
   Optional<DomainSpecificResponse> getDSR() {

@@ -18,7 +18,7 @@ abstract class AbstractPushNotification {
 
   static Optional<AbstractPushNotification> tryFromMap(Map<String, String> preservedMap) {
     try {
-      PushNotificationType id = PushNotificationTypeExt.fromString(preservedMap["type"]).value;
+      PushNotificationType id = PushNotificationTypeExt.fromString(preservedMap["type"]!).value;
 
       switch (id) {
         case PushNotificationType.Message:

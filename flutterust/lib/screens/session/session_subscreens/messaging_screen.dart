@@ -2,9 +2,6 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_chat_bubble/bubble_type.dart';
-import 'package:flutter_chat_bubble/chat_bubble.dart';
-import 'package:flutter_chat_bubble/clippers/chat_bubble_clipper_1.dart';
 import 'package:flutterust/components/chat_bubble.dart';
 import 'package:flutterust/components/text_form_field.dart';
 import 'package:flutterust/database/client_network_account.dart';
@@ -12,7 +9,6 @@ import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/peer_sent_handler.dart';
-import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/auto_login.dart';
 import 'package:flutterust/utils.dart';
 import 'package:intl/intl.dart';
@@ -28,7 +24,7 @@ class MessagingScreen extends StatefulWidget {
   final TextEditingController messageField = TextEditingController();
   final List<Widget> bubbles = [];
 
-  MessagingScreen(this.implicatedCnac, this.peerNac, {Key key})
+  MessagingScreen(this.implicatedCnac, this.peerNac, {Key? key})
       : super(key: key);
 
   @override
@@ -40,10 +36,9 @@ class MessagingScreen extends StatefulWidget {
 class MessagingScreenInner extends State<MessagingScreen> {
 
   ScrollController _scrollController = ScrollController();
-  Stream<Widget> messageStream;
+  late final Stream<Widget> messageStream;
   StreamController<MessageWidgetUpdateStore> sendIntake = StreamController();
   int initMessageCount = 0;
-
 
   Stream<MessageWidgetUpdateStore> initStream() async* {
     print("initStream executed");
@@ -69,11 +64,11 @@ class MessagingScreenInner extends State<MessagingScreen> {
       sendIntake.stream,
       Utils.broadcaster.stream.stream
           .where((message) =>
-              this.widget.implicatedCnac.implicatedCid ==
-                  message.implicatedCid &&
-              this.widget.peerNac.peerCid == message.peerCid)
+      this.widget.implicatedCnac.implicatedCid ==
+          message.implicatedCid &&
+          this.widget.peerNac.peerCid == message.peerCid)
           .map((message) => MessageWidgetUpdateStore.insert(
-              bubbleFrom(message, message.status))),
+          bubbleFrom(message, message.status))),
       this.initStream()
     ]).map((message) {
       print("[MERGE] Stream recv");
@@ -83,8 +78,8 @@ class MessagingScreenInner extends State<MessagingScreen> {
           this.widget.bubbles.add(message.bubble.value);
           this._scrollController = _scrollController.hasClients
               ? ScrollController(
-                  initialScrollOffset:
-                      _scrollController.position.maxScrollExtent)
+              initialScrollOffset:
+              _scrollController.position.maxScrollExtent)
               : ScrollController();
           break;
 
@@ -112,7 +107,6 @@ class MessagingScreenInner extends State<MessagingScreen> {
   @override
   void dispose() {
     super.dispose();
-    this.messageStream = null;
     this.sendIntake.close();
     Utils.currentlyOpenedMessenger = Optional.empty();
   }
@@ -125,12 +119,12 @@ class MessagingScreenInner extends State<MessagingScreen> {
           print(
               "[StreamBuilder] Refresh. Current Bubbles:  ${this.widget.bubbles.length} && ${snapshot.connectionState}");
           if (snapshot.hasData) {
-            WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+            WidgetsBinding.instance!.addPostFrameCallback((timeStamp) {
               this.scrollToBottom();
             });
 
             print("DONE loading widget (${this.widget.bubbles.length} items)");
-            return snapshot.data;
+            return snapshot.data as Widget;
           } else {
             if (this.initMessageCount != 0) {
               return Container(
@@ -242,11 +236,11 @@ class MessagingScreenInner extends State<MessagingScreen> {
         DateTime.now(),
         false,
         PeerSendState.Unprocessed,
-      null
+        null
     );
   }
 
-  Widget bubbleFrom(Message message, [PeerSendState state = PeerSendState.Unprocessed, Key key]) {
+  Widget bubbleFrom(Message message, [PeerSendState state = PeerSendState.Unprocessed, Key? key]) {
     return DefaultBubble(
       key: key ?? UniqueKey(),
       message: message.message,

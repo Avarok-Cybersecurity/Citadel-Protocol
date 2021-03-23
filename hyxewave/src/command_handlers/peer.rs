@@ -503,14 +503,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
                     PeerResponse::Accept(Some(username)) => {
                         // note: FCM will never reach here
-                        // TODO: Make the enums cleaner.
-
-                        // TODO: pull this down to the networking layer to take responsibility off the kernel
-                        if let Err(err) = ctx.account_manager.register_hyperlan_p2p_at_endpoints(ctx_user, target_cid, username.clone()) {
-                            printf_ln!(colour::red!("Peer {} ({}) accepted your invitation, but we were unable to sync to the local filesystem. Reason: {:?}\n", &username, target_cid, err));
-                        } else {
-                            printf_ln!(colour::white!("Peer {} ({}) has accepted your invitation! You may now connect to their node\n", &username, target_cid));
-                        }
+                        printf_ln!(colour::white!("Peer {} ({}) has accepted your invitation! You may now connect to their node\n", &username, target_cid));
 
                         if let Some(ref ffi_io) = ffi_io {
                             (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterResponse(PostRegisterResponse {
@@ -673,7 +666,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
                     if accept {
                         let peer_username = request.assert_register_get_username().unwrap();
-                        // TODO: Pull this down to the networking layer to take the responsiblity off the kernel
+                        // TODO: Pull this down to the networking layer to take the responsibility off the kernel (will need to relay peer_username ... )
                         ctx.account_manager.register_hyperlan_p2p_at_endpoints(implicated_cid, peer_cid, &peer_username).map_err(|err| ConsoleError::Generic(err.into_string()))?;
                     }
 

@@ -6,11 +6,9 @@ import '../kernel_response_type.dart';
 import '../standard_ticket.dart';
 
 class MessageKernelResponse extends KernelResponse {
-  String message;
+  final String message;
 
-  MessageKernelResponse(String message) {
-    this.message = message;
-  }
+  MessageKernelResponse(this.message);
 
   @override
   Optional<DomainSpecificResponse> getDSR() {

@@ -1,4 +1,5 @@
 import 'package:satori_ffi_parser/parser.dart';
+import 'package:satori_ffi_parser/result.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/connect_response.dart';
 import 'package:satori_ffi_parser/types/dsr/deregister_response.dart';
@@ -16,7 +17,6 @@ import 'package:satori_ffi_parser/types/root/kernel_shutdown.dart';
 import 'package:satori_ffi_parser/types/root/message.dart';
 import 'package:satori_ffi_parser/types/root/node_message.dart';
 import 'package:satori_ffi_parser/types/standard_ticket.dart';
-import 'package:satori_ffi_parser/types/ticket.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 import 'package:satori_ffi_parser/types/virtual_connection_type.dart';
 import 'package:test/test.dart';
@@ -25,6 +25,14 @@ import 'package:test/test.dart';
 void main() {
   group('parsers', () {
     print("Starting test");
+
+    test('equality', () {
+      assert(Result.ok(10) == Result.ok(10));
+      assert(Result.ok(10) != Result.ok(11));
+      assert(Result.ok(10) != Result.err(10));
+      assert(Result.err(10) == Result.err(10));
+      assert(Result.err(10) != Result.err(11));
+    });
 
     test('u64 impl', () {
       assert(u64.tryFrom("0").isPresent);
@@ -43,15 +51,15 @@ void main() {
     test('ticket impl', () {
       StandardTicket stdTicket = StandardTicket(u64.two);
       StandardTicket stdTicket2 = StandardTicket(u64.two);
-      FcmTicket fcmTicket = FcmTicket(u64.one, u64.two, u64.MAX);
-      FcmTicket fcmTicket2 = FcmTicket(u64.one, u64.two, u64.MAX);
+      FcmTicket fcmTicket = FcmTicket(u64.one, u64.two, u64.max);
+      FcmTicket fcmTicket2 = FcmTicket(u64.one, u64.two, u64.max);
       expect(fcmTicket.hashCode, fcmTicket2.hashCode);
       assert(stdTicket.eq(stdTicket2));
-      assert((stdTicket as Ticket).eq(stdTicket2 as Ticket));
-      assert((stdTicket as Ticket).eq(stdTicket2));
+      assert((stdTicket).eq(stdTicket2));
+      assert((stdTicket).eq(stdTicket2));
 
-      assert(fcmTicket as Ticket == fcmTicket2 as Ticket);
-      assert(!(fcmTicket as Ticket).eq(stdTicket as Ticket));
+      assert(fcmTicket == fcmTicket2);
+      assert(!(fcmTicket).eq(stdTicket));
     });
 
     test('fcm-message', () {
@@ -59,7 +67,7 @@ void main() {
       print("Parsing: " + str);
       KernelResponse resp = FFIParser.tryFrom(str).value;
       expect(resp.getMessage().value, "Hello, world!");
-      FcmTicket ticket = resp.getTicket().value;
+      FcmTicket ticket = resp.getTicket().value as FcmTicket;
       expect(ticket.sourceCid, u64.tryFrom("123").value);
       expect(ticket.targetCid, u64.tryFrom("456").value);
       expect(ticket.ticket, u64.tryFrom("789").value);
@@ -70,7 +78,7 @@ void main() {
       print("Parsing: " + str);
       KernelResponse resp = FFIParser.tryFrom(str).value;
 
-      FcmTicket ticket = resp.getTicket().value;
+      FcmTicket ticket = resp.getTicket().value as FcmTicket;
       expect(ticket.sourceCid, u64.tryFrom("123").value);
       expect(ticket.targetCid, u64.tryFrom("456").value);
       expect(ticket.ticket, u64.tryFrom("789").value);
@@ -149,7 +157,7 @@ void main() {
       print("Parsing: " + nodeMessageTypeExample);
       KernelResponse resp = FFIParser.tryFrom(nodeMessageTypeExample, mapBase64Strings: MessageParseMode.None).value;
       assert(resp is NodeMessageKernelResponse);
-      NodeMessageKernelResponse nResp = resp;
+      NodeMessageKernelResponse nResp = resp as NodeMessageKernelResponse;
       expect(nResp.cid, u64.one);
       expect(nResp.icid, u64.two);
       expect(nResp.peerCid, u64.tryFrom("3").value);
@@ -161,6 +169,7 @@ void main() {
     });
 
     test('DSR - Register - Failure', () {
+      // ignore: non_constant_identifier_names
       String DSRRegisterTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Register\",\"Failure\":[\"2\",\"Invalid username\"]}}";
 
       print("Parsing: " + DSRRegisterTypeExample);
@@ -169,7 +178,7 @@ void main() {
       expect(resp.getMessage().value, "Invalid username");
       assert(resp.getDSR().isPresent);
       assert(resp.getDSR().value is RegisterResponse);
-      RegisterResponse dResp = resp.getDSR().value;
+      RegisterResponse dResp = resp.getDSR().value as RegisterResponse;
       assert(!dResp.success);
       expect(dResp.getType(), DomainSpecificResponseType.Register);
       expect(resp.getTicket().value.id, u64.from(2));
@@ -178,6 +187,7 @@ void main() {
     });
 
     test('DSR - Register - Success', () {
+      // ignore: non_constant_identifier_names
       String DSRRegisterTypeExample2 = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Register\",\"Success\":[\"18446744073709551615\",\"Valid username\"]}}";
       print("Parsing: " + DSRRegisterTypeExample2);
       KernelResponse resp = FFIParser.tryFrom(DSRRegisterTypeExample2, mapBase64Strings: MessageParseMode.None).value;
@@ -185,7 +195,7 @@ void main() {
       expect(resp.getMessage().value, "Valid username");
       assert(resp.getDSR().isPresent);
       assert(resp.getDSR().value is RegisterResponse);
-      RegisterResponse dResp = resp.getDSR().value;
+      RegisterResponse dResp = resp.getDSR().value as RegisterResponse;
       assert(dResp.success);
 
       expect(dResp.getType(), DomainSpecificResponseType.Register);
@@ -194,6 +204,7 @@ void main() {
     });
 
     test('DSR - Connect - Failure', () {
+      // ignore: non_constant_identifier_names
       String DSRConnectTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Connect\",\"Failure\":[\"2\",\"999\",\"Invalid username\"]}}";
 
       print("Parsing: " + DSRConnectTypeExample);
@@ -202,16 +213,17 @@ void main() {
       expect(resp.getMessage().value, "Invalid username");
       assert(resp.getDSR().isPresent);
       assert(resp.getDSR().value is ConnectResponse);
-      ConnectResponse dResp = resp.getDSR().value;
+      ConnectResponse dResp = resp.getDSR().value as ConnectResponse;
       assert(!dResp.success);
       expect(dResp.getType(), DomainSpecificResponseType.Connect);
       expect(resp.getTicket().value.id, u64.from(2));
       expect(dResp.getTicket().value.id, u64.from(2));
-      expect(dResp.implicated_cid, u64.from(999));
+      expect(dResp.implicatedCid, u64.from(999));
       print("Success");
     });
 
     test('DSR - Connect - Success', () {
+      // ignore: non_constant_identifier_names
       String DSRConnectTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Connect\",\"Success\":[\"2\",\"999\",\"Invalid username\"]}}";
 
       print("Parsing: " + DSRConnectTypeExample);
@@ -220,16 +232,17 @@ void main() {
       expect(resp.getMessage().value, "Invalid username");
       assert(resp.getDSR().isPresent);
       assert(resp.getDSR().value is ConnectResponse);
-      ConnectResponse dResp = resp.getDSR().value;
+      ConnectResponse dResp = resp.getDSR().value as ConnectResponse;
       assert(dResp.success);
       expect(dResp.getType(), DomainSpecificResponseType.Connect);
       expect(resp.getTicket().value.id, u64.from(2));
       expect(dResp.getTicket().value.id, u64.from(2));
-      expect(dResp.implicated_cid, u64.from(999));
+      expect(dResp.implicatedCid, u64.from(999));
       print("Success");
     });
 
     test('DSR - GetAccounts', () {
+      // ignore: non_constant_identifier_names
       String DSRgetAccounts = "{\"type\":\"DomainSpecificResponse\",\"info\":{\"dtype\":\"GetAccounts\",\"cids\":[\"2865279923\",\"2865279924\",\"2865279925\",\"2865279926\"],\"usernames\":[\"nologik.test\",\"nologik.test2\",\"nologik.test3\",\"nologik.test4\"],\"full_names\":[\"thomas braun\",\"thomas braun2\",\"thomas braun3\",\"thomas braun4\"],\"is_personals\":[true,true,true,false],\"creation_dates\":[\"Thu Sep  3 20:43:12 2020\",\"Fri Sep  4 20:40:50 2020\",\"Mon Sep  7 01:22:46 2020\",\"Mon Sep  7 01:47:05 2020\"]}}";
 
       print("Parsing: " + DSRgetAccounts);
@@ -240,20 +253,20 @@ void main() {
       assert(resp.getDSR().value is GetAccountsResponse);
       expect(resp.getDSR().value.getType(), DomainSpecificResponseType.GetAccounts);
       assert(!resp.getTicket().isPresent);
-      GetAccountsResponse accounts = resp.getDSR().value;
+      GetAccountsResponse accounts = resp.getDSR().value as GetAccountsResponse;
       expect(accounts.cids.length, 4);
 
       expect(accounts.cids[0], u64.from(2865279923));
       expect(accounts.usernames[0], "nologik.test");
-      expect(accounts.full_names[0], "thomas braun");
-      expect(accounts.is_personals[0], true);
-      expect(accounts.creation_dates[0], "Thu Sep  3 20:43:12 2020");
+      expect(accounts.fullNames[0], "thomas braun");
+      expect(accounts.isPersonals[0], true);
+      expect(accounts.creationDates[0], "Thu Sep  3 20:43:12 2020");
 
       expect(accounts.cids[3], u64.from(2865279926));
       expect(accounts.usernames[3], "nologik.test4");
-      expect(accounts.full_names[3], "thomas braun4");
-      expect(accounts.is_personals[3], false);
-      expect(accounts.creation_dates[3], "Mon Sep  7 01:47:05 2020");
+      expect(accounts.fullNames[3], "thomas braun4");
+      expect(accounts.isPersonals[3], false);
+      expect(accounts.creationDates[3], "Mon Sep  7 01:47:05 2020");
 
       print("Success");
 
@@ -261,6 +274,7 @@ void main() {
 
 
     test('DSR - GetSessions', () {
+      // ignore: non_constant_identifier_names
       String DSRlistSessions = "{\"type\":\"DomainSpecificResponse\",\"info\":{\"dtype\":\"GetActiveSessions\",\"usernames\":[\"nologik.test4\", \"nologik.test5\"],\"cids\":[\"2865279926\", \"123456789\"],\"endpoints\":[\"51.81.35.200:25000\", \"51.81.35.201:25001\"],\"is_personals\":[true, false],\"runtime_sec\":[\"8\", \"1000\"]}}";
 
       print("Parsing: " + DSRlistSessions);
@@ -269,7 +283,7 @@ void main() {
       assert(resp.getMessage().isEmpty);
       assert(resp.getDSR().isPresent);
       assert(resp.getDSR().value is GetSessionsResponse);
-      GetSessionsResponse dResp = resp.getDSR().value;
+      GetSessionsResponse dResp = resp.getDSR().value as GetSessionsResponse;
       expect(dResp.getType(), DomainSpecificResponseType.GetActiveSessions);
       assert(resp.getTicket().isEmpty);
 
@@ -280,6 +294,7 @@ void main() {
     });
 
     test('DSR - Disconnect - HyperLANPeerToHyperLANServer', () {
+      // ignore: non_constant_identifier_names
       String DSRDisconnectTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Disconnect\",\"HyperLANPeerToHyperLANServer\":[\"2\",\"999\"]}}";
 
       print("Parsing: " + DSRDisconnectTypeExample);
@@ -288,18 +303,19 @@ void main() {
       assert(resp.getMessage().isEmpty);
       assert(resp.getDSR().isPresent);
       assert(resp.getDSR().value is DisconnectResponse);
-      DisconnectResponse dResp = resp.getDSR().value;
+      DisconnectResponse dResp = resp.getDSR().value as DisconnectResponse;
       assert(dResp.virtualConnectionType == VirtualConnectionType.HyperLANPeerToHyperLANServer);
       expect(dResp.getType(), DomainSpecificResponseType.Disconnect);
       expect(resp.getTicket().value.id, u64.from(2));
       expect(dResp.getTicket().value.id, u64.from(2));
-      expect(dResp.implicated_cid, u64.from(999));
-      expect(dResp.peer_cid, u64.zero);
+      expect(dResp.implicatedCid, u64.from(999));
+      expect(dResp.peerCid, u64.zero);
       expect(dResp.icid, u64.zero);
       print("Success");
     });
 
     test('DSR - Disconnect - HyperLANPeerToHyperLANPeer', () {
+      // ignore: non_constant_identifier_names
       String DSRDisconnectTypeExample = "{\"type\":\"DomainSpecificResponse\",\"info\": {\"dtype\":\"Disconnect\",\"HyperLANPeerToHyperLANPeer\":[\"2\",\"999\",\"1000\"]}}";
 
       print("Parsing: " + DSRDisconnectTypeExample);
@@ -308,18 +324,19 @@ void main() {
       assert(resp.getMessage().isEmpty);
       assert(resp.getDSR().isPresent);
       assert(resp.getDSR().value is DisconnectResponse);
-      DisconnectResponse dResp = resp.getDSR().value;
+      DisconnectResponse dResp = resp.getDSR().value as DisconnectResponse;
       assert(dResp.virtualConnectionType == VirtualConnectionType.HyperLANPeerToHyperLANPeer);
       expect(dResp.getType(), DomainSpecificResponseType.Disconnect);
       expect(resp.getTicket().value.id, u64.from(2));
       expect(dResp.getTicket().value.id, u64.from(2));
-      expect(dResp.implicated_cid, u64.from(999));
-      expect(dResp.peer_cid, u64.from(1000));
+      expect(dResp.implicatedCid, u64.from(999));
+      expect(dResp.peerCid, u64.from(1000));
       expect(dResp.icid, u64.zero);
       print("Success");
     });
 
     test('DSR - PeerList', () {
+      // ignore: non_constant_identifier_names
       String DSRlistSessions = "{\"type\":\"DomainSpecificResponse\",\"info\":{\"dtype\":\"PeerList\",\"cids\":[\"123456789\", \"987654321\"],\"is_onlines\":[true, false],\"ticket\":\"98\"}}";
 
       print("Parsing: " + DSRlistSessions);
@@ -328,7 +345,7 @@ void main() {
       assert(resp.getMessage().isEmpty);
       assert(resp.getDSR().isPresent);
       assert(resp.getDSR().value is PeerListResponse);
-      PeerListResponse dResp = resp.getDSR().value;
+      PeerListResponse dResp = resp.getDSR().value as PeerListResponse;
       expect(dResp.getType(), DomainSpecificResponseType.PeerList);
       expect(resp.getTicket().value.id, u64.from(98));
 
@@ -344,7 +361,7 @@ void main() {
       print("Parsing $input");
 
       KernelResponse kResp = FFIParser.tryFrom(input).value;
-      DeregisterResponse dResp = kResp.getDSR().value;
+      DeregisterResponse dResp = kResp.getDSR().value as DeregisterResponse;
 
       expect(dResp.implicatedCid, u64.from(456));
       expect(dResp.peerCid, u64.from(123));

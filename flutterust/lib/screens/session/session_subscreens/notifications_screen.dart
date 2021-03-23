@@ -5,7 +5,6 @@ import 'package:flutterust/components/default_widget.dart';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
-import 'package:flutterust/themes/default.dart';
 import 'package:flutterust/utils.dart';
 import 'package:intl/intl.dart';
 
@@ -14,7 +13,7 @@ class NotificationsScreen extends StatefulWidget {
   final ClientNetworkAccount cnac;
   final void Function(int) removeFromParent;
 
-  NotificationsScreen(this.cnac, this.notifications, this.removeFromParent, { Key key }) : super(key: key);
+  NotificationsScreen(this.cnac, this.notifications, this.removeFromParent, { Key? key }) : super(key: key);
 
   @override
   State<StatefulWidget> createState() {
@@ -24,16 +23,19 @@ class NotificationsScreen extends StatefulWidget {
 
 class NotificationsScreenInner extends State<NotificationsScreen> {
 
-  StreamSubscription<Message> messages;
+  late final StreamSubscription<Message> messages;
 
-  @override
-  void initState() {
-    super.initState();
+  NotificationsScreenInner() {
     this.messages = Utils.broadcaster.stream.stream.listen((message) {
       // we don't need to add to the list since the notifications item is a pointer
       // to the parent who owns its object. We just need to refresh the view
       setState(() {});
     });
+  }
+
+  @override
+  void initState() {
+    super.initState();
   }
 
   @override
@@ -47,7 +49,7 @@ class NotificationsScreenInner extends State<NotificationsScreen> {
     return DefaultPageWidget(
       align: Alignment.topCenter,
         title: Text("Notifications for ${this.widget.cnac.username}"),
-        child: this.widget.notifications.isEmpty ? Text("No notifications!") : compileWidget(context)
+        child: this.widget.notifications.isEmpty ? Text("No notifications!") : SingleChildScrollView(child: compileWidget(context))
     );
   }
 
@@ -56,7 +58,7 @@ class NotificationsScreenInner extends State<NotificationsScreen> {
       future: compileNotifications(context),
       builder: (context, snapshot) {
         if (snapshot.hasData) {
-          return snapshot.data;
+          return snapshot.data as ListView;
         } else {
           return Container(
             child: Center(

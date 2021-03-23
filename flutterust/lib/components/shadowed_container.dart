@@ -5,7 +5,7 @@ class ShadowContainer extends StatelessWidget {
   final double height;
   final EdgeInsetsGeometry padding;
 
-  ShadowContainer({this.child, this.height = double.infinity, this.padding});
+  ShadowContainer({required this.child, this.height = double.infinity, required this.padding});
 
   @override
   Widget build(BuildContext context) {

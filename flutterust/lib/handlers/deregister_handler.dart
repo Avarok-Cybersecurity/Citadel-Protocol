@@ -22,7 +22,7 @@ class DeregisterHandler extends AbstractHandler {
   Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse) async {
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.DeregisterResponse)) {
       print("[Deregister] Received valid type w/ ticket ${kernelResponse.getTicket().value}");
-      DeregisterResponse dResp = kernelResponse.getDSR().value;
+      DeregisterResponse dResp = kernelResponse.getDSR().value as DeregisterResponse;
       if (dResp.success) {
         print("[Deregister] Deregistration success!");
         await PeerNetworkAccount.deletePeerByCid(dResp.implicatedCid, dResp.peerCid);

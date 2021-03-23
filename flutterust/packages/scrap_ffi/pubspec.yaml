@@ -6,7 +6,7 @@ publish_to: none
 homepage:
 
 environment:
-  sdk: '>=2.7.0 <3.0.0'
+  sdk: '>=2.12.0 <3.0.0'
   flutter: '>=1.10.0'
 
 dependencies:
@@ -14,9 +14,9 @@ dependencies:
     sdk: flutter
   ffi: 1.0.0
   isolate: ^2.0.3
-  optional: ^5.0.0+1
+  optional: ^6.0.0-nullsafety.0
   path_provider: any
-  tuple: ^1.0.3
+  tuple: ^2.0.0
 
   satori_ffi_parser:
     path: ../satori_ffi_parser

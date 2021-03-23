@@ -9,12 +9,12 @@ import '../u64.dart';
 class PeerMutualsResponse extends DomainSpecificResponse {
   final List<u64> cids;
   final List<String> usernames;
-  final List<bool> is_onlines;
-  final List<bool> fcm_reachable;
-  final u64 implicated_cid;
+  final List<bool> isOnlines;
+  final List<bool> fcmReachable;
+  final u64 implicatedCid;
   final StandardTicket ticket;
 
-  PeerMutualsResponse._(this.cids, this.usernames, this.is_onlines, this.fcm_reachable, this.implicated_cid, this.ticket);
+  PeerMutualsResponse._(this.cids, this.usernames, this.isOnlines, this.fcmReachable, this.implicatedCid, this.ticket);
 
   @override
   Optional<String> getMessage() {
@@ -51,16 +51,16 @@ class PeerMutualsResponse extends DomainSpecificResponse {
     try {
       List<u64> cids = typeCastMap(infoNode["cids"], transform: u64.tryFrom);
       List<String> usernames = typeCastMap(infoNode["usernames"]);
-      List<bool> is_onlines = typeCastMap(infoNode["is_onlines"]);
-      List<bool> fcm_reachable = typeCastMap(infoNode["fcm_reachable"]);
-      u64 implicated_cid = u64.tryFrom(infoNode["implicated_cid"]).value;
+      List<bool> isOnlines = typeCastMap(infoNode["is_onlines"]);
+      List<bool> fcmReachables = typeCastMap(infoNode["fcm_reachable"]);
+      u64 implicatedCid = u64.tryFrom(infoNode["implicated_cid"]).value;
       StandardTicket ticket = StandardTicket.tryFrom(infoNode["ticket"]).value;
 
-      if (!sameLengths([cids, is_onlines, usernames, fcm_reachable])) {
+      if (!sameLengths([cids, isOnlines, usernames, fcmReachables])) {
         return Optional.empty();
       }
 
-      return Optional.of(PeerMutualsResponse._(cids, usernames, is_onlines, fcm_reachable, implicated_cid, ticket));
+      return Optional.of(PeerMutualsResponse._(cids, usernames, isOnlines, fcmReachables, implicatedCid, ticket));
     } catch(_) {
       return Optional.empty();
     }

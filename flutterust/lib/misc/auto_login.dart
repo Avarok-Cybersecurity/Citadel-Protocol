@@ -7,7 +7,6 @@ import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/login.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/secure_storage_handler.dart';
-import 'package:flutterust/screens/session/home.dart';
 import 'package:optional/optional.dart';
 import 'package:retry/retry.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
@@ -19,7 +18,7 @@ import 'package:satori_ffi_parser/types/u64.dart';
 import 'package:flutterust/misc/status_check.dart';
 
 class AutoLogin {
-  static HashMap<u64, Credentials> autologinAccounts;
+  static HashMap<u64, Credentials>? autologinAccounts;
   static const int MAX_RETRY_ATTEMPTS = 12;
 
   // This should be called at the beginning of program execution once a list of local accounts is loaded
@@ -30,37 +29,37 @@ class AutoLogin {
     for (Credentials creds in autologins) {
       int idx = localAccounts.indexWhere((element) => element.username == creds.username);
       assert (idx != -1);
-      autologinAccounts[localAccounts[idx].implicatedCid] = creds;
+      autologinAccounts![localAccounts[idx].implicatedCid] = creds;
     }
 
-    print("[AutoLogin] loaded ${autologinAccounts.length} accounts with AutoLogin enabled");
-    Future.wait(autologinAccounts.entries.map((e) => initiateAutoLogin(e.key, e.value.username)).toList());
+    print("[AutoLogin] loaded ${autologinAccounts!.length} accounts with AutoLogin enabled");
+    Future.wait(autologinAccounts!.entries.map((e) => initiateAutoLogin(e.key, e.value.username)).toList());
   }
 
   // since this gets added onLogin, there's no reason to trigger the login subroutine
   static void maybeAddAccount(u64 implicatedCid, Credentials creds) {
     if (autologinAccounts != null) {
-      if (!autologinAccounts.containsKey(implicatedCid)) {
-        autologinAccounts[implicatedCid] = creds;
+      if (!autologinAccounts!.containsKey(implicatedCid)) {
+        autologinAccounts![implicatedCid] = creds;
         print("[AutoLogin] Added account into the autologin list");
       }
     } else {
       autologinAccounts = HashMap();
-      autologinAccounts[implicatedCid] = creds;
+      autologinAccounts![implicatedCid] = creds;
     }
   }
 
   // Calling this won't block the current thread since it must execute an exponential backoff algorithm
   static void onDisconnectSignalReceived(DisconnectResponse dc) async {
-    if (autologinAccounts.containsKey(dc.implicated_cid)) {
-      String username = autologinAccounts[dc.implicated_cid].username;
-      await initiateAutoLogin(dc.implicated_cid, username);
+    if (autologinAccounts!.containsKey(dc.implicatedCid)) {
+      String username = autologinAccounts![dc.implicatedCid]!.username;
+      await initiateAutoLogin(dc.implicatedCid, username);
     }
   }
 
   /// If supplied, username needs to belong to the implicatedCid
-  static Future<Optional<KernelResponse>> executeCommandRequiresConnected(u64 implicatedCid, String command, { String username }) async {
-    String uname;
+  static Future<Optional<KernelResponse>> executeCommandRequiresConnected(u64 implicatedCid, String command, { String? username }) async {
+    String? uname;
 
     if (username != null) {
       uname = username;
@@ -76,7 +75,7 @@ class AutoLogin {
 
     if (await initiateAutoLogin(implicatedCid, uname)) {
       print("Account successfully logged-in; will now execute enqueued command ...");
-      return await RustSubsystem.bridge.executeCommand(command);
+      return await RustSubsystem.bridge!.executeCommand(command);
     } else {
       return Optional.empty();
     }
@@ -84,7 +83,12 @@ class AutoLogin {
 
   static Future<bool> initiateAutoLogin(u64 implicatedCid, String username) async {
     print("[AutoLogin] Engaging reconnection mechanism ...");
-    final Credentials creds = autologinAccounts[implicatedCid];
+    final Credentials? creds = autologinAccounts![implicatedCid];
+
+    if (creds == null) {
+      print("implicated CID is not in the autologin hashmap");
+      return false;
+    }
     // initiate exponential backoff ...
     final String connectCmd = LoginHandler.constructConnectCommand(creds.username, creds.password, creds.securityLevel);
 
@@ -105,7 +109,7 @@ class AutoLogin {
       // We also want to make sure that the account is registered
 
       StreamController<bool> controller = StreamController();
-      var res = await RustSubsystem.bridge.executeCommand(connectCmd).then((value) {
+      var res = await RustSubsystem.bridge!.executeCommand(connectCmd).then((value) {
         if (value.isPresent) {
           KernelResponseHandler.handleFirstCommand(value.value, handler: AutoLoginHandler(controller.sink, username), oneshot: false);
           return true;
@@ -168,7 +172,7 @@ class AutoLoginHandler implements AbstractHandler {
   Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse) async {
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.Connect)) {
       print("[AutoLoginHandler] Received expected kernel response");
-      ConnectResponse resp = kernelResponse.getDSR().value;
+      ConnectResponse resp = kernelResponse.getDSR().value as ConnectResponse;
       resp.attachUsername(this.username);
       this.sink.add(resp.success);
       HomePage.pushObjectToSession(resp);

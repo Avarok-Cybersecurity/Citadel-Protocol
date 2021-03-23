@@ -1,15 +1,13 @@
 import 'dart:io';
 
 import 'package:optional/optional.dart';
+import 'package:satori_ffi_parser/main.dart';
 
 class SocketAddr {
-  InternetAddress ip;
-  int port;
+  final InternetAddress ip;
+  final int port;
 
-  SocketAddr(InternetAddress ip, int port) {
-    this.ip = ip;
-    this.port = port;
-  }
+  SocketAddr(this.ip, this.port);
 
   static Optional<SocketAddr> tryFromUncheckedPort(InternetAddress ip, String port) {
     return parsePort(port)
@@ -23,7 +21,7 @@ class SocketAddr {
         return Optional.empty();
       }
 
-      InternetAddress ip = InternetAddress.tryParse(items[0]);
+      InternetAddress? ip = InternetAddress.tryParse(items[0]);
       if (ip == null) {
         return Optional.empty();
       }
@@ -34,24 +32,28 @@ class SocketAddr {
     }
   }
 
-  bool is_v4() {
+  bool isV4() {
     return this.ip.type == InternetAddressType.IPv4;
   }
 
-  bool is_v6() {
+  bool isV6() {
     return this.ip.type == InternetAddressType.IPv6;
   }
 
-  bool operator == (o) => o is SocketAddr && o.ip.rawAddress == this.ip.rawAddress && o.port == this.port;
+  bool operator == (o) => o is SocketAddr && o.ip.address == this.ip.address && o.port == this.port;
 
   @override
   String toString() {
     return this.ip.address + ":" + this.port.toString();
   }
+
+  @override
+  int get hashCode => hashcode2(this.ip.address.hashCode, this.port.hashCode);
+
 }
 
 Optional<int> parsePort(String prt) {
-  int port = int.tryParse(prt);
+  int? port = int.tryParse(prt);
   if (port == null) {
     return Optional.empty();
   }
