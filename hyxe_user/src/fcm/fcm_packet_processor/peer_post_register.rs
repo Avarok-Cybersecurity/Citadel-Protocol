@@ -64,6 +64,7 @@ pub struct FcmPostRegisterResponse {
 
 #[allow(unused_results)]
 pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state_containers: &mut HashMap<u64, ConstructorType>, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>, local_cid: u64, source_cid: u64, ticket: u64, transfer: FcmPostRegister, username: String) -> FcmProcessorResult {
+    log::info!("FCM RECV PEER_POST_REGISTER");
     match &transfer {
         FcmPostRegister::AliceToBobTransfer(_transfer_bytes, _keys, source_cid) => {
             // store inside cnac

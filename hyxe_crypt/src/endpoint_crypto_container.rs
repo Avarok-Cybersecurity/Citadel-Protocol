@@ -118,7 +118,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         self.rolling_object_id.wrapping_sub(1)
     }
 
-    /// Returns a new constructor only if a concurrent update isn't occuring
+    /// Returns a new constructor only if a concurrent update isn't occurring
     pub fn get_next_constructor(&mut self, algorithm: Option<u8>) -> Option<R::Constructor> {
         if self.update_in_progress {
             None

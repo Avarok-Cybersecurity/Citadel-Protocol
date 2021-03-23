@@ -135,6 +135,7 @@ pub fn blocking_process_packet_store(mut raw_fcm_packet_store: RawFcmPacketStore
 pub enum FcmProcessorResult {
     Void,
     Err(String),
+    RequiresSave,
     Value(FcmResult, FcmPacketMaybeNeedsDuplication),
     Values(Vec<(FcmResult, FcmPacketMaybeNeedsDuplication)>)
 }
@@ -158,6 +159,7 @@ impl FcmProcessorResult {
     pub fn implies_save_needed(&self) -> bool {
         match self {
             Self::Value(FcmResult::MessageSent { .. } | FcmResult::GroupHeaderAck { .. } | FcmResult::GroupHeader { .. } | FcmResult::PostRegisterInvitation { .. } | FcmResult::PostRegisterResponse { .. } | FcmResult::Deregistered { .. }, ..)=> true,
+            Self::RequiresSave => true,
             _ => false
         }
     }

@@ -11,6 +11,7 @@ use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
 use crate::misc::AccountError;
 
 pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, constructors: &mut HashMap<u64, ConstructorType<R, Fcm>>, header: LayoutVerified<&'a [u8], FcmHeader>, bob_to_alice_transfer: KemTransferStatus) -> FcmProcessorResult {
+    log::info!("FCM RECV GROUP_HEADER_ACK");
     let fcm_instance = FCMInstance::new(endpoint_crypto.fcm_keys.clone()?, client.clone());
     let peer_cid = header.session_cid.get();
     let local_cid = header.target_cid.get();
@@ -51,7 +52,7 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
         }
 
         _ => {
-            log::error!("[NONE] reached (x-12b)");
+            log::error!("[Empty] reached (x-12b)");
             None
         }
     };
@@ -73,5 +74,6 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
       FcmPacketMaybeNeedsDuplication::none()
     };
 
+    log::info!("SUBROUTINE COMPLETE: PROCESS GROUP_HEADER_ACK");
     FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) }, duplicate)
 }
