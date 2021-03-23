@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutterust/database/client_network_account.dart';
-import 'package:flutterust/database/database_handler.dart';
 import 'package:flutterust/main.dart';
 
 class SettingsScreen extends StatefulWidget {
   static const String routeName = "/settings";
   static const int IDX = 3;
-  const SettingsScreen({Key key}) : super(key: key);
+  const SettingsScreen({Key? key}) : super(key: key);
 
   @override
   State<StatefulWidget> createState() {
@@ -41,7 +40,7 @@ class SettingsScreenInner extends State<StatefulWidget> {
 
 
   void purgeAccounts() async {
-    await RustSubsystem.bridge.executeCommand("deregister --purge");
+    await RustSubsystem.bridge!.executeCommand("deregister --purge");
     await ClientNetworkAccount.resyncClients();
   }
 }

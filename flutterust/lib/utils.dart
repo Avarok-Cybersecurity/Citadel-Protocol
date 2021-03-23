@@ -1,24 +1,19 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:io';
-import 'dart:typed_data';
 
-import 'package:dns/dns.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/active_message_broadcast.dart';
-import 'package:flutterust/misc/secure_storage_handler.dart';
 import 'package:flutterust/notifications/abstract_push_notification.dart';
-import 'package:flutterust/screens/login.dart';
 import 'package:flutterust/themes/default.dart';
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/kernel_response.dart';
 import 'package:satori_ffi_parser/types/socket_addr.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
+import 'package:google_https_dns/library.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 import 'package:scrap/scrap.dart';
 import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
@@ -44,15 +39,17 @@ class Utils {
         return Optional.empty();
       }
 
-      final client = HttpDnsClient.google();
-
-      final result = await client.lookup(pieces[0]);
+      final result = await GoogleSecureDnsClient.getIpOf(pieces[0]);
       if (result.isEmpty) {
         print("DNS returned no items");
         return Optional.empty();
       }
 
-      InternetAddress ip = InternetAddress.fromRawAddress(Uint8List.fromList(result.first.toImmutableBytes()));
+      // TODO: Make a selection screen for the list of IPs
+      InternetAddress? ip = InternetAddress.tryParse(result.first);
+      if (ip == null) {
+        return Optional.empty();
+      }
 
       if (pieces.length == 1) {
         // "type of "google.com", and use default port
@@ -122,7 +119,7 @@ class Utils {
 
   static int idx = 0;
 
-  static void pushNotification(String title, String message, { int id, AbstractPushNotification apn }) {
+  static void pushNotification(String title, String message, { int? id, AbstractPushNotification? apn }) {
       AwesomeNotifications().createNotification(
           content: NotificationContent(
               id: id ?? idx++,
@@ -143,8 +140,15 @@ class Utils {
     FirebaseMessaging.onMessage.listen(onFcmMessageReceived);
     FirebaseMessaging.onBackgroundMessage(onFcmMessageReceived);
 
-    nodeClientToken = await firebase.getToken();
-    print("[FCM] Token: " + nodeClientToken);
+    var key = await firebase.getToken();
+    if (key == null) {
+      print("Firebase token returned null");
+      return;
+    }
+
+    nodeClientToken = key;
+
+    print("[FCM] Token: " + nodeClientToken.toString());
     firebase.onTokenRefresh.listen((clientRegId) {
       print("[FCM] Received new token: " + clientRegId);
       nodeClientToken = clientRegId;
@@ -167,7 +171,7 @@ class Utils {
 
 
       print("[FCM] awaiting kernel response ...");
-      Optional<KernelResponse> kResp = await RustSubsystem.bridge.handleFcmMessage(json);
+      Optional<KernelResponse> kResp = await RustSubsystem.bridge!.handleFcmMessage(json);
       print("[FCM] response received. Is valid? " + kResp.isPresent.toString());
       // Here, we delegate the response to the default handler
       kResp.ifPresent(KernelResponseHandler.handleRustKernelMessage);
@@ -195,7 +199,7 @@ class Utils {
     });
   }
 
-  static StreamSink<KernelInitiated> kernelInitiatedSink;
+  static StreamController<KernelInitiated> kernelInitiatedSink = StreamController();
 
   static Optional<u64> currentlyOpenedMessenger = Optional.empty();
 }

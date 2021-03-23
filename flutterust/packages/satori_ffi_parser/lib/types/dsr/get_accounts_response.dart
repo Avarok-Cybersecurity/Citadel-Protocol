@@ -9,11 +9,11 @@ import '../u64.dart';
 class GetAccountsResponse extends DomainSpecificResponse {
   final List<u64> cids;
   final List<String> usernames;
-  final List<String> full_names;
-  final List<bool> is_personals;
-  final List<String> creation_dates;
+  final List<String> fullNames;
+  final List<bool> isPersonals;
+  final List<String> creationDates;
 
-  GetAccountsResponse._(this.cids, this.usernames, this.full_names, this.is_personals, this.creation_dates);
+  GetAccountsResponse._(this.cids, this.usernames, this.fullNames, this.isPersonals, this.creationDates);
 
   @override
   Optional<String> getMessage() {
@@ -39,15 +39,15 @@ class GetAccountsResponse extends DomainSpecificResponse {
     try {
       List<u64> cids = typeCastMap(infoNode["cids"], transform: u64.tryFrom);
       List<String> usernames= typeCastMap(infoNode["usernames"]);
-      List<String> full_names = typeCastMap(infoNode["full_names"]);
-      List<bool> is_personals = typeCastMap(infoNode["is_personals"]);
-      List<String> creation_dates = typeCastMap(infoNode["creation_dates"]);
+      List<String> fullNames = typeCastMap(infoNode["full_names"]);
+      List<bool> isPersonals = typeCastMap(infoNode["is_personals"]);
+      List<String> creationDates = typeCastMap(infoNode["creation_dates"]);
 
-      if (!sameLengths([cids, usernames, full_names, is_personals, creation_dates])) {
+      if (!sameLengths([cids, usernames, fullNames, isPersonals, creationDates])) {
         return Optional.empty();
       }
 
-      return Optional.of(GetAccountsResponse._(cids, usernames, full_names, is_personals, creation_dates));
+      return Optional.of(GetAccountsResponse._(cids, usernames, fullNames, isPersonals, creationDates));
     } catch(_) {
       return Optional.empty();
     }

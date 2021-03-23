@@ -34,6 +34,10 @@ impl FCMInstance {
         self.send_message_to(self.client_id(), data).await
     }
 
+    pub async fn send_to_fcm_user_by_value<T: Serialize>(self, data: T) -> Result<FcmResponse, AccountError<String>> {
+        self.send_message_to(self.client_id(), data).await
+    }
+
     #[allow(unused_results)]
     async fn send_to_fcm_user_inner<T: Serialize>(server_api_key: &str, target_reg_id: &str, client: &Client, data: T, cfg: impl FnOnce(&mut MessageBuilder<'_>)) -> Result<FcmResponse, AccountError<String>> {
         log::info!("[FCM] sending to: {}", target_reg_id);

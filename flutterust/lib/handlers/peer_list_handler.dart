@@ -1,5 +1,5 @@
 
-import 'dart:isolate';
+import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
@@ -12,7 +12,7 @@ import '../utils.dart';
 
 class PeerListHandler implements AbstractHandler {
   final BuildContext context;
-  final SendPort sendPort;
+  final StreamSink sendPort;
 
   PeerListHandler(this.context, this.sendPort);
 
@@ -29,8 +29,8 @@ class PeerListHandler implements AbstractHandler {
   @override
   Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse) async {
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.PeerList)) {
-      PeerListResponse peerList = kernelResponse.getDSR().value;
-      this.sendPort.send(peerList);
+      PeerListResponse peerList = kernelResponse.getDSR().value as PeerListResponse;
+      this.sendPort.add(peerList);
     } else {
       print("Invalid DSR type!");
     }

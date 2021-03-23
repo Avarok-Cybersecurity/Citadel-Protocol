@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:isolate';
 
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/handlers/abstract_handler.dart';
@@ -7,7 +6,6 @@ import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/auto_login.dart';
 import 'package:flutterust/misc/secure_storage_handler.dart';
 import 'package:flutterust/screens/login.dart';
-import 'package:flutterust/screens/session/home.dart';
 import 'package:flutterust/utils.dart';
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
@@ -32,7 +30,7 @@ class LoginHandler implements AbstractHandler {
   @override
   Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse) async {
     if (AbstractHandler.validTypes(kernelResponse, DomainSpecificResponseType.Connect)) {
-      ConnectResponse resp = kernelResponse.getDSR().value;
+      ConnectResponse resp = kernelResponse.getDSR().value as ConnectResponse;
       if (resp.success) {
         print("[Login Handler] SUCCESS!");
         resp.attachUsername(this.username);

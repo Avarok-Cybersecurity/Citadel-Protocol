@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
@@ -13,10 +11,10 @@ class GetSessionsResponse extends DomainSpecificResponse {
   final List<u64> cids;
   final List<String> usernames;
   final List<SocketAddr> endpoints;
-  final List<bool> is_personals;
-  final List<int> runtime_secs;
+  final List<bool> isPersonals;
+  final List<int> runtimeSecs;
 
-  GetSessionsResponse._(this.cids, this.usernames, this.endpoints, this.is_personals, this.runtime_secs);
+  GetSessionsResponse._(this.cids, this.usernames, this.endpoints, this.isPersonals, this.runtimeSecs);
 
   @override
   Optional<String> getMessage() {
@@ -44,14 +42,14 @@ class GetSessionsResponse extends DomainSpecificResponse {
       List<u64> cids = typeCastMap(infoNode["cids"], transform: u64.tryFrom);
       List<String> usernames = typeCastMap(infoNode["usernames"]);
       List<SocketAddr> endpoints= typeCastMap(infoNode["endpoints"], transform: SocketAddr.tryFrom);
-      List<bool> is_personals = typeCastMap(infoNode["is_personals"]);
-      List<int> runtime_secs = typeCastMap(infoNode["runtime_sec"], transform: tryParseInt);
-      print("cids: " + cids.toString() + "\nusernames: " + usernames.toString() + "\nendpoints: " + endpoints.toString() + "\nis_personals: " + is_personals.toString() + "\nruntime_secs: " + runtime_secs.toString());
-      if (!sameLengths([cids, usernames, endpoints, is_personals, runtime_secs])) {
+      List<bool> isPersonals = typeCastMap(infoNode["is_personals"]);
+      List<int> runtimeSecs = typeCastMap(infoNode["runtime_sec"], transform: tryParseInt);
+      print("cids: " + cids.toString() + "\nusernames: " + usernames.toString() + "\nendpoints: " + endpoints.toString() + "\nis_personals: " + isPersonals.toString() + "\nruntime_secs: " + runtimeSecs.toString());
+      if (!sameLengths([cids, usernames, endpoints, isPersonals, runtimeSecs])) {
         return Optional.empty();
       }
 
-      return Optional.of(GetSessionsResponse._(cids, usernames, endpoints, is_personals, runtime_secs));
+      return Optional.of(GetSessionsResponse._(cids, usernames, endpoints, isPersonals, runtimeSecs));
     } catch(_) {
       return Optional.empty();
     }

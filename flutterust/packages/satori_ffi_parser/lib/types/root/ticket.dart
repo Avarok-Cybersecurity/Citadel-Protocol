@@ -6,11 +6,9 @@ import '../kernel_response_type.dart';
 import '../standard_ticket.dart';
 
 class TicketKernelResponse extends KernelResponse {
-  StandardTicket ticket;
+  final StandardTicket ticket;
 
-  TicketKernelResponse(StandardTicket ticket) {
-    this.ticket = ticket;
-  }
+  TicketKernelResponse(this.ticket);
 
   static Optional<TicketKernelResponse> tryFrom(String input) {
     var ticket = StandardTicket.tryFrom(input);

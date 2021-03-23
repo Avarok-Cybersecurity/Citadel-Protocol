@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutterust/database/client_network_account.dart';
-import 'package:flutterust/database/database_handler.dart';
 import 'package:flutterust/database/notification_subtypes/notification_message.dart';
 import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/notifications/abstract_push_notification.dart';
@@ -15,8 +14,8 @@ class MessagePushNotification extends AbstractPushNotification {
 
   MessagePushNotification(this.implicatedCid, this.peerCid, this.dbKey);
 
-  MessagePushNotification.from(MessageNotification not) : this.implicatedCid = not.recipientIsLocal ? not.recipient : not.sender,
-  this.peerCid = not.recipientIsLocal ? not.sender : not.recipient,
+  MessagePushNotification.from(MessageNotification not) : this.implicatedCid = not.recipientIsLocal! ? not.recipient! : not.sender!,
+  this.peerCid = not.recipientIsLocal! ? not.sender! : not.recipient!,
   this.dbKey = not.getDbKey();
 
 
@@ -45,7 +44,7 @@ class MessagePushNotification extends AbstractPushNotification {
   }
 
   static AbstractPushNotification fromMap(Map<String, String> preservedMap) {
-    int dbKey = int.parse(preservedMap["dbKey"]);
+    int dbKey = int.parse(preservedMap["dbKey"]!);
     return MessagePushNotification(u64.tryFrom(preservedMap["implicatedCid"]).value, u64.tryFrom(preservedMap["peerCid"]).value, dbKey != -1 ? Optional.of(dbKey) : Optional.empty());
   }
 

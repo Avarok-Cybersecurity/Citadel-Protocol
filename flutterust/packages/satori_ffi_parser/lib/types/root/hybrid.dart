@@ -7,13 +7,10 @@ import '../kernel_response_type.dart';
 import '../standard_ticket.dart';
 
 class HybridKernelResponse extends KernelResponse {
-  StandardTicket ticket;
-  String message;
+  final StandardTicket ticket;
+  final String message;
 
-  HybridKernelResponse(StandardTicket ticket, String message) {
-    this.ticket = ticket;
-    this.message = message;
-  }
+  HybridKernelResponse(this.ticket, this.message);
 
   @override
   Optional<DomainSpecificResponse> getDSR() {
@@ -41,7 +38,7 @@ class HybridKernelResponse extends KernelResponse {
     } else {
       var id = StandardTicket.tryFrom(infoNode[0]);
       String message = mapBase64(infoNode[1], mapBase64Strings);
-      return id != null ? Optional.of(HybridKernelResponse(id.value, message)) : Optional.empty();
+      return id.map((ticket) => HybridKernelResponse(ticket, message));
     }
   }
 

@@ -4,7 +4,6 @@ import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/post_register_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/themes/default.dart';
-import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/dsr/peer_list.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 import 'package:satori_ffi_parser/utils.dart';
@@ -20,9 +19,9 @@ class PeerListView extends StatelessWidget {
   List<TableRow> generateList() {
     if (args.resp.cids.isNotEmpty) {
       PeerListResponse resp = args.resp;
-      List<TableRow> list = zip([resp.cids, resp.is_onlines]).map((data) {
-        u64 cid = data[0];
-        bool isOnline = data[1];
+      List<TableRow> list = zip([resp.cids, resp.isOnlines]).map((data) {
+        u64 cid = data[0] as u64;
+        bool isOnline = data[1] as bool;
         Icon chosenIcon = isOnline ? createOnlineIcon() : createOfflineIcon();
         return TableRow(children: [
           Column(
@@ -116,7 +115,7 @@ class PeerListView extends StatelessWidget {
 
   void onAddPressed(u64 cid, final PeerListViewArguments args) async {
     print("About to peer post-register to " + cid.toString());
-    (await RustSubsystem.bridge.executeCommand("switch " +
+    (await RustSubsystem.bridge!.executeCommand("switch " +
             args.ctxCid.toString() +
             " peer post-register --fcm " +
             cid.toString()))

@@ -4,14 +4,11 @@ import 'package:satori_ffi_parser/types/ticket.dart';
 import '../domain_specific_response.dart';
 import '../kernel_response.dart';
 import '../kernel_response_type.dart';
-import '../standard_ticket.dart';
 
 class DomainSpecificKernelResponse<T extends DomainSpecificResponse> extends KernelResponse {
-  T dsr;
+  final T dsr;
 
-  DomainSpecificKernelResponse(T dsr) {
-    this.dsr = dsr;
-  }
+  DomainSpecificKernelResponse(this.dsr);
 
   @override
   Optional<DomainSpecificResponse> getDSR() {

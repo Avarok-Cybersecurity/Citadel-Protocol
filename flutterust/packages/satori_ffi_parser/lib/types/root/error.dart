@@ -9,13 +9,10 @@ import '../kernel_response_type.dart';
 import '../standard_ticket.dart';
 
 class ErrorKernelResponse extends KernelResponse {
-  Optional<Ticket> ticket;
-  String message;
+  final Optional<Ticket> ticket;
+  final String message;
 
-  ErrorKernelResponse._(Optional<Ticket> ticket, String message) {
-    this.ticket = ticket;
-    this.message = message;
-  }
+  ErrorKernelResponse._(this.ticket, this.message);
 
   @override
   Optional<DomainSpecificResponse> getDSR() {

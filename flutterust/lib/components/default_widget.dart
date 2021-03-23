@@ -5,10 +5,10 @@ class DefaultPageWidget extends StatelessWidget {
   final Widget child;
   final Widget title;
   final EdgeInsets padding;
-  final Alignment align;
-  final Widget bottomSheet;
+  final Alignment? align;
+  final Widget? bottomSheet;
 
-  const DefaultPageWidget({@required this.title, @required this.child, this.align, this.padding = const EdgeInsets.all(20), this.bottomSheet, Key key}) : super(key: key);
+  const DefaultPageWidget({required this.title, required this.child, this.align, this.padding = const EdgeInsets.all(20), this.bottomSheet, Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +35,7 @@ class DefaultPageWidget extends StatelessWidget {
 
   Widget getAlignBody() {
     return Align(
-      alignment: this.align,
+      alignment: this.align ?? Alignment.center,
       child: Container(
         padding: padding,
         child: SingleChildScrollView(

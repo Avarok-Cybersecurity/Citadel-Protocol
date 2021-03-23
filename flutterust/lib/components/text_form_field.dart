@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 
 class DefaultTextFormField extends StatefulWidget {
   final bool preserveState;
-  final String labelText;
+  final String? labelText;
   final bool isPassword;
   final TextEditingController controller;
   final bool isFilled;
   final Color fillColor;
-  final String hintText;
+  final String? hintText;
 
-  DefaultTextFormField(this.preserveState, this.labelText, {Key key, this.isPassword = false, this.isFilled = false, this.fillColor = Colors.white, this.controller, this.hintText}) : super(key: key);
+  DefaultTextFormField(this.preserveState, this.labelText, {Key? key, this.isPassword = false, this.isFilled = false, this.fillColor = Colors.white, required this.controller, this.hintText}) : super(key: key);
   
   @override
   State<StatefulWidget> createState() => _DefaultTextFormField();
@@ -31,6 +31,7 @@ class _DefaultTextFormField extends State<DefaultTextFormField> {
       ),
 
       onSaved: (_value) {
+        if (_value is String)
         print("onSaved called (val: " + _value + ")");
       },
     );

@@ -1,12 +1,10 @@
 
 import 'dart:async';
-import 'dart:isolate';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutterust/components/custom_tab_view.dart';
 import 'package:flutterust/database/client_network_account.dart';
-import 'package:flutterust/database/database_handler.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
 import 'package:flutterust/database/notifications.dart';
 import 'package:flutterust/main.dart';
@@ -30,7 +28,7 @@ class SessionHomeScreen extends StatefulWidget {
 
   final StreamController<dynamic> controller = StreamController();
 
-  SessionHomeScreen({Key key}) : super(key: key);
+  SessionHomeScreen({Key? key}) : super(key: key);
 
   @override
   State<StatefulWidget> createState() {
@@ -43,8 +41,7 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
   List<SessionView> sessionViews = [];
   List<List<AbstractNotification>> notifications = [];
 
-  StreamSubscription<dynamic> listener;
-
+  late final StreamSubscription<dynamic> listener;
   int pos = 0;
 
   @override
@@ -71,12 +68,12 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
   @override
   void dispose() {
     super.dispose();
-    this.listener?.cancel();
+    this.listener.cancel();
   }
 
   /// initState cannot be async, so the function is moved to a separate fn
   void onStart() async {
-    (await RustSubsystem.bridge.executeCommand("list-sessions"))
+    (await RustSubsystem.bridge!.executeCommand("list-sessions"))
         .ifPresent((kResp) => kResp.getDSR().ifPresent((dsr) => this.widget.controller.sink.add(dsr)));
   }
 
@@ -85,19 +82,19 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
     print("[SessionHomeScreen] recv'd dsr " + dsr.getType().toString());
       switch (dsr.getType()) {
         case DomainSpecificResponseType.Connect:
-          ConnectResponse conn = dsr;
+          ConnectResponse conn = dsr as ConnectResponse;
           if (conn.success) {
             // first, check to see that the session isn't already added. Sometimes, an old session stays stored
             // in memory because of background mode preventing a signal from reaching here
-            var idxPrev = this.sessionViews.indexWhere((element) => element.cnac.implicatedCid == conn.implicated_cid);
+            var idxPrev = this.sessionViews.indexWhere((element) => element.cnac.implicatedCid == conn.implicatedCid);
             if (idxPrev != -1) {
-              print("Will omit adding session ${conn.implicated_cid} because it already exists");
+              print("Will omit adding session ${conn.implicatedCid} because it already exists");
               return;
             }
 
-            print("Adding session to sessions list for " + conn.implicated_cid.toString());
+            print("Adding session to sessions list for " + conn.implicatedCid.toString());
             //final String username = conn.getAttachedUsername().orElse("UNATTACHED USERNAME");
-            var cnac = (await ClientNetworkAccount.getCnacByCid(conn.implicated_cid)).value;
+            var cnac = (await ClientNetworkAccount.getCnacByCid(conn.implicatedCid)).value;
             var storedNotifications = await RawNotification.loadNotificationsFor(cnac.implicatedCid);
             print("[Notification-Loader] Loaded: ${storedNotifications.length} notifications");
 
@@ -111,17 +108,17 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
           break;
 
         case DomainSpecificResponseType.GetActiveSessions:
-          GetSessionsResponse resp = dsr;
+          GetSessionsResponse resp = dsr as GetSessionsResponse;
           if (resp.cids.length != 0) {
             List<List<Object>> vals = zip(([resp.cids, resp.usernames])).where((data) {
-              u64 cid = data[0];
+              u64 cid = data[0] as u64;
               return this.sessionViews.indexWhere((widget) => widget.cnac.implicatedCid == cid) == -1;
             }).toList(growable: false);
 
             print("Found " + vals.length.toString() + " sessions unaccounted for in the GUI");
             for (int i = 0; i < vals.length; i++) {
-              tabs.add(vals[i][1]);
-              var cnac = await ClientNetworkAccount.getCnacByCid(vals[i][0]);
+              tabs.add(vals[i][1] as String);
+              var cnac = await ClientNetworkAccount.getCnacByCid(vals[i][0] as u64);
               notifications.add([]);
               sessionViews.add(SessionView(cnac.value, widget.key));
             }
@@ -134,10 +131,10 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
           break;
 
         case DomainSpecificResponseType.Disconnect:
-          DisconnectResponse dc = dsr;
+          DisconnectResponse dc = dsr as DisconnectResponse;
           switch(dc.virtualConnectionType) {
             case VirtualConnectionType.HyperLANPeerToHyperLANServer:
-              int idx = this.sessionViews.indexWhere((element) => element.cnac.implicatedCid == dc.implicated_cid);
+              int idx = this.sessionViews.indexWhere((element) => element.cnac.implicatedCid == dc.implicatedCid);
               if (idx != -1) {
                 print("Disconnect occurred. Will remove idx $idx");
 
@@ -145,7 +142,14 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
                 this.notifications.removeAt(idx);
                 this.sessionViews.removeAt(idx);
               }
+              break;
+
+            default: break;
           }
+
+          break;
+
+        default: break;
       }
   }
 
@@ -252,8 +256,7 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
   void disconnectCurrentSession() {
     var view = this.sessionViews.removeAt(this.pos);
     this.tabs.removeAt(this.pos);
-
-    RustSubsystem.bridge.executeCommand("disconnect ${view.cnac.username}");
+    RustSubsystem.bridge!.executeCommand("disconnect ${view.cnac.username}");
   }
 
 

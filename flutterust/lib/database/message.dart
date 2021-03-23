@@ -18,9 +18,9 @@ class Message extends AbstractSqlObject {
   final String message;
   final DateTime recvTime;
   final bool fromPeer;
-  u64 rawTicket;
+  u64? rawTicket;
   PeerSendState status;
-  int _id;
+  int? _id;
 
   Message(this.implicatedCid, this.peerCid, this.message, this.recvTime, this.fromPeer, this.status, this.rawTicket);
   Message.fromMap(Map<String, dynamic> sql) :
@@ -56,9 +56,9 @@ class Message extends AbstractSqlObject {
   }
 
   @override
-  Future<int> sync({ConflictAlgorithm conflictAlgorithm}) async {
+  Future<int> sync({ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace}) async {
     this._id = await super.sync(conflictAlgorithm: conflictAlgorithm);
-    return this._id;
+    return this._id!;
   }
 
   static Future<List<Message>> getMessagesBetween(u64 implicatedCid, u64 peerCid) async {

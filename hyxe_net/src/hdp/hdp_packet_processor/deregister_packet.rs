@@ -86,19 +86,33 @@ fn deregister_from_hyperlan_server_as_client<K: ExpectedInnerTargetMut<HdpSessio
     let ticket = state_container.deregister_state.current_ticket.clone();
     state_container.deregister_state.on_success();
     std::mem::drop(state_container);
-    let ref acc_manager = session.account_manager;
+    let acc_manager = session.account_manager.clone();
+    let to_kernel = session.kernel_tx.clone();
 
-    let (ret, success) = if acc_manager.delete_client_by_cid(implicated_cid) {
-        log::info!("Successfully purged account {} locally!", implicated_cid);
+    let cnac = session.cnac.clone()?;
+    let fcm_client = acc_manager.fcm_client().clone();
 
-        (PrimaryProcessorResult::EndSession("Session ended after successful deregistration!"), true)
-    } else {
-        log::error!("Unable to locally purge account {}. Please report this to the HyperLAN Server admin", implicated_cid);
-        (PrimaryProcessorResult::EndSession("Session ended after unsuccessful deregistration"), false)
+    let task = async move {
+        if let Err(err) = cnac.fcm_raw_broadcast_to_all_peers(fcm_client, |fcm, peer_cid| hyxe_user::fcm::fcm_packet_crafter::craft_deregistered(fcm, peer_cid, 0)).await {
+            log::error!("Error when fcm broadcasting: {:#?}", err);
+        }
+
+        let success = if acc_manager.delete_client_by_cid(implicated_cid) {
+            log::info!("Successfully purged account {} locally!", implicated_cid);
+            true
+        } else {
+            log::error!("Unable to locally purge account {}. Please report this to the HyperLAN Server admin", implicated_cid);
+            false
+        };
+
+        if let Err(err) = to_kernel.unbounded_send(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), ticket, true, success)) {
+            log::warn!("Unable to send to kernel: {:#?}", err);
+        }
     };
 
-    session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), ticket, true, success))?;
+    let _ = spawn!(task);
+
     session.needs_close_message.store(false, Ordering::SeqCst);
 
-    ret
+    PrimaryProcessorResult::EndSession("Session ended after deregistration")
 }

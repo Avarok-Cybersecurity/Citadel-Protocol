@@ -40,10 +40,10 @@ class PostRegisterPushNotification extends AbstractPushNotification {
     return PostRegisterPushNotification(
       u64.tryFrom(preservedMap["implicatedCid"]).value,
       u64.tryFrom(preservedMap["peerCid"]).value,
-      preservedMap["peerUsername"],
+      preservedMap["peerUsername"]!,
       u64.tryFrom(preservedMap["mid"]).value,
       preservedMap["isFcm"] == "true",
-      DateTime.parse(preservedMap["recvTime"])
+      DateTime.parse(preservedMap["recvTime"]!)
     );
   }
 

@@ -8,10 +8,10 @@ import '../u64.dart';
 
 class PeerListResponse extends DomainSpecificResponse {
   final List<u64> cids;
-  final List<bool> is_onlines;
+  final List<bool> isOnlines;
   final StandardTicket ticket;
 
-  PeerListResponse._(this.cids, this.is_onlines, this.ticket);
+  PeerListResponse._(this.cids, this.isOnlines, this.ticket);
 
   @override
   Optional<String> getMessage() {
@@ -44,12 +44,12 @@ class PeerListResponse extends DomainSpecificResponse {
    */
   static Optional<DomainSpecificResponse> tryFrom(Map<String, dynamic> infoNode) {
     List<u64> cids = typeCastMap(infoNode["cids"], transform: u64.tryFrom);
-    List<bool> is_onlines = typeCastMap(infoNode["is_onlines"]);
-    print("cids: " + cids.toString() + "\nis_onlines: "+ is_onlines.toString());
-    if (!sameLengths([cids, is_onlines])) {
+    List<bool> isOnlines = typeCastMap(infoNode["is_onlines"]);
+    print("cids: " + cids.toString() + "\nis_onlines: "+ isOnlines.toString());
+    if (!sameLengths([cids, isOnlines])) {
       return Optional.empty();
     }
 
-    return StandardTicket.tryFrom(infoNode["ticket"]).map((ticket) => PeerListResponse._(cids, is_onlines, ticket));
+    return StandardTicket.tryFrom(infoNode["ticket"]).map((ticket) => PeerListResponse._(cids, isOnlines, ticket));
   }
 }

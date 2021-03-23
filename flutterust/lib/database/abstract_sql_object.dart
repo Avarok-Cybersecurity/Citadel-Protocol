@@ -10,7 +10,7 @@ abstract class AbstractSqlObject {
   Optional<dynamic> getDatabaseKey();
   
   /// Saves to the database. Returns the id of the row
-  Future<dynamic> sync({ConflictAlgorithm conflictAlgorithm}) async {
+  Future<dynamic> sync({ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace}) async {
     return await DatabaseHandler.upsertObject(this);
   }
 
@@ -21,7 +21,7 @@ abstract class AbstractSqlObject {
 }
 
 extension AbstractSqlObjectExt on List<AbstractSqlObject> {
-  Future<List<dynamic>> sync({ConflictAlgorithm conflictAlgorithm}) async {
+  Future<List<dynamic>> sync({ConflictAlgorithm conflictAlgorithm = ConflictAlgorithm.replace}) async {
     return await DatabaseHandler.insertObjects(this, conflictAlgorithm: conflictAlgorithm);
   }
 

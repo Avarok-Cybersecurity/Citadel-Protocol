@@ -5,10 +5,7 @@ class RustString {
   Optional<String> value;
   FFIBridge scrap;
 
-  RustString(String value, FFIBridge scrap) {
-    this.value = Optional.of(value);
-    this.scrap = scrap;
-  }
+  RustString(String value, FFIBridge scrap) : this.scrap = scrap, this.value = Optional.of(value);
 
   Optional<String> getString() {
     return this.value;

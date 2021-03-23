@@ -20,6 +20,7 @@ serde = { version = "1.0.104", features=["rc", "derive"] }
 #tokio = {version = "^0.2.22", features=["rt-core"] }
 tokio = "^1.2.0"
 async-trait = "0.1.11"
+futures = "0.3.5"
 crossbeam-utils = "*"
 #future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
 secstr = "0.4.0"

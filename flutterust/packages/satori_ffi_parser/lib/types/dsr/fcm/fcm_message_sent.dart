@@ -1,5 +1,4 @@
 import 'package:optional/optional_internal.dart';
-import 'package:satori_ffi_parser/parser.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/fcm_ticket.dart';

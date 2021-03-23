@@ -3,15 +3,11 @@ import 'package:satori_ffi_parser/types/ticket.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 
 class StandardTicket extends Ticket {
-  u64 id;
+  final u64 id;
 
-  StandardTicket(u64 id) {
-    this.id = id;
-  }
+  StandardTicket(this.id);
 
-  StandardTicket.from(num id) {
-    this.id = u64.from(id);
-  }
+  StandardTicket.from(num id) : this.id = u64.from(id);
 
   static Optional<StandardTicket> tryFrom<T>(T input) {
     if (input is String) {

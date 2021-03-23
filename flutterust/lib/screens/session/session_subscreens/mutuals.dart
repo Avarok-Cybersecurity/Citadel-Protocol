@@ -36,15 +36,15 @@ class MutualsView extends StatelessWidget {
       if (this.response.cids.isNotEmpty) {
         var resp = this.response;
         var image = CachedNetworkImageProvider(DEFAULT_AVATAR_IMAGE);
-        List<ListTile> tiles = zip([resp.usernames, resp.is_onlines, resp.fcm_reachable, resp.cids]).map((e) {
+        List<ListTile> tiles = zip([resp.usernames, resp.isOnlines, resp.fcmReachable, resp.cids]).map((e) {
           return ListTile(
             leading: CircleAvatar(
               backgroundImage: image,
             ),
-            subtitle: e[1] || e[2] ? PeerListView.createOnlineIcon() : PeerListView.createOfflineIcon(),
-            title: Text(e[0]),
+            subtitle: e[1] as bool || e[2] as bool ? PeerListView.createOnlineIcon() : PeerListView.createOfflineIcon(),
+            title: Text(e[0] as String),
             trailing: Icon(Icons.keyboard_arrow_right),
-            onTap: () => onClick(ctx, e[0], e[3]),
+            onTap: () => onClick(ctx, e[0] as String, e[3] as u64),
           );
         }).toList(growable: false);
 
