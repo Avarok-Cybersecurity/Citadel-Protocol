@@ -8,6 +8,7 @@ use crate::ffi::FFIIO;
 use hyxe_net::constants::PRIMARY_PORT;
 use std::str::FromStr;
 use std::net::{SocketAddr, IpAddr};
+use hyxe_user::backend::BackendType;
 
 /// The arguments, if None, will default to std::env::args, with the zeroth element removed (the binary name)
 /// Is some,
@@ -24,6 +25,7 @@ pub fn parse_command_line_arguments_into_app_config(cmd: Option<String>, ffi_io:
 
     app_config.is_ffi = ffi_io.is_some();
     app_config.ffi_io = ffi_io;
+    app_config.backend_type = arg_matches.value_of("backend").map(|r| BackendType::MySQLDatabase(r.to_string()));
     app_config.daemon_mode = arg_matches.is_present("daemon") || app_config.is_ffi;
     app_config.kernel_threads = try_get_kthreads(&arg_matches)?;
 
@@ -83,6 +85,11 @@ fn setup_clap<'a>() -> App<'a, 'a> {
             .required(false)
             .takes_value(false)
             .hidden(true))
+        .arg(Arg::with_name("backend")
+            .long("backend")
+            .required(false)
+            .takes_value(true)
+            .help("Specifies a backend for storing peer account information. Stores to the local filesystem as default. Enter a url in the format: mysql://username:password@ip/database"))
         //.arg(Arg::with_name("command").required(true).index(1))
         .arg(Arg::with_name("pipe").long("pipe").takes_value(true).required(false).help("include a locally-running TCP socket address to communicate with local processes. The following argument must be a loopback socket address"))
 }

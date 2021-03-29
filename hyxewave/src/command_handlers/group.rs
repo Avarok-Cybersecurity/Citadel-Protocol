@@ -2,9 +2,9 @@ use super::imports::*;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
 use hyxe_crypt::sec_bytes::SecBuffer;
 
-pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let ctx_cid = ctx.get_active_cid();
-    let ref cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Default("Session CNAC missing"))?;
+    let ref cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC missing"))?;
 
     if let Some(matches) = matches.subcommand_matches("accept-invite") {
         return handle_accept_invite(matches, server_remote, ctx);

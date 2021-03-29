@@ -57,3 +57,6 @@ pub mod endpoint_crypto_container;
 pub mod hyper_ratchet;
 /// Contains the cryptographic primitives for handling FCM interactions on the network
 pub mod fcm;
+///
+#[allow(missing_docs)]
+pub mod argon_container;

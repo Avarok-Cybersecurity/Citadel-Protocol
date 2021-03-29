@@ -37,7 +37,7 @@ fn main() -> Result<(), ConsoleError> {
 
 fn print_welcome() {
     colour::green!("Welcome to SatoriNET");
-    colour::red!(" v{} ({})\n", hyxe_net::constants::BUILD_VERSION, hyxe_net::re_imports::build_tag());
+    colour::red!(" v{} ({}/{})\n", hyxe_net::constants::BUILD_VERSION, hyxe_net::build_tag(), hyxe_net::re_imports::build_tag());
     print!("\x1B[2J\x1B[1;1H");
 }
 

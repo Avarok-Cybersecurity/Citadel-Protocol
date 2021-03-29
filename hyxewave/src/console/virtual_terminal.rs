@@ -1,6 +1,6 @@
 use clap::App;
 use lazy_static::*;
-use parking_lot::{Mutex, MutexGuard};
+use tokio::sync::{Mutex, MutexGuard};
 #[cfg(not(target_os = "windows"))]
 use termion::input::TermReadEventsAndRaw;
 //use tokio::io::AsyncBufReadExt;
@@ -16,7 +16,7 @@ use hyxe_crypt::sec_string::SecString;
 use tokio_stream::StreamExt;
 
 lazy_static! {
-    pub static ref CLAP_APP: AppThreadSafe = AppThreadSafe(Mutex::new(setup_clap()));
+    pub static ref CLAP_APP: Mutex<AppThreadSafe> = Mutex::new(AppThreadSafe(setup_clap()));
 }
 
 pub async fn terminal_future(server_remote: HdpServerRemote, ctx: ConsoleContext) -> Result<(), ConsoleError> {
@@ -31,7 +31,7 @@ pub async fn terminal_future(server_remote: HdpServerRemote, ctx: ConsoleContext
         if trimmed.len() != 0 {
             let parts = trimmed.split(" ").collect::<Vec<&str>>();
             was_cleared = parts.get(0).map(|res| *res == "clear").unwrap_or(false);
-            if let Err(err) = handle(CLAP_APP.0.lock(), parts, &server_remote, &ctx, None) {
+            if let Err(err) = handle(CLAP_APP.lock().await, parts, &server_remote, &ctx, None).await {
                 printf!(colour::white_ln!("\r{}", err.into_string()));
             }
         }
@@ -285,7 +285,8 @@ pub mod clap_commands {
 
     fn setup_peer_command() -> App<'static, 'static> {
         SubCommand::with_name("peer")
-            .subcommand(SubCommand::with_name("list").about("Fetch the set of peers that exist on the client network account's HyperLAN"))
+            .subcommand(SubCommand::with_name("list").about("Fetch the set of peers that exist on the client network account's HyperLAN")
+                .arg(Arg::with_name("limit").long("limit").required(false).takes_value(true).help("A maximum number of peers to scan for")))
             .subcommand(SubCommand::with_name("mutuals").about("Fetch the set of peers to whom your client network account is consented to connect with"))
             .subcommand(SubCommand::with_name("channels").about("Returns a list of active channels for the active CID"))
             .subcommand(SubCommand::with_name("disconnect").about("Disconnect from a target peer")
@@ -462,8 +463,10 @@ pub mod clap_commands {
     }
 }
 
-pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'static>>, parts: A, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
-    let matches = clap.get_matches_from_safe_borrow(parts.as_ref()).map_err(|err| ConsoleError::Generic(err.message))?;
+use async_recursion::async_recursion;
+#[async_recursion(?Send)]
+pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, AppThreadSafe>, parts: A, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+    let matches = clap.0.get_matches_from_safe_borrow(parts.as_ref()).map_err(|err| ConsoleError::Generic(err.message))?;
 
     if let Some(_matches) = matches.subcommand_matches("clear") {
         INPUT_ROUTER.print_prompt(true, ctx);
@@ -479,31 +482,31 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
     }
 
     if let Some(matches) = matches.subcommand_matches("send") {
-        return crate::command_handlers::send::handle(matches, server_remote, ctx);
+        return crate::command_handlers::send::handle(matches, server_remote, ctx).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("waitfor") {
-        return crate::command_handlers::waitfor::handle(matches, clap, server_remote, ctx);
+        return crate::command_handlers::waitfor::handle(matches, clap, server_remote, ctx).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("quit") {
-        return crate::command_handlers::quit::handle(matches, server_remote, ctx);
+        return crate::command_handlers::quit::handle(matches, server_remote, ctx).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("list-sessions") {
-        return crate::command_handlers::list_sessions::handle(matches, server_remote, ctx, ffi_io);
+        return crate::command_handlers::list_sessions::handle(matches, server_remote, ctx, ffi_io).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("switch") {
-        return crate::command_handlers::switch::handle(matches, server_remote, ctx, ffi_io, clap);
+        return crate::command_handlers::switch::handle(matches, server_remote, ctx, ffi_io, clap).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("connect") {
-        return crate::command_handlers::connect::handle(matches, server_remote, ctx, ffi_io);
+        return crate::command_handlers::connect::handle(matches, server_remote, ctx, ffi_io).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("register") {
-        return crate::command_handlers::register::handle(matches, server_remote, ctx, ffi_io);
+        return crate::command_handlers::register::handle(matches, server_remote, ctx, ffi_io).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("list-accounts") {
@@ -511,17 +514,17 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
     }
 
     if let Some(matches) = matches.subcommand_matches("deregister") {
-        return crate::command_handlers::deregister::handle(matches, server_remote, ctx, ffi_io)
+        return crate::command_handlers::deregister::handle(matches, server_remote, ctx, ffi_io).await
             .map(|_| Some(KernelResponse::Confirmation));
     }
 
     if let Some(matches) = matches.subcommand_matches("disconnect") {
-        return crate::command_handlers::disconnect::handle(matches, server_remote, ctx)
+        return crate::command_handlers::disconnect::handle(matches, server_remote, ctx).await
             .map(|_| Some(KernelResponse::Confirmation));
     }
 
     if let Some(matches) = matches.subcommand_matches("peer") {
-        return crate::command_handlers::peer::handle(matches, server_remote, ctx, ffi_io);
+        return crate::command_handlers::peer::handle(matches, server_remote, ctx, ffi_io).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("fcm-process") {
@@ -529,7 +532,7 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
     }
 
     if let Some(matches) = matches.subcommand_matches("group") {
-        return crate::command_handlers::group::handle(matches, server_remote, ctx)
+        return crate::command_handlers::group::handle(matches, server_remote, ctx).await
             .map(|_| Some(KernelResponse::Confirmation));
     }
 
@@ -540,7 +543,9 @@ pub fn handle<'a, A: AsRef<[&'a str]>>(mut clap: MutexGuard<'_, App<'static, 'st
     Ok(None)
 }
 
-pub struct AppThreadSafe(pub Mutex<App<'static, 'static>>) where Self: Send + Sync;
+/// Needed b/c CLAP does not yet impl Send+Sync for App
+pub struct AppThreadSafe(pub App<'static, 'static>);
+//pub struct TokioMutexLock(pub Mutex)
 // Since App does not impl Send, we must use this unsafe code
 unsafe impl Send for AppThreadSafe {}
 unsafe impl Sync for AppThreadSafe {}

@@ -1,4 +1,4 @@
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsDuplication};
+use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
 use crate::fcm::kem::FcmPostRegister;
 use serde::{Serialize, Deserialize};
 use super::super::data_structures::{string, base64_string};
@@ -74,7 +74,7 @@ pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state
             }
 
             // finally, return signal to caller
-            FcmProcessorResult::Value(FcmResult::PostRegisterInvitation { invite: PostRegisterInvitation { peer_cid, local_cid, username: username.into_bytes(), ticket } }, FcmPacketMaybeNeedsDuplication::none())
+            FcmProcessorResult::Value(FcmResult::PostRegisterInvitation { invite: PostRegisterInvitation { peer_cid, local_cid, username: username.into_bytes(), ticket } }, FcmPacketMaybeNeedsSending::none())
         }
 
         FcmPostRegister::BobToAliceTransfer(fcm_bob_to_alice_transfer, fcm_keys, source_cid) => {
@@ -97,7 +97,7 @@ pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state
                 ticket,
                 accept: true,
                 username
-            }}, FcmPacketMaybeNeedsDuplication::none())
+            }}, FcmPacketMaybeNeedsSending::none())
         }
 
         // Bob denied the request
@@ -109,10 +109,10 @@ pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state
                 ticket,
                 accept: false,
                 username
-            }}, FcmPacketMaybeNeedsDuplication::none())
+            }}, FcmPacketMaybeNeedsSending::none())
         }
         s @ FcmPostRegister::Enable | s @ FcmPostRegister::Disable => {
-            log::warn!("Received unexpected signal: {:?}", s);
+            log::error!("Received unexpected signal: {:?}", s);
             // We should never reach here
             FcmProcessorResult::Void
         }

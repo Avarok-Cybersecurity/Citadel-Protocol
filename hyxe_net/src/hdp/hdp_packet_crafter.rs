@@ -467,7 +467,7 @@ pub(crate) mod do_connect {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
-    use crate::proposed_credentials::ProposedCredentials;
+    use hyxe_user::proposed_credentials::ProposedCredentials;
     use crate::hdp::peer::peer_layer::MailboxTransfer;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
@@ -489,7 +489,7 @@ pub(crate) mod do_connect {
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
     #[allow(unused_results)]
     pub(crate) fn craft_stage0_packet(hyper_ratchet: &HyperRatchet, proposed_credentials: ProposedCredentials, fcm_keys: Option<FcmKeys>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
-        let (username, password) = proposed_credentials.decompose_credentials();
+        let (username, password, ..) = proposed_credentials.decompose();
 
         //let encrypted_len = hyxe_crypt::net::crypt_splitter::calculate_aes_gcm_output_length(username.len() + username.len());
 
@@ -508,7 +508,7 @@ pub(crate) mod do_connect {
             target_cid: U64::new(0)
         };
 
-        let payload = DoConnectStage0Packet { username, password, fcm_keys };
+        let payload = DoConnectStage0Packet { username: username.as_bytes(), password: password.as_ref(), fcm_keys };
 
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + payload.serialized_size().unwrap());
         header.inscribe_into(&mut packet);
@@ -598,7 +598,7 @@ pub(crate) mod do_register {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
-    use crate::proposed_credentials::ProposedCredentials;
+    use hyxe_user::proposed_credentials::ProposedCredentials;
     use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;

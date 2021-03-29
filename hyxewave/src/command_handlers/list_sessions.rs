@@ -28,31 +28,31 @@ impl ActiveSessions {
     }
 }
 
-pub fn handle<'a>(matches: &ArgMatches<'a>, _server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, _server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     if matches.is_present("personal") {
         return if ffi_io.is_some() {
-            Ok(Some(handle_ffi(ctx, ListType::Personal)))
+            Ok(Some(handle_ffi(ctx, ListType::Personal).await))
         } else {
-            list(ctx,ListType::Personal, "No personal sessions active")
+            list(ctx,ListType::Personal, "No personal sessions active").await
         }
     }
 
     if matches.is_present("impersonal") {
         return if ffi_io.is_some() {
-            Ok(Some(handle_ffi(ctx, ListType::Impersonal)))
+            Ok(Some(handle_ffi(ctx, ListType::Impersonal).await))
         } else {
-            list(ctx,ListType::Impersonal, "No impersonal sessions active")
+            list(ctx,ListType::Impersonal, "No impersonal sessions active").await
         }
     }
 
     return if ffi_io.is_some() {
-        Ok(Some(handle_ffi(ctx, ListType::All)))
+        Ok(Some(handle_ffi(ctx, ListType::All).await))
     } else {
-        list(ctx,ListType::All, "No sessions active")
+        list(ctx,ListType::All, "No sessions active").await
     }
 }
 
-fn list(ctx: &ConsoleContext, list_type: ListType, none_message: &str) -> Result<Option<KernelResponse>, ConsoleError> {
+async fn list(ctx: &ConsoleContext, list_type: ListType, none_message: &str) -> Result<Option<KernelResponse>, ConsoleError> {
     let mut table = Table::new();
     table.set_titles(prettytable::row![Fgcb => "Username", "CID", "Address", "Personal", "Runtime(s)"]);
     let mut cnt = 0;
@@ -75,7 +75,7 @@ fn list(ctx: &ConsoleContext, list_type: ListType, none_message: &str) -> Result
                 }
             }
         }
-    });
+    }).await;
 
     if cnt != 0 {
         printf!(table.printstd());
@@ -96,7 +96,7 @@ fn get_data_from_sess(session: &KernelSession) -> (&String, u64, String, bool, u
     (&session.username, session.cid, session.socket_addr.to_string(), session.is_personal, session.elapsed_time_seconds())
 }
 
-fn handle_ffi(ctx: &ConsoleContext, list_type: ListType) -> KernelResponse {
+async fn handle_ffi(ctx: &ConsoleContext, list_type: ListType) -> KernelResponse {
     let mut ret = ActiveSessions::default();
     ctx.list_all_sessions(|sess| {
         match list_type {
@@ -116,7 +116,7 @@ fn handle_ffi(ctx: &ConsoleContext, list_type: ListType) -> KernelResponse {
                 }
             }
         }
-    });
+    }).await;
 
     KernelResponse::DomainSpecificResponse(DomainResponse::GetActiveSessions(ret))
 }

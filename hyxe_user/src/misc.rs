@@ -41,7 +41,7 @@ impl<T: Into<String>> AccountError<T> {
     }
 }
 
-impl<T: ToString> From<T> for AccountError<String> {
+impl<T: ToString> From<T> for AccountError {
     fn from(err: T) -> Self {
         AccountError::Generic(err.to_string())
     }
@@ -51,7 +51,8 @@ const MIN_PASSWORD_LENGTH: usize = 7;
 const MAX_PASSWORD_LENGTH: usize = 17;
 
 const MIN_USERNAME_LENGTH: usize = 3;
-const MAX_USERNAME_LENGTH: usize = 37;
+///
+pub const MAX_USERNAME_LENGTH: usize = 37;
 
 const MIN_NAME_LENGTH: usize = 2;
 const MAX_NAME_LENGTH: usize = 77;
@@ -163,3 +164,4 @@ pub mod constructor_map {
         }
     }
 }
+

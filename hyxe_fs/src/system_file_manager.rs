@@ -51,7 +51,7 @@ pub async fn async_read<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<
         .map_err(|err| FsError::IoError(err.to_string()))
 }
 
-/// Reads the given path as the given type, D. This is BLOCKING
+/// Reads the given path as the given type, D
 pub fn read<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<D, FsError<String>> {
     std::fs::File::open(path.as_ref()).map_err(|err| FsError::IoError(err.to_string())).and_then(|file| {
         bincode2::deserialize_from(std::io::BufReader::new(file))
@@ -128,4 +128,14 @@ pub async fn delete_file<P: AsRef<Path>>(path: P) -> Result<(), FsError<String>>
 /// Deletes a file given an input to its location
 pub fn delete_file_blocking<P: AsRef<Path>>(path: P) -> Result<(), FsError<String>> {
     std::fs::remove_file(path).map_err(|err| FsError::IoError(err.to_string()))
+}
+
+/// Writes raw bytes to a file
+pub fn write_bytes_to<T: AsRef<[u8]>, P: AsRef<Path>>(bytes: T, path: P) -> Result<(), FsError<String>> {
+    std::fs::write(path, bytes).map_err(|err| FsError::IoError(err.to_string()))
+}
+
+/// Writes raw bytes to a file asynchronously
+pub async fn async_write_bytes_to<T: AsRef<[u8]>, P: AsRef<Path>>(bytes: T, path: P) -> Result<(), FsError<String>> {
+    tokio::fs::write(path, bytes).await.map_err(|err| FsError::IoError(err.to_string()))
 }

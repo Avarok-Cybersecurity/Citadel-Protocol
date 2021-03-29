@@ -35,8 +35,10 @@ ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=fal
 #fcm = { path = "../fcm-rust", version = "0.8.1" }
 bitvec = "0.17.4"
 serde-big-array = "0.3.0"
+rust-argon2 = "0.8.3"
 zeroize = "1.1.1"
 linked-hash-map = "*"
+tokio = { version = "^1.4.0", features = ["full"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2.80"

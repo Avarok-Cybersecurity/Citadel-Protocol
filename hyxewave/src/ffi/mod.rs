@@ -24,7 +24,7 @@ pub mod ser;
 #[derive(Clone)]
 pub struct FFIIO {
     // to send data from rust to native
-    to_ffi_frontier: Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>
+    pub(crate) to_ffi_frontier: Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>
 }
 
 impl Deref for FFIIO {

@@ -152,6 +152,29 @@ pub mod string {
     }
 }
 
+pub mod none {
+    use serde::{Serializer, Deserializer};
+    use serde::{Serialize, Deserialize};
+    use std::marker::PhantomData;
+
+    #[derive(Serialize, Deserialize)]
+    struct Empty<T> {
+        _pd: PhantomData<T>
+    }
+
+    pub fn serialize<T, S>(_value: &T, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        let empty = Empty::<T>{ _pd: Default::default() };
+        Empty::serialize(&empty, serializer)
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error> where D: Deserializer<'de> {
+        let _ = Empty::<T>::deserialize(deserializer)?;
+        Ok(None)
+    }
+}
+
 
 pub mod base64_string {
     use serde::{Serializer, Deserializer, Deserialize};

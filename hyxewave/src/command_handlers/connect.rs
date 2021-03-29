@@ -2,7 +2,8 @@ use tokio_stream::StreamExt;
 
 use super::imports::*;
 use hyxe_crypt::fcm::keys::FcmKeys;
-use hyxe_net::hdp::hdp_server::ConnectMode;
+use hyxe_net::hdp::hdp_server::{ConnectMode, UnderlyingProtocol};
+use hyxe_crypt::prelude::SecBuffer;
 
 #[derive(Debug, Serialize)]
 pub enum ConnectResponse {
@@ -12,13 +13,13 @@ pub enum ConnectResponse {
 }
 
 #[allow(unused_results)]
-pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let username = matches.value_of("username").unwrap();
     let tcp_only = !matches.is_present("qudp");
     let security_level = parse_security_level(matches)?;
     let fcm_keys = matches.value_of("fcm-token").map(|fcm_token| FcmKeys::new(matches.value_of("fcm-api-key").unwrap(), fcm_token));
     let kat = parse_timeout(matches)?;
-    let peer_cnac = ctx.account_manager.get_client_by_username(username).ok_or(ConsoleError::Default("Username does not map to a local account. Please consider registering first"))?;
+    let peer_cnac = ctx.account_manager.get_client_by_username(username).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Username does not map to a local account. Please consider registering first"))?;
 
     if !peer_cnac.is_personal() {
         return Err(ConsoleError::Generic(format!("Client {} is an impersonal account. Connection requests may only be initiated with personal accounts", username)));
@@ -27,18 +28,23 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let read = peer_cnac.read();
     let cid = read.cid;
 
-    if ctx.user_is_connected(Some(cid), None) {
+    if ctx.user_is_connected(Some(cid), None).await {
         return Err(ConsoleError::Generic(format!("User {} is already an active session ...", username)));
     }
 
     let full_name = read.full_name.clone();
-    let adjacent_nac = read.adjacent_nac.as_ref().ok_or(ConsoleError::Default("Adjacent NAC missing from CNAC. Corrupt. Please remove CNAC"))?;
+    let adjacent_nac = read.adjacent_nac.clone().ok_or(ConsoleError::Default("Adjacent NAC missing from CNAC. Corrupt. Please remove CNAC"))?;
     let adjacent_socket = adjacent_nac.get_addr(true).ok_or(ConsoleError::Default("Adjacent NAC does not have an IP address. Corrupt. Please remove CNAC"))?;
-    let nonce = read.password_hash.as_slice();
-    let proposed_credentials = get_proposed_credentials(matches, ctx, username, nonce,adjacent_socket.ip(), security_level, cid, full_name)?;
+
+    std::mem::drop(read);
+
+
+
+    let proposed_credentials = get_proposed_credentials(matches, ctx, username, &peer_cnac,adjacent_socket.ip(), security_level, cid, full_name).await?;
     let connect_mode = matches.is_present("fetch").then(|| ConnectMode::Fetch).unwrap_or(ConnectMode::Standard);
 
-    let request = HdpServerRequest::ConnectToHypernode(adjacent_socket, cid, proposed_credentials, security_level, connect_mode, fcm_keys, None, Some(tcp_only), kat);
+    // TODO: Include Tls
+    let request = HdpServerRequest::ConnectToHypernode(adjacent_socket, cid, proposed_credentials, security_level, connect_mode, fcm_keys, None, Some(tcp_only), kat, UnderlyingProtocol::Tcp);
     let ticket = server_remote.unbounded_send(request)?;
 
     let tx = parking_lot::Mutex::new(None);
@@ -113,10 +119,10 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
 }
 
-fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext, username: &str, nonce: &[u8], adjacent_ip: IpAddr, security_level: SecurityLevel, cid: u64, full_name: String) -> Result<ProposedCredentials, ConsoleError> {
+async fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext, username: &str, cnac: &ClientNetworkAccount, adjacent_ip: IpAddr, security_level: SecurityLevel, cid: u64, full_name: String) -> Result<ProposedCredentials, ConsoleError> {
     if matches.is_present("ffi") {
         let password = matches.value_of("password").unwrap();
-        Ok(ProposedCredentials::new_unchecked(full_name, username, SecVec::new(Vec::from(password)), Some(nonce)))
+        Ok(cnac.hash_password_as_client(SecBuffer::from(password.as_bytes())).await.map_err(|err| ConsoleError::Generic(err.into_string()))?)
     } else {
         colour::yellow!("\n{} ", &full_name);
         colour::white!("attempting to connect to ");
@@ -133,8 +139,8 @@ fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext, user
             colour::white!("Enter password: ");
         }));
 
-        let password_input = password_input.into_bytes();
-        let proposed_credentials = ProposedCredentials::new_unchecked(&full_name, username, SecVec::new(password_input), Some(nonce));
+        let password_input = SecBuffer::from(password_input.into_bytes());
+        let proposed_credentials = cnac.hash_password_as_client(password_input).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
         colour::white_ln!("Attempting to connect to HyperNode ...");
         Ok(proposed_credentials)
     }

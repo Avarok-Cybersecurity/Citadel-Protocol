@@ -6,7 +6,7 @@ use crate::hdp::hdp_packet_processor::peer::peer_cmd_packet;
 use super::includes::*;
 
 /// For primary-port packet types. NOT for wave ports
-pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, mut packet: BytesMut, header_obfuscator: &HeaderObfuscator) -> PrimaryProcessorResult {
+pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, mut packet: BytesMut, header_obfuscator: &HeaderObfuscator) -> PrimaryProcessorResult {
     header_obfuscator.on_packet_received(&mut packet)?;
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     let (header, _payload) = packet.parse()?;
@@ -55,11 +55,11 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
 
     match header.cmd_primary {
         packet_flags::cmd::primary::DO_REGISTER => {
-            super::register_packet::process(session, packet, remote_peer)
+            super::register_packet::process(session, packet, remote_peer).await
         }
 
         packet_flags::cmd::primary::DO_CONNECT => {
-            super::connect_packet::process(session, packet)
+            super::connect_packet::process(session, packet).await
         }
 
         packet_flags::cmd::primary::KEEP_ALIVE => {
@@ -79,15 +79,15 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
         }
 
         packet_flags::cmd::primary::DO_DEREGISTER =>  {
-            super::deregister_packet::process(session, packet)
+            super::deregister_packet::process(session, packet).await
         }
 
         packet_flags::cmd::primary::DO_PRE_CONNECT => {
-            super::preconnect_packet::process(session, packet, remote_peer)
+            super::preconnect_packet::process(session, packet, remote_peer).await
         }
 
         packet_flags::cmd::primary::PEER_CMD => {
-            peer_cmd_packet::process(session, cmd_aux, packet, header_drill_vers, endpoint_cid_info)
+            peer_cmd_packet::process(session, cmd_aux, packet, header_drill_vers, endpoint_cid_info).await
         }
 
         packet_flags::cmd::primary::FILE => {
