@@ -1,12 +1,13 @@
 use super::includes::*;
 use std::sync::atomic::Ordering;
 use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
-use crate::hdp::hdp_packet_processor::connect_packet::handle_client_fcm_keys;
+use crate::error::NetworkError;
+use hyxe_crypt::argon_container::{ClientArgonContainer, ArgonContainerType};
 
 /// This will handle an HDP registration packet
 #[inline]
-pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr) -> PrimaryProcessorResult {
-    let mut session = inner_mut!(session);
+pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr) -> PrimaryProcessorResult {
+    let mut session = inner_mut!(session_ref);
     if session.state != SessionState::NeedsRegister {
         if session.state != SessionState::SocketJustOpened {
             log::error!("Register packet received, but the system's state is not NeedsRegister. Dropping packet");
@@ -32,13 +33,19 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                         let timestamp = session.time_tracker.get_global_time_ns();
                         let local_nid = session.account_manager.get_local_nid();
 
-                        let reserved_true_cid = session.account_manager.get_local_nac().find_first_valid_cid(&possible_cids)?;
-                        let bob_constructor = HyperRatchetConstructor::new_bob(header.algorithm, reserved_true_cid, 0, transfer)?;
+                        let state_container_ref = session.state_container.clone();
+                        let account_manager = session.account_manager.clone();
+
+                        std::mem::drop(state_container);
+                        std::mem::drop(session);
+
+                        let reserved_true_cid = account_manager.get_persistence_handler().find_first_valid_cid(&possible_cids).await?.ok_or(NetworkError::InvalidExternalRequest("Infinitesimally small probability this happens"))?;
+                        let bob_constructor = HyperRatchetConstructor::new_bob(header.algorithm, reserved_true_cid, 0, transfer).ok_or(NetworkError::InvalidExternalRequest("Bad bob transfer"))?;
                         let transfer = bob_constructor.stage0_bob()?;
 
 
                         let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, local_nid, transfer, reserved_true_cid);
-                        //let mut state_container = inner_mut!(session.state_container);
+                        let mut state_container = inner_mut!(state_container_ref);
                         state_container.register_state.proposed_cid = Some(reserved_true_cid);
                         state_container.register_state.created_hyper_ratchet = Some(bob_constructor.finish()?);
                         state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE1;
@@ -108,42 +115,39 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
         packet_flags::cmd::aux::do_register::STAGE2 => {
             log::info!("STAGE 2 REGISTER PACKET");
             // Bob receives this packet. It contains the proposed credentials. We need to register and we're good to go
-            let mut state_container = inner_mut!(session.state_container);
+
+            let state_container = inner!(session.state_container);
             if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE1 {
                 let algorithm = header.algorithm;
-                let hyper_ratchet = state_container.register_state.created_hyper_ratchet.as_ref()?;
-                    if let Some((stage2_packet, adjacent_nac)) = validation::do_register::validate_stage2(hyper_ratchet, header, payload, remote_addr, session.account_manager.get_directory_store()) {
-                        let (username, password, full_name, password_nonce) = stage2_packet.credentials.decompose();
+                let hyper_ratchet = state_container.register_state.created_hyper_ratchet.clone()?;
+                    if let Some((stage2_packet, adjacent_nac)) = validation::do_register::validate_stage2(&hyper_ratchet, header, payload, remote_addr, session.account_manager.get_persistence_handler()) {
+                        let (username, password, full_name, _) = stage2_packet.credentials.decompose();
                         let timestamp = session.time_tracker.get_global_time_ns();
                         let local_nid = session.account_manager.get_local_nid();
                         let reserved_true_cid = state_container.register_state.proposed_cid.clone()?;
+                        let account_manager = session.account_manager.clone();
+                        std::mem::drop(state_container);
+                        std::mem::drop(session);
+
                         // we must now create the CNAC
-                        match session.account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid, adjacent_nac, &username, SecVec::new(password.into_buffer()), full_name, Vec::from(&password_nonce as &[u8]), hyper_ratchet) {
+                        match account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid, adjacent_nac, &username, password, full_name,  hyper_ratchet.clone(), stage2_packet.fcm_keys).await {
                             Ok(peer_cnac) => {
                                 log::info!("Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_id());
+                                let session = inner_mut!(session_ref);
+
                                 let success_message = session.create_register_success_message();
-                                let packet = hdp_packet_crafter::do_register::craft_success(hyper_ratchet, algorithm, local_nid, timestamp, success_message, security_level);
+                                let packet = hdp_packet_crafter::do_register::craft_success(&hyper_ratchet, algorithm, local_nid, timestamp, success_message, security_level);
 
-                                state_container.register_state.on_success();
-                                state_container.register_state.on_register_packet_received();
-                                std::mem::drop(state_container);
-
-                                //session.session_manager.clear_provisional_session(&remote_addr);
-
-                                //PrimaryProcessorResult::FinalReply(packet)
                                 // We set this that way, once the adjacent node closes, this node won't get a propagated error message
                                 session.needs_close_message.store(false, Ordering::SeqCst);
-                                // TODO: Move the below process into the CNAC constructor above to not have double saving
-                                let _ = handle_client_fcm_keys(stage2_packet.fcm_keys, &peer_cnac);
-                                // we no longer use FinalReply, because that cuts the connection and end the future on the other end. Let the other end terminate it
+                                // below was moved above
+                                //let _ = handle_client_fcm_keys(stage2_packet.fcm_keys, &peer_cnac);
+
                                 PrimaryProcessorResult::ReplyToSender(packet)
                             }
 
                             Err(AccountError::ClientExists(taken_cid)) => {
                                 log::error!("Attempted to register the new CNAC ({}) locally, but unfortunately the CID was taken", taken_cid);
-                                // this shouldnt happen anymore
-                                //session.session_manager.clear_provisional_session(&remote_addr);
-                                inner_mut!(session.state_container).register_state.on_register_packet_received();
                                 PrimaryProcessorResult::EndSession("CID taken")
                             }
 
@@ -152,11 +156,6 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
                                 log::error!("Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
                                 let packet = hdp_packet_crafter::do_register::craft_failure(algorithm, local_nid, timestamp, err);
 
-                                state_container.register_state.on_fail();
-                                state_container.register_state.on_register_packet_received();
-                                std::mem::drop(state_container);
-
-                                //session.session_manager.clear_provisional_session(&remote_addr);
                                 PrimaryProcessorResult::ReplyToSender(packet)
                             }
                         }
@@ -179,35 +178,38 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
             if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE2 {
                 let hyper_ratchet = state_container.register_state.created_hyper_ratchet.clone()?;
 
-                    if let Some((success_message, adjacent_nac)) = validation::do_register::validate_success(&hyper_ratchet, header, payload, remote_addr, session.account_manager.get_directory_store()) {
+                    if let Some((success_message, adjacent_nac)) = validation::do_register::validate_success(&hyper_ratchet, header, payload, remote_addr, session.account_manager.get_persistence_handler()) {
                         // Now, register the CNAC locally
 
                         let credentials = state_container.register_state.proposed_credentials.take()?;
-                        let (username, password, full_name, nonce) = credentials.decompose();
+                        let (username, _password, full_name, argon_settings) = credentials.decompose();
                         let reserved_true_cid = state_container.register_state.proposed_cid.clone()?;
+                        std::mem::drop(state_container);
+
+                        let reg_ticket = session.kernel_ticket.clone();
+                        let account_manager = session.account_manager.clone();
+                        let kernel_tx = session.kernel_tx.clone();
+                        let fcm_keys = session.fcm_keys.take();
+                        let needs_close_message = session.needs_close_message.clone();
+                        let argon_container = ArgonContainerType::Client(ClientArgonContainer::from(argon_settings?));
+
+
+                        std::mem::drop(session);
 
                         // &self, cnac_inner_bytes: T, username: R, full_name: V, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>
-                        match session.account_manager.register_personal_hyperlan_server(reserved_true_cid, hyper_ratchet.clone(), username, full_name, adjacent_nac, SecVec::new(password.into_buffer()), Vec::from(&nonce as &[u8])) {
+                        match account_manager.register_personal_hyperlan_server(reserved_true_cid, hyper_ratchet, username, full_name, adjacent_nac, argon_container, fcm_keys).await {
                             Ok(new_cnac) => {
                                 // Finally, alert the higher-level kernel about the success
-                                state_container.register_state.on_success();
-                                std::mem::drop(state_container);
-                                //session.session_manager.clear_provisional_session(&remote_addr);
-                                let _ = handle_client_fcm_keys(session.fcm_keys.take(), &new_cnac);
-                                session.send_to_kernel(HdpServerResult::RegisterOkay(session.kernel_ticket, new_cnac, success_message))?;
+                                kernel_tx.unbounded_send(HdpServerResult::RegisterOkay(reg_ticket, new_cnac, success_message))?;
                             }
 
                             Err(err) => {
-                                state_container.register_state.on_fail();
-                                std::mem::drop(state_container);
-                                //session.session_manager.clear_provisional_session(&remote_addr);
-                                session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, err.into_string()))?;
+                                kernel_tx.unbounded_send(HdpServerResult::RegisterFailure(reg_ticket, err.into_string()))?;
                             }
                         }
-                        inner_mut!(session.state_container).register_state.on_register_packet_received();
-                        // Send this to prevent double-sending to the kernel
-                        session.needs_close_message.store(false, Ordering::SeqCst);
-                        session.shutdown();
+
+                        needs_close_message.store(false, Ordering::Relaxed);
+
                         PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: Success)")
                     } else {
                         log::error!("Unable to validate SUCCESS packet");
@@ -226,8 +228,6 @@ pub fn process(session: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr)
             if inner!(session.state_container).register_state.last_stage > packet_flags::cmd::aux::do_register::STAGE0 {
                 if let Some(error_message) = validation::do_register::validate_failure(header, &payload[..]) {
                     session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, String::from_utf8(error_message).unwrap_or("Non-UTF8 error message".to_string())))?;
-                    //session.session_manager.clear_provisional_session(&remote_addr);
-                    inner_mut!(session.state_container).register_state.on_register_packet_received();
                     session.needs_close_message.store(false, Ordering::SeqCst);
                     session.shutdown();
                 } else {

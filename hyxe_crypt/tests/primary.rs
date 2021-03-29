@@ -11,6 +11,8 @@ mod tests {
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::net::crypt_splitter::{scramble_encrypt_group, GroupReceiver, par_scramble_encrypt_group};
     use std::time::Instant;
+    use hyxe_crypt::argon_container::{ArgonSettings, AsyncArgon, ArgonStatus, ServerArgonContainer};
+
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "hyxe_crypt=info");
@@ -19,6 +21,63 @@ mod tests {
         log::info!("INFO enabled");
         log::warn!("WARN enabled");
         log::error!("ERROR enabled");
+    }
+
+    #[tokio::test]
+    async fn argon() {
+        setup_log();
+
+        // Client config should be a weaker version that the server version, since the client doesn't actually store the password on their own device. Still, if login time can in total be kept under 2s, then it's good
+        let client_config = ArgonSettings::new_gen_salt("Thomas P Braun".as_bytes().to_vec(), 8, 32,1024*64, 4, vec![0,1,2,3,4,5,6,7,8,9,0]);
+        // client hashes their password
+        match AsyncArgon::hash(SecBuffer::from("mrmoney10"), client_config.clone()).await.unwrap() {
+            ArgonStatus::HashSuccess(hashed_password) => {
+                log::info!("Hash success!");
+                // now, the client stores the config in their CNAC to be able to hash again in the future. Next, client sends the hashed password through an encrypted stream to the server
+                let server_recv = hashed_password;
+                // The server creates their own version of the settings, which should be dependent on the capabilities of that server. (Aim for 0.5s < x < 1.0s hash time)
+                let server_config = ArgonSettings::new_gen_salt("Thomas P Braun".as_bytes().to_vec(), 8, 32, 1024*64, 4, vec![0,1,2,3,4,5,6,7,8,9,0]);
+                // the server then hashes the server_recv
+                match AsyncArgon::hash(server_recv.clone(), server_config.clone()).await.unwrap() {
+                    ArgonStatus::HashSuccess(hashed_password_x2) => {
+                        // The server saves this hashed output to the backend. Then, if a client wants to login, they have to hash their password
+                        let server_argon_container = ServerArgonContainer::new(server_config, hashed_password_x2.clone());
+
+                        match AsyncArgon::hash(SecBuffer::from("mrmoney10"), client_config.clone()).await.unwrap() {
+                            ArgonStatus::HashSuccess(hashed_password_v2) => {
+                                //assert_eq!(hashed_password_v2.as_ref(), server_recv.as_ref());
+                                // client sends to server to verify
+                                match AsyncArgon::verify(SecBuffer::from(hashed_password_v2), server_argon_container.clone()).await.unwrap() {
+                                    ArgonStatus::VerificationSuccess => {
+                                        log::info!("Verification success!");
+                                        return;
+                                    }
+
+                                    n => {
+                                        log::error!("{:?}", n);
+                                    }
+                                }
+                            }
+
+                            n => {
+                                log::error!("{:?}", n);
+                            }
+                        }
+                    }
+
+                    n => {
+                        log::error!("{:?}", n);
+                    }
+                }
+            }
+
+            n => {
+                log::error!("{:?}", n);
+            }
+        }
+
+        panic!("Failed somewhere");
+
     }
 
     #[test]
@@ -40,7 +99,7 @@ mod tests {
                 let transfer = alice_hr.stage0_alice();
                 let bob_hr = R::Constructor::new_bob(0, 0, 0, transfer).unwrap();
                 let transfer = bob_hr.stage0_bob().unwrap();
-                alice_hr.stage1_alice(transfer).unwrap();
+                alice_hr.stage1_alice(&transfer).unwrap();
                 let toolset = Toolset::new(cid, alice_hr.finish().unwrap());
                 let container = PeerSessionCrypto::new(toolset, true);
                 container
@@ -137,7 +196,7 @@ mod tests {
         let bob_hyper_ratchet = R::Constructor::new_bob(algorithm.unwrap(), 99, 0, transfer).unwrap();
         let transfer = bob_hyper_ratchet.stage0_bob().unwrap();
 
-        alice_hyper_ratchet.stage1_alice(transfer).unwrap();
+        alice_hyper_ratchet.stage1_alice(&transfer).unwrap();
 
         let alice_hyper_ratchet = alice_hyper_ratchet.finish().unwrap();
         let bob_hyper_ratchet = bob_hyper_ratchet.finish().unwrap();
@@ -221,7 +280,7 @@ mod tests {
         let algorithm = 0;
         let mut alice = R::Constructor::new_alice(Some(algorithm), cid, version, Some(sec));
         let bob = R::Constructor::new_bob(algorithm, cid, version, alice.stage0_alice()).unwrap();
-        alice.stage1_alice(bob.stage0_bob().unwrap()).unwrap();
+        alice.stage1_alice(&bob.stage0_bob().unwrap()).unwrap();
         (alice.finish().unwrap(), bob.finish().unwrap())
     }
 

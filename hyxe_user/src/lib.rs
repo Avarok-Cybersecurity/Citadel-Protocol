@@ -22,17 +22,19 @@ warnings
 
 /// Standard imports for this library
 pub mod prelude {
-    pub use crate::hypernode_account::*;
-    pub use crate::client_account::*;
-    pub use crate::network_account::*;
     pub use hyxe_fs::file_crypt_scrambler::MAX_BYTES_PER_GROUP;
+
+    pub use crate::client_account::*;
+    pub use crate::hypernode_account::*;
+    pub use crate::network_account::*;
 }
 
 /// Serde and others
 pub mod re_imports {
     pub use serde::*;
-    pub use hyxe_fs::file_crypt_scrambler::*;
+
     pub use hyxe_fs::env::DirectoryStore;
+    pub use hyxe_fs::file_crypt_scrambler::*;
 }
 
 /// The general trait for creating account types
@@ -77,3 +79,7 @@ pub mod server_config_handler;
 pub mod fcm;
 /// For errors
 pub mod misc;
+/// For handling different I/O operations
+pub mod backend;
+/// For handling misc requirements
+pub mod proposed_credentials;

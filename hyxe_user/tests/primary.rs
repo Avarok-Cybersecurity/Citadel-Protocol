@@ -3,14 +3,12 @@
 #[cfg(test)]
 mod tests {
 
-    use hyxe_user::prelude::HyperNodeAccountInformation;
+    use hyxe_user::prelude::{HyperNodeAccountInformation, ClientNetworkAccountInner, NetworkAccount};
     use hyxe_user::account_manager::AccountManager;
-    use secstr::SecVec;
     use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
     use std::net::IpAddr;
     use std::str::FromStr;
     use hyxe_user::client_account::ClientNetworkAccount;
-    use hyxe_user::network_account::NetworkAccount;
     use dirs2::home_dir;
     use hyxe_crypt::hyper_ratchet::constructor::{BobToAliceTransferType, HyperRatchetConstructor};
     use hyxe_crypt::fcm::fcm_ratchet::{FcmRatchet, FcmRatchetConstructor};
@@ -19,12 +17,35 @@ mod tests {
     use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
     use hyxe_crypt::fcm::keys::FcmKeys;
     use hyxe_crypt::sec_bytes::SecBuffer;
-    use hyxe_user::fcm::data_structures::{FcmTicket, RawFcmPacket, RawFcmPacketStore};
-    use std::collections::HashMap;
+    use hyxe_user::fcm::data_structures::{RawFcmPacket, RawFcmPacketStore};
+    use std::collections::{HashMap, BTreeMap};
+    use hyxe_user::backend::BackendType;
+    use hyxe_user::fcm::fcm_packet_processor::block_on_async;
+    use rand::random;
+    use hyxe_fs::io::SyncIO;
+    use serde::{Serialize, Deserialize};
+    use hyxe_crypt::argon_container::ArgonContainerType;
+
+    #[derive(Serialize, Deserialize)]
+    struct Test<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+        k: String,
+        #[serde(with = "hyxe_user::fcm::data_structures::none")]
+        inner: Option<NetworkAccount<R, Fcm>>,
+        m: String
+    }
+
+    #[test]
+    fn miniserde() {
+        let m = Test::<HyperRatchet, FcmRatchet> { k: "Hello, world!".into(), inner: None, m: "Hello, 2, world!".into() };
+        let serded = Test::<HyperRatchet, FcmRatchet> ::serialize_to_vector(&m).unwrap();
+        let deserded = Test::<HyperRatchet, FcmRatchet> ::deserialize_from_vector(&serded).unwrap();
+        assert!(m.inner.is_none());
+        assert!(deserded.inner.is_none());
+    }
 
     #[allow(unused_must_use)]
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "info");
+        std::env::set_var("RUST_LOG", "trace");
         let _ = env_logger::try_init();
         log::trace!("TRACE enabled");
         log::info!("INFO enabled");
@@ -32,16 +53,47 @@ mod tests {
         log::error!("ERROR enabled");
     }
 
+    fn backend() -> BackendType {
+        BackendType::my_sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "enterprise")]
+    async fn hello() {
+        let acc_mgr = acc_mgr(None, BackendType::my_sql("mysql://nologik:mrmoney10@localhost/hyxewave")).await;
+        let cnac = create_cnac(Some(acc_mgr.clone())).await;
+
+        let cnac_retrieved = acc_mgr.get_client_by_cid(cnac.get_cid()).await.unwrap().unwrap();
+        assert_eq!(cnac_retrieved.get_cid(), cnac.get_cid());
+    }
+
+    #[tokio::test]
+    async fn serde_cnac() {
+        setup_log();
+        let acc_mgr0 = acc_mgr(None, backend()).await;
+        let cid = random::<u64>();
+        let hr = gen(cid, 0, None);
+        let cnac = ClientNetworkAccount::<HyperRatchet, FcmRatchet>::new(cid, true, acc_mgr0.get_local_nac().clone(), "nologik", SecBuffer::from("mrmoney10"), "Thomas P Braun", Vec::from("hash"), hr.0, acc_mgr0.get_persistence_handler().clone(), None).await.unwrap();
+        let bytes = cnac.generate_proper_bytes().unwrap();
+        log::info!("Bytes: {}", bytes.len());
+        let cnac1 = ClientNetworkAccountInner::<HyperRatchet, FcmRatchet>::deserialize_from_vector(&bytes).unwrap();
+        //acc_mgr0.save().await.unwrap();
+
+        //let acc_mgr = acc_mgr(None, backend()).await;
+        //let cnac1 = acc_mgr.get_client_by_cid(cid).await.unwrap().unwrap();
+        assert_eq!(cnac.get_cid(), cnac1.cid);
+    }
+
     #[tokio::test]
     async fn load_nac() {
         setup_log();
-        let account_manager = acc_mgr(None).await;
+        let account_manager = acc_mgr(None, backend()).await;
         println!("Loaded NAC: {:?}", account_manager.get_local_nac());
     }
 
     #[test]
     fn serde() {
-        let mut map = HashMap::new();
+        let mut map = BTreeMap::new();
         map.insert(0u64, RawFcmPacket::from("Hello, world!"));
         let mut map2 = HashMap::new();
         map2.insert(1u64, map);
@@ -55,12 +107,13 @@ mod tests {
 
     #[tokio::test]
     async fn fcm() {
-        let acc_mgr_0 = acc_mgr(Some("1.2.2.0")).await;
-        let acc_mgr_1 = acc_mgr(Some("1.2.2.1")).await;
+
+        let acc_mgr_0 = acc_mgr(Some("1.2.2.0"), backend()).await;
+        let acc_mgr_1 = acc_mgr(Some("1.2.2.1"), backend()).await;
         let user0 = create_cnac(Some(acc_mgr_0.clone())).await;
         let user1 = create_cnac(Some(acc_mgr_1.clone())).await;
-        acc_mgr_0.register_hyperlan_p2p_at_endpoints(user0.get_cid(), user1.get_cid(), user1.get_username()).unwrap();
-        acc_mgr_1.register_hyperlan_p2p_at_endpoints(user1.get_cid(), user0.get_cid(), user0.get_username()).unwrap();
+        acc_mgr_0.register_hyperlan_p2p_at_endpoints(user0.get_cid(), user1.get_cid(), user1.get_username()).await.unwrap();
+        acc_mgr_1.register_hyperlan_p2p_at_endpoints(user1.get_cid(), user0.get_cid(), user0.get_username()).await.unwrap();
 
         // now, create an HR for both
         let (hr_alice, hr_bob) = gen_fcm(user0.get_cid(), 0, Some(user1.get_cid()));
@@ -91,29 +144,17 @@ mod tests {
         log::info!("{:?}", hyxe_user::fcm::fcm_packet_processor::blocking_process(input, &acc_mgr_0));
 
         // now, start the simulation
-        user0.blocking_fcm_send_to(user1.get_cid(), SecBuffer::from("Hello, bob! From alice"), 0,acc_mgr_0.fcm_client()).unwrap();
+        user0.blocking_fcm_send_to(user1.get_cid(), SecBuffer::from("Hello, bob! From alice"), 0,acc_mgr_0.fcm_client()).await.unwrap();
 
-        acc_mgr_0.purge();
-        acc_mgr_1.purge();
-    }
-
-    #[test]
-    fn fcm_ticket() {
-        use serde::{Serialize, Deserialize};
-        #[derive(Serialize, Deserialize)]
-        enum Test {
-            Stars(FcmTicket),
-            Banners(FcmTicket, u8)
-        }
-        let ticket = Test::Stars(FcmTicket::new(123, 456, 789));
-        println!("{}", serde_json::to_string(&ticket).unwrap());
+        let _ = acc_mgr_0.purge().await.unwrap();
+        let _ = acc_mgr_1.purge().await.unwrap();
     }
 
     #[tokio::test]
     async fn test_ratchet_versions() {
         setup_log();
         log::info!("Executing load_cnacs ...");
-            let account_manager = acc_mgr(None).await;
+            let account_manager = acc_mgr(None, backend()).await;
             account_manager.visit_all_users_blocking(|cnac| {
                 log::info!("visiting {}", cnac.get_id());
                 for version in cnac.get_hyper_ratchet_versions() {
@@ -124,7 +165,8 @@ mod tests {
                     });
                 }
 
-                cnac.blocking_save_to_local_fs().unwrap();
+                let cnac = cnac.clone();
+                block_on_async(||cnac.save_by_value()).unwrap().unwrap();
             });
     }
 
@@ -135,14 +177,14 @@ mod tests {
         let username = args.last().unwrap().clone();
 
         log::info!("Deleting username: {}", &username);
-        let account_manager = acc_mgr(None).await;
-        if !account_manager.delete_client_by_username(&username) {
-            log::error!("Unable to delete user {} from the internal system. Now syncing files ...", username)
+        let account_manager = acc_mgr(None, backend()).await;
+        if let Err(err) = account_manager.delete_client_by_username(&username).await {
+            log::error!("Unable to delete user {} from the internal system ({:?}). Now syncing files ...", username, err)
         } else {
             log::info!("Deleted the user {} from the internal system. Now syncing files ...", username);
         }
 
-        account_manager.async_save_to_local_fs().await.unwrap()
+        account_manager.save().await.unwrap();
     }
 
     fn gen_fcm(cid: u64, version: u32, endpoint_bob_cid: Option<u64>) -> (FcmRatchet, FcmRatchet) {
@@ -161,10 +203,29 @@ mod tests {
         (alice.finish().unwrap(), bob)
     }
 
-    async fn acc_mgr(pseudo_ip: Option<&str>) -> AccountManager {
+    #[tokio::test]
+    async fn load_mgr_only() {
+        let _ = acc_mgr(None, backend()).await;
+    }
+
+    #[tokio::test]
+    async fn available_cids() {
+        setup_log();
+        let acc_mgr = acc_mgr(None, backend()).await;
+        let cids = (0..10).into_iter().map(|_| random::<u64>()).collect::<Vec<u64>>();
+        let hr = gen(cids[0], 0, None);
+
+        let _cnac = ClientNetworkAccount::new(cids[0], false, acc_mgr.get_local_nac().clone(), "thomasb", SecBuffer::from("maya"), "Thomas P Braun", vec![0,1,2], hr.0, acc_mgr.get_persistence_handler().clone(), None).await.unwrap();
+
+        let returned_cid = acc_mgr.get_persistence_handler().find_first_valid_cid(&cids).await.unwrap().unwrap();
+        assert!(cids.iter().find(|r| **r == returned_cid).map(|r| *r).is_some());
+        assert_ne!(returned_cid, cids[0])
+    }
+
+    async fn acc_mgr(pseudo_ip: Option<&str>, backend: BackendType) -> AccountManager {
         let home_dir = format!("{}/tmp/{}", home_dir().unwrap().to_str().unwrap(), pseudo_ip.unwrap_or("1.2.3.4"));
-        println!("Home dir: {}", &home_dir);
-        AccountManager::new_local((IpAddr::from_str(pseudo_ip.unwrap_or("1.2.3.4")).unwrap(), 12345).into(), Some(home_dir)).unwrap()
+        log::info!("Home dir: {}", &home_dir);
+        AccountManager::new((IpAddr::from_str(pseudo_ip.unwrap_or("1.2.3.4")).unwrap(), 12345).into(), Some(home_dir), backend).await.unwrap()
     }
 
     #[tokio::test]
@@ -172,23 +233,33 @@ mod tests {
         setup_log();
         let cid = rand::random::<u64>();
         let (alice, _bob) = gen(cid, 0, None);
-        let acc_manager = acc_mgr(None).await;
+        let acc_manager = acc_mgr(None, backend()).await;
         let local_nac = acc_manager.get_local_nac();
 
 
         let username = format!("tbraun96{}", cid);
-        let password = SecVec::new("mrmoney10".as_bytes().to_vec());
+        let password = SecBuffer::from("mrmoney10".as_bytes().to_vec());
         // fake hash
         let password_hash = "mrmoney10".as_bytes().to_vec();
 
-        let cnac = local_nac.create_client_account(cid, None, username.clone(), password, "Thomas P Braun", password_hash, alice).unwrap();
-        cnac.validate_credentials(&username, SecVec::new("mrmoney10".as_bytes().to_vec())).unwrap();
+        let cnac = local_nac.create_client_account(cid, None, username.clone(), password, "Thomas P Braun", password_hash, alice, None).await.unwrap();
+        cnac.validate_credentials(&username, SecBuffer::from("mrmoney10".as_bytes().to_vec())).unwrap();
         log::info!("Validation success");
-        acc_manager.async_save_to_local_fs().await.unwrap();
+        acc_manager.save().await.unwrap();
         std::mem::drop((acc_manager, cnac));
-        let acc_manager = acc_mgr(None).await;
-        let cnac = acc_manager.get_client_by_cid(cid).unwrap();
-        cnac.validate_credentials(&username, SecVec::new("mrmoney10".as_bytes().to_vec())).unwrap();
+        log::info!("Loading new account manager ...");
+        let acc_manager = acc_mgr(None, backend()).await;
+        let cnac = acc_manager.get_client_by_cid(cid).await.unwrap().unwrap();
+        cnac.validate_credentials(&username, SecBuffer::from("mrmoney10".as_bytes().to_vec())).unwrap();
+
+        log::info!("CIDs registered: {:?}", acc_manager.get_persistence_handler().get_registered_impersonal_cids(None).await.unwrap().unwrap());
+    }
+
+    #[tokio::test]
+    async fn purge() {
+        let acc_mgr = acc_mgr(None, backend()).await;
+        let _ = acc_mgr.purge().await.unwrap();
+        assert_eq!(acc_mgr.get_persistence_handler().client_count().await.unwrap(), 0);
     }
 
     #[tokio::test]
@@ -200,19 +271,19 @@ mod tests {
         setup_log();
         //let args: Vec<String> = std::env::args().collect();
         //let username = args.last().unwrap().clone();
-        let account_manager = if let Some(acc_mgr) = account_mgr { acc_mgr } else { acc_mgr(None).await };
+        let account_manager = if let Some(acc_mgr) = account_mgr { acc_mgr } else { acc_mgr(None, backend()).await };
         let node_nac = account_manager.get_local_nac();
-        let possible_cid = node_nac.generate_possible_cids()[0];
+        let possible_cid = node_nac.client_only_generate_possible_cids().unwrap()[0];
 
         let username = format!("tbraun96{}", possible_cid);
-        let password = SecVec::new("mrmoney10".as_bytes().to_vec());
+        let password = SecBuffer::from("mrmoney10".as_bytes().to_vec());
         let password_hash = "mrmoney10".as_bytes().to_vec();
 
         let (alice, _bob) = gen(possible_cid,0, None);
 
         log::info!("Loaded NAC with NID {}", node_nac.get_id());
         // nac_other: Option<NetworkAccount>, username: T, password: SecVec<u8>, full_name: V, post_quantum_container: &PostQuantumContainer, toolset_bytes: Option<K>
-        let cnac = node_nac.create_client_account(possible_cid, None, username, password, "Thomas P Braun", password_hash,alice).unwrap();
+        let cnac = node_nac.create_client_account(possible_cid, None, username.clone(), password, "Thomas P Braun", password_hash,alice, None).await.unwrap();
         log::info!("CNAC successfully constructed | {:?}", &cnac);
         let (alice_1, _bob_1) = gen(possible_cid,1, None);
         cnac.register_new_hyper_ratchet(alice_1).unwrap();
@@ -245,7 +316,10 @@ mod tests {
         }
 
         assert!(account_manager.debug_insert_cnac(cnac.clone()));
-        account_manager.async_save_to_local_fs().await.unwrap();
+        account_manager.save().await.unwrap();
+
+        assert!(account_manager.get_client_by_cid(cnac.get_cid()).await.unwrap().is_some());
+        assert!(account_manager.get_client_by_username(&username).await.unwrap().is_some());
         cnac
     }
 
@@ -253,7 +327,7 @@ mod tests {
     #[tokio::test]
     async fn encrypt_decrypt_from_cnac() {
         setup_log();
-        let account_manager = acc_mgr(None).await;
+        let account_manager = acc_mgr(None, backend()).await;
         account_manager.visit_all_users_blocking(|cnac| {
             log::info!("Visiting user: {:?}", cnac);
             let versions = cnac.get_hyper_ratchet_versions();
@@ -270,30 +344,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_all_users() {
+    async fn hyperlan_peer_registration() {
         setup_log();
-        let account_manager = acc_mgr(None).await;
-        let account_count = account_manager.get_registered_local_cids().unwrap_or_default().len();
-        assert!(account_manager.async_save_to_local_fs().await.is_ok());
-        assert_eq!(account_count, account_manager.purge());
-    }
+        let account_manager = acc_mgr(None, backend()).await;
+        let _dirs = account_manager.get_directory_store().clone();
+        let pers = account_manager.get_persistence_handler().clone();
 
-    #[tokio::test]
-    async fn hyperlan_peer_adding() {
-        let account_manager = acc_mgr(None).await;
-        let dirs = account_manager.get_directory_store().clone();
+        let nac = account_manager.get_local_nac().clone();
+        let cid0 = random::<u64>();
+        let username0 = format!("thomas{}", cid0);
+        let username0 = &username0;
 
-        let nac = NetworkAccount::default();
-        let cid0 = 10;
-        let username0 = "thomas0";
-
-        let cid1 = 11;
-        let username1 = "thomas1";
+        let cid1 = random::<u64>();
+        let username1 = format!("thomas{}", cid1);
+        let username1 = &username1;
 
         let hr0 = gen(cid0, 0, None);
         let hr1 = gen(cid1, 0, None);
-        let cnac0 = ClientNetworkAccount::<HyperRatchet, FcmRatchet>::new(cid0, true, nac.clone(), username0, SecVec::new(Vec::new()), "Thomas Braun", Vec::new(), hr0.0, dirs.clone()).unwrap();
-        let _cnac1 = ClientNetworkAccount::<HyperRatchet, FcmRatchet>::new(cid1, true, nac, username1, SecVec::new(Vec::new()), "Thomas Braun II", Vec::new(), hr1.0, dirs).unwrap();
+        let cnac0 = ClientNetworkAccount::<HyperRatchet, FcmRatchet>::new(cid0, true, nac.clone(), username0, SecBuffer::from(Vec::new()), "Thomas Braun", Vec::new(), hr0.0, pers.clone(), None).await.unwrap();
+        let _cnac1 = ClientNetworkAccount::<HyperRatchet, FcmRatchet>::new(cid1, true, nac, username1, SecBuffer::from(Vec::new()), "Thomas Braun II", Vec::new(), hr1.0, pers.clone(), None).await.unwrap();
+
         cnac0.insert_hyperlan_peer(cid1, username1);
         assert!(cnac0.hyperlan_peer_exists(cid1));
         assert!(cnac0.hyperlan_peer_exists_by_username(username1));

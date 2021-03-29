@@ -80,7 +80,7 @@ pub struct DeregisterResponse {
     pub success: bool
 }
 
-pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let ctx_user = ctx.get_active_cid();
 
     if ctx_user != 0 {
@@ -147,12 +147,16 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
             let security_level = parse_security_level(matches)?;
 
-            let read = ctx.sessions.read();
+            let cnac = {
+                let read = ctx.sessions.read().await;
 
-            let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
-            let cnac = sess.cnac.clone();
-            // must drop here, otherwise get_peer_cid_from_cnac will fail
-            std::mem::drop(read);
+                let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
+                let cnac = sess.cnac.clone();
+                // must drop here, otherwise get_peer_cid_from_cnac will fail
+                std::mem::drop(read);
+                cnac
+            };
+
 
             let target_cid = get_peer_cid_from_cnac(&cnac, target_cid)?;
 
@@ -162,11 +166,11 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             return if matches.is_present("fcm") {
                 let fcm_client = ctx.account_manager.fcm_client();
                 let ticket = server_remote.get_next_ticket().0;
-                let fcm_res = cnac.blocking_fcm_send_to(target_cid, buf, ticket, fcm_client).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let fcm_res = cnac.blocking_fcm_send_to(target_cid, buf, ticket, fcm_client).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
                 Ok(Some(KernelResponse::from(fcm_res)))
             } else {
                 // now, use the console context to send the message
-                let _ticket = ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, buf)?;
+                let _ticket = ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, buf).await?;
                 printf_ln!(colour::white!("Message sent through peer channel w/ {:?} security\n", security_level));
                 Ok(None)
             };
@@ -174,14 +178,14 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
 
         if let Some(matches) = matches.subcommand_matches("disconnect") {
             let target_cid = matches.value_of("target_cid").unwrap();
-            let read = ctx.sessions.read();
+            let read = ctx.sessions.read().await;
             let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
             let ref cnac = sess.cnac;
 
             let target_cid = get_peer_cid_from_cnac(cnac, target_cid)?;
 
             std::mem::drop(read);
-            let removed_conn = ctx.remove_peer_connection_from_kernel(ctx_user, target_cid)?;
+            let removed_conn = ctx.remove_peer_connection_from_kernel(ctx_user, target_cid).await?;
             // now that the connection is removed locally, let's alert the server
             let signal = PeerSignal::Disconnect(removed_conn.cxn_type, None);
             let request = HdpServerRequest::PeerCommand(ctx_user, signal);
@@ -217,7 +221,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         if let Some(matches) = matches.subcommand_matches("deregister") {
             let target_cid_orig = matches.value_of("target_cid").unwrap();
             let use_fcm = matches.is_present("fcm");
-            let ref cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Generic(format!("Context CNAC doesn't exist")))?;
+            let ref cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Generic(format!("Context CNAC doesn't exist")))?;
             let target_cid_raw = get_peer_cid_from_cnac(cnac, target_cid_orig)?;
 
             let signal = PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid_raw), use_fcm);
@@ -261,7 +265,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                 return Err(ConsoleError::Generic(format!("{} is not a file", path.display())));
             }
 
-            let read = ctx.sessions.read();
+            let read = ctx.sessions.read().await;
 
             let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
             let ref cnac = sess.cnac.clone();
@@ -296,8 +300,14 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             return Ok(Some(KernelResponse::ResponseTicket(ticket.0)));
         }
 
-        if let Some(_matches) = matches.subcommand_matches("list") {
-            let list_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetRegisteredPeers(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None));
+        if let Some(matches) = matches.subcommand_matches("list") {
+            let limit = if let Some(val) = matches.value_of("limit") {
+                Some(i32::from_str(val).map_err(|err| ConsoleError::Generic(err.to_string()))?)
+            } else {
+                None
+            };
+
+            let list_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetRegisteredPeers(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None, limit));
             let ticket = server_remote.unbounded_send(list_request)?;
             ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |_, ticket, response| {
                 match response {
@@ -356,7 +366,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         }
 
         if let Some(_matches) = matches.subcommand_matches("mutuals") {
-            let cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Default("Session CNAC non-existant"))?;
+            let cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC non-existant"))?;
             let get_consented_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None));
             let ticket = server_remote.unbounded_send(get_consented_request)?;
             ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |_ctx, ticket, success| {
@@ -439,7 +449,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         if let Some(_matches) = matches.subcommand_matches("channels") {
             // get the current context's session
             let ctx_username = ctx.active_user.read().clone();
-            let read = ctx.sessions.read();
+            let read = ctx.sessions.read().await;
             return if let Some(sess) = read.get(&ctx_user) {
                 if sess.concurrent_peers.len() != 0 {
                     let mut peers = Table::new();
@@ -469,7 +479,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             let username = ctx.active_user.read().clone();
             let target_cid = u64::from_str(target).map_err(|_err| ConsoleError::Default("Registration: CID only"))?;
 
-            let ref cnac = ctx.get_cnac_of_active_session().ok_or_else(|| ConsoleError::Generic(format!("ClientNetworkAccount not loaded. Check program logic")))?;
+            let ref cnac = ctx.get_cnac_of_active_session().await.ok_or_else(|| ConsoleError::Generic(format!("ClientNetworkAccount not loaded. Check program logic")))?;
             if cnac.hyperlan_peer_exists(target_cid) {
                 return Err(ConsoleError::Generic(format!("Peer {} is already consented to connect with {}", target_cid, username.as_str())));
             }
@@ -486,7 +496,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             let timeout = if use_fcm { FCM_POST_REGISTER_TIMEOUT } else { POST_REGISTER_TIMEOUT };
 
             // if using FCM, we still need to register here to subscribe to error events. The FCM processor can call upon this after processing to remove the raw ticket from the queue
-            ctx.register_ticket(ticket, timeout, target_cid, move |ctx, ticket, response| {
+            ctx.register_ticket(ticket, timeout, target_cid, move |_ctx, ticket, response| {
                 #[allow(unused_assignments)]
                 let mut return_err = None;
                 let res = match response {
@@ -567,7 +577,7 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
         if let Some(matches) = matches.subcommand_matches("post-connect") {
             let target = matches.value_of("target_cid").unwrap();
             let security_level = parse_security_level(matches)?;
-            let read = ctx.sessions.read();
+            let read = ctx.sessions.read().await;
             let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
             let ref cnac = sess.cnac;
 
@@ -636,8 +646,8 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
             let mail_id = usize::from_str(mail_id_target).map_err(|err| ConsoleError::Generic(err.to_string()))?;
 
             return if use_fcm {
-                let cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Default("Active session CNAC absent"))?;
-                let (fcm_post_register, ticket_id) = cnac.fcm_prepare_accept_register(mail_id as u64, accept).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Active session CNAC absent"))?;
+                let (fcm_post_register, ticket_id) = cnac.fcm_prepare_accept_register(mail_id as u64, accept).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
                 let fcm_post_register = if accept { fcm_post_register } else { FcmPostRegister::Decline };
                 let ticket = ticket_id.into();
                 let username = accept.then(|| cnac.get_username());
@@ -660,14 +670,15 @@ pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
                     // we get the implicated_cid below, since the order has not yet been reversed
                     let peer_cid = request.get_implicated_cid();
                     let implicated_cid = request.get_target_cid();
-                    let ctx_username = if accept { ctx.account_manager.get_username_by_cid(implicated_cid).ok_or(ConsoleError::Default("Implicated CID of request not found"))? } else { "DECLINED".to_string() };
+                    let ctx_username = if accept { ctx.account_manager.get_username_by_cid(implicated_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Implicated CID of request not found"))? } else { "DECLINED".to_string() };
 
                     let ticket = request.get_ticket_assert_register().unwrap();
 
                     if accept {
                         let peer_username = request.assert_register_get_username().unwrap();
+                        log::info!("Registering peer username: {:?}", &peer_username);
                         // TODO: Pull this down to the networking layer to take the responsibility off the kernel (will need to relay peer_username ... )
-                        ctx.account_manager.register_hyperlan_p2p_at_endpoints(implicated_cid, peer_cid, &peer_username).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                        ctx.account_manager.register_hyperlan_p2p_at_endpoints(implicated_cid, peer_cid, &peer_username).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
                     }
 
                     let response = if accept { PeerResponse::Accept(Some(ctx_username.clone())) } else { PeerResponse::Decline };

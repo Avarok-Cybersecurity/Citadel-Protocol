@@ -6,8 +6,8 @@ use crate::hdp::hdp_server::ConnectMode;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
 #[inline]
-pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResult {
-    let mut session = inner_mut!(session);
+pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResult {
+    let mut session = inner_mut!(sess_ref);
 
     if !session.is_provisional() {
         log::error!("Connect packet received, but the system is not in a provisional state. Dropping");
@@ -20,21 +20,25 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
     }
 
     // the preconnect stage loads the CNAC for us, as well as re-negotiating the keys
-    let cnac = session.cnac.as_ref()?;
+    let cnac = session.cnac.clone()?;
     let (header, payload, _, _) = packet.decompose();
-    let (header, payload, hyper_ratchet) = validation::aead::validate(cnac, &header, payload)?;
+    let (header, payload, hyper_ratchet) = validation::aead::validate(&cnac, &header, payload)?;
     let security_level = header.security_level.into();
+
+    let time_tracker = session.time_tracker.clone();
 
     match header.cmd_aux {
         // Node is Bob. Bob gets the encrypted username and password (separately encrypted)
         packet_flags::cmd::aux::do_connect::STAGE0 => {
             log::info!("STAGE 2 CONNECT PACKET");
-            let mut state_container = inner_mut!(session.state_container);
-            match validation::do_connect::validate_stage0_packet(cnac, &*payload) {
+            std::mem::drop(session);
+            match validation::do_connect::validate_stage0_packet(&cnac, &*payload).await {
                 Ok(fcm_keys) => {
 
+                    let session = inner_mut!(sess_ref);
+                    let mut state_container = inner_mut!(session.state_container);
                     // Now, we handle the FCM setup
-                    let _ = handle_client_fcm_keys(fcm_keys, cnac);
+                    let _ = handle_client_fcm_keys(fcm_keys, &cnac);
 
                     let cid = hyper_ratchet.get_cid();
                     let success_time = session.time_tracker.get_global_time_ns();
@@ -60,7 +64,13 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
                     //cnac.spawn_save_task_on_threadpool();
                     // register w/ peer layer, get mail in the process
                     let mailbox_items = session.session_manager.register_session_with_peer_layer(cid);
-                    let fcm_packets = cnac.retrieve_raw_fcm_packets();
+
+                    let sess_ref = sess_ref.clone();
+
+                    std::mem::drop(session);
+
+                    let fcm_packets = cnac.retrieve_raw_fcm_packets().await?;
+                    let mut session = inner_mut!(sess_ref);
                     let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, fcm_packets,session.create_welcome_message(cid), peers, success_time, security_level);
 
                     session.implicated_cid.store(Some(cid), Ordering::SeqCst);
@@ -74,12 +84,9 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
                 Err(err) => {
                     log::error!("Error validating stage2 packet. Reason: {}", err.to_string());
-                    let fail_time = session.time_tracker.get_global_time_ns();
-                    state_container.connect_state.on_fail();
-                    state_container.connect_state.on_connect_packet_received();
-                    std::mem::drop(state_container);
+                    let fail_time = time_tracker.get_global_time_ns();
 
-                    session.state = SessionState::NeedsConnect;
+                    //session.state = SessionState::NeedsConnect;
                     let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, None,err.to_string(), Vec::with_capacity(0), fail_time, security_level);
                     PrimaryProcessorResult::ReplyToSender(packet)
                 }

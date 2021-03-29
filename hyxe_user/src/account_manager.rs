@@ -1,55 +1,66 @@
 use crate::network_account::NetworkAccount;
-use std::collections::HashMap;
 use crate::client_account::ClientNetworkAccount;
-use hyxe_fs::io::FsError;
-use crate::account_loader::{load_node_nac, load_cnac_files};
 use std::sync::Arc;
 use std::net::SocketAddr;
 use crate::prelude::HyperNodeAccountInformation;
 use crate::misc::AccountError;
-use secstr::SecVec;
 use std::fmt::Display;
-use crossbeam_utils::sync::{ShardedLock, ShardedLockReadGuard, ShardedLockWriteGuard};
-use std::collections::hash_map::RandomState;
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::hypernode_account::NAC_SERIALIZED_EXTENSION;
 use hyxe_fs::env::DirectoryStore;
 use fcm::Client;
+use crate::backend::{BackendType, PersistenceHandler};
+use crate::backend::filesystem_backend::FilesystemBackend;
+use crate::backend::BackendConnection;
+use hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
+use hyxe_crypt::prelude::SecBuffer;
+use hyxe_crypt::fcm::keys::FcmKeys;
+use hyxe_crypt::argon_container::{AsyncArgon, ArgonSettings, ArgonStatus, ServerArgonContainer, ArgonContainerType};
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
 #[derive(Clone)]
-pub struct AccountManager {
-    /// A set of all local CNACs loaded at runtime + created during network registrations
-    map: Arc<ShardedLock<HashMap<u64, ClientNetworkAccount>>>,
-    local_nac: NetworkAccount,
+pub struct AccountManager<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
     fcm_client: Arc<Client>,
-    directory_store: DirectoryStore
+    persistence_handler: PersistenceHandler<R, Fcm>
 }
 
-impl AccountManager {
-    /// REQUIREMENT: Local NAC must exist. Therefore, for the local node's initialization phase, this must be created
-    /// This returns an empty inner domain because it does not load information from a pre-existing [NetworkMap]: It doesn't exist yet!
-    ///
+impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
+
     /// `bind_addr`: Required for determining the local save directories for this instance
     /// `home_dir`: Optional. Overrides the default storage location for files
     #[allow(unused_results)]
-    pub fn new_local(bind_addr: SocketAddr, home_dir: Option<String>) -> Result<Self, FsError<String>> {
+    pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType) -> Result<Self, AccountError> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
         let directory_store = hyxe_fs::env::setup_directories(bind_addr, NAC_SERIALIZED_EXTENSION, home_dir)?;
-
-        let mut map = load_cnac_files(&directory_store)?;
-        let local_nac = load_node_nac(&mut map, &directory_store).map_err(|err| FsError::IoError(err.into_string()))?;
-
-        let map = Arc::new(ShardedLock::new(map));
         let fcm_client = Arc::new(Client::new());
 
-        Ok(Self { map, local_nac, directory_store, fcm_client })
+        let persistence_handler = match backend_type.clone() {
+            BackendType::Filesystem => {
+                // note: call connect HERE! we need &mut, and cant thru Arc
+                let mut backend = FilesystemBackend::from(directory_store.clone());
+                backend.connect(&directory_store).await?;
+                PersistenceHandler::new(backend, directory_store)
+            }
+
+            #[cfg(feature = "enterprise")]
+            BackendType::MySQLDatabase(url) => {
+                use crate::backend::mysql_backend::SqlBackend;
+                let mut backend = SqlBackend::from((url, backend_type));
+                backend.connect(&directory_store).await?;
+                PersistenceHandler::new(backend, directory_store)
+            }
+        };
+
+        persistence_handler.post_connect(&persistence_handler)?;
+
+        Ok(Self { persistence_handler, fcm_client })
     }
 
     /// Returns the directory store for this local node session
     pub fn get_directory_store(&self) -> &DirectoryStore {
-        &self.directory_store
+        self.persistence_handler.directory_store()
     }
 
     /// Returns the fcm client
@@ -57,262 +68,158 @@ impl AccountManager {
         &self.fcm_client
     }
 
-    fn read_map(&self) -> ShardedLockReadGuard<HashMap<u64, ClientNetworkAccount, RandomState>> {
-        self.map.read().unwrap()
-    }
-
-    fn write_map(&self) -> ShardedLockWriteGuard<HashMap<u64, ClientNetworkAccount, RandomState>> {
-        self.map.write().unwrap()
-    }
-
-    #[cfg(debug_assertions)]
     /// For testing purposes only
-    pub fn debug_insert_cnac(&self, cnac: ClientNetworkAccount) -> bool {
-        let mut write = self.write_map();
-        write.insert(cnac.get_cid(), cnac.clone()).is_none()
+    pub fn debug_insert_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> bool {
+        self.persistence_handler.store_cnac(cnac);
+        true
     }
 
     /// Once a valid and decrypted stage 4 packet gets received by the server (Bob), this function should be called
     /// to create the new CNAC. The generated CNAC will be assumed to be an impersonal hyperlan client
-    pub fn register_impersonal_hyperlan_client_network_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: NetworkAccount, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, init_hyper_ratchet: &HyperRatchet) -> Result<ClientNetworkAccount, AccountError<String>> {
-        let new_cnac = self.local_nac.create_client_account(reserved_cid, Some(nac_other), username, password, full_name, password_hash, init_hyper_ratchet.clone())?;
-        // By using the local nac to create the CNAC, we ensured a unique CID and ensured that the config has been updated
-        // What remains is to update the internal graph
-        // To conclude the registration process, we need to:
-        // [0] Add the new CNAC to the global map
-        // [1] Insert the CNAC under the local impersonal server
-        log::info!("Created impersonal CNAC ...");
-        if let Some(cnac) = self.write_map().insert(new_cnac.get_id(), new_cnac.clone()) {
-            log::error!("Overwrote pre-existing account {} in the CNAC map. Please report to developers", cnac.get_id());
+    ///
+    /// This also generates the argon-2id password hash
+    pub async fn register_impersonal_hyperlan_client_network_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: NetworkAccount<R, Fcm>, username: T, password_hashed: SecBuffer, full_name: V, init_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError<String>> {
+        let settings = ArgonSettings::new_defaults(username.to_string().into_bytes());
+        match AsyncArgon::hash(password_hashed, settings.clone()).await.map_err(|err| AccountError::Generic(err.to_string()))? {
+            ArgonStatus::HashSuccess(hash_x2) => {
+                let server_container = ArgonContainerType::Server(ServerArgonContainer::new(settings, hash_x2));
+                let new_cnac = self.get_local_nac().create_client_account(reserved_cid, Some(nac_other), username, full_name, server_container, init_hyper_ratchet, fcm_keys).await?;
+                // By using the local nac to create the CNAC, we ensured a unique CID and ensured that the config has been updated
+                // What remains is to update the internal graph
+                // To conclude the registration process, we need to:
+                // [0] Add the new CNAC to the global map
+                // [1] Insert the CNAC under the local impersonal server
+                log::info!("Created impersonal CNAC ...");
+                self.persistence_handler.store_cnac(new_cnac.clone());
+
+                Ok(new_cnac)
+            }
+
+            _ => {
+                Err(AccountError::Generic("Unable to hash password".to_string()))
+            }
         }
-        Ok(new_cnac)
     }
 
     /// whereas the HyperLAN server (Bob) runs `register_impersonal_hyperlan_client_network_account`, the registering
     /// HyperLAN Client (Alice) runs this function below
-    pub fn register_personal_hyperlan_server<'a, R: ToString + Display, V: ToString + Display>(&self, valid_cid: u64, hyper_ratchet: HyperRatchet, username: R, full_name: V, adjacent_nac: NetworkAccount, password: SecVec<u8>, password_hash: Vec<u8>) -> Result<ClientNetworkAccount, AccountError<String>> {
-        let cnac = ClientNetworkAccount::new_from_network_personal(valid_cid, hyper_ratchet, &username, password, &full_name, password_hash, adjacent_nac, self.directory_store.clone())?;
-        self.local_nac.register_cid(cnac.get_id(), &username)?;
+    pub async fn register_personal_hyperlan_server<'a, M: ToString + Display, V: ToString + Display>(&self, valid_cid: u64, hyper_ratchet: R, username: M, full_name: V, adjacent_nac: NetworkAccount<R, Fcm>, argon_container: ArgonContainerType, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError<String>> {
+        let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(valid_cid, hyper_ratchet, &username, &full_name, argon_container, adjacent_nac, self.persistence_handler.clone(), fcm_keys).await?;
 
-        let mut map = self.write_map();
-        if let Some(_prev) = map.insert(cnac.get_id(), cnac.clone()) {
-            panic!("CID collision occurred. This must be fixed before release. PLEASE report to developers!");
-        } else {
-            log::info!("Successfully added CID to AccountManager Hashmap");
-        }
+        self.persistence_handler.register_cid(cnac.get_id(), &username.to_string()).await?;
+        self.persistence_handler.store_cnac(cnac.clone());
 
-        self.local_nac.spawn_save_task_on_threadpool();
+        self.get_local_nac().save_to_local_fs()?;
 
+        // At this point,
         Ok(cnac)
     }
 
     /// Determines if the HyperLAN client is registered
     /// Impersonal mode
-    pub fn hyperlan_cid_is_registered(&self, cid: u64) -> bool {
-        let local_nac = self.local_nac.read();
-        local_nac.cids_registered.contains_key(&cid)
-    }
-
-    /// Returns a list of registered local cids (personal + impersonal)
-    pub fn get_registered_local_cids(&self) -> Option<Vec<u64>> {
-        let local_nac = self.local_nac.read();
-        if !local_nac.cids_registered.is_empty() {
-            Some(local_nac.cids_registered.keys().cloned().collect::<Vec<u64>>())
-        } else {
-            None
-        }
+    pub async fn hyperlan_cid_is_registered(&self, cid: u64) -> Result<bool, AccountError> {
+        self.persistence_handler.cid_is_registered(cid).await
     }
 
     /// Returns a list of impersonal cids
-    pub fn get_registered_impersonal_cids(&self) -> Option<Vec<u64>> {
-        let read = self.read_map();
-        let ret = read.iter()
-            .filter(|cnac| !cnac.1.is_personal())
-            .map(|res| *res.0)
-            .collect::<Vec<u64>>();
-
-        if ret.is_empty() {
-            None
-        } else {
-            Some(ret)
-        }
+    pub async fn get_registered_impersonal_cids(&self, limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError> {
+        self.persistence_handler.get_registered_impersonal_cids(limit).await
     }
 
     /// Returns the CNAC with the supplied CID
-    pub fn get_client_by_cid(&self, cid: u64) -> Option<ClientNetworkAccount> {
-        self.read_map().get(&cid).cloned()
+    pub async fn get_client_by_cid(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
+        self.persistence_handler.get_cnac_by_cid(cid, &self.persistence_handler).await
     }
 
-    /// Blocking version of get_username_by_cid
-    pub fn get_username_by_cid(&self, cid: u64) -> Option<String> {
-        self.visit_cnac(cid, |cnac| Some(cnac.get_username()))
-    }
-
-    /// Gets a drill for a specific CID.
-    /// `drill_version`: If this is None, the latest drill version is obtained. Else, the specified drill version is obtained
-    pub fn get_hyper_ratchet(&self, cid: u64, hyper_ratchet_version: Option<u32>) -> Option<HyperRatchet> {
-        self.visit_cnac(cid, |cnac| cnac.get_hyper_ratchet(hyper_ratchet_version))
+    /// Gets username by CID
+    pub async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
+        self.persistence_handler.get_username_by_cid(cid).await
     }
 
     /// Returns the first username detected. This is not advised to use, because overlapping usernames are entirely possible.
     /// Instead, use get_client_by_cid, as the cid is unique unlike the cid
-    pub fn get_client_by_username<T: AsRef<str>>(&self, username: T) -> Option<ClientNetworkAccount> {
-        let username = username.as_ref();
-        self.read_map().iter().find(|(_, cnac)| cnac.read().username.eq(username))
-            .map(|(_, cnac)| cnac.clone())
+    pub async fn get_client_by_username<T: AsRef<str>>(&self, username: T) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
+        self.persistence_handler.get_client_by_username(username.as_ref(), &self.persistence_handler).await
     }
 
-    /// Allows a function to visit each value without cloning
-    pub fn visit_all_users_blocking(&self, mut fx: impl FnMut(&ClientNetworkAccount)) {
-        self.read_map().values().for_each(|cnac| fx(cnac))
+    /// Allows a function to visit each value without cloning. This will be a no-op if probing a database, since that would be horribly performant
+    pub fn visit_all_users_blocking(&self, fx: impl FnMut(&ClientNetworkAccount<R, Fcm>)) {
+        if let Some(map) = self.persistence_handler.get_local_map() {
+            map.read().unwrap().values().for_each(fx)
+        }
     }
 
     /// Gets the CID by username
-    pub fn get_cid_by_username<T: AsRef<str>>(&self, username: T) -> Option<u64> {
-        let username = username.as_ref();
-        self.read_map().iter().find(|(_, cnac)| cnac.read().username.eq(username))
-            .map(|(cid, _)| *cid)
-    }
-
-    /// Returns a client by IP Address
-    pub fn get_client_by_addr(&self, addr: &SocketAddr, prefer_ipv6: bool) -> Option<ClientNetworkAccount> {
-        let read = self.read_map();
-        for (_, cnac) in read.iter() {
-            if let Some(ip) = cnac.read().adjacent_nac.as_ref().unwrap().get_addr(prefer_ipv6) {
-                if ip.eq(addr) {
-                    return Some(cnac.clone())
-                }
-            }
-        }
-
-        None
+    pub async fn get_cid_by_username<T: AsRef<str>>(&self, username: T) -> Result<Option<u64>, AccountError> {
+        self.persistence_handler.get_cid_by_username(username.as_ref()).await
     }
 
     /// Returns the number of accounts purged
-    pub fn purge(&self) -> usize {
-        let mut write = self.write_map();
-        let count = write.len();
-        for (cid, mut cnac) in write.drain() {
-            log::info!("Purging cid {}", cid);
-            cnac.purge_from_fs_blocking().unwrap()
-        }
-
-        let mut write = self.local_nac.write();
-        write.cids_registered.clear();
-        std::mem::drop(write);
-        if let Err(err) = self.local_nac.save_to_local_fs() {
-            log::error!("Error saving NAC to storage: {:?}", err);
-        }
-
-        count
+    pub async fn purge(&self) -> Result<usize, AccountError> {
+        self.persistence_handler.purge().await
     }
 
     /// Does not execute the registration process between two peers; it only consolidates the changes to the local CNAC
     /// returns true if success, false otherwise
-    pub fn register_hyperlan_p2p_at_endpoints<T: ToString>(&self, implicated_cid: u64, peer_cid: u64, adjacent_username: T) -> Result<(), AccountError>{
+    pub async fn register_hyperlan_p2p_at_endpoints<T: ToString>(&self, implicated_cid: u64, peer_cid: u64, adjacent_username: T) -> Result<(), AccountError> {
         let adjacent_username = adjacent_username.to_string();
         log::info!("Registering {} ({}) to {} (local)", &adjacent_username, peer_cid, implicated_cid);
 
-        let read = self.read_map();
-        if let Some(cnac) = read.get(&implicated_cid) {
-            cnac.insert_hyperlan_peer(peer_cid, adjacent_username);
-            cnac.blocking_save_to_local_fs()
-        } else {
-            Err(AccountError::Generic(format!("Implicated CID {} not found", implicated_cid)))
-        }
+        let cnac = self.persistence_handler.get_cnac_by_cid(implicated_cid, &self.persistence_handler).await?.ok_or(AccountError::ClientNonExists(implicated_cid))?;
+        cnac.insert_hyperlan_peer(peer_cid, adjacent_username);
+        cnac.save().await
     }
 
     /// Registers the two accounts together at the server
-    pub fn register_hyperlan_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
-        let read = self.read_map();
-        let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;
-        let cnac1 = read.get(&cid1).ok_or(AccountError::ClientNonExists(cid1))?;
-
-        cnac0.register_hyperlan_p2p_as_server(cnac1);
-        Ok(())
+    pub async fn register_hyperlan_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
+        self.persistence_handler.register_p2p_as_server(cid0, cid1).await
     }
 
     /// Deregisters the two peers from each other
-    pub fn deregister_hyperlan_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
-        let read = self.read_map();
-        let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;
-        let cnac1 = read.get(&cid1).ok_or(AccountError::ClientNonExists(cid1))?;
-
-        cnac0.deregister_hyperlan_p2p_as_server(cnac1)?;
-
-        Ok(())
+    pub async fn deregister_hyperlan_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
+        self.persistence_handler.deregister_p2p_as_server(cid0, cid1).await
     }
 
     /// Deletes a client by username
-    pub fn delete_client_by_username<T: AsRef<str>>(&self, username: T) -> bool {
-        if let Some(cid) = self.get_cid_by_username(username) {
-            self.delete_client_by_cid(cid)
-        } else {
-            false
-        }
+    pub async fn delete_client_by_username<T: AsRef<str>>(&self, username: T) -> Result<(), AccountError> {
+        self.persistence_handler.delete_client_by_username(username.as_ref()).await
     }
 
     /// Deletes a client by cid. Returns true if a success
     #[allow(unused_results)]
-    pub fn delete_client_by_cid(&self, cid: u64) -> bool {
-        let mut write = self.write_map();
-        if let Some(mut removed_client) = write.remove(&cid) {
-            // Now, find any mutuals inside the removed client and clean them
-            removed_client.view_hyperlan_peers(|peers| {
-                for peer in peers {
-                    let peer_cid = peer.cid;
-                    if let Some(mutual) = write.get(&peer_cid) {
-                        if let Some(_) = mutual.remove_hyperlan_peer(cid) {
-                            mutual.spawn_save_task_on_threadpool();
-                        }
-                    }
-                }
-            });
-
-            // Now that the account is removed from the list, it won't be saved upon synchronization.
-            // The last step is to purge its existing content from the file system
-            if removed_client.purge_from_fs_blocking().is_ok() {
-                // Finally, remove the entry in the config file
-                if self.local_nac.remove_registered_cid(removed_client.get_id()) {
-                    self.local_nac.spawn_save_task_on_threadpool();
-                    true
-                } else {
-                    false
-                }
-            } else {
-                log::error!("Unable to remove client {} from the internal filesystem. Please report to administrator", cid);
-                false
-            }
-        } else {
-            false
-        }
+    pub async fn delete_client_by_cid(&self, cid: u64) -> Result<(), AccountError> {
+        self.persistence_handler.delete_cnac_by_cid(cid).await
     }
 
-    /// Saves all the CNACs to the local filesystem safely. This should be called during the shutdowns sequence.
-    pub async fn async_save_to_local_fs(&self) -> Result<(), AccountError<String>> {
-        let write = self.write_map();
-        let iter = write.iter();
-        for (_, cnac) in iter {
-            cnac.clone().async_save_to_local_fs().await?
-        }
-        std::mem::drop(write);
+    /// Gets a list of hyperlan peers for the given peer
+    pub async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError> {
+        self.persistence_handler.get_hyperlan_peer_list(implicated_cid).await
+    }
 
-        self.local_nac.clone().async_save_to_local_fs().await
+    /// Saves all the CNACs safely. This should be called during the shutdowns sequence.
+    pub async fn save(&self) -> Result<(), AccountError<String>> {
+        self.persistence_handler.save_all().await
     }
 
     /// returns the local nac
-    pub fn get_local_nac(&self) -> &NetworkAccount {
-        &self.local_nac
+    pub fn get_local_nac(&self) -> &NetworkAccount<R, Fcm> {
+        self.persistence_handler.local_nac()
+    }
+
+    /// Returns the persistence handler
+    pub fn get_persistence_handler(&self) -> &PersistenceHandler<R, Fcm> {
+        &self.persistence_handler
     }
 
     /// Returns the NID of the local system
     pub fn get_local_nid(&self) -> u64 {
-        self.local_nac.get_id()
+        self.get_local_nac().get_id()
     }
 
-    /// visits a CNAC without cloning
-    pub fn visit_cnac<J>(&self, cid: u64, fx: impl FnOnce(&ClientNetworkAccount) -> Option<J>) -> Option<J> {
-        let read = self.read_map();
-        fx(read.get(&cid)?)
+    /// visits a CNAC without cloning. This should only be done at the endpoints!!
+    pub fn visit_cnac_as_endpoint<J>(&self, cid: u64, fx: impl FnOnce(&ClientNetworkAccount<R, Fcm>) -> Option<J>) -> Option<J> {
+        let map = self.persistence_handler.get_local_map()?;
+        let map = map.read().ok()?;
+        map.get(&cid).map(|c| fx(c))?
     }
 }

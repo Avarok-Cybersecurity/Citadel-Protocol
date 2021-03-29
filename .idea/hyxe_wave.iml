@@ -401,6 +401,8 @@
       <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_core/.pub" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/awesome_notifications/example/build" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/awesome_notifications/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/google_https_dns/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/google_https_dns/.pub" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

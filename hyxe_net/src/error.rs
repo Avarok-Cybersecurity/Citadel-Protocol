@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt::{Display, Debug};
 use std::fmt::Formatter;
 use tokio::sync::mpsc::error::SendError;
+use hyxe_user::misc::AccountError;
 
 /// The basic error type for this crate
 pub enum NetworkError {
@@ -94,5 +95,11 @@ impl Display for NetworkError {
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for NetworkError {
     fn from(err: SendError<T>) -> Self {
         NetworkError::Generic(err.to_string())
+    }
+}
+
+impl<T: Into<String>> From<AccountError<T>> for NetworkError {
+    fn from(err: AccountError<T>) -> Self {
+        NetworkError::Generic(err.into_string())
     }
 }

@@ -428,7 +428,7 @@ pub enum PeerSignal {
     // implicated_cid, icid, target cid
     AcceptFileUploadRequest(PeerConnectionType, Ticket),
     // Retrieves a list of registered peers
-    GetRegisteredPeers(HypernodeConnectionType, Option<PeerResponse>),
+    GetRegisteredPeers(HypernodeConnectionType, Option<PeerResponse>, Option<i32>),
     // returns a list of mutuals for implicated cid, icid. Can be used to sync between the HyperLAN client and HyperLAN server
     GetMutuals(HypernodeConnectionType, Option<PeerResponse>),
     // Returned when an error occurs

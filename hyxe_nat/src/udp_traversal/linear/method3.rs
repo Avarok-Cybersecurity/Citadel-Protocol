@@ -82,6 +82,8 @@ impl Method3 {
             ret.push(res.map_err(|err| FirewallError::HolePunch(err.to_string()))??);
         }
 
+        log::info!("Completed initiator hole-punch...");
+
         Ok(ret)
     }
 

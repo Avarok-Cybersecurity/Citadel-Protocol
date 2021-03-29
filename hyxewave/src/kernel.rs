@@ -36,6 +36,7 @@ use hyxe_net::functional::IfEqConditional;
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_user::fcm::kem::FcmPostRegister;
 use crate::command_handlers::peer::PostRegisterRequest;
+use hyxe_net::hdp::misc::panic_future::AssertSendSafeFuture;
 
 #[allow(dead_code)]
 pub struct CLIKernel {
@@ -68,18 +69,18 @@ impl CLIKernel {
         }
     }
 
-    pub fn load_new_kernel_session(&self, kernel_session: KernelSession) {
-        self.console_context.load_kernel_session(kernel_session)
+    pub async fn load_new_kernel_session(&self, kernel_session: KernelSession) {
+        self.console_context.load_kernel_session(kernel_session).await
     }
 
     /// Returns the username, or, CID if not found
-    fn get_username_display(&self, cid: u64) -> String {
-        self.console_context.account_manager.get_username_by_cid(cid).unwrap_or_else(|| format!("{}", cid))
+    async fn get_username_display(&self, cid: u64) -> String {
+        self.console_context.account_manager.get_username_by_cid(cid).await.unwrap_or_else(|_| Some(format!("{}", cid))).unwrap_or_else(|| format!("{}", cid))
     }
 
     /// Returns the username, or, CID if not found
     fn get_peer_username_display(&self, implicated_cid: u64, peer_cid: u64) -> String {
-        self.console_context.account_manager.visit_cnac(implicated_cid, |cnac| {
+        self.console_context.account_manager.visit_cnac_as_endpoint(implicated_cid, |cnac| {
             cnac.get_hyperlan_peer(peer_cid).map(|res| res.username.unwrap_or(INVALID_UTF8.to_string()))
         }).unwrap_or_else(|| format!("{}", peer_cid))
     }
@@ -87,10 +88,10 @@ impl CLIKernel {
     /// Sometimes, this function is called after a disconnect_all. When that function is called,
     /// all the sessions are drained, and thus once disconnect status returns get sent to this kernel,
     /// the sessions won't be present. Thus, we must check the can_ran variable in the console context
-    pub fn unload_kernel_session(&self, cid: u64) {
+    pub async fn unload_kernel_session(&self, cid: u64) {
         if self.console_context.can_run() {
             self.console_context.on_session_dc(cid);
-            let mut write = self.console_context.sessions.write();
+            let mut write = self.console_context.sessions.write().await;
             if let None = write.remove(&cid) {
                 //colour::red_ln!("Attempted to remove session {}, but it did not exist in the sessions map", cid);
                 //log::warn!("Unable to remove CID {} from the kernel sessions list", cid);
@@ -139,7 +140,7 @@ impl NetKernel for CLIKernel {
                 // send a [PeerResponse] of Ok to the ticket-tracker
                 let cid = channel.get_implicated_cid();
                 let peer_cid = channel.get_peer_cid();
-                if let Err(err) = self.console_context.load_peer_channel_into_kernel(channel) {
+                if let Err(err) = self.console_context.load_peer_channel_into_kernel(channel).await {
                     printf_ln!(colour::red!("Unable to load channel into kernel: {}", err.into_string()));
                     return Ok(());
                 }
@@ -250,30 +251,35 @@ impl NetKernel for CLIKernel {
 
             HdpServerResult::DeRegistration(vconn, ticket, is_personal, status) => {
                 if !is_personal {
-                    printf_ln!(colour::yellow!("Deregistration of {:?} was {}\n", self.get_username_display(vconn.get_implicated_cid()), status.if_eq(true, "successful").if_false("not successful")));
+                    let username = self.get_username_display(vconn.get_implicated_cid()).await;
+                    printf_ln!(colour::yellow!("Deregistration of {:?} was {}\n", username , status.if_eq(true, "successful").if_false("not successful")));
                 } else {
                     let resp = status.if_eq(true, PeerResponse::Ok(None)).if_false(PeerResponse::Err(None));
                     self.on_ticket_received_opt(ticket, resp);
                 }
-                self.unload_kernel_session(vconn.get_implicated_cid());
+                self.unload_kernel_session(vconn.get_implicated_cid()).await;
             }
 
             // FFI handler built-in to the ticket callback
             HdpServerResult::ConnectSuccess(ticket, cid, ip_addr, is_personal, virtual_cxn_type, raw_fcm_packet_store, message) => {
                 self.on_ticket_received(ticket, PeerResponse::Ok(Some(message)));
-                let cnac = self.console_context.account_manager.get_client_by_cid(cid).unwrap();
-                let username = cnac.get_username();
-                if !is_personal {
-                    printf!(colour::green!("Connection to hypernode {} ({}) forged\n", cid, &username));
-                }
-
-                match virtual_cxn_type {
-                    VirtualConnectionType::HyperLANPeerToHyperLANServer(cid) => {
-                        self.load_new_kernel_session(KernelSession::new(cnac, cid, ip_addr, username, is_personal, virtual_cxn_type));
+                if let Ok(Some(cnac)) = self.console_context.account_manager.get_client_by_cid(cid).await {
+                    let username = cnac.get_username();
+                    if !is_personal {
+                        printf!(colour::green!("Connection to hypernode {} ({}) forged\n", cid, &username));
                     }
 
-                    _ => {}
+                    match virtual_cxn_type {
+                        VirtualConnectionType::HyperLANPeerToHyperLANServer(cid) => {
+                            self.load_new_kernel_session(KernelSession::new(cnac, cid, ip_addr, username, is_personal, virtual_cxn_type)).await;
+                        }
+
+                        _ => {}
+                    }
+                } else {
+                    log::warn!("Unable to get client_by_id");
                 }
+
             }
 
             // FFI Handles this in the callback
@@ -310,21 +316,23 @@ impl NetKernel for CLIKernel {
 
             // TODO: FFI should be handled within ticket callback
             HdpServerResult::Disconnect(ticket, cid, _success, _cxn_type, dc_message) => {
-                printf_ln!(colour::yellow!("Session for {} disconnected", self.get_username_display(cid)));
+                let username = self.get_username_display(cid).await;
+                printf_ln!(colour::yellow!("Session for {} disconnected", username));
                 self.on_ticket_received(ticket, PeerResponse::Ok(Some(dc_message)));
                 // A disconnect implies a connection occurred. As such, it is necessary the below not return an error, implying it is necessary that
                 // a session loaded, UNLESS there is a bug still in the server-level that sends a DISCONNECT instead of a CONNECT_FAIL
-                self.unload_kernel_session(cid);
+                self.unload_kernel_session(cid).await;
                 if *self.console_context.is_ffi {
                     self.console_context.proxy_to_ffi(KernelResponse::DomainSpecificResponse(DomainResponse::Disconnect(DisconnectResponse::HyperLANPeerToHyperLANServer(ticket.0, cid))));
                 } else {
-                    printf_ln!(colour::yellow!("{} sessions left\n", self.console_context.sessions.read().len()));
+                    let len = self.console_context.sessions.read().await.len();
+                    printf_ln!(colour::yellow!("{} sessions left\n", len));
                 }
             }
 
             HdpServerResult::PeerEvent(signal, ticket) => {
                 match signal {
-                    PeerSignal::GetRegisteredPeers(conn, resp_opt) => {
+                    PeerSignal::GetRegisteredPeers(conn, resp_opt, _limit) => {
                         self.on_ticket_received(ticket, resp_opt.unwrap_or(PeerResponse::empty_registered()));
                     }
 
@@ -351,7 +359,7 @@ impl NetKernel for CLIKernel {
                     PeerSignal::Deregister(conn, _fcm) => {
                         printf_ln!(colour::yellow!("Peer {} deregistered from {}\n", conn.get_original_implicated_cid(), conn.get_original_target_cid()));
 
-                        match self.console_context.remove_peer_connection_from_kernel(conn.get_original_target_cid(), conn.get_original_implicated_cid()) {
+                        match self.console_context.remove_peer_connection_from_kernel(conn.get_original_target_cid(), conn.get_original_implicated_cid()).await {
                             Ok(peer_sess) => {
                                 printf_ln!(colour::yellow!("Removed peer session {} from {}\n", peer_sess.peer_info.username.unwrap_or_default(), conn.get_original_target_cid()));
                             }
@@ -376,7 +384,7 @@ impl NetKernel for CLIKernel {
                                     match peer_conn {
                                         PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                                             // disconnect
-                                            if let Err(err) = self.console_context.remove_peer_connection_from_kernel(implicated_cid, target_cid) {
+                                            if let Err(err) = self.console_context.remove_peer_connection_from_kernel(implicated_cid, target_cid).await {
                                                 printf_ln!(colour::red!("Unable to remove peer connection {} <-> {}. Reason: {}\n", target_cid, implicated_cid, err.into_string()));
                                             }
                                         }
@@ -466,9 +474,10 @@ fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticke
         if let Some(ticket) = ticket {
             let peer_cid = conn.get_original_implicated_cid();
             let this_cid = conn.get_original_target_cid();
-            let username = this.console_context.account_manager.visit_cnac(this_cid, |cnac| {
+            let username = this.console_context.account_manager.visit_cnac_as_endpoint(this_cid, |cnac| {
                 cnac.get_hyperlan_peer(peer_cid)?.username.clone()
             });
+
             let username = username.unwrap_or(String::from("INVALID"));
             // now, store the mail that way the next call to peer accept-request can work
             let mail_id = this.console_context.unread_mail.write().on_peer_request_received(IncomingPeerRequest::Connection(ticket, conn, Instant::now(), endpoint_security_addr));
@@ -594,7 +603,7 @@ async fn terminal_ticket_and_loopback_future(ticket_queue_handler: TicketQueueHa
         (ffi_io)(Ok(Some(KernelResponse::KernelInitiated)));
     } else {
         if !daemon_mode {
-            unordered.push(Box::pin(terminal_future(server_remote, ctx)));
+            unordered.push(Box::pin(AssertSendSafeFuture::new(terminal_future(server_remote, ctx))));
         }
     }
 
