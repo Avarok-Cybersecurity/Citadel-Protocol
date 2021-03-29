@@ -7,33 +7,24 @@ use crate::prelude::{ClientNetworkAccount, HyperNodeAccountInformation, NetworkA
 use crate::misc::AccountError;
 use std::collections::HashMap;
 use hyxe_fs::env::*;
-use crate::server_config_handler::sync_cnacs_and_nac;
+use hyxe_crypt::hyper_ratchet::Ratchet;
 
 /// This is called during the program init. This closure will install a new NAC if one does not
 /// exist locally.
 /// `cnacs_loaded` must also be present in order to validate that the local node's listed clients map to locally-existant CNACs. A "feed two birds with one scone" scenario
 #[allow(unused_results)]
-pub fn load_node_nac(cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount>, dirs: &DirectoryStore) -> Result<NetworkAccount, AccountError<String>> {
+pub fn load_node_nac<R: Ratchet, Fcm: Ratchet>(uses_db: bool, directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError<String>> {
     log::info!("[NAC-loader] Detecting local NAC...");
     // First, set the NAC_NODE_DEFAULT_STORE_LOCATION
-    let file_location = dirs.inner.read().nac_node_default_store_location.clone();
+    let file_location = directory_store.inner.read().nac_node_default_store_location.clone();
 
     match std::fs::File::open(&file_location) {
         Ok(_) => {
             log::info!("[NAC-Loader] Detected local NAC. Updating information...");
-            match read::<NetworkAccountInner, _>(&file_location) {
-                Ok(mut inner) => {
-                    inner.dirs = Some(dirs.clone());
-                    let nac = NetworkAccount::new_from_local_fs(inner);
-                    sync_cnacs_and_nac(&nac, cnacs_loaded)?;
-                    Ok(nac)
-                },
-                Err(err) => Err(AccountError::Generic(err.to_string()))
-            }
+            read::<NetworkAccountInner<R, Fcm>, _>(&file_location).map(NetworkAccount::<R, Fcm>::from).map_err(|err| err.into())
         },
         Err(err) => {
-            if let Ok(nac) = NetworkAccount::new_local(dirs) {
-                nac.save_to_local_fs()?;
+            if let Ok(nac) = NetworkAccount::<R, Fcm>::new(uses_db, directory_store) {
                 Ok(nac)
             } else {
                 Err(AccountError::Generic(format!("[NAC-Loader] Unable to start application. Unable to create this node's NetworkAccount.\nError Message: {}", err.to_string())))
@@ -44,18 +35,18 @@ pub fn load_node_nac(cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount>, dirs
 
 /// Loads all locally-stored CNACs, as well as the highest CID (used to update local nac incase improper shutdown)
 #[allow(unused_results)]
-pub fn load_cnac_files(dirs: &DirectoryStore) -> Result<HashMap<u64, ClientNetworkAccount>, FsError<String>> {
-    let read = dirs.inner.read();
+pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore) -> Result<HashMap<u64, ClientNetworkAccount<R, Fcm>>, FsError<String>> {
+    let read = directory_store.inner.read();
     let hyxe_nac_dir_impersonal = read.hyxe_nac_dir_impersonal.clone();
     let hyxe_nac_dir_personal = read.hyxe_nac_dir_personal.clone();
     std::mem::drop(read);
 
-    let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccountInner, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_impersonal)?;
-    let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccountInner, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_personal)?;
+    let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_impersonal)?;
+    let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_personal)?;
     log::info!("[CNAC Loader] Impersonal client network accounts loaded: {} | Personal client network accounts loaded: {}", cnacs_impersonal.len(), cnacs_personal.len());
     let mut ret = HashMap::with_capacity(cnacs_impersonal.len() + cnacs_personal.len());
     for cnac in cnacs_impersonal.into_iter().chain(cnacs_personal.into_iter()) {
-        match ClientNetworkAccount::load_safe_from_fs(cnac.0, cnac.1.clone(), dirs) {
+        match ClientNetworkAccount::<R, Fcm>::load_safe(cnac.0, Some(cnac.1.clone()), None) {
             Ok(cnac) => {
                 ret.insert(cnac.get_id(), cnac);
             },
@@ -73,16 +64,3 @@ pub fn load_cnac_files(dirs: &DirectoryStore) -> Result<HashMap<u64, ClientNetwo
 
     Ok(ret)
 }
-
-/*
-/// Creates and internally-loads a CNAC, ready for use. This does not load safely, as it is expected the data is serialized
-/// via the normal method
-pub async fn load_cnac_from_bytes_test<T: AsRef<[u8]>>(serialized_bytes: T, test_nac: &NetworkAccount) -> Result<ClientNetworkAccount, AccountError<String>> {
-    let serialized_bytes = serialized_bytes.as_ref();
-
-    let mut inner = hyxe_fs::system_file_manager::bytes_to_type::<ClientNetworkAccountInner>(serialized_bytes).map_err(|err| AccountError::Generic(err.to_string()))?;
-    inner.adjacent_nac = Some(test_nac.clone());
-
-    Ok(ClientNetworkAccount::from(inner))
-}
-*/

@@ -77,6 +77,9 @@ impl LinearUDPHolePuncher {
             if let Err(err) = open_local_firewall_port(FirewallProtocol::UDP(socket.local_addr()?.port())) {
                 log::warn!("Unable to ensure UDP ports were opened. Packets may not traverse ({})", err.to_string());
             }
+
+            socket.set_nonblocking(true)?;
+
             log::info!("Reserved UDP socket on local socket {:?}", &socket);
             UdpSocket::from_std(socket)
         }).filter_map(|res| {

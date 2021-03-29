@@ -1,4 +1,4 @@
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsDuplication};
+use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
 use std::collections::HashMap;
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
@@ -27,6 +27,6 @@ pub fn process(peer_cid: u64, local_cid: u64, ticket: u64, fcm_crypt_container: 
         FcmProcessorResult::Err(err.into_string())
     } else {
         // requestor is the peer, since we are receiving the notification here that the other endpoint deregistered
-        FcmProcessorResult::Value(FcmResult::Deregistered { peer_cid: local_cid, requestor_cid: peer_cid, ticket }, FcmPacketMaybeNeedsDuplication::none())
+        FcmProcessorResult::Value(FcmResult::Deregistered { peer_cid: local_cid, requestor_cid: peer_cid, ticket }, FcmPacketMaybeNeedsSending::none())
     }
 }

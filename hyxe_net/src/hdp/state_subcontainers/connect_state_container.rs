@@ -2,7 +2,7 @@ use tokio::time::Instant;
 
 use crate::constants::DO_CONNECT_EXPIRE_TIME_MS;
 use crate::hdp::hdp_packet::packet_flags;
-use crate::proposed_credentials::ProposedCredentials;
+use hyxe_user::proposed_credentials::ProposedCredentials;
 use crate::hdp::hdp_server::ConnectMode;
 
 /// These values should correlate directly to the packet_flags::cmd::aux::do_connect::*

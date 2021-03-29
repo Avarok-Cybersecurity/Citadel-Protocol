@@ -1,18 +1,17 @@
 pub(crate) mod do_connect {
-    use secstr::SecVec;
-
     use hyxe_user::client_account::ClientNetworkAccount;
 
     use crate::error::NetworkError;
     use hyxe_fs::prelude::SyncIO;
     use crate::hdp::hdp_packet_crafter::do_connect::{DoConnectStage0Packet, DoConnectFinalStatusPacket};
     use hyxe_crypt::fcm::keys::FcmKeys;
+    use hyxe_crypt::prelude::SecBuffer;
 
     /// Here, Bob receives a payload of the encrypted username + password. We must verify the login data is valid
-    pub(crate) fn validate_stage0_packet(cnac: &ClientNetworkAccount, payload: &[u8]) -> Result<Option<FcmKeys>, NetworkError> {
+    pub(crate) async fn validate_stage0_packet(cnac: &ClientNetworkAccount, payload: &[u8]) -> Result<Option<FcmKeys>, NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
         let payload = DoConnectStage0Packet::deserialize_from_vector(payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
-        cnac.validate_credentials(payload.username, SecVec::new(Vec::from(payload.password))).map_err(|err| NetworkError::Generic(err.into_string()))?;
+        cnac.validate_credentials(payload.username, SecBuffer::from(payload.password)).await.map_err(|err| NetworkError::Generic(err.into_string()))?;
         log::info!("Success validating credentials!");
         Ok(payload.fcm_keys)
     }
@@ -161,8 +160,8 @@ pub(crate) mod do_register {
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use bytes::BytesMut;
     use hyxe_fs::io::SyncIO;
-    use hyxe_fs::env::DirectoryStore;
     use crate::hdp::hdp_packet_crafter::do_register::DoRegisterStage2Packet;
+    use hyxe_user::backend::PersistenceHandler;
 
     pub(crate) fn validate_stage0<'a>(header: &'a LayoutVerified<&[u8], HdpHeader>, payload: &'a [u8]) -> Option<(AliceToBobTransfer<'a>, Vec<u64>)> {
         let cids_to_get = header.context_info.get() as usize;
@@ -191,20 +190,20 @@ pub(crate) mod do_register {
     }
 
     /// Returns the decrypted username, password, and full name
-    pub(crate) fn validate_stage2(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, peer_addr: SocketAddr, dirs: &DirectoryStore) -> Option<(DoRegisterStage2Packet, NetworkAccount)> {
+    pub(crate) fn validate_stage2(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, peer_addr: SocketAddr, persistence_handler: &PersistenceHandler) -> Option<(DoRegisterStage2Packet, NetworkAccount)> {
         let (_, plaintext_bytes) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
         let packet = DoRegisterStage2Packet::deserialize_from_vector(&plaintext_bytes[..]).ok()?;
 
         //let proposed_credentials = ProposedCredentials::new_from_hashed(full_name, username, SecVec::new(password.to_vec()), nonce);
         let adjacent_nid = header.session_cid.get();
-        let adjacent_nac = NetworkAccount::new_from_recent_connection(adjacent_nid, peer_addr, dirs.clone());
+        let adjacent_nac = NetworkAccount::new_from_recent_connection(adjacent_nid, peer_addr, persistence_handler.clone());
         Some((packet, adjacent_nac))
     }
 
     /// Returns the decrypted Toolset text, as well as the welcome message
-    pub(crate) fn validate_success(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr, dirs: &DirectoryStore) -> Option<(Vec<u8>, NetworkAccount)> {
+    pub(crate) fn validate_success(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr, persistence_handler: &PersistenceHandler) -> Option<(Vec<u8>, NetworkAccount)> {
         let (_, payload) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
-        let adjacent_nac = NetworkAccount::new_from_recent_connection(header.session_cid.get(), remote_addr, dirs.clone());
+        let adjacent_nac = NetworkAccount::new_from_recent_connection(header.session_cid.get(), remote_addr, persistence_handler.clone());
         Some((payload.to_vec(), adjacent_nac))
     }
 

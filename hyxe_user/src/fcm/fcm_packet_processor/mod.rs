@@ -2,14 +2,14 @@ use crate::account_manager::AccountManager;
 use std::ops::Try;
 use crate::fcm::data_structures::{FcmPacket, FCMPayloadType, FcmHeader, FcmTicket, RawFcmPacket, RawFcmPacketStore};
 use std::option::NoneError;
-use hyxe_crypt::hyper_ratchet::Ratchet;
 use crate::misc::AccountError;
 use hyxe_fs::io::SyncIO;
 use std::future::Future;
 use crate::prelude::ClientNetworkAccountInner;
 use std::sync::Arc;
 use crate::fcm::fcm_packet_processor::peer_post_register::{PostRegisterInvitation, FcmPostRegisterResponse};
-use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_crypt::hyper_ratchet::Ratchet;
+use crate::fcm::fcm_instance::FCMInstance;
 
 pub(crate) mod group_header;
 pub(crate) mod group_header_ack;
@@ -24,84 +24,95 @@ pub mod peer_post_register;
 /// inbound FCM packet, the user first FETCH_LOGINS to the server to fetch any pending data that has not yet been processed. The processing will take place sequentially
 ///
 /// NOTE: This implies that sending the re-key payloads is redundant over FCM. We can have notification packets that wake-up the device instead later-on
+///
+/// Note: This should ONLY be called at the endpoints!!
 pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &AccountManager) -> FcmProcessorResult {
-    log::info!("A0");
-    let raw_packet = RawFcmPacket::from(base64_value);
-    log::info!("A1");
-    let packet = FcmPacket::from_raw_fcm_packet(&raw_packet)?;
-    log::info!("A2");
-    let header = packet.header();
-    let group_id = header.group_id.get();
-    let ticket = header.ticket.get();
-    let use_client_server_ratchet = header.target_cid.get() == 0;
-    log::info!("Using {} ratchet", use_client_server_ratchet.then(|| "client/server").unwrap_or("FCM endpoint"));
-    // if the target cid is zero, it means we aren't using endpoint containers (only client -> server container)
-    let local_cid = if use_client_server_ratchet { header.session_cid.get() } else { header.target_cid.get() };
-    let implicated_cid = header.session_cid.get();
-    let ratchet_version = header.ratchet_version.get();
+    let account_manager = account_manager.clone();
+    let base64_value = base64_value.into();
 
-    let (header, mut payload) = packet.split();
-    let fcm_client = account_manager.fcm_client();
+    block_on_async(async move || {
+        log::info!("A0");
+        let raw_packet = RawFcmPacket::from(base64_value);
+        log::info!("A1");
+        let packet = FcmPacket::from_raw_fcm_packet(&raw_packet)?;
+        log::info!("A2");
+        let header = packet.header();
+        let group_id = header.group_id.get();
+        let ticket = header.ticket.get();
+        let use_client_server_ratchet = header.target_cid.get() == 0;
+        log::info!("Using {} ratchet", use_client_server_ratchet.then(|| "client/server").unwrap_or("FCM endpoint"));
+        // if the target cid is zero, it means we aren't using endpoint containers (only client -> server container)
+        let local_cid = if use_client_server_ratchet { header.session_cid.get() } else { header.target_cid.get() };
+        let implicated_cid = header.session_cid.get();
+        let ratchet_version = header.ratchet_version.get();
 
-    let cnac = account_manager.get_client_by_cid(local_cid).ok_or(AccountError::<String>::ClientNonExists(local_cid))?;
-    let res = cnac.visit_mut(|mut inner| -> Result<FcmProcessorResult, AccountError> {
-        // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other
-        let ClientNetworkAccountInner {
-            fcm_crypt_container,
-            kem_state_containers,
-            crypt_container,
-            fcm_invitations,
-            mutuals,
-            ..
-        } = &mut *inner;
+        let (header, mut payload) = packet.split();
+        let fcm_client = account_manager.fcm_client();
 
-        log::info!("A3");
+        let cnac = account_manager.get_client_by_cid(local_cid).await?.ok_or(AccountError::<String>::ClientNonExists(local_cid))?;
+        let res = cnac.visit_mut(|mut inner| {
+            // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other
+            let ClientNetworkAccountInner {
+                fcm_crypt_container,
+                kem_state_containers,
+                crypt_container,
+                fcm_invitations,
+                mutuals,
+                ..
+            } = &mut *inner;
 
-        let res = if use_client_server_ratchet {
-            log::info!("A4-CS");
-            let ratchet = crypt_container.toolset.get_static_auxiliary_ratchet();
-            log::info!("A5");
-            ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
-            log::info!("[FCM] Successfully validated packet. Parsing payload ...");
-            let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
-            let source_cid = group_id;
-            log::info!("A6");
+            log::info!("A3");
 
-            match payload {
-                FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(fcm_invitations, kem_state_containers, fcm_crypt_container, mutuals, local_cid, source_cid, ticket, transfer, username),
-                _ => {
-                    log::warn!("[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
-                    FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
+            let res = if use_client_server_ratchet {
+                log::info!("A4-CS");
+                let ratchet = crypt_container.toolset.get_static_auxiliary_ratchet();
+                log::info!("A5");
+                ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
+                log::info!("[FCM] Successfully validated packet. Parsing payload ...");
+                let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
+                let source_cid = group_id;
+                log::info!("A6");
+
+                match payload {
+                    FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(fcm_invitations, kem_state_containers, fcm_crypt_container, mutuals, local_cid, source_cid, ticket, transfer, username),
+                    _ => {
+                        log::warn!("[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
+                        FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
+                    }
                 }
-            }
-        } else {
-            let crypt_container = fcm_crypt_container.get_mut(&implicated_cid).ok_or_else(|| AccountError::Generic("FCM Peer session crypto nonexistant".to_string()))?;
-            log::info!("A4-E2E");
-            let ratchet = crypt_container.get_hyper_ratchet(Some(ratchet_version)).cloned().ok_or_else(|| AccountError::Generic("FCM Ratchet version not found".to_string()))?;
-            log::info!("A5");
-            ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
-            log::info!("[FCM] Successfully validated packet. Parsing payload ...");
-            let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
+            } else {
+                let crypt_container = fcm_crypt_container.get_mut(&implicated_cid).ok_or_else(|| AccountError::Generic("FCM Peer session crypto nonexistant".to_string()))?;
+                log::info!("A4-E2E");
+                let ratchet = crypt_container.get_hyper_ratchet(Some(ratchet_version)).cloned().ok_or_else(|| AccountError::Generic("FCM Ratchet version not found".to_string()))?;
+                log::info!("A5");
+                ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
+                log::info!("[FCM] Successfully validated packet. Parsing payload ...");
+                let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
 
-            match payload {
-                FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet,FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
-                FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(fcm_client, crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer),
-                FCMPayloadType::Truncate { truncate_vers } => truncate::process(crypt_container,  truncate_vers),
-                FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-7890)".to_string()),
-                // below, the implicated cid is obtained from the session_cid, and as such, is the peer_cid
-                FCMPayloadType::PeerDeregistered => deregister::process(implicated_cid, local_cid, ticket, fcm_crypt_container, mutuals)
-            }
-        };
+                match payload {
+                    FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet,FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
+                    FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(fcm_client, crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer),
+                    FCMPayloadType::Truncate { truncate_vers } => truncate::process(crypt_container,  truncate_vers),
+                    FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-7890)".to_string()),
+                    // below, the implicated cid is obtained from the session_cid, and as such, is the peer_cid
+                    FCMPayloadType::PeerDeregistered => deregister::process(implicated_cid, local_cid, ticket, fcm_crypt_container, mutuals)
+                }
+            };
 
-        Ok(res)
-    })?;
+            Ok(res) as Result<FcmProcessorResult, AccountError>
+        })?;
 
 
-    if res.implies_save_needed() {
-        cnac.blocking_save_to_local_fs()?;
-    }
+        if res.implies_save_needed() {
+            cnac.save().await?;
+        }
 
-    res
+        if let Some((instance, packet)) = res.implies_packet_needs_sending() {
+            let _ = instance.send_to_fcm_user(packet).await?;
+        }
+
+        res
+    })?
 }
 
 /// The goal of the function is to perform any and all internal updates/re-keys from a set of packets. Most have probably already been processed, and will fail the anti-replay attack stage for being an already received packet
@@ -136,22 +147,22 @@ pub enum FcmProcessorResult {
     Void,
     Err(String),
     RequiresSave,
-    Value(FcmResult, FcmPacketMaybeNeedsDuplication),
-    Values(Vec<(FcmResult, FcmPacketMaybeNeedsDuplication)>)
+    Value(FcmResult, FcmPacketMaybeNeedsSending),
+    Values(Vec<(FcmResult, FcmPacketMaybeNeedsSending)>)
 }
 
 #[derive(Debug)]
-pub struct FcmPacketMaybeNeedsDuplication {
-    pub packet: Option<SecBuffer>
+pub struct FcmPacketMaybeNeedsSending {
+    pub packet: Option<(Option<FCMInstance>, RawFcmPacket)>
 }
 
-impl FcmPacketMaybeNeedsDuplication {
+impl FcmPacketMaybeNeedsSending {
     pub fn none() -> Self {
         Self { packet: None }
     }
 
-    pub fn some(packet: RawFcmPacket) -> Self {
-        Self { packet: Some(SecBuffer::from(packet.inner.into_bytes())) }
+    pub fn some(instance: Option<FCMInstance>, packet: RawFcmPacket) -> Self {
+        Self { packet: Some((instance, packet)) }
     }
 }
 
@@ -161,6 +172,22 @@ impl FcmProcessorResult {
             Self::Value(FcmResult::MessageSent { .. } | FcmResult::GroupHeaderAck { .. } | FcmResult::GroupHeader { .. } | FcmResult::PostRegisterInvitation { .. } | FcmResult::PostRegisterResponse { .. } | FcmResult::Deregistered { .. }, ..)=> true,
             Self::RequiresSave => true,
             _ => false
+        }
+    }
+
+    pub fn implies_packet_needs_sending(&self) -> Option<(&FCMInstance, &RawFcmPacket)> {
+        match self {
+            Self::Value(_, packet) => {
+                match packet.packet.as_ref() {
+                    Some((Some(instance), packet)) => {
+                        Some((instance, packet))
+                    }
+
+                    _ => None
+                }
+            }
+
+            _ => None
         }
     }
 }

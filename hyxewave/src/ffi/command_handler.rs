@@ -25,6 +25,7 @@ fn handle_ffi_payload(server_remote: &HdpServerRemote, ctx: &ConsoleContext, ffi
 
     // The following function MUST be called with a tokio context. If it does not, MIO registrations
     // will fail since they require Handle::current(), resulting in a panic
-    let _guard = rt_handle.enter();
-    handle(clap.0.lock(), parts, server_remote, ctx, Some(ffi_io))
+    rt_handle.block_on(async move {
+        handle(clap.lock().await, parts, server_remote, ctx, Some(ffi_io)).await
+    })
 }

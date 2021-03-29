@@ -17,7 +17,7 @@ use crate::hdp::hdp_packet::packet_flags::payload_identifiers;
 /// Handles preconnect packets. Handles the NAT traversal
 /// TODO: Note to future programmers. This source file is not the cleanest, and in my opinion the dirtiest file in the entire codebase.
 /// This will NEED to be refactored. It's also buggy in some cases. For 99% of cases, it does the job though
-pub fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: SocketAddr) -> PrimaryProcessorResult {
+pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: SocketAddr) -> PrimaryProcessorResult {
     let mut session = inner_mut!(session_orig);
 
     if !session.is_provisional() {
@@ -32,9 +32,16 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: SocketAd
     match header.cmd_aux {
         packet_flags::cmd::aux::do_preconnect::SYN => {
             log::info!("RECV STAGE SYN PRE_CONNECT PACKET");
-            let mut state_container = inner_mut!(session.state_container);
+            let state_container = inner!(session.state_container);
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN {
-                if let Some(cnac) = session.account_manager.get_client_by_cid(header.session_cid.get()) {
+                let account_manager = session.account_manager.clone();
+
+                std::mem::drop(state_container);
+                std::mem::drop(session);
+
+                if let Some(cnac) = account_manager.get_client_by_cid(header.session_cid.get()).await? {
+                    let mut session = inner_mut!(session_orig);
+                    let mut state_container = inner_mut!(session.state_container);
                     let tcp_only = header.context_info.get() == 1;
                     let kat = header.target_cid.get() as i64;
                     let adjacent_proto_version = header.group.get();

@@ -30,7 +30,7 @@ pub struct ConsoleContext {
     /// The currently toggled user
     pub active_session: Arc<AtomicU64>,
     // These store long-running tickets
-    pub sessions: Arc<RwLock<HashMap<u64, KernelSession>>>,
+    pub sessions: Arc<tokio::sync::RwLock<HashMap<u64, KernelSession>>>,
     // These store short-term tickets
     pub ticket_queue: Option<TicketQueueHandler>,
     pub active_dir: Arc<RwLock<PathBuf>>,
@@ -58,7 +58,7 @@ impl ConsoleContext {
         let active_target_cid = Arc::new(AtomicU64::new(0));
         let message_groups = Arc::new(RwLock::new(HashMap::new()));
         let message_group_incrementer = Arc::new(AtomicUsize::new(0));
-        let mut this = Self { is_ffi: Arc::new(is_ffi), message_group_incrementer, message_groups, active_target_cid, unread_mail, bind_addr, active_user, can_run, account_manager, in_personal: in_stderr, active_dir, active_session: Arc::new(AtomicU64::new(nid)), sessions: Arc::new(RwLock::new(HashMap::new())), ticket_queue: None };
+        let mut this = Self { is_ffi: Arc::new(is_ffi), message_group_incrementer, message_groups, active_target_cid, unread_mail, bind_addr, active_user, can_run, account_manager, in_personal: in_stderr, active_dir, active_session: Arc::new(AtomicU64::new(nid)), sessions: Arc::new(tokio::sync::RwLock::new(HashMap::new())), ticket_queue: None };
         let ticket_queue = TicketQueueHandler::new(this.clone());
         this.ticket_queue = Some(ticket_queue);
         this
@@ -71,18 +71,18 @@ impl ConsoleContext {
         }
     }
 
-    pub fn get_cnac_of_active_session(&self) -> Option<ClientNetworkAccount> {
+    pub async fn get_cnac_of_active_session(&self) -> Option<ClientNetworkAccount> {
         let cid = self.get_active_cid();
         if cid != 0 {
-            Some(self.sessions.read().get(&cid)?.cnac.clone())
+            Some(self.sessions.read().await.get(&cid)?.cnac.clone())
         } else {
             None
         }
     }
 
-    pub fn load_kernel_session(&self, kernel_session: KernelSession) {
+    pub async fn load_kernel_session(&self, kernel_session: KernelSession) {
         self.set_active_cid(kernel_session.cid);
-        let mut write = self.sessions.write();
+        let mut write = self.sessions.write().await;
         write.insert(kernel_session.cid, kernel_session);
     }
 
@@ -132,12 +132,12 @@ impl ConsoleContext {
     }
 
     #[allow(unused_results)]
-    pub fn load_peer_channel_into_kernel(&self, peer_channel: PeerChannel) -> Result<(), ConsoleError> {
+    pub async fn load_peer_channel_into_kernel(&self, peer_channel: PeerChannel) -> Result<(), ConsoleError> {
         let ctx = self.clone();
         let cxn_type = peer_channel.get_peer_conn_type().ok_or(ConsoleError::Default("Invalid cxn type"))?;
         let cid = cxn_type.get_original_implicated_cid();
         let peer_cid = cxn_type.get_original_target_cid();
-        let peer_username = self.account_manager.visit_cnac(cid, |cnac| {
+        let peer_username = self.account_manager.visit_cnac_as_endpoint(cid, |cnac| {
             cnac.get_hyperlan_peer(peer_cid)?.username.clone()
         });
 
@@ -161,7 +161,7 @@ impl ConsoleContext {
             printf_ln!(colour::yellow!("Peer channel {} has disconnected\n", peer_username))
         });
 
-        let mut write = self.sessions.write();
+        let mut write = self.sessions.write().await;
         if let Some(sess) = write.get_mut(&cid) {
             if let Some(peer_info) = sess.cnac.get_hyperlan_peer(peer_cid) {
                 let init_time = Instant::now();
@@ -176,8 +176,8 @@ impl ConsoleContext {
         }
     }
 
-    pub fn send_message_to_peer_channel(&self, cid: u64, peer_cid: u64, security_level: SecurityLevel, message: SecBuffer) -> Result<Ticket, ConsoleError> {
-        let mut write = self.sessions.write();
+    pub async fn send_message_to_peer_channel(&self, cid: u64, peer_cid: u64, security_level: SecurityLevel, message: SecBuffer) -> Result<Ticket, ConsoleError> {
+        let mut write = self.sessions.write().await;
         if let Some(sess) = write.get_mut(&cid) {
             if let Some(peer_sess) = sess.concurrent_peers.get_mut(&peer_cid) {
                 let ticket = peer_sess.peer_channel_tx.channel_id();
@@ -193,8 +193,8 @@ impl ConsoleContext {
         }
     }
 
-    pub fn remove_peer_connection_from_kernel(&self, cid: u64, peer_cid: u64) -> Result<PeerSession, ConsoleError> {
-        let mut write = self.sessions.write();
+    pub async fn remove_peer_connection_from_kernel(&self, cid: u64, peer_cid: u64) -> Result<PeerSession, ConsoleError> {
+        let mut write = self.sessions.write().await;
         if let Some(sess) = write.get_mut(&cid) {
             sess.concurrent_peers.remove(&peer_cid).ok_or_else(|| ConsoleError::Generic(format!("Peer {} is not connected to {}", peer_cid, cid)))
         } else {
@@ -202,8 +202,8 @@ impl ConsoleContext {
         }
     }
 
-    pub fn list_all_sessions(&self, mut fx: impl FnMut(&KernelSession)) {
-        let read = self.sessions.read();
+    pub async fn list_all_sessions(&self, mut fx: impl FnMut(&KernelSession)) {
+        let read = self.sessions.read().await;
         for val in read.values() {
             fx(val)
         }
@@ -214,8 +214,8 @@ impl ConsoleContext {
     }
 
     /// Determines if a user is connected
-    pub fn user_is_connected(&self, cid: Option<u64>, username: Option<&str>) -> bool {
-        let write = self.sessions.read();
+    pub async fn user_is_connected(&self, cid: Option<u64>, username: Option<&str>) -> bool {
+        let write = self.sessions.read().await;
         if let Some(cid) = cid {
             return write.values().any(|v| v.cid == cid);
         }
@@ -228,8 +228,8 @@ impl ConsoleContext {
     }
 
     #[allow(unused_results)]
-    pub fn disconnect_session(&self, cid: u64, cxn_type: VirtualConnectionType, server_remote: &HdpServerRemote) -> Result<Ticket, ConsoleError> {
-        let read = self.sessions.read();
+    pub async fn disconnect_session(&self, cid: u64, cxn_type: VirtualConnectionType, server_remote: &HdpServerRemote) -> Result<Ticket, ConsoleError> {
+        let read = self.sessions.read().await;
         if let Some(sess) = read.get(&cid) {
             let username = sess.cnac.get_username();
             match cxn_type {
@@ -254,8 +254,8 @@ impl ConsoleContext {
     }
 
     #[allow(unused_results, unused_must_use)]
-    pub fn disconnect_all(&self, server_remote: &HdpServerRemote, shutdown_sequence: bool) {
-        let mut write = self.sessions.write();
+    pub async fn disconnect_all(&self, server_remote: &HdpServerRemote, shutdown_sequence: bool) {
+        let mut write = self.sessions.write().await;
         for (cid, session) in write.drain() {
             //let username = session.cnac.get_username_blocking();
             self.send_disconnect_request(cid, None, session.virtual_cxn_type, server_remote);

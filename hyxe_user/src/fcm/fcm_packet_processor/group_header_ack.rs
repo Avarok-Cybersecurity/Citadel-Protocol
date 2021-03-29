@@ -2,7 +2,7 @@ use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus, EndpointRatchetConstructor};
 use zerocopy::LayoutVerified;
 use crate::fcm::data_structures::{FcmHeader, FcmTicket};
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, block_on_async, FcmPacketMaybeNeedsDuplication};
+use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
 use std::sync::Arc;
 use fcm::Client;
 use crate::fcm::fcm_instance::FCMInstance;
@@ -61,17 +61,15 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
         if let Some(ratchet) = next_ratchet {
             // send TRUNCATE packet
             let truncate_packet = super::super::fcm_packet_crafter::craft_truncate(ratchet, header.object_id.get(), header.group_id.get(), header.session_cid.get(), header.ticket.get(), truncate_vers);
-            let duplicate = truncate_packet.clone();
+            //let duplicate = truncate_packet.clone();
 
-            let _res = block_on_async(|| async move {
-                fcm_instance.send_to_fcm_user(truncate_packet).await
-            })??;
-            FcmPacketMaybeNeedsDuplication::some(duplicate)
+            //let _res = fcm_instance.send_to_fcm_user(truncate_packet).await?;
+            FcmPacketMaybeNeedsSending::some(Some(fcm_instance), truncate_packet)
         } else {
-            FcmPacketMaybeNeedsDuplication::none()
+            FcmPacketMaybeNeedsSending::none()
         }
     } else {
-      FcmPacketMaybeNeedsDuplication::none()
+      FcmPacketMaybeNeedsSending::none()
     };
 
     log::info!("SUBROUTINE COMPLETE: PROCESS GROUP_HEADER_ACK");

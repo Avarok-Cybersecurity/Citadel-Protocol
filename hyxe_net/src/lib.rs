@@ -1,7 +1,7 @@
 #![feature(async_closure, main, try_trait, ip, type_alias_impl_trait, bindings_after_at)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
-#![forbid(unsafe_code)]
+#![feature(or_patterns)]
 //! Core networking components for SatoriNET
 #![deny(
 trivial_numeric_casts,
@@ -13,9 +13,21 @@ unused_results,
 warnings
 )]
 
+#[cfg(feature = "single-threaded")]
+pub const fn build_tag() -> &'static str {
+    "Single-Threaded"
+}
+
+#[cfg(not(feature = "single-threaded"))]
+pub const fn build_tag() -> &'static str {
+    "Multi-Threaded"
+}
+
 #[cfg(not(feature = "multi-threaded"))]
 #[macro_use]
 pub mod macros {
+    use std::future::Future;
+
     use crate::hdp::hdp_session::HdpSessionInner;
 
     pub trait ContextRequirements: 'static {}
@@ -23,6 +35,11 @@ pub mod macros {
 
     pub trait SyncContextRequirements: 'static {}
     impl<T: 'static> SyncContextRequirements for T {}
+
+    #[allow(unused_results, dead_code)]
+    pub fn tokio_spawn_async_then_sync<F: Future>(future: impl FnOnce() -> F + 'static, fx: impl FnOnce(<F as Future>::Output) + 'static) {
+        tokio::task::spawn_local(async move { (fx)(future().await) });
+    }
 
     pub type SessionBorrow<'a> = std::cell::RefMut<'a, HdpSessionInner>;
     pub struct WeakBorrow<T> {
@@ -113,6 +130,8 @@ pub mod macros {
 #[cfg(feature = "multi-threaded")]
 #[macro_use]
 pub mod macros {
+    use std::future::Future;
+
     use crate::hdp::hdp_session::HdpSessionInner;
 
     pub trait ContextRequirements: Send + 'static {}
@@ -120,6 +139,11 @@ pub mod macros {
 
     pub trait SyncContextRequirements: Send + Sync + 'static {}
     impl<T: Send + Sync + 'static> SyncContextRequirements for T {}
+
+    #[allow(unused_results, dead_code)]
+    pub fn tokio_spawn_async_then_sync<F: Future + ContextRequirements>(future: impl FnOnce() -> F + ContextRequirements, fx: impl FnOnce(<F as Future>::Output) + ContextRequirements) where <F as Future>::Output: Send {
+        tokio::task::spawn(async move { (fx)(future().await) });
+    }
 
     pub type SessionBorrow<'a> = parking_lot::RwLockWriteGuard<'a, HdpSessionInner>;
     pub struct WeakBorrow<T> {
@@ -188,7 +212,7 @@ pub mod macros {
     macro_rules! spawn {
     ($future:expr) => {
         if tokio::runtime::Handle::try_current().is_ok() {
-            std::mem::drop(tokio::task::spawn($future));
+            std::mem::drop(tokio::task::spawn(crate::hdp::misc::panic_future::AssertSendSafeFuture::new($future)));
         } else {
             log::warn!("Unable to spawn future: {:?}", stringify!($future));
         }
@@ -198,7 +222,7 @@ pub mod macros {
 
     macro_rules! spawn_handle {
     ($future:expr) => {
-        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future))
+        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn(crate::hdp::misc::panic_future::AssertSendSafeFuture::new($future)))
     };
 }
 
@@ -234,8 +258,6 @@ pub mod error;
 pub mod constants;
 /// The primary module of this crate
 pub mod hdp;
-/// For handling misc requirements
-pub mod proposed_credentials;
 /// Functional extras
 pub mod functional;
 /// For handling differential function input types between single/multi-threaded modes

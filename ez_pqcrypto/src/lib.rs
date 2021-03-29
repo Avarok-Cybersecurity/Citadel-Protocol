@@ -43,13 +43,13 @@ pub mod replay_attack_container;
 /// For debug purposes
 #[cfg(not(feature = "unordered"))]
 pub const fn build_tag() -> &'static str {
-    "ordered/single-threaded networking protocol"
+    "ordered"
 }
 
 /// For debug purposes
 #[cfg(feature = "unordered")]
 pub const fn build_tag() -> &'static str {
-    "unordered/multi-threaded networking protocol"
+    "unordered"
 }
 
 /// Returns the approximate size of each PQC

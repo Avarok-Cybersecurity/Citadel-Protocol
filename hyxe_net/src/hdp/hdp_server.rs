@@ -12,7 +12,6 @@ use futures::{Sink, StreamExt};
 use log::info;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tokio::net::{TcpListener, TcpStream};
 use tokio::task::LocalSet;
 
 use hyxe_crypt::drill::SecurityLevel;
@@ -23,7 +22,7 @@ use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 
-use crate::constants::{NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT};
+use crate::constants::{NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT, DEFAULT_SO_LINGER_TIME};
 use crate::error::NetworkError;
 use crate::hdp::file_transfer::FileTransferStatus;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
@@ -34,9 +33,13 @@ use crate::hdp::peer::channel::PeerChannel;
 use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal};
 use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
 use crate::kernel::RuntimeFuture;
-use crate::proposed_credentials::ProposedCredentials;
+use hyxe_user::proposed_credentials::ProposedCredentials;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_user::fcm::data_structures::RawFcmPacketStore;
+use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream, TlsListener};
+use net2::TcpListenerExt;
+use tokio_native_tls::native_tls::Identity;
+use crate::functional::PairMap;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -49,24 +52,38 @@ pub extern fn atexit() {
     }
 }
 
+#[derive(Clone)]
+#[allow(dead_code)]
+pub enum UnderlyingProtocol {
+    Tcp,
+    Tls(Identity)
+}
+
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
 define_outer_struct_wrapper!(HdpServer, HdpServerInner);
 
 /// Inner device for the HdpServer
 pub struct HdpServerInner {
-    primary_socket: Option<TcpListener>,
+    primary_socket: Option<GenericNetworkListener>,
     /// Key: cid (to account for multiple clients from the same node)
     session_manager: HdpSessionManager,
     local_bind_addr: SocketAddr,
     to_kernel: UnboundedSender<HdpServerResult>,
     local_node_type: HyperNodeType,
+    // Applies only to listeners, not outgoing connections
+    underlying_proto: UnderlyingProtocol
 }
 
 impl HdpServer {
     /// Creates a new [HdpServer]
-    pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)> {
-        let (primary_socket, local_bind_addr) = Self::create_tcp_listen_socket(&bind_addr)?;
+    pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, underlying_proto: UnderlyingProtocol) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)> {
+        let (primary_socket, local_bind_addr) = if local_node_type == HyperNodeType::GloballyReachable {
+            Self::create_tcp_listen_socket(underlying_proto.clone(), &bind_addr)?.map_left(|r| Some(r))
+        } else {
+            (None, std::net::ToSocketAddrs::to_socket_addrs(&bind_addr)?.next().ok_or(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid bind address"))?)
+        };
+
         let primary_port = local_bind_addr.port();
         // Note: on Android/IOS, the below command will fail since sudo access is prohibited
         Self::open_tcp_port(primary_port);
@@ -76,9 +93,10 @@ impl HdpServer {
         let time_tracker = TimeTracker::new().await?;
         let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone());
         let inner = HdpServerInner {
+            underlying_proto,
             local_bind_addr,
             local_node_type,
-            primary_socket: Some(primary_socket),
+            primary_socket,
             to_kernel,
             session_manager,
         };
@@ -97,20 +115,21 @@ impl HdpServer {
     async fn load(this: HdpServer, shutdown: tokio::sync::oneshot::Sender<()>) -> (HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>) {
         // Allow the listeners to read data without instantly returning
         // Load the readers
-        let write = inner!(this);
+        let read = inner!(this);
 
-        let kernel_tx = write.to_kernel.clone();
+        let kernel_tx = read.to_kernel.clone();
+        let node_type = read.local_node_type;
 
         let (outbound_send_request_tx, outbound_send_request_rx) = unbounded(); // for the Hdp remote
         let remote = HdpServerRemote::new(outbound_send_request_tx);
-        let tt = write.session_manager.load_server_remote_get_tt(remote.clone());
+        let tt = read.session_manager.load_server_remote_get_tt(remote.clone());
 
         let (outbound_kernel_request_handler, primary_stream_listener, peer_container, localset_opt) = {
             #[cfg(feature = "multi-threaded")]
             {
                 let outbound_kernel_request_handler = spawn_handle!(Self::outbound_kernel_request_handler(this.clone(), kernel_tx.clone(), outbound_send_request_rx));
-                let primary_stream_listener = spawn_handle!(Self::listen_primary(this.clone(), tt, kernel_tx.clone()));
-                let peer_container = spawn_handle!(HdpSessionManager::run_peer_container(write.session_manager.clone()));
+                let primary_stream_listener = if node_type == HyperNodeType::GloballyReachable { Some(spawn_handle!(Self::listen_primary(this.clone(), tt, kernel_tx.clone()))) } else { None };
+                let peer_container = spawn_handle!(HdpSessionManager::run_peer_container(read.session_manager.clone()));
                 let localset_opt = None;
                 (outbound_kernel_request_handler, primary_stream_listener, peer_container, localset_opt)
             }
@@ -119,22 +138,34 @@ impl HdpServer {
                 {
                     let localset = LocalSet::new();
                     let outbound_kernel_request_handler = crate::hdp::misc::panic_future::ExplicitPanicFuture::new(localset.spawn_local(Self::outbound_kernel_request_handler(this.clone(), kernel_tx.clone(), outbound_send_request_rx)));
-                    let primary_stream_listener = crate::hdp::misc::panic_future::ExplicitPanicFuture::new(localset.spawn_local(Self::listen_primary(this.clone(), tt, kernel_tx.clone())));
-                    let peer_container = crate::hdp::misc::panic_future::ExplicitPanicFuture::new(localset.spawn_local(HdpSessionManager::run_peer_container(write.session_manager.clone())));
+                    let primary_stream_listener = if node_type == HyperNodeType::GloballyReachable { Some(crate::hdp::misc::panic_future::ExplicitPanicFuture::new(localset.spawn_local(Self::listen_primary(this.clone(), tt, kernel_tx.clone())))) } else { None };
+                    let peer_container = crate::hdp::misc::panic_future::ExplicitPanicFuture::new(localset.spawn_local(HdpSessionManager::run_peer_container(read.session_manager.clone())));
                     (outbound_kernel_request_handler, primary_stream_listener, peer_container, Some(localset))
                 }
         };
 
         let server_future = async move {
-            let res = tokio::select! {
-            res0 = outbound_kernel_request_handler => {
-                log::info!("OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
-                res0
-            }
+            let res = if let Some(primary_stream_listener) = primary_stream_listener {
+                tokio::select! {
+                    res0 = outbound_kernel_request_handler => {
+                        log::info!("OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
+                        res0
+                    }
 
-            res1 = primary_stream_listener => res1,
-            res2 = peer_container => res2
-        };
+                    res1 = primary_stream_listener => res1,
+                    res2 = peer_container => res2
+                }
+            } else {
+                tokio::select! {
+                    res0 = outbound_kernel_request_handler => {
+                        log::info!("OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
+                        res0
+                    }
+
+                    res1 = peer_container => res1
+                }
+            };
+
             if let Err(_) = kernel_tx.unbounded_send(HdpServerResult::Shutdown) {
                 log::warn!("Unable to send shutdown result to kernel (kernel died prematurely?)");
             }
@@ -174,58 +205,70 @@ impl HdpServer {
         }
     }
 
-    pub(crate) fn create_tcp_listen_socket<T: ToSocketAddrs>(full_bind_addr: T) -> io::Result<(TcpListener, SocketAddr)> {
+    pub(crate) fn create_tcp_listen_socket<T: ToSocketAddrs>(underlying_proto: UnderlyingProtocol, full_bind_addr: T) -> io::Result<(GenericNetworkListener, SocketAddr)> {
         let bind: SocketAddr = full_bind_addr.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
+
         if bind.is_ipv4() {
             let ref builder = net2::TcpBuilder::new_v4()?;
-            Self::bind_defaults(builder, bind, 1024)
+            Self::bind_defaults(underlying_proto, builder, bind, 1024)
         } else {
             let builder = net2::TcpBuilder::new_v6()?;
-            Self::bind_defaults(builder.only_v6(false)?, bind, 1024)
+            Self::bind_defaults(underlying_proto, builder.only_v6(false)?, bind, 1024)
         }
     }
 
-    fn bind_defaults(builder: &net2::TcpBuilder, bind: SocketAddr, backlog: i32) -> io::Result<(TcpListener, SocketAddr)> {
+    fn bind_defaults(underlying_proto: UnderlyingProtocol, builder: &net2::TcpBuilder, bind: SocketAddr, backlog: i32) -> io::Result<(GenericNetworkListener, SocketAddr)> {
         builder
             .reuse_address(true)?
             .bind(bind)?
             .listen(backlog)
             .and_then(|std_stream| {
                 std_stream.set_nonblocking(true)?;
+                //std_stream.set_linger(Some(Duration::from_millis(0)))?;
+                std_stream.set_linger(Some(DEFAULT_SO_LINGER_TIME))?;
                 Ok(std_stream)
             })
             .map(tokio::net::TcpListener::from_std)?
             .and_then(|listener| {
-                Ok((listener, bind))
+                match underlying_proto {
+                    UnderlyingProtocol::Tcp => {
+                        Ok((GenericNetworkListener::Tcp(listener), bind))
+                    }
+
+                    UnderlyingProtocol::Tls(identity) => {
+                        let tls_listener = TlsListener::new(listener, identity)?;
+                        Ok((GenericNetworkListener::Tls(tls_listener), bind))
+                    }
+                }
             })
     }
 
     /// Returns a TcpStream to the remote addr, as well as a local TcpListener on the same bind addr going to remote
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
-    pub(crate) async fn create_init_tcp_connect_socket<R: ToSocketAddrs>(remote: R) -> io::Result<(TcpListener, TcpStream)> {
-        let stream = Self::create_reuse_tcp_connect_socket(remote, None).await?;
+    pub(crate) async fn create_init_tcp_listener<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, connect_underlying_proto: UnderlyingProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
+        let stream = Self::create_reuse_tcp_connect_socket(connect_underlying_proto, remote, None).await?;
 
         let stream_bind_addr = stream.local_addr()?;
 
         let (p2p_listener, _stream_bind_addr) = if stream_bind_addr.is_ipv4() {
             let ref builder = net2::TcpBuilder::new_v4()?;
-            Self::bind_defaults(builder, stream_bind_addr, 16)?
+            Self::bind_defaults(listener_underlying_proto, builder, stream_bind_addr, 16)?
         } else {
             let builder = net2::TcpBuilder::new_v6()?;
-            Self::bind_defaults(builder.only_v6(false)?, stream_bind_addr, 16)?
+            Self::bind_defaults(listener_underlying_proto,builder.only_v6(false)?, stream_bind_addr, 16)?
         };
         Self::open_tcp_port(stream_bind_addr.port());
 
         Ok((p2p_listener, stream))
     }
 
-    pub(crate) async fn create_reuse_tcp_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>) -> io::Result<TcpStream> {
+    pub(crate) async fn create_reuse_tcp_connect_socket<R: ToSocketAddrs>(connect_underlying_proto: UnderlyingProtocol, remote: R, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
         let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::connect_defaults(timeout, remote).await
+        Self::connect_defaults(connect_underlying_proto, timeout, remote).await
     }
 
-    async fn connect_defaults(timeout: Option<Duration>, remote: SocketAddr) -> io::Result<tokio::net::TcpStream> {
-        tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), tokio::task::spawn_blocking(move || {
+    async fn connect_defaults(connect_underlying_proto: UnderlyingProtocol, timeout: Option<Duration>, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
+        let stream = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), tokio::task::spawn_blocking(move || {
             let std_stream = if remote.is_ipv4() {
                 net2::TcpBuilder::new_v4()?
                     .reuse_address(true)?
@@ -239,11 +282,30 @@ impl HdpServer {
 
             std_stream.set_nonblocking(true)?;
             let stream = tokio::net::TcpStream::from_std(std_stream)?;
-            stream.set_linger(Some(tokio::time::Duration::from_secs(0)))?;
+            //stream.set_linger(Some(tokio::time::Duration::from_secs(0)))?;
+            stream.set_linger(Some(DEFAULT_SO_LINGER_TIME))?;
             //stream.set_keepalive(None)?;
 
-            Ok(stream)
-        })).await??
+            Ok(stream) as std::io::Result<tokio::net::TcpStream>
+        })).await???;
+
+        match connect_underlying_proto {
+            UnderlyingProtocol::Tcp => {
+                Ok(GenericNetworkStream::Tcp(stream))
+            }
+
+            UnderlyingProtocol::Tls(identity) => {
+                // for debug builds, allow invalid certs to make testing TLS easier
+                #[cfg(debug_assertions)]
+                let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(true).identity(identity).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                #[cfg(not(debug_assertions))]
+                    let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).identity(identity).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+
+                let connector = tokio_native_tls::TlsConnector::from(connector);
+                let stream = connector.connect("", stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                Ok(GenericNetworkStream::Tls(stream))
+            }
+        }
     }
 
     /// In impersonal mode, each hypernode needs to check for incoming connections on the primary port.
@@ -286,49 +348,56 @@ impl HdpServer {
     }
 
 
-    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, socket: TcpListener) -> Result<(), NetworkError> {
+    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, mut socket: GenericNetworkListener) -> Result<(), NetworkError> {
         loop {
             //let _ = tokio::task::spawn_local(async move{ log::info!("HELLO 2 THE WORLD!") });
-            match socket.accept().await {
-                Ok((stream, peer_addr)) => {
+            match socket.next().await {
+                Some(Ok((stream, peer_addr))) => {
                     log::trace!("Received stream from {:?}", peer_addr);
+                    let local_bind_addr = stream.local_addr().unwrap();
 
                     //let res = tokio::task::spawn_local(async move{ log::info!("AAA HELLO 2 THE WORLD!") });
                     //log::info!("RES: {:?}", res);
 
-                    stream.set_linger(Some(tokio::time::Duration::from_secs(0))).unwrap();
+                    //stream.set_linger(Some(tokio::time::Duration::from_secs(0))).unwrap();
                     // stream.set_keepalive(None).unwrap();
                     //stream.set_nodelay(true).unwrap();
                     // the below closure spawns a new future on the tokio thread pool
-                    if let Err(err) = session_manager.process_new_inbound_connection(peer_addr, stream) {
+                    if let Err(err) = session_manager.process_new_inbound_connection(local_bind_addr, peer_addr, stream) {
                         to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, format!("HDP Server dropping connection to {}. Reason: {}", peer_addr, err.to_string())))?;
                     }
 
                 }
 
-                Err(err) => {
+                Some(Err(err)) => {
                     const WSACCEPT_ERROR: i32 = 10093;
                     if err.raw_os_error().unwrap_or(-1) != WSACCEPT_ERROR {
                         log::error!("Error accepting stream: {}", err.to_string());
                     }
+                }
+
+                None => {
+                    log::error!("Primary session listener returned None");
+                    return Err(NetworkError::InternalError("Primary session listener died"))
                 }
             }
         }
     }
 
     async fn outbound_kernel_request_handler(this: HdpServer, to_kernel_tx: UnboundedSender<HdpServerResult>, outbound_send_request_rx: UnboundedReceiver<(HdpServerRequest, Ticket)>) -> Result<(), NetworkError> {
-        let (primary_port, local_bind_addr, local_node_type, session_manager) = {
+        let (primary_port, local_bind_addr, local_node_type, session_manager, listener_underlying_proto) = {
             let read = inner!(this);
             let primary_port = read.local_bind_addr.port();
             //let port_start = read.multiport_range.start;
             let local_bind_addr = read.local_bind_addr.ip();
             let local_node_type = read.local_node_type;
+            let listener_underlying_proto = read.underlying_proto.clone();
 
             // We need only the underlying [HdpSessionManager]
             let session_manager = read.session_manager.clone();
             // Drop the read handle; we are done with it
             //std::mem::drop(read);
-            (primary_port, local_bind_addr, local_node_type, session_manager)
+            (primary_port, local_bind_addr, local_node_type, session_manager, listener_underlying_proto)
         };
 
         let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(outbound_send_request_rx);
@@ -351,16 +420,16 @@ impl HdpServer {
                     }
                 }
 
-                HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm, fcm_keys,  security_level) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, None, fcm_keys, quantum_algorithm, None, None).await {
+                HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm, fcm_keys,  security_level, connect_underlying_proto) => {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, None, listener_underlying_proto.clone(), connect_underlying_proto, fcm_keys, quantum_algorithm, None, None).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
 
-                HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, connect_mode, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, Some(connect_mode), fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000)).await {
+                HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, connect_mode, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout, connect_underlying_proto) => {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, Some(connect_mode), listener_underlying_proto.clone(), connect_underlying_proto, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000)).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
@@ -526,13 +595,13 @@ impl Sink<HdpServerRequest> for HdpServerRemote {
 #[allow(variant_size_differences)]
 pub enum HdpServerRequest {
     /// Sends a request to the underlying [HdpSessionManager] to begin connecting to a new client
-    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<u8>, Option<FcmKeys>, SecurityLevel),
+    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<u8>, Option<FcmKeys>, SecurityLevel, UnderlyingProtocol),
     /// A high-level peer command. Can be used to facilitate communications between nodes in the HyperLAN
     PeerCommand(u64, PeerSignal),
     /// For submitting a de-register request
     DeregisterFromHypernode(u64, VirtualConnectionType),
     /// Send data to client. Peer addr, implicated cid, hdp_nodelay, quantum algorithm, tcp only,
-    ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, ConnectMode, Option<FcmKeys>, Option<u8>, Option<bool>, Option<u32>),
+    ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, ConnectMode, Option<FcmKeys>, Option<u8>, Option<bool>, Option<u32>, UnderlyingProtocol),
     /// Updates the drill for the given CID
     UpdateDrill(VirtualTargetType),
     /// Send data to an already existent connection

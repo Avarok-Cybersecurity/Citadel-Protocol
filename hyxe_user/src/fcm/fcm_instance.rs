@@ -3,6 +3,8 @@ use serde::Serialize;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::misc::AccountError;
 use std::sync::Arc;
+use std::fmt::Debug;
+use crate::re_imports::__private::Formatter;
 
 pub struct FCMInstance {
     fcm_keys: FcmKeys,
@@ -82,5 +84,11 @@ impl FCMInstance {
 
     pub fn client(&self) -> &std::sync::Arc<Client> {
         &self.client
+    }
+}
+
+impl Debug for FCMInstance {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Client ID: {}", &self.fcm_keys.client_id)
     }
 }

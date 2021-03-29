@@ -7,12 +7,12 @@ mod imports {
     pub use prettytable::*;
 
     pub use hyxe_net::constants::{DO_CONNECT_EXPIRE_TIME_MS, DO_REGISTER_EXPIRE_TIME_MS};
-    pub use hyxe_net::hdp::hdp_packet_processor::includes::{Bytes, Duration, HyperNodeAccountInformation, IpAddr, SecurityLevel, SecVec};
+    pub use hyxe_net::hdp::hdp_packet_processor::includes::{Bytes, Duration, HyperNodeAccountInformation, IpAddr, SecurityLevel};
     pub use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
     pub use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerRequest};
     pub use hyxe_net::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal};
     pub use hyxe_net::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
-    pub use hyxe_net::proposed_credentials::ProposedCredentials;
+    pub use hyxe_user::proposed_credentials::ProposedCredentials;
 
     pub use crate::console::console_context::ConsoleContext;
     pub use crate::console::virtual_terminal::AppThreadSafe;
@@ -31,12 +31,12 @@ mod imports {
     pub use super::super::console::virtual_terminal::INPUT_ROUTER;
     use hyxe_user::account_manager::AccountManager;
 
-    pub fn get_cid_from_str(acc_mgr: &AccountManager, input: &str) -> Result<ClientNetworkAccount, ConsoleError> {
+    pub async fn get_cid_from_str(acc_mgr: &AccountManager, input: &str) -> Result<ClientNetworkAccount, ConsoleError> {
         let is_numeric = input.chars().all(|c| char::is_numeric(c));
         if is_numeric {
-            acc_mgr.get_client_by_cid(u64::from_str(input).map_err(|err| ConsoleError::Generic(err.to_string()))?).ok_or(ConsoleError::Default("Username does not map to a local client"))
+            acc_mgr.get_client_by_cid(u64::from_str(input).map_err(|err| ConsoleError::Generic(err.to_string()))?).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Username does not map to a local client"))
         } else {
-            acc_mgr.get_client_by_username(input).ok_or(ConsoleError::Default("Username does not map to a local client"))
+            acc_mgr.get_client_by_username(input).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Username does not map to a local client"))
         }
     }
 

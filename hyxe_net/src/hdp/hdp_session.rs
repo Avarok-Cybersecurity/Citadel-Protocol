@@ -4,7 +4,7 @@ use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt, Stream};
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use crate::hdp::outbound_sender::{unbounded, channel, UnboundedSender, UnboundedReceiver, SendError, Receiver};
-use tokio::net::{TcpStream, UdpSocket, TcpListener};
+use tokio::net::UdpSocket;
 use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
 use tokio_util::udp::UdpFramed;
@@ -26,7 +26,7 @@ use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::outbound_sender::{OutboundUdpSender, KEEP_ALIVE, OutboundTcpReceiver, OutboundTcpSender};
 use crate::hdp::state_container::{OutboundTransmitterContainer, StateContainerInner, VirtualConnectionType, VirtualTargetType, GroupKey, OutboundFileTransfer, FileKey, StateContainer, GroupSender};
 use crate::hdp::time::TransferStats;
-use crate::proposed_credentials::ProposedCredentials;
+use hyxe_user::proposed_credentials::ProposedCredentials;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::time_tracker::TimeTracker;
 use crate::hdp::session_queue_handler::{SessionQueueWorker, QueueWorkerTicket, PROVISIONAL_CHECKER, QueueWorkerResult, DRILL_REKEY_WORKER, KEEP_ALIVE_CHECKER, FIREWALL_KEEP_ALIVE, RESERVED_CID_IDX};
@@ -53,6 +53,7 @@ use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use crate::hdp::misc::net::{GenericNetworkStream, GenericNetworkListener};
 //use crate::define_struct;
 
 pub type WeakHdpSessionBorrow = crate::macros::WeakBorrow<HdpSessionInner>;
@@ -126,9 +127,9 @@ pub enum SessionState {
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub fn new(hdp_remote: HdpServerRemote, pqc_algorithm: Option<u8>, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, remote_peer: SocketAddr, time_tracker: TimeTracker, implicated_cid: Option<u64>, kernel_ticket: Ticket, security_level: SecurityLevel, fcm_keys: Option<FcmKeys>, tcp_only: bool, keep_alive_timeout_ns: i64) -> Option<Self> {
+    pub async fn new(hdp_remote: HdpServerRemote, pqc_algorithm: Option<u8>, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, remote_peer: SocketAddr, time_tracker: TimeTracker, implicated_cid: Option<u64>, kernel_ticket: Ticket, security_level: SecurityLevel, fcm_keys: Option<FcmKeys>, tcp_only: bool, keep_alive_timeout_ns: i64) -> Result<Self, NetworkError> {
         let (cnac, state) = if let Some(implicated_cid) = implicated_cid {
-            let cnac = account_manager.get_client_by_cid(implicated_cid)?;
+            let cnac = account_manager.get_client_by_cid(implicated_cid).await?.ok_or(NetworkError::InvalidExternalRequest("Client does not exist"))?;
             (Some(cnac), SessionState::NeedsConnect)
         } else {
             (None, SessionState::NeedsRegister)
@@ -166,7 +167,7 @@ impl HdpSession {
             fcm_keys
         };
 
-        Some(Self::from(inner))
+        Ok(Self::from(inner))
     }
 
     /// During impersonal mode, a new connection may come inbound. Unlike above in Self::new, we do not yet have the implicated cid nor nid.
@@ -214,7 +215,7 @@ impl HdpSession {
     ///
     /// `tcp_stream`: this goes to the adjacent HyperNode
     /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
-    pub async fn execute(&self, p2p_listener: Option<TcpListener>, tcp_stream: TcpStream, connect_mode: Option<ConnectMode>) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
+    pub async fn execute(&self, p2p_listener: Option<GenericNetworkListener>, tcp_stream: GenericNetworkStream, peer_addr: SocketAddr, connect_mode: Option<ConnectMode>) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
         log::info!("HdpSession is executing ...");
         let this = self.clone();
         let this_outbound = self.clone();
@@ -224,8 +225,7 @@ impl HdpSession {
         let this_p2p_listener = self.clone();
         let this_close = self.clone();
 
-        let (session_future, handle_zero_state, implicated_cid, to_kernel_tx, needs_close_message, sock) = {
-            let sock = tcp_stream.peer_addr().unwrap();
+        let (session_future, handle_zero_state, implicated_cid, to_kernel_tx, needs_close_message) = {
 
             let (writer, reader) = misc::net::safe_split_stream(tcp_stream);
 
@@ -297,7 +297,7 @@ impl HdpSession {
             //#[cfg(feature = "multi-threaded")]
             let _ = spawn!(queue_worker_future);
 
-            (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message, sock)
+            (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message)
         };
 
 
@@ -322,7 +322,7 @@ impl HdpSession {
                 let needs_close_message = needs_close_message.load(Ordering::Relaxed);
                 let cid = implicated_cid.load(Ordering::Relaxed);
 
-                log::info!("Session {} connected to {} is ending! Reason: {}. Needs close message? {} (strong count: {})", ticket.0, sock, reason.as_str(), needs_close_message, this_close.strong_count());
+                log::info!("Session {} connected to {} is ending! Reason: {}. Needs close message? {} (strong count: {})", ticket.0, peer_addr, reason.as_str(), needs_close_message, this_close.strong_count());
 
                 if needs_close_message {
                     if let Some(cid) = cid {
@@ -353,7 +353,7 @@ impl HdpSession {
                 log::info!("Beginning registration subroutine!");
                 let session_ref = inner!(session);
                 let security_level = session_ref.security_level;
-                let potential_cids_alice = session_ref.account_manager.get_local_nac().generate_possible_cids();
+                let potential_cids_alice = session_ref.account_manager.get_local_nac().client_only_generate_possible_cids().ok_or(NetworkError::InvalidExternalRequest("Local node is not a filesystem type, and cannot act as a client"))?;
                 // we supply 0,0 for cid and new drill vers by default, even though it will be reset by bob
                 let alice_constructor = HyperRatchetConstructor::new_alice(Some(session_ref.pqc_algorithm.unwrap_or(DEFAULT_PQC_ALGORITHM)), 0, 0, Some(security_level));
                 let mut state_container = inner_mut!(session_ref.state_container);
@@ -461,20 +461,21 @@ impl HdpSession {
             (unordered_futures, udp_sender_future)
         };
 
-        futures::future::try_join(unordered_futures.try_collect::<Vec<()>>(), udp_sender_future).await
+        log::info!("[Q-UDP] Initiated UDP subsystem...");
+        futures::future::try_join(unordered_futures.try_collect::<()>(), udp_sender_future).await
             .map(|_| ()).map_err(|err| {
             log::error!("UDP subsystem ending. Reason: {}", err.to_string());
             err
         })
     }
 
-    pub async fn outbound_stream(primary_outbound_rx: OutboundTcpReceiver, mut writer: CleanShutdownSink<TcpStream, LengthDelimitedCodec, Bytes>, header_obfuscator: HeaderObfuscator) -> Result<(), NetworkError> {
+    pub async fn outbound_stream(primary_outbound_rx: OutboundTcpReceiver, mut writer: CleanShutdownSink<GenericNetworkStream, LengthDelimitedCodec, Bytes>, header_obfuscator: HeaderObfuscator) -> Result<(), NetworkError> {
         writer.send_all(&mut primary_outbound_rx.0.map(|packet| {
             Ok(header_obfuscator.prepare_outbound(packet))
         })).map_err(|err| NetworkError::Generic(err.to_string())).await
     }
 
-    pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<TcpStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>, header_obfuscator: HeaderObfuscator) -> Result<(), NetworkError> {
+    pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>, header_obfuscator: HeaderObfuscator) -> Result<(), NetworkError> {
         log::info!("HdpSession async inbound-stream subroutine executed");
         let (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream) = if let Some(p2p) = p2p_handle {
             (p2p.remote_peer, p2p.local_bind_port, p2p.implicated_cid, p2p.kernel_tx, p2p.to_primary_stream)
@@ -506,7 +507,7 @@ impl HdpSession {
 
                 Some(Ok(packet)) => {
                     //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
-                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), local_primary_port, packet, &header_obfuscator) {
+                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), local_primary_port, packet, &header_obfuscator).await {
                         PrimaryProcessorResult::ReplyToSender(return_packet) => {
                             Self::send_to_primary_stream_closure(&primary_stream, &kernel_tx, return_packet, None)?;
                         }
@@ -773,7 +774,7 @@ impl HdpSession {
                             return;
                         }
                         Err(err) => {
-                            log::error!("start_rx error occured: {:?}", err);
+                            log::error!("start_rx error occurred: {:?}", err);
                             return;
                         }
 
@@ -1136,52 +1137,30 @@ impl HdpSession {
     }
 
     async fn listen_wave_port<S: Stream<Item=Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin>(this: HdpSession, to_kernel: UnboundedSender<HdpServerResult>, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S) -> Result<(), NetworkError> {
-        'looper: loop {
-            match stream.next().await {
-                None => {
-                    //log::info!("WAVE LISTENER: NO ITEMS");
-                }
-
-                Some(res) => {
-                    match res {
-                        Err(err) => {
-                            log::error!("Wave stream error: {}", err.to_string());
-                            break 'looper;
-                        }
-
-                        Ok((packet, remote_peer)) => {
-                            log::trace!("packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
-                            if remote_peer.ip() != hole_punched_addr_ip {
-                                log::error!("The packet received is not part of the firewall session. Dropping");
-                            } else {
-                                if packet != KEEP_ALIVE {
-                                    let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                                    if let Err(err) = this.process_inbound_packet_wave(packet) {
-                                        to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
-                                        log::error!("The session manager returned a critical error. Aborting system");
-                                        return Err(err);
-                                    }
-                                }
+        while let Some(res) = stream.next().await {
+            match res {
+                Ok((packet, remote_peer)) => {
+                    log::info!("packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
+                    if remote_peer.ip() != hole_punched_addr_ip {
+                        log::error!("The packet received is not part of the firewall session. Dropping");
+                    } else {
+                        if packet != KEEP_ALIVE {
+                            let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
+                            if let Err(err) = this.process_inbound_packet_wave(packet) {
+                                to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
+                                log::error!("The session manager returned a critical error. Aborting UDP subsystem");
+                                return Err(err);
                             }
                         }
                     }
                 }
-            }
-        }
-        /*
-        while let Some(Ok((packet, remote_peer))) = stream.next().await {
-            log::info!("packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
-            if remote_peer.ip() != hole_punched_addr_ip {
-                log::error!("The packet received is not part of the firewall session. Dropping");
-            } else {
-                let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                if let Err(err) = this.process_inbound_packet_wave(packet) {
-                    to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
-                    log::error!("The session manager returned a critical error. Aborting system");
-                    return Err(err);
+
+                Err(err) => {
+                    log::warn!("UDP Stream error: {:#?}", err);
+                    break;
                 }
             }
-        }*/
+        }
 
         log::info!("Ending waveport listener on {}", local_port);
 

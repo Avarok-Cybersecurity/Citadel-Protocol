@@ -6,6 +6,7 @@ use hyxe_user::misc::AccountError;
 use crate::hdp::hdp_packet_processor::includes::SecBuffer;
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::outbound_sender::{SendError, TrySendError};
+use crate::error::NetworkError;
 
 pub mod includes {
     pub use std::cell::RefMut;
@@ -15,7 +16,6 @@ pub mod includes {
     pub use log::{trace, warn};
     pub use rand::prelude::ThreadRng;
     pub use rand::RngCore;
-    pub use secstr::SecVec;
     pub use tokio::time::{Duration, Instant};
     pub use zerocopy::LayoutVerified;
 
@@ -151,6 +151,13 @@ impl<T: Into<String>> From<hyxe_user::misc::AccountError<T>> for PrimaryProcesso
 impl<T: Into<String>> From<hyxe_crypt::misc::CryptError<T>> for PrimaryProcessorResult {
     fn from(_: hyxe_crypt::misc::CryptError<T>) -> Self {
         PrimaryProcessorResult::Void
+    }
+}
+
+impl From<NetworkError> for PrimaryProcessorResult {
+    fn from(err: NetworkError) -> Self {
+        log::error!("Err occured on session, will propagate shutdown: {}", &err);
+        PrimaryProcessorResult::EndSession("NetworkError triggered shutdown of session")
     }
 }
 

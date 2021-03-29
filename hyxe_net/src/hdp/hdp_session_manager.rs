@@ -4,7 +4,6 @@ use std::net::ToSocketAddrs;
 
 use bytes::BytesMut;
 use crate::hdp::outbound_sender::UnboundedSender;
-use tokio::net::{TcpStream, TcpListener};
 
 use hyxe_crypt::prelude::SecurityLevel;
 use hyxe_user::account_manager::AccountManager;
@@ -12,10 +11,10 @@ use hyxe_user::account_manager::AccountManager;
 use crate::constants::{TCP_ONLY, KEEP_ALIVE_TIMEOUT_NS, DO_CONNECT_EXPIRE_TIME_MS};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
-use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest, ConnectMode};
+use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest, ConnectMode, UnderlyingProtocol};
 use crate::hdp::hdp_session::{HdpSession, HdpSessionInner};
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
-use crate::proposed_credentials::ProposedCredentials;
+use hyxe_user::proposed_credentials::ProposedCredentials;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::time_tracker::TimeTracker;
 use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, PeerSignal, MailboxTransfer, PeerConnectionType, PeerResponse};
@@ -36,6 +35,7 @@ use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_user::fcm::data_structures::RawFcmPacket;
 use hyxe_user::misc::AccountError;
 use hyxe_user::fcm::fcm_instance::FCMInstance;
+use crate::hdp::misc::net::{GenericNetworkStream, GenericNetworkListener};
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -140,7 +140,7 @@ impl HdpSessionManager {
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: SocketAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, connect_mode: Option<ConnectMode>, fcm_keys: Option<FcmKeys>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>, keep_alive_timeout_ns: Option<i64>) -> Result<(), NetworkError> {
+    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: SocketAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, connect_mode: Option<ConnectMode>, _listener_underlying_proto: UnderlyingProtocol, connect_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>, keep_alive_timeout_ns: Option<i64>) -> Result<(), NetworkError> {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
@@ -170,12 +170,13 @@ impl HdpSessionManager {
 
                 // We must now create a TcpStream towards the peer
                 let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
-                let (p2p_listener, primary_stream) = HdpServer::create_init_tcp_connect_socket(peer_addr).await
+                // TODO: For now, all p2p conns use basic TCP. We need to establish a mechanism for underlying proto conflicts. in p2p_conn_handler.rs exists UnderlyingProtocol::Tcp argument
+                let (p2p_listener, primary_stream) = HdpServer::create_init_tcp_listener(connect_underlying_proto.clone(), connect_underlying_proto, peer_addr).await
                     .map_err(|err| NetworkError::SocketError(err.to_string()))?;
                 (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt)
             };
 
-            let new_session = HdpSession::new(remote, quantum_algorithm, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, peer_addr, tt, implicated_cid, ticket, security_level, fcm_keys, tcp_only.unwrap_or(TCP_ONLY), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS)).ok_or_else(|| NetworkError::InternalError("Unable to create HdpSession"))?;
+            let new_session = HdpSession::new(remote, quantum_algorithm, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, peer_addr, tt, implicated_cid, ticket, security_level, fcm_keys, tcp_only.unwrap_or(TCP_ONLY), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS)).await?;
 
             if let Some(_implicated_cid) = implicated_cid {
                 // the cid exists which implies registration already occurred
@@ -197,9 +198,9 @@ impl HdpSessionManager {
 
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
     /// TODO: Make this code less hacky, and make the removal process cleaner. Use RAII on HdpSessionInner?
-    async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, p2p_listener: Option<TcpListener>, tcp_stream: TcpStream, connect_mode: Option<ConnectMode>) -> Result<(), NetworkError> {
+    async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, p2p_listener: Option<GenericNetworkListener>, tcp_stream: GenericNetworkStream, connect_mode: Option<ConnectMode>) -> Result<(), NetworkError> {
         log::info!("Beginning pre-execution of session");
-        match new_session.execute(p2p_listener, tcp_stream, connect_mode).await {
+        match new_session.execute(p2p_listener, tcp_stream, peer_addr, connect_mode).await {
             Ok(cid_opt) => {
                 if let Some(cid) = cid_opt {
                     //log::info!("[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
@@ -305,7 +306,7 @@ impl HdpSessionManager {
 
     /// When the primary port listener receives a new connection, the stream gets sent here for handling
     #[allow(unused_results)]
-    pub fn process_new_inbound_connection(&self, peer_addr: SocketAddr, primary_stream: TcpStream) -> Result<(), NetworkError> {
+    pub fn process_new_inbound_connection(&self, local_bind_addr: SocketAddr, peer_addr: SocketAddr, primary_stream: GenericNetworkStream) -> Result<(), NetworkError> {
         let this_dc = self.clone();
         let mut this = inner_mut!(self);
         let remote = this.server_remote.clone().unwrap();
@@ -321,7 +322,6 @@ impl HdpSessionManager {
         // Regardless if the IpAddr existed as a client before, we must treat the connection temporarily as provisional
         // However, two concurrent provisional connections from the same IP cannot be connecting at once
         let local_node_type = this.local_node_type;
-        let local_bind_addr = primary_stream.local_addr().unwrap();
         let provisional_ticket = Ticket(this.incoming_cxn_count as u64);
         this.incoming_cxn_count += 1;
 
@@ -512,8 +512,10 @@ impl HdpSessionManager {
     ///
     /// Since the user may or may not be online, we use the static aux ratchet
     #[allow(unused_results)]
-    pub fn fcm_post_register_to(&self, implicated_cid: u64, peer_cid: u64, is_response: bool, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
-        let mut this = inner_mut!(self);
+    pub async fn fcm_post_register_to(&self, implicated_cid: u64, peer_cid: u64, is_response: bool, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
+        let this_ref = self.clone();
+        let this = inner!(self);
+
         if implicated_cid != peer_cid {
             let tickets = FcmPeerRegisterTicket::create_bidirectional(implicated_cid, peer_cid);
             if !is_response {
@@ -522,28 +524,38 @@ impl HdpSessionManager {
                 }
             }
 
-            let peer_cnac = this.account_manager.get_client_by_cid(peer_cid).ok_or(NetworkError::InvalidExternalRequest("Peer CID does not exist"))?;
+            let account_manager = this.account_manager.clone();
+            std::mem::drop(this);
+
+            let peer_cnac = account_manager.get_client_by_cid(peer_cid).await?.ok_or(NetworkError::InvalidExternalRequest("Peer CID does not exist"))?;
             peer_cnac.visit(|inner| {
-                let fcm_instance = FCMInstance::new(inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Client cannot receive FCM messages at this time"))?, this.account_manager.fcm_client().clone());
-                let packet = packet_crafter(inner.crypt_container.toolset.get_static_auxiliary_ratchet());
+                let keys = inner.crypt_container.fcm_keys.clone();
+                let static_aux_ratchet = inner.crypt_container.toolset.get_static_auxiliary_ratchet().clone();
 
-                if is_response {
-                    // remove the tickets
-                    this.fcm_post_registrations.remove(&tickets.0);
-                    this.fcm_post_registrations.remove(&tickets.1);
-                } else {
-                    // add the tickets
-                    this.fcm_post_registrations.insert(tickets.0);
-                    this.fcm_post_registrations.insert(tickets.1);
+                std::mem::drop(inner);
+
+                async move {
+                    let fcm_instance = FCMInstance::new(keys.ok_or(NetworkError::InvalidExternalRequest("Client cannot receive FCM messages at this time"))?, account_manager.fcm_client().clone());
+                    let packet = packet_crafter(&static_aux_ratchet);
+
+                    let mut this = inner_mut!(this_ref);
+
+                    if is_response {
+                        // remove the tickets
+                        this.fcm_post_registrations.remove(&tickets.0);
+                        this.fcm_post_registrations.remove(&tickets.1);
+                    } else {
+                        // add the tickets
+                        this.fcm_post_registrations.insert(tickets.0);
+                        this.fcm_post_registrations.insert(tickets.1);
+                    }
+
+                    std::mem::drop(this);
+
+                    on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()));
+                    Ok(())
                 }
-
-                let task = async move {
-                    on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()))
-                };
-
-                spawn!(task);
-                Ok(())
-            })
+            }).await
         } else {
             Err(NetworkError::InvalidExternalRequest("implicated cid == peer_cid"))
         }
@@ -555,21 +567,25 @@ impl HdpSessionManager {
     ///
     /// Since the user may or may not be online, we use the static aux ratchet
     #[allow(unused_results)]
-    pub fn fcm_send_to_as_server(&self, implicated_cid: u64, peer_cid: u64, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
+    pub async fn fcm_send_to_as_server(&self, implicated_cid: u64, peer_cid: u64, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
         let this = inner!(self);
         if implicated_cid != peer_cid {
-            let peer_cnac = this.account_manager.get_client_by_cid(peer_cid).ok_or(NetworkError::InvalidExternalRequest("Peer CID does not exist"))?;
+            let account_manager = this.account_manager.clone();
+            std::mem::drop(this);
+
+            let peer_cnac = account_manager.get_client_by_cid(peer_cid).await?.ok_or(NetworkError::InvalidExternalRequest("Peer CID does not exist"))?;
             peer_cnac.visit(|inner| {
-                let fcm_instance = FCMInstance::new(inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Client cannot receive FCM messages at this time"))?, this.account_manager.fcm_client().clone());
-                let packet = packet_crafter(inner.crypt_container.toolset.get_static_auxiliary_ratchet());
+                let keys = inner.crypt_container.fcm_keys.clone();
+                let static_aux_ratchet = inner.crypt_container.toolset.get_static_auxiliary_ratchet().clone();
+                std::mem::drop(inner);
 
-                let task = async move {
-                    on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()))
-                };
-
-                spawn!(task);
-                Ok(())
-            })
+                async move {
+                    let fcm_instance = FCMInstance::new(keys.ok_or(NetworkError::InvalidExternalRequest("Client cannot receive FCM messages at this time"))?, account_manager.fcm_client().clone());
+                    let packet = packet_crafter(&static_aux_ratchet);
+                    on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()));
+                    Ok(())
+                }
+            }).await
         } else {
             Err(NetworkError::InvalidExternalRequest("implicated cid == peer_cid"))
         }
@@ -786,28 +802,25 @@ impl HdpSessionManager {
             Err(format!("Peer {}'s session is disconnected", peer_cid))
         }
     }
-}
-
-impl HdpSessionManagerInner {
-    /// Clears a session from the SessionManager
-    pub fn clear_session(&mut self, cid: u64) {
-        if let None = self.sessions.remove(&cid) {
-            log::warn!("Tried removing a session (non-provisional), but did not find it ...");
-        }
-    }
 
     /// Stores the `signal` inside the internal timed-queue for `implicated_cid`, and then sends `packet` to `target_cid`.
-    /// After `timeout`, the closure `on_timeout` is executed
+/// After `timeout`, the closure `on_timeout` is executed
     #[inline]
-    pub fn route_signal_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
+    pub async fn route_signal_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
+        let this = inner!(self);
+
         if implicated_cid == target_cid {
             return Err("Target CID cannot be equal to the implicated CID".to_string());
         }
 
-        if self.account_manager.hyperlan_cid_is_registered(target_cid) {
+        let account_manager = this.account_manager.clone();
+        std::mem::drop(this);
+
+        if account_manager.hyperlan_cid_is_registered(target_cid).await.map_err(|err| err.into_string())? {
+            let this = inner!(self);
             // get the target cid's session
-            if let Some(sess) = self.sessions.get(&target_cid) {
-                self.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout);
+            if let Some(sess) = this.sessions.get(&target_cid) {
+                this.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout);
                 let sess_ref = inner!(sess);
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
                 let peer_cnac = sess_ref.cnac.as_ref().unwrap();
@@ -823,9 +836,9 @@ impl HdpSessionManagerInner {
                 })
             } else {
                 // session is not active, but user is registered (thus offline). Setup return ticket tracker on implicated_cid
-                // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect
-                self.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal.clone(), on_timeout);
-                if self.hypernode_peer_layer.try_add_mailbox(true, target_cid, signal) {
+                // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: FCM route alternative, if available
+                this.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal.clone(), on_timeout);
+                if this.hypernode_peer_layer.try_add_mailbox(true, target_cid, signal) {
                     Ok(())
                 } else {
                     Err(format!("Peer {} is offline. Furthermore, that peer's mailbox is not accepting signals at this time", target_cid))
@@ -833,6 +846,15 @@ impl HdpSessionManagerInner {
             }
         } else {
             Err(format!("CID {} is not registered locally", target_cid))
+        }
+    }
+}
+
+impl HdpSessionManagerInner {
+    /// Clears a session from the SessionManager
+    pub fn clear_session(&mut self, cid: u64) {
+        if let None = self.sessions.remove(&cid) {
+            log::warn!("Tried removing a session (non-provisional), but did not find it ...");
         }
     }
 
