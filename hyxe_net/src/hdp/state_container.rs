@@ -785,7 +785,8 @@ impl StateContainerInner {
             }
 
             _ => {
-                unimplemented!("HyperWAN functionality not yet enabled")
+                log::error!("HyperWAN functionality not yet enabled");
+                return None;
             }
         };
 

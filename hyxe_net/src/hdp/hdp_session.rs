@@ -723,16 +723,17 @@ impl HdpSession {
                                 (preferred_primary_stream, file_header, object_id, target_cid, target_cid, groups_needed)
                             } else {
                                 log::error!("Endpoint container not found");
-                                return Ok(());
+                                return Err(NetworkError::InternalError("Endpoint container not found"));
                             }
                         } else {
                             log::error!("Unable to find active vconn for the channel");
-                            return Ok(());
+                            return Err(NetworkError::InternalError("Virtual connection not found for channel"))
                         }
                     }
 
                     _ => {
-                        unimplemented!("HyperWAN functionality not yet implemented")
+                        log::error!("HyperWAN functionality not yet implemented");
+                        return Err(NetworkError::InternalError("HyperWAN functionality not yet implemented"))
                     }
                 };
 
@@ -813,7 +814,10 @@ impl HdpSession {
                                             }
                                         }
 
-                                        _ => unimplemented!("Not implemented")
+                                        _ => {
+                                            log::error!("HyperWAN Functionality not implemented");
+                                            return;
+                                        }
                                     };
 
                                     if proper_latest_hyper_ratchet.is_none() {

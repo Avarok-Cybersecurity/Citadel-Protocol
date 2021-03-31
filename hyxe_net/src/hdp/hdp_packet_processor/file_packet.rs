@@ -40,7 +40,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(
                                 }
 
                                 _ => {
-                                    unimplemented!("HyperWAN functionality not yet enabled")
+                                    log::error!("HyperWAN functionality not yet enabled");
+                                    return PrimaryProcessorResult::Void;
                                 }
                             };
 

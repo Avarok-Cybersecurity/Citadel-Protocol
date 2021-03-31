@@ -393,7 +393,8 @@ pub fn get_resp_target_cid(virtual_target: &VirtualConnectionType) -> Option<u64
         }
 
         _ => {
-            unimplemented!("HyperWAN functionality is not yet implemented")
+            log::error!("HyperWAN functionality is not yet implemented");
+            return None;
         }
     }
 }
