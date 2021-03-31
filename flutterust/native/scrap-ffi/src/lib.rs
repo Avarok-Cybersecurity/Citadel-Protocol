@@ -86,9 +86,9 @@ pub unsafe extern "C" fn fcm_process(
     // setup account manager. We MUST reload each time this gets called, because the main instance may have
     // experienced changes that wouldn't otherwise register in this background isolate
     log::info!("[Rust BG processor] Setting up background processor ...");
-    match AccountManager::new_local(
+    match AccountManager::new_blocking(
         SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),
-        Some(home_dir.to_string()),
+        Some(home_dir.to_string())
     ) {
         Ok(acc_mgr) => {
             log::info!("[Rust BG processor] Success setting-up account manager");
@@ -101,7 +101,7 @@ pub unsafe extern "C" fn fcm_process(
         }
 
         Err(err) => {
-            let err = err.to_string();
+            let err = err.into_string();
             return CString::new(
                 KernelResponse::Error(0, err.into_bytes())
                     .serialize_json()

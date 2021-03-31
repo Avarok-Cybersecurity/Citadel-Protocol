@@ -181,7 +181,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                             match resp {
                                 // the accept case
                                 PeerResponse::Accept(_) => {
-                                    match conn {
+                                    return match conn {
                                         PeerConnectionType::HyperLANPeerToHyperLANPeer(original_implicated_cid, original_target_cid) => {
                                             // this implies this node is receiving an accept_request. As such, we need to NOT
                                             // forward the signal quite yet, and instead, begin the key-exchange process in order to
@@ -208,10 +208,13 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                             let stage0_peer_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(&hyper_ratchet, signal, ticket, timestamp, security_level);
                                             log::info!("Sent peer KEM stage 0 outbound");
                                             // send to central server
-                                            return PrimaryProcessorResult::ReplyToSender(stage0_peer_kem);
+                                            PrimaryProcessorResult::ReplyToSender(stage0_peer_kem)
                                         }
 
-                                        _ => unimplemented!("HyperWAN Functionality not yet enabled")
+                                        _ => {
+                                            log::error!("HyperWAN Functionality not yet enabled");
+                                            PrimaryProcessorResult::Void
+                                        }
                                     }
                                 }
 
@@ -702,7 +705,8 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                 }
 
                 PeerConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, _target_cid) => {
-                    unimplemented!("HyperWAN functionality not implemented")
+                    log::error!("HyperWAN functionality not implemented");
+                    return PrimaryProcessorResult::Void;
                 }
             }
         }
@@ -731,7 +735,8 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                 }
 
                 _ => {
-                    unimplemented!("HyperWAN functionality not implemented")
+                    log::error!("HyperWAN functionality not implemented");
+                    return PrimaryProcessorResult::Void;
                 }
             }
         }
@@ -755,7 +760,8 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                 }
 
                 HypernodeConnectionType::HyperLANPeerToHyperWANServer(_implicated_cid, _icid) => {
-                    unimplemented!("HyperWAN functionality not implemented")
+                    log::error!("HyperWAN functionality not implemented");
+                    return PrimaryProcessorResult::Void;
                 }
             }
         }

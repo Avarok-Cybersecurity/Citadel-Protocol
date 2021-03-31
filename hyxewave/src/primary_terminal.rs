@@ -8,7 +8,7 @@ use crate::ffi::FFIIO;
 use hyxe_net::constants::PRIMARY_PORT;
 use std::str::FromStr;
 use std::net::{SocketAddr, IpAddr};
-use hyxe_user::backend::BackendType;
+
 
 /// The arguments, if None, will default to std::env::args, with the zeroth element removed (the binary name)
 /// Is some,
@@ -25,7 +25,13 @@ pub fn parse_command_line_arguments_into_app_config(cmd: Option<String>, ffi_io:
 
     app_config.is_ffi = ffi_io.is_some();
     app_config.ffi_io = ffi_io;
-    app_config.backend_type = arg_matches.value_of("backend").map(|r| BackendType::MySQLDatabase(r.to_string()));
+
+    #[cfg(any(feature = "enterprise-lite", feature = "enterprise"))]
+        {
+            use hyxe_user::backend::BackendType;
+            app_config.backend_type = arg_matches.value_of("backend").map(|r| BackendType::MySQLDatabase(r.to_string()));
+        }
+
     app_config.daemon_mode = arg_matches.is_present("daemon") || app_config.is_ffi;
     app_config.kernel_threads = try_get_kthreads(&arg_matches)?;
 
