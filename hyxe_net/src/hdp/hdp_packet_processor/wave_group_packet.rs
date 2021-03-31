@@ -61,7 +61,8 @@ pub fn process<K: ExpectedInnerTargetMut<HdpSessionInner>>(session: &mut InnerPa
                         }
 
                         _ => {
-                            unimplemented!("HyperWAN functionality not yet implemented")
+                            log::error!("HyperWAN functionality not yet implemented");
+                            return GroupProcessorResult::Void
                         }
                     }
                 }

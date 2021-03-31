@@ -201,7 +201,7 @@ dependencies = [
 name = "async_ip"
 version = "0.1.0"
 dependencies = [
- "reqwest",
+ "reqwest 0.10.10",
  "tokio 0.2.24",
 ]
 
@@ -929,19 +929,15 @@ dependencies = [
 
 [[package]]
 name = "fcm"
-version = "0.8.1"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11cf2cc313d41952826e1352bfe1a74744ff8cb5a63ccdefbd863fcda9374b7b"
+checksum = "c46f94d59c4fa82857b7c8727d67dccfe0dd889cfdf8743bfa3e36b24a22530f"
 dependencies = [
  "chrono",
  "erased-serde",
- "futures",
- "http",
- "hyper 0.14.4",
- "hyper-tls 0.5.0",
  "log",
+ "reqwest 0.11.2",
  "serde",
- "serde_derive",
  "serde_json",
 ]
 
@@ -2253,6 +2249,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77af24da69f9d9341038eba93a073b1fdaaa1b788221b00a69bce9e762cb32de"
 
 [[package]]
+name = "openssl-src"
+version = "111.15.0+1.1.1k"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1a5f6ae2ac04393b217ea9f700cd04fa9bf3d93fae2872069f3d15d908af70a"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "openssl-sys"
 version = "0.9.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2261,6 +2266,7 @@ dependencies = [
  "autocfg 1.0.1",
  "cc",
  "libc",
+ "openssl-src",
  "pkg-config",
  "vcpkg",
 ]
@@ -2790,6 +2796,41 @@ dependencies = [
  "serde_urlencoded",
  "tokio 0.2.24",
  "tokio-tls",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "winreg",
+]
+
+[[package]]
+name = "reqwest"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf12057f289428dbf5c591c74bf10392e4a8003f993405a902f20117019022d4"
+dependencies = [
+ "base64",
+ "bytes 1.0.1",
+ "encoding_rs",
+ "futures-core",
+ "futures-util",
+ "http",
+ "http-body 0.4.0",
+ "hyper 0.14.4",
+ "hyper-tls 0.5.0",
+ "ipnet",
+ "js-sys",
+ "lazy_static",
+ "log",
+ "mime",
+ "native-tls",
+ "percent-encoding",
+ "pin-project-lite 0.2.4",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "tokio 1.4.0",
+ "tokio-native-tls",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",

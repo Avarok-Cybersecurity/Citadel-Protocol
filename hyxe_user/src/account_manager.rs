@@ -17,6 +17,7 @@ use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::prelude::SecBuffer;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::argon_container::{AsyncArgon, ArgonSettings, ArgonStatus, ServerArgonContainer, ArgonContainerType};
+use crate::fcm::fcm_packet_processor::block_on_async;
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
@@ -56,6 +57,11 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         persistence_handler.post_connect(&persistence_handler)?;
 
         Ok(Self { persistence_handler, fcm_client })
+    }
+
+    /// Using an internal single-threaded executor, creates the account manager. NOTE: Since this wouldn't support connections to a database (timers require active polling for conn upkeep), this only supports a filesystem backend
+    pub fn new_blocking(bind_addr: SocketAddr, home_dir: Option<String>) -> Result<Self, AccountError> {
+        block_on_async(move || Self::new(bind_addr, home_dir, BackendType::Filesystem))?
     }
 
     /// Returns the directory store for this local node session
