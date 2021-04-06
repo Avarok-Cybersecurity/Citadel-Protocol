@@ -45,7 +45,9 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
     match aux_cmd {
         packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST => {
-            group_broadcast::process(&wrap_inner!(session), header, &payload[..], &sess_hyper_ratchet)
+            std::mem::drop(state_container);
+            std::mem::drop(session);
+            group_broadcast::process(session_orig, header, &payload[..], &sess_hyper_ratchet).await
         }
 
         packet_flags::cmd::aux::peer_cmd::SIGNAL => {
@@ -56,6 +58,17 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
             if !session.is_server {
                 // forward the signal to the kernel, with some exceptions.
                 match &signal {
+                    PeerSignal::FcmTokenUpdate(new_keys) => {
+                        // update local
+                        let cnac = cnac.clone();
+                        let persistence_handler = session.account_manager.get_persistence_handler().clone();
+                        let to_kernel = session.kernel_tx.clone();
+                        std::mem::drop(state_container);
+                        std::mem::drop(session);
+                        persistence_handler.update_fcm_keys(&cnac, new_keys.clone()).await?;
+                        to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalReceived(ticket), ticket))?;
+                        return PrimaryProcessorResult::Void;
+                    }
                     PeerSignal::Disconnect(vconn, resp) => {
                         let target = resp.as_ref().map(|_| vconn.get_original_implicated_cid()).unwrap_or(vconn.get_original_target_cid());
                         if let None = state_container.active_virtual_connections.remove(&target) {
@@ -68,16 +81,17 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
                     PeerSignal::DeregistrationSuccess(peer_cid, used_fcm) => {
                         log::info!("[Deregistration] about to remove peer {} from {} at the endpoint", peer_cid, cnac.get_cid());
-                        let fcm_client = session.account_manager.fcm_client().clone();
+                        let acc_mgr = session.account_manager.clone();
                         let kernel_tx = session.kernel_tx.clone();
                         let cnac = cnac.clone();
+                        let this_cid = cnac.get_cid();
 
                         if *used_fcm {
                             std::mem::drop(state_container);
                             std::mem::drop(session);
                             let peer_cid = *peer_cid;
                             // now, send an FCM dereg signal. Then, create FCM dereg signal+handler. Finally, remove the kernel's dereg operation
-                            match cnac.fcm_raw_send_to_peer(peer_cid, |fcm_ratchet| hyxe_user::fcm::fcm_packet_crafter::craft_deregistered(fcm_ratchet, peer_cid, ticket.0), &fcm_client).await {
+                            match cnac.fcm_raw_send_to_peer(peer_cid, |fcm_ratchet| hyxe_user::fcm::fcm_packet_crafter::craft_deregistered(fcm_ratchet, peer_cid, ticket.0), acc_mgr.fcm_client()).await {
                                 Ok(_) => {
                                     log::info!("Successfully alerted peer {} that deregistration occurred", peer_cid);
                                 }
@@ -86,17 +100,11 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                     log::warn!("Unable to alert peer {} that deregistration occurred: {:?}", peer_cid, err);
                                 }
                             }
+                        } else { // just remove the peer
+                        }
 
-                            if let None = cnac.remove_hyperlan_peer(peer_cid) {
-                                log::warn!("Unable to remove hyperlan peer {}", peer_cid);
-                            }
-
-
-                        } else {
-                            // just remove the peer
-                            if let None = cnac.remove_hyperlan_peer(*peer_cid) {
-                                log::warn!("Unable to remove hyperlan peer {}", peer_cid);
-                            }
+                        if let None = acc_mgr.get_persistence_handler().deregister_p2p_as_client(this_cid, *peer_cid).await? {
+                            log::warn!("Unable to remove hyperlan peer {}", peer_cid);
                         }
 
                         kernel_tx.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), *peer_cid), *used_fcm), ticket))?;
@@ -632,11 +640,9 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                             Ok(_) => {
                                 // route the original signal to the other end. If not connected, don't bother
                                 // FCM note: the endpoint's duty is to send an FCM signal before completing deregistration
-                                if session_manager.session_active(target_cid) {
-                                    let peer_alert_signal = PeerSignal::DeregistrationSuccess(implicated_cid, use_fcm);
-                                    if !session_manager.send_signal_to_peer(target_cid, ticket, peer_alert_signal, timestamp, security_level) {
-                                        log::warn!("Unable to send packet to {}", target_cid);
-                                    }
+                                let peer_alert_signal = PeerSignal::DeregistrationSuccess(implicated_cid, use_fcm);
+                                if !session_manager.send_signal_to_peer(target_cid, ticket, peer_alert_signal, timestamp, security_level) {
+                                    log::warn!("Unable to send packet to {} (maybe not connected)", target_cid);
                                 }
 
                                 // now, send a success packet to the client
@@ -842,6 +848,26 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             std::mem::drop(session);
 
             reply_to_sender(PeerSignal::FcmFetch(cnac.retrieve_raw_fcm_packets().await?), &sess_hyper_ratchet, ticket, timestamp, security_level)
+        }
+
+        PeerSignal::FcmTokenUpdate(new_keys) => {
+            let _implicated_cid = header.session_cid.get();
+            let account_manager = session.account_manager.clone();
+            let tt = session.time_tracker.clone();
+            let cnac = session.cnac.clone()?;
+            std::mem::drop(session);
+
+            let res = account_manager.get_persistence_handler().update_fcm_keys(&cnac, new_keys.clone()).await;
+            let timestamp = tt.get_global_time_ns();
+            match res {
+                Ok(_) => {
+                    reply_to_sender(PeerSignal::FcmTokenUpdate(new_keys), &sess_hyper_ratchet, ticket, timestamp, security_level)
+                }
+
+                Err(err) => {
+                    reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level)
+                }
+            }
         }
     }
 }

@@ -5,10 +5,11 @@ use crate::misc::AccountError;
 use std::sync::Arc;
 use std::fmt::Debug;
 use crate::re_imports::__private::Formatter;
+use tokio::time::Duration;
 
 pub struct FCMInstance {
     fcm_keys: FcmKeys,
-    client: std::sync::Arc<Client>
+    client: Arc<Client>
 }
 
 
@@ -51,7 +52,7 @@ impl FCMInstance {
         (cfg)(&mut builder);
 
         // TODO: include ttl option. When ttl = 0, delivery will be instant, but not guaranteed. Good for "video calls"
-        Self::map_fcm_resp(client.send(builder.finalize()).await)
+        Self::map_fcm_resp(tokio::time::timeout(Duration::from_millis(3000), client.send(builder.finalize())).await.map_err(|err| AccountError::Generic(err.to_string()))?)
     }
 
     pub(crate) fn map_fcm_resp(resp: Result<FcmResponse, FcmError>) -> Result<FcmResponse, AccountError<String>> {

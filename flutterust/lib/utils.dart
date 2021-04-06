@@ -17,6 +17,7 @@ import 'package:google_https_dns/library.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 import 'package:scrap/scrap.dart';
 import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
+import 'package:android_power_manager/android_power_manager.dart';
 
 const int DEFAULT_PORT = 25021;
 
@@ -129,6 +130,17 @@ class Utils {
               payload: apn?.getPreservableMap()
           )
       );
+  }
+
+  static Future<void> checkPowerManager() async {
+    var res = await AndroidPowerManager.isIgnoringBatteryOptimizations;
+    if (res != null) {
+      if (res) {
+        return;
+      }
+    }
+
+    await AndroidPowerManager.requestIgnoreBatteryOptimizations();
   }
 
   static FirebaseMessaging firebase = FirebaseMessaging.instance;

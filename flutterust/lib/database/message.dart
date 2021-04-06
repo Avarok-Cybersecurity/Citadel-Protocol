@@ -11,26 +11,39 @@ import 'package:sqflite/sqflite.dart';
 /// Unlike its AbstractNotification counterpart, this is meant for long-term storage
 class Message extends AbstractSqlObject {
   static const String DB_TABLE = "messages";
-  static const String GENESIS = "CREATE TABLE $DB_TABLE (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, implicatedCid TEXT, peerCid TEXT, message TEXT, recvTime TEXT, fromPeer INTEGER, status TEXT, rawTicket TEXT)";
+  static const String GENESIS = "CREATE TABLE $DB_TABLE (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, implicatedCid TEXT, peerCid TEXT, message TEXT, lastEventTime TEXT, fromPeer INTEGER, status TEXT, rawTicket TEXT)";
 
   final u64 implicatedCid;
   final u64 peerCid;
   final String message;
-  final DateTime recvTime;
+  DateTime lastEventTime;
   final bool fromPeer;
   u64? rawTicket;
   PeerSendState status;
   int? _id;
 
-  Message(this.implicatedCid, this.peerCid, this.message, this.recvTime, this.fromPeer, this.status, this.rawTicket);
+  Message(this.implicatedCid, this.peerCid, this.message, this.lastEventTime, this.fromPeer, this.status, this.rawTicket);
   Message.fromMap(Map<String, dynamic> sql) :
       this.implicatedCid = u64.tryFrom(sql["implicatedCid"]).value,
   this.peerCid = u64.tryFrom(sql["peerCid"]).value,
   this.message = sql["message"],
-  this.recvTime = DateTime.parse(sql["recvTime"]),
+  this.lastEventTime = DateTime.parse(sql["lastEventTime"]),
   this.status = PeerSendStateExt.fromString(sql["status"]).value,
-  this.fromPeer = sql["fromPeer"] == 1,
-  this.rawTicket = u64.tryFrom(sql["rawTicket"]).value;
+  this.fromPeer = sql["fromPeer"] == 1 {
+    if (sql["rawTicket"] != null) {
+      var rawTicketOpt = u64.tryFrom(sql["rawTicket"]);
+      if (rawTicketOpt.isPresent) {
+        this.rawTicket = rawTicketOpt.value;
+      }
+    }
+
+    if(sql["id"] != null) {
+      this._id = sql["id"];
+    } else {
+      print("[Message] ID field in constructor map not present!");
+    }
+  }
+
 
   @override
   Optional getDatabaseKey() {
@@ -48,10 +61,10 @@ class Message extends AbstractSqlObject {
       'implicatedCid': this.implicatedCid.toString(),
       'peerCid': this.peerCid.toString(),
       'message': this.message,
-      'recvTime': this.recvTime.toIso8601String(),
+      'lastEventTime': this.lastEventTime.toIso8601String(),
       'fromPeer': this.fromPeer ? 1 : 0,
       'status' : this.status.asString(),
-      'rawTicket': this.rawTicket.toString()
+      'rawTicket': this.rawTicket?.toString()
     };
   }
 
@@ -67,9 +80,9 @@ class Message extends AbstractSqlObject {
 
   AbstractNotification toAbstractNotification() {
     if (this.fromPeer) {
-      return MessageNotification(this.implicatedCid, this.peerCid, this.message, this.recvTime, true, this.status, this.rawTicket);
+      return MessageNotification(this.implicatedCid, this.peerCid, this.message, this.lastEventTime, true, this.status, this.rawTicket);
     } else {
-      return MessageNotification(this.peerCid, this.implicatedCid, this.message, this.recvTime, false, this.status, this.rawTicket);
+      return MessageNotification(this.peerCid, this.implicatedCid, this.message, this.lastEventTime, false, this.status, this.rawTicket);
     }
   }
 
@@ -80,9 +93,20 @@ class Message extends AbstractSqlObject {
   static Future<Optional<Message>> getMessage(u64 implicatedCid, u64 peerCid, u64 rawTicket) async {
     return await DatabaseHandler.getObjectByTriconditional(DB_TABLE, "implicatedCid", implicatedCid.toString(), "peerCid", peerCid.toString(), "rawTicket", rawTicket.toString(), (map) => Message.fromMap(map));
   }
+  
+  static Future<Optional<Message>> getLastMessageSentBy(u64 implicatedCid, u64 peerCid) async {
+    // SELECT status, recvTime FROM messages WHERE implicatedCid = ? AND WHERE fromPeer = 0 ORDER BY id DESC LIMIT 1
+    var db = await DatabaseHandler.database();
+    var list = await db.rawQuery("SELECT * FROM $DB_TABLE WHERE implicatedCid = '$implicatedCid' AND peerCid = '$peerCid' AND fromPeer = 0 ORDER BY id DESC LIMIT 1");
+    if (list.isNotEmpty) {
+      return Optional.of(Message.fromMap(list.first));
+    } else {
+      return Optional.empty();
+    }
+  }
 
   @override
   String toString() {
-    return "[$recvTime] $implicatedCid <-> $peerCid: $message [fromPeer: $fromPeer]";
+    return "[$lastEventTime] $implicatedCid <-> $peerCid: $message [fromPeer: $fromPeer]";
   }
 }

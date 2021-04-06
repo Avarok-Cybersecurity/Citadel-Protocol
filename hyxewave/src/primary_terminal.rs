@@ -29,7 +29,7 @@ pub fn parse_command_line_arguments_into_app_config(cmd: Option<String>, ffi_io:
     #[cfg(any(feature = "enterprise-lite", feature = "enterprise"))]
         {
             use hyxe_user::backend::BackendType;
-            app_config.backend_type = arg_matches.value_of("backend").map(|r| BackendType::MySQLDatabase(r.to_string()));
+            app_config.backend_type = arg_matches.value_of("backend").map(|r| BackendType::SQLDatabase(r.to_string()));
         }
 
     app_config.daemon_mode = arg_matches.is_present("daemon") || app_config.is_ffi;

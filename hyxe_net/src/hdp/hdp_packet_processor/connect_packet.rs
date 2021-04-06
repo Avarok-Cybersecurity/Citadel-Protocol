@@ -3,6 +3,8 @@ use crate::hdp::state_container::VirtualConnectionType;
 use atomic::Ordering;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::hdp::hdp_server::ConnectMode;
+use hyxe_user::backend::PersistenceHandler;
+use crate::error::NetworkError;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
 #[inline]
@@ -37,8 +39,6 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                     let session = inner_mut!(sess_ref);
                     let mut state_container = inner_mut!(session.state_container);
-                    // Now, we handle the FCM setup
-                    let _ = handle_client_fcm_keys(fcm_keys, &cnac);
 
                     let cid = hyper_ratchet.get_cid();
                     let success_time = session.time_tracker.get_global_time_ns();
@@ -47,7 +47,8 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     let kernel_ticket = session.kernel_ticket.clone();
 
                     // transmit peers to synchronize
-                    let peers = cnac.get_hyperlan_peer_list_with_fcm_keys().unwrap_or(Vec::with_capacity(0));
+
+
                     //let pqc = state_container.connect_stage.generated_pqc.take();
                     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::SUCCESS;
                     state_container.connect_state.fail_time = None;
@@ -66,8 +67,14 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     let mailbox_items = session.session_manager.register_session_with_peer_layer(cid);
 
                     let sess_ref = sess_ref.clone();
+                    let persistence_handler = session.account_manager.get_persistence_handler().clone();
 
                     std::mem::drop(session);
+
+
+                    // Now, we handle the FCM setup
+                    let _ = handle_client_fcm_keys(fcm_keys, &cnac, &persistence_handler).await?;
+                    let peers = persistence_handler.get_hyperlan_peer_list_with_fcm_keys_as_server(cid).await?.unwrap_or(Vec::new());
 
                     let fcm_packets = cnac.retrieve_raw_fcm_packets().await?;
                     let mut session = inner_mut!(sess_ref);
@@ -87,7 +94,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     let fail_time = time_tracker.get_global_time_ns();
 
                     //session.state = SessionState::NeedsConnect;
-                    let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, None,err.to_string(), Vec::with_capacity(0), fail_time, security_level);
+                    let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, None,err.to_string(), Vec::new(), fail_time, security_level);
                     PrimaryProcessorResult::ReplyToSender(packet)
                 }
             }
@@ -140,8 +147,8 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                     std::mem::drop(state_container);
 
-                    let needs_save = cnac.synchronize_hyperlan_peer_list(&payload.peers);
-                    session.implicated_cid.store(Some(cid), Ordering::SeqCst); // This makes is_provisional equal to false
+
+                    session.implicated_cid.store(Some(cid), Ordering::Relaxed); // This makes is_provisional equal to false
 
                     let addr = session.remote_peer.clone();
                     let is_personal = !session.is_server;
@@ -164,14 +171,21 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     if let Some(mailbox_delivery) = payload.mailbox {
                         session.send_to_kernel(HdpServerResult::MailboxDelivery(cid, None, mailbox_delivery))?;
                     }
+
+                    let persistence_handler = session.account_manager.get_persistence_handler().clone();
                     //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
-                    let did_save = handle_client_fcm_keys_as_client(&mut session);
+                    let fcm_keys = session.fcm_keys.take();
+                    session.state = SessionState::Connected;
+                    std::mem::drop(session);
+
+                    let did_save = handle_client_fcm_keys(fcm_keys, &cnac, &persistence_handler).await?;
+                    let needs_save = persistence_handler.synchronize_hyperlan_peer_list_as_client(&cnac, payload.peers).await?;
 
                     if !did_save && needs_save {
-                        cnac.spawn_save_task_on_threadpool();
+                        cnac.save().await?;
                     }
 
-                    session.state = SessionState::Connected;
+
 
                     if connect_mode == ConnectMode::Fetch {
                         log::info!("[FETCH] complete ...");
@@ -204,21 +218,11 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 }
 
 /// returns true if saving occured
-pub(super) fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNetworkAccount) -> bool {
+pub(super) async fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNetworkAccount, persistence_handler: &PersistenceHandler) -> Result<bool, NetworkError> {
     if let Some(fcm_keys) = fcm_keys {
         log::info!("[FCM KEYS]: {:?}", &fcm_keys);
-        cnac.visit_mut(|mut inner| {
-            inner.crypt_container.fcm_keys = Some(fcm_keys);
-        });
-
-        cnac.spawn_save_task_on_threadpool();
-        return true;
+        persistence_handler.update_fcm_keys(cnac, fcm_keys).await.map(|_| true).map_err(|err| NetworkError::Generic(err.into_string()))
+    } else {
+        Ok(false)
     }
-
-    false
-}
-
-// We move the fcm keys out of the session and into the program-wide reachable CNAC
-pub(super) fn handle_client_fcm_keys_as_client(sess: &mut dyn ExpectedInnerTargetMut<HdpSessionInner>) -> bool {
-    handle_client_fcm_keys(sess.fcm_keys.take(), sess.cnac.as_ref().unwrap())
 }

@@ -1,10 +1,12 @@
 use super::imports::*;
-use hyxe_user::client_account::HYPERLAN_IDX;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_user::fcm::kem::FcmPostRegister;
 use hyxe_user::fcm::fcm_packet_processor::FcmProcessorResult;
 use hyxe_user::fcm::data_structures::{base64_string, string, FcmTicket};
-use crate::constants::FCM_POST_REGISTER_TIMEOUT;
+use crate::constants::{FCM_POST_REGISTER_TIMEOUT, FCM_FETCH_TIMEOUT};
+use hyxe_user::prelude::Client;
+use std::sync::Arc;
+use hyxe_crypt::fcm::keys::FcmKeys;
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
@@ -144,29 +146,35 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
 
         if let Some(matches) = matches.subcommand_matches("send") {
             let target_cid = matches.value_of("target_cid").unwrap();
-
+            let use_fcm = matches.is_present("fcm");
             let security_level = parse_security_level(matches)?;
 
             let cnac = {
-                let read = ctx.sessions.read().await;
+                if use_fcm {
+                    ctx.account_manager.get_client_by_cid(ctx_user).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Client does not exist"))?
+                } else {
+                    let read = ctx.sessions.read().await;
 
-                let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
-                let cnac = sess.cnac.clone();
-                // must drop here, otherwise get_peer_cid_from_cnac will fail
-                std::mem::drop(read);
-                cnac
+                    let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
+                    let cnac = sess.cnac.clone();
+                    // must drop here, otherwise get_peer_cid_from_cnac will fail
+                    std::mem::drop(read);
+                    cnac
+                }
             };
 
 
-            let target_cid = get_peer_cid_from_cnac(&cnac, target_cid)?;
+            let target_cid = get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?;
 
             let message: String = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
             let buf = SecBuffer::from(message);
 
-            return if matches.is_present("fcm") {
-                let fcm_client = ctx.account_manager.fcm_client();
+            return if use_fcm {
+                // TODO: NOTE: Due to a connection pool bug, we need to re-create the fcm client each time
+                //let fcm_client = ctx.account_manager.fcm_client();
+                let fcm_client = Arc::new(Client::new());
                 let ticket = server_remote.get_next_ticket().0;
-                let fcm_res = cnac.blocking_fcm_send_to(target_cid, buf, ticket, fcm_client).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let fcm_res = cnac.fcm_send_message_to(target_cid, buf, ticket, &fcm_client).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
                 Ok(Some(KernelResponse::from(fcm_res)))
             } else {
                 // now, use the console context to send the message
@@ -179,10 +187,8 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
         if let Some(matches) = matches.subcommand_matches("disconnect") {
             let target_cid = matches.value_of("target_cid").unwrap();
             let read = ctx.sessions.read().await;
-            let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
-            let ref cnac = sess.cnac;
 
-            let target_cid = get_peer_cid_from_cnac(cnac, target_cid)?;
+            let target_cid = get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?;
 
             std::mem::drop(read);
             let removed_conn = ctx.remove_peer_connection_from_kernel(ctx_user, target_cid).await?;
@@ -221,8 +227,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
         if let Some(matches) = matches.subcommand_matches("deregister") {
             let target_cid_orig = matches.value_of("target_cid").unwrap();
             let use_fcm = matches.is_present("fcm");
-            let ref cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Generic(format!("Context CNAC doesn't exist")))?;
-            let target_cid_raw = get_peer_cid_from_cnac(cnac, target_cid_orig)?;
+            let target_cid_raw = get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid_orig).await?;
 
             let signal = PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid_raw), use_fcm);
             let request = HdpServerRequest::PeerCommand(ctx_user, signal);
@@ -265,14 +270,10 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
                 return Err(ConsoleError::Generic(format!("{} is not a file", path.display())));
             }
 
-            let read = ctx.sessions.read().await;
 
-            let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
-            let ref cnac = sess.cnac.clone();
-            std::mem::drop(read);
 
             let vconn_type = if target_cid != "0" {
-                let target_cid = get_peer_cid_from_cnac(cnac, target_cid)?;
+                let target_cid = get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?;
                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid)
             } else {
                 VirtualConnectionType::HyperLANPeerToHyperLANServer(ctx_user)
@@ -366,55 +367,43 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
         }
 
         if let Some(_matches) = matches.subcommand_matches("mutuals") {
-            let cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC non-existant"))?;
+            let _cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC non-existant"))?;
             let get_consented_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None));
             let ticket = server_remote.unbounded_send(get_consented_request)?;
-            ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |_ctx, ticket, success| {
+            ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |ctx, ticket, success| {
                 match success {
                     PeerResponse::RegisteredCids(cids, online_status) => {
                         if let Some(ref ffi_io) = ffi_io {
-                            let mut peer_mutuals = PeerMutuals::from((ticket, ctx_user));
-                            if cids.is_empty() {
-                                (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PeerMutuals(peer_mutuals)))));
-                            } else {
-                                cnac.visit(|cnac| {
-                                    log::info!("CNAC {} has {} mutuals", ctx_user, cnac.mutuals.len());
-                                    if let Some(hyperlan_peers) = cnac.mutuals.get_vec(&HYPERLAN_IDX) {
-                                        for (cid, is_online) in cids.into_iter().zip(online_status.into_iter()) {
-                                            let username = hyperlan_peers.iter().find(|peer| peer.cid == cid)
-                                                .map(|res| res.username.clone().unwrap_or_default()).unwrap_or_default();
-                                            peer_mutuals.cids.push(cid);
-                                            peer_mutuals.is_onlines.push(is_online);
-                                            peer_mutuals.usernames.push(username);
-                                            peer_mutuals.fcm_reachable.push(cnac.fcm_crypt_container.contains_key(&cid));
-                                        }
-
-                                        (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PeerMutuals(peer_mutuals)))))
-                                    } else {
-                                        // TODO: Resync process
-                                        log::warn!("Server returned a set of HyperLAN peers, but was not synced locally. Report to developers (server claims: {:?})", cids)
-                                    }
-                                })
-                            }
+                            let peer_mutuals = PeerMutuals::from((ticket, ctx_user));
+                            (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PeerMutuals(peer_mutuals)))));
                         } else {
                             if cids.len() != 0 {
-                                cnac.visit(move |cnac| {
-                                    if let Some(hyperlan_peers) = cnac.mutuals.get_vec(&HYPERLAN_IDX) {
-                                        let mut table = Table::new();
-                                        table.set_titles(prettytable::row![Fgcb => "CID", "Username", "Online"]);
+                                let persistence_handler = ctx.account_manager.get_persistence_handler().clone();
+                                let task = async move {
+                                    match persistence_handler.get_hyperlan_peers(ctx_user,&cids).await {
+                                        Ok(hyperlan_peers) => {
+                                            log::info!("HyperLAN Peers: {:?}", &hyperlan_peers);
+                                            let mut table = Table::new();
+                                            table.set_titles(prettytable::row![Fgcb => "CID", "Username", "Online"]);
 
-                                        for (cid, is_online) in cids.into_iter().zip(online_status) {
-                                            let username = hyperlan_peers.iter().find(|peer| peer.cid == cid)
-                                                .map(|res| res.username.clone().unwrap_or_default()).unwrap_or_default();
-                                            table.add_row(prettytable::row![c => cid, &username, is_online]);
+                                            for (cid, is_online) in cids.into_iter().zip(online_status) {
+                                                let username = hyperlan_peers.iter().find(|peer| peer.cid == cid)
+                                                    .map(|res| res.username.as_ref().map(|r| r.as_str())).flatten().unwrap_or("MISSING");
+                                                table.add_row(prettytable::row![c => cid, username, is_online]);
+                                            }
+
+                                            colour::white!("\n\r");
+                                            printf!(table.printstd());
                                         }
 
-                                        colour::white!("\n\r");
-                                        printf!(table.printstd());
-                                    } else {
-                                        printf_ln!(colour::red!("Server returned a set of HyperLAN peers, but was not synced locally. Report to developers\n"))
+                                        Err(err) => {
+                                            printf_ln!(colour::red!("Unable to obtain local peers: {:?}\n", err))
+                                        }
                                     }
-                                });
+                                };
+
+                                let _ = tokio::task::spawn(task);
+
                             } else {
                                 printf_ln!(colour::yellow!("No other consensual users exist on the HyperLAN server\n"));
                             }
@@ -480,7 +469,8 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             let target_cid = u64::from_str(target).map_err(|_err| ConsoleError::Default("Registration: CID only"))?;
 
             let ref cnac = ctx.get_cnac_of_active_session().await.ok_or_else(|| ConsoleError::Generic(format!("ClientNetworkAccount not loaded. Check program logic")))?;
-            if cnac.hyperlan_peer_exists(target_cid) {
+
+            if ctx.account_manager.get_persistence_handler().hyperlan_peer_exists(ctx_user, target_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))? {
                 return Err(ConsoleError::Generic(format!("Peer {} is already consented to connect with {}", target_cid, username.as_str())));
             }
 
@@ -579,9 +569,9 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             let security_level = parse_security_level(matches)?;
             let read = ctx.sessions.read().await;
             let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
-            let ref cnac = sess.cnac;
+            let acc_mgr = &ctx.account_manager;
 
-            let target_cid = get_peer_cid_from_cnac(cnac, target)?;
+            let target_cid = get_peer_cid_from_cnac(acc_mgr,ctx_user, target).await?;
 
             //check to see if the session doesn't already exist
             if sess.concurrent_peers.contains_key(&target_cid) {
@@ -729,6 +719,50 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             } else {
                 Err(ConsoleError::Generic(format!("Mail ID {} does not map to a mail item", mail_id)))
             };
+        }
+        /*
+                    .subcommand(SubCommand::with_name("update-fcm-keys").about("Updates the FCM keys for the active CID")
+                .arg(Arg::with_name("fcm-token")
+                    .long("fcm-token")
+                    .help("If supplied, the following parameter must be the client FCM registration ID correlated to the CNAC")
+                    .takes_value(true)
+                    .required(true))
+                .arg(Arg::with_name("fcm-api-key")
+                    .long("fcm-api-key")
+                    .help("If supplied, the following parameter must be the API key for the application")
+                    .takes_value(true)
+                    .required(true)))
+         */
+        if let Some(matches) = matches.subcommand_matches("update-fcm-keys") {
+            let fcm_token = matches.value_of("fcm-token").unwrap();
+            let fcm_api_key = matches.value_of("fcm-api-key").unwrap();
+            let fcm_keys = FcmKeys::new(fcm_api_key, fcm_token);
+            let request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::FcmTokenUpdate(fcm_keys));
+            let ticket = server_remote.unbounded_send(request)?;
+
+            ctx.register_ticket(ticket, FCM_FETCH_TIMEOUT, ctx_user, move |_,_, signal| {
+                match signal {
+                    PeerResponse::ServerReceivedRequest => {
+                        if let Some(ref ffi_io) = ffi_io {
+                            (ffi_io)(Ok(Some(KernelResponse::ResponseTicket(ticket.0))))
+                        } else {
+                            printf!(colour::green!("\rServer successfully updated FCM keys for {}\n", ctx_user));
+                        }
+                    }
+
+                    _ => {
+                        if let Some(ref ffi_io) = ffi_io {
+                            (ffi_io)(Ok(Some(KernelResponse::Error(ticket.0, Vec::from("Unable to update FCM keys")))))
+                        } else {
+                            printf!(colour::red!("\rUnable to update FCM keys for {}\n", ctx_user));
+                        }
+                    }
+                }
+
+                CallbackStatus::TaskComplete
+            });
+
+            return Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
         }
 
         Ok(None)

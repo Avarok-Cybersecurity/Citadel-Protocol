@@ -36,6 +36,8 @@ dependencies:
     path: packages/satori_ffi_parser
   google_https_dns:
     path: packages/google_https_dns
+  android_power_manager:
+    path: packages/android_power_manager
 
 dev_dependencies:
   flutter_test:

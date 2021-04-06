@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::ops::Deref;
 use async_trait::async_trait;
-use crate::misc::AccountError;
-use crate::client_account::ClientNetworkAccount;
+use crate::misc::{AccountError, CNACMetadata};
+use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::path::PathBuf;
 use hyxe_fs::env::DirectoryStore;
 use crate::prelude::NetworkAccount;
@@ -25,7 +25,7 @@ pub enum BackendType {
     Filesystem,
     #[cfg(feature = "enterprise")]
     /// Synchronization will occur on a remote SQL database
-    MySQLDatabase(String)
+    SQLDatabase(String)
 }
 
 impl BackendType {
@@ -36,11 +36,13 @@ impl BackendType {
 
     /// For requesting the use of the SqlBackend driver. Url should be in the form:
     /// "mysql://username:password@ip/database"
+    /// "postgres:// [...]"
+    /// "sqlite:// [...]"
     ///
     /// PostgreSQL, MSSQL, MySQL, SqLite supported
     #[cfg(feature = "enterprise")]
-    pub fn my_sql<T: Into<String>>(url: T) -> BackendType {
-        BackendType::MySQLDatabase(url.into())
+    pub fn sql<T: Into<String>>(url: T) -> BackendType {
+        BackendType::SQLDatabase(url.into())
     }
 }
 
@@ -78,7 +80,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Determines if a username exists
     async fn username_exists(&self, username: &str) -> Result<bool, AccountError>;
     /// Registers a CID to the db/fs, preventing future registrants from using the same values
-    async fn register_cid(&self, cid: u64, username: &str) -> Result<(), AccountError>;
+    async fn register_cid_in_nac(&self, cid: u64, username: &str) -> Result<(), AccountError>;
     /// Returns a list of impersonal cids
     async fn get_registered_impersonal_cids(&self, limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError>;
     /// Gets the username by CID
@@ -89,14 +91,36 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn delete_client_by_username(&self, username: &str) -> Result<(), AccountError>;
     /// Registers two peers together
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError>;
+    /// registers p2p as client
+    async fn register_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64, peer_username: String) -> Result<(), AccountError>;
     /// Deregisters two peers from each other
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError>;
+    /// Deregisters two peers from each other
+    async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError<String>>;
     /// Gets the FCM keys for a peer
-    async fn get_fcm_keys_for(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError>;
-    /// Determines if two peers are registered to each other
-    async fn is_registered_to(&self, implicated_cid: u64, peer_cid: u64) -> Result<bool, AccountError>;
+    async fn get_fcm_keys_for_as_server(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError>;
+    /// Updates the FCM keys
+    async fn update_fcm_keys(&self, cnac: &ClientNetworkAccount<R, Fcm>, new_keys: FcmKeys) -> Result<(), AccountError>;
     /// Returns a list of hyperlan peers for the client
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError>;
+    /// Returns the metadata for a client
+    async fn get_client_metadata(&self, implicated_cid: u64) -> Result<Option<CNACMetadata>, AccountError>;
+    /// Gets all the metadata for many clients
+    async fn get_clients_metadata(&self, limit: Option<i32>) -> Result<Vec<CNACMetadata>, AccountError>;
+    /// Gets hyperlan peer
+    async fn get_hyperlan_peer_by_cid(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError>;
+    /// Determines if the peer exists or not
+    async fn hyperlan_peer_exists(&self, implicated_cid: u64, peer_cid: u64) -> Result<bool, AccountError>;
+    /// Determines if the input cids are mutual to the implicated cid in order
+    async fn hyperlan_peers_are_mutuals(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<bool>, AccountError>;
+    /// Returns a set of PeerMutual containers
+    async fn get_hyperlan_peers(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<MutualPeer>, AccountError>;
+    /// Gets hyperland peer by username
+    async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError>;
+    /// Gets all peer cids with fcm keys
+    async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError>;
+    /// Synchronizes the list locally. Returns true if needs to be saved
+    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError>;
     /// Stores the CNAC inside the hashmap, if possible (may be no-op on database)
     fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>);
     /// Determines if a remote db is used

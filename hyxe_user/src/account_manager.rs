@@ -46,9 +46,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             }
 
             #[cfg(feature = "enterprise")]
-            BackendType::MySQLDatabase(url) => {
+            BackendType::SQLDatabase(url) => {
                 use crate::backend::mysql_backend::SqlBackend;
-                let mut backend = SqlBackend::from((url, backend_type));
+                use std::convert::TryFrom;
+                let mut backend = SqlBackend::try_from((url, backend_type)).map_err(|_| AccountError::Generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
                 backend.connect(&directory_store).await?;
                 PersistenceHandler::new(backend, directory_store)
             }
@@ -59,9 +60,9 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         Ok(Self { persistence_handler, fcm_client })
     }
 
-    /// Using an internal single-threaded executor, creates the account manager. NOTE: Since this wouldn't support connections to a database (timers require active polling for conn upkeep), this only supports a filesystem backend
-    pub fn new_blocking(bind_addr: SocketAddr, home_dir: Option<String>) -> Result<Self, AccountError> {
-        block_on_async(move || Self::new(bind_addr, home_dir, BackendType::Filesystem))?
+    /// Using an internal single-threaded executor, creates the account manager. NOTE: It is best not to mix executors. This should be used only in background modes that need to poll
+    pub fn new_blocking(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType) -> Result<Self, AccountError> {
+        block_on_async(move || Self::new(bind_addr, home_dir, backend_type))?
     }
 
     /// Returns the directory store for this local node session
@@ -112,7 +113,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     pub async fn register_personal_hyperlan_server<'a, M: ToString + Display, V: ToString + Display>(&self, valid_cid: u64, hyper_ratchet: R, username: M, full_name: V, adjacent_nac: NetworkAccount<R, Fcm>, argon_container: ArgonContainerType, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError<String>> {
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(valid_cid, hyper_ratchet, &username, &full_name, argon_container, adjacent_nac, self.persistence_handler.clone(), fcm_keys).await?;
 
-        self.persistence_handler.register_cid(cnac.get_id(), &username.to_string()).await?;
+        self.persistence_handler.register_cid_in_nac(cnac.get_id(), &username.to_string()).await?;
         self.persistence_handler.store_cnac(cnac.clone());
 
         self.get_local_nac().save_to_local_fs()?;
@@ -149,7 +150,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     }
 
     /// Allows a function to visit each value without cloning. This will be a no-op if probing a database, since that would be horribly performant
-    pub fn visit_all_users_blocking(&self, fx: impl FnMut(&ClientNetworkAccount<R, Fcm>)) {
+    #[cfg(debug_assertions)]
+    pub fn visit_all_users_blocking_debug(&self, fx: impl FnMut(&ClientNetworkAccount<R, Fcm>)) {
         if let Some(map) = self.persistence_handler.get_local_map() {
             map.read().unwrap().values().for_each(fx)
         }
@@ -167,13 +169,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
     /// Does not execute the registration process between two peers; it only consolidates the changes to the local CNAC
     /// returns true if success, false otherwise
-    pub async fn register_hyperlan_p2p_at_endpoints<T: ToString>(&self, implicated_cid: u64, peer_cid: u64, adjacent_username: T) -> Result<(), AccountError> {
-        let adjacent_username = adjacent_username.to_string();
-        log::info!("Registering {} ({}) to {} (local)", &adjacent_username, peer_cid, implicated_cid);
-
-        let cnac = self.persistence_handler.get_cnac_by_cid(implicated_cid, &self.persistence_handler).await?.ok_or(AccountError::ClientNonExists(implicated_cid))?;
-        cnac.insert_hyperlan_peer(peer_cid, adjacent_username);
-        cnac.save().await
+    pub async fn register_hyperlan_p2p_at_endpoints<T: Into<String>>(&self, implicated_cid: u64, peer_cid: u64, adjacent_username: T) -> Result<(), AccountError> {
+        let adjacent_username = adjacent_username.into();
+        log::info!("Registering {} ({}) to {} (local/endpoints)", &adjacent_username, peer_cid, implicated_cid);
+        self.persistence_handler.register_p2p_as_client(implicated_cid, peer_cid, adjacent_username).await
     }
 
     /// Registers the two accounts together at the server
@@ -220,12 +219,5 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// Returns the NID of the local system
     pub fn get_local_nid(&self) -> u64 {
         self.get_local_nac().get_id()
-    }
-
-    /// visits a CNAC without cloning. This should only be done at the endpoints!!
-    pub fn visit_cnac_as_endpoint<J>(&self, cid: u64, fx: impl FnOnce(&ClientNetworkAccount<R, Fcm>) -> Option<J>) -> Option<J> {
-        let map = self.persistence_handler.get_local_map()?;
-        let map = map.read().ok()?;
-        map.get(&cid).map(|c| fx(c))?
     }
 }

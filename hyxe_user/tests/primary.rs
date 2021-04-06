@@ -54,13 +54,13 @@ mod tests {
     }
 
     fn backend() -> BackendType {
-        BackendType::my_sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+        BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
     }
 
     #[tokio::test]
     #[cfg(feature = "enterprise")]
     async fn hello() {
-        let acc_mgr = acc_mgr(None, BackendType::my_sql("mysql://nologik:mrmoney10@localhost/hyxewave")).await;
+        let acc_mgr = acc_mgr(None, BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")).await;
         let cnac = create_cnac(Some(acc_mgr.clone())).await;
 
         let cnac_retrieved = acc_mgr.get_client_by_cid(cnac.get_cid()).await.unwrap().unwrap();
@@ -144,7 +144,7 @@ mod tests {
         log::info!("{:?}", hyxe_user::fcm::fcm_packet_processor::blocking_process(input, &acc_mgr_0));
 
         // now, start the simulation
-        user0.blocking_fcm_send_to(user1.get_cid(), SecBuffer::from("Hello, bob! From alice"), 0,acc_mgr_0.fcm_client()).await.unwrap();
+        user0.fcm_send_message_to(user1.get_cid(), SecBuffer::from("Hello, bob! From alice"), 0,acc_mgr_0.fcm_client()).await.unwrap();
 
         let _ = acc_mgr_0.purge().await.unwrap();
         let _ = acc_mgr_1.purge().await.unwrap();
@@ -155,7 +155,7 @@ mod tests {
         setup_log();
         log::info!("Executing load_cnacs ...");
             let account_manager = acc_mgr(None, backend()).await;
-            account_manager.visit_all_users_blocking(|cnac| {
+            account_manager.visit_all_users_blocking_debug(|cnac| {
                 log::info!("visiting {}", cnac.get_id());
                 for version in cnac.get_hyper_ratchet_versions() {
                     cnac.borrow_hyper_ratchet(Some(version), |hyper_ratchet_opt| {
@@ -328,7 +328,7 @@ mod tests {
     async fn encrypt_decrypt_from_cnac() {
         setup_log();
         let account_manager = acc_mgr(None, backend()).await;
-        account_manager.visit_all_users_blocking(|cnac| {
+        account_manager.visit_all_users_blocking_debug(|cnac| {
             log::info!("Visiting user: {:?}", cnac);
             let versions = cnac.get_hyper_ratchet_versions();
             for version in versions {

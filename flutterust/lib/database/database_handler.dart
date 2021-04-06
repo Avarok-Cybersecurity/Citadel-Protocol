@@ -33,7 +33,7 @@ class DatabaseHandler {
       },
       // Set the version. This executes the onCreate function and provides a
       // path to perform database upgrades and downgrades.
-      version: 12,
+      version: 14,
     );
   }
 
@@ -133,6 +133,16 @@ class DatabaseHandler {
     return result;
   }
 
+
+  static Future<Optional<List<T>>> getEntireColumnFor<T>(String table, String column, T Function(dynamic) deserialize) async {
+    var db = await DatabaseHandler.database();
+    var query = await db.rawQuery("SELECT $column FROM $table");
+    if (query.length > 0) {
+      return Optional.of(query.map((e) => deserialize.call(e[column])).toList());
+    } else {
+      return Optional.empty();
+    }
+  }
 
   static Future<Optional<T>> getObjectByID<T>(String table, dynamic id, T Function(Map<String, dynamic>) deserializer) async {
     var db = await DatabaseHandler.database();

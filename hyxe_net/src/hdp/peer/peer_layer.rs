@@ -22,6 +22,7 @@ use crate::macros::SyncContextRequirements;
 use futures::task::AtomicWaker;
 use hyxe_user::fcm::kem::FcmPostRegister;
 use hyxe_user::fcm::data_structures::{RawFcmPacket, FcmTicket};
+use hyxe_crypt::fcm::keys::FcmKeys;
 
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
 impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
@@ -442,7 +443,9 @@ pub enum PeerSignal {
     // For redundant fcm transfers, ensuring no loss of packets when using FCM
     Fcm(FcmTicket, RawFcmPacket),
     // For polling for packets
-    FcmFetch(Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>)
+    FcmFetch(Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>),
+    // For denoting that reg info changed
+    FcmTokenUpdate(FcmKeys)
 }
 
 // Channel packets don't get decrypted/encrypted at the central node; only at the endpoints
@@ -526,8 +529,8 @@ pub enum PeerResponse {
 
 impl PeerResponse {
     /// no allocation occurs
-    pub fn empty_registered() -> PeerResponse {
-        PeerResponse::RegisteredCids(Vec::with_capacity(0), Vec::with_capacity(0))
+    pub const fn empty_registered() -> PeerResponse {
+        PeerResponse::RegisteredCids(Vec::new(), Vec::new())
     }
 }
 

@@ -46,7 +46,7 @@ class ClientNetworkAccount extends AbstractSqlObject {
   }
 
   static Future<Optional<u64>> getCidByUsername(String username) async {
-    return DatabaseHandler.getKeyByFieldValue(ClientNetworkAccount.DB_TABLE, "username", username, (rawKey) => u64.tryFrom(rawKey).value);
+    return await DatabaseHandler.getKeyByFieldValue(ClientNetworkAccount.DB_TABLE, "username", username, (rawKey) => u64.tryFrom(rawKey).value);
   }
 
   static Future<Optional<String>> getUsernameByCid(u64 cid) async {
@@ -54,7 +54,11 @@ class ClientNetworkAccount extends AbstractSqlObject {
   }
 
   static Future<Optional<ClientNetworkAccount>> getCnacByCid(u64 cid) async {
-    return DatabaseHandler.getObjectByID(ClientNetworkAccount.DB_TABLE, cid.toString(), (sqlMap) => ClientNetworkAccount.fromMap(sqlMap));
+    return await DatabaseHandler.getObjectByID(ClientNetworkAccount.DB_TABLE, cid.toString(), (sqlMap) => ClientNetworkAccount.fromMap(sqlMap));
+  }
+
+  static Future<Optional<List<u64>>> getAllClients() async {
+    return await DatabaseHandler.getEntireColumnFor(DB_TABLE, "id", (val) => u64.tryFrom(val).value);
   }
 
   static Future<int> resyncClients() async {

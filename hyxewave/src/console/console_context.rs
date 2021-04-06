@@ -24,6 +24,7 @@ use crate::ffi::KernelResponse;
 use crate::command_handlers::group::MessageGroupContainer;
 use crate::console::virtual_terminal::INPUT_ROUTER;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_user::misc::CNACMetadata;
 
 #[derive(Clone)]
 pub struct ConsoleContext {
@@ -137,11 +138,9 @@ impl ConsoleContext {
         let cxn_type = peer_channel.get_peer_conn_type().ok_or(ConsoleError::Default("Invalid cxn type"))?;
         let cid = cxn_type.get_original_implicated_cid();
         let peer_cid = cxn_type.get_original_target_cid();
-        let peer_username = self.account_manager.visit_cnac_as_endpoint(cid, |cnac| {
-            cnac.get_hyperlan_peer(peer_cid)?.username.clone()
-        });
+        let peer_username = self.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(cid, peer_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
 
-        let peer_username = peer_username.unwrap_or(String::from("INVALID"));
+        let peer_username = peer_username.map(|r| r.username).flatten().unwrap_or(String::from("INVALID"));
 
         let (peer_channel_tx, mut peer_channel_rx) = peer_channel.split();
         // loads a recv task to allow reception of data
@@ -161,16 +160,14 @@ impl ConsoleContext {
             printf_ln!(colour::yellow!("Peer channel {} has disconnected\n", peer_username))
         });
 
+        let peer_info = self.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(cid, peer_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Mutual peer not found"))?;
+
         let mut write = self.sessions.write().await;
         if let Some(sess) = write.get_mut(&cid) {
-            if let Some(peer_info) = sess.cnac.get_hyperlan_peer(peer_cid) {
-                let init_time = Instant::now();
-                let peer_sess = PeerSession {cxn_type, peer_info, peer_channel_tx, init_time};
-                let _ = sess.concurrent_peers.insert(peer_cid, peer_sess);
-                Ok(())
-            } else {
-                Err(ConsoleError::Generic(format!("Peer {} is not registered within the CNAC of {}", peer_cid, cid)))
-            }
+            let init_time = Instant::now();
+            let peer_sess = PeerSession {cxn_type, peer_info, peer_channel_tx, init_time};
+            let _ = sess.concurrent_peers.insert(peer_cid, peer_sess);
+            Ok(())
         } else {
             Err(ConsoleError::Generic(format!("Session {} does not exist locally", cid)))
         }
@@ -209,8 +206,8 @@ impl ConsoleContext {
         }
     }
 
-    pub fn list_all_registered_users(&self, fx: impl FnMut(&ClientNetworkAccount)) {
-        self.account_manager.visit_all_users_blocking(fx)
+    pub async fn list_all_registered_users(&self, limit: Option<i32>) -> Result<Vec<CNACMetadata>, ConsoleError> {
+        self.account_manager.get_persistence_handler().get_clients_metadata(limit).await.map_err(|err| ConsoleError::Generic(err.into_string()))
     }
 
     /// Determines if a user is connected

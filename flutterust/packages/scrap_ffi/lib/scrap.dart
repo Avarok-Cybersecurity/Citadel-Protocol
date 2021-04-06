@@ -64,7 +64,7 @@ class FFIBridge {
     int port = initInput.item1.nativePort;
     Pointer<Utf8> dirPtr = homeDir.toNativeUtf8();
     // pass the port and pointer to the ffi frontier
-    int initResult = native.load_page(port, dirPtr);
+    int initResult = native.execute(port, dirPtr);
     print("Done setting up rust subsystem. Result: " + initResult.toString());
     // now, the rust subsystem is running. The function that calls ffiInitRustSubsystem will handle to inbound messages
     // sent from rust

@@ -40,25 +40,17 @@ mod imports {
         }
     }
 
-    pub fn get_peer_cid_from_cnac(cnac: &ClientNetworkAccount, target_cid: &str) -> Result<u64, ConsoleError> {
-        let ctx_user = cnac.get_id();
+    pub async fn get_peer_cid_from_cnac(acc_mgr: &AccountManager, ctx_user: u64, target_cid: &str) -> Result<u64, ConsoleError> {
         let is_numeric = target_cid.chars().all(|c| char::is_numeric(c));
 
-        if is_numeric {
+        let res = if is_numeric {
             let target_cid = u64::from_str(target_cid).map_err(|err| ConsoleError::Generic(err.to_string()))?;
-            if !cnac.hyperlan_peer_exists(target_cid) {
-                Err(ConsoleError::Generic(format!("Peer {} is not consented to {}", target_cid, ctx_user)))
-            } else {
-                Ok(target_cid)
-            }
+            acc_mgr.get_persistence_handler().get_hyperlan_peer_by_cid(ctx_user, target_cid).await
         } else {
-            // we have to get the cid from the cnac
-            if let Some(peer) = cnac.get_hyperlan_peer_by_username(target_cid) {
-                Ok(peer.cid)
-            } else {
-                Err(ConsoleError::Generic(format!("Peer {} is not consented to {}", target_cid, ctx_user)))
-            }
-        }
+            acc_mgr.get_persistence_handler().get_hyperlan_peer_by_username(ctx_user, target_cid).await
+        };
+
+        res.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Peer not found")).map(|r| r.cid)
     }
 
     pub fn parse_security_level(arg_matches: &ArgMatches) -> Result<SecurityLevel, ConsoleError> {

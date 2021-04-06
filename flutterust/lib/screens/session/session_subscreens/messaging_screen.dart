@@ -10,6 +10,7 @@ import 'package:flutterust/database/peer_network_account.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/peer_sent_handler.dart';
 import 'package:flutterust/misc/auto_login.dart';
+import 'package:flutterust/misc/message_send_handler.dart';
 import 'package:flutterust/utils.dart';
 import 'package:intl/intl.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
@@ -44,8 +45,8 @@ class MessagingScreenInner extends State<MessagingScreen> {
     print("initStream executed");
     var initMessages = await Message.getMessagesBetween(
         this.widget.implicatedCnac.implicatedCid, this.widget.peerNac.peerCid);
-    print(
-        "Loaded ${initMessages.length} messages between ${this.widget.implicatedCnac.implicatedCid} and ${this.widget.peerNac.peerCid}");
+
+    print("Loaded ${initMessages.length} messages between ${this.widget.implicatedCnac.implicatedCid} and ${this.widget.peerNac.peerCid}");
     this.initMessageCount = initMessages.length;
 
     for (Message message in initMessages) {
@@ -205,20 +206,9 @@ class MessagingScreenInner extends State<MessagingScreen> {
           .add(MessageWidgetUpdateStore.insert(bubbleFrom(message)));
       await message.sync();
 
-      String command = this.widget.peerNac.peerCid == u64.zero
-          ? "switch ${this.widget.implicatedCnac.implicatedCid} send $text"
-          : "switch ${this.widget.implicatedCnac.implicatedCid} peer send ${this.widget.peerNac.peerUsername} --fcm $text";
-
-      await AutoLogin.executeCommandRequiresConnected(
-              this.widget.implicatedCnac.implicatedCid,
-              command,
-              username: this.widget.implicatedCnac.username)
-          .then((value) => value.ifPresent((kResp) =>
-              KernelResponseHandler.handleFirstCommand(kResp,
-                  handler: PeerSendHandler(onMessageStatusUpdateSent, message,
-                      this.widget.bubbles.length - 1),
-                  oneshot: false)));
       this.widget.messageField.clear();
+      await MessageSendHandler.sendMessageFromScreen(message, PeerSendHandler.screen(onMessageStatusUpdateSent, message, this.widget.bubbles.length - 1));
+
     }
   }
 
@@ -244,7 +234,7 @@ class MessagingScreenInner extends State<MessagingScreen> {
     return DefaultBubble(
       key: key ?? UniqueKey(),
       message: message.message,
-      time: DateFormat.jm().format(message.recvTime),
+      time: DateFormat.jm().format(message.lastEventTime),
       icon: getAppropriateIconByCheckCount(state),
       iconColorMe: state == PeerSendState.MessageReceived ? Colors.lightGreenAccent : null,
       iconColorPeer: Colors.blueAccent,
