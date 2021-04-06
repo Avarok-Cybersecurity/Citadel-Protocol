@@ -1,5 +1,6 @@
 
 import 'package:background_fetch/background_fetch.dart';
+import 'package:flutterust/misc/message_send_handler.dart';
 
 class BackgroundExecutor {
   static final config = BackgroundFetchConfig(minimumFetchInterval: 15, stopOnTerminate: false, enableHeadless: true, startOnBoot: true, requiredNetworkType: NetworkType.ANY);
@@ -11,6 +12,7 @@ class BackgroundExecutor {
 
   static void poll(String taskId) async {
     print("[Background Executor] Running 15m periodic poll for task $taskId");
+    await MessageSendHandler.poll();
     //Utils.pushNotification("Running background task", taskId);
     BackgroundFetch.finish(taskId);
   }
@@ -22,5 +24,6 @@ class BackgroundExecutor {
 
 /// This function is ran when the app is terminated. Its goal is to check for background messages etc
 void headlessExecution(HeadlessTask task) async {
+  print("[Headless executor]");
   BackgroundExecutor.poll(task.taskId);
 }

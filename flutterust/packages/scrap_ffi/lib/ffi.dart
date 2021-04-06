@@ -31,6 +31,23 @@ typedef _error_message_utf8_Dart = int Function(
   int length,
 );
 
+/// C function `execute`.
+int execute(
+  int port,
+  Pointer<ffi.Utf8> home_dir,
+) {
+  return _execute(port, home_dir);
+}
+final _execute_Dart _execute = _dl.lookupFunction<_execute_C, _execute_Dart>('execute');
+typedef _execute_C = Int32 Function(
+  Int64 port,
+  Pointer<ffi.Utf8> home_dir,
+);
+typedef _execute_Dart = int Function(
+  int port,
+  Pointer<ffi.Utf8> home_dir,
+);
+
 /// <p class="para-brief"> Meant to be executed by background isolates needing access to the account manager (e.g., FCM)</p>
 Pointer<ffi.Utf8> fcm_process(
   Pointer<ffi.Utf8> packet,
@@ -63,23 +80,6 @@ int last_error_length() {
 final _last_error_length_Dart _last_error_length = _dl.lookupFunction<_last_error_length_C, _last_error_length_Dart>('last_error_length');
 typedef _last_error_length_C = Int32 Function();
 typedef _last_error_length_Dart = int Function();
-
-/// C function `load_page`.
-int load_page(
-  int port,
-  Pointer<ffi.Utf8> home_dir,
-) {
-  return _load_page(port, home_dir);
-}
-final _load_page_Dart _load_page = _dl.lookupFunction<_load_page_C, _load_page_Dart>('load_page');
-typedef _load_page_C = Int32 Function(
-  Int64 port,
-  Pointer<ffi.Utf8> home_dir,
-);
-typedef _load_page_Dart = int Function(
-  int port,
-  Pointer<ffi.Utf8> home_dir,
-);
 
 /// C function `memfree`.
 int memfree(

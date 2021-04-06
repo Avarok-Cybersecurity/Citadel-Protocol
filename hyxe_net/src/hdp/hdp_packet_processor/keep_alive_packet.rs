@@ -7,7 +7,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
     let session = inner!(session);
 
     if session.state != SessionState::Connected {
-        log::error!("Keep alive received, but session not connected. Dropping packet");
+        log::warn!("Keep alive received, but session not connected. Dropping packet");
         return PrimaryProcessorResult::Void;
     }
 

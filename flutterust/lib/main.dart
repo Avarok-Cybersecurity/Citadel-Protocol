@@ -29,13 +29,16 @@ import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(MaterialApp(
+    navigatorObservers: [routeObserver],
     home: Splash(),
     debugShowCheckedModeBanner: false,
-    title: MyApp.APP_TITLE,
+    title: "Verisend",
     theme: defaultTheme(),
     builder: EasyLoading.init(),
   ));
 }
+
+final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
 
 Future<void> loadInit() async {
   await RustSubsystem.init();
@@ -44,6 +47,7 @@ Future<void> loadInit() async {
   //Utils.pushNotification("title", "message");
   await Utils.configureFCM();
   await BackgroundExecutor.setupBackground();
+  await Utils.checkPowerManager();
   print("Done initializing FFI/Rust subsystem ...");
 }
 
@@ -96,27 +100,7 @@ class RustSubsystem {
   }
 }
 
-class MyApp extends StatelessWidget {
-  static const APP_TITLE = 'Verisend';
-  final Widget main;
 
-  const MyApp(this.main);
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      //home: main,
-      initialRoute: '/',
-      routes: {
-        '/': (context) => main,
-
-        RegisterScreen.routeName: (context) => const RegisterScreen(false),
-        LoginScreen.routeName: (context) => LoginScreen(),
-        SessionHomeScreen.routeName: (context) => SessionHomeScreen()
-      },
-    );
-  }
-}
 
 class HomePage extends StatefulWidget {
   static final List<Widget> screens = [LoginScreen(), const RegisterScreen(false), SessionHomeScreen(), const SettingsScreen()];
@@ -134,7 +118,7 @@ class HomePage extends StatefulWidget {
   State<StatefulWidget> createState() => MyHomePage();
 }
 
-class MyHomePage extends State<HomePage> {
+class MyHomePage extends State<HomePage> with RouteAware {
   int curIdx = LoginScreen.IDX;
 
   @override
@@ -153,17 +137,21 @@ class MyHomePage extends State<HomePage> {
     AwesomeNotifications().actionStream.listen((receivedNotification) async {
       print("[Notification] recv payload: ${receivedNotification.payload}");
 
-      Optional<AbstractPushNotification> apn = AbstractPushNotification.tryFromMap(receivedNotification.payload.map((key, value) => MapEntry(key, value.toString())));
+      if (receivedNotification.payload != null) {
+        Optional<AbstractPushNotification> apn = AbstractPushNotification.tryFromMap(receivedNotification.payload.map((key, value) => MapEntry(key, value.toString())));
 
-      if (apn.isPresent) {
-        Optional<Widget> widget = await apn.value.constructWidget();
-        if (widget.isPresent) {
-          Navigator.push(context, Utils.createDefaultRoute(widget.value));
+        if (apn.isPresent) {
+          Optional<Widget> widget = await apn.value.constructWidget();
+          if (widget.isPresent) {
+            Navigator.push(context, Utils.createDefaultRoute(widget.value));
+          } else {
+            print("Widget not specified for the APN");
+          }
         } else {
-          print("Widget not specified for the APN");
+          print("Navigator could not route b/c APN did not compile from map");
         }
       } else {
-        print("Navigator could not route b/c APN did not compile from map");
+        print("Null route payload. Will not continue");
       }
     });
 
@@ -201,7 +189,7 @@ class MyHomePage extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(MyApp.APP_TITLE)),
+      appBar: AppBar(title: Text("Verisend")),
       body: FadeIndexedStack(
         children: HomePage.screens,
         index: curIdx,

@@ -10,6 +10,7 @@ import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/handlers/peer_sent_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/auto_login.dart';
+import 'package:flutterust/misc/message_send_handler.dart';
 import 'package:flutterust/utils.dart';
 import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/parser.dart';
@@ -208,6 +209,8 @@ class KernelResponseHandler {
         msg.status = PeerSendState.MessageReceived;
         await msg.sync();
         print("Updated message state for $msg");
+        // Now, call poll
+        await MessageSendHandler.poll();
         break;
       default:
         print("Unaccounted DSR message type");

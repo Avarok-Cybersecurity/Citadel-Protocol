@@ -79,10 +79,11 @@ impl CLIKernel {
     }
 
     /// Returns the username, or, CID if not found
-    fn get_peer_username_display(&self, implicated_cid: u64, peer_cid: u64) -> String {
-        self.console_context.account_manager.visit_cnac_as_endpoint(implicated_cid, |cnac| {
-            cnac.get_hyperlan_peer(peer_cid).map(|res| res.username.unwrap_or(INVALID_UTF8.to_string()))
-        }).unwrap_or_else(|| format!("{}", peer_cid))
+    async fn get_peer_username_display(&self, implicated_cid: u64, peer_cid: u64) -> String {
+        match self.console_context.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(implicated_cid, peer_cid).await {
+            Ok(Some(peer)) => peer.username.unwrap_or("INVALID".into()),
+            _ => format!("{}", peer_cid)
+        }
     }
 
     /// Sometimes, this function is called after a disconnect_all. When that function is called,
@@ -203,11 +204,19 @@ impl NetKernel for CLIKernel {
                     GroupBroadcast::MemberStateChanged(key, state) => {
                         match state {
                             MemberState::EnteredGroup(peers) => {
-                                printf_ln!(colour::green!("{:?} entered the room\n", peers.iter().map(|cid| self.get_peer_username_display(implicated_cid, *cid)).collect::<Vec<String>>()));
+                                let mut names = Vec::with_capacity(peers.len());
+                                for peer_cid in peers {
+                                    names.push(self.get_peer_username_display(implicated_cid, *peer_cid).await);
+                                }
+                                printf_ln!(colour::green!("{:?} entered the room\n", names));
                             }
 
                             MemberState::LeftGroup(peers) => {
-                                printf_ln!(colour::yellow!("{:?} left the room\n", peers.iter().map(|cid| self.get_peer_username_display(implicated_cid, *cid)).collect::<Vec<String>>()));
+                                let mut names = Vec::with_capacity(peers.len());
+                                for peer_cid in peers {
+                                    names.push(self.get_peer_username_display(implicated_cid, *peer_cid).await);
+                                }
+                                printf_ln!(colour::yellow!("{:?} left the room\n", names));
                             }
                         }
                     }
@@ -349,7 +358,7 @@ impl NetKernel for CLIKernel {
                     }
 
                     PeerSignal::PostConnect(conn, ticket, response, endpoint_security_level) => {
-                        process_post_connect_signal(self, conn, ticket, response, endpoint_security_level,true)
+                        process_post_connect_signal(self, conn, ticket, response, endpoint_security_level,true).await
                     }
 
                     PeerSignal::SignalError(ticket, err) => {
@@ -422,7 +431,7 @@ impl NetKernel for CLIKernel {
                         for signal in signals {
                             match signal {
                                 PeerSignal::PostConnect(conn, ticket, response, endpoint_security_level) => {
-                                    process_post_connect_signal(self, conn, ticket, response, endpoint_security_level, false)
+                                    process_post_connect_signal(self, conn, ticket, response, endpoint_security_level, false).await
                                 }
 
                                 PeerSignal::PostRegister(peer_conn, peer_username, ticket, response, fcm) => {
@@ -464,7 +473,7 @@ impl NetKernel for CLIKernel {
     }
 }
 
-fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticket: Option<Ticket>, response: Option<PeerResponse>, endpoint_security_addr: SecurityLevel, do_print: bool) {
+async fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticket: Option<Ticket>, response: Option<PeerResponse>, endpoint_security_addr: SecurityLevel, do_print: bool) {
     // if we get a response, it means that this node's connection attempt with conn succeeded
     // else we don't get a response, it means that this node RECEIVED an INVITATION to connect
     if let Some(response) = response {
@@ -474,9 +483,7 @@ fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticke
         if let Some(ticket) = ticket {
             let peer_cid = conn.get_original_implicated_cid();
             let this_cid = conn.get_original_target_cid();
-            let username = this.console_context.account_manager.visit_cnac_as_endpoint(this_cid, |cnac| {
-                cnac.get_hyperlan_peer(peer_cid)?.username.clone()
-            });
+            let username = this.console_context.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(this_cid, peer_cid).await.map(|r| r.map(|r| r.username).flatten()).unwrap_or_else(|_| Some(format!("{}", peer_cid)));
 
             let username = username.unwrap_or(String::from("INVALID"));
             // now, store the mail that way the next call to peer accept-request can work

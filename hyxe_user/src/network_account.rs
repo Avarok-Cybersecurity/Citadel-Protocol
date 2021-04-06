@@ -181,7 +181,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
         let cnac = ClientNetworkAccount::<R, Fcm>::new(reserved_cid, false, nac_other.unwrap_or_else(|| self.clone()), &username, full_name, argon_container, base_hyper_ratchet, persistence_handler.clone(), fcm_keys).await?;
 
         // So long as the CNAC creation succeeded, we can confidently add the CID into the config
-        persistence_handler.register_cid(reserved_cid, &username).await
+        persistence_handler.register_cid_in_nac(reserved_cid, &username).await
             .and_then(|_| Ok(cnac))
     }
 

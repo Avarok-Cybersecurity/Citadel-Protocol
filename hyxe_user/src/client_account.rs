@@ -8,7 +8,7 @@ use hyxe_fs::hyxe_file::HyxeFile;
 use hyxe_fs::prelude::SyncIO;
 
 use crate::hypernode_account::{CNAC_SERIALIZED_EXTENSION, HyperNodeAccountInformation};
-use crate::misc::{AccountError, check_credential_formatting};
+use crate::misc::{AccountError, check_credential_formatting, CNACMetadata};
 use std::net::SocketAddr;
 use multimap::MultiMap;
 use crate::prelude::NetworkAccount;
@@ -350,7 +350,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Purges this from the hard drive
-    pub fn purge_from_fs_blocking(&self) -> Result<(), AccountError<String>> {
+    pub(crate) fn purge_from_fs_blocking(&self) -> Result<(), AccountError<String>> {
         let read = self.read();
         if let Some(ref path) = read.local_save_path {
             std::fs::remove_file(path).map_err(|err| err.into())
@@ -374,14 +374,14 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
      */
 
     /// Returns a set of hyperlan peers
-    pub fn get_hyperlan_peer_list(&self) -> Option<Vec<u64>> {
+    pub(crate) fn get_hyperlan_peer_list(&self) -> Option<Vec<u64>> {
         let this = self.read();
         let hyperlan_peers = this.mutuals.get_vec(&HYPERLAN_IDX)?;
         Some(hyperlan_peers.into_iter().map(|peer| peer.cid).collect::<Vec<u64>>())
     }
 
     /// Returns a set of hyperlan peers
-    pub fn get_hyperlan_peer_list_with_fcm_keys(&self) -> Option<Vec<(u64, Option<FcmKeys>)>> {
+    pub(crate) fn get_hyperlan_peer_list_with_fcm_keys(&self) -> Option<Vec<(u64, Option<String>, Option<FcmKeys>)>> {
         let this = self.read();
         let hyperlan_peers = this.mutuals.get_vec(&HYPERLAN_IDX)?;
 
@@ -389,30 +389,38 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             .map(|peer| {
                 if let Some(fcm_crypt_container) = this.fcm_crypt_container.get(&peer.cid) {
                     if let Some(keys) = fcm_crypt_container.fcm_keys.clone() {
-                        return (peer.cid, Some(keys))
+                        return (peer.cid, peer.username.clone(), Some(keys))
                     }
                 }
 
-                (peer.cid, None)
+                (peer.cid, peer.username.clone(), None)
             }).collect())
     }
 
     /// Returns a set of hyperlan peers
-    pub fn get_hyperwan_peer_list(&self, icid: u64) -> Option<Vec<u64>> {
+    #[allow(dead_code)]
+    pub(crate) fn get_hyperwan_peer_list(&self, icid: u64) -> Option<Vec<u64>> {
         let this = self.read();
         let hyperwan_peers = this.mutuals.get_vec(&icid)?;
         Some(hyperwan_peers.into_iter().map(|peer| peer.cid).collect::<Vec<u64>>())
     }
 
     /// Gets the desired HyperLAN peer by CID (clones)
-    pub fn get_hyperlan_peer(&self, cid: u64) -> Option<MutualPeer> {
+    pub(crate) fn get_hyperlan_peer(&self, cid: u64) -> Option<MutualPeer> {
         let read = self.read();
         let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
         hyperlan_peers.iter().find(|peer| peer.cid == cid).cloned()
     }
 
+    /// Returns the wanted peers
+    pub(crate) fn get_hyperlan_peers(&self, peers: &Vec<u64>) -> Option<Vec<MutualPeer>> {
+        let read = self.read();
+        let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
+        Some(peers.into_iter().filter_map(|peer_wanted| hyperlan_peers.into_iter().find(|peer| peer.cid == *peer_wanted).cloned()).collect())
+    }
+
     /// Gets the desired HyperLAN peer by username (clones)
-    pub fn get_hyperlan_peer_by_username<T: AsRef<str>>(&self, username: T) -> Option<MutualPeer> {
+    pub(crate) fn get_hyperlan_peer_by_username<T: AsRef<str>>(&self, username: T) -> Option<MutualPeer> {
         let read = self.read();
         let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
         let username = username.as_ref();
@@ -421,55 +429,57 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// This function handles the registration for BOTH CNACs. Then, it synchronizes both to
-    /// the local filesystem on the Threadpool
     #[allow(unused_results)]
-    pub fn register_hyperlan_p2p_as_server_filesystem(&self, other_orig: &ClientNetworkAccount<R, Fcm>) {
-        let this_cid = self.inner.cid;
-        let other_cid = other_orig.inner.cid;
+    pub(crate) async fn register_hyperlan_p2p_as_server_filesystem(&self, other_orig: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
+        {
+            let this_cid = self.inner.cid;
+            let other_cid = other_orig.inner.cid;
 
-        let mut this = self.write();
-        let mut other = other_orig.write();
+            let mut this = self.write();
+            let mut other = other_orig.write();
 
-        let this_username = this.username.clone();
-        let other_username = other.username.clone();
+            let this_username = this.username.clone();
+            let other_username = other.username.clone();
 
-        this.mutuals.insert(HYPERLAN_IDX, MutualPeer {
-            parent_icid: HYPERLAN_IDX,
-            cid: other_cid,
-            username: Some(other_username)
-        });
+            this.mutuals.insert(HYPERLAN_IDX, MutualPeer {
+                parent_icid: HYPERLAN_IDX,
+                cid: other_cid,
+                username: Some(other_username)
+            });
 
-        other.mutuals.insert(HYPERLAN_IDX, MutualPeer {
-            parent_icid: HYPERLAN_IDX,
-            cid: this_cid,
-            username: Some(this_username)
-        });
+            other.mutuals.insert(HYPERLAN_IDX, MutualPeer {
+                parent_icid: HYPERLAN_IDX,
+                cid: this_cid,
+                username: Some(this_username)
+            });
 
-        std::mem::drop(this);
-        std::mem::drop(other);
+            std::mem::drop(this);
+            std::mem::drop(other);
+        }
 
-        let other = other_orig.clone();
-        let this= self.clone();
         // spawn save task on threadpool
-        tokio::task::spawn(async move {
-            if let Err(err) = this.save().await {
-                log::error!("Unable to save CNAC {}: {:?}", this_cid, err);
-            }
-
-            if let Err(err) = other.save().await {
-                log::error!("Unable to save CNAC {}: {:?}", other_cid, err);
-            }
-        });
+        self.save().await?;
+        other_orig.save().await
     }
 
     /// Gets the FCM send addr, if available
-    pub fn get_fcm_keys(&self) -> Option<FcmKeys> {
+    #[allow(dead_code)]
+    pub(crate) fn get_fcm_keys(&self) -> Option<FcmKeys> {
         self.read().crypt_container.fcm_keys.clone()
+    }
+
+    /// Stores the FCM keys for a certain peer
+    #[allow(dead_code)]
+    pub(crate) fn store_fcm_keys_for_peer(&self, peer_cid: u64, keys: Option<FcmKeys>) {
+        let mut write = self.write();
+        if let Some(crypt) = write.fcm_crypt_container.get_mut(&peer_cid) {
+            crypt.fcm_keys = keys;
+        }
     }
 
     /// Deregisters two peers as server
     #[allow(unused_results)]
-    pub fn deregister_hyperlan_p2p_as_server_filesystem(&self, other: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
+    pub(crate) fn deregister_hyperlan_p2p_as_server_filesystem(&self, other: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         self.remove_hyperlan_peer(other.get_cid()).ok_or(AccountError::ClientNonExists(other.get_cid()))?;
         other.remove_hyperlan_peer(self.get_cid()).ok_or(AccountError::Generic("Could not remove self from other cnac".to_string()))?;
 
@@ -477,7 +487,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Returns the number of peers found
-    pub fn view_hyperlan_peers(&self, mut fx: impl FnMut(&Vec<MutualPeer>)) -> usize {
+    pub(crate) fn view_hyperlan_peers(&self, mut fx: impl FnMut(&Vec<MutualPeer>)) -> usize {
         let read = self.read();
         if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
             fx(hyperlan_peers);
@@ -488,7 +498,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Determines if the specified hyperlan peer exists
-    pub fn hyperlan_peer_exists(&self, cid: u64) -> bool {
+    pub(crate) fn hyperlan_peer_exists(&self, cid: u64) -> bool {
         let read = self.read();
         if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
             //log::info!("Checking through {} peers", hyperlan_peers.len());
@@ -499,19 +509,20 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         }
     }
 
-    /// Returns true if a registration is currently pending
+    /// Returns true if a registration is currently pending. Since this datatype is always stored inside the CNAC, we allow non-async access
     pub fn fcm_hyperlan_peer_registration_pending(&self, target_cid: u64) -> bool {
         let read = self.read();
         read.kem_state_containers.contains_key(&target_cid) || read.fcm_invitations.contains_key(&target_cid)
     }
 
-    /// Returns true if and only if all the peers in `peers` exist
-    pub fn hyperlan_peers_exist(&self, peers: &Vec<u64>) -> bool {
+    /// Returns a set of registration statuses (true/false) for each co-responding peer. True if registered, false otherwise
+    pub(crate) fn hyperlan_peers_exist(&self, peers: &Vec<u64>) -> Vec<bool> {
         let read = self.read();
         if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
-            peers.iter().all(|peer| hyperlan_peers.iter().any(|hyperlan_peer| hyperlan_peer.cid == *peer))
+            peers.iter().map(|peer| hyperlan_peers.iter().any(|hyperlan_peer| hyperlan_peer.cid == *peer)).collect()
         } else {
-            false
+            log::warn!("Attempted to check hyperlan list, but it non-exists");
+            peers.iter().map(|_| false).collect()
         }
     }
 
@@ -519,44 +530,45 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// obtained from the HyperLAN Server
     ///
     /// Returns true if the data was mutated
-    pub fn synchronize_hyperlan_peer_list(&self, peers: &Vec<(u64, Option<FcmKeys>)>) -> bool {
+    pub(crate) fn synchronize_hyperlan_peer_list(&self, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> bool {
         let mut this = self.write();
-        let mut needs_save = false;
+        let ClientNetworkAccountInner::<R, Fcm> {
+            mutuals,
+            fcm_crypt_container,
+            ..
+        } = &mut *this;
 
-        if let Some(hyperlan_peers) = this.mutuals.get_vec_mut(&HYPERLAN_IDX) {
-            hyperlan_peers.retain(|hyperlan_peer| {
-                for (peer, _) in peers {
-                    if *peer == hyperlan_peer.cid {
-                        // found a match; retain the entry
-                        return true;
-                    }
-                }
-                // no match found; do no retain the entry
-                log::warn!("[CNAC Synchronize]: peer {} does not exist in the HyperLAN Server; removing", hyperlan_peer.cid);
-                needs_save = true;
-                false
-            });
+        let replace = |mutuals: &mut MultiMap<u64, MutualPeer>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>| {
+            mutuals.insert_many(HYPERLAN_IDX, peers.into_iter().map(|(peer_cid, username, _keys)|{
+                MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username }
+            }).collect::<Vec<MutualPeer>>())
+        };
 
+        if !mutuals.contains_key(&HYPERLAN_IDX) {
+            replace(mutuals, peers);
+            return true;
+        }
 
-            for (peer_cid, fcm_keys) in peers {
+        if let Some(hyperlan_peers) = mutuals.get_vec_mut(&HYPERLAN_IDX) {
+            for (peer_cid, _username, fcm_keys) in &peers {
                 if let Some(fcm_keys) = fcm_keys {
-                    if let Some(fcm_crypt_container) = this.fcm_crypt_container.get_mut(peer_cid) {
+                    if let Some(fcm_crypt_container) = fcm_crypt_container.get_mut(&peer_cid) {
                         fcm_crypt_container.fcm_keys = Some(fcm_keys.clone());
-                        needs_save = true;
                     } else {
-                        log::warn!("Attemped to synchronize peer list, but local's state is corrupt (fcm)");
+                        log::warn!("Attempted to synchronize peer list, but local's state is corrupt (fcm)");
                     }
                 }
             }
-        } else {
-            // TODO: Network recovery mode
-            log::warn!("Attempted to synchronize peer list, but local's state is corrupt")
+
+            hyperlan_peers.clear();
+            replace(mutuals, peers);
         }
 
-        needs_save
+        true
     }
 
     /// Determines if the username is a known hyperlan client to self
+    #[cfg(debug_assertions)]
     pub fn hyperlan_peer_exists_by_username<T: AsRef<str>>(&self, username: T) -> bool {
         let read = self.read();
         let username = username.as_ref();
@@ -569,16 +581,16 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// ONLY run this after you're sure the peer doesn't already exist
-    pub fn insert_hyperlan_peer<T: ToString>(&self, cid: u64, username: T) {
+    pub(crate) fn insert_hyperlan_peer<T: Into<String>>(&self, cid: u64, username: T) {
         let mut write = self.write();
-        let username = Some(username.to_string());
+        let username = Some(username.into());
 
         write.mutuals.insert(HYPERLAN_IDX, MutualPeer { username, parent_icid: HYPERLAN_IDX, cid });
     }
 
     /// Returns Some if success, None otherwise. Also syncs to the disk in via the threadpool
     #[allow(unused_results)]
-    pub fn remove_hyperlan_peer(&self, cid: u64) -> Option<MutualPeer> {
+    pub(crate) fn remove_hyperlan_peer(&self, cid: u64) -> Option<MutualPeer> {
         let mut write = self.write();
         if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
             if let Some(idx) = hyperlan_peers.iter().position(|peer| peer.cid == cid) {
@@ -597,39 +609,19 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         None
     }
 
-    /// Returns true if success, false otherwise
-    #[allow(unused_results)]
-    pub fn remove_hyperlan_peer_by_username<T: AsRef<str>>(&self, username: T) -> Option<MutualPeer> {
-        let username = username.as_ref();
-        let mut write = self.write();
-        if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
-            if let Some(idx) = hyperlan_peers.iter().position(|peer| peer.username.as_ref().map(|name| name == username).unwrap_or(false)) {
-                let removed = hyperlan_peers.remove(idx);
-                write.fcm_crypt_container.remove(&removed.cid);
-                std::mem::drop(write);
-                self.spawn_save_task_on_threadpool();
-                return Some(removed);
-            }
-        }
-
-        log::info!("Attempted to remove a HyperLAN Peer, but it doesn't exist!");
-
-        None
-    }
-
     /*
          End of the mutual peer-related functions
      */
 
-    #[allow(unused_results)]
+    #[allow(unused_results, dead_code)]
     /// Replaces the internal FCM device
-    pub fn replace_fcm_crypt_container(&self, peer_cid: u64, container: PeerSessionCrypto<Fcm>) {
+    pub(crate) fn replace_fcm_crypt_container(&self, peer_cid: u64, container: PeerSessionCrypto<Fcm>) {
         let mut write = self.write();
         write.fcm_crypt_container.insert(peer_cid, container);
     }
 
     /// Gets the FCM keys of the peer
-    pub fn get_peer_fcm_keys(&self, peer_cid: u64) -> Option<FcmKeys> {
+    pub(crate) fn get_peer_fcm_keys(&self, peer_cid: u64) -> Option<FcmKeys> {
         self.read().fcm_crypt_container.get(&peer_cid)?.fcm_keys.clone()
     }
 
@@ -723,20 +715,16 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         Ok(())
     }
 
-    /// sends, blocking on an independent single-threaded executor
-    pub async fn blocking_fcm_send_to(&self, target_peer_cid: u64, message: SecBuffer, ticket: u64, client: &Arc<Client>) -> Result<FcmProcessorResult, AccountError> {
-        /*let this = self.clone();
-        let client = client.clone();
-        block_on_async(move || async move {
-            this.fcm_send_message_to(target_peer_cid, message, ticket, &client).await
-        })?*/
-        self.fcm_send_message_to(target_peer_cid, message, ticket, client).await
-    }
-
     /// Sends the request to the FCM server, returns the ticket for the request
     pub async fn fcm_send_message_to(&self, target_peer_cid: u64, message: SecBuffer, ticket: u64, client: &Arc<Client>) -> Result<FcmProcessorResult, AccountError> {
         let (ticket, fcm_instance, packet) = self.prepare_fcm_send_message(target_peer_cid, message, ticket, client).await?;
         fcm_instance.send_to_fcm_user(packet.clone()).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }, FcmPacketMaybeNeedsSending::some(None, packet)))
+    }
+
+    /// Stores the new FCM keys inside the CNAC (operation used by both fs and db)
+    pub(crate) fn store_fcm_keys(&self, new_fcm_keys: FcmKeys) {
+        let mut write = self.write();
+        write.crypt_container.fcm_keys = Some(new_fcm_keys);
     }
 
     /// Prepares the requires abstractions needed to send data
@@ -800,7 +788,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// This should be called after retrieving a CNAC from a database
     ///
     /// Note: if persistence handler is not specified, it will have to be loaded later, before any other program execution
-    pub fn load_safe(mut inner: ClientNetworkAccountInner<R, Fcm>, file_path: Option<PathBuf>, persistence_handler: Option<PersistenceHandler<R, Fcm>>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+    pub(crate) fn load_safe(mut inner: ClientNetworkAccountInner<R, Fcm>, file_path: Option<PathBuf>, persistence_handler: Option<PersistenceHandler<R, Fcm>>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         // unpack the inner encrypted nac
         let encrypted_nac = inner.inner_encrypted_nac.take().ok_or(AccountError::Generic("Inner encrypted NAC missing".to_string()))?;
         let static_aux_ratchet = inner.crypt_container.toolset.get_static_auxiliary_ratchet();
@@ -815,7 +803,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Stores the persistence handler
-    pub fn store_persistence_handler(&self, persistence_handler: &PersistenceHandler<R, Fcm>) {
+    pub(crate) fn store_persistence_handler(&self, persistence_handler: &PersistenceHandler<R, Fcm>) {
         self.write().persistence_handler = Some(persistence_handler.clone());
     }
 
@@ -825,6 +813,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Visit the inner device mutably
+    /// NOTE! The only fields that should be mutated internally are the (fcm) crypt containers. The peer information should
+    /// only be mutated through the persistence handler. In the case of an FCM crypt container, saving should be called after mutating
+    /// TODO: Make visit with restricted input parameter to reflect the above
     pub fn visit_mut<J>(&self, fx: impl FnOnce(ShardedLockWriteGuard<'_, ClientNetworkAccountInner<R, Fcm>>) -> J) -> J {
         fx(self.write())
     }
@@ -881,6 +872,17 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         };
 
         persistence_handler.save_cnac(self.clone()).await
+    }
+
+    /// Returns the metadata for this CNAC
+    pub(crate) fn get_metadata(&self) -> CNACMetadata {
+        let read = self.read();
+        let cid = read.cid;
+        let username = read.username.clone();
+        let full_name = read.full_name.clone();
+        let is_personal = read.is_local_personal;
+        let creation_date = read.creation_date.clone();
+        CNACMetadata { cid, username, full_name, is_personal, creation_date }
     }
 
     /// Returns the CID

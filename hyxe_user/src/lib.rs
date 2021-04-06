@@ -27,6 +27,7 @@ pub mod prelude {
     pub use crate::client_account::*;
     pub use crate::hypernode_account::*;
     pub use crate::network_account::*;
+    pub use fcm::Client;
 }
 
 /// Serde and others

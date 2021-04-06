@@ -102,13 +102,13 @@ class AutoLogin {
 
       // Make sure the account exists in the local db
       if (!await ClientNetworkAccount.getCnacByCid(implicatedCid).then((value) => value.isPresent)) {
-        print("Account does not exist locally. Will not connect");
+        print("Account does not exist locally. Will not connect (newly registered?)");
         return false;
       }
 
       // We also want to make sure that the account is registered
 
-      StreamController<bool> controller = StreamController();
+      final StreamController<bool> controller = StreamController();
       var res = await RustSubsystem.bridge!.executeCommand(connectCmd).then((value) {
         if (value.isPresent) {
           KernelResponseHandler.handleFirstCommand(value.value, handler: AutoLoginHandler(controller.sink, username), oneshot: false);
@@ -174,7 +174,13 @@ class AutoLoginHandler implements AbstractHandler {
       print("[AutoLoginHandler] Received expected kernel response");
       ConnectResponse resp = kernelResponse.getDSR().value as ConnectResponse;
       resp.attachUsername(this.username);
-      this.sink.add(resp.success);
+
+      try {
+        this.sink.add(resp.success);
+      } catch(_) {
+        print("Autlogin Sink closed");
+      }
+
       HomePage.pushObjectToSession(resp);
       return CallbackStatus.Complete;
     } else {

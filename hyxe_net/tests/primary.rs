@@ -78,7 +78,7 @@ pub mod tests {
         if USE_FILESYSYEM {
             BackendType::Filesystem
         } else {
-            BackendType::my_sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+            BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
         }
     }
 

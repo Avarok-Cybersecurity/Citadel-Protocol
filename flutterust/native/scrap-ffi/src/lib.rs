@@ -3,7 +3,7 @@
 use crate::ffi_object::load_and_execute_ffi_static;
 use ffi_helpers::null_pointer_check;
 use hyxewave::ffi::KernelResponse;
-use hyxewave::re_exports::{AccountManager, PRIMARY_PORT};
+use hyxewave::re_exports::{AccountManager, PRIMARY_PORT, BackendType};
 use std::ffi::CString;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -49,7 +49,7 @@ pub unsafe extern "C" fn error_message_utf8(buf: *mut raw::c_char, length: i32) 
 }
 
 #[no_mangle]
-pub extern "C" fn load_page(port: i64, home_dir: *const raw::c_char) -> i32 {
+pub extern "C" fn execute(port: i64, home_dir: *const raw::c_char) -> i32 {
     start_logger();
     load_and_execute_ffi_static(port, cstr!(home_dir))
 }
@@ -63,12 +63,12 @@ pub extern "C" fn is_kernel_loaded() -> i32 {
     }
 }
 
-//static BACKGROUND_PROCESSOR_INSTANCE: Mutex<Option<AccountManager>> = const_mutex(None);
+
 #[no_mangle]
 /// Meant to be executed by background isolates needing access to the account manager (e.g., FCM)
 pub unsafe extern "C" fn fcm_process(
     packet: *const raw::c_char,
-    home_dir: *const raw::c_char,
+    home_dir: *const raw::c_char
 ) -> *mut raw::c_char {
     start_logger();
     let packet = CStr::from_ptr(packet).to_str().unwrap();
@@ -88,7 +88,8 @@ pub unsafe extern "C" fn fcm_process(
     log::info!("[Rust BG processor] Setting up background processor ...");
     match AccountManager::new_blocking(
         SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),
-        Some(home_dir.to_string())
+        Some(home_dir.to_string()),
+        BackendType::Filesystem
     ) {
         Ok(acc_mgr) => {
             log::info!("[Rust BG processor] Success setting-up account manager");

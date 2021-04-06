@@ -8,6 +8,7 @@ import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
 import 'package:flutterust/database/notifications.dart';
 import 'package:flutterust/main.dart';
+import 'package:flutterust/misc/secure_storage_handler.dart';
 import 'package:flutterust/screens/session/session_subscreens/notifications_screen.dart';
 import 'package:flutterust/screens/session/session_view.dart';
 import 'package:flutterust/themes/default.dart';
@@ -255,8 +256,10 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
 
   void disconnectCurrentSession() {
     var view = this.sessionViews.removeAt(this.pos);
-    this.tabs.removeAt(this.pos);
-    RustSubsystem.bridge!.executeCommand("disconnect ${view.cnac.username}");
+    var username = this.tabs.removeAt(this.pos);
+    // Also, delete any autologins. Only after can we then disconnect without getting a login auto triggered. They will need to login again to re-establish it
+    SecureStorageHandler.deleteCredentialsFor(username)
+    .then((value) => RustSubsystem.bridge!.executeCommand("disconnect ${view.cnac.username}"));
   }
 
 
