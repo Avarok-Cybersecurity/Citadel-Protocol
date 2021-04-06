@@ -19,12 +19,11 @@ use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::time_tracker::TimeTracker;
 use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, PeerSignal, MailboxTransfer, PeerConnectionType, PeerResponse};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
-use crate::hdp::hdp_packet_processor::includes::{Duration, HyperNodeAccountInformation, Instant};
+use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
 use std::sync::atomic::Ordering;
 use std::path::PathBuf;
 use crate::hdp::peer::message_group::MessageGroupKey;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState, GroupMemberAlterMode};
-use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 use crate::macros::{SyncContextRequirements, ContextRequirements};
@@ -237,6 +236,7 @@ impl HdpSessionManager {
             // we do not need to save here. When the ratchet is reloaded, it will be zeroed out anyways.
             // the only reason we call this is to ensure that FCM packets that get protected on their way out
             // don't cause false-positives on the anti-replay-attack container
+            // Especially needed for FM
             let _ = cnac.refresh_static_hyper_ratchet();
         }
         // the following shutdown sequence is valid for only for the HyperLAN server
@@ -631,7 +631,7 @@ impl HdpSessionManager {
 
     /// Removes the supplied peers from the group. Each peer that is successfully removed will receive a group disconnect signal
     /// This will additionally alert each remaining member
-    pub fn kick_from_message_group(&self, mode: GroupMemberAlterMode, sess_cnac: &ClientNetworkAccount, implicated_cid: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, peers: Vec<u64>, security_level: SecurityLevel) -> bool {
+    pub fn kick_from_message_group(&self, mode: GroupMemberAlterMode, implicated_cid: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, peers: Vec<u64>, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         match this.hypernode_peer_layer.remove_peers_from_message_group(key, peers) {
             Ok((peers_removed, peers_remaining)) => {
@@ -642,7 +642,7 @@ impl HdpSessionManager {
                     let signal = GroupBroadcast::Disconnected(key);
                     for peer in &peers_removed {
                         if *peer != implicated_cid {
-                            if let Err(err) = this.send_group_broadcast_signal_to(sess_cnac, timestamp, ticket, *peer, false, true, signal.clone(), security_level) {
+                            if let Err(err) = this.send_group_broadcast_signal_to(timestamp, ticket, *peer, false, signal.clone(), security_level) {
                                 log::warn!("Unable to send group broadcast signal from {} to {}: {}", key.cid, peer, err);
                             }
                         }
@@ -652,7 +652,7 @@ impl HdpSessionManager {
                 let signal = GroupBroadcast::MemberStateChanged(key, MemberState::LeftGroup(peers_removed));
                 for peer in peers_remaining {
                     if peer != implicated_cid {
-                        if let Err(err) = this.send_group_broadcast_signal_to(sess_cnac, timestamp, ticket, peer, false, true, signal.clone(), security_level) {
+                        if let Err(err) = this.send_group_broadcast_signal_to(timestamp, ticket, peer, false, signal.clone(), security_level) {
                             log::warn!("Unable to send group broadcast signal from {} to {}: {}", key.cid, peer, err);
                         }
                     }
@@ -671,15 +671,14 @@ impl HdpSessionManager {
     /// Broadcasts a message to a target group
     /// Note: uses mail_if_offline: true. This allows a member to disconnect, but to still receive messages later-on
     /// In the future, a SQL server should be used to store these messages, as they may get pretty lengthy
-    pub fn broadcast_signal_to_group(&self, sess_cnac: &ClientNetworkAccount, timestamp: i64, ticket: Ticket, key: MessageGroupKey, signal: GroupBroadcast, security_level: SecurityLevel) -> bool {
-        let implicated_cid = sess_cnac.get_id();
+    pub fn broadcast_signal_to_group(&self, implicated_cid: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, signal: GroupBroadcast, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(peers_to_broadcast_to) = this.hypernode_peer_layer.get_peers_in_message_group(key) {
             for peer in peers_to_broadcast_to {
                 // we only broadcast to the peers not equal to the calling one
                 if peer != implicated_cid {
                     let signal = signal.clone();
-                    if let Err(err) = this.send_group_broadcast_signal_to(sess_cnac, timestamp, ticket, peer, true, true, signal, security_level) {
+                    if let Err(err) = this.send_group_broadcast_signal_to(timestamp, ticket, peer, true, signal, security_level) {
                         log::warn!("Unable to send group broadcast signal from {} to {}: {}", key.cid, peer, err);
                     }
                 }
@@ -918,23 +917,20 @@ impl HdpSessionManagerInner {
     /// Sends a [GroupBroadcast] message to `peer_cid`. Ensures the target is mutual before sending
     /// `mail_if_offline`: Deposits mail if the target is offline
     /// NOTE: it is the duty of the calling closure to ensure that the [MessageGroup] exists!
+    /// NOTE: This does not check to see if the two peers can send to each other. That is up to the caller to ensure that
     ///
-    ///
-    pub fn send_group_broadcast_signal_to(&self, sess_cnac: &ClientNetworkAccount, timestamp: i64, ticket: Ticket, peer_cid: u64, mail_if_offline: bool, bypass_mutual_check: bool, signal: GroupBroadcast, security_level: SecurityLevel) -> Result<(), String> {
-        if sess_cnac.hyperlan_peer_exists(peer_cid) || bypass_mutual_check {
-            if self.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
-                super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
-            }).is_err() {
-                if mail_if_offline {
-                    if !self.hypernode_peer_layer.try_add_mailbox(true, peer_cid, PeerSignal::BroadcastConnected(signal)) {
+    pub fn send_group_broadcast_signal_to(&self, timestamp: i64, ticket: Ticket, peer_cid: u64, mail_if_offline: bool, signal: GroupBroadcast, security_level: SecurityLevel) -> Result<(), String> {
+        if self.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
+            super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
+        }).is_err() {
+            if mail_if_offline {
+                // TODO: Fcm send
+                if !self.hypernode_peer_layer.try_add_mailbox(true, peer_cid, PeerSignal::BroadcastConnected(signal)) {
                         log::warn!("Unable to add broadcast signal to mailbox")
-                    }
                 }
             }
-
-            Ok(())
-        } else {
-            Err(format!("{} does not exist in {}'s CNAC", peer_cid, sess_cnac.get_id()))
         }
+
+        Ok(())
     }
 }

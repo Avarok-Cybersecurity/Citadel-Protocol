@@ -475,6 +475,7 @@ impl HdpSession {
         })).map_err(|err| NetworkError::Generic(err.to_string())).await
     }
 
+    /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
     pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>, header_obfuscator: HeaderObfuscator) -> Result<(), NetworkError> {
         log::info!("HdpSession async inbound-stream subroutine executed");
         let (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream) = if let Some(p2p) = p2p_handle {

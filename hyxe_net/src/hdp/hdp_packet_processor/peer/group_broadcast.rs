@@ -4,7 +4,7 @@ use crate::hdp::peer::message_group::MessageGroupKey;
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 use atomic::Ordering;
-use crate::inner_arg::{InnerParameter, ExpectedInnerTarget};
+use crate::inner_arg::ExpectedInnerTarget;
 use crate::functional::IfEqConditional;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_fs::io::SyncIO;
@@ -52,7 +52,8 @@ impl Into<HdpServerResult> for (u64, Ticket, GroupBroadcast) {
     }
 }
 
-pub fn process<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter<K, HdpSessionInner>, header: LayoutVerified<&[u8], HdpHeader>, payload: &[u8], sess_hyper_ratchet: &HyperRatchet) -> PrimaryProcessorResult {
+pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], HdpHeader>, payload: &[u8], sess_hyper_ratchet: &HyperRatchet) -> PrimaryProcessorResult {
+    let session = inner!(session_ref);
     let signal = GroupBroadcast::deserialize_from_vector(payload).ok()?;
     let timestamp = session.time_tracker.get_global_time_ns();
     let ticket = header.context_info.get().into();
@@ -68,7 +69,7 @@ pub fn process<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter
         }
 
         GroupBroadcast::MemberStateChanged(key, state) => {
-            send_to_kernel(session, ticket, GroupBroadcast::MemberStateChanged(key, state))
+            send_to_kernel(&session, ticket, GroupBroadcast::MemberStateChanged(key, state))
         }
 
         GroupBroadcast::End(key) => {
@@ -90,14 +91,13 @@ pub fn process<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter
         GroupBroadcast::Message(username, key, message) => {
             if session.is_server {
                 // The message will need to be broadcasted to every member in the group
-                let sess_cnac = session.cnac.as_ref()?;
-                let success = session.session_manager.broadcast_signal_to_group(sess_cnac, timestamp, ticket, key, GroupBroadcast::Message(username, key, message), security_level);
+                let success = session.session_manager.broadcast_signal_to_group(implicated_cid, timestamp, ticket, key, GroupBroadcast::Message(username, key, message), security_level);
                 let resp = GroupBroadcast::MessageResponse(key, success);
                 let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &resp, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level);
                 PrimaryProcessorResult::ReplyToSender(packet)
             } else {
                 // send to kernel
-                send_to_kernel(session, ticket, GroupBroadcast::Message(username, key, message))
+                send_to_kernel(&session, ticket, GroupBroadcast::Message(username, key, message))
             }
         }
 
@@ -115,9 +115,8 @@ pub fn process<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter
             } else {
                 // send broadcast to all group members
                 std::mem::drop(sess_mgr);
-                let sess_cnac = session.cnac.as_ref()?;
                 let entered = vec![implicated_cid];
-                if !session.session_manager.broadcast_signal_to_group(sess_cnac, timestamp, ticket, key, GroupBroadcast::MemberStateChanged(key, MemberState::EnteredGroup(entered)), security_level) {
+                if !session.session_manager.broadcast_signal_to_group(implicated_cid, timestamp, ticket, key, GroupBroadcast::MemberStateChanged(key, MemberState::EnteredGroup(entered)), security_level) {
                     log::warn!("Unable to broadcast member acceptance to group {}", key);
                 }
                 log::info!("Successfully upgraded {} for {:?}", implicated_cid, key);
@@ -129,12 +128,11 @@ pub fn process<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter
         }
 
         GroupBroadcast::AcceptMembershipResponse(success) => {
-            send_to_kernel(session, ticket, GroupBroadcast::AcceptMembershipResponse(success))
+            send_to_kernel(&session, ticket, GroupBroadcast::AcceptMembershipResponse(success))
         }
 
         GroupBroadcast::LeaveRoom(key) => {
-            let sess_cnac = session.cnac.as_ref()?;
-            let success = session.session_manager.kick_from_message_group(GroupMemberAlterMode::Leave, sess_cnac, implicated_cid, timestamp, ticket, key, vec![implicated_cid], security_level);
+            let success = session.session_manager.kick_from_message_group(GroupMemberAlterMode::Leave, implicated_cid, timestamp, ticket, key, vec![implicated_cid], security_level);
             let message = if success { format!("Successfully removed peer {} from room {}:{}", implicated_cid, key.cid, key.mgid) } else { format!("Unable to remove peer {} from room {}:{}", implicated_cid, key.cid, key.mgid) };
             let signal = GroupBroadcast::LeaveRoomResponse(key, success, message);
             let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level);
@@ -142,7 +140,7 @@ pub fn process<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter
         }
 
         GroupBroadcast::LeaveRoomResponse(key, success, response) => {
-            send_to_kernel(session, ticket, GroupBroadcast::LeaveRoomResponse(key, success, response))
+            send_to_kernel(&session, ticket, GroupBroadcast::LeaveRoomResponse(key, success, response))
         }
 
         GroupBroadcast::Add(key, peers) => {
@@ -150,17 +148,25 @@ pub fn process<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter
             // the server receives this. It then sends an invitation
             // if peer is not online, leave some mail. If peer is online,
             // send invitation
-            let sess_cnac = session.cnac.as_ref()?;
-            let sess_mgr = inner!(session.session_manager);
+            let persistence_handler = session.account_manager.get_persistence_handler().clone();
+            let sess_mgr = session.session_manager.clone();
+            std::mem::drop(session);
+            let peer_statuses = persistence_handler.hyperlan_peers_are_mutuals(implicated_cid, &peers).await?;
+            let sess_mgr = inner!(sess_mgr);
             if sess_mgr.hypernode_peer_layer.message_group_exists(key) {
                 let mut peers_failed = Vec::new();
                 let mut peers_okay = Vec::new();
-                for peer in &peers {
-                    if let Err(err) = sess_mgr.send_group_broadcast_signal_to(sess_cnac, timestamp, ticket, *peer, true, false, GroupBroadcast::Invitation(key), security_level) {
-                        log::warn!("Unable to send group broadcast from {} to {}: {}", implicated_cid, peer, err);
-                        peers_failed.push(*peer);
+                for (peer, is_registered) in peers.iter().zip(peer_statuses) {
+                    if is_registered {
+                        if let Err(err) = sess_mgr.send_group_broadcast_signal_to(timestamp, ticket, *peer, true, GroupBroadcast::Invitation(key), security_level) {
+                            log::warn!("Unable to send group broadcast from {} to {}: {}", implicated_cid, peer, err);
+                            peers_failed.push(*peer);
+                        } else {
+                            peers_okay.push(*peer);
+                        }
                     } else {
-                        peers_okay.push(*peer);
+                        log::warn!("Peer {} is not registered to {}", peer, implicated_cid);
+                        peers_failed.push(*peer);
                     }
                 }
 
@@ -188,8 +194,7 @@ pub fn process<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter
 
         GroupBroadcast::Kick(key, peers) => {
             permission_gate(implicated_cid, key)?;
-            let sess_cnac = session.cnac.as_ref()?;
-            let success = session.session_manager.kick_from_message_group(GroupMemberAlterMode::Kick, sess_cnac, implicated_cid, timestamp, ticket, key, peers, security_level);
+            let success = session.session_manager.kick_from_message_group(GroupMemberAlterMode::Kick, implicated_cid, timestamp, ticket, key, peers, security_level);
             let resp = GroupBroadcast::KickResponse(key, success);
             let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &resp, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level);
             PrimaryProcessorResult::ReplyToSender(packet)
@@ -213,7 +218,7 @@ pub fn process<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter
     }
 }
 
-fn send_to_kernel<K: ExpectedInnerTarget<HdpSessionInner>>(session: &InnerParameter<K, HdpSessionInner>, ticket: Ticket, broadcast: GroupBroadcast) -> PrimaryProcessorResult {
+fn send_to_kernel(session: &dyn ExpectedInnerTarget<HdpSessionInner>, ticket: Ticket, broadcast: GroupBroadcast) -> PrimaryProcessorResult {
     let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
     session.kernel_tx.unbounded_send((implicated_cid, ticket, broadcast).into())?;
     PrimaryProcessorResult::Void

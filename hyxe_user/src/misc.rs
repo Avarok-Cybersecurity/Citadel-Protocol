@@ -165,3 +165,18 @@ pub mod constructor_map {
     }
 }
 
+/// For passing metadata from a cnac
+#[derive(Debug)]
+pub struct CNACMetadata {
+    /// Client ID
+    pub cid: u64,
+    /// Username
+    pub username: String,
+    /// Full name
+    pub full_name: String,
+    /// Whether CNAC is personal
+    pub is_personal: bool,
+    /// Date created
+    pub creation_date: String
+}
+

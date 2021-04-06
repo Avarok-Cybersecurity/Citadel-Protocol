@@ -1,6 +1,7 @@
 use super::imports::*;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use multimap::MultiMap;
 
 pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let ctx_cid = ctx.get_active_cid();
@@ -11,11 +12,11 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
     }
 
     if let Some(_matches) = matches.subcommand_matches("invites") {
-        return handle_invites(ctx, cnac)
+        return handle_invites(ctx).await
     }
 
     if let Some(matches) = matches.subcommand_matches("create") {
-        return handle_create(matches, server_remote, ctx, cnac, ctx_cid);
+        return handle_create(matches, server_remote, ctx, ctx_cid).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("end") {
@@ -23,15 +24,15 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
     }
 
     if let Some(matches) = matches.subcommand_matches("add") {
-        return handle_add(matches, server_remote, ctx, cnac);
+        return handle_add(matches, server_remote, ctx, ctx_cid).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("kick") {
-        return handle_kick(matches, server_remote, ctx, cnac);
+        return handle_kick(matches, server_remote, ctx, ctx_cid).await;
     }
 
     if let Some(_) = matches.subcommand_matches("list") {
-        return handle_list(ctx, cnac, ctx_cid);
+        return handle_list(ctx).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("leave") {
@@ -119,20 +120,31 @@ fn handle_accept_invite<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServ
     }
 }
 
-fn handle_invites<'a>(ctx: &'a ConsoleContext, cnac: &'a ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_invites(ctx: &ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+    struct GroupRow {
+        invite_id: usize,
+        entry_key_cid: u64,
+        mgid: u8
+    }
+
     let read = ctx.unread_mail.read();
     let mut table = Table::new();
     table.set_titles(prettytable::row![Fgcb => "Invite ID", "Owner Username", "Owner CID", "MGID"]);
-    let mut count = 0;
+    let mut peers = MultiMap::new();
     read.visit_group_requests(|invite_id, entry| {
-        if let Some(owner_peer) = cnac.get_hyperlan_peer(entry.key.cid) {
-            let username = owner_peer.username.unwrap_or(String::from("INVALID"));
-            table.add_row(prettytable::row![c => invite_id, username, entry.key.cid, entry.key.mgid]);
-            count += 1;
-        }
+        peers.insert(entry.implicated_local_cid, GroupRow { invite_id, entry_key_cid: entry.key.cid, mgid: entry.key.mgid });
     });
 
-    if count != 0 {
+    std::mem::drop(read);
+
+    if peers.len() != 0 {
+        for (implicated_cid, entries) in peers {
+            for entry in entries {
+                let username = ctx.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(implicated_cid, entry.entry_key_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.map(|r| r.username).flatten().unwrap_or_else(|| "INVALID".into());
+                table.add_row(prettytable::row![c => entry.invite_id, username, entry.entry_key_cid, entry.mgid]);
+            }
+        }
+
         printf!(table.printstd());
     } else {
         printf_ln!(colour::white!("No pending invites exist locally\n"));
@@ -141,9 +153,14 @@ fn handle_invites<'a>(ctx: &'a ConsoleContext, cnac: &'a ClientNetworkAccount) -
     Ok(None)
 }
 
-fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount, ctx_cid: u64) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ctx_cid: u64) -> Result<Option<Ticket>, ConsoleError> {
     let target_cids = if let Some(target_cids) = matches.values_of("target_cids") {
-        target_cids.filter_map(|res| get_peer_cid_from_cnac(cnac, res).ok()).collect::<Vec<u64>>()
+        let mut ret = Vec::new();
+        for target_cid in target_cids {
+            ret.push(get_peer_cid_from_cnac(&ctx.account_manager, ctx_cid,target_cid).await?)
+        }
+
+        ret
     } else {
         Vec::with_capacity(0)
     };
@@ -243,11 +260,15 @@ fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     Ok(Some(ticket))
 }
 
-fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
-    let target_cids = matches.values_of("target_cids").unwrap().filter_map(|res| get_peer_cid_from_cnac(cnac, res).ok()).collect::<Vec<u64>>();
+    let values = matches.values_of("target_cids").unwrap();
+    let mut target_cids = Vec::new();
+    for target_cid in values {
+        target_cids.push(get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?)
+    }
 
     printfs!({
         colour::white_ln!("\rWill attempt to add to the broadcast group ({}) with these provided peers:\n", &key.key);
@@ -295,11 +316,15 @@ fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     Ok(Some(ticket))
 }
 
-fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
-    let target_cids = matches.values_of("target_cids").unwrap().filter_map(|res| get_peer_cid_from_cnac(cnac, res).ok()).collect::<Vec<u64>>();
+    let values = matches.values_of("target_cids").unwrap();
+    let mut target_cids = Vec::new();
+    for target_cid in values {
+        target_cids.push(get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?)
+    }
 
     printfs!({
         colour::white_ln!("\rWill attempt to kick the provided peers from the broadcast group ({}):\n", &key.key);
@@ -342,23 +367,26 @@ fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote,
     Ok(Some(ticket))
 }
 
-fn handle_list(ctx: &ConsoleContext, cnac: &ClientNetworkAccount, ctx_cid: u64) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_list(ctx: &ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+    struct ListRow {
+        gid: usize,
+        key_cid: u64,
+        mgid: u8,
+        implicated_local_cid: u64
+    }
+
     let mut table = Table::new();
     table.set_titles(prettytable::row![Fgcb => "GID", "Owner Username", "Owner CID", "MGID"]);
     let read = ctx.message_groups.read();
-    let len = read.len();
-    for (gid, key) in read.iter() {
-        let username = if key.key.cid != ctx_cid {
-            cnac.get_hyperlan_peer(key.key.cid).and_then(|res| res.username.clone())
-                .unwrap_or(String::from("INVALID"))
-        } else {
-            ctx.active_user.read().clone()
-        };
+    let rows = read.iter().map(|(gid, container)| ListRow { gid: *gid, key_cid: container.key.cid, mgid: container.key.mgid, implicated_local_cid: container.implicated_cid }).collect::<Vec<ListRow>>();
+    std::mem::drop(read);
 
-        table.add_row(prettytable::row![c => gid, username, key.key.cid, key.key.mgid]);
-    }
+    if rows.len() != 0 {
+        for row in rows {
+            let username = ctx.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(row.implicated_local_cid, row.key_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.map(|r| r.username).flatten().unwrap_or_else(|| "INVALID".into());
+            table.add_row(prettytable::row![c => row.gid, username, row.key_cid, row.mgid]);
+        }
 
-    if len != 0 {
         printf!(table.printstd());
     } else {
         printf_ln!(colour::white!("No concurrent message groups found\n"));

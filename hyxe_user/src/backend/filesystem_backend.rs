@@ -1,8 +1,8 @@
 use crate::backend::{BackendConnection, PersistenceHandler};
 use async_trait::async_trait;
 use hyxe_crypt::hyper_ratchet::Ratchet;
-use crate::misc::AccountError;
-use crate::client_account::ClientNetworkAccount;
+use crate::misc::{AccountError, CNACMetadata};
+use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use hyxe_fs::system_file_manager::write_bytes_to;
 use std::path::PathBuf;
 use crossbeam_utils::sync::{ShardedLock, ShardedLockReadGuard, ShardedLockWriteGuard};
@@ -15,7 +15,6 @@ use std::collections::hash_map::RandomState;
 use crate::hypernode_account::HyperNodeAccountInformation;
 use std::sync::Arc;
 use hyxe_crypt::fcm::keys::FcmKeys;
-
 
 /// For handling I/O with the local filesystem
 pub struct FilesystemBackend<R: Ratchet, Fcm: Ratchet> {
@@ -130,7 +129,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok(self.local_nac().username_exists_filesystem(username).ok_or(AccountError::Generic("The local NAC did not have a CIDS hashmap...".into()))?)
     }
 
-    async fn register_cid(&self, cid: u64, username: &str) -> Result<(), AccountError<String>> {
+    async fn register_cid_in_nac(&self, cid: u64, username: &str) -> Result<(), AccountError<String>> {
         self.local_nac().register_cid_filesystem(cid, username)?;
         self.local_nac().save_to_local_fs()
     }
@@ -169,11 +168,20 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     }
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError<String>> {
-        let read = self.read_map();
-        let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;
-        let cnac1 = read.get(&cid1).ok_or(AccountError::ClientNonExists(cid1))?;
-        cnac0.register_hyperlan_p2p_as_server_filesystem(cnac1);
-        Ok(())
+        let (cnac0, cnac1) = {
+            let read = self.read_map();
+            let cnac0 = read.get(&cid0).cloned().ok_or(AccountError::ClientNonExists(cid0))?;
+            let cnac1 = read.get(&cid1).cloned().ok_or(AccountError::ClientNonExists(cid1))?;
+            (cnac0, cnac1)
+        };
+
+        cnac0.register_hyperlan_p2p_as_server_filesystem(&cnac1).await
+    }
+
+    async fn register_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64, peer_username: String) -> Result<(), AccountError<String>> {
+        let cnac = self.get_cnac(implicated_cid)?;
+        cnac.insert_hyperlan_peer(peer_cid, peer_username);
+        cnac.save().await
     }
 
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError<String>> {
@@ -186,21 +194,72 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok(())
     }
 
-    async fn get_fcm_keys_for(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError<String>> {
-        let read = self.read_map();
-        Ok(read.get(&implicated_cid).ok_or(AccountError::ClientNonExists(implicated_cid))?
-            .get_peer_fcm_keys(peer_cid))
+    async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError<String>> {
+        Ok(self.get_cnac(implicated_cid)?.remove_hyperlan_peer(peer_cid))
     }
 
-    async fn is_registered_to(&self, implicated_cid: u64, peer_cid: u64) -> Result<bool, AccountError<String>> {
-        let read = self.read_map();
-        Ok(read.get(&implicated_cid).ok_or(AccountError::ClientNonExists(implicated_cid))?.hyperlan_peer_exists(peer_cid))
+    async fn get_fcm_keys_for_as_server(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError<String>> {
+        Ok(self.get_cnac(implicated_cid)?.get_peer_fcm_keys(peer_cid))
+    }
+
+    async fn update_fcm_keys(&self, cnac: &ClientNetworkAccount<R, Fcm>, new_keys: FcmKeys) -> Result<(), AccountError<String>> {
+        cnac.store_fcm_keys(new_keys);
+        self.save_cnac(cnac.clone()).await
     }
 
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError<String>> {
-        let read = self.read_map();
-        let cnac = read.get(&implicated_cid).ok_or(AccountError::ClientNonExists(implicated_cid))?;
+        let cnac = self.get_cnac(implicated_cid)?;
         Ok(cnac.get_hyperlan_peer_list())
+    }
+
+    async fn get_client_metadata(&self, implicated_cid: u64) -> Result<Option<CNACMetadata>, AccountError<String>> {
+        let cnac = self.get_cnac(implicated_cid)?;
+        Ok(Some(cnac.get_metadata()))
+    }
+
+    async fn get_clients_metadata(&self, limit: Option<i32>) -> Result<Vec<CNACMetadata>, AccountError<String>> {
+        let read = self.read_map();
+        if let Some(limit) = limit {
+            Ok(read.values().into_iter().take(limit as _).map(|cnac| cnac.get_metadata()).collect())
+        } else {
+            Ok(read.values().into_iter().map(|cnac| cnac.get_metadata()).collect())
+        }
+    }
+
+    async fn get_hyperlan_peer_by_cid(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError<String>> {
+        let cnac = self.get_cnac(implicated_cid)?;
+        Ok(cnac.get_hyperlan_peer(peer_cid))
+    }
+
+    async fn hyperlan_peer_exists(&self, implicated_cid: u64, peer_cid: u64) -> Result<bool, AccountError<String>> {
+        Ok(self.get_cnac(implicated_cid)?.hyperlan_peer_exists(peer_cid))
+    }
+
+    async fn hyperlan_peers_are_mutuals(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<bool>, AccountError<String>> {
+        let cnac = self.get_cnac(implicated_cid)?;
+        Ok(cnac.hyperlan_peers_exist(peers))
+    }
+
+    async fn get_hyperlan_peers(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<MutualPeer>, AccountError<String>> {
+        if peers.is_empty() {
+            return Ok(Vec::new())
+        }
+
+        let cnac = self.get_cnac(implicated_cid)?;
+        Ok(cnac.get_hyperlan_peers(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
+    }
+
+    async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError<String>> {
+        let cnac = self.get_cnac(implicated_cid)?;
+        Ok(cnac.get_hyperlan_peer_by_username(username))
+    }
+
+    async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError<String>> {
+        Ok(self.get_cnac(implicated_cid)?.get_hyperlan_peer_list_with_fcm_keys())
+    }
+
+    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError<String>> {
+        Ok(cnac.synchronize_hyperlan_peer_list(peers))
     }
 
     fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) {
@@ -236,6 +295,11 @@ impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
 
     fn write_map(&self) -> ShardedLockWriteGuard<HashMap<u64, ClientNetworkAccount<R ,Fcm>, RandomState>> {
         self.clients_map.as_ref().unwrap().write().unwrap()
+    }
+
+    fn get_cnac(&self, ref implicated_cid: u64) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+        let read = self.read_map();
+        read.get(implicated_cid).cloned().ok_or(AccountError::ClientNonExists(*implicated_cid))
     }
 
     // Called AFTER being removed from the hashmap

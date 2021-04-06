@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::fcm::fcm_packet_processor::peer_post_register::{PostRegisterInvitation, FcmPostRegisterResponse};
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use crate::fcm::fcm_instance::FCMInstance;
+use fcm::Client;
 
 pub(crate) mod group_header;
 pub(crate) mod group_header_ack;
@@ -47,7 +48,9 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
         let ratchet_version = header.ratchet_version.get();
 
         let (header, mut payload) = packet.split();
-        let fcm_client = account_manager.fcm_client();
+        // Due to a bug of the internal connection pool on android/ios, we create a new client each time
+        let ref fcm_client = Arc::new(Client::new());
+        //let fcm_client = account_manager.fcm_client();
 
         let cnac = account_manager.get_client_by_cid(local_cid).await?.ok_or(AccountError::<String>::ClientNonExists(local_cid))?;
         let res = cnac.visit_mut(|mut inner| {

@@ -252,6 +252,7 @@ pub mod clap_commands {
             .help("Lists all personal and impersonal active sessions connected to this node")
             .arg(Arg::with_name("impersonal").long("impersonal").short("i").required(false).help("Lists only inbound impersonal sessions"))
             .arg(Arg::with_name("personal").conflicts_with("impersonal").long("personal").short("p").required(false).help("Lists only outbound personal sessions"))
+            .arg(Arg::with_name("limit").long("limit").help("Sets a max number of rows returned").required(false).takes_value(true))
     }
 
     fn setup_list_local_command() -> App<'static, 'static> {
@@ -289,6 +290,17 @@ pub mod clap_commands {
                 .arg(Arg::with_name("limit").long("limit").required(false).takes_value(true).help("A maximum number of peers to scan for")))
             .subcommand(SubCommand::with_name("mutuals").about("Fetch the set of peers to whom your client network account is consented to connect with"))
             .subcommand(SubCommand::with_name("channels").about("Returns a list of active channels for the active CID"))
+            .subcommand(SubCommand::with_name("update-fcm-keys").about("Updates the FCM keys for the active CID")
+                .arg(Arg::with_name("fcm-token")
+                    .long("fcm-token")
+                    .help("If supplied, the following parameter must be the client FCM registration ID correlated to the CNAC")
+                    .takes_value(true)
+                    .required(true))
+                .arg(Arg::with_name("fcm-api-key")
+                    .long("fcm-api-key")
+                    .help("If supplied, the following parameter must be the API key for the application")
+                    .takes_value(true)
+                    .required(true)))
             .subcommand(SubCommand::with_name("disconnect").about("Disconnect from a target peer")
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true).help("The target CID/username")))
             .subcommand(SubCommand::with_name("post-register").about("Post a registration request to a target CID")
@@ -510,7 +522,7 @@ pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, App
     }
 
     if let Some(matches) = matches.subcommand_matches("list-accounts") {
-        return crate::command_handlers::list_accounts::handle(matches, server_remote, ctx, ffi_io);
+        return crate::command_handlers::list_accounts::handle(matches, server_remote, ctx, ffi_io).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("deregister") {
