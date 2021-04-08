@@ -37,6 +37,7 @@ serde = { version = "^1.0.123", features=["derive"] }
 net2 = "0.2.37"
 num = "0.2.1"
 either = "1.5.3"
+async-stream = "0.3.0"
 bitvec = "0.17.3"
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }
 hyxe_user = { path = "../hyxe_user", version = "0.1.0", default-features=false }

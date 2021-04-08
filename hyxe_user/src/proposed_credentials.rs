@@ -21,14 +21,14 @@ pub struct ProposedCredentials {
 impl ProposedCredentials {
     /// For storing the data
     pub fn new<T: Into<String> + Send, R: Into<String> + Send>(full_name: T, username: R, password_hashed: SecBuffer) -> Self {
-        let (username, full_name, password_hashed) = Self::sanitize_and_prepare(username, full_name, password_hashed.as_ref());
+        let (username, full_name, password_hashed) = Self::sanitize_and_prepare(username, full_name, password_hashed.as_ref(), false);
 
         Self { username, password_hashed, full_name, registration_settings: None }
     }
 
     /// For storing the data
     pub async fn new_register<T: Into<String> + Send, R: Into<String> + Send>(full_name: T, username: R, password_unhashed: SecBuffer) -> Result<Self, AccountError> {
-        let (username, full_name, password_unhashed) = Self::sanitize_and_prepare(username, full_name, password_unhashed.as_ref());
+        let (username, full_name, password_unhashed) = Self::sanitize_and_prepare(username, full_name, password_unhashed.as_ref(), true);
 
         let settings = ArgonSettings::new_defaults(full_name.clone().into_bytes());
         match AsyncArgon::hash(password_unhashed, settings.clone()).await.map_err(|err| AccountError::Generic(err.to_string()))? {
@@ -42,13 +42,13 @@ impl ProposedCredentials {
         }
     }
 
-    fn sanitize_and_prepare<T: Into<String> + Send, R: Into<String> + Send>(username: T, full_name: R, password: &[u8]) -> (String, String, SecBuffer) {
+    fn sanitize_and_prepare<T: Into<String> + Send, R: Into<String> + Send>(username: T, full_name: R, maybe_hashed_password: &[u8], do_password_trim: bool) -> (String, String, SecBuffer) {
         let username = username.into();
         let full_name = full_name.into();
 
 
         let username = username.trim();
-        let password = password.trim();
+        let password = if do_password_trim { maybe_hashed_password.trim() } else { maybe_hashed_password };
         let full_name = full_name.trim();
 
         (username.to_string(), full_name.to_string(), SecBuffer::from(password))

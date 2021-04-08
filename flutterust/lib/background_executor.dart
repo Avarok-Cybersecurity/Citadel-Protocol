@@ -4,13 +4,19 @@ import 'package:flutterust/misc/message_send_handler.dart';
 
 class BackgroundExecutor {
   static final config = BackgroundFetchConfig(minimumFetchInterval: 15, stopOnTerminate: false, enableHeadless: true, startOnBoot: true, requiredNetworkType: NetworkType.ANY);
-
+  static bool ignoredFirst = false;
   static Future<void> setupBackground() async {
     await BackgroundFetch.configure(config, poll, onTimeout);
     await BackgroundFetch.registerHeadlessTask(headlessExecution);
   }
 
   static void poll(String taskId) async {
+    if (!ignoredFirst) {
+      ignoredFirst = true;
+      BackgroundFetch.finish(taskId);
+      return;
+    }
+
     print("[Background Executor] Running 15m periodic poll for task $taskId");
     await MessageSendHandler.poll();
     //Utils.pushNotification("Running background task", taskId);

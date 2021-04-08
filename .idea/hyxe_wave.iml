@@ -403,6 +403,10 @@
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/awesome_notifications/example/.pub" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/google_https_dns/build" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/google_https_dns/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/build" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

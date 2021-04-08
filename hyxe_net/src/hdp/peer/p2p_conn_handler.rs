@@ -58,7 +58,7 @@ pub async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session:
     loop {
         match p2p_listener.next().await {
             Some(Ok((p2p_stream, _))) => {
-                let session = HdpSession::upgrade_weak(weak).ok_or(NetworkError::InternalError("Unable to upgrade Weak"))?;
+                let session = HdpSession::upgrade_weak(weak).ok_or(NetworkError::InternalError("HdpSession dropped"))?;
                 let sess = inner!(session);
                 if sess.state != SessionState::Connected {
                     log::warn!("Blocked an eager p2p connection (session state not yet connected)");
@@ -145,7 +145,13 @@ fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: Arc<Atomi
     });
 
     let future = async move {
-        if let Err(err) = futures::future::try_join3(writer_future, reader_future, stopper_future).await {
+        let res = tokio::select! {
+            res0 = writer_future => res0,
+            res1 = reader_future => res1,
+            res2 = stopper_future => res2
+        };
+
+        if let Err(err) = res {
             log::info!("[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
         }
 

@@ -1,4 +1,3 @@
-
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/peer_network_account.dart';
@@ -14,7 +13,7 @@ import 'package:satori_ffi_parser/types/u64.dart';
 /// then the next message in the queue can be sent.
 ///
 /// [0] This class gets passed a Message instance with a presumably null raw_ticket.
-/// [1] Before sending, makes sure that the previous message has already been RECEIVED (SELECT * FROM messages WHERE implicatedCid = ? AND WHERE fromPeer = 0 ORDER BY id DESC LIMIT 1)
+/// [1] Before sending, makes sure that the previous message has already been RECEIVED
 /// [1.5a] if previous message was received, just send it immediately
 /// [1.5b] else, check lastEventTime (which is really sendTime in this case) to see if 15 minutes have passed
 /// [1.5b-a] if 15 minutes have not passed, relax
@@ -23,18 +22,25 @@ import 'package:satori_ffi_parser/types/u64.dart';
 /// NOTE: the background poller should call the poll function periodically
 /// NOTE: The onMessageReceived trigger should be called once a message is received
 class MessageSendHandler {
-
   /// The response handler is not guaranteed to be called
   static Future<void> sendMessageFromScreen(Message message, PeerSendHandler handler) async {
     if (await _pollLastMessage(message.implicatedCid, message.peerCid)) {
+      await message.sync();
       // We can send it
       await _dispatchMessage(message, handler);
     } else {
       // store ... since message exists, then it should be implies to exist. nothing to do here. It will automatically gets polled
+      await message.sync();
     }
   }
 
-  /// This should be called whenever a new message is received
+  /// Gets the channel entailed by the message, then attempts to send latest unsent message unconditionally
+  /// This should be called when a new message is received for the channel implicated by the message
+  static Future<void> pollSpecificChannel(Message message) async {
+    await _pollLastMessage(message.implicatedCid, message.peerCid, force: true);
+  }
+
+  /// This should be called from the background handler
   static Future<void> poll() async {
     var clients = await ClientNetworkAccount.getAllClients().then((value) => value.orElse([]));
     print("[MessageSendHandler] POLL: ${clients.length} clients");
@@ -49,8 +55,9 @@ class MessageSendHandler {
   }
 
   /// Returns true if the latest message was received (or, if no message existed), false otherwise. IF false, maybe internally resends the message (timer-permitting)
-  static Future<bool> _pollLastMessage(u64 implicatedCid, u64 peerCid) async {
-    var lastMessageOpt = await Message.getLastMessageSentBy(implicatedCid, peerCid);
+  static Future<bool> _pollLastMessage(u64 implicatedCid, u64 peerCid, {bool force = false}) async {
+    var lastMessageOpt = await Message.getEarliestUnreceivedMessageSentBy(implicatedCid, peerCid);
+    print("last message: $lastMessageOpt");
     if (lastMessageOpt.isPresent) {
       var lastMessage = lastMessageOpt.value;
 
@@ -61,7 +68,7 @@ class MessageSendHandler {
 
         default:
           print("[MessageSendHandler] We cannot send a message at this time");
-          await _checkIfNeedsResend(lastMessage);
+          await _checkIfNeedsResend(lastMessage, force: force);
           return false;
       }
     } else {
@@ -70,8 +77,8 @@ class MessageSendHandler {
     }
   }
 
-  static Future<void> _checkIfNeedsResend(Message lastMessage) async {
-    if (DateTime.now().difference(lastMessage.lastEventTime) >= Duration(minutes: 15)) {
+  static Future<void> _checkIfNeedsResend(Message lastMessage, {bool force = false}) async {
+    if (DateTime.now().difference(lastMessage.lastEventTime) >= Duration(minutes: 15) || force) {
       // attempt resend
       lastMessage.lastEventTime = DateTime.now();
       await lastMessage.sync();

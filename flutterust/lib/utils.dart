@@ -140,7 +140,7 @@ class Utils {
       }
     }
 
-    await AndroidPowerManager.requestIgnoreBatteryOptimizations();
+    AndroidPowerManager.requestIgnoreBatteryOptimizations();
   }
 
   static FirebaseMessaging firebase = FirebaseMessaging.instance;
