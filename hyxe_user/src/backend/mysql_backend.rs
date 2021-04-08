@@ -28,6 +28,7 @@ pub struct SqlBackend<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
     variant: SqlVariant
 }
 
+#[derive(Eq, PartialEq)]
 enum SqlVariant {
     MySQL,
     Postgre,
@@ -42,28 +43,30 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         // we use varchar(20) for a u64 since u64::MAX char count = 20
 
         // The below works on MySql, Postgre, SqLite,
-        let cmd = format!("CREATE TABLE IF NOT EXISTS cnacs(cid VARCHAR(20) NOT NULL, isConnected BOOL, isPersonal BOOL, fcmAddr TEXT, fcmApiKey TEXT, username VARCHAR({}) UNIQUE, fullName TEXT, creationDate TEXT, bin LONGTEXT, PRIMARY KEY (cid))", MAX_USERNAME_LENGTH);
-        let cmd2 = "CREATE TABLE IF NOT EXISTS peers(peerCid VARCHAR(20), username TEXT, cid VARCHAR(20), CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)";
+        let bin_type = if self.variant == SqlVariant::Postgre { "TEXT" } else { "LONGTEXT" };
+        // we no longer use bool due to postgresql bug with t/f not being mapped properly
+        let cmd = format!("CREATE TABLE IF NOT EXISTS cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, fcm_addr TEXT, fcm_api_key TEXT, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin {}, PRIMARY KEY (cid))", MAX_USERNAME_LENGTH, bin_type);
+        let cmd2 = format!("CREATE TABLE IF NOT EXISTS peers(peer_cid VARCHAR(20), username VARCHAR({}), cid VARCHAR(20), CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)", MAX_USERNAME_LENGTH);
 
         // The following commands below allow us to remove entries and automatically remove corresponding values
         let cmd3 = match self.variant {
             SqlVariant::MySQL => {
                 let _ = conn.execute("DROP TRIGGER IF EXISTS post_cid_delete").await?;
 
-                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW DELETE FROM peers WHERE peers.cid = old.cid OR peers.peerCid = old.cid"
+                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid"
             }
 
             SqlVariant::Sqlite => {
                 let _ = conn.execute("DROP TRIGGER IF EXISTS post_cid_delete").await?;
 
-                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peerCid = old.cid; END"
+                "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; END"
             }
 
             SqlVariant::Postgre => {
                 let _ = conn.execute("DROP TRIGGER IF EXISTS post_cid_delete ON cnacs").await?;
                 let _ = conn.execute("DROP FUNCTION IF EXISTS post_cid_delete").await?;
 
-                let create_function = "CREATE OR REPLACE FUNCTION post_cid_delete() RETURNS TRIGGER LANGUAGE PLPGSQL AS $$ BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peerCid = old.cid; END; $$";
+                let create_function = "CREATE OR REPLACE FUNCTION post_cid_delete() RETURNS TRIGGER LANGUAGE PLPGSQL AS $$ BEGIN DELETE FROM peers WHERE peers.cid = old.cid OR peers.peer_cid = old.cid; END; $$";
                 let _ = conn.execute(create_function).await?;
 
                 "CREATE TRIGGER post_cid_delete AFTER DELETE ON cnacs FOR EACH ROW EXECUTE PROCEDURE post_cid_delete()"
@@ -72,7 +75,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         {
             let _query0 = sqlx::query(&cmd).execute(&conn).await?;
-            let _query1 = sqlx::query(cmd2).execute(&conn).await?;
+            let _query1 = sqlx::query(&cmd2).execute(&conn).await?;
             // we must use conn directly to not run into problems with prepared statement
             let _query3 = conn.execute(cmd3).await?;
         }
@@ -100,13 +103,29 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let conn = self.get_conn()?;
 
         let serded = base64::encode(cnac.generate_proper_bytes()?);
-        let mut args = AnyArguments::default();
+
         let keys = cnac.get_fcm_keys();
 
         let fcm_api_key = keys.as_ref().map(|f| f.api_key.clone());
         let fcm_addr = keys.as_ref().map(|f| f.client_id.clone());
         let metadata = cnac.get_metadata();
 
+        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, fcm_addr TEXT, fcm_api_key TEXT, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid))
+        let query = match self.variant {
+            SqlVariant::MySQL => {
+                // INSERT INTO cnacs VALUES('1') AS new ON DUPLICATE KEY UPDATE cid=new.cid
+                "INSERT INTO cnacs VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) AS new ON DUPLICATE KEY UPDATE cid=new.cid, is_connected=new.is_connected, is_personal=new.is_personal, fcm_addr=new.fcm_addr, fcm_api_key=new.fcm_api_key, username=new.username, full_name=new.full_name, creation_date=new.creation_date, bin=new.bin"
+            }
+
+            SqlVariant::Postgre | SqlVariant::Sqlite => {
+                // INSERT INTO cnacs VALUES('1', 'test') ON CONFLICT(cid) DO UPDATE SET cid=excluded.cid
+                "INSERT INTO cnacs VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(cid) DO UPDATE SET cid=excluded.cid, is_connected=excluded.is_connected, is_personal=excluded.is_personal, fcm_addr=excluded.fcm_addr, fcm_api_key=excluded.fcm_api_key, username=excluded.username, full_name=excluded.full_name, creation_date=excluded.creation_date, bin=excluded.bin"
+            }
+        };
+
+        let query = self.format(query);
+
+        let mut args = AnyArguments::default();
         args.add(metadata.cid.to_string());
         args.add(false);
         args.add(metadata.is_personal);
@@ -117,39 +136,26 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         args.add(metadata.creation_date);
         args.add(serded);
 
-        // cnacs(cid VARCHAR(20) NOT NULL, isConnected BOOL, isPersonal BOOL, fcmAddr TEXT, fcmApiKey TEXT, username VARCHAR({}) UNIQUE, fullName TEXT, creationDate TEXT, bin LONGTEXT, PRIMARY KEY (cid))
-        let query = match self.variant {
-            SqlVariant::MySQL => {
-                // INSERT INTO cnacs VALUES('1') AS new ON DUPLICATE KEY UPDATE cid=new.cid
-                "INSERT INTO cnacs VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) AS new ON DUPLICATE KEY UPDATE cid=new.cid, isConnected=new.isConnected, isPersonal=new.isPersonal, fcmAddr=new.fcmAddr, fcmApiKey=new.fcmApiKey, username=new.username, fullName=new.fullName, creationDate=new.creationDate, bin=new.bin"
-            }
-
-            SqlVariant::Postgre | SqlVariant::Sqlite => {
-                // INSERT INTO cnacs VALUES('1', 'test') ON CONFLICT(cid) DO UPDATE SET cid=excluded.cid
-                "INSERT INTO cnacs VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(cid) DO UPDATE SET cid=excluded.cid, isConnected=excluded.isConnected, isPersonal=excluded.isPersonal, fcmAddr=excluded.fcmAddr, fcmApiKey=excluded.fcmApiKey, username=excluded.username, fullName=excluded.fullName, creationDate=excluded.creationDate, bin=excluded.bin"
-            }
-        };
-
-        let _query = sqlx::query_with(query, args).execute(conn).await.map_err(|err| AccountError::Generic(format!("{:?}",err)))?;
+        let _query = sqlx::query_with(query.as_str(), args).execute(conn).await.map_err(|err| AccountError::Generic(format!("{:?}",err)))?;
 
         Ok(())
     }
 
     async fn get_cnac_by_cid(&self, cid: u64, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError<String>> {
         let conn = self.get_conn()?;
-        let query: Option<AnyRow> = sqlx::query("SELECT bin FROM cnacs WHERE cid = ? LIMIT 1").bind(cid.to_string()).fetch_optional(conn).await?;
+        let query: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(cid.to_string()).fetch_optional(conn).await?;
         self.row_to_cnac(query, persistence_handler)
     }
 
     async fn get_client_by_username(&self, username: &str, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError<String>> {
         let conn = self.get_conn()?;
-        let query: Option<AnyRow> = sqlx::query("SELECT bin FROM cnacs WHERE username = ? LIMIT 1").bind(username).fetch_optional(conn).await?;
+        let query: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM cnacs WHERE username = ? LIMIT 1").as_str()).bind(username).fetch_optional(conn).await?;
         self.row_to_cnac(query, persistence_handler)
     }
 
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError<String>> {
         let conn = self.get_conn()?;
-        let query = sqlx::query("SELECT cid FROM cnacs WHERE cid = ? LIMIT 1").bind(cid.to_string()).fetch_all(conn).await?;
+        let query = sqlx::query(self.format("SELECT cid FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(cid.to_string()).fetch_all(conn).await?;
         Ok(query.len() == 1)
     }
 
@@ -159,7 +165,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError<String>> {
         let conn = self.get_conn()?;
-        let query: AnyQueryResult = sqlx::query("DELETE FROM cnacs WHERE cid = ?").bind(cid.to_string()).execute(conn).await?;
+        let query: AnyQueryResult = sqlx::query(self.format("DELETE FROM cnacs WHERE cid = ?").as_str()).bind(cid.to_string()).execute(conn).await?;
         if query.rows_affected() != 0 { Ok(()) } else { Err(AccountError::ClientNonExists(cid)) }
     }
 
@@ -225,7 +231,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn username_exists(&self, username: &str) -> Result<bool, AccountError> {
         let conn = self.get_conn()?;
-        let query: AnyRow = sqlx::query("SELECT COUNT(1) as count FROM cnacs where username = ?").bind(username).fetch_one(conn).await?;
+        let query: AnyRow = sqlx::query(self.format("SELECT COUNT(1) as count FROM cnacs where username = ?").as_str()).bind(username).fetch_one(conn).await?;
         Ok(query.get::<i64, _>("count") == 1)
     }
 
@@ -236,8 +242,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_registered_impersonal_cids(&self, limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError<String>> {
         let conn = self.get_conn()?;
-        let cmd = limit.map(|limit| format!("SELECT cid FROM cnacs WHERE isPersonal = ? LIMIT {}", limit)).unwrap_or_else(|| "SELECT cid FROM cnacs WHERE isPersonal = ?".to_string());
-        let query: Vec<AnyRow> = sqlx::query(&cmd).bind(false).fetch_all(conn).await?;
+        let cmd = limit.map(|limit| format!("SELECT cid FROM cnacs WHERE is_personal = ? LIMIT {}", limit)).unwrap_or_else(|| "SELECT cid FROM cnacs WHERE is_personal = ?".to_string());
+        let query: Vec<AnyRow> = sqlx::query(self.format(cmd).as_str()).bind(false).fetch_all(conn).await?;
         let ret: Vec<u64> = query.into_iter().filter_map(|r| r.try_get::<String,_>("cid").ok()).filter_map(|r| u64::from_str(&r).ok()).collect();
 
         if ret.is_empty() {
@@ -249,7 +255,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError<String>> {
         let conn = self.get_conn()?;
-        let query: Option<AnyRow> = sqlx::query("SELECT username FROM cnacs WHERE cid = ? LIMIT 1").bind(cid.to_string()).fetch_optional(conn).await?;
+        let query: Option<AnyRow> = sqlx::query(self.format("SELECT username FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(cid.to_string()).fetch_optional(conn).await?;
         if let Some(row) = query {
             Ok(Some(row.try_get::<String, _>("username").unwrap()))
         } else {
@@ -260,7 +266,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn get_cid_by_username(&self, username: &str) -> Result<Option<u64>, AccountError<String>> {
         let conn = self.get_conn()?;
 
-        let query: Option<AnyRow> = sqlx::query("SELECT cid FROM cnacs WHERE username = ? LIMIT 1").bind(username).fetch_optional(conn).await?;
+        let query: Option<AnyRow> = sqlx::query(self.format("SELECT cid FROM cnacs WHERE username = ? LIMIT 1").as_str()).bind(username).fetch_optional(conn).await?;
         if let Some(row) = query {
             Ok(Some(u64::from_str(&row.try_get::<String, _>("cid")?)?))
         } else {
@@ -271,7 +277,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn delete_client_by_username(&self, username: &str) -> Result<(), AccountError<String>> {
         let conn = self.get_conn()?;
 
-        let query: AnyQueryResult = sqlx::query("DELETE FROM cnacs WHERE username = ?").bind(username).execute(conn).await?;
+        let query: AnyQueryResult = sqlx::query(self.format("DELETE FROM cnacs WHERE username = ?").as_str()).bind(username).execute(conn).await?;
         if query.rows_affected() != 0 { Ok(()) } else { Err(AccountError::Generic("Client does not exist".into())) }
     }
 
@@ -281,7 +287,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let cid0 = cid0.to_string();
         let cid1 = cid1.to_string();
 
-        let _query = sqlx::query("INSERT INTO peers (peerCid, cid, username) VALUES (?, ?, (SELECT username FROM cnacs WHERE cid=?)),(?, ?, (SELECT username FROM cnacs WHERE cid=?))")
+        let _query = sqlx::query(self.format("INSERT INTO peers (peer_cid, cid, username) VALUES (?, ?, (SELECT username FROM cnacs WHERE cid=?)),(?, ?, (SELECT username FROM cnacs WHERE cid=?))").as_str())
             .bind(cid0.as_str()).bind(cid1.as_str()).bind(cid0.as_str())
             .bind(cid1.as_str()).bind(cid0.as_str()).bind(cid1.as_str())
             .execute(conn).await?;
@@ -292,7 +298,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     // We must update the CNAC && the sql database
     async fn register_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64, peer_username: String) -> Result<(), AccountError<String>> {
         let conn = self.get_conn()?;
-        let _query = sqlx::query("INSERT INTO peers (peerCid, cid, username) VALUES (?, ?, ?)").bind(peer_cid.to_string()).bind(implicated_cid.to_string()).bind(peer_username).execute(conn).await?;
+        let _query = sqlx::query(self.format("INSERT INTO peers (peer_cid, cid, username) VALUES (?, ?, ?)").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).bind(peer_username).execute(conn).await?;
         Ok(())
     }
 
@@ -301,7 +307,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let cid0 = cid0.to_string();
         let cid1 = cid1.to_string();
 
-        let _query = sqlx::query("DELETE FROM peers WHERE (peerCid = ? AND cid = ?) OR (peerCid = ? AND cid = ?)").bind(cid0.as_str()).bind(cid1.as_str()).bind(cid1.as_str()).bind(cid0.as_str()).execute(conn).await?;
+        let _query = sqlx::query(self.format("DELETE FROM peers WHERE (peer_cid = ? AND cid = ?) OR (peer_cid = ? AND cid = ?)").as_str()).bind(cid0.as_str()).bind(cid1.as_str()).bind(cid1.as_str()).bind(cid0.as_str()).execute(conn).await?;
 
         Ok(())
     }
@@ -309,9 +315,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError<String>> {
         let conn = self.get_conn()?;
         let mut tx = conn.begin().await?;
-        let row: AnyRow = sqlx::query("SELECT username FROM peers WHERE peerCid = ? AND cid = ?").bind(peer_cid.to_string()).bind(implicated_cid.to_string()).fetch_one(tx.deref_mut()).await?;
+        let row: AnyRow = sqlx::query(self.format("SELECT username FROM peers WHERE peer_cid = ? AND cid = ?").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).fetch_one(tx.deref_mut()).await?;
         let peer_username: String = row.try_get("username")?;
-        let _query = sqlx::query("DELETE FROM peers WHERE peerCid = ? AND cid = ?").bind(peer_cid.to_string()).bind(implicated_cid.to_string()).execute(tx.deref_mut()).await?;
+        let _query = sqlx::query(self.format("DELETE FROM peers WHERE peer_cid = ? AND cid = ?").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).execute(tx.deref_mut()).await?;
         tx.commit().await?;
 
         Ok(Some(MutualPeer { cid: peer_cid, parent_icid: HYPERLAN_IDX, username: Some(peer_username) }))
@@ -321,7 +327,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn get_fcm_keys_for_as_server(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError<String>> {
         if self.hyperlan_peer_exists(implicated_cid, peer_cid).await? {
             let conn = self.get_conn()?;
-            let query: AnyRow = sqlx::query("SELECT fcmAddr, fcmApiKey FROM cnacs WHERE cid = ? LIMIT 1").bind(peer_cid.to_string()).fetch_one(conn).await?;
+            let query: AnyRow = sqlx::query(self.format("SELECT fcm_addr, fcm_api_key FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(peer_cid.to_string()).fetch_one(conn).await?;
 
             Ok(self.maybe_get_fcm_keys(query))
         } else {
@@ -336,47 +342,54 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError<String>> {
         let conn = self.get_conn()?;
-        let query: Vec<AnyRow> = sqlx::query("SELECT peerCid FROM peers WHERE cid = ?").bind(implicated_cid.to_string()).fetch_all(conn).await?;
-        let map = query.into_iter().filter_map(|row| row.try_get::<String, _>("peerCid").ok()).filter_map(|val| u64::from_str(val.as_str()).ok()).collect::<Vec<u64>>();
+        let query: Vec<AnyRow> = sqlx::query(self.format("SELECT peer_cid FROM peers WHERE cid = ?").as_str()).bind(implicated_cid.to_string()).fetch_all(conn).await?;
+        let map = query.into_iter().filter_map(|row| row.try_get::<String, _>("peer_cid").ok()).filter_map(|val| u64::from_str(val.as_str()).ok()).collect::<Vec<u64>>();
         if map.is_empty() { Ok(None) } else { Ok(Some(map)) }
     }
 
     async fn get_client_metadata(&self, implicated_cid: u64) -> Result<Option<CNACMetadata>, AccountError<String>> {
         let conn = self.get_conn()?;
-        // cnacs(cid VARCHAR(20) NOT NULL, isConnected BOOL, isPersonal BOOL, fcmAddr TEXT, fcmApiKey TEXT, username VARCHAR({}) UNIQUE, fullName TEXT, creationDate TEXT, bin LONGTEXT, PRIMARY KEY (cid)
-        let query: AnyRow = sqlx::query("SELECT isPersonal, username, fullName, creationDate FROM cnacs WHERE cid = ? LIMIT 1").bind(implicated_cid.to_string()).fetch_one(conn).await?;
-        let is_personal = query.try_get("isPersonal")?;
+        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, fcm_addr TEXT, fcm_api_key TEXT, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
+        let query: AnyRow = sqlx::query(self.format("SELECT is_personal, username, full_name, creation_date FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).fetch_one(conn).await?;
+        let is_personal = self.get_bool(&query, "is_personal")?;
         let username = query.try_get("username")?;
-        let full_name = query.try_get("fullName")?;
-        let creation_date = query.try_get("creationDate")?;
+        let full_name = query.try_get("full_name")?;
+        let creation_date = query.try_get("creation_date")?;
         Ok(Some(CNACMetadata { cid: implicated_cid, is_personal, username, full_name, creation_date }))
     }
 
     async fn get_clients_metadata(&self, limit: Option<i32>) -> Result<Vec<CNACMetadata>, AccountError<String>> {
         let conn = self.get_conn()?;
-        // cnacs(cid VARCHAR(20) NOT NULL, isConnected BOOL, isPersonal BOOL, fcmAddr TEXT, fcmApiKey TEXT, username VARCHAR({}) UNIQUE, fullName TEXT, creationDate TEXT, bin LONGTEXT, PRIMARY KEY (cid)
+        // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, fcm_addr TEXT, fcm_api_key TEXT, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
         let query = if let Some(limit) = limit {
-             format!("SELECT cid, isPersonal, username, fullName, creationDate FROM cnacs LIMIT {}", limit)
+             format!("SELECT cid, is_personal, username, full_name, creation_date FROM cnacs LIMIT {}", limit)
         } else {
-            "SELECT cid, isPersonal, username, fullName, creationDate FROM cnacs".to_string()
+            "SELECT cid, is_personal, username, full_name, creation_date FROM cnacs".to_string()
         };
 
         let query: Vec<AnyRow> = sqlx::query(query.as_str()).fetch_all(conn).await?;
 
         Ok(query.into_iter().filter_map(|query| {
+            log::info!("A");
             let cid = query.try_get::<String, _>("cid").ok()?;
+            log::info!("B");
             let cid = u64::from_str(cid.as_str()).ok()?;
-            let is_personal = query.try_get("isPersonal").ok()?;
+            log::info!("C");
+            let is_personal = self.get_bool(&query, "is_personal").ok()?;
+            log::info!("D");
             let username = query.try_get("username").ok()?;
-            let full_name = query.try_get("fullName").ok()?;
-            let creation_date = query.try_get("creationDate").ok()?;
+            log::info!("E");
+            let full_name = query.try_get("full_name").ok()?;
+            log::info!("F");
+            let creation_date = query.try_get("creation_date").ok()?;
+            log::info!("G");
             Some(CNACMetadata { cid, is_personal, username, full_name, creation_date })
         }).collect())
     }
 
     async fn get_hyperlan_peer_by_cid(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError<String>> {
         let conn = self.get_conn()?;
-        let query: AnyRow = sqlx::query("SELECT username FROM peers WHERE cid = ? AND peerCid = ? LIMIT 1").bind(implicated_cid.to_string()).bind(peer_cid.to_string()).fetch_one(conn).await?;
+        let query: AnyRow = sqlx::query(self.format("SELECT username FROM peers WHERE cid = ? AND peer_cid = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).bind(peer_cid.to_string()).fetch_one(conn).await?;
         match query.try_get::<String, _>("username") {
             Ok(username) => {
                 Ok(Some(MutualPeer { username: Some(username), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
@@ -390,7 +403,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn hyperlan_peer_exists(&self, implicated_cid: u64, peer_cid: u64) -> Result<bool, AccountError<String>> {
         let conn = self.get_conn()?;
-        let query: AnyRow = sqlx::query("SELECT COUNT(*) as count FROM peers WHERE peerCid = ? AND cid = ? LIMIT 1").bind(peer_cid.to_string()).bind(implicated_cid.to_string()).fetch_one(conn).await?;
+        let query: AnyRow = sqlx::query(self.format("SELECT COUNT(*) as count FROM peers WHERE peer_cid = ? AND cid = ? LIMIT 1").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).fetch_one(conn).await?;
 
         Ok(query.try_get::<i64, _>("count").unwrap_or(-1) == 1)
     }
@@ -405,20 +418,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         let insert = self.construct_arg_insert_any(peers);
 
-        let query = format!("WITH input(peerCid) AS (VALUES {}) SELECT peers.peerCid FROM input INNER JOIN peers ON input.peerCid = peers.peerCid WHERE peers.cid = ? LIMIT {}", insert, limit);
+        let query = format!("WITH input(peer_cid) AS (VALUES {}) SELECT peers.peer_cid FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {}", insert, limit);
 
-        let mut args = AnyArguments::default();
+        let query: Vec<AnyRow> = sqlx::query(self.format(query).as_str()).bind(implicated_cid.to_string()).fetch_all(conn).await?;
 
-        /*
-        for peer in peers {
-            args.add(peer.to_string());
-        }*/
-
-        args.add(implicated_cid.to_string());
-
-        let query: Vec<AnyRow> = sqlx::query_with(query.as_str(), args).fetch_all(conn).await?;
-
-        let results = query.into_iter().filter_map(|r| r.try_get::<String, _>("peerCid").ok())
+        let results = query.into_iter().filter_map(|r| r.try_get::<String, _>("peer_cid").ok())
             .filter_map(|v| u64::from_str(v.as_str()).ok()).collect::<Vec<u64>>();
 
         Ok(peers.into_iter().map(|cid| results.iter().any(|peer_cid| *cid == *peer_cid)).collect())
@@ -434,31 +438,43 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         let insert = self.construct_arg_insert_any(peers);
 
-        let query = format!("WITH input(peerCid) AS (VALUES {}) SELECT peers.peerCid, peers.username FROM input INNER JOIN peers ON input.peerCid = peers.peerCid WHERE peers.cid = ? LIMIT {}", insert, limit);
+        let query = format!("WITH input(peer_cid) AS (VALUES {}) SELECT peers.peer_cid, peers.username FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid WHERE peers.cid = ? LIMIT {}", insert, limit);
 
-        let mut args = AnyArguments::default();
-
-        /*
-        for peer in peers {
-            args.add(peer.to_string());
-        }*/
-
-        args.add(implicated_cid.to_string());
-
-        let query: Vec<AnyRow> = sqlx::query_with(query.as_str(), args).fetch_all(conn).await?;
+        let query: Vec<AnyRow> = sqlx::query(self.format(query).as_str()).bind(implicated_cid.to_string()).fetch_all(conn).await?;
         Ok(query.into_iter().filter_map(|row| {
-            log::info!("Retrieved row: {:?}", row.columns());
-            let peer_cid: String = row.try_get("peerCid").ok()?;
+            let peer_cid: String = row.try_get("peer_cid").ok()?;
             let peer_cid = u64::from_str(&peer_cid).ok()?;
             let peer_username: String = row.try_get("username").ok()?;
             Some(MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(peer_username) })
         }).collect())
     }
 
+    async fn get_hyperlan_peers_with_fcm_keys(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<(MutualPeer, Option<FcmKeys>)>, AccountError<String>> {
+        if peers.is_empty() {
+            return Ok(Vec::new())
+        }
+
+        let conn = self.get_conn()?;
+        let limit = peers.len();
+
+        let insert = self.construct_arg_insert_any(peers);
+
+        let query = format!("WITH input(peer_cid) AS (VALUES {}) SELECT peers.peer_cid, peers.username, cnacs.fcm_addr, cnacs.fcm_api_key FROM input INNER JOIN peers ON input.peer_cid = peers.peer_cid INNER JOIN cnacs ON input.peer_cid = cnacs.cid WHERE peers.cid = ? LIMIT {}", insert, limit);
+
+        let query: Vec<AnyRow> = sqlx::query(self.format(query).as_str()).bind(implicated_cid.to_string()).fetch_all(conn).await?;
+        Ok(query.into_iter().filter_map(|row| {
+            let peer_cid: String = row.try_get("peer_cid").ok()?;
+            let peer_cid = u64::from_str(&peer_cid).ok()?;
+            let peer_username: String = row.try_get("username").ok()?;
+            let keys = self.maybe_get_fcm_keys(row);
+            Some((MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(peer_username) }, keys))
+        }).collect())
+    }
+
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError<String>> {
         let conn = self.get_conn()?;
-        let query: AnyRow = sqlx::query("SELECT peerCid FROM peers WHERE cid = ? AND username = ? LIMIT 1").bind(implicated_cid.to_string()).bind(username).fetch_one(conn).await?;
-        match query.try_get::<String, _>("peerCid") {
+        let query: AnyRow = sqlx::query(self.format("SELECT peer_cid FROM peers WHERE cid = ? AND username = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).bind(username).fetch_one(conn).await?;
+        match query.try_get::<String, _>("peer_cid") {
             Ok(username) => {
                 let peer_cid = u64::from_str(username.as_str())?;
                 Ok(Some(MutualPeer { username: Some(username.to_string()), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
@@ -473,11 +489,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     // since server, we get the FCM keys from the cnacs table
     async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError<String>> {
         let conn = self.get_conn()?;
-        let query: Vec<AnyRow> = sqlx::query("SELECT peers.peerCid, peers.username, cnacs.fcmAddr, cnacs.fcmApiKey FROM cnacs INNER JOIN peers ON cnacs.cid = peers.cid WHERE peers.cid = ?").bind(implicated_cid.to_string()).fetch_all(conn).await?;
+        let query: Vec<AnyRow> = sqlx::query(self.format("SELECT peers.peer_cid, peers.username, cnacs.fcm_addr, cnacs.fcm_api_key FROM cnacs INNER JOIN peers ON cnacs.cid = peers.cid WHERE peers.cid = ?").as_str()).bind(implicated_cid.to_string()).fetch_all(conn).await?;
         let mut ret = Vec::with_capacity(query.len());
 
         for row in query {
-            let peer_cid = row.try_get::<String, _>("peerCid")?;
+            let peer_cid = row.try_get::<String, _>("peer_cid")?;
             let peer_cid = u64::from_str(peer_cid.as_str())?;
             let username = row.try_get::<String, _>("username")?;
             let keys = self.maybe_get_fcm_keys(row);
@@ -498,11 +514,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             let mut tx = conn.begin().await?;
             let implicated_cid = cnac.get_cid().to_string();
 
-            let _ = sqlx::query("DELETE FROM peers WHERE cid = ?").bind(implicated_cid.as_str()).execute(tx.deref_mut()).await?;
+            let _ = sqlx::query(self.format("DELETE FROM peers WHERE cid = ?").as_str()).bind(implicated_cid.as_str()).execute(tx.deref_mut()).await?;
             for (peer_cid, username, fcm_keys) in peers {
                 // TODO: Optimize this
                 cnac.store_fcm_keys_for_peer(peer_cid, fcm_keys);
-                let _ = sqlx::query("INSERT INTO peers (peerCid, username, cid) VALUES(?, ?, ?)").bind(peer_cid.to_string()).bind(username.unwrap_or_else(|| "NULL".into())).bind(implicated_cid.as_str()).execute(tx.deref_mut()).await?;
+                let _ = sqlx::query(self.format("INSERT INTO peers (peer_cid, username, cid) VALUES(?, ?, ?)").as_str()).bind(peer_cid.to_string()).bind(username.unwrap_or_else(|| "NULL".into())).bind(implicated_cid.as_str()).execute(tx.deref_mut()).await?;
             }
 
             tx.commit().await?;
@@ -588,8 +604,8 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     }
 
     fn maybe_get_fcm_keys(&self, row: AnyRow) -> Option<FcmKeys> {
-        if let Ok(fcm_addr) = row.try_get::<String, _>("fcmAddr") {
-            if let Ok(fcm_api_key) = row.try_get::<String, _>("fcmApiKey") {
+        if let Ok(fcm_addr) = row.try_get::<String, _>("fcm_addr") {
+            if let Ok(fcm_api_key) = row.try_get::<String, _>("fcm_api_key") {
                 return if fcm_addr == "NULL" || fcm_api_key == "NULL" {
                     None
                 } else {
@@ -599,6 +615,35 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         }
 
         None
+    }
+
+    fn format<T: Into<String>>(&self, input: T) -> String {
+        match self.variant {
+            SqlVariant::MySQL | SqlVariant::Sqlite => {
+                input.into()
+            }
+
+            SqlVariant::Postgre => {
+                let input = input.into();
+                let mut output = String::new();
+                let mut idx = 0;
+                for char in input.chars() {
+                    if char != '?' {
+                        output.push(char);
+                    } else {
+                        idx += 1;
+                        let val = format!("${}", idx);
+                        output.push_str(val.as_str());
+                    }
+                }
+
+                output
+            }
+        }
+    }
+
+    fn get_bool(&self, row: &AnyRow, key: &str) -> Result<bool, AccountError> {
+        Ok(row.try_get(key)?)
     }
 }
 

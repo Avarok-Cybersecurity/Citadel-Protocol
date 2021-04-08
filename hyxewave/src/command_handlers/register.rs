@@ -94,6 +94,7 @@ async fn handle_console(ctx: &ConsoleContext, target_addr: &SocketAddr, security
     let mut username = INPUT_ROUTER.read_line(ctx, Some(|| colour::green!("Proposed username: ")));
     username = username.trim().to_string();
 
+    // TODO: Change this to getting cid instead later
     if ctx.account_manager.get_client_by_username(&username).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.is_some() {
         return Err(ConsoleError::Generic(format!("User {} already exists locally", username)))
     }

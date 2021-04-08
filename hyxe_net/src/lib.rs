@@ -104,7 +104,7 @@ pub mod macros {
 
     macro_rules! spawn {
     ($future:expr) => {
-        tokio::task::spawn_local($future);
+        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local($future));
     };
     }
 
@@ -212,7 +212,7 @@ pub mod macros {
     macro_rules! spawn {
     ($future:expr) => {
         if tokio::runtime::Handle::try_current().is_ok() {
-            std::mem::drop(tokio::task::spawn(crate::hdp::misc::panic_future::AssertSendSafeFuture::new($future)));
+            std::mem::drop(crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn(crate::hdp::misc::panic_future::AssertSendSafeFuture::new($future))));
         } else {
             log::warn!("Unable to spawn future: {:?}", stringify!($future));
         }

@@ -198,18 +198,26 @@ class KernelResponseHandler {
 
       case DomainSpecificResponseType.FcmMessage:
         FcmMessage message = dsr as FcmMessage;
-        await _handleMessage(message.ticket.targetCid, message.ticket.sourceCid, message.message, message.ticket.ticket);
+        // When message A gets sent but isn't received for awhile, a clone of A called B is sent. Suppose A is received before B. The PeerSentHandler of A completes,
+        // meaning that once B arrives, we come here. Check to make sure the message hasn't already arrived before handling it like normal
+        if (await Message.getMessage(message.ticket.targetCid, message.ticket.sourceCid, message.ticket.ticket).then((value) => value.isEmpty)) {
+          await _handleMessage(message.ticket.targetCid, message.ticket.sourceCid, message.message, message.ticket.ticket);
+        } else {
+          print("DUPLICATE packet ${message.ticket} received; dropping");
+        }
+
         break;
 
       case DomainSpecificResponseType.FcmMessageReceived:
         // A message's ACK may return when in the background (this is pretty likely). We need to access the message's notification and update it,
         // thus allowing the user to see the "received" sign once the message is back up.
         FcmMessageReceived message = dsr as FcmMessageReceived;
+        // note: the below value may be null if order is not enforced (should be fixed now)
         Message msg = await Message.getMessage(message.ticket.sourceCid, message.ticket.targetCid, message.ticket.ticket).then((value) => value.value);
         msg.status = PeerSendState.MessageReceived;
         await msg.sync();
         print("Updated message state for $msg");
-        // Now, call poll
+        // Now, call poll for this DSR
         await MessageSendHandler.poll();
         break;
       default:

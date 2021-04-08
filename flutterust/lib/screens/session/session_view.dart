@@ -38,11 +38,13 @@ class SessionViewInner extends State<SessionView> {
   void initState() {
     super.initState();
 
-    this.listener = this.widget.streamController.stream.listen((dsr) {
-      print("Received DSR");
-      this.handle(dsr);
-      setState(() {});
-    });
+    this.listener = this.widget.streamController.stream.listen((dsr) => handleDsr(dsr));
+  }
+
+  void handleDsr(DomainSpecificResponse dsr) {
+    print("Received DSR");
+    this.handle(dsr);
+    setState(() {});
   }
 
   @override
@@ -120,7 +122,7 @@ class SessionViewInner extends State<SessionView> {
     String cmd = "switch " + widget.cnac.username + " peer list";
     (await RustSubsystem.bridge!.executeCommand(cmd)).ifPresent((kResp) =>
         KernelResponseHandler.handleFirstCommand(kResp,
-            handler: PeerListHandler(context, widget.streamController.sink)));
+            handler: PeerListHandler(context, handleDsr)));
   }
 
   void listMutuals() async {
@@ -128,6 +130,6 @@ class SessionViewInner extends State<SessionView> {
     String cmd = "switch " + widget.cnac.username + " peer mutuals";
     (await RustSubsystem.bridge!.executeCommand(cmd)).ifPresent((kResp) =>
         KernelResponseHandler.handleFirstCommand(kResp,
-            handler: PeerMutualsHandler(context, widget.streamController.sink)));
+            handler: PeerMutualsHandler(context, handleDsr)));
   }
 }

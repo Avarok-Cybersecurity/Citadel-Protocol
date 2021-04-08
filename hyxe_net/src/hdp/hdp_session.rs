@@ -263,20 +263,7 @@ impl HdpSession {
             let handle_zero_state = Self::handle_zero_state(packet_opt, primary_outbound_tx.clone(), this_outbound, this_ref.state, timestamp, local_nid, cnac_opt, connect_mode);
             std::mem::drop(this_ref);
 
-            let session_future = if let Some(p2p_listener) = p2p_listener {
-                let p2p_listener = crate::hdp::peer::p2p_conn_handler::p2p_conn_handler(p2p_listener, this_p2p_listener);
-                        spawn_handle!(async move {
-                            tokio::select! {
-                                res0 = writer_future => res0,
-                                res1 = reader_future => res1,
-                                res2 = stopper_future => res2,
-
-                                res4 = p2p_listener => Ok(res4),
-                                res5 = socket_loader_future => res5
-                            }
-                        })
-            } else {
-                        spawn_handle!(async move {
+            let session_future= spawn_handle!(async move {
                             tokio::select! {
                                 res0 = writer_future => res0,
                                 res1 = reader_future => res1,
@@ -284,8 +271,7 @@ impl HdpSession {
 
                                 res5 = socket_loader_future => res5
                             }
-                        })
-            };
+                        });
 
             //let session_future = futures::future::try_join4(writer_future, reader_future, timer_future, socket_loader_future);
 
@@ -296,6 +282,10 @@ impl HdpSession {
             // separate task, we solve the issue of re-entrancing of mutex
             //#[cfg(feature = "multi-threaded")]
             let _ = spawn!(queue_worker_future);
+            if let Some(p2p_listener) = p2p_listener {
+                // NOTE: this currently implies that once an error occurs for the session, the p2p listener is down for the remaining of the session
+                let _ = spawn!(crate::hdp::peer::p2p_conn_handler::p2p_conn_handler(p2p_listener, this_p2p_listener));
+            }
 
             (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message)
         };
@@ -476,9 +466,9 @@ impl HdpSession {
     }
 
     /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
-    pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>, header_obfuscator: HeaderObfuscator) -> Result<(), NetworkError> {
+    pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>, ref header_obfuscator: HeaderObfuscator) -> Result<(), NetworkError> {
         log::info!("HdpSession async inbound-stream subroutine executed");
-        let (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream) = if let Some(p2p) = p2p_handle {
+        let (ref remote_peer, ref local_primary_port, ref implicated_cid, ref kernel_tx, ref primary_stream) = if let Some(p2p) = p2p_handle {
             (p2p.remote_peer, p2p.local_bind_port, p2p.implicated_cid, p2p.kernel_tx, p2p.to_primary_stream)
         } else {
             let borrow = inner!(this_main);
@@ -490,45 +480,47 @@ impl HdpSession {
             (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream)
         };
 
+        let reader = async_stream::stream! {
+            while let Some(value) = reader.next().await {
+                yield value;
+            }
+        };
 
-        loop {
-            match reader.next().await {
-                Some(Err(err)) => {
-                    const WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
-                    const RST: i32 = 104;
-                    const ECONN_RST: i32 = 54; // for macs
-
-                    let error = err.raw_os_error().unwrap_or(-1);
-                    if error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST {
-                        log::error!("primary port reader error {}: {}", error, err.to_string());
-                    }
-
-                    return Err(NetworkError::Generic(err.to_string()));
-                }
-
-                Some(Ok(packet)) => {
+            let res = reader.try_for_each_concurrent(None, move |packet| {
+                async move {
                     //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
-                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), local_primary_port, packet, &header_obfuscator).await {
+                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), *local_primary_port, packet, header_obfuscator).await {
                         PrimaryProcessorResult::ReplyToSender(return_packet) => {
-                            Self::send_to_primary_stream_closure(&primary_stream, &kernel_tx, return_packet, None)?;
+                            Self::send_to_primary_stream_closure(&primary_stream, &kernel_tx, return_packet, None)
+                                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.into_string()))
                         }
 
                         PrimaryProcessorResult::EndSession(reason) => {
                             log::warn!("[PrimaryProcessor] session ending: {}", reason);
-                            return Err(NetworkError::InternalError(reason));
+                            Err(std::io::Error::new(std::io::ErrorKind::Other, reason))
                         }
 
                         PrimaryProcessorResult::Void => {
                             // this implies that the packet processor found no reason to return a message
+                            Ok(())
                         }
                     }
                 }
+            }).await.map_err(|err| {
+                const _WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
+                const _RST: i32 = 104;
+                const _ECONN_RST: i32 = 54; // for macs
 
-                _ => {
-                    return Err(NetworkError::InternalError("ending inbound stream (None)"));
+                let error = err.raw_os_error().unwrap_or(-1);
+                // error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST &&
+                if error != -1 {
+                    log::error!("primary port reader error {}: {}", error, err.to_string());
                 }
-            }
-        }
+
+                NetworkError::Generic(err.to_string())
+            });
+
+        res
     }
 
     fn send_to_primary_stream_closure(to_primary_stream: &OutboundTcpSender, kernel_tx: &UnboundedSender<HdpServerResult>, msg: BytesMut, ticket: Option<Ticket>) -> Result<(), NetworkError> {

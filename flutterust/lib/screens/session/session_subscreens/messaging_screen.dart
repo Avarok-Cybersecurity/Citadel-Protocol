@@ -7,23 +7,19 @@ import 'package:flutterust/components/text_form_field.dart';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/peer_network_account.dart';
-import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/peer_sent_handler.dart';
-import 'package:flutterust/misc/auto_login.dart';
 import 'package:flutterust/misc/message_send_handler.dart';
 import 'package:flutterust/utils.dart';
-import 'package:intl/intl.dart';
 import 'package:material_design_icons_flutter/material_design_icons_flutter.dart';
 import 'package:optional/optional.dart';
 import 'package:rxdart/rxdart.dart';
-import 'package:satori_ffi_parser/types/u64.dart';
 
 class MessagingScreen extends StatefulWidget {
   final ClientNetworkAccount implicatedCnac;
   final PeerNetworkAccount peerNac;
 
   final TextEditingController messageField = TextEditingController();
-  final List<Widget> bubbles = [];
+  final List<DefaultBubble> bubbles = [];
 
   MessagingScreen(this.implicatedCnac, this.peerNac, {Key? key})
       : super(key: key);
@@ -51,7 +47,7 @@ class MessagingScreenInner extends State<MessagingScreen> {
 
     for (Message message in initMessages) {
       yield MessageWidgetUpdateStore.insert(
-          bubbleFrom(message, message.status));
+          bubbleFrom(message, false, state: message.status));
     }
   }
 
@@ -69,10 +65,10 @@ class MessagingScreenInner extends State<MessagingScreen> {
           message.implicatedCid &&
           this.widget.peerNac.peerCid == message.peerCid)
           .map((message) => MessageWidgetUpdateStore.insert(
-          bubbleFrom(message, message.status))),
+          bubbleFrom(message, false, state: message.status))),
       this.initStream()
     ]).map((message) {
-      print("[MERGE] Stream recv");
+      print("[MERGE] Stream recv TYPE ${message.type}");
 
       switch (message.type) {
         case MessageWidgetUpdate.New:
@@ -90,15 +86,19 @@ class MessagingScreenInner extends State<MessagingScreen> {
           break;
 
         case MessageWidgetUpdate.Replace:
-          print("[MERGE/REPLACE] altering idx ${message.idx}");
-          this.widget.bubbles[message.idx] = message.bubble.value;
+          print("[MERGE/REPLACE] altering idx");
+          //this.widget.bubbles[message.idx] = message.bubble.value;
+          //var state = message.bubble.value.messageState;
+          //this.widget.bubbles[message.idx].updateValues(getAppropriateIconByCheckCount(state), state == PeerSendState.MessageReceived ? Colors.lightGreenAccent : null);
           break;
       }
+
+      print("Bubble len: ${this.widget.bubbles.length}");
 
       return ListView(
         key: UniqueKey(),
         controller: this._scrollController,
-        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
         padding: EdgeInsets.only(top: 10, left: 10, right: 10, bottom: 50),
         children: this.widget.bubbles,
       );
@@ -199,23 +199,23 @@ class MessagingScreenInner extends State<MessagingScreen> {
     if (text.isNotEmpty) {
       print(
           "Going to send '$text' from ${this.widget.implicatedCnac.username} to ${this.widget.peerNac.peerUsername}");
+      //var position = this.widget.bubbles.length;
       Message message = this.constructMessageInstance(text);
       this
           .sendIntake
           .sink
-          .add(MessageWidgetUpdateStore.insert(bubbleFrom(message)));
-      await message.sync();
+          .add(MessageWidgetUpdateStore.insert(bubbleFrom(message, true)));
+      //await message.sync();
 
       this.widget.messageField.clear();
-      await MessageSendHandler.sendMessageFromScreen(message, PeerSendHandler.screen(onMessageStatusUpdateSent, message, this.widget.bubbles.length - 1));
-
     }
   }
 
   void onMessageStatusUpdateSent(PeerSendUpdate update) {
     print("onMessageStatusUpdateSent called");
     this.sendIntake.add(MessageWidgetUpdateStore.replace(
-        bubbleFrom(update.message, update.state), update.messageIdxInChat));
+        bubbleFrom(update.message, false, state: update.state)));
+    //this.widget.bubbles[update.messageIdxInChat].updateValues(getAppropriateIconByCheckCount(update.state), update.state == PeerSendState.MessageReceived ? Colors.lightGreenAccent : null);
   }
 
   Message constructMessageInstance(String messageOut) {
@@ -230,20 +230,18 @@ class MessagingScreenInner extends State<MessagingScreen> {
     );
   }
 
-  Widget bubbleFrom(Message message, [PeerSendState state = PeerSendState.Unprocessed, Key? key]) {
+  DefaultBubble bubbleFrom(Message message, bool needsSend, {PeerSendState state = PeerSendState.Unprocessed}) {
     return DefaultBubble(
-      key: key ?? UniqueKey(),
-      message: message.message,
-      time: DateFormat.jm().format(message.lastEventTime),
-      icon: getAppropriateIconByCheckCount(state),
-      iconColorMe: state == PeerSendState.MessageReceived ? Colors.lightGreenAccent : null,
+      message: message,
+        icon: getAppropriateIconByCheckCount(message.status),
+        iconColorMe: message.status == PeerSendState.MessageReceived ? Colors.lightGreenAccent : null,
       iconColorPeer: Colors.blueAccent,
-      isMe: !message.fromPeer,
-      onTap: () => print("onTap called for $message"),
+      onTap: () => MessageSendHandler.pollSpecificChannel(message),
+      needsSend: needsSend
     );
   }
 
-  IconData getAppropriateIconByCheckCount(PeerSendState state) {
+  static IconData getAppropriateIconByCheckCount(PeerSendState state) {
     switch (state) {
       case PeerSendState.Unprocessed:
         return Icons.hourglass_bottom;
@@ -270,18 +268,17 @@ class MessagingScreenInner extends State<MessagingScreen> {
 enum MessageWidgetUpdate { New, Replace, Clear }
 
 class MessageWidgetUpdateStore {
-  final Optional<Widget> bubble;
+  final Optional<DefaultBubble> bubble;
   final MessageWidgetUpdate type;
-  final int idx;
 
-  MessageWidgetUpdateStore(this.bubble, this.type, this.idx);
+  MessageWidgetUpdateStore(this.bubble, this.type);
 
   MessageWidgetUpdateStore.clear()
-      : this(Optional.empty(), MessageWidgetUpdate.Clear, -1);
+      : this(Optional.empty(), MessageWidgetUpdate.Clear);
 
-  MessageWidgetUpdateStore.insert(Widget bubble)
-      : this(Optional.of(bubble), MessageWidgetUpdate.New, -1);
+  MessageWidgetUpdateStore.insert(DefaultBubble bubble)
+      : this(Optional.of(bubble), MessageWidgetUpdate.New);
 
-  MessageWidgetUpdateStore.replace(Widget bubble, int idx)
-      : this(Optional.of(bubble), MessageWidgetUpdate.Replace, idx);
+  MessageWidgetUpdateStore.replace(DefaultBubble bubble)
+      : this(Optional.of(bubble), MessageWidgetUpdate.Replace);
 }

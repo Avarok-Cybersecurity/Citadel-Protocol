@@ -94,10 +94,10 @@ class Message extends AbstractSqlObject {
     return await DatabaseHandler.getObjectByTriconditional(DB_TABLE, "implicatedCid", implicatedCid.toString(), "peerCid", peerCid.toString(), "rawTicket", rawTicket.toString(), (map) => Message.fromMap(map));
   }
   
-  static Future<Optional<Message>> getLastMessageSentBy(u64 implicatedCid, u64 peerCid) async {
+  static Future<Optional<Message>> getEarliestUnreceivedMessageSentBy(u64 implicatedCid, u64 peerCid) async {
     // SELECT status, recvTime FROM messages WHERE implicatedCid = ? AND WHERE fromPeer = 0 ORDER BY id DESC LIMIT 1
     var db = await DatabaseHandler.database();
-    var list = await db.rawQuery("SELECT * FROM $DB_TABLE WHERE implicatedCid = '$implicatedCid' AND peerCid = '$peerCid' AND fromPeer = 0 ORDER BY id DESC LIMIT 1");
+    var list = await db.rawQuery("SELECT * FROM $DB_TABLE WHERE implicatedCid = '$implicatedCid' AND peerCid = '$peerCid' AND fromPeer = 0 AND status <> '${PeerSendState.MessageReceived.asString()}' ORDER BY id ASC LIMIT 1");
     if (list.isNotEmpty) {
       return Optional.of(Message.fromMap(list.first));
     } else {
