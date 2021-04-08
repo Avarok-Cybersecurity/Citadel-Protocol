@@ -36,6 +36,7 @@ pub mod tests {
     use hyxe_net::hdp::misc::net::TlsListener;
     use tokio::net::{TcpListener, TcpStream};
     use std::pin::Pin;
+    use std::time::Instant;
 
     const COUNT: usize = 500;
     const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 50);
@@ -145,7 +146,8 @@ pub mod tests {
     #[test]
     fn main() -> Result<(), Box<dyn Error>> {
         super::utils::deadlock_detector();
-        *PROTO.lock() = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/devonly.pkcs", "mrmoney10").unwrap()));
+        //*PROTO.lock() = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/devonly.pkcs", "mrmoney10").unwrap()));
+        *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
         let rt = Arc::new(Builder::new_multi_thread().enable_time().enable_io().build().unwrap());
 
         setup_log();
@@ -180,6 +182,7 @@ pub mod tests {
             (p_0, p_1, p_2)
         });
 
+        let init = Instant::now();
 
         const ENABLE_FCM: bool = false;
         let keys0 = ENABLE_FCM.then(||FcmKeys::new("123", "456"));
@@ -241,6 +244,7 @@ pub mod tests {
 
             let _ = tokio::time::timeout(Duration::from_millis(100), server).await;
 
+            log::info!("Execution time: {}ms", init.elapsed().as_millis());
             Ok(())
         })
     }

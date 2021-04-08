@@ -53,7 +53,6 @@ pub extern fn atexit() {
 }
 
 #[derive(Clone)]
-#[allow(dead_code)]
 pub enum UnderlyingProtocol {
     Tcp,
     Tls(Identity)

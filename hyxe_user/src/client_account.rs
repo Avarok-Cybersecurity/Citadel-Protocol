@@ -253,6 +253,16 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                         Ok(())
                     }
 
+                    ArgonStatus::VerificationFailed(None) => {
+                        log::warn!("Invalid password specified ...");
+                        Err(AccountError::InvalidPassword)
+                    }
+
+                    ArgonStatus::VerificationFailed(Some(err)) => {
+                        log::error!("Password verifcation failed: {}", &err);
+                        Err(AccountError::Generic(err))
+                    }
+
                     _ => {
                         Err(AccountError::InvalidPassword)
                     }
@@ -417,6 +427,29 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let read = self.read();
         let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
         Some(peers.into_iter().filter_map(|peer_wanted| hyperlan_peers.into_iter().find(|peer| peer.cid == *peer_wanted).cloned()).collect())
+    }
+
+    /// Returns the wanted peers with fcm keys, if existent
+    pub(crate) fn get_hyperlan_peers_with_fcm_keys(&self, peers: &Vec<u64>) -> Option<Vec<(MutualPeer, Option<FcmKeys>)>> {
+        let read = self.read();
+        let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
+        let mut fcm_keys = Vec::new();
+        for peer in peers {
+            if let Some(container) = read.fcm_crypt_container.get(peer) {
+                fcm_keys.push(container.fcm_keys.clone())
+            }
+            else {
+                fcm_keys.push(None)
+            }
+        }
+
+        Some(peers.into_iter().zip(fcm_keys.into_iter()).filter_map(|peer_wanted| {
+            if let Some(peer) = hyperlan_peers.iter().find(|peer| peer.cid == *peer_wanted.0) {
+                Some((peer.clone(), peer_wanted.1))
+            } else {
+                None
+            }
+        }).collect())
     }
 
     /// Gets the desired HyperLAN peer by username (clones)

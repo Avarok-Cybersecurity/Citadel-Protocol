@@ -52,7 +52,7 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
         }
 
         _ => {
-            log::error!("[Empty] reached (x-12b)");
+            log::info!("[Empty] reached (x-12b)");
             None
         }
     };

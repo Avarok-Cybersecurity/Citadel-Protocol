@@ -30,6 +30,15 @@ pub struct PeerMutuals {
     ticket: u64,
 }
 
+impl PeerMutuals {
+    fn insert<T: Into<String>>(&mut self, cid: u64, username: T, is_online: bool, fcm_reachable: bool) {
+        self.cids.push(cid);
+        self.usernames.push(username.into());
+        self.is_onlines.push(is_online);
+        self.fcm_reachable.push(fcm_reachable);
+    }
+}
+
 impl From<Ticket> for PeerList {
     fn from(ticket: Ticket) -> Self {
         Self { cids: Vec::new(), is_onlines: Vec::new(), ticket: ticket.0 }
@@ -373,9 +382,37 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |ctx, ticket, success| {
                 match success {
                     PeerResponse::RegisteredCids(cids, online_status) => {
-                        if let Some(ref ffi_io) = ffi_io {
-                            let peer_mutuals = PeerMutuals::from((ticket, ctx_user));
-                            (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PeerMutuals(peer_mutuals)))));
+                        if let Some(ffi_io) = ffi_io.clone() {
+                            let mut peer_mutuals = PeerMutuals::from((ticket, ctx_user));
+                            if cids.is_empty() {
+                                (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PeerMutuals(peer_mutuals)))));
+                            } else {
+                                let persistence_handler = ctx.account_manager.get_persistence_handler().clone();
+
+                                let task = async move {
+                                    match persistence_handler.get_hyperlan_peers_with_fcm_keys(ctx_user, &cids).await {
+                                        Ok(hyperlan_peers) => {
+                                            for (cid, is_online) in cids.into_iter().zip(online_status.into_iter()) {
+                                                let entry = hyperlan_peers.iter().find(|peer| peer.0.cid == cid);
+                                                if let Some((peer, keys)) = entry {
+                                                    let username = peer.username.as_ref().map(|r|r.as_str()).unwrap_or("MISSING");
+                                                    peer_mutuals.insert(cid, username, is_online, keys.is_some())
+                                                } else {
+                                                    log::error!("Unsynchronized peer entry! {}", cid);
+                                                }
+                                            }
+
+                                            (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::PeerMutuals(peer_mutuals)))))
+                                        }
+
+                                        Err(err) => {
+                                            (ffi_io)(Ok(Some(KernelResponse::Error(ticket.0, err.into_string().into_bytes()))))
+                                        }
+                                    }
+                                };
+
+                                let _ = tokio::task::spawn(task);
+                            }
                         } else {
                             if cids.len() != 0 {
                                 let persistence_handler = ctx.account_manager.get_persistence_handler().clone();
