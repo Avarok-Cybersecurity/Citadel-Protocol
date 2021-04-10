@@ -5,6 +5,7 @@ import 'package:flutterust/components/default_widget.dart';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/notification_subtypes/abstract_notification.dart';
+import 'package:flutterust/database/notifications.dart';
 import 'package:flutterust/utils.dart';
 import 'package:intl/intl.dart';
 
@@ -49,8 +50,31 @@ class NotificationsScreenInner extends State<NotificationsScreen> {
     return DefaultPageWidget(
       align: Alignment.topCenter,
         title: Text("Notifications for ${this.widget.cnac.username}"),
-        child: this.widget.notifications.isEmpty ? Text("No notifications!") : SingleChildScrollView(child: compileWidget(context))
+        child: this.widget.notifications.isEmpty ? Text("No notifications!") : SingleChildScrollView(child: compileWidget(context)),
+      actions: [
+        PopupMenuButton<String>(
+          onSelected: onSettingsPressed,
+          itemBuilder: (BuildContext context) {
+            return {"Clear"}.map((String choice) {
+              return PopupMenuItem<String>(
+                value: choice,
+                child: Text(choice),
+              );
+            }).toList();
+          },
+        )
+      ],
     );
+  }
+
+  void onSettingsPressed(String selection) async {
+    switch (selection.toLowerCase()) {
+      case "clear":
+        this.widget.notifications.clear();
+        await RawNotification.deleteAllNotifications(this.widget.cnac.implicatedCid);
+        setState(() {});
+        break;
+    }
   }
 
   FutureBuilder<ListView> compileWidget(BuildContext context) {

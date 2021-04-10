@@ -39,24 +39,66 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
+      <change afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/DecryptionHandler.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/hyxe_wave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hyxe_wave.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/HyxeWave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/HyxeWave.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/benches/benchmarks.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/benches/benchmarks.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/api/AsyncHandler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/api/AsyncHandler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/api/CausalChain.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/api/CausalChain.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/api/Communicator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/api/Communicator.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/api/DynamicFuture.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/api/DynamicFuture.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/api/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/api/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/encrypt/Drill.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/encrypt/Drill.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/encrypt/HyCryptAF.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/encrypt/HyCryptAF.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/encrypt/PacketIDSeries.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/encrypt/PacketIDSeries.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/encrypt/WaveFormGenerator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/encrypt/WaveFormGenerator.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/encrypt/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/encrypt/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/filesystem/HyxeFile.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/filesystem/HyxeFile.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/filesystem/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/filesystem/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/misc/Globals.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/misc/Globals.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/misc/Utility.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/misc/Utility.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/misc/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/misc/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/BackgroundService.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/BackgroundService.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/BridgeHandler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/BridgeHandler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/ConnectionHandler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/ConnectionHandler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/ExpectanceHandler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/ExpectanceHandler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/GUIConnector.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/GUIConnector.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/HyxeClient.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/HyxeClient.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/HyxeServer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/HyxeServer.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/NetworkMapping.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/NetworkMapping.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/PacketGenerator.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/PacketGenerator.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/PacketHopRouter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/PacketHopRouter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/PacketProcessor.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/PacketProcessor.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/PacketSeriesListener.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/PacketSeriesListener.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/PacketSubProcessor.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/PacketSubProcessor.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/PacketWrapper.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/PacketWrapper.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/SocketHandler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/SocketHandler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/StageFlowHandler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/StageFlowHandler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/WaveformListener.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/WaveformListener.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/session/HyperNodeRegistration.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/session/HyperNodeRegistration.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/session/NetworkAccount.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/session/NetworkAccount.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/session/SessionHandler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/session/SessionHandler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/session/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/session/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/session/services/ConnectionWorker.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/session/services/ConnectionWorker.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/session/services/SAAQ.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/session/services/SAAQ.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/session/services/ServerDCHandler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/session/services/ServerDCHandler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/hyxewave/network/session/services/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/hyxewave/network/session/services/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_core/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/legacy_hyxe_core/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/connect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/connect_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/wave_group_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/wave_group_packet.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/backend/filesystem_backend.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/backend/filesystem_backend.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/backend/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/backend/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/backend/mysql_backend.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/backend/mysql_backend.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_processor/group_header_ack.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/fcm/fcm_packet_processor/group_header_ack.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/src/proposed_credentials.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/proposed_credentials.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/register.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/command_handlers/register.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -189,10 +231,21 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test tests::main">
+  <component name="RunManager" selected="Cargo.Test tests::main (1)">
     <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration default="true" type="ArquillianJUnit" factoryName="" nameIsGenerated="true">
+      <option name="arquillianRunConfiguration">
+        <value>
+          <option name="containerStateName" value="" />
+        </value>
+      </option>
+      <option name="TEST_OBJECT" value="class" />
+      <method v="2">
+        <option name="Make" enabled="true" />
       </method>
     </configuration>
     <configuration name="Build HyxeWave" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
@@ -240,36 +293,6 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::argon" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_crypt --test primary tests::argon -- --exact -- --nocapture" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="NIGHTLY" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test tests::create_cnac_then_ser_deser_then_check_login" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_user --test primary tests::create_cnac_then_ser_deser_then_check_login -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
-      <option name="channel" value="NIGHTLY" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
     <configuration name="Test tests::delete_all_users" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="command" value="test --package hyxe_user --test primary tests::delete_all_users -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
@@ -285,7 +308,7 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::main" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+    <configuration name="Test tests::main (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
       <option name="command" value="test --package hyxe_net --test primary tests::main -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
       <option name="channel" value="NIGHTLY" />
@@ -300,9 +323,39 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::misc" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxewave --test primary tests::misc -- --exact" />
+    <configuration name="Test tests::main" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_net --test primary tests::main -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="NIGHTLY" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test tests::secbytes (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_crypt --test primary tests::secbytes -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$/hyxe_nat" />
+      <option name="channel" value="NIGHTLY" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="backtrace" value="FULL" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test tests::secbytes" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_crypt --test primary tests::secbytes -- --exact -- --nocapture" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="NIGHTLY" />
       <option name="requiredFeatures" value="true" />
       <option name="allFeatures" value="false" />
@@ -351,18 +404,18 @@
       <item itemvalue="Cargo.Run hyxewave 127.0.0.2" />
       <item itemvalue="Cargo.Test tests::delete_all_users" />
       <item itemvalue="Cargo.Test tests::main" />
-      <item itemvalue="Cargo.Test tests::create_cnac_then_ser_deser_then_check_login" />
-      <item itemvalue="Cargo.Test tests::misc" />
       <item itemvalue="Cargo.Test tests::tls" />
-      <item itemvalue="Cargo.Test tests::argon" />
+      <item itemvalue="Cargo.Test tests::secbytes" />
+      <item itemvalue="Cargo.Test tests::secbytes (1)" />
+      <item itemvalue="Cargo.Test tests::main (1)" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Cargo.Test tests::main (1)" />
+        <item itemvalue="Cargo.Test tests::secbytes (1)" />
+        <item itemvalue="Cargo.Test tests::secbytes" />
         <item itemvalue="Cargo.Test tests::main" />
         <item itemvalue="Cargo.Test tests::tls" />
-        <item itemvalue="Cargo.Test tests::misc" />
-        <item itemvalue="Cargo.Test tests::argon" />
-        <item itemvalue="Cargo.Test tests::create_cnac_then_ser_deser_then_check_login" />
       </list>
     </recent_temporary>
   </component>
@@ -599,7 +652,8 @@
       <workItem from="1616527856637" duration="172000" />
       <workItem from="1616528104468" duration="15000" />
       <workItem from="1616528130285" duration="351764000" />
-      <workItem from="1617821105992" duration="10135000" />
+      <workItem from="1617821105992" duration="29774000" />
+      <workItem from="1617921259464" duration="30285000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

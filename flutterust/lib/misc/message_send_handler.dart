@@ -1,3 +1,4 @@
+import 'package:flutterust/components/chat_bubble.dart';
 import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/database/message.dart';
 import 'package:flutterust/database/peer_network_account.dart';
@@ -5,6 +6,7 @@ import 'package:flutterust/handlers/abstract_handler.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/peer_sent_handler.dart';
 import 'package:flutterust/main.dart';
+import 'package:optional/optional.dart';
 import 'package:satori_ffi_parser/types/u64.dart';
 
 /// The purpose of this class is to ensure that all outbound messages get delivered. Previously, we would send through the protocol and forget. When that approach was used,
@@ -36,8 +38,8 @@ class MessageSendHandler {
 
   /// Gets the channel entailed by the message, then attempts to send latest unsent message unconditionally
   /// This should be called when a new message is received for the channel implicated by the message
-  static Future<void> pollSpecificChannel(Message message) async {
-    await _pollLastMessage(message.implicatedCid, message.peerCid, force: true);
+  static Future<void> pollSpecificChannel(Message message, {List<DefaultBubble>? bubbles}) async {
+    await _pollLastMessage(message.implicatedCid, message.peerCid, force: true, bubbles: bubbles);
   }
 
   /// This should be called from the background handler
@@ -55,7 +57,7 @@ class MessageSendHandler {
   }
 
   /// Returns true if the latest message was received (or, if no message existed), false otherwise. IF false, maybe internally resends the message (timer-permitting)
-  static Future<bool> _pollLastMessage(u64 implicatedCid, u64 peerCid, {bool force = false}) async {
+  static Future<bool> _pollLastMessage(u64 implicatedCid, u64 peerCid, {bool force = false, List<DefaultBubble>? bubbles}) async {
     var lastMessageOpt = await Message.getEarliestUnreceivedMessageSentBy(implicatedCid, peerCid);
     print("last message: $lastMessageOpt");
     if (lastMessageOpt.isPresent) {
@@ -68,7 +70,7 @@ class MessageSendHandler {
 
         default:
           print("[MessageSendHandler] We cannot send a message at this time");
-          await _checkIfNeedsResend(lastMessage, force: force);
+          await _checkIfNeedsResend(lastMessage, force: force, bubbles: bubbles);
           return false;
       }
     } else {
@@ -77,12 +79,12 @@ class MessageSendHandler {
     }
   }
 
-  static Future<void> _checkIfNeedsResend(Message lastMessage, {bool force = false}) async {
+  static Future<void> _checkIfNeedsResend(Message lastMessage, {bool force = false, List<DefaultBubble>? bubbles}) async {
     if (DateTime.now().difference(lastMessage.lastEventTime) >= Duration(minutes: 15) || force) {
       // attempt resend
       lastMessage.lastEventTime = DateTime.now();
       await lastMessage.sync();
-      await _dispatchMessage(lastMessage, PeerSendHandler.screenless(lastMessage));
+      await _dispatchMessage(lastMessage, PeerSendHandler.screenless(lastMessage, bubbles != null ? Optional.of(bubbles) : Optional.empty()));
     }
   }
 
