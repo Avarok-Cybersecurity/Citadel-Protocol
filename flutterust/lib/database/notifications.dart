@@ -78,6 +78,10 @@ class RawNotification extends AbstractSqlObject {
         .then((value) => value.map((rawNotifications) => rawNotifications.map((rawNotification) => rawNotification.toNotification().value).toList()).orElse([]));
   }
 
+  static Future<void> deleteAllNotifications(u64 implicatedCid) async {
+    await DatabaseHandler.removeAllByFieldValue(RawNotification.DB_TABLE, "cid", implicatedCid.toString());
+  }
+
   @override
   Optional getDatabaseKey() {
     return Optional.ofNullable(this._id);

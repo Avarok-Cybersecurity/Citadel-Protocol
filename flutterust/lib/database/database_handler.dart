@@ -33,7 +33,7 @@ class DatabaseHandler {
       },
       // Set the version. This executes the onCreate function and provides a
       // path to perform database upgrades and downgrades.
-      version: 14,
+      version: 15,
     );
   }
 

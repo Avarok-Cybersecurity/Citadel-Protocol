@@ -200,7 +200,7 @@ class KernelResponseHandler {
         FcmMessage message = dsr as FcmMessage;
         // When message A gets sent but isn't received for awhile, a clone of A called B is sent. Suppose A is received before B. The PeerSentHandler of A completes,
         // meaning that once B arrives, we come here. Check to make sure the message hasn't already arrived before handling it like normal
-        if (await Message.getMessage(message.ticket.targetCid, message.ticket.sourceCid, message.ticket.ticket).then((value) => value.isEmpty)) {
+        if (await Message.getMessage(message.ticket.targetCid, message.ticket.sourceCid, message.ticket.ticket, localRecvOnly: true).then((value) => value.isEmpty)) {
           await _handleMessage(message.ticket.targetCid, message.ticket.sourceCid, message.message, message.ticket.ticket);
         } else {
           print("DUPLICATE packet ${message.ticket} received; dropping");

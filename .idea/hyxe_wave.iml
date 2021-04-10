@@ -18,10 +18,10 @@
       <sourceFolder url="file://$MODULE_DIR$/hyxe_util/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/hyxe_util/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/hyxe_util/benches" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/examples" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/tests" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_core/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_core/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_core/benches" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
@@ -356,7 +356,7 @@
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/scrap_ffi/build" />
       <excludeFolder url="file://$MODULE_DIR$/hypervec/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_config/target" />
-      <excludeFolder url="file://$MODULE_DIR$/hyxe_core/target" />
+      <excludeFolder url="file://$MODULE_DIR$/legacy_hyxe_core/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_crypt/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_db_handler/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_derive/target" />

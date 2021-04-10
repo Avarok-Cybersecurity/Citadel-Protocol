@@ -48,7 +48,7 @@ pub fn process<K: ExpectedInnerTargetMut<HdpSessionInner>>(session: &mut InnerPa
                                 // if the target cid is this sessions, it means the packet has arrived.
                                 // We need to route the packet to the channel
                                 //GroupProcessorResult::SendToKernel(ticket, reconstructed_packet)
-                                if !state_container.forward_data_to_channel_as_endpoint(implicated_cid, reconstructed_packet) {
+                                if !state_container.forward_data_to_channel(implicated_cid, header.group.get(), reconstructed_packet) {
                                     log::error!("Unable to forward data to local channel");
                                 }
                                 GroupProcessorResult::Void

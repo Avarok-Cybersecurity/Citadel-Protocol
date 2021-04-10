@@ -168,11 +168,19 @@ class Utils {
     });
   }
 
+  static String prevPacket = "";
+
   static Future<dynamic> onFcmMessageReceived(RemoteMessage message) async {
     String json = message.data["inner"];
 
     print("[FCM] Received FCM message! " + json);
       //pushNotification("Received a FCM message", json);
+    if (prevPacket == json) {
+      print("Duplicate FCM packet recv'd");
+      return;
+    } else {
+      prevPacket = json;
+    }
 
       // subsystem may be null if we're in the background isolate
       if (RustSubsystem.bridge == null) {

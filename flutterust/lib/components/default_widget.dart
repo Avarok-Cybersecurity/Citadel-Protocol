@@ -7,14 +7,16 @@ class DefaultPageWidget extends StatelessWidget {
   final EdgeInsets padding;
   final Alignment? align;
   final Widget? bottomSheet;
+  final List<Widget>? actions;
 
-  const DefaultPageWidget({required this.title, required this.child, this.align, this.padding = const EdgeInsets.all(20), this.bottomSheet, Key? key}) : super(key: key);
+  const DefaultPageWidget({required this.title, required this.child, this.align, this.padding = const EdgeInsets.all(20), this.bottomSheet, this.actions, Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-          title: title
+          title: title,
+        actions: this.actions,
       ),
 
       body: this.align != null ? getAlignBody() : getDefaultBody(),

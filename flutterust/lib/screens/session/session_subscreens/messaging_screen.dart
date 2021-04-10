@@ -232,11 +232,13 @@ class MessagingScreenInner extends State<MessagingScreen> {
 
   DefaultBubble bubbleFrom(Message message, bool needsSend, {PeerSendState state = PeerSendState.Unprocessed}) {
     return DefaultBubble(
+      parentList: this.widget.bubbles,
+      key: UniqueKey(),
       message: message,
         icon: getAppropriateIconByCheckCount(message.status),
         iconColorMe: message.status == PeerSendState.MessageReceived ? Colors.lightGreenAccent : null,
       iconColorPeer: Colors.blueAccent,
-      onTap: () => MessageSendHandler.pollSpecificChannel(message),
+      onTap: () => MessageSendHandler.pollSpecificChannel(message, bubbles: this.widget.bubbles),
       needsSend: needsSend
     );
   }

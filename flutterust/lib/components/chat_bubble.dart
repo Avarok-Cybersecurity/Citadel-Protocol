@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutterust/database/message.dart';
 import 'package:flutterust/handlers/peer_sent_handler.dart';
+import 'package:flutterust/misc/gui_callback.dart';
 import 'package:flutterust/misc/message_send_handler.dart';
 import 'package:flutterust/screens/session/session_subscreens/messaging_screen.dart';
 import 'package:intl/intl.dart';
 
 class DefaultBubble extends StatefulWidget {
-  DefaultBubble({required this.message, required this.iconColorPeer, required this.onTap, required this.needsSend, required this.icon, required this.iconColorMe, Key? key}) :
-        this.time =  DateFormat.jm().format(message.lastEventTime),
+  DefaultBubble({required this.message, required this.iconColorPeer, required this.onTap, required this.needsSend, required this.icon, required this.iconColorMe, required this.parentList, Key? key}) :
+        this.time =  DateFormat.jm().format(message.initTime),
         this.isMe = !message.fromPeer,
+        this.callback = GuiCallback.empty(),
         super(key: key);
 
   final Message message;
@@ -19,6 +21,8 @@ class DefaultBubble extends StatefulWidget {
   final Color? iconColorMe;
   final void Function() onTap;
   final bool needsSend;
+  final List<DefaultBubble> parentList;
+  final GuiCallback callback;
 
   @override
   State<StatefulWidget> createState() {
@@ -37,27 +41,38 @@ class DefaultBubbleImpl extends State<DefaultBubble> {
   @override
   void initState() {
     super.initState();
-
-    if (widget.needsSend && widget.message.status == PeerSendState.Unprocessed) {
-      sendMessage();
-    }
+    this.widget.callback.registerCallback((input) => onMessageUpdateRecv(input));
+    maybeSendMessage();
   }
 
-  Future<void> sendMessage() async {
-    await MessageSendHandler.sendMessageFromScreen(this.widget.message, PeerSendHandler.screen(onMessageUpdateRecv, this.widget.message));
+  Future<void> maybeSendMessage() async {
+    await widget.message.update();
+    this.updateIcons(widget.message.status);
+    if (widget.needsSend && widget.message.status == PeerSendState.Unprocessed) {
+      print("[ChatBubble] Sending message ${widget.message}");
+      await MessageSendHandler.sendMessageFromScreen(this.widget.message, PeerSendHandler.screen(onMessageUpdateRecv, this.widget.message, this.widget.parentList));
+    }
   }
 
   void onMessageUpdateRecv(PeerSendUpdate update) {
+    print("onMessageUpdateRecv triggered for ${this.widget.message} [state: $update]");
     if (this.mounted) {
       setState(() {
-        this.currentIcon = MessagingScreenInner.getAppropriateIconByCheckCount(update.state);
-        this.currentIconColorMe = update.state == PeerSendState.MessageReceived ? Colors.lightGreenAccent : null;
+        updateIcons(update.state);
       });
+    } else {
+      print("Not mounted!!");
     }
+  }
+
+  void updateIcons(PeerSendState state) {
+    this.currentIcon = MessagingScreenInner.getAppropriateIconByCheckCount(state);
+    this.currentIconColorMe = state == PeerSendState.MessageReceived ? Colors.lightGreenAccent : null;
   }
 
   @override
   Widget build(BuildContext context) {
+    this.updateIcons(widget.message.status);
     final bg = widget.isMe ? Colors.blue : Color(0xffE7E7ED);
     final align = widget.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start;
 
