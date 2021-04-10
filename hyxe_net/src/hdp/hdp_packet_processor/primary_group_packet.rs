@@ -2,7 +2,6 @@ use super::includes::*;
 use crate::hdp::state_container::{StateContainerInner, GroupKey, FileKey, VirtualConnection};
 use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::hdp::session_queue_handler::QueueWorkerResult;
-use atomic::Ordering;
 use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet, RatchetType};
 use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
@@ -127,14 +126,19 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
 
                                     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
                                         // send to channel
-                                        if !state_container.forward_data_to_channel_as_endpoint(original_implicated_cid, plaintext) {
+                                        if !state_container.forward_data_to_channel(original_implicated_cid, header.group.get(), plaintext) {
                                             log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
                                             return PrimaryProcessorResult::Void;
                                         }
                                     } else {
                                         // send to kernel
-                                        let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
-                                        session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, plaintext))?;
+                                        //let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
+                                        //session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, plaintext))?;
+
+                                        if !state_container.forward_data_to_channel(0, header.group.get(), plaintext) {
+                                            log::error!("Unable to forward data to c2s channel");
+                                            return PrimaryProcessorResult::Void;
+                                        }
                                     }
 
                                     // now, update the keys (if applicable)
@@ -333,18 +337,23 @@ pub fn process(session: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_i
         let payload = &payload[2..];
 
         match super::wave_group_packet::process(&mut wrap_inner_mut!(session), v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
-            GroupProcessorResult::SendToKernel(ticket, reconstructed_packet) => {
+            GroupProcessorResult::SendToKernel(_ticket, reconstructed_packet) => {
                 if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
                     // send to channel
                     let mut state_container = inner_mut!(session.state_container);
-                    if !state_container.forward_data_to_channel_as_endpoint(original_implicated_cid, reconstructed_packet) {
+                    if !state_container.forward_data_to_channel(original_implicated_cid, header.group.get(), reconstructed_packet) {
                         log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
                     }
                     PrimaryProcessorResult::Void
                 } else {
                     // send to kernel
-                    let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
-                    session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, reconstructed_packet))?;
+                    //let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
+                    // session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, reconstructed_packet))?;
+                    let mut state_container = inner_mut!(session.state_container);
+                    if !state_container.forward_data_to_channel(0, header.group.get(), reconstructed_packet) {
+                        log::error!("Unable to forward data to c2s channel");
+                    }
+
                     PrimaryProcessorResult::Void
                 }
             }

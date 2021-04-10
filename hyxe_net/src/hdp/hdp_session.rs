@@ -1259,8 +1259,13 @@ impl HdpSession {
             match header.cmd_primary {
                 packet_flags::cmd::primary::GROUP_PACKET => {
                     match hdp_packet_processor::wave_group_packet::process(&mut wrap_inner_mut!(this), v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
-                        GroupProcessorResult::SendToKernel(ticket, concatenated_packet) => {
-                            this.send_to_kernel(HdpServerResult::MessageDelivery(ticket, this_implicated_cid.unwrap(), concatenated_packet))?;
+                        GroupProcessorResult::SendToKernel(_ticket, concatenated_packet) => {
+                            //this.send_to_kernel(HdpServerResult::MessageDelivery(ticket, this_implicated_cid.unwrap(), concatenated_packet))?;
+                            let mut state_container = inner_mut!(this.state_container);
+                            if !state_container.forward_data_to_channel(0, header.group.get(), concatenated_packet) {
+                                log::error!("Unable to send data to c2s channel");
+                            }
+
                             Ok(())
                         }
 

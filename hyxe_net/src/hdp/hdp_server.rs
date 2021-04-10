@@ -631,7 +631,7 @@ pub enum HdpServerResult {
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(VirtualConnectionType, Option<Ticket>, bool, bool),
     /// Connection succeeded for the cid self.0. bool is "is personal". Final arg is fcm_reg_status
-    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, Option<RawFcmPacketStore>, String),
+    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, Option<RawFcmPacketStore>, String, PeerChannel),
     /// The connection was a failure
     ConnectFail(Ticket, Option<u64>, String),
     /// The outbound request was rejected
@@ -660,9 +660,9 @@ pub enum HdpServerResult {
 }
 
 impl HdpServerResult {
-    pub fn is_message(&self) -> bool {
+    pub fn is_connect_success_type(&self) -> bool {
         match self {
-            HdpServerResult::MessageDelivery(..) => true,
+            HdpServerResult::ConnectSuccess(..) => true,
             _ => false
         }
     }

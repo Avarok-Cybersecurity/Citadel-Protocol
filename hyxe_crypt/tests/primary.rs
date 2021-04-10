@@ -15,7 +15,7 @@ mod tests {
 
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "hyxe_crypt=info");
+        std::env::set_var("RUST_LOG", "info");
         let _ = env_logger::try_init();
         log::trace!("TRACE enabled");
         log::info!("INFO enabled");
@@ -161,15 +161,18 @@ mod tests {
     #[test]
     fn secbytes() {
         setup_log();
-        println!("ABT to make3");
         let buf = SecBuffer::from("Hello, world!");
         let serde = bincode2::serialize(&buf).unwrap();
+        std::mem::drop(buf);
         let buf = bincode2::deserialize::<SecBuffer>(&serde).unwrap();
+
         assert_eq!(buf.as_ref(), b"Hello, world!");
         let cloned = buf.clone();
         let ptr = cloned.as_ref().as_ptr();
         let len = cloned.as_ref().len();
+
         let retrieved = buf.into_buffer();
+
         assert_eq!(retrieved, b"Hello, world!");
         assert_eq!(retrieved, cloned.as_ref());
         std::mem::drop(cloned);

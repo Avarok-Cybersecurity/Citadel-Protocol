@@ -53,6 +53,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::SUCCESS;
                     state_container.connect_state.fail_time = None;
                     state_container.connect_state.on_connect_packet_received();
+                    let channel = state_container.init_new_c2s_virtual_connection(security_level, kernel_ticket, header.session_cid.get());
 
                     std::mem::drop(state_container);
 
@@ -84,7 +85,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     session.state = SessionState::Connected;
 
                     let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, format!("Client {} successfully established a connection to the local HyperNode", cid)))?;
+                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, format!("Client {} successfully established a connection to the local HyperNode", cid), channel))?;
 
                     PrimaryProcessorResult::ReplyToSender(success_packet)
                 }
@@ -144,7 +145,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                     let use_ka = state_container.keep_alive_timeout_ns != 0;
                     let connect_mode = state_container.connect_state.connect_mode.clone()?;
-
+                    let channel = state_container.init_new_c2s_virtual_connection(security_level, kernel_ticket, header.session_cid.get());
                     std::mem::drop(state_container);
 
 
@@ -160,7 +161,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                     //session.post_quantum = pqc;
                     let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), message))?;
+                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), message, channel))?;
 
                     // Now, send keep alives!
                     let timestamp = session.time_tracker.get_global_time_ns();
