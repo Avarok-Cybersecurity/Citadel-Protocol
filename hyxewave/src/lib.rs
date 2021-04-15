@@ -3,21 +3,21 @@
 #[macro_use]
 pub mod macros {
     macro_rules! printf {
-    ($function:expr) => {
-        crate::console::virtual_terminal::INPUT_ROUTER.print(|| {$function;})
-    };
+        ($function:expr) => {
+            crate::console::virtual_terminal::INPUT_ROUTER.print(|| {$function;})
+        };
     }
 
     macro_rules! printfs {
-    ($function:block) => {
-        crate::console::virtual_terminal::INPUT_ROUTER.print(|| $function)
-    };
+        ($function:block) => {
+            crate::console::virtual_terminal::INPUT_ROUTER.print(|| $function)
+        };
     }
 
     macro_rules! printf_ln {
-    ($function:expr) => {
-        crate::console::virtual_terminal::INPUT_ROUTER.print(|| {print!("\n\r"); $function;})
-    };
+        ($function:expr) => {
+            crate::console::virtual_terminal::INPUT_ROUTER.print(|| {print!("\n\r"); $function;})
+        };
     }
 }
 

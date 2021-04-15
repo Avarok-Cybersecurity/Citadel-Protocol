@@ -13,22 +13,35 @@ use hyxe_crypt::hyper_ratchet::Ratchet;
 /// exist locally.
 /// `cnacs_loaded` must also be present in order to validate that the local node's listed clients map to locally-existant CNACs. A "feed two birds with one scone" scenario
 #[allow(unused_results)]
-pub fn load_node_nac<R: Ratchet, Fcm: Ratchet>(uses_db: bool, directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError<String>> {
+pub fn load_node_nac<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError<String>> {
     log::info!("[NAC-loader] Detecting local NAC...");
     // First, set the NAC_NODE_DEFAULT_STORE_LOCATION
     let file_location = directory_store.inner.read().nac_node_default_store_location.clone();
 
+    let create_nac = |err: String| {
+        if let Ok(nac) = NetworkAccount::<R, Fcm>::new(directory_store) {
+            Ok(nac)
+        } else {
+            Err(AccountError::Generic(format!("[NAC-Loader] Unable to start application. Unable to create this node's NetworkAccount.\nError Message: {}", err.to_string())))
+        }
+    };
+
     match std::fs::File::open(&file_location) {
         Ok(_) => {
             log::info!("[NAC-Loader] Detected local NAC. Updating information...");
-            read::<NetworkAccountInner<R, Fcm>, _>(&file_location).map(NetworkAccount::<R, Fcm>::from).map_err(|err| err.into())
-        },
-        Err(err) => {
-            if let Ok(nac) = NetworkAccount::<R, Fcm>::new(uses_db, directory_store) {
-                Ok(nac)
-            } else {
-                Err(AccountError::Generic(format!("[NAC-Loader] Unable to start application. Unable to create this node's NetworkAccount.\nError Message: {}", err.to_string())))
+            match read::<NetworkAccountInner<R, Fcm>, _>(&file_location).map(NetworkAccount::<R, Fcm>::from){
+                Ok(nac) => {
+                    Ok(nac)
+                }
+
+                Err(err) =>{
+                    create_nac(err.to_string())
+                }
             }
+        },
+
+        Err(err) => {
+            create_nac(err.to_string())
         }
     }
 }

@@ -1,8 +1,7 @@
 use std::pin::Pin;
-use std::sync::Arc;
 
 use tokio::net::ToSocketAddrs;
-use tokio::runtime::Runtime;
+use tokio::runtime::Handle;
 use tokio::task::LocalSet;
 use tokio_stream::StreamExt;
 
@@ -21,13 +20,13 @@ pub struct KernelExecutor<K: NetKernel> {
     server_remote: Option<HdpServerRemote>,
     server_to_kernel_rx: Option<UnboundedReceiver<HdpServerResult>>,
     shutdown_aleter_rx: Option<tokio::sync::oneshot::Receiver<()>>,
-    context: Option<(Arc<Runtime>, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)>,
+    context: Option<(Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)>,
     kernel: K,
 }
 
 impl<K: NetKernel> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
-    pub async fn new<T: ToSocketAddrs + std::net::ToSocketAddrs + Send + 'static>(rt: Arc<Runtime>, hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
+    pub async fn new<T: ToSocketAddrs + std::net::ToSocketAddrs + Send + 'static>(rt: Handle, hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) = tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote

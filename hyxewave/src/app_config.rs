@@ -2,6 +2,7 @@ use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
 use hyxe_net::re_imports::HyperNodeType;
 use crate::ffi::FFIIO;
 use hyxe_user::backend::BackendType;
+use hyxe_net::hdp::hdp_server::UnderlyingProtocol;
 
 /// Created when parsing the command-line. If pure server or client mode is chosen,
 /// only one of the fields below will contain a value. If distributed mode is used,
@@ -15,6 +16,7 @@ pub struct AppConfig {
     pub backend_type: Option<BackendType>,
     pub is_ffi: bool,
     pub home_dir: Option<String>,
+    pub underlying_protocol: Option<UnderlyingProtocol>,
     pub kernel_threads: Option<usize>,
     pub daemon_mode: bool
 }

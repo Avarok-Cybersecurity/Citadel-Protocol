@@ -19,8 +19,8 @@ use crate::error::NetworkError;
 use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::GroupTransmitter;
-use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr};
-use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest};
+use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr, HdpSession};
+use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest, SecrecyMode};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;
@@ -43,8 +43,14 @@ use hyxe_fs::prelude::SyncIO;
 use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
 use crate::hdp::peer::peer_layer::PeerConnectionType;
 use hyxe_fs::env::DirectoryStore;
+use crate::hdp::misc::dual_rwlock::DualRwLock;
+use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 
-define_outer_struct_wrapper!(StateContainer, StateContainerInner);
+pub struct StateContainer {
+    pub inner: DualRwLock<StateContainerInner>
+}
+
+//define_outer_struct_wrapper!(StateContainer, StateContainerInner);
 
 /// For keeping track of the stages
 pub struct StateContainerInner {
@@ -144,6 +150,7 @@ impl VirtualConnection {
 
 pub struct EndpointChannelContainer<R: Ratchet = HyperRatchet> {
     // this is only loaded if STUN-like NAT-traversal works
+    pub(crate) default_security_settings: SessionSecuritySettings,
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
     pub(crate) endpoint_crypto: PeerSessionCrypto<R>,
     to_channel: UnboundedSender<SecBuffer>,
@@ -486,8 +493,7 @@ impl StateContainerInner {
     /// Creates a new container
     pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote, keep_alive_timeout_ns: i64) -> StateContainer {
         let inner = Self { c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_sender: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
-        let this = StateContainer::from(inner);
-        this
+        StateContainer { inner: DualRwLock::from(inner) }
     }
 
     /// The inner P2P handles will get dropped, causing the connections to end
@@ -532,15 +538,17 @@ impl StateContainerInner {
     }
 
     #[allow(unused_results)]
-    pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, peer_socket_addr: SocketAddr, security_level: SecurityLevel, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto) -> PeerChannel {
+    pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, map: &mut HashMap<u64, Arc<AtomicBool>>, peer_socket_addr: SocketAddr, default_security_settings: SessionSecuritySettings, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let is_active = Arc::new(AtomicBool::new(true));
 
+        map.insert(target_cid, endpoint_crypto.update_in_progress.clone());
 
-        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket, security_level, is_active.clone(), channel_rx);
+        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket, default_security_settings.security_level, is_active.clone(), channel_rx);
         let order_map = BTreeMap::new();
 
         let endpoint_container = Some(EndpointChannelContainer {
+            default_security_settings,
             last_delivered_message: None,
             order_map,
             direct_p2p_remote: None,
@@ -563,7 +571,8 @@ impl StateContainerInner {
     }
 
     /// This should be ran at the beginning of a session to provide ordered delivery to clients
-    pub fn init_new_c2s_virtual_connection(&mut self, security_level: SecurityLevel, channel_ticket: Ticket, implicated_cid: u64) -> PeerChannel {
+    #[allow(unused_results)]
+    pub fn init_new_c2s_virtual_connection(&mut self, cnac: &ClientNetworkAccount, map: &mut HashMap<u64, Arc<AtomicBool>>, security_level: SecurityLevel, channel_ticket: Ticket, implicated_cid: u64) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let is_active = Arc::new(AtomicBool::new(true));
 
@@ -578,6 +587,9 @@ impl StateContainerInner {
         };
 
         self.c2s_channel_container = Some(c2s);
+
+        map.insert(0, cnac.visit(|r| r.crypt_container.update_in_progress.clone()));
+
         peer_channel
     }
 
@@ -628,6 +640,7 @@ impl StateContainerInner {
                     // is in sequential order; we can just send it
                     *last_message_group = group_id;
                     if send(data) {
+                        log::info!("PUSHING Group {} to {}", group_id, target_cid);
                         // first send worked. Now, send all in the order map (if available) until we hit discontinuity
                         loop {
                             let next_group = *last_message_group + 1;
@@ -637,6 +650,8 @@ impl StateContainerInner {
                                 if !send(next_packet) {
                                     return false;
                                 }
+
+                                log::info!("PUSHING Group {} to {}", group_id, target_cid);
                             } else {
                                 // hit discontinuity; return. We need to wait for more packets to come
                                 return true;
@@ -915,13 +930,13 @@ impl StateContainerInner {
     /// NOTE! object ID is in wave_id for header ACKS
     /// NOTE: If object id != 0, then this header ack belongs to a file transfer and must thus be transmitted via TCP
     #[allow(unused_results)]
-    pub fn on_group_header_ack_received(&mut self, object_id: u32, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool, cnac_sess: &ClientNetworkAccount) -> bool {
+    pub fn on_group_header_ack_received(&mut self, base_session_secrecy_mode: SecrecyMode, object_id: u32, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool, cnac_sess: &ClientNetworkAccount) -> bool {
         // the target is where the packet came from (implicated_cid)
         let key = GroupKey::new(peer_cid, group_id);
 
         if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
             let constructor = outbound_container.ratchet_constructor.take().map(ConstructorType::Default);
-            if attempt_kem_as_alice_finish(peer_cid, target_cid, transfer, &mut self.active_virtual_connections, constructor, cnac_sess).is_err() {
+            if attempt_kem_as_alice_finish(base_session_secrecy_mode, peer_cid, target_cid, transfer, &mut self.active_virtual_connections, constructor, cnac_sess).is_err() {
                 return true;
             }
 
@@ -973,7 +988,7 @@ impl StateContainerInner {
     /// Returns true if the sending process was a success, false otherwise
     ///
     /// safety: DO NOT borrow_mut the state container unless inside the spawn_local, otherwise a BorrowMutError will occur
-    pub fn on_window_tail_received(&mut self, hyper_ratchet: &HyperRatchet, state_container_ref: &StateContainer, header: &LayoutVerified<&[u8], HdpHeader>, waves: RangeInclusive<u32>, time_tracker: &TimeTracker, to_primary_stream_orig: &OutboundTcpSender) -> bool {
+    pub fn on_window_tail_received(&mut self, hyper_ratchet: &HyperRatchet, session_ref: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, waves: RangeInclusive<u32>, time_tracker: &TimeTracker, to_primary_stream_orig: &OutboundTcpSender) -> bool {
         let group = header.group.get();
         let object_id = header.context_info.get() as u32;
         let security_level = header.security_level.into();
@@ -1008,7 +1023,7 @@ impl StateContainerInner {
             if missing_packets != 0 {
                 log::warn!("Missing packet in window (before wait): {}", missing_packets);
                 // clone these items to allow them to live for 'static when moved into the closure below
-                let state_container_ref = state_container_ref.clone();
+                let session_ref = session_ref.clone();
                 let hyper_ratchet = hyper_ratchet.clone();
                 let time_tracker = time_tracker.clone();
 
@@ -1019,7 +1034,8 @@ impl StateContainerInner {
                     log::trace!("ASYNC task waiting for {} nanos = {} millis", wait_time.as_nanos(), wait_time.as_millis());
                     tokio::time::sleep(wait_time).await;
                     // now, we can safely use the state container
-                    let mut state_container = inner_mut!(state_container_ref);
+                    let sess = inner!(session_ref);
+                    let mut state_container = inner_mut!(sess.state_container);
                     if let Some(group_receiver) = state_container.inbound_groups.get_mut(&key) {
 
                         // since we are missing packets, decrease the next window.

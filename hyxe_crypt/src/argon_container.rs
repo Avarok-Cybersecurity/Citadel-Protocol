@@ -7,9 +7,10 @@ use argon2::Config;
 use std::sync::Arc;
 use crate::prelude::SecBuffer;
 use std::ops::Deref;
-use crate::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
 use rand::rngs::ThreadRng;
 use rand::Rng;
+
+const ARGON_SALT_LENGTH: usize = 16;
 
 // A wrapper that allows asynchronous hashing and verification
 pub struct AsyncArgon {
@@ -83,9 +84,9 @@ impl ArgonSettings {
         Self::new(ad, Self::generate_salt().to_vec(), lanes, hash_length, mem_cost, time_cost, secret)
     }
 
-    fn generate_salt() -> [u8; AES_GCM_NONCE_LEN_BYTES] {
+    fn generate_salt() -> [u8; ARGON_SALT_LENGTH] {
         let mut rng = ThreadRng::default();
-        let mut salt: [u8; AES_GCM_NONCE_LEN_BYTES] = Default::default();
+        let mut salt: [u8; ARGON_SALT_LENGTH] = Default::default();
         rng.fill(&mut salt);
         salt
     }

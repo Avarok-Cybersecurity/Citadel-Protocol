@@ -20,7 +20,6 @@ pub mod includes {
     pub use zerocopy::LayoutVerified;
 
     pub use ez_pqcrypto::PostQuantumContainer;
-    pub use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
     pub use hyxe_crypt::drill::Drill;
     pub use hyxe_crypt::drill::SecurityLevel;
     pub use hyxe_crypt::sec_bytes::SecBuffer;

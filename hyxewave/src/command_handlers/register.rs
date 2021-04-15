@@ -3,7 +3,8 @@ use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
 use crate::primary_terminal::parse_custom_addr;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::prelude::SecBuffer;
-use hyxe_net::hdp::hdp_server::UnderlyingProtocol;
+use crate::command_handlers::connect::{parse_kem, parse_enx, get_crypto_params};
+use hyxe_user::prelude::ConnectProtocol;
 
 #[derive(Debug, Serialize)]
 pub enum RegisterResponse {
@@ -13,7 +14,11 @@ pub enum RegisterResponse {
 
 pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let target_addr = get_remote_addr(matches)?;
+
     let security_level = parse_security_level(matches)?;
+    let kem = parse_kem(matches)?;
+    let enx = parse_enx(matches)?;
+
     let ffi_mode = matches.is_present("ffi");
     let proposed_credentials = if ffi_mode {
         debug_assert!(ffi_io.is_some());
@@ -31,8 +36,15 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
 
     let username = proposed_credentials.username.clone();
 
-    // TODO choose between tls/tcp, default tcp
-    let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, None, fcm_keys, security_level, UnderlyingProtocol::Tcp);
+    let params = get_crypto_params(None, kem, enx, security_level);
+
+    let connect_proto = if matches.is_present("tls") {
+        ConnectProtocol::Tls(Some(matches.value_of("tls-domain").map(|r| r.to_string()).unwrap()))
+    } else {
+        ConnectProtocol::Tcp
+    };
+
+    let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, fcm_keys, params, connect_proto);
     let ticket = server_remote.unbounded_send(request)?;
     ctx.register_ticket(ticket, DO_REGISTER_EXPIRE_TIME_MS, 0, move |_ctx, _, response| {
         match response {

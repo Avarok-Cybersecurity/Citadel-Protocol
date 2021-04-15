@@ -10,7 +10,7 @@ use rand::prelude::{SliceRandom, ThreadRng};
 
 use crate::drill::Drill;
 use crate::drill_algebra::{generate_packet_coordinates_inv, generate_packet_vector, PacketVector};
-use crate::prelude::{CryptError, SecurityLevel};
+use crate::prelude::{CryptError, SecurityLevel, SecBuffer};
 use rayon::prelude::*;
 use rayon::iter::IndexedParallelIterator;
 use crate::hyper_ratchet::{HyperRatchet, Ratchet};
@@ -207,6 +207,11 @@ pub fn encrypt_group_unified<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, hyper_ra
     Ok(GroupSenderDevice::new(group_receiver_config, packets))
 }
 
+/// Used for sending a packet that is expected to already be encrypted
+pub fn oneshot_unencrypted_group_unified(plain_text: SecBuffer, header_size_bytes: usize, group_id: u64) -> Result<GroupSenderDevice, CryptError<String>> {
+    let group_receiver_config = GroupReceiverConfig::new(group_id as usize, 1, header_size_bytes, plain_text.len(), plain_text.len(), plain_text.len(), 1, plain_text.len(), plain_text.len(), 1, 1);
+    Ok(GroupSenderDevice::new_oneshot(group_receiver_config, plain_text))
+}
 
 /// Return statuses for the GroupReceiver
 #[derive(Debug, Eq, PartialEq)]
@@ -620,6 +625,7 @@ impl GroupReceiver {
 pub struct GroupSenderDevice {
     /// the hashmap of packets
     pub packets_in_ram: HashMap<usize, PacketCoordinate>,
+    oneshot: Option<SecBuffer>,
     packets_received: usize,
     packets_sent: usize,
     receiver_config: GroupReceiverConfig,
@@ -629,8 +635,12 @@ pub struct GroupSenderDevice {
 impl GroupSenderDevice {
     /// Before any packets are sent out, this should be called
     pub fn new(receiver_config: GroupReceiverConfig, packets_in_ram: HashMap<usize, PacketCoordinate>) -> Self {
-        let last_wave_ack_received = Instant::now();
-        Self { packets_in_ram, packets_received: 0, packets_sent: 0, receiver_config, last_wave_ack_received }
+        Self { packets_in_ram, packets_received: 0, packets_sent: 0, receiver_config, oneshot: None, last_wave_ack_received: Instant::now() }
+    }
+
+    /// Intended for unencrypted packets
+    pub fn new_oneshot(receiver_config: GroupReceiverConfig, oneshot: SecBuffer) -> Self {
+        Self { packets_in_ram: HashMap::with_capacity(0), oneshot: Some(oneshot), packets_received: 0, packets_sent: 0, receiver_config, last_wave_ack_received: Instant::now()}
     }
 
     /// In the case of file-sending, it is beneficial to know when this group is 50% done sending, that way
@@ -653,6 +663,11 @@ impl GroupSenderDevice {
         } else {
             None
         }
+    }
+
+    /// Takes the oneshot packet
+    pub fn get_oneshot(&mut self) -> Option<SecBuffer> {
+        self.oneshot.take()
     }
 
     /// Frees the RAM internally. Returns true if the entire group is complete

@@ -6,7 +6,7 @@ use crate::drill_algebra::{PacketVector, generate_packet_vector, generate_packet
 use crate::misc::{bytes_to_3d_array, CryptError, create_port_mapping};
 use byteorder::BigEndian;
 use rand::distributions::Distribution;
-use rand::{thread_rng, RngCore};
+use rand::{thread_rng, RngCore, Rng};
 use std::fmt::Error;
 use std::fmt::Formatter;
 use serde::{Deserialize, Serialize};
@@ -15,9 +15,8 @@ use std::convert::TryFrom;
 use std::ops::Div;
 
 use bytes::BufMut;
-use ez_pqcrypto::PostQuantumContainer;
+use ez_pqcrypto::{PostQuantumContainer, LARGEST_NONCE_LEN};
 use rand::prelude::ThreadRng;
-use crate::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
 use num_integer::Integer;
 
 /// Index for the set of data that obscures the port-send-order
@@ -78,7 +77,7 @@ pub type DrillEndian = BigEndian;
 
 impl Drill {
     /// Creates a new drill
-    pub fn new(cid: u64, version: u32) -> Result<Self, CryptError<String>> {
+    pub fn new(cid: u64, version: u32, algorithm: EncryptionAlgorithm) -> Result<Self, CryptError<String>> {
         if PORT_RANGE > MAX_PORT_RANGE {
             return Err(CryptError::OutOfBoundsError);
         }
@@ -87,6 +86,7 @@ impl Drill {
             .and_then(|bytes| {
                 let port_mappings = create_port_mapping();
                 let drill = Drill {
+                    algorithm,
                     version,
                     cid,
                     entropy: bytes,
@@ -98,25 +98,26 @@ impl Drill {
     }
 
     /// For generating a random nonce, independent to any drill
-    pub fn generate_public_nonce() -> [u8; AES_GCM_NONCE_LEN_BYTES] {
-        let mut base: [u8; AES_GCM_NONCE_LEN_BYTES] = Default::default();
-        ThreadRng::default().fill_bytes(&mut base);
+    pub fn generate_public_nonce(enx_algorithm: EncryptionAlgorithm) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
+        let mut base: ArrayVec<u8, LARGEST_NONCE_LEN> = Default::default();
+        let mut rng = ThreadRng::default();
+        let amt = enx_algorithm.nonce_len();
+        for _ in 0..amt { base.push(rng.gen()) }
         base
     }
 
     /// The nonce is 96 bits or 12 bytes in size. We assume each nonce version is unique
-    pub fn get_aes_gcm_nonce(&self, nonce_version: usize) -> [u8; AES_GCM_NONCE_LEN_BYTES] {
-        //assert!(AES_GCM_NONCE_LEN_BYTES < 25);
+    pub fn get_aes_gcm_nonce(&self, nonce_version: usize) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
         let nonce = self.get_nonce(nonce_version);
-        debug_assert_eq!(nonce.len(), AES_GCM_NONCE_LEN_BYTES);
         log::trace!("Generated nonce v{}: {:?}", nonce_version, &nonce);
         nonce
     }
 
     #[inline]
-    fn get_nonce(&self, nonce_version: usize) -> [u8; AES_GCM_NONCE_LEN_BYTES] {
-        let mut base = [0u8; AES_GCM_NONCE_LEN_BYTES];
-        let f64s_needed = AES_GCM_NONCE_LEN_BYTES.div_ceil(&8);
+    fn get_nonce(&self, nonce_version: usize) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
+        let mut base = Default::default();
+        let nonce_len = self.algorithm.nonce_len();
+        let f64s_needed = nonce_len.div_ceil(&8);
         let mut outer_idx = 0;
 
         for x in 0..f64s_needed {
@@ -124,11 +125,11 @@ impl Drill {
             let bytes = val.to_be_bytes();
 
             for y in 0..8 {
-                if outer_idx == AES_GCM_NONCE_LEN_BYTES {
+                if outer_idx == nonce_len {
                     return base;
                 }
 
-                base[outer_idx] = bytes[y].wrapping_add(self.entropy[outer_idx % BYTES_PER_3D_ARRAY]).wrapping_add(nonce_version as u8);
+                base.push(bytes[y].wrapping_add(self.entropy[outer_idx % BYTES_PER_3D_ARRAY]).wrapping_add(nonce_version as u8));
 
                 outer_idx += 1;
             }
@@ -148,7 +149,7 @@ impl Drill {
     }
 
     /// Returns the length of the ciphertext
-    pub fn aes_gcm_encrypt_into_custom_nonce<T: AsRef<[u8]>, B: BufMut>(&self, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], quantum_container: &PostQuantumContainer, input: T, mut output: B) -> Result<usize, CryptError<String>>{
+    pub fn aes_gcm_encrypt_into_custom_nonce<T: AsRef<[u8]>, B: BufMut>(&self, nonce: &[u8], quantum_container: &PostQuantumContainer, input: T, mut output: B) -> Result<usize, CryptError<String>>{
         quantum_container.encrypt(input.as_ref(), nonce)
             .map(|ciphertext| {
                 output.put(ciphertext.as_slice());
@@ -157,7 +158,7 @@ impl Drill {
     }
 
     /// Returns the length of the plaintext
-    pub fn aes_gcm_decrypt_into_custom_nonce<T: AsRef<[u8]>, B: BufMut>(&self, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], quantum_container: &PostQuantumContainer, input: T, mut output: B) -> Result<usize, CryptError<String>>{
+    pub fn aes_gcm_decrypt_into_custom_nonce<T: AsRef<[u8]>, B: BufMut>(&self, nonce: &[u8], quantum_container: &PostQuantumContainer, input: T, mut output: B) -> Result<usize, CryptError<String>>{
         quantum_container.decrypt(input.as_ref(), nonce)
             .map(|plaintext| {
                 output.put(plaintext.as_slice());
@@ -183,13 +184,13 @@ impl Drill {
     }
 
     /// Returns the length of the ciphertext
-    pub fn aes_gcm_encrypt_custom_nonce<T: AsRef<[u8]>>(&self, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], quantum_container: &PostQuantumContainer, input: T) -> Result<Vec<u8>, CryptError<String>>{
+    pub fn aes_gcm_encrypt_custom_nonce<T: AsRef<[u8]>>(&self, nonce: &[u8], quantum_container: &PostQuantumContainer, input: T) -> Result<Vec<u8>, CryptError<String>>{
         quantum_container.encrypt(input.as_ref(), &nonce)
             .map_err(|err| CryptError::Encrypt(err.to_string()))
     }
 
     /// Returns the plaintext if successful
-    pub fn aes_gcm_decrypt_custom_nonce<T: AsRef<[u8]>>(&self, nonce: &[u8; AES_GCM_NONCE_LEN_BYTES], quantum_container: &PostQuantumContainer, input: T) -> Result<Vec<u8>, CryptError<String>>{
+    pub fn aes_gcm_decrypt_custom_nonce<T: AsRef<[u8]>>(&self, nonce: &[u8], quantum_container: &PostQuantumContainer, input: T) -> Result<Vec<u8>, CryptError<String>>{
         quantum_container.decrypt(input.as_ref(), &nonce)
             .map_err(|err| CryptError::Encrypt(err.to_string()))
     }
@@ -272,6 +273,12 @@ pub enum SecurityLevel {
     TRANSCENDENT(u8)
 }
 
+impl Default for SecurityLevel {
+    fn default() -> Self {
+        Self::LOW
+    }
+}
+
 impl SecurityLevel {
     /// Returns byte representation of self
     pub fn value(self) -> u8 {
@@ -307,7 +314,9 @@ impl From<u8> for SecurityLevel {
 
 use serde_big_array::big_array;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
-/* Use the bellow version if BYTES_PER_3D_ARRAY is a value not automatically impled
+use ez_pqcrypto::algorithm_dictionary::EncryptionAlgorithm;
+use arrayvec::ArrayVec;
+/* Use the bellow version if BYTES_PER_3D_ARRAY is a value not automatically implied
 big_array! {
     BigArray;
     +BYTES_PER_3D_ARRAY,
@@ -321,6 +330,7 @@ big_array! {
 #[repr(C)]
 #[derive(Serialize, Deserialize)]
 pub struct Drill {
+    pub(super) algorithm: EncryptionAlgorithm,
     pub(super) version: u32,
     pub(super) cid: u64,
     #[serde(with = "BigArray")]

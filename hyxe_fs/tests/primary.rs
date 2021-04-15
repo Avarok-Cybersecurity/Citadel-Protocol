@@ -20,15 +20,15 @@ mod tests {
     #[tokio::test]
     async fn encrypt_decrypt_test() {
         setup_log();
-        fn gen(drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
-            let mut alice_base = HyperRatchetConstructor::new_alice(None, 0, 0, None);
-            let bob_base = HyperRatchetConstructor::new_bob(0, 0, drill_vers, alice_base.stage0_alice()).unwrap();
-            alice_base.stage1_alice(bob_base.stage0_bob().unwrap()).unwrap();
+        fn gen(algo: impl Into<CryptoParameters>, drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
+            let mut alice_base = HyperRatchetConstructor::new_alice(Some(algo.into()), 0, 0, None);
+            let bob_base = HyperRatchetConstructor::new_bob(0, drill_vers, alice_base.stage0_alice()).unwrap();
+            alice_base.stage1_alice(&BobToAliceTransferType::Default(bob_base.stage0_bob().unwrap())).unwrap();
 
             (alice_base.finish().unwrap(), bob_base.finish().unwrap())
         }
 
-        let (alice, _bob) = gen(0);
+        let (alice, _bob) = gen(KemAlgorithm::Firesaber + EncryptionAlgorithm::Xchacha20Poly_1305, 0);
         let security_level = SecurityLevel::LOW;
         const HEADER_LEN: usize = 52;
         // // C:\\satori.net\\target\\debug\\hyxewave
@@ -101,7 +101,8 @@ mod tests {
     }
 
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
-    use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
+    use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
+    use hyxe_crypt::prelude::algorithm_dictionary::{CryptoParameters, KemAlgorithm, EncryptionAlgorithm};
 
     #[test]
     fn create_dummy_file() {
