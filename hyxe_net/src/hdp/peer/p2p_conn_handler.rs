@@ -1,21 +1,25 @@
-use crate::hdp::hdp_packet_processor::includes::{SocketAddr, Instant, hdp_packet_crafter, Duration};
-use crate::hdp::hdp_session::{HdpSession, SessionState};
-use crate::error::NetworkError;
-use crate::hdp::misc;
-use crate::hdp::outbound_sender::{unbounded, UnboundedSender, OutboundTcpReceiver};
 use std::sync::Arc;
+
 use atomic::Atomic;
-use crate::hdp::hdp_server::{HdpServerResult, HdpServer, Ticket, UnderlyingProtocol};
-use tokio::sync::oneshot::{Receiver, Sender, channel};
-use crate::hdp::peer::peer_layer::{PeerSignal, PeerConnectionType};
-use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
-use crate::hdp::outbound_sender::OutboundTcpSender;
-use crate::hdp::hdp_packet::HeaderObfuscator;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use hyxe_crypt::drill::SecurityLevel;
-use crate::functional::IfTrueConditional;
-use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
+use tokio::sync::oneshot::{channel, Receiver, Sender};
 use tokio_stream::StreamExt;
+
+use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_user::network_account::ConnectProtocol;
+
+use crate::error::NetworkError;
+use crate::functional::IfTrueConditional;
+use crate::hdp::hdp_packet::HeaderObfuscator;
+use crate::hdp::hdp_packet_processor::includes::{Duration, hdp_packet_crafter, Instant, SocketAddr};
+use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket};
+use crate::hdp::hdp_session::{HdpSession, SessionState};
+use crate::hdp::misc;
+use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
+use crate::hdp::outbound_sender::{OutboundTcpReceiver, unbounded, UnboundedSender};
+use crate::hdp::outbound_sender::OutboundTcpSender;
+use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
+use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
@@ -191,13 +195,13 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 
 /// Both sides need to begin this process at `sync_time` to bypass the firewall
 #[allow(warnings)]
-pub async fn attempt_tcp_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, session: HdpSession, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant,
+pub async fn attempt_tcp_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, session: HdpSession, peer_endpoint_addr: SocketAddr, peer_connect_proto: ConnectProtocol, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant,
 endpoint_hyper_ratchet: HyperRatchet, security_level: SecurityLevel) -> std::io::Result<()> {
 
     tokio::time::sleep_until(sync_time).await;
     let expected_peer_cid = peer_connection_type.get_original_target_cid();
     log::info!("[P2P-stream] Attempting to hole-punch to {:?} ({})", &peer_endpoint_addr, expected_peer_cid);
-    if let Ok(p2p_stream) = HdpServer::create_reuse_tcp_connect_socket(UnderlyingProtocol::Tcp, peer_endpoint_addr, None).await {
+    if let Ok(p2p_stream) = HdpServer::create_reuse_tcp_connect_socket(peer_connect_proto, peer_endpoint_addr, None).await {
         log::info!("[P2P-stream] SUCCESS TCP Hole Punching. Setting up direct p2p session ...");
         handle_p2p_stream(p2p_stream, implicated_cid, session.clone(), kernel_tx, false)
             .and_then(move |p2p_outbound_stream| {

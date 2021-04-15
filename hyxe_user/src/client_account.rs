@@ -9,7 +9,6 @@ use hyxe_fs::prelude::SyncIO;
 
 use crate::hypernode_account::{CNAC_SERIALIZED_EXTENSION, HyperNodeAccountInformation};
 use crate::misc::{AccountError, check_credential_formatting, CNACMetadata};
-use std::net::SocketAddr;
 use multimap::MultiMap;
 use crate::prelude::NetworkAccount;
 use hyxe_fs::system_file_manager::bytes_to_type;
@@ -193,6 +192,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     pub fn refresh_static_hyper_ratchet(&self) -> R {
         let mut write = self.write();
         write.crypt_container.toolset.verify_init_state();
+        write.crypt_container.refresh_state();
         write.crypt_container.toolset.get_static_auxiliary_ratchet().clone()
     }
 
@@ -299,11 +299,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                 Err(AccountError::Generic("Local is not a client type".to_string()))
             }
         }
-    }
-
-    /// Returns the last registered IP address for this client
-    pub fn get_ip(&self) -> Option<SocketAddr> {
-        self.read().adjacent_nac.as_ref()?.get_addr(true)
     }
 
     /// If no version is supplied, the latest drill will be retrieved. The drill will not be dropped from
@@ -677,7 +672,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
                 if accept {
                     // now, construct the endpoint container
-                    let bob_constructor = Fcm::Constructor::new_bob(0, local_cid, 0,AliceToBobTransferType::Fcm(FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| AccountError::Generic(err.to_string()))?)).ok_or(AccountError::IoError("Bad ratchet container".to_string()))?;
+                    let bob_constructor = Fcm::Constructor::new_bob(local_cid, 0,AliceToBobTransferType::Fcm(FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| AccountError::Generic(err.to_string()))?)).ok_or(AccountError::IoError("Bad ratchet container".to_string()))?;
                     let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(AccountError::IoError("Stage0/Bob failed".to_string()))?.assume_fcm().unwrap(), local_fcm_keys, local_cid);
                     let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(AccountError::IoError("Unable to construct Bob's ratchet".to_string()))?;
 
@@ -778,10 +773,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let ref ratchet = crypt_container.get_hyper_ratchet(None).unwrap().clone();
         let object_id = crypt_container.get_and_increment_object_id();
         let group_id = crypt_container.get_and_increment_group_id();
+        let params = crypt_container.get_default_params();
 
         let ticket = FcmTicket::new(*cid, target_peer_cid, ticket_id);
 
-        let constructor = crypt_container.get_next_constructor(None);
+        let constructor = crypt_container.get_next_constructor(Some(params));
         let transfer = constructor.as_ref().map(|con| con.stage0_alice());
         let packet = crate::fcm::fcm_packet_crafter::craft_group_header(ratchet, object_id, group_id, target_peer_cid, ticket_id, message, transfer).ok_or(AccountError::Generic("Report to developers (x-77)".to_string()))?;
 

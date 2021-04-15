@@ -1,4 +1,4 @@
-pub const BUILD_VERSION: usize = 4600;
+pub const BUILD_VERSION: usize = 5031;
 /// Signal for closing the stream_wrapper
 pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper
@@ -73,7 +73,6 @@ pub const MULTIPORT_START: u16 = 25000;
 pub const MULTIPORT_END: u16 = 1 + MULTIPORT_START;
 ///
 pub const PRIMARY_PORT: u16 = 25021;
-pub const DEFAULT_PQC_ALGORITHM: u8 = ez_pqcrypto::algorithm_dictionary::FIRESABER;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
 pub const DRILL_UPDATE_FREQUENCY_LOW_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)

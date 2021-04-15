@@ -4,9 +4,9 @@ use hyxe_net::hdp::hdp_server::Ticket;
 use std::fmt::{Display, Formatter};
 use tokio::time::Instant;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
-use hyxe_crypt::drill::SecurityLevel;
 use serde::{Serialize, Deserialize};
 use hyxe_user::fcm::kem::FcmPostRegister;
+use hyxe_net::hdp::misc::session_security_settings::SessionSecuritySettings;
 
 #[derive(Default)]
 pub struct ConsoleSessionMail {
@@ -87,7 +87,7 @@ pub struct IncomingGroupRequest {
 
 #[derive(Debug, Clone)]
 pub enum IncomingPeerRequest {
-    Connection(Ticket, PeerConnectionType, Instant, SecurityLevel),
+    Connection(Ticket, PeerConnectionType, Instant, SessionSecuritySettings),
     Register(Ticket, Username, PeerConnectionType, Instant, FcmPostRegister)
 }
 

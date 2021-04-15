@@ -4,9 +4,13 @@ mod tests {
     use rand::prelude::ThreadRng;
     use rand::RngCore;
 
-    use ez_pqcrypto::{algorithm_dictionary, PostQuantumContainer, NONCE_LENGTH_BYTES};
+    use ez_pqcrypto::PostQuantumContainer;
     use ez_pqcrypto::bytes_in_place::EzBuffer;
     use ez_pqcrypto::replay_attack_container::unordered::HISTORY_LEN;
+    use ez_pqcrypto::algorithm_dictionary::{KemAlgorithm, EncryptionAlgorithm, ALGORITHM_COUNT};
+    use enum_primitive::FromPrimitive;
+    use std::iter::FromIterator;
+    use std::convert::TryFrom;
 
     #[allow(unused_must_use)]
     fn setup_log() {
@@ -16,6 +20,14 @@ mod tests {
         log::info!("INFO enabled");
         log::warn!("WARN enabled");
         log::error!("ERROR enabled");
+    }
+
+    fn gen(kem_algorithm: KemAlgorithm, encryption_algorithm: EncryptionAlgorithm) -> (PostQuantumContainer, PostQuantumContainer) {
+        println!("Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
+        let mut alice_container = PostQuantumContainer::new_alice(Some(kem_algorithm + encryption_algorithm));
+        let bob_container = PostQuantumContainer::new_bob(Some(kem_algorithm + encryption_algorithm), alice_container.get_public_key()).unwrap();
+        alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
+        (alice_container, bob_container)
     }
 
     /*
@@ -32,41 +44,22 @@ mod tests {
         }*/
 
     #[test]
-    fn default() {
-        let mut working = Vec::new();
-        for algorithm in 0..algorithm_dictionary::ALGORITHM_COUNT {
-            // Good: 0, 1, 2, 7, 8, 9, 10 -> =15, 18, 19, 20, 36 -> =41
-            if algorithm > 35 {
-                if run(Some(algorithm)).is_ok() {
-                    println!("Good: {}", algorithm);
-                    working.push(algorithm);
-                }
-            }
-        }
-
-        print!("working: [");
-        for good in working {
-            print!("{}, ", good);
-        }
-        print!("]\n")
-    }
-
-    #[test]
     fn runit() {
-        run(Some(0)).unwrap()
+        run(0, EncryptionAlgorithm::AES_GCM_256_SIV).unwrap();
+        run(0, EncryptionAlgorithm::Xchacha20Poly_1305).unwrap()
     }
 
-    fn run(algorithm: Option<u8>) -> Result<(), Box<dyn std::error::Error>> {
-        let algorithm = algorithm.unwrap_or(algorithm_dictionary::FIRESABER);
+    fn run(algorithm: u8, encryption_algorithm: EncryptionAlgorithm) -> Result<(), Box<dyn std::error::Error>> {
+        let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
+        println!("Test: {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
         // Alice wants to share data with Bob. She first creates a PostQuantumContainer
-        let mut alice_container = PostQuantumContainer::new_alice(Some(algorithm));
+        let mut alice_container = PostQuantumContainer::new_alice(Some(kem_algorithm + encryption_algorithm));
         // Then, alice sends her public key to Bob. She must also send the byte value of algorithm_dictionary::BABYBEAR to him
         let alice_public_key = alice_container.get_public_key();
-        let algorithm_byte_value = alice_container.get_algorithm_idx();
         //
         // Then, Bob gets the public key. To process it, he must create a PostQuantumContainer for himself
-        let bob_container = PostQuantumContainer::new_bob(algorithm_byte_value, alice_public_key)?;
-        let eve_container = PostQuantumContainer::new_bob(algorithm_byte_value, alice_public_key)?;
+        let bob_container = PostQuantumContainer::new_bob(Some(kem_algorithm + encryption_algorithm), alice_public_key)?;
+        let eve_container = PostQuantumContainer::new_bob(Some(kem_algorithm + encryption_algorithm), alice_public_key)?;
         // Internally, this computes the CipherText. The next step is to send this CipherText back over to alice
         let bob_ciphertext = bob_container.get_ciphertext().unwrap();
         let _eve_ciphertext = eve_container.get_ciphertext().unwrap();
@@ -83,7 +76,7 @@ mod tests {
         assert_ne!(eve_ss, bob_ss);
 
         let plaintext = b"Hello, world!";
-        let nonce = b"unique nonce"; // 96 bits or 12 bytes
+        let ref nonce = Vec::from_iter(0..(encryption_algorithm.nonce_len()) as u8);
 
         let mut ciphertext = alice_container.encrypt(plaintext, nonce).unwrap();
         let mut ptr = &mut ciphertext[..];
@@ -100,11 +93,10 @@ mod tests {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN;
 
-        let algorithm = algorithm_dictionary::FIRESABER;
-        println!("Test algorithm {}", algorithm);
-        let mut alice_container = PostQuantumContainer::new_alice(Some(algorithm));
-        let bob_container = PostQuantumContainer::new_bob(algorithm, alice_container.get_public_key()).unwrap();
-        alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
+        let kem_algorithm = KemAlgorithm::Firesaber;
+        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let nonce_len = encryption_algorithm.nonce_len();
+        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
 
         let mut buf = BytesMut::with_capacity(TOTAL_LEN);
         for x in 0..TOTAL_LEN {
@@ -112,7 +104,7 @@ mod tests {
         }
 
         println!("[ {} ] {:?}", buf.len(), &buf[..]);
-        let nonce: [u8; NONCE_LENGTH_BYTES] = Default::default();
+        let nonce = Vec::from_iter(0..nonce_len as u8);
         alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
 
         println!("[ {} ] {:?}", buf.len(), &buf[..]);
@@ -131,11 +123,9 @@ mod tests {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;
 
-        let algorithm = algorithm_dictionary::FIRESABER;
-        println!("Test algorithm {}", algorithm);
-        let mut alice_container = PostQuantumContainer::new_alice(Some(algorithm));
-        let bob_container = PostQuantumContainer::new_bob(algorithm, alice_container.get_public_key()).unwrap();
-        alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
+        let kem_algorithm = KemAlgorithm::Firesaber;
+        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
 
         for y in 0..1 {
             println!("At {}", y);
@@ -184,13 +174,15 @@ mod tests {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;
 
-        let algorithm = algorithm_dictionary::FIRESABER;
-        println!("Test algorithm {}", algorithm);
-        let mut alice_container = PostQuantumContainer::new_alice(Some(algorithm));
-        let bob_container = PostQuantumContainer::new_bob(algorithm, alice_container.get_public_key()).unwrap();
-        alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
+        let kem_algorithm = KemAlgorithm::Firesaber;
+        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let nonce_len = encryption_algorithm.nonce_len();
+
+        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
+
+
         let mut zeroth = Vec::default();
-        let mut zeroth_nonce = Default::default();
+        let mut zeroth_nonce = Vec::from_iter(0..nonce_len as u8);
         for y in 0..100 {
             let mut buf = Vec::with_capacity(TOTAL_LEN);
             for x in 0..TOTAL_LEN {
@@ -200,7 +192,7 @@ mod tests {
             let mut buf2 = buf.clone();
 
             println!("[{} @ {} ] {:?}", y, buf.len(), &buf[..]);
-            let nonce: [u8; NONCE_LENGTH_BYTES] = Default::default();
+            let nonce = Vec::from_iter(0..nonce_len as u8);
             alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
             alice_container.protect_packet_in_place(HEADER_LEN, &mut buf2, &nonce).unwrap();
 
@@ -208,7 +200,7 @@ mod tests {
             let mut intercepted_packet = buf.clone();
             if y == 0 {
                 zeroth = intercepted_packet.clone();
-                zeroth_nonce = nonce;
+                zeroth_nonce = nonce.clone();
             }
 
             // to simulate out-of order delivery, protect a new packet in place and validate that one
@@ -243,14 +235,13 @@ mod tests {
 
         setup_log();
 
-        let algorithm = algorithm_dictionary::FIRESABER;
-        println!("Test algorithm {}", algorithm);
-        let mut alice_container = PostQuantumContainer::new_alice(Some(algorithm));
-        let bob_container = PostQuantumContainer::new_bob(algorithm, alice_container.get_public_key()).unwrap();
-        alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
+        let kem_algorithm = KemAlgorithm::Firesaber;
+        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let nonce_len = encryption_algorithm.nonce_len();
+        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
 
         let mut packet0 = (0..TOTAL_LEN as u8).into_iter().collect::<Vec<u8>>();
-        let nonce: [u8; NONCE_LENGTH_BYTES] = Default::default();
+        let nonce = Vec::from_iter(0..nonce_len as u8);
         // encrypt the packet, but don't verify it
         alice_container.protect_packet_in_place(HEADER_LEN, &mut packet0, &nonce).unwrap();
         // In theory, in unordered mode, we don't have to verify packet0 before HISTORY_LEN+1 packets
@@ -285,19 +276,24 @@ mod tests {
 
     #[test]
     fn test_10() {
-        for algorithm in 0..10 {
+        setup_log();
+        for algorithm in 0..ALGORITHM_COUNT {
             println!("About to test {}", algorithm);
-            run(Some(algorithm)).unwrap();
+            run(algorithm as u8, EncryptionAlgorithm::AES_GCM_256_SIV).unwrap();
+            run(algorithm as u8, EncryptionAlgorithm::Xchacha20Poly_1305).unwrap();
         }
     }
 
     #[test]
+    fn parse() {
+        assert_eq!(KemAlgorithm::Kyber1024_90s, KemAlgorithm::try_from(5).unwrap());
+    }
+
+    #[test]
     fn test_serialize_deserialize() {
-        let algorithm = algorithm_dictionary::FIRESABER;
-        println!("Test algorithm {}", algorithm);
-        let mut alice_container = PostQuantumContainer::new_alice(Some(algorithm));
-        let bob_container = PostQuantumContainer::new_bob(algorithm, alice_container.get_public_key()).unwrap();
-        alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
+        let kem_algorithm = KemAlgorithm::Kyber1024_90s;
+        let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+        let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
 
         let nonce = &mut [0u8; 12];
         ThreadRng::default().fill_bytes(nonce);

@@ -72,6 +72,7 @@ pub(crate) mod packet_flags {
                 pub(crate) const STAGE1: u8 = 1;
 
                 pub(crate) const TRUNCATE: u8 = 2;
+                pub(crate) const TRUNCATE_ACK: u8 = 3;
             }
 
             pub(crate) mod do_deregister {
@@ -141,9 +142,8 @@ pub(crate) mod packet_sizes {
 
     pub(crate) mod do_drill_update {
         use crate::constants::HDP_HEADER_BYTE_LEN;
-        use hyxe_crypt::aes_gcm::AES_GCM_NONCE_LEN_BYTES;
 
-        pub(crate) const STAGE1: usize = HDP_HEADER_BYTE_LEN + AES_GCM_NONCE_LEN_BYTES;
+        pub(crate) const STAGE1: usize = HDP_HEADER_BYTE_LEN + HDP_HEADER_BYTE_LEN;
     }
 
     pub(crate) mod do_preconnect {

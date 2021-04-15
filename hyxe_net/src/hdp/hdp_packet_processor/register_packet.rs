@@ -33,19 +33,19 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                         let timestamp = session.time_tracker.get_global_time_ns();
                         let local_nid = session.account_manager.get_local_nid();
 
-                        let state_container_ref = session.state_container.clone();
                         let account_manager = session.account_manager.clone();
 
                         std::mem::drop(state_container);
                         std::mem::drop(session);
 
                         let reserved_true_cid = account_manager.get_persistence_handler().find_first_valid_cid(&possible_cids).await?.ok_or(NetworkError::InvalidExternalRequest("Infinitesimally small probability this happens"))?;
-                        let bob_constructor = HyperRatchetConstructor::new_bob(header.algorithm, reserved_true_cid, 0, transfer).ok_or(NetworkError::InvalidExternalRequest("Bad bob transfer"))?;
+                        let bob_constructor = HyperRatchetConstructor::new_bob(reserved_true_cid, 0, transfer).ok_or(NetworkError::InvalidExternalRequest("Bad bob transfer"))?;
                         let transfer = bob_constructor.stage0_bob()?;
 
 
                         let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, local_nid, transfer, reserved_true_cid);
-                        let mut state_container = inner_mut!(state_container_ref);
+                        let session = inner!(session_ref);
+                        let mut state_container = inner_mut!(session.state_container);
                         state_container.register_state.proposed_cid = Some(reserved_true_cid);
                         state_container.register_state.created_hyper_ratchet = Some(bob_constructor.finish()?);
                         state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE1;
@@ -173,12 +173,13 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
             log::info!("STAGE SUCCESS REGISTER PACKET");
             // This will follow stage 4 in the case of a successful registration. The packet's payload contains the CNAC bytes, encrypted using AES-GCM.
             // The CNAC does not have the credentials (Serde skips the serialization thereof)
+            let connect_proto = session.connect_proto.clone()?;
             // run: pub async fn register_personal_hyperlan_server<T: AsRef<[u8]>>(&self, cnac_inner_bytes: T, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>) -> Result<ClientNetworkAccount, AccountError<String>>
             let mut state_container = inner_mut!(session.state_container);
             if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE2 {
                 let hyper_ratchet = state_container.register_state.created_hyper_ratchet.clone()?;
 
-                    if let Some((success_message, adjacent_nac)) = validation::do_register::validate_success(&hyper_ratchet, header, payload, remote_addr, session.account_manager.get_persistence_handler()) {
+                    if let Some((success_message, adjacent_nac)) = validation::do_register::validate_success(&hyper_ratchet, header, payload, remote_addr, connect_proto,session.account_manager.get_persistence_handler()) {
                         // Now, register the CNAC locally
 
                         let credentials = state_container.register_state.proposed_credentials.take()?;

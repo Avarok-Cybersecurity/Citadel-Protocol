@@ -98,6 +98,7 @@ pub enum FCMPayloadType<'a> {
     GroupHeader { #[serde(borrow)] alice_to_bob_transfer: Option<FcmAliceToBobTransfer<'a>>, #[serde(with = "serde_bytes")] message: &'a [u8] },
     GroupHeaderAck { bob_to_alice_transfer: KemTransferStatus },
     Truncate { truncate_vers: u32 },
+    TruncateAck { truncate_vers: u32 },
     PeerPostRegister { transfer: FcmPostRegister, username: String }, // the rest of the info will exist in the FCM header
     PeerDeregistered
 }

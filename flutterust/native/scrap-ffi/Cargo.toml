@@ -6,7 +6,7 @@ edition = "2018"
 
 [lib]
 name = "scrap_ffi"
-crate-type = ["staticlib", "rlib", "rlib"]
+crate-type = ["staticlib", "cdylib", "cdylib"]
 
 [dependencies]
 
@@ -20,4 +20,4 @@ log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_le
 
 [build-dependencies]
 cbindgen = "0.14.3"
-dart-bindgen = "0.1.7"
+dart-bindgen = "0.1.8"

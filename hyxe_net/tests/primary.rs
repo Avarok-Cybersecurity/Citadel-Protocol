@@ -2,48 +2,53 @@
 
 #[cfg(test)]
 pub mod tests {
-    use std::error::Error;
-    use hyxe_net::hdp::hdp_server::{HdpServerRequest, HdpServerRemote, Ticket, ConnectMode, UnderlyingProtocol};
-    use crate::tests::kernel::{TestKernel, TestContainer, ActionType};
-    use hyxe_net::kernel::kernel_executor::KernelExecutor;
-    use hyxe_nat::hypernode_type::HyperNodeType;
-    use hyxe_user::account_manager::AccountManager;
-    use hyxe_net::hdp::hdp_packet_processor::includes::{SocketAddr, Duration};
-    use std::str::FromStr;
-    use hyxe_user::proposed_credentials::ProposedCredentials;
-    use hyxe_crypt::drill::SecurityLevel;
-    use std::sync::Arc;
-    use parking_lot::{RwLock, Mutex, const_mutex};
-    use hyxe_net::functional::{TriMap, PairMap};
-    use hyxe_net::hdp::peer::peer_layer::{PeerSignal, PeerConnectionType};
-    use hyxe_net::hdp::peer::channel::{PeerChannel, PeerChannelSendHalf};
-    use hyxe_crypt::sec_bytes::SecBuffer;
-    use futures::{StreamExt, SinkExt, Future};
     use std::collections::HashSet;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use crate::utils::{AssertSendSafeFuture, assert, assert_eq};
-    use byteorder::ByteOrder;
-    use hyxe_net::error::NetworkError;
-    use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-    use tokio::runtime::{Builder, Runtime};
-    use hyxe_net::hdp::peer::message_group::MessageGroupKey;
-    use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
-    use hyxe_crypt::hyper_ratchet::HyperRatchet;
-    use hyxe_user::fcm::kem::FcmPostRegister;
-    use hyxe_crypt::fcm::keys::FcmKeys;
-    use hyxe_user::backend::BackendType;
-    use hyxe_net::hdp::misc::net::TlsListener;
-    use tokio::net::{TcpListener, TcpStream};
+    use std::error::Error;
     use std::pin::Pin;
+    use std::str::FromStr;
+    use std::sync::Arc;
     use std::time::Instant;
 
+    use byteorder::ByteOrder;
+    use futures::{Future, SinkExt, StreamExt};
+    use parking_lot::{const_mutex, Mutex, RwLock};
+    use tokio::net::{TcpListener, TcpStream};
+    use tokio::runtime::{Builder, Handle};
+
+    use ez_pqcrypto::algorithm_dictionary::{CryptoParameters, EncryptionAlgorithm, KemAlgorithm};
+    use hyxe_crypt::drill::SecurityLevel;
+    use hyxe_crypt::fcm::keys::FcmKeys;
+    use hyxe_crypt::hyper_ratchet::constructor::{BobToAliceTransferType, HyperRatchetConstructor};
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use hyxe_crypt::sec_bytes::SecBuffer;
+    use hyxe_nat::hypernode_type::HyperNodeType;
+    use hyxe_net::error::NetworkError;
+    use hyxe_net::functional::{PairMap, TriMap};
+    use hyxe_net::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
+    use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+    use hyxe_net::hdp::hdp_server::{ConnectMode, HdpServerRemote, HdpServerRequest, SecrecyMode, Ticket, UnderlyingProtocol};
+    use hyxe_net::hdp::misc::net::TlsListener;
+    use hyxe_net::hdp::misc::session_security_settings::{SessionSecuritySettings, SessionSecuritySettingsBuilder};
+    use hyxe_net::hdp::peer::channel::{PeerChannel, PeerChannelSendHalf};
+    use hyxe_net::hdp::peer::message_group::MessageGroupKey;
+    use hyxe_net::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
+    use hyxe_net::kernel::kernel_executor::KernelExecutor;
+    use hyxe_user::account_manager::AccountManager;
+    use hyxe_user::backend::BackendType;
+    use hyxe_user::fcm::kem::FcmPostRegister;
+    use hyxe_user::network_account::ConnectProtocol;
+    use hyxe_user::proposed_credentials::ProposedCredentials;
+
+    use crate::tests::kernel::{ActionType, TestContainer, TestKernel};
+    use crate::utils::{assert, assert_eq, AssertSendSafeFuture};
+
     const COUNT: usize = 500;
-    const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 50);
+    const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 100);
 
     #[allow(dead_code)]
-    fn gen(cid: u64, vers: u32, sec: Option<SecurityLevel>) -> (HyperRatchet, HyperRatchet) {
-        let mut alice_con = HyperRatchetConstructor::new_alice(None, cid, vers, sec);
-        let bob_con = HyperRatchetConstructor::new_bob(0, cid, vers, alice_con.stage0_alice()).unwrap();
+    fn gen(params: impl Into<CryptoParameters>, cid: u64, vers: u32, sec: Option<SecurityLevel>) -> (HyperRatchet, HyperRatchet) {
+        let mut alice_con = HyperRatchetConstructor::new_alice(Some(params.into()), cid, vers, sec);
+        let bob_con = HyperRatchetConstructor::new_bob(cid, vers, alice_con.stage0_alice()).unwrap();
         alice_con.stage1_alice(&bob_con.stage0_bob().map(BobToAliceTransferType::Default).unwrap()).unwrap();
         (alice_con.finish().unwrap(), bob_con.finish().unwrap())
     }
@@ -66,34 +71,6 @@ pub mod tests {
         ActionType::Function(f)
     }
 
-    #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-    pub enum NodeType {
-        Server,
-        Client0,
-        Client1,
-        Client2,
-    }
-
-    fn backend_server() -> BackendType {
-        if USE_FILESYSYEM {
-            BackendType::Filesystem
-        } else {
-            BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
-        }
-    }
-
-    fn backend_client() -> BackendType {
-        BackendType::Filesystem
-    }
-
-    static PROTO: Mutex<Option<UnderlyingProtocol>> = const_mutex(None);
-    const USE_FILESYSYEM: bool = true;
-
-    fn underlying_proto() -> UnderlyingProtocol {
-        let lock = PROTO.lock();
-        lock.as_ref().unwrap().clone()
-    }
-
     #[tokio::test]
     async fn tls() {
         setup_log();
@@ -101,8 +78,8 @@ pub mod tests {
         const CERT: &str = "/Users/nologik/satori.net/keys/devonly.crt";
 
         let identity = TlsListener::load_tls_pkcs(PKCS, "mrmoney10").unwrap();
-        let cert = TlsListener::load_tls_cert(CERT).unwrap();
-        let identity2 = identity.clone();
+        let _cert = TlsListener::load_tls_cert(CERT).unwrap();
+        let _identity2 = identity.clone();
 
         // We need to use danger_accept_invalid_certs in the dev setting b/c self-signed certs are invalid. We can use letsencrypt follwed by an ACME challenge to generate the right certs
 
@@ -142,12 +119,62 @@ pub mod tests {
         Box::pin(AssertSendSafeFuture::new_silent(f))
     }
 
+    #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+    pub enum NodeType {
+        Server,
+        Client0,
+        Client1,
+        Client2,
+    }
+
+    fn backend_server() -> BackendType {
+        if USE_FILESYSYEM {
+            BackendType::Filesystem
+        } else {
+            BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+        }
+    }
+
+    fn backend_client() -> BackendType {
+        BackendType::Filesystem
+    }
+
+    static PROTO: Mutex<Option<UnderlyingProtocol>> = const_mutex(None);
+    const USE_FILESYSYEM: bool = true;
+
+    fn underlying_proto() -> UnderlyingProtocol {
+        let lock = PROTO.lock();
+        lock.as_ref().unwrap().clone()
+    }
+
+    #[allow(dead_code)]
+    fn connect_proto() -> ConnectProtocol {
+        let lock = PROTO.lock();
+        let val = lock.as_ref().unwrap();
+        match val {
+            UnderlyingProtocol::Tls(_, domain) => {
+                ConnectProtocol::Tls(domain.clone())
+            }
+
+            UnderlyingProtocol::Tcp => {
+                ConnectProtocol::Tcp
+            }
+        }
+    }
+
+    pub const SECRECY_MODE: SecrecyMode = SecrecyMode::BestEffort;
+    pub const USE_TLS: bool = true;
+
     #[test]
     fn main() -> Result<(), Box<dyn Error>> {
         super::utils::deadlock_detector();
-        //*PROTO.lock() = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/devonly.pkcs", "mrmoney10").unwrap()));
-        *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
-        let rt = Arc::new(Builder::new_multi_thread().enable_time().enable_io().build().unwrap());
+        if USE_TLS {
+            *PROTO.lock() = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/devonly.pkcs", "mrmoney10").unwrap(), None));
+        } else {
+            *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
+        }
+
+        let rt = Builder::new_multi_thread().enable_time().enable_io().build().unwrap();
 
         setup_log();
         let server_bind_addr = SocketAddr::from_str("127.0.0.1:33332").unwrap();
@@ -157,6 +184,10 @@ pub mod tests {
 
         let security_level = SecurityLevel::LOW;
         let p2p_security_level = SecurityLevel::LOW;
+
+        let params = KemAlgorithm::Firesaber + EncryptionAlgorithm::AES_GCM_256_SIV;
+
+        let default_security_settings = SessionSecuritySettingsBuilder::default().with_secrecy_mode(SECRECY_MODE).with_security_level(security_level).with_crypto_params(params).build();
 
         static CLIENT0_FULLNAME: &'static str = "Thomas P Braun (test)";
         static CLIENT0_USERNAME: &'static str = "nologik";
@@ -197,43 +228,41 @@ pub mod tests {
         let test_container5 = test_container.clone();
         let test_container6 = test_container.clone();
 
+        let handle = rt.handle().clone();
 
-        let rt_main = rt.clone();
-
-        rt_main.block_on(async move {
+        rt.block_on(async move {
             log::info!("Setting up executors ...");
-            let server_executor = create_executor(HyperNodeType::GloballyReachable, rt.clone(), server_bind_addr, Some(test_container.clone()), NodeType::Server, Vec::default(), backend_server()).await;
+            let server_executor = create_executor(HyperNodeType::GloballyReachable, handle.clone(), server_bind_addr, Some(test_container.clone()), NodeType::Server, Vec::default(), backend_server(), underlying_proto()).await;
             log::info!("Done setting up server executor");
-            let client0_executor = create_executor(HyperNodeType::BehindResidentialNAT, rt.clone(), client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
-                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_0, None, keys0, security_level, underlying_proto())),
-                     function(pinbox(client0_action1(test_container0, CLIENT0_PASSWORD, security_level))),
+            let client0_executor = create_executor(HyperNodeType::BehindResidentialNAT, handle.clone(), client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_0, keys0, default_security_settings, connect_proto())),
+                     function(pinbox(client0_action1(test_container0, CLIENT0_PASSWORD, default_security_settings))),
                      function(pinbox(client0_action2(test_container1, ENABLE_FCM))),
                      function(pinbox(client0_action3(test_container2, p2p_security_level)))
                 ]
-            }, backend_client()).await;
+            }, backend_client(), underlying_proto()).await;
 
-            let client1_executor = create_executor(HyperNodeType::BehindResidentialNAT, rt.clone(), client1_bind_addr, Some(test_container.clone()), NodeType::Client1, {
-                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_1, None, keys1, security_level, underlying_proto())),
-                     function(pinbox(client1_action1(test_container3, CLIENT1_PASSWORD, security_level)))
+            let client1_executor = create_executor(HyperNodeType::BehindResidentialNAT, handle.clone(), client1_bind_addr, Some(test_container.clone()), NodeType::Client1, {
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_1, keys1, default_security_settings, connect_proto())),
+                     function(pinbox(client1_action1(test_container3, CLIENT1_PASSWORD, default_security_settings)))
                 ]
-            }, backend_client()).await;
+            }, backend_client(), underlying_proto()).await;
 
-            let client2_executor = create_executor(HyperNodeType::BehindResidentialNAT, rt.clone(), client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
-                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_2, None, keys2, security_level, underlying_proto())),
-                     function(pinbox(client2_action1(test_container4, CLIENT2_PASSWORD, security_level))),
+            let client2_executor = create_executor(HyperNodeType::BehindResidentialNAT, handle.clone(), client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_2, keys2, default_security_settings, connect_proto())),
+                     function(pinbox(client2_action1(test_container4, CLIENT2_PASSWORD, default_security_settings))),
                      function(pinbox(client2_action2(test_container5, ENABLE_FCM))),
                      function(pinbox(client2_action3_start_group(test_container6)))
                 ]
-            }, backend_client()).await;
+            }, backend_client(), underlying_proto()).await;
 
             log::info!("Done setting up executors");
 
-            let server_future = server_executor.execute();
-            let client0_future = tokio::task::spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(client0_executor.execute())));
-            let client1_future = tokio::task::spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(client1_executor.execute())));
-            let client2_future = tokio::task::spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(client2_executor.execute())));
+            let client0_future = handle.spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(client0_executor.execute())));
+            let client1_future = handle.spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(client1_executor.execute())));
+            let client2_future = handle.spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(client2_executor.execute())));
 
-            let server = tokio::task::spawn(AssertSendSafeFuture::new_silent(server_future));
+            let server_future = handle.spawn(AssertSendSafeFuture::new_silent(server_executor.execute()));
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             //futures::future::try_join_all(vec![client0_future, client1_future]).await.map(|res|)
@@ -241,41 +270,50 @@ pub mod tests {
 
             log::info!("Ending test (client(s) done) ...");
 
-            let _ = tokio::time::timeout(Duration::from_millis(100), server).await;
+            // Give time for the server to stop now that the clients are done
+            let _ = tokio::time::timeout(Duration::from_millis(100), server_future).await;
 
-            println!("Execution time: {}ms", init.elapsed().as_millis());
-            Ok(())
-        })
+            log::info!("Execution time: {}ms", init.elapsed().as_millis());
+
+            Ok(()) as Result<(), Box<dyn Error>>
+        })?;
+
+        std::mem::drop(rt);
+        log::info!("Ending execution");
+        Ok(())
     }
 
     #[allow(unused_results)]
-    async fn create_executor(hypernode_type: HyperNodeType, rt: Arc<Runtime>, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: NodeType, commands: Vec<ActionType>, backend_type: BackendType) -> KernelExecutor<TestKernel> {
+    async fn create_executor(hypernode_type: HyperNodeType, rt: Handle, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: NodeType, commands: Vec<ActionType>, backend_type: BackendType, underlying_proto: UnderlyingProtocol) -> KernelExecutor<TestKernel> {
         let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port())), backend_type).await.unwrap();
         account_manager.purge().await.unwrap();
         let kernel = TestKernel::new(node_type, commands, test_container);
-        KernelExecutor::new(rt, hypernode_type, account_manager, kernel, bind_addr, underlying_proto()).await.unwrap()
+        KernelExecutor::new(rt, hypernode_type, account_manager, kernel, bind_addr, underlying_proto).await.unwrap()
     }
 
     pub mod kernel {
-        use hyxe_net::kernel::kernel::NetKernel;
-        use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerResult, HdpServerRequest, Ticket};
-        use hyxe_net::error::NetworkError;
         use std::collections::{HashSet, VecDeque};
-        use parking_lot::{Mutex, RwLock};
-        use hyxe_net::hdp::hdp_packet_processor::includes::Duration;
-        use async_trait::async_trait;
-        use std::sync::Arc;
-        use hyxe_user::client_account::ClientNetworkAccount;
-        use crate::tests::{NodeType, handle_peer_channel, COUNT, GROUP_TICKET_TEST, client2_action4_fire_group, handle_c2s_peer_channel};
-        use hyxe_net::hdp::peer::peer_layer::{PeerSignal, PeerResponse};
-        use byteorder::ByteOrder;
-        use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
-        use crate::utils::{assert_eq, assert};
-        use tokio::sync::broadcast;
-        use futures::Future;
-        use async_recursion::async_recursion;
         use std::pin::Pin;
+        use std::sync::Arc;
+
+        use async_recursion::async_recursion;
+        use async_trait::async_trait;
+        use byteorder::ByteOrder;
+        use futures::Future;
+        use parking_lot::{Mutex, RwLock};
+        use tokio::sync::broadcast;
+
+        use hyxe_net::error::NetworkError;
+        use hyxe_net::hdp::hdp_packet_processor::includes::Duration;
+        use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
+        use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerRequest, HdpServerResult, Ticket};
         use hyxe_net::hdp::peer::channel::PeerChannel;
+        use hyxe_net::hdp::peer::peer_layer::{PeerResponse, PeerSignal};
+        use hyxe_net::kernel::kernel::NetKernel;
+        use hyxe_user::client_account::ClientNetworkAccount;
+
+        use crate::tests::{client2_action4_fire_group, COUNT, GROUP_TICKET_TEST, handle_c2s_peer_channel, handle_peer_channel, NodeType};
+        use crate::utils::{assert, assert_eq};
 
         #[derive(Default)]
         pub struct TestContainer {
@@ -807,29 +845,30 @@ pub mod tests {
             tokio::time::sleep(Duration::from_millis(300)).await;
             let (sink, mut stream) = channel.split();
             let sender = async move {
-                for x in 0..COUNT {
-                    if x % 10 == 9 {
-                        tokio::time::sleep(Duration::from_millis(1)).await
+                    for x in 0..COUNT {
+                        if x % 10 == 9 {
+                            //tokio::time::sleep(Duration::from_millis(1)).await
+                        }
+                        //tokio::time::sleep(Duration::from_millis(10)).await;
+                        sink.send_unbounded(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8])).unwrap();
                     }
-                    //tokio::time::sleep(Duration::from_millis(10)).await;
-                    sink.send_unbounded(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8])).unwrap();
-                }
 
-                log::info!("DONE sending {} messages for {:?}", COUNT, node_type);
+                    log::info!("DONE sending {} messages for {:?}", COUNT, node_type);
+
                 true
             };
 
             let receiver = async move {
-                let messages_recv = Arc::new(AtomicUsize::new(0));
+                let mut messages_recv = 0;
 
                 while let Some(val) = stream.next().await {
                     match node_type {
                         NodeType::Client0 | NodeType::Client1 => {
-                            let count_now = messages_recv.clone().fetch_add(1, Ordering::SeqCst) + 1;
-                            log::info!("{:?} RECV MESSAGE {:?}. CUR COUNT: {}", val.as_ref(), node_type, count_now);
+                            messages_recv += 1;
+                            log::info!("{:?} RECV MESSAGE {:?}. CUR COUNT: {}", val.as_ref(), node_type, messages_recv);
                             let value = byteorder::BigEndian::read_u64(val.as_ref()) as usize;
-                            assert_eq(count_now - 1, value, "EGQ");
-                            if count_now >= COUNT {
+                            assert_eq(messages_recv - 1, value, "EGQ");
+                            if messages_recv >= COUNT {
                                 break;
                             }
                         }
@@ -840,12 +879,11 @@ pub mod tests {
                     }
                 }
 
-                let count = messages_recv.load(Ordering::SeqCst);
-                if count >= COUNT {
+                if messages_recv >= COUNT {
                     log::info!("DONE receiving {} messages for {:?}", COUNT, node_type);
                     true
                 } else {
-                    log::error!("Unable to receive all messages {:?}: {}/{}", node_type, count, COUNT);
+                    log::error!("Unable to receive all messages {:?}: {}/{}", node_type, messages_recv, COUNT);
                     false
                 }
             };
@@ -891,52 +929,43 @@ pub mod tests {
         std::io::Error::new(std::io::ErrorKind::Other, msg)
     }
 
-    async fn client0_action1(item_container: Arc<RwLock<TestContainer>>, password: &'static str, security_level: SecurityLevel) -> Option<ActionType> {
+    async fn client0_action1(item_container: Arc<RwLock<TestContainer>>, password: &'static str, security_settings: SessionSecuritySettings) -> Option<ActionType> {
         let read_c = item_container.read();
         let cnac = read_c.cnac_client0.clone().unwrap();
-        let read = cnac.read();
-        let ip = read.adjacent_nac.as_ref().unwrap().get_addr(true).unwrap();
-        let cid = read.cid;
-        std::mem::drop(read);
+        let cid = cnac.get_cid();
         std::mem::drop(read_c);
 
         log::info!("About to hash ...");
         let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, ConnectMode::Standard, None, None, Some(true), None, underlying_proto())))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard,  None, Some(true), None, security_settings)))
     }
 
-    async fn client1_action1(item_container: Arc<RwLock<TestContainer>>, password: &'static str, security_level: SecurityLevel) -> Option<ActionType> {
+    async fn client1_action1(item_container: Arc<RwLock<TestContainer>>, password: &'static str, security_settings: SessionSecuritySettings) -> Option<ActionType> {
         let read_c = item_container.read();
         let cnac = read_c.cnac_client1.clone().unwrap();
-        let read = cnac.read();
-        let ip = read.adjacent_nac.as_ref().unwrap().get_addr(true).unwrap();
-        let cid = read.cid;
-        std::mem::drop(read);
+        let cid = cnac.get_cid();
         std::mem::drop(read_c);
 
         log::info!("About to hash ...");
         let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, ConnectMode::Standard, None, None, Some(true), None, underlying_proto())))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard,  None, Some(true), None, security_settings)))
     }
 
-    async fn client2_action1(item_container: Arc<RwLock<TestContainer>>, password: &'static str, security_level: SecurityLevel) -> Option<ActionType> {
+    async fn client2_action1(item_container: Arc<RwLock<TestContainer>>, password: &'static str, security_settings: SessionSecuritySettings) -> Option<ActionType> {
         let read_c = item_container.read();
         let cnac = read_c.cnac_client2.clone().unwrap();
-        let read = cnac.read();
-        let ip = read.adjacent_nac.as_ref().unwrap().get_addr(true).unwrap();
-        let cid = read.cid;
-        std::mem::drop(read);
+        let cid = cnac.get_cid();
         std::mem::drop(read_c);
 
         log::info!("About to hash ...");
         let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(ip, cid, proposed_credentials, security_level, ConnectMode::Standard, None, None, Some(true), None, underlying_proto())))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard,  None, Some(true), None, security_settings)))
     }
 
     // client 2 will initiate the p2p *registration* to client1
@@ -1052,7 +1081,8 @@ pub mod tests {
             let client0_id = client0_cnac.get_cid();
             let target_cid = cnac.get_cid();
             let requests = read.queued_requests_client0.as_ref().unwrap();
-            let post_connect_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), None, None, p2p_security_level));
+            let settings = SessionSecuritySettingsBuilder::default().with_security_level(p2p_security_level).with_secrecy_mode(SECRECY_MODE).build();
+            let post_connect_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), None, None, settings));
             let ticket = read.remote_client0.as_ref().unwrap().unbounded_send(post_connect_request).unwrap();
             assert(requests.lock().insert(ticket), "Z12");
         });
@@ -1062,14 +1092,15 @@ pub mod tests {
 }
 
 pub mod utils {
-    use futures::Future;
     use std::pin::Pin;
+
+    use futures::Future;
     use futures::task::{Context, Poll};
 
     /// For denoting to the compiler that running the future is thread-safe
-    /// It is up to the caller to ensure the supplied future is not going to be called
-    /// from multiple threads concurrently. IF there is a single instance of the task, then
-    /// use this. If there will be multiple, use the safer version in misc::ThreadSafeFuture
+        /// It is up to the caller to ensure the supplied future is not going to be called
+        /// from multiple threads concurrently. IF there is a single instance of the task, then
+        /// use this. If there will be multiple, use the safer version in misc::ThreadSafeFuture
     pub struct AssertSendSafeFuture<'a, Out: 'a>(Pin<Box<dyn Future<Output=Out> + 'a>>);
 
     unsafe impl<'a, Out: 'a> Send for AssertSendSafeFuture<'a, Out> {}

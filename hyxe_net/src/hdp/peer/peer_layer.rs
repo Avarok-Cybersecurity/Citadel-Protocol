@@ -13,7 +13,6 @@ use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
 use std::fmt::{Display, Formatter};
 use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-use hyxe_crypt::drill::SecurityLevel;
 use serde::{Serialize, Deserialize};
 use hyxe_fs::prelude::SyncIO;
 use crate::macros::SyncContextRequirements;
@@ -23,6 +22,7 @@ use futures::task::AtomicWaker;
 use hyxe_user::fcm::kem::FcmPostRegister;
 use hyxe_user::fcm::data_structures::{RawFcmPacket, FcmTicket};
 use hyxe_crypt::fcm::keys::FcmKeys;
+use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
 impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
@@ -419,7 +419,7 @@ pub enum PeerSignal {
     // implicated_cid, icid, target_cid, use_fcm
     Deregister(PeerConnectionType, bool),
     // implicated_cid, icid, target_cid
-    PostConnect(PeerConnectionType, Option<Ticket>, Option<PeerResponse>, SecurityLevel),
+    PostConnect(PeerConnectionType, Option<Ticket>, Option<PeerResponse>, SessionSecuritySettings),
     // implicated_cid, icid, target cid
     Disconnect(PeerConnectionType, Option<PeerResponse>),
     // implicated_cid, icid

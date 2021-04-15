@@ -7,11 +7,13 @@ mod tests {
     use hyxe_crypt::relay_chain::CryptoRelayChain;
     use std::iter::FromIterator;
     use bytes::{BufMut, BytesMut};
-    use hyxe_crypt::hyper_ratchet::{HyperRatchet, get_approx_max_transfer_size, Ratchet};
+    use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::net::crypt_splitter::{scramble_encrypt_group, GroupReceiver, par_scramble_encrypt_group};
     use std::time::Instant;
     use hyxe_crypt::argon_container::{ArgonSettings, AsyncArgon, ArgonStatus, ServerArgonContainer};
+    use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm, ALGORITHM_COUNT, CryptoParameters};
+    use std::convert::TryFrom;
 
 
     fn setup_log() {
@@ -92,12 +94,13 @@ mod tests {
         const LEN: usize = 5;
         const HEADER_LEN: usize = 50;
         let message = "Hello, world!";
+        let algo = KemAlgorithm::Kyber1024_90s + EncryptionAlgorithm::Xchacha20Poly_1305;
 
         let chain = CryptoRelayChain::<R>::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
             .map(|cid| {
-                let mut alice_hr = R::Constructor::new_alice(None, 0, 0, None);
+                let mut alice_hr = R::Constructor::new_alice(Some(algo), 0, 0, None);
                 let transfer = alice_hr.stage0_alice();
-                let bob_hr = R::Constructor::new_bob(0, 0, 0, transfer).unwrap();
+                let bob_hr = R::Constructor::new_bob(0, 0, transfer).unwrap();
                 let transfer = bob_hr.stage0_bob().unwrap();
                 alice_hr.stage1_alice(&transfer).unwrap();
                 let toolset = Toolset::new(cid, alice_hr.finish().unwrap());
@@ -173,8 +176,8 @@ mod tests {
 
         let retrieved = buf.into_buffer();
 
-        assert_eq!(retrieved, b"Hello, world!");
-        assert_eq!(retrieved, cloned.as_ref());
+        assert_eq!(&*retrieved, b"Hello, world!");
+        assert_eq!(&*retrieved, cloned.as_ref());
         std::mem::drop(cloned);
         let slice = unsafe { &*std::ptr::slice_from_raw_parts(ptr, len) };
         assert_eq!(slice, &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -182,21 +185,26 @@ mod tests {
 
     #[test]
     fn hyper_ratchets() {
-        for x in 0u8..10 {
-            hyper_ratchet::<HyperRatchet>(Some(x.into()));
+        for x in 0u8..ALGORITHM_COUNT {
+            hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(x.into()));
             #[cfg(feature = "fcm")]
-                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>(Some(x.into()));
+                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(x.into()));
+
+            hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(x.into()));
+            #[cfg(feature = "fcm")]
+                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(x.into()));
         }
     }
 
-    fn hyper_ratchet<R: Ratchet>(security_level: Option<SecurityLevel>) {
-        println!("HR size (low): {}", get_approx_max_transfer_size());
+    fn hyper_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(algorithm: Z, security_level: Option<SecurityLevel>) {
+        let algorithm = algorithm.into();
+        println!("Using {:?} with {:?} @ {:?} security level", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level);
         setup_log();
-        let algorithm = Some(0);
+        let algorithm = Some(algorithm);
         let mut alice_hyper_ratchet = R::Constructor::new_alice(algorithm, 99, 0, security_level);
         let transfer = alice_hyper_ratchet.stage0_alice();
 
-        let bob_hyper_ratchet = R::Constructor::new_bob(algorithm.unwrap(), 99, 0, transfer).unwrap();
+        let bob_hyper_ratchet = R::Constructor::new_bob(99, 0, transfer).unwrap();
         let transfer = bob_hyper_ratchet.stage0_bob().unwrap();
 
         alice_hyper_ratchet.stage1_alice(&transfer).unwrap();
@@ -280,9 +288,9 @@ mod tests {
     }
 
     fn gen<R: Ratchet>(cid: u64, version: u32, sec: SecurityLevel) -> (R, R) {
-        let algorithm = 0;
+        let algorithm = EncryptionAlgorithm::AES_GCM_256_SIV + KemAlgorithm::Firesaber;
         let mut alice = R::Constructor::new_alice(Some(algorithm), cid, version, Some(sec));
-        let bob = R::Constructor::new_bob(algorithm, cid, version, alice.stage0_alice()).unwrap();
+        let bob = R::Constructor::new_bob(cid, version, alice.stage0_alice()).unwrap();
         alice.stage1_alice(&bob.stage0_bob().unwrap()).unwrap();
         (alice.finish().unwrap(), bob.finish().unwrap())
     }

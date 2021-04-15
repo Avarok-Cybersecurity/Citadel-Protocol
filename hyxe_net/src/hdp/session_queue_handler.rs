@@ -101,7 +101,7 @@ impl SessionQueueWorker {
         log::warn!("signal_shutdown called");
         let this = unlock!(self);
         if let Err(_) = this.sess_shutdown.try_send(()) {
-            log::warn!("Unable to signal shutdown through SessionQueueHandler")
+            //log::warn!("Unable to signal shutdown through SessionQueueHandler")
         }
     }
 

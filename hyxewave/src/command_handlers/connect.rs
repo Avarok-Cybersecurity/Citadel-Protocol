@@ -2,8 +2,12 @@ use tokio_stream::StreamExt;
 
 use super::imports::*;
 use hyxe_crypt::fcm::keys::FcmKeys;
-use hyxe_net::hdp::hdp_server::{ConnectMode, UnderlyingProtocol};
+use hyxe_net::hdp::hdp_server::{ConnectMode, SecrecyMode};
 use hyxe_crypt::prelude::SecBuffer;
+use hyxe_crypt::prelude::algorithm_dictionary::{KemAlgorithm, EncryptionAlgorithm};
+use hyxe_net::hdp::misc::session_security_settings::{SessionSecuritySettingsBuilder, SessionSecuritySettings};
+use std::convert::TryFrom;
+use hyxe_user::prelude::ConnectionInfo;
 
 #[derive(Debug, Serialize)]
 pub enum ConnectResponse {
@@ -16,9 +20,14 @@ pub enum ConnectResponse {
 pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let username = matches.value_of("username").unwrap();
     let tcp_only = !matches.is_present("qudp");
+
+    let secrecy_mode = matches.is_present("pfs").then(|| SecrecyMode::Perfect);
+    let kem = parse_kem(matches)?;
+    let enx = parse_enx(matches)?;
+
     let security_level = parse_security_level(matches)?;
     let fcm_keys = matches.value_of("fcm-token").map(|fcm_token| FcmKeys::new(matches.value_of("fcm-api-key").unwrap(), fcm_token));
-    let kat = parse_timeout(matches)?;
+    let kat = maybe_parse_uint(matches, "keep_alive_timeout")?;
     let peer_cnac = ctx.account_manager.get_client_by_username(username).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Username does not map to a local account. Please consider registering first"))?;
 
     if !peer_cnac.is_personal() {
@@ -34,17 +43,15 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
 
     let full_name = read.full_name.clone();
     let adjacent_nac = read.adjacent_nac.clone().ok_or(ConsoleError::Default("Adjacent NAC missing from CNAC. Corrupt. Please remove CNAC"))?;
-    let adjacent_socket = adjacent_nac.get_addr(true).ok_or(ConsoleError::Default("Adjacent NAC does not have an IP address. Corrupt. Please remove CNAC"))?;
+    let conn_info = adjacent_nac.get_conn_info().ok_or(ConsoleError::Default("Adjacent NAC does not have an IP address. Corrupt. Please remove CNAC"))?;
+    let connect_mode = matches.is_present("fetch").then(|| ConnectMode::Fetch).unwrap_or(ConnectMode::Standard);
+    let params = get_crypto_params(secrecy_mode, kem, enx, security_level);
 
     std::mem::drop(read);
 
+    let proposed_credentials = get_proposed_credentials(matches, ctx, username, &peer_cnac, conn_info, security_level, cid, full_name).await?;
 
-
-    let proposed_credentials = get_proposed_credentials(matches, ctx, username, &peer_cnac,adjacent_socket.ip(), security_level, cid, full_name).await?;
-    let connect_mode = matches.is_present("fetch").then(|| ConnectMode::Fetch).unwrap_or(ConnectMode::Standard);
-
-    // TODO: Include Tls
-    let request = HdpServerRequest::ConnectToHypernode(adjacent_socket, cid, proposed_credentials, security_level, connect_mode, fcm_keys, None, Some(tcp_only), kat, UnderlyingProtocol::Tcp);
+    let request = HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, connect_mode, fcm_keys, Some(tcp_only), kat, params);
     let ticket = server_remote.unbounded_send(request)?;
 
     let tx = parking_lot::Mutex::new(None);
@@ -119,7 +126,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
     Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
 }
 
-async fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext, username: &str, cnac: &ClientNetworkAccount, adjacent_ip: IpAddr, security_level: SecurityLevel, cid: u64, full_name: String) -> Result<ProposedCredentials, ConsoleError> {
+async fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext, username: &str, cnac: &ClientNetworkAccount, conn_info: ConnectionInfo, security_level: SecurityLevel, cid: u64, full_name: String) -> Result<ProposedCredentials, ConsoleError> {
     if matches.is_present("ffi") {
         let password = matches.value_of("password").unwrap();
         Ok(cnac.hash_password_as_client(SecBuffer::from(password.as_bytes())).await.map_err(|err| ConsoleError::Generic(err.into_string()))?)
@@ -127,7 +134,7 @@ async fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext
         colour::yellow!("\n{} ", &full_name);
         colour::white!("attempting to connect to ");
         colour::green!("{}@", username);
-        colour::yellow!("{} ", adjacent_ip);
+        colour::yellow!("{} ", conn_info);
         colour::white!("with ");
         colour::yellow!("{} ", security_level.value());
         colour::white!("security level (CID: ");
@@ -146,11 +153,37 @@ async fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext
     }
 }
 
-fn parse_timeout(arg_matches: &ArgMatches<'_>) -> Result<Option<u32>, ConsoleError> {
-    if let Some(val) = arg_matches.value_of("keep_alive_timeout") {
+fn maybe_parse_uint(arg_matches: &ArgMatches<'_>, field: &str) -> Result<Option<u32>, ConsoleError> {
+    if let Some(val) = arg_matches.value_of(field) {
         let val = u32::from_str(val).map_err(|err| ConsoleError::Generic(err.to_string()))?;
         Ok(Some(val))
     } else {
         Ok(None)
     }
+}
+
+pub(crate) fn parse_kem(arg_matches: &ArgMatches<'_>) -> Result<Option<KemAlgorithm>, ConsoleError> {
+    if let Some(value) = maybe_parse_uint(arg_matches, "kem")? {
+        let kem = KemAlgorithm::try_from(u8::try_from(value)?).map_err(|_| ConsoleError::Default("Invalid KEM selection"))?;
+        Ok(Some(kem))
+    } else {
+        Ok(None)
+    }
+}
+
+pub(crate) fn parse_enx(arg_matches: &ArgMatches<'_>) -> Result<Option<EncryptionAlgorithm>, ConsoleError> {
+    if let Some(value) = maybe_parse_uint(arg_matches, "enx")? {
+        let kem = EncryptionAlgorithm::try_from(u8::try_from(value)?).map_err(|_|ConsoleError::Default("Invalid ENX selection"))?;
+        Ok(Some(kem))
+    } else {
+        Ok(None)
+    }
+}
+
+pub(crate) fn get_crypto_params(mode: Option<SecrecyMode>, kem: Option<KemAlgorithm>, enx: Option<EncryptionAlgorithm>, security_level: SecurityLevel) -> SessionSecuritySettings {
+    SessionSecuritySettingsBuilder::default()
+        .with_secrecy_mode(mode.unwrap_or_default())
+        .with_crypto_params(kem.unwrap_or_default() + enx.unwrap_or_default())
+        .with_security_level(security_level)
+        .build()
 }

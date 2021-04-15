@@ -1,47 +1,49 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
-use crate::hdp::outbound_sender::UnboundedSender;
 
+use hyxe_crypt::fcm::keys::FcmKeys;
+use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::SecurityLevel;
-use hyxe_user::account_manager::AccountManager;
-
-use crate::constants::{TCP_ONLY, KEEP_ALIVE_TIMEOUT_NS, DO_CONNECT_EXPIRE_TIME_MS};
-use crate::error::NetworkError;
-use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
-use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest, ConnectMode, UnderlyingProtocol};
-use crate::hdp::hdp_session::{HdpSession, HdpSessionInner};
-use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
-use hyxe_user::proposed_credentials::ProposedCredentials;
+use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::time_tracker::TimeTracker;
-use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, PeerSignal, MailboxTransfer, PeerConnectionType, PeerResponse};
-use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
-use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
-use std::sync::atomic::Ordering;
-use std::path::PathBuf;
-use crate::hdp::peer::message_group::MessageGroupKey;
-use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState, GroupMemberAlterMode};
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
-use crate::macros::{SyncContextRequirements, ContextRequirements};
-use crate::inner_arg::ExpectedInnerTarget;
-use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
-use hyxe_crypt::fcm::keys::FcmKeys;
-use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_user::account_manager::AccountManager;
 use hyxe_user::fcm::data_structures::RawFcmPacket;
-use hyxe_user::misc::AccountError;
 use hyxe_user::fcm::fcm_instance::FCMInstance;
-use crate::hdp::misc::net::{GenericNetworkStream, GenericNetworkListener};
+use hyxe_user::misc::AccountError;
+use hyxe_user::proposed_credentials::ProposedCredentials;
+
+use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS, TCP_ONLY};
+use crate::error::NetworkError;
+use crate::hdp::hdp_packet::HdpPacket;
+use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
+use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
+use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, GroupMemberAlterMode, MemberState};
+use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
+use crate::hdp::hdp_server::{ConnectMode, HdpServer, HdpServerRemote, HdpServerRequest, HdpServerResult, Ticket, UnderlyingProtocol};
+use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode, HdpSessionInner};
+use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
+use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
+use crate::hdp::outbound_sender::{Sender, unbounded, UnboundedReceiver, UnboundedSender};
+use crate::hdp::outbound_sender::{OutboundTcpSender, OutboundUdpSender};
+use crate::hdp::peer::message_group::MessageGroupKey;
+use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal};
+use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
+use crate::inner_arg::ExpectedInnerTarget;
+use crate::macros::{ContextRequirements, SyncContextRequirements};
+use hyxe_user::prelude::ConnectProtocol;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
 /// Used for handling stateful connections between two peer
 pub struct HdpSessionManagerInner {
     local_node_type: HyperNodeType,
-    sessions: HashMap<u64, HdpSession>,
+    sessions: HashMap<u64, (Sender<()>, HdpSession)>,
     account_manager: AccountManager,
     pub(crate) hypernode_peer_layer: HyperNodePeerLayer,
     server_remote: Option<HdpServerRemote>,
@@ -49,10 +51,12 @@ pub struct HdpSessionManagerInner {
     /// Connections which have no implicated CID go herein. They are strictly expected to be
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [HdpSessionManager] and thereafter placed inside an appropriate session
-    provisional_connections: HashMap<SocketAddr, (Instant, HdpSession)>,
+    provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, HdpSession)>,
     fcm_post_registrations: HashSet<FcmPeerRegisterTicket>,
     kernel_tx: UnboundedSender<HdpServerResult>,
-    time_tracker: TimeTracker
+    time_tracker: TimeTracker,
+    clean_shutdown_tracker_tx: UnboundedSender<()>,
+    clean_shutdown_tracker: Option<UnboundedReceiver<()>>
 }
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq)]
@@ -71,7 +75,10 @@ impl HdpSessionManager {
     /// Creates a new [SessionManager] which handles individual connections
     pub fn new(local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, account_manager: AccountManager, time_tracker: TimeTracker) -> Self {
         let incoming_cxn_count = 0;
+        let (clean_shutdown_tracker_tx, clean_shutdown_tracker_rx) = unbounded();
         let inner = HdpSessionManagerInner {
+            clean_shutdown_tracker_tx,
+            clean_shutdown_tracker: Some(clean_shutdown_tracker_rx),
             fcm_post_registrations: Default::default(),
             hypernode_peer_layer: Default::default(),
             server_remote: None,
@@ -119,7 +126,7 @@ impl HdpSessionManager {
     /// Obtains the HdpSession. Beware of locking!
     pub fn get_session_by_cid(&self, cid: u64) -> Option<HdpSession> {
         let this = inner!(self);
-        this.sessions.get(&cid).cloned()
+        this.sessions.get(&cid).map(|r| r.1.clone())
     }
 
     /// Returns a set of the currently valid sessions
@@ -139,20 +146,40 @@ impl HdpSessionManager {
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, peer_addr: SocketAddr, implicated_cid: Option<u64>, ticket: Ticket, proposed_credentials: ProposedCredentials, security_level: SecurityLevel, connect_mode: Option<ConnectMode>, _listener_underlying_proto: UnderlyingProtocol, connect_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, quantum_algorithm: Option<u8>, tcp_only: Option<bool>, keep_alive_timeout_ns: Option<i64>) -> Result<(), NetworkError> {
+    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, init_mode: HdpSessionInitMode, ticket: Ticket, proposed_credentials: ProposedCredentials, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, tcp_only: Option<bool>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings) -> Result<(), NetworkError> {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
-            let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt) = {
-                let (remote, kernel_tx, account_manager, tt) = {
+            let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, connect_proto) = {
+                let (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, connect_proto) = {
+                    let (peer_addr, cnac, connect_proto) = {
+                        match init_mode.clone() {
+                            HdpSessionInitMode::Register(peer_addr, proto) => (peer_addr, None, proto),
+
+                            HdpSessionInitMode::Connect(implicated_cid) => {
+                                let acc_mgr = {
+                                    let inner = inner!(self);
+                                    inner.account_manager.clone()
+                                };
+
+                                let cnac = acc_mgr.get_client_by_cid(implicated_cid).await?.ok_or(NetworkError::InternalError("Client does not exist"))?;
+                                let nac = cnac.get_nac();
+                                let conn_info = nac.get_conn_info().ok_or(NetworkError::InternalError("IP address not loaded internally this account"))?;
+                                let (peer_addr, connect_proto) = (conn_info.addr, conn_info.proto.ok_or(NetworkError::InternalError("This node does not have the connect information stored"))?);
+                                (peer_addr, Some(cnac), connect_proto)
+                            }
+                        }
+                    };
+
                     let mut this = inner_mut!(self);
+                    let on_drop = this.clean_shutdown_tracker_tx.clone();
                     let remote = this.server_remote.clone().unwrap();
                     let kernel_tx = this.kernel_tx.clone();
                     let account_manager = this.account_manager.clone();
                     let tt = this.time_tracker.clone();
 
                     // TODO: remove if timed-out. On android/ios, sleeping causes a provisional conn to linger
-                    if let Some((init_time, _sess)) = this.provisional_connections.get(&peer_addr) {
+                    if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
                         // Localhost is already trying to connect. However, it's possible that the entry has expired,
                         // especially on IOS where the background timer just stops completely
                         if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
@@ -163,27 +190,30 @@ impl HdpSessionManager {
                         }
                     }
 
-                    (remote, kernel_tx, account_manager, tt)
+                    (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, connect_proto)
                 };
 
 
                 // We must now create a TcpStream towards the peer
                 let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
                 // TODO: For now, all p2p conns use basic TCP. We need to establish a mechanism for underlying proto conflicts. in p2p_conn_handler.rs exists UnderlyingProtocol::Tcp argument
-                let (p2p_listener, primary_stream) = HdpServer::create_init_tcp_listener(connect_underlying_proto.clone(), connect_underlying_proto, peer_addr).await
+                let (p2p_listener, primary_stream) = HdpServer::create_init_tcp_listener(listener_underlying_proto.clone(), connect_proto.clone(), peer_addr).await
                     .map_err(|err| NetworkError::SocketError(err.to_string()))?;
-                (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt)
+                (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, connect_proto)
             };
 
-            let new_session = HdpSession::new(remote, quantum_algorithm, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, peer_addr, tt, implicated_cid, ticket, security_level, fcm_keys, tcp_only.unwrap_or(TCP_ONLY), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS)).await?;
+            let peer_only_connect_mode = match listener_underlying_proto { UnderlyingProtocol::Tcp => ConnectProtocol::Tcp, UnderlyingProtocol::Tls(_, domain) => ConnectProtocol::Tls(domain) };
 
-            if let Some(_implicated_cid) = implicated_cid {
-                // the cid exists which implies registration already occurred
-                new_session.store_proposed_credentials(proposed_credentials, packet_flags::cmd::primary::DO_CONNECT);
-                inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), new_session.clone()));
-            } else {
-                new_session.store_proposed_credentials(proposed_credentials, packet_flags::cmd::primary::DO_REGISTER);
-                inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), new_session.clone()));
+            let (stopper, new_session) = HdpSession::new(init_mode.clone(), connect_proto, peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, tcp_only.unwrap_or(TCP_ONLY), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings)?;
+
+            match init_mode {
+                HdpSessionInitMode::Connect(..) => {
+                    inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
+                }
+
+                HdpSessionInitMode::Register(peer_addr, ..) => {
+                    inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
+                }
             }
 
             (session_manager_clone, new_session, peer_addr, p2p_listener, primary_stream)
@@ -248,7 +278,7 @@ impl HdpSessionManager {
             if let Some(implicated_cid) = sess.implicated_cid.clone().load(Ordering::Relaxed) {
                 sess_mgr.hypernode_peer_layer.on_session_shutdown(implicated_cid);
                 let timestamp = sess.time_tracker.get_global_time_ns();
-                let security_level = sess.security_level;
+                let security_level = sess.security_settings.clone().map(|r| r.security_level).unwrap_or(SecurityLevel::LOW);
                 let mut state_container = inner_mut!(sess.state_container);
 
                 state_container.active_virtual_connections.drain().for_each(|(peer_id, vconn)| {
@@ -270,7 +300,7 @@ impl HdpSessionManager {
                                     }
 
                                     if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
-                                        let peer_sess = inner!(peer_sess);
+                                        let peer_sess = inner!(peer_sess.1);
                                         let mut peer_state_container = inner_mut!(peer_sess.state_container);
                                         if let None = peer_state_container.active_virtual_connections.remove(&implicated_cid) {
                                             log::warn!("While dropping session {}, attempted to remove vConn to {}, but peer did not have the vConn listed. Report to developers", implicated_cid, peer_cid);
@@ -309,9 +339,10 @@ impl HdpSessionManager {
     pub fn process_new_inbound_connection(&self, local_bind_addr: SocketAddr, peer_addr: SocketAddr, primary_stream: GenericNetworkStream) -> Result<(), NetworkError> {
         let this_dc = self.clone();
         let mut this = inner_mut!(self);
+        let on_drop = this.clean_shutdown_tracker_tx.clone();
         let remote = this.server_remote.clone().unwrap();
 
-        if let Some((init_time, _sess)) = this.provisional_connections.get(&peer_addr) {
+        if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
             if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
                 this.provisional_connections.remove(&peer_addr);
             } else {
@@ -325,8 +356,8 @@ impl HdpSessionManager {
         let provisional_ticket = Ticket(this.incoming_cxn_count as u64);
         this.incoming_cxn_count += 1;
 
-        let new_session = HdpSession::new_incoming(remote, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket);
-        this.provisional_connections.insert(peer_addr.clone(), (Instant::now(), new_session.clone()));
+        let (stopper, new_session) = HdpSession::new_incoming(on_drop,remote, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket);
+        this.provisional_connections.insert(peer_addr.clone(), (Instant::now(), stopper, new_session.clone()));
         std::mem::drop(this);
 
         // Note: Must send TICKET on finish
@@ -340,7 +371,7 @@ impl HdpSessionManager {
     pub fn process_outbound_packet(&self, ticket: Ticket, packet: SecBuffer, implicated_cid: u64, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
-            existing_session.process_outbound_message(ticket, packet, virtual_target, security_level)
+            existing_session.1.process_outbound_message(ticket, packet, virtual_target, security_level)
         } else {
             Err(NetworkError::Generic(format!("Hypernode session for {} does not exist! Not going to send data ...", implicated_cid)))
         }
@@ -350,7 +381,7 @@ impl HdpSessionManager {
     pub fn process_outbound_broadcast_command(&self, ticket: Ticket, implicated_cid: u64, command: GroupBroadcast) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
-            existing_session.process_outbound_broadcast_command(ticket, command)
+            existing_session.1.process_outbound_broadcast_command(ticket, command)
         } else {
             Err(NetworkError::Generic(format!("Hypernode session for {} does not exist! Not going to handle group broadcast signal ...", implicated_cid)))
         }
@@ -360,7 +391,7 @@ impl HdpSessionManager {
     pub fn process_outbound_file(&self, ticket: Ticket, max_group_size: Option<usize>, file: PathBuf, implicated_cid: u64, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
-            existing_session.process_outbound_file(ticket, max_group_size, file, virtual_target, security_level)
+            existing_session.1.process_outbound_file(ticket, max_group_size, file, virtual_target, security_level)
         } else {
             Err(NetworkError::Generic(format!("Hypernode session for {} does not exist! Not going to send data ...", implicated_cid)))
         }
@@ -381,7 +412,7 @@ impl HdpSessionManager {
             Some(header) => {
                 match this.sessions.get(&header.session_cid.get()) {
                     Some(active_session) => {
-                        active_session.process_inbound_packet_wave(packet)
+                        active_session.1.process_inbound_packet_wave(packet)
                     }
 
                     None => {
@@ -403,7 +434,7 @@ impl HdpSessionManager {
         let implicated_cid = virtual_target.get_implicated_cid();
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
-            let sess = inner!(sess);
+            let sess = inner!(sess.1);
             let timestamp = sess.time_tracker.get_global_time_ns();
             let mut state_container = inner_mut!(sess.state_container);
             sess.initiate_drill_update(timestamp, virtual_target, &mut wrap_inner_mut!(state_container), Some(ticket))
@@ -416,7 +447,7 @@ impl HdpSessionManager {
     pub fn initiate_deregistration_subroutine(&self, implicated_cid: u64, connection_type: VirtualConnectionType, ticket: Ticket) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
-            let sess = inner!(sess);
+            let sess = inner!(sess.1);
             sess.initiate_deregister(connection_type, ticket)
         } else {
             log::error!("Unable to initiate deregister subroutine for {} (not an active session)", implicated_cid);
@@ -435,7 +466,7 @@ impl HdpSessionManager {
     pub fn dispatch_peer_command(&self, implicated_cid: u64, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
-            return sess.dispatch_peer_command(ticket, peer_command, security_level).is_ok();
+            return sess.1.dispatch_peer_command(ticket, peer_command, security_level).is_ok();
         }
 
         false
@@ -451,9 +482,9 @@ impl HdpSessionManager {
     /// slow connections, or during background execution on android/ios
     pub fn upgrade_connection(&self, socket_addr: SocketAddr, implicated_cid: u64) -> bool {
         let mut this = inner_mut!(self);
-        if let Some(connection) = this.provisional_connections.remove(&socket_addr) {
+        if let Some((_, stopper, session)) = this.provisional_connections.remove(&socket_addr) {
             //let _ = this.hypernode_peer_layer.register_peer(implicated_cid, true);
-            if this.sessions.insert(implicated_cid, connection.1).is_some() {
+            if this.sessions.insert(implicated_cid, (stopper, session)).is_some() {
                 // sometimes (especially on cellular networks), when the network changes due to
                 // changing cell towers (or between WIFI/Cellular modes), the session lingers
                 // without cleaning itself up. It will automatically drop by itself, however,
@@ -476,7 +507,7 @@ impl HdpSessionManager {
         let this = inner!(self);
         match this.sessions.get(&implicated_cid) {
             Some(session) => {
-                session.initiate_disconnect(ticket, virtual_peer)
+                session.1.initiate_disconnect(ticket, virtual_peer)
             }
 
             None => {
@@ -697,7 +728,7 @@ impl HdpSessionManager {
     pub fn route_packet_to_primary_stream(&self, cid: u64, ticket_opt: Option<Ticket>, packet: BytesMut) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
-            let sess = inner!(sess);
+            let sess = inner!(sess.1);
             sess.send_to_primary_stream(ticket_opt, packet).is_ok()
         } else {
             false
@@ -709,7 +740,7 @@ impl HdpSessionManager {
     pub fn send_signal_to_peer(&self, target_cid: u64, ticket: Ticket, signal: PeerSignal, timestamp: i64, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&target_cid) {
-            let sess = inner!(sess);
+            let sess = inner!(sess.1);
             if let Some(to_primary_stream) = sess.to_primary_stream.as_ref() {
                 if let Some(cnac) = sess.cnac.as_ref() {
                     return cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
@@ -731,7 +762,7 @@ impl HdpSessionManager {
     pub fn get_handle_to_udp_sender(&self, cid: u64) -> Option<OutboundUdpSender> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
-            let sess = inner!(sess);
+            let sess = inner!(sess.1);
             let state_container = inner!(sess.state_container);
             state_container.udp_sender.clone()
         } else {
@@ -743,7 +774,7 @@ impl HdpSessionManager {
     pub fn get_handle_to_tcp_sender(&self, cid: u64) -> Option<OutboundTcpSender> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
-            let sess = inner!(sess);
+            let sess = inner!(sess.1);
             sess.to_primary_stream.clone()
         } else {
             None
@@ -755,7 +786,7 @@ impl HdpSessionManager {
     pub fn get_tcp_udp_senders(&self, cid: u64) -> Option<(OutboundTcpSender, OutboundUdpSender)> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
-            let sess = inner!(sess);
+            let sess = inner!(sess.1);
             let tcp_sender = sess.to_primary_stream.clone()?;
             let state_container = inner!(sess.state_container);
             let udp_sender = state_container.udp_sender.clone()?;
@@ -775,7 +806,7 @@ impl HdpSessionManager {
     pub fn disconnect_virtual_conn(&self, implicated_cid: u64, peer_cid: u64, on_internal_disconnect: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), String> {
         let this = inner!(self);
         if let Some(peer_sess) = this.sessions.get(&peer_cid) {
-            let sess = inner!(peer_sess);
+            let sess = inner!(peer_sess.1);
             let to_primary = sess.to_primary_stream.as_ref().unwrap();
             let peer_cnac = sess.cnac.as_ref().unwrap();
 
@@ -820,7 +851,7 @@ impl HdpSessionManager {
             // get the target cid's session
             if let Some(sess) = this.sessions.get(&target_cid) {
                 this.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout);
-                let sess_ref = inner!(sess);
+                let sess_ref = inner!(sess.1);
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
                 let peer_cnac = sess_ref.cnac.as_ref().unwrap();
 
@@ -847,6 +878,29 @@ impl HdpSessionManager {
             Err(format!("CID {} is not registered locally", target_cid))
         }
     }
+
+    pub(crate) async fn shutdown(self) -> Result<(), NetworkError> {
+        let (mut recv, len) = {
+            let mut inner = inner_mut!(self);
+            if let Some(recv) = inner.clean_shutdown_tracker.take() {
+                let len = inner.sessions.len();
+                for sender in inner.sessions.values().map(|r| &r.0) {
+                    let _ = sender.try_send(());
+                }
+                (recv, len)
+            } else {
+                return Err(NetworkError::InternalError("UnboundedReceiver not loaded in session manager"))
+            }
+        };
+
+
+        for _ in 0..len {
+            recv.recv().await.ok_or(NetworkError::InternalError("Unable to receive shutdown signal"))?;
+        }
+
+        log::info!("All sessions dropped");
+        Ok(())
+    }
 }
 
 impl HdpSessionManagerInner {
@@ -870,7 +924,7 @@ impl HdpSessionManagerInner {
             if let Some(target_sess) = self.sessions.get(&target_cid) {
                 //let ret = target_sess.clone();
 
-                let sess_ref = inner!(target_sess);
+                let sess_ref = inner!(target_sess.1);
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
                 let peer_cnac = sess_ref.cnac.as_ref().unwrap();
 
@@ -897,7 +951,7 @@ impl HdpSessionManagerInner {
     // for use by the server. This skips the whole ticket-tracking processes intermediate to the routing above
     pub fn send_signal_to_peer_direct(&self, target_cid: u64, packet: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), NetworkError> {
         if let Some(peer_sess) = self.sessions.get(&target_cid) {
-            let peer_sess = inner!(peer_sess);
+            let peer_sess = inner!(peer_sess.1);
             let peer_sender = peer_sess.to_primary_stream.as_ref().ok_or_else(|| NetworkError::InternalError("Peer stream absent"))?;
             let peer_cnac = peer_sess.cnac.as_ref().ok_or_else(|| NetworkError::InternalError("Peer CNAC absent"))?;
 

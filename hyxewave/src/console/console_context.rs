@@ -14,7 +14,7 @@ use std::time::Duration;
 use hyxe_net::hdp::peer::peer_layer::PeerResponse;
 use crate::mail::ConsoleSessionMail;
 use crate::console_error::ConsoleError;
-use hyxe_net::hdp::peer::channel::PeerChannel;
+use hyxe_net::hdp::peer::channel::{PeerChannel, PeerChannelRecvHalf};
 use futures_util::StreamExt;
 use hyxe_net::hdp::hdp_packet_processor::includes::SecurityLevel;
 use tokio::time::Instant;
@@ -81,8 +81,9 @@ impl ConsoleContext {
         }
     }
 
-    pub async fn load_kernel_session(&self, kernel_session: KernelSession) {
+    pub async fn load_kernel_session(&self, kernel_session: KernelSession, channel_rx: PeerChannelRecvHalf) {
         self.set_active_cid(kernel_session.cid);
+        Self::startup_channel_listener(channel_rx, kernel_session.username.clone(), self.clone());
         let mut write = self.sessions.write().await;
         write.insert(kernel_session.cid, kernel_session);
     }
@@ -142,8 +143,25 @@ impl ConsoleContext {
 
         let peer_username = peer_username.map(|r| r.username).flatten().unwrap_or(String::from("INVALID"));
 
-        let (peer_channel_tx, mut peer_channel_rx) = peer_channel.split();
+        let (peer_channel_tx, peer_channel_rx) = peer_channel.split();
         // loads a recv task to allow reception of data
+
+        Self::startup_channel_listener(peer_channel_rx, peer_username, ctx);
+
+        let peer_info = self.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(cid, peer_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Mutual peer not found"))?;
+
+        let mut write = self.sessions.write().await;
+        if let Some(sess) = write.get_mut(&cid) {
+            let init_time = Instant::now();
+            let peer_sess = PeerSession {cxn_type, peer_info, peer_channel_tx, init_time};
+            let _ = sess.concurrent_peers.insert(peer_cid, peer_sess);
+            Ok(())
+        } else {
+            Err(ConsoleError::Generic(format!("Session {} does not exist locally", cid)))
+        }
+    }
+
+    fn startup_channel_listener(mut peer_channel_rx: PeerChannelRecvHalf, peer_username: String, ctx: ConsoleContext) {
         tokio::task::spawn(async move {
             // this task will automatically be dropped once the underlying virtual-conn in the state container gets dropped
             // it receives an empty vec upon drop
@@ -159,18 +177,6 @@ impl ConsoleContext {
 
             printf_ln!(colour::yellow!("Peer channel {} has disconnected\n", peer_username))
         });
-
-        let peer_info = self.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(cid, peer_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Mutual peer not found"))?;
-
-        let mut write = self.sessions.write().await;
-        if let Some(sess) = write.get_mut(&cid) {
-            let init_time = Instant::now();
-            let peer_sess = PeerSession {cxn_type, peer_info, peer_channel_tx, init_time};
-            let _ = sess.concurrent_peers.insert(peer_cid, peer_sess);
-            Ok(())
-        } else {
-            Err(ConsoleError::Generic(format!("Session {} does not exist locally", cid)))
-        }
     }
 
     pub async fn send_message_to_peer_channel(&self, cid: u64, peer_cid: u64, security_level: SecurityLevel, message: SecBuffer) -> Result<Ticket, ConsoleError> {

@@ -7,6 +7,7 @@ use crate::constants::{FCM_POST_REGISTER_TIMEOUT, FCM_FETCH_TIMEOUT};
 use hyxe_user::prelude::Client;
 use std::sync::Arc;
 use hyxe_crypt::fcm::keys::FcmKeys;
+use crate::command_handlers::connect::{parse_kem, parse_enx, get_crypto_params};
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
@@ -602,8 +603,11 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
         }
 
         if let Some(matches) = matches.subcommand_matches("post-connect") {
+
             let target = matches.value_of("target_cid").unwrap();
             let security_level = parse_security_level(matches)?;
+            let kem = parse_kem(matches)?;
+            let enx = parse_enx(matches)?;
             let read = ctx.sessions.read().await;
             let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
             let acc_mgr = &ctx.account_manager;
@@ -615,8 +619,11 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
                 return Err(ConsoleError::Generic(format!("Peer {} is already connected to {}", target_cid, ctx_user)));
             }
 
-            let post_connect_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), None, None, security_level));
+            let params = get_crypto_params(None, kem, enx, security_level);
+
+            let post_connect_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), None, None, params));
             let ticket = server_remote.unbounded_send(post_connect_request)?;
+
             ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, ctx_user, move |_ctx, ticket, response| {
                 match response {
                     PeerResponse::Accept(welcome_message_opt) => {

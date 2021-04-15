@@ -8,7 +8,6 @@ use fcm::Client;
 use crate::fcm::fcm_instance::FCMInstance;
 use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
-use crate::misc::AccountError;
 
 pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, constructors: &mut HashMap<u64, ConstructorType<R, Fcm>>, header: LayoutVerified<&'a [u8], FcmHeader>, bob_to_alice_transfer: KemTransferStatus) -> FcmProcessorResult {
     log::info!("FCM RECV GROUP_HEADER_ACK");
@@ -34,7 +33,12 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
                     }
                 }
 
-                Some(endpoint_crypto.unlock().ok_or(AccountError::Generic("Unable to unlock crypt container".to_string()))?)
+                if requires_truncation.is_some() {
+                    // we unlock once we get the truncate ack
+                    Some(endpoint_crypto.get_hyper_ratchet(None)?)
+                } else {
+                    Some(endpoint_crypto.maybe_unlock(true)?)
+                }
             } else {
                 log::warn!("No constructor, yet, KemTransferStatus is Some?? (did KEM constructor not get sent when the initial message got sent out?)");
                 None
@@ -43,7 +47,7 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
 
         KemTransferStatus::Omitted => {
             log::warn!("KEM was omitted (is adjacent node's hold not being released (unexpected), or tight concurrency (expected)?)");
-            Some(endpoint_crypto.unlock().ok_or(AccountError::Generic("Unable to unlock crypt container".to_string()))?)
+            Some(endpoint_crypto.maybe_unlock(true)?)
         }
 
         KemTransferStatus::StatusNoTransfer(_status) => {

@@ -190,6 +190,7 @@ pub mod clap_commands {
     fn setup_subcommands() -> Vec<App<'static, 'static>> {
         let mut subcommands = Vec::new();
         subcommands.push(setup_cd_command());
+        subcommands.push(setup_algorithms_command());
         subcommands.push(setup_ls_command());
         subcommands.push(setup_send_command());
         subcommands.push(setup_waitfor_command());
@@ -216,7 +217,7 @@ pub mod clap_commands {
             .setting(AppSettings::TrailingVarArg)
             .version(crate::constants::VERSION)
             .author("Thomas Philip Braun <braun@legionengineering.net>")
-            .about("A Virtual CLI for the post-quantum distributed networking protocol (project httpx://)")
+            .about("A Virtual CLI for the post-quantum communications protocol")
             .subcommands(subcommands)
         //.arg(Arg::with_name("command").required(true).index(1))
     }
@@ -233,6 +234,10 @@ pub mod clap_commands {
 
     fn setup_clear_command() -> App<'static, 'static> {
         SubCommand::with_name("clear").alias("cls").help("Clears the screen")
+    }
+
+    fn setup_algorithms_command() -> App<'static, 'static> {
+        SubCommand::with_name("list-algorithms").about("Provides a list of usable post-quantum key encapsulation mechanisms as well as encryption algorithms")
     }
 
     fn setup_send_command() -> App<'static, 'static> {
@@ -308,6 +313,16 @@ pub mod clap_commands {
                 .arg(Arg::with_name("fcm").long("fcm").required(false).takes_value(false).help("Enables the use of FCM with this peer for this session")))
             .subcommand(SubCommand::with_name("post-connect").about("Post a connect request to a target CID/Username")
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true))
+                .arg(Arg::with_name("kem")
+                    .long("kem")
+                    .help("Specify a custom post-quantum key encapsulation mechanism (see: list-algorithms for a list of available mechanisms)")
+                    .takes_value(true)
+                    .required(false))
+                .arg(Arg::with_name("enx")
+                    .long("enx")
+                    .help("Specify a custom encryption algorithm (see: list-algorithms for a list of available mechanisms")
+                    .takes_value(true)
+                    .required(false))
             .arg(Arg::with_name("security").long("security").short("s").required(false).takes_value(true).default_value("0").help("Sets the security level for the transmission. 0 is low, 4 is divine")))
             .subcommand(SubCommand::with_name("accept-register").about("Consent to a registration request. Check the mailbox to see a list of registrations requesting consent")
                 .arg(Arg::with_name("mail_id").required(true).help("Mail item ID (or, peer CID if using --fcm)"))
@@ -384,7 +399,7 @@ pub mod clap_commands {
                 .long("qudp")
                 .takes_value(false)
                 .required(false)
-                .help("Enables the use of the experimental MQ-UDP for messaging"))
+                .help("Enables the use of the *experimental* MQ-UDP for messaging"))
             .arg(Arg::with_name("keep_alive_timeout")
                 .long("keep_alive_timeout")
                 .short("kat")
@@ -407,6 +422,21 @@ pub mod clap_commands {
                 .help("If supplied, the following parameter must be the API key for the application")
                 .takes_value(true)
                 .requires("fcm-token")
+                .required(false))
+            .arg(Arg::with_name("pfs")
+                .long("pfs")
+                .takes_value(false)
+                .required(false)
+                .help("Enables the use of perfect forward secrecy (if not used, will use best-effort re-keying mode)"))
+            .arg(Arg::with_name("kem")
+                .long("kem")
+                .help("Specify a custom post-quantum key encapsulation mechanism (see: list-algorithms for a list of available mechanisms)")
+                .takes_value(true)
+                .required(false))
+            .arg(Arg::with_name("enx")
+                .long("enx")
+                .help("Specify a custom encryption algorithm (see: list-algorithms for a list of available mechanisms")
+                .takes_value(true)
                 .required(false))
     }
 
@@ -455,6 +485,27 @@ pub mod clap_commands {
                 .takes_value(true)
                 .requires("fcm-token")
                 .required(false))
+            .arg(Arg::with_name("kem")
+                .long("kem")
+                .help("Specify a custom post-quantum key encapsulation mechanism (see: list-algorithms for a list of available mechanisms)")
+                .takes_value(true)
+                .required(false))
+            .arg(Arg::with_name("enx")
+                .long("enx")
+                .help("Specify a custom encryption algorithm (see: list-algorithms for a list of available mechanisms")
+                .takes_value(true)
+                .required(false))
+            .arg(Arg::with_name("tls")
+                .long("tls")
+                .required(false)
+                .requires("tls-domain")
+                .takes_value(false)
+                .help("Connects using TLS. Specify domain with --tls-domain <domain>, otherwise defaults to an empty string"))
+            .arg(Arg::with_name("tls-domain")
+                .long("tls-domain")
+                .default_value("")
+                .takes_value(true)
+                .help("Specifies a domain"))
     }
 
 
@@ -491,6 +542,10 @@ pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, App
 
     if let Some(_matches) = matches.subcommand_matches("ls") {
         return crate::command_handlers::os::ls::handle(ctx, ffi_io);
+    }
+
+    if let Some(_) = matches.subcommand_matches("list-algorithms") {
+        return crate::command_handlers::list_algorithms::handle();
     }
 
     if let Some(matches) = matches.subcommand_matches("send") {

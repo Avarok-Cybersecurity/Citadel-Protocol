@@ -15,18 +15,19 @@ exclude = [
 ]
 
 [features]
-default = ["aes", "unordered"]
+default = ["unordered"]
 unordered = ["circular-queue", "parking_lot"]
-aes = ["aes-gcm-siv"]
-chacha20 = ["chacha20poly1305"]
 
 [dependencies]
 pqcrypto-traits = "*"
 pqcrypto-saber = "*"
+pqcrypto-kyber = "*"
+pqcrypto-ntru = "*"
+enum_primitive = "0.1.1"
 serde = { version = "1.0.118", features = ["derive"] }
 bincode2 = "2.0.1"
-aes-gcm-siv = { version = "0.5.0", features = ["heapless"], optional = true }
-chacha20poly1305 = { version = "*", features = ["heapless", "xchacha20poly1305"], optional = true }
+aes-gcm-siv = { version = "^0.9.0", features = ["heapless"]}
+chacha20poly1305 = { version = "*", features = ["heapless", "xchacha20poly1305"] }
 bytes = "^1.0.1"
 circular-queue = { version = "*", features = ["serde_support"], optional = true }
 parking_lot = { version = "0.11.0", features = ["serde"], optional = true }
