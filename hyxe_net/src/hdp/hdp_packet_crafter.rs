@@ -2,11 +2,10 @@ use bytes::BytesMut;
 use num::Integer;
 
 use hyxe_crypt::drill::SecurityLevel;
-use hyxe_crypt::net::crypt_splitter::{GroupReceiverConfig, encrypt_group_unified};
+use hyxe_crypt::net::crypt_splitter::GroupReceiverConfig;
 use hyxe_nat::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
-use crate::hdp::hdp_packet_crafter::group::craft_wave_payload_packet_into;
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
 use std::ops::RangeInclusive;
@@ -14,6 +13,7 @@ use crate::hdp::state_container::{VirtualTargetType, GroupSender};
 use hyxe_crypt::sec_bytes::SecBuffer;
 use crate::error::NetworkError;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
+use hyxe_fs::hyxe_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
 
 pub struct GroupTransmitter {
     pub hyper_ratchet_container: RatchetPacketCrafterContainer,
@@ -86,7 +86,8 @@ impl GroupTransmitter {
         // + 1 byte source port offset (needed for sending across port-address-translation networks)
         // + 1 byte recv port offset
         const HDP_HEADER_EXTENDED_BYTE_LEN: usize = HDP_HEADER_BYTE_LEN + 2;
-        let res = encrypt_group_unified(input_packet.into_buffer(), &hyper_ratchet.base, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into);
+        //let res = encrypt_group_unified(input_packet.into_buffer(), &hyper_ratchet.base, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into);
+        let res = oneshot_unencrypted_group_unified(input_packet, HDP_HEADER_EXTENDED_BYTE_LEN, group_id);
 
         match res {
             Ok(group_transmitter) => {
@@ -133,12 +134,17 @@ impl GroupTransmitter {
 
     /// Sometimes, we only need a single packet to represent the data. When this happens, we don't scramble
     /// and instead place the ciphertext into the payload of the GROUP_HEADER
+    #[allow(dead_code)]
     pub(super) fn get_fast_message_payload(&mut self) -> Option<BytesMut> {
         if self.group_config.packets_needed == 1  && self.is_message {
             Some(inner_mut!(self.group_transmitter).get_next_packet()?.packet)
         } else {
             None
         }
+    }
+
+    pub(super) fn get_unencrypted_oneshot_packet(&mut self) -> Option<SecBuffer> {
+        inner_mut!(self.group_transmitter).get_oneshot()
     }
 
     /// Determines how many packets are in the current wave
@@ -274,11 +280,10 @@ pub(crate) mod group {
     use hyxe_fs::io::SyncIO;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
 
-    pub const DUAL_ENCRYPTION_ON: u8 = 1;
     pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType) -> BytesMut {
         // if FCM, we need a 0 ("ENDPOINT_ENCRYPTION_OFF") target cid since we don't want the server to proxy it
         let target_cid = virtual_target.get_target_cid();
-        let mut header = HdpHeader {
+        let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER,
             algorithm: 0,
@@ -293,20 +298,31 @@ pub(crate) mod group {
         };
 
         let mut packet = BytesMut::with_capacity(packet_sizes::GROUP_HEADER_BASE_LEN);
+        header.inscribe_into(&mut packet);
 
-        // first byte in the payload goes to the bool "fast_msg"
-        if let Some(fast_msg_payload) = processor.get_fast_message_payload() {
-            // set the algorithm to 1
-            header.algorithm = DUAL_ENCRYPTION_ON;
-            header.inscribe_into(&mut packet);
-
-            let fast_msg_payload = &fast_msg_payload[HDP_HEADER_BYTE_LEN + 1 + 1 ..];
-            let inner_encrypted = processor.hyper_ratchet_container.base.encrypt_custom_scrambler(header.wave_id.get(), header.group.get(), fast_msg_payload).unwrap();
-            let header = GroupHeader::FastMessage(inner_encrypted, virtual_target, processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice()));
-
+        if processor.is_message {
+            let message = processor.get_unencrypted_oneshot_packet().unwrap();
+            let header = GroupHeader::FastMessage(message, virtual_target, processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice()));
             header.serialize_into_buf(&mut packet).unwrap();
         } else {
-            header.inscribe_into(&mut packet);
+            // first byte in the payload goes to the bool "fast_msg"
+            /*if let Some(mut fast_msg_payload) = processor.get_fast_message_payload() {
+                // set the algorithm to 1
+                //header.algorithm = DUAL_ENCRYPTION_ON;
+                header.inscribe_into(&mut packet);
+
+                //let fast_msg_payload = &fast_msg_payload[HDP_HEADER_BYTE_LEN + 1 + 1 ..];
+                let fast_msg_payload = fast_msg_payload.split_off(HDP_HEADER_BYTE_LEN + 1 + 1);
+                //let inner_encrypted = processor.hyper_ratchet_container.base.encrypt_custom_scrambler(header.wave_id.get(), header.group.get(), fast_msg_payload).unwrap();
+                let header = GroupHeader::FastMessage(fast_msg_payload, virtual_target, processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice()));
+
+                header.serialize_into_buf(&mut packet).unwrap();
+            } else {
+                header.inscribe_into(&mut packet);
+                let header = GroupHeader::Standard(processor.group_config.clone(), virtual_target);
+                header.serialize_into_buf(&mut packet).unwrap();
+            }*/
+
             let header = GroupHeader::Standard(processor.group_config.clone(), virtual_target);
             header.serialize_into_buf(&mut packet).unwrap();
         }
@@ -902,6 +918,34 @@ pub(crate) mod do_drill_update {
         hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet
     }
+
+    #[derive(Serialize, Deserialize)]
+    pub(crate) struct TruncateAckPacket {
+        pub(crate) truncated_version: u32
+    }
+
+    pub(crate) fn craft_truncate_ack(hyper_ratchet: &HyperRatchet, truncated_version: u32, target_cid: u64, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+        let header = HdpHeader {
+            cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
+            cmd_aux: packet_flags::cmd::aux::do_drill_update::TRUNCATE_ACK,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U64::new(0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(target_cid)
+        };
+
+        let mut packet = BytesMut::with_capacity(packet_sizes::do_drill_update::STAGE1);
+        header.inscribe_into(&mut packet);
+
+        TruncateAckPacket { truncated_version }.serialize_into_buf(&mut packet).unwrap();
+        hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
+        packet
+    }
 }
 
 pub(crate) mod do_deregister {
@@ -980,8 +1024,20 @@ pub(crate) mod pre_connect {
     use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::drill::SecurityLevel;
+    use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
+    use serde::{Serialize, Deserialize};
+    use hyxe_fs::io::SyncIO;
+    use hyxe_user::prelude::ConnectProtocol;
 
-    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, tcp_only: bool, timestamp: i64, keep_alive_timeout_ns: i64, security_level: SecurityLevel) -> BytesMut {
+    #[derive(Serialize, Deserialize)]
+    pub struct SynPacket<'a> {
+        #[serde(borrow)]
+        pub transfer: AliceToBobTransfer<'a>,
+        pub session_security_settings: SessionSecuritySettings,
+        pub peer_only_connect_protocol: ConnectProtocol
+    }
+
+    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, tcp_only: bool, timestamp: i64, keep_alive_timeout_ns: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol) -> BytesMut {
         let tcp_only = if tcp_only {
             1
         } else {
@@ -1004,7 +1060,8 @@ pub(crate) mod pre_connect {
 
         let mut packet  = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
-        transfer.serialize_into(&mut packet).unwrap();
+
+        SynPacket { transfer, session_security_settings, peer_only_connect_protocol }.serialize_into_buf(&mut packet).unwrap();
 
         static_aux_hr.protect_message_packet(Some(security_level),HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet

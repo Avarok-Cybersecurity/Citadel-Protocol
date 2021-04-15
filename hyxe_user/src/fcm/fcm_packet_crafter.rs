@@ -65,6 +65,21 @@ pub fn craft_truncate<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id:
     base64_packet(fcm_ratchet, &header, &payload)
 }
 
+pub fn craft_truncate_ack<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u64, truncate_vers: u32) -> RawFcmPacket {
+    let header = FcmHeader {
+        session_cid: U64::new(fcm_ratchet.get_cid()),
+        target_cid: U64::new(target_cid),
+        group_id: U64::new(group_id),
+        ticket: U64::new(ticket),
+        object_id: U32::new(object_id),
+        ratchet_version: U32::new(fcm_ratchet.version())
+    };
+
+    let payload = FCMPayloadType::TruncateAck { truncate_vers };
+
+    base64_packet(fcm_ratchet, &header, &payload)
+}
+
 pub fn craft_deregistered<Fcm: Ratchet>(fcm_ratchet: &Fcm, target_cid: u64, ticket: u64) -> RawFcmPacket {
     let header = FcmHeader {
         session_cid: U64::new(fcm_ratchet.get_cid()),

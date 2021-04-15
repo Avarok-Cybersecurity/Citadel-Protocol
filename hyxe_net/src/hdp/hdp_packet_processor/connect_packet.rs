@@ -37,7 +37,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
             match validation::do_connect::validate_stage0_packet(&cnac, &*payload).await {
                 Ok(fcm_keys) => {
 
-                    let session = inner_mut!(sess_ref);
+                    let session = inner!(sess_ref);
                     let mut state_container = inner_mut!(session.state_container);
 
                     let cid = hyper_ratchet.get_cid();
@@ -53,7 +53,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::SUCCESS;
                     state_container.connect_state.fail_time = None;
                     state_container.connect_state.on_connect_packet_received();
-                    let channel = state_container.init_new_c2s_virtual_connection(security_level, kernel_ticket, header.session_cid.get());
+                    let channel = state_container.init_new_c2s_virtual_connection(&cnac, &mut *inner_mut!(session.updates_in_progress), security_level, kernel_ticket, header.session_cid.get());
 
                     std::mem::drop(state_container);
 
@@ -145,7 +145,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                     let use_ka = state_container.keep_alive_timeout_ns != 0;
                     let connect_mode = state_container.connect_state.connect_mode.clone()?;
-                    let channel = state_container.init_new_c2s_virtual_connection(security_level, kernel_ticket, header.session_cid.get());
+                    let channel = state_container.init_new_c2s_virtual_connection(&cnac,&mut *inner_mut!(session.updates_in_progress), security_level, kernel_ticket, header.session_cid.get());
                     std::mem::drop(state_container);
 
 

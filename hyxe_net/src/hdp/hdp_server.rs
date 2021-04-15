@@ -10,36 +10,39 @@ use std::task::{Context, Poll};
 
 use futures::{Sink, StreamExt};
 use log::info;
+use net2::TcpListenerExt;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::task::LocalSet;
+use tokio_native_tls::native_tls::Identity;
 
 use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::local_firewall_handler::{FirewallProtocol, open_local_firewall_port, remove_firewall_rule};
 use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
+use hyxe_user::fcm::data_structures::RawFcmPacketStore;
+use hyxe_user::network_account::ConnectProtocol;
+use hyxe_user::proposed_credentials::ProposedCredentials;
 
-use crate::constants::{NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT, DEFAULT_SO_LINGER_TIME};
+use crate::constants::{DEFAULT_SO_LINGER_TIME, NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT};
 use crate::error::NetworkError;
+use crate::functional::PairMap;
 use crate::hdp::file_transfer::FileTransferStatus;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::hdp::hdp_session::HdpSessionInitMode;
 use crate::hdp::hdp_session_manager::HdpSessionManager;
+use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream, TlsListener};
+use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
 use crate::hdp::peer::channel::PeerChannel;
 use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal};
 use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
 use crate::kernel::RuntimeFuture;
-use hyxe_user::proposed_credentials::ProposedCredentials;
-use hyxe_crypt::fcm::keys::FcmKeys;
-use hyxe_user::fcm::data_structures::RawFcmPacketStore;
-use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream, TlsListener};
-use net2::TcpListenerExt;
-use tokio_native_tls::native_tls::Identity;
-use crate::functional::PairMap;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -53,10 +56,13 @@ pub extern fn atexit() {
 }
 
 #[derive(Clone)]
+#[allow(variant_size_differences)]
 pub enum UnderlyingProtocol {
     Tcp,
-    Tls(Identity)
+    Tls(Identity, TlsDomain)
 }
+
+pub type TlsDomain = Option<String>;
 
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
 // by default, but settings can be changed in crate::macros::*.
@@ -116,6 +122,7 @@ impl HdpServer {
         // Load the readers
         let read = inner!(this);
 
+        let sess_mgr = read.session_manager.clone();
         let kernel_tx = read.to_kernel.clone();
         let node_type = read.local_node_type;
 
@@ -171,6 +178,8 @@ impl HdpServer {
 
             // the kernel will wait until the server shuts down to prevent cleanup tasks from being killed too early
             shutdown.send(());
+
+            tokio::time::timeout(Duration::from_millis(1000), sess_mgr.shutdown()).await.map_err(|err| NetworkError::Generic(err.to_string()))??;
 
             log::info!("HdpServer shutting down (future ended)...");
 
@@ -234,7 +243,7 @@ impl HdpServer {
                         Ok((GenericNetworkListener::Tcp(listener), bind))
                     }
 
-                    UnderlyingProtocol::Tls(identity) => {
+                    UnderlyingProtocol::Tls(identity, ..) => {
                         let tls_listener = TlsListener::new(listener, identity)?;
                         Ok((GenericNetworkListener::Tls(tls_listener), bind))
                     }
@@ -244,8 +253,8 @@ impl HdpServer {
 
     /// Returns a TcpStream to the remote addr, as well as a local TcpListener on the same bind addr going to remote
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
-    pub(crate) async fn create_init_tcp_listener<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, connect_underlying_proto: UnderlyingProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
-        let stream = Self::create_reuse_tcp_connect_socket(connect_underlying_proto, remote, None).await?;
+    pub(crate) async fn create_init_tcp_listener<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, connect_proto: ConnectProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
+        let stream = Self::create_reuse_tcp_connect_socket(connect_proto, remote, None).await?;
 
         let stream_bind_addr = stream.local_addr()?;
 
@@ -261,12 +270,12 @@ impl HdpServer {
         Ok((p2p_listener, stream))
     }
 
-    pub(crate) async fn create_reuse_tcp_connect_socket<R: ToSocketAddrs>(connect_underlying_proto: UnderlyingProtocol, remote: R, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
+    pub(crate) async fn create_reuse_tcp_connect_socket<R: ToSocketAddrs>(connect_underlying_proto: ConnectProtocol, remote: R, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
         let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
         Self::connect_defaults(connect_underlying_proto, timeout, remote).await
     }
 
-    async fn connect_defaults(connect_underlying_proto: UnderlyingProtocol, timeout: Option<Duration>, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
+    async fn connect_defaults(connect_underlying_proto: ConnectProtocol, timeout: Option<Duration>, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
         let stream = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), tokio::task::spawn_blocking(move || {
             let std_stream = if remote.is_ipv4() {
                 net2::TcpBuilder::new_v4()?
@@ -289,19 +298,19 @@ impl HdpServer {
         })).await???;
 
         match connect_underlying_proto {
-            UnderlyingProtocol::Tcp => {
+            ConnectProtocol::Tcp => {
                 Ok(GenericNetworkStream::Tcp(stream))
             }
 
-            UnderlyingProtocol::Tls(identity) => {
+            ConnectProtocol::Tls(domain) => {
                 // for debug builds, allow invalid certs to make testing TLS easier
                 #[cfg(debug_assertions)]
-                let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(true).identity(identity).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
                 #[cfg(not(debug_assertions))]
-                    let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).identity(identity).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                    let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
 
                 let connector = tokio_native_tls::TlsConnector::from(connector);
-                let stream = connector.connect("", stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                let stream = connector.connect(domain.as_ref().map(|r| r.as_str()).unwrap_or(""), stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
                 Ok(GenericNetworkStream::Tls(stream))
             }
         }
@@ -419,16 +428,16 @@ impl HdpServer {
                     }
                 }
 
-                HdpServerRequest::RegisterToHypernode(peer_addr, credentials, quantum_algorithm, fcm_keys,  security_level, connect_underlying_proto) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, None, ticket_id, credentials, security_level, None, listener_underlying_proto.clone(), connect_underlying_proto, fcm_keys, quantum_algorithm, None, None).await {
+                HdpServerRequest::RegisterToHypernode(peer_addr, credentials, fcm_keys,  security_settings, connect_underlying_proto) => {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Register(peer_addr, connect_underlying_proto),ticket_id, credentials, None, listener_underlying_proto.clone(), fcm_keys, None, None, security_settings).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
                     }
                 }
 
-                HdpServerRequest::ConnectToHypernode(peer_addr, implicated_cid, credentials, security_level, connect_mode, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout, connect_underlying_proto) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), peer_addr, Some(implicated_cid), ticket_id, credentials, security_level, Some(connect_mode), listener_underlying_proto.clone(), connect_underlying_proto, fcm_keys, quantum_algorithm, tcp_only, keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000)).await {
+                HdpServerRequest::ConnectToHypernode(implicated_cid, credentials, connect_mode, fcm_keys, tcp_only, keep_alive_timeout,  security_settings) => {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Connect(implicated_cid), ticket_id, credentials, Some(connect_mode), listener_underlying_proto.clone(), fcm_keys, tcp_only, keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000), security_settings).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
@@ -508,7 +517,6 @@ impl HdpServerRemote {
 
     /// Sends a request to the HDP server. This should always be used to communicate with the server
     /// in order to obtain a ticket
-    /// TODO: get rid of the unwrap
     pub fn unbounded_send(&self, request: HdpServerRequest) -> Result<Ticket, NetworkError> {
         let ticket = self.get_next_ticket();
         self.outbound_send_request_tx.unbounded_send((request, ticket))
@@ -594,13 +602,13 @@ impl Sink<HdpServerRequest> for HdpServerRemote {
 #[allow(variant_size_differences)]
 pub enum HdpServerRequest {
     /// Sends a request to the underlying [HdpSessionManager] to begin connecting to a new client
-    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<u8>, Option<FcmKeys>, SecurityLevel, UnderlyingProtocol),
+    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<FcmKeys>, SessionSecuritySettings, ConnectProtocol),
     /// A high-level peer command. Can be used to facilitate communications between nodes in the HyperLAN
     PeerCommand(u64, PeerSignal),
     /// For submitting a de-register request
     DeregisterFromHypernode(u64, VirtualConnectionType),
     /// Send data to client. Peer addr, implicated cid, hdp_nodelay, quantum algorithm, tcp only,
-    ConnectToHypernode(SocketAddr, u64, ProposedCredentials, SecurityLevel, ConnectMode, Option<FcmKeys>, Option<u8>, Option<bool>, Option<u32>, UnderlyingProtocol),
+    ConnectToHypernode(u64, ProposedCredentials, ConnectMode, Option<FcmKeys>, Option<bool>, Option<u32>, SessionSecuritySettings),
     /// Updates the drill for the given CID
     UpdateDrill(VirtualTargetType),
     /// Send data to an already existent connection
@@ -687,5 +695,19 @@ impl Into<Ticket> for usize {
 impl Display for Ticket {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+pub enum SecrecyMode {
+    /// Slowest, but ensures each packet gets encrypted with a unique symmetrical key
+    Perfect,
+    /// Fastest. Meant for high-throughput environments. Each message will attempt to get re-keyed, but if not possible, will use the most recent symmetrical key
+    BestEffort
+}
+
+impl Default for SecrecyMode {
+    fn default() -> Self {
+        Self::BestEffort
     }
 }

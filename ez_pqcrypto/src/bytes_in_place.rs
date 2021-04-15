@@ -1,8 +1,5 @@
 use std::ops::Range;
-#[cfg(feature = "chacha20")]
-use chacha20poly1305::aead::{Buffer, Error};
 
-#[cfg(not(feature = "chacha20"))]
 use aes_gcm_siv::aead::{Buffer, Error};
 use bytes::{BytesMut, BufMut};
 

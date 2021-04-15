@@ -83,7 +83,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
 
         self.conn =  Some(conn);
-        self.local_nac = Some(load_node_nac(true, directory_store)?);
+        self.local_nac = Some(load_node_nac(directory_store)?);
 
         Ok(())
     }
@@ -189,6 +189,49 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     fn maybe_generate_cnac_local_save_path(&self, _cid: u64, _is_personal: bool) -> Option<PathBuf> {
         None
+    }
+
+    async fn client_only_generate_possible_cids(&self) -> Result<Vec<u64>, AccountError> {
+        let conn = self.get_conn()?;
+        // cids are stored in the DB, not below, and as such, we call this function just to get a rand list
+        let mut possible_cids = self.local_nac.as_ref().map(|r| r.client_only_generate_possible_cids()).ok_or_else(|| AccountError::Generic("Local NAC not loaded".into()))?;
+        let len = possible_cids.len();
+
+        if len == 0 {
+            return Err(AccountError::Generic("Possible CIDs vector contains no items".to_string()))
+        }
+
+
+        let cmd = match self.variant {
+            SqlVariant::MySQL => {
+                let insert = self.construct_arg_insert_mysql(&possible_cids);
+                format!("SELECT Column_0 as cid FROM (SELECT * FROM (VALUES {}) TMP) VALS LEFT JOIN cnacs ON VALS.Column_0 = cnacs.cid WHERE cnacs.cid IS NULL LIMIT {}", insert, len)
+            },
+
+            SqlVariant::Postgre => {
+                let insert = self.construct_arg_insert_postgre(&possible_cids);
+                format!("SELECT Column_0 as cid FROM (SELECT * FROM (VALUES {}) TMP) as VALS(Column_0) LEFT JOIN cnacs ON VALS.Column_0 = cnacs.cid WHERE cnacs.cid IS NULL LIMIT {}", insert, len)
+            }
+
+            SqlVariant::Sqlite => {
+                let insert = self.construct_arg_insert_sqlite(&possible_cids);
+                // Note: the below works with the above 2 as well
+                format!("WITH temptable(column_0) as (VALUES {}) SELECT column_0 as cid FROM temptable LEFT JOIN cnacs ON temptable.column_0 = cnacs.cid WHERE cnacs.cid IS NULL LIMIT {}", insert, len)
+            }
+        };
+
+        let queries: Vec<AnyRow> = sqlx::query(cmd.as_str()).fetch_all(conn).await?;
+
+        possible_cids.clear(); // reuse the alloc
+
+        for query in queries {
+            if let Ok(val) = query.try_get::<String, _>("cid") {
+                let available_cid = u64::from_str(&val)?;
+                possible_cids.push(available_cid);
+            }
+        }
+
+        Ok(possible_cids)
     }
 
     async fn find_first_valid_cid(&self, possible_cids: &Vec<u64>) -> Result<Option<u64>, AccountError> {

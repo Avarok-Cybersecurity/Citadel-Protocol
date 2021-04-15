@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use hyxe_fs::env::DirectoryStore;
 use crate::prelude::NetworkAccount;
 use crate::account_loader::{load_cnac_files, load_node_nac};
-use crate::server_config_handler::sync_cnacs_and_nac;
+use crate::server_config_handler::sync_cnacs_and_nac_filesystem;
 use std::collections::hash_map::RandomState;
 use crate::hypernode_account::HyperNodeAccountInformation;
 use std::sync::Arc;
@@ -27,8 +27,8 @@ pub struct FilesystemBackend<R: Ratchet, Fcm: Ratchet> {
 impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R, Fcm> {
     async fn connect(&mut self, directory_store: &DirectoryStore) -> Result<(), AccountError<String>> {
         let mut map = load_cnac_files(directory_store)?;
-        let local_nac = load_node_nac(false, directory_store)?;
-        sync_cnacs_and_nac(&local_nac, &mut map)?;
+        let local_nac = load_node_nac(directory_store)?;
+        sync_cnacs_and_nac_filesystem(&local_nac, &mut map)?;
         // NOTE: since we don't have access to the persistence handler yet, we will need to load it later
         self.local_nac = Some(local_nac);
         self.clients_map = Some(Arc::new(ShardedLock::new(map)));
@@ -102,9 +102,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         }
 
         let mut write = self.local_nac().write();
-        if let Some(map) = write.cids_registered.as_mut() {
-            map.clear();
-        }
+        write.cids_registered.clear();
 
         std::mem::drop(write);
 
@@ -121,12 +119,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Some(ClientNetworkAccount::<R, Fcm>::generate_local_save_path(cid, is_personal, &self.directory_store))
     }
 
+    async fn client_only_generate_possible_cids(&self) -> Result<Vec<u64>, AccountError> {
+        self.local_nac.as_ref().map(|r| r.client_only_generate_possible_cids()).ok_or_else(||AccountError::Generic("Local NAC not loaded".into()))
+    }
+
     async fn find_first_valid_cid(&self, possible_cids: &Vec<u64>) -> Result<Option<u64>, AccountError> {
         Ok(self.local_nac().find_first_valid_cid_filesystem(possible_cids))
     }
 
     async fn username_exists(&self, username: &str) -> Result<bool, AccountError> {
-        Ok(self.local_nac().username_exists_filesystem(username).ok_or(AccountError::Generic("The local NAC did not have a CIDS hashmap...".into()))?)
+        Ok(self.local_nac().username_exists_filesystem(username))
     }
 
     async fn register_cid_in_nac(&self, cid: u64, username: &str) -> Result<(), AccountError<String>> {

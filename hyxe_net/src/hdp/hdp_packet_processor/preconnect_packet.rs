@@ -47,9 +47,10 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                     let adjacent_proto_version = header.group.get();
 
                     match validation::pre_connect::validate_syn(&cnac, packet){
-                        Some((static_aux_ratchet, transfer)) => {
+                        Some((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode)) => {
                             // since the SYN's been validated, the CNACs toolset has been updated
                             let new_session_sec_lvl = transfer.security_level;
+
                             // TODO: prevent logins if versions out of sync. For now, don't
                             if proto_version_out_of_sync(adjacent_proto_version) {
                                 log::warn!("\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", crate::constants::BUILD_VERSION, adjacent_proto_version);
@@ -70,9 +71,10 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
 
                             std::mem::drop(state_container);
 
-                            session.security_level = new_session_sec_lvl;
                             session.tcp_only = tcp_only;
                             session.cnac = Some(cnac);
+                            session.security_settings = Some(session_security_settings);
+                            session.peer_only_connect_protocol = Some(peer_only_connect_mode);
 
                             PrimaryProcessorResult::ReplyToSender(syn_ack)
                         }
@@ -98,7 +100,6 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
             log::info!("RECV STAGE SYN_ACK PRE_CONNECT PACKET");
             let tcp_only = session.tcp_only;
             // we now shadow the security_level above, and ensure all further packets use the desired default
-            let security_level = session.security_level;
             let mut state_container = inner_mut!(session.state_container);
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
                 // cnac should already be loaded locally

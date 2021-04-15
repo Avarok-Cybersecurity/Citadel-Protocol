@@ -109,6 +109,7 @@ impl Stream for GenericNetworkListener {
             },
 
             Self::Tls(ref mut listener) => {
+                // tls already sends the first packet. Nothing to do here
                 Pin::new(listener).poll_next(cx).map(|r| r.map(|res: std::io::Result<(TlsStream<TcpStream>, SocketAddr)>| res.map(|(stream, peer_addr)| (GenericNetworkStream::Tls(stream), peer_addr))))
             }
         }
@@ -188,6 +189,7 @@ impl Stream for TlsListener {
 
         match futures::ready!(Pin::new(inner).poll_accept(cx)) {
             Ok((stream, _peer_addr)) => {
+                // send first byte
                 let tls_acceptor = tls_acceptor.clone();
                 let future = async move {
                     tls_acceptor.accept(stream).await

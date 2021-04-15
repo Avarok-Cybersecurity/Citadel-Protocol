@@ -4,21 +4,21 @@ use hyxe_net::kernel::kernel_executor::KernelExecutor;
 use crate::kernel::CLIKernel;
 use hyxe_net::error::NetworkError;
 use tokio::runtime::Runtime;
-use std::sync::Arc;
 use hyxe_user::backend::BackendType;
-use hyxe_net::hdp::hdp_server::UnderlyingProtocol;
 
 /// This function will BLOCK the calling thread until the runtime is done executing
-pub fn execute(config: AppConfig) -> Result<(), NetworkError> {
+pub fn execute(mut config: AppConfig) -> Result<(), NetworkError> {
     // CLAP will ensure this value always have Some
     let bind_addr = config.local_bind_addr.clone().unwrap();
     let hypernode_type = config.hypernode_type.unwrap();
-    let rt = Arc::new(build_rt(config.kernel_threads)?);
-    let rt_ke = rt.clone();
+    let rt = build_rt(config.kernel_threads)?;
+    let underlying_proto = config.underlying_protocol.take().unwrap();
+    let handle = rt.handle().clone();
+
     rt.block_on(async move {
         let account_manager = get_account_manager(&config).await?;
         let kernel = CLIKernel::new(config, account_manager.clone()).await;
-        match KernelExecutor::new(rt_ke, hypernode_type, account_manager, kernel, bind_addr, UnderlyingProtocol::Tcp).await {
+        match KernelExecutor::new(handle, hypernode_type, account_manager, kernel, bind_addr, underlying_proto).await {
             Ok(server) => {
                 server.execute().await
             },

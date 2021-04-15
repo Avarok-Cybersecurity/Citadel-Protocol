@@ -15,7 +15,7 @@ use hyxe_net::error::NetworkError;
 use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
 use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
 use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerResult, Ticket};
-use hyxe_net::hdp::peer::channel::PeerChannelSendHalf;
+use hyxe_net::hdp::peer::channel::{PeerChannelSendHalf, PeerChannelRecvHalf};
 use hyxe_net::hdp::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal};
 use hyxe_net::hdp::peer::peer_layer::MailboxTransfer;
 use hyxe_net::hdp::state_container::VirtualConnectionType;
@@ -33,10 +33,10 @@ use crate::ffi::{DomainResponse, FFIIO, KernelResponse};
 use crate::mail::IncomingPeerRequest;
 use crate::ticket_event::TicketQueueHandler;
 use hyxe_net::functional::IfEqConditional;
-use hyxe_crypt::drill::SecurityLevel;
 use hyxe_user::fcm::kem::FcmPostRegister;
 use crate::command_handlers::peer::PostRegisterRequest;
 use hyxe_net::hdp::misc::panic_future::AssertSendSafeFuture;
+use hyxe_net::hdp::misc::session_security_settings::SessionSecuritySettings;
 
 #[allow(dead_code)]
 pub struct CLIKernel {
@@ -69,8 +69,8 @@ impl CLIKernel {
         }
     }
 
-    pub async fn load_new_kernel_session(&self, kernel_session: KernelSession) {
-        self.console_context.load_kernel_session(kernel_session).await
+    pub async fn load_new_kernel_session(&self, kernel_session: KernelSession, channel_rx: PeerChannelRecvHalf) {
+        self.console_context.load_kernel_session(kernel_session, channel_rx).await
     }
 
     /// Returns the username, or, CID if not found
@@ -270,7 +270,7 @@ impl NetKernel for CLIKernel {
             }
 
             // FFI handler built-in to the ticket callback
-            HdpServerResult::ConnectSuccess(ticket, cid, ip_addr, is_personal, virtual_cxn_type, raw_fcm_packet_store, message) => {
+            HdpServerResult::ConnectSuccess(ticket, cid, ip_addr, is_personal, virtual_cxn_type, raw_fcm_packet_store, message, channel) => {
                 self.on_ticket_received(ticket, PeerResponse::Ok(Some(message)));
                 if let Ok(Some(cnac)) = self.console_context.account_manager.get_client_by_cid(cid).await {
                     let username = cnac.get_username();
@@ -280,7 +280,8 @@ impl NetKernel for CLIKernel {
 
                     match virtual_cxn_type {
                         VirtualConnectionType::HyperLANPeerToHyperLANServer(cid) => {
-                            self.load_new_kernel_session(KernelSession::new(cnac, cid, ip_addr, username, is_personal, virtual_cxn_type)).await;
+                            let (sink, stream) = channel.split();
+                            self.load_new_kernel_session(KernelSession::new(cnac, cid, ip_addr, username, is_personal, virtual_cxn_type, sink), stream).await;
                         }
 
                         _ => {}
@@ -473,7 +474,7 @@ impl NetKernel for CLIKernel {
     }
 }
 
-async fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticket: Option<Ticket>, response: Option<PeerResponse>, endpoint_security_addr: SecurityLevel, do_print: bool) {
+async fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType, ticket: Option<Ticket>, response: Option<PeerResponse>, security_settings: SessionSecuritySettings, do_print: bool) {
     // if we get a response, it means that this node's connection attempt with conn succeeded
     // else we don't get a response, it means that this node RECEIVED an INVITATION to connect
     if let Some(response) = response {
@@ -487,7 +488,7 @@ async fn process_post_connect_signal(this: &CLIKernel, conn: PeerConnectionType,
 
             let username = username.unwrap_or(String::from("INVALID"));
             // now, store the mail that way the next call to peer accept-request can work
-            let mail_id = this.console_context.unread_mail.write().on_peer_request_received(IncomingPeerRequest::Connection(ticket, conn, Instant::now(), endpoint_security_addr));
+            let mail_id = this.console_context.unread_mail.write().on_peer_request_received(IncomingPeerRequest::Connection(ticket, conn, Instant::now(), security_settings));
             let cmd = format!("peer accept-connect {}", mail_id);
             if do_print {
                 printfs!({
@@ -553,6 +554,7 @@ pub struct KernelSession {
     pub init_time: Instant,
     pub virtual_cxn_type: VirtualConnectionType,
     pub concurrent_peers: HashMap<u64, PeerSession>,
+    pub channel_tx: PeerChannelSendHalf
 }
 
 #[allow(dead_code)]
@@ -564,9 +566,9 @@ pub struct PeerSession {
 }
 
 impl KernelSession {
-    pub fn new(cnac: ClientNetworkAccount, cid: u64, socket_addr: SocketAddr, username: String, is_personal: bool, virtual_cxn_type: VirtualConnectionType) -> Self {
+    pub fn new(cnac: ClientNetworkAccount, cid: u64, socket_addr: SocketAddr, username: String, is_personal: bool, virtual_cxn_type: VirtualConnectionType, channel_tx: PeerChannelSendHalf) -> Self {
         let concurrent_peers = HashMap::new();
-        Self { cnac, virtual_cxn_type, username, cid, socket_addr, is_personal, tickets: HashSet::new(), init_time: Instant::now(), concurrent_peers }
+        Self { cnac, virtual_cxn_type, username, cid, socket_addr, is_personal, tickets: HashSet::new(), init_time: Instant::now(), concurrent_peers, channel_tx }
     }
 
     pub fn elapsed_time_seconds(&self) -> u64 {

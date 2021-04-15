@@ -3,9 +3,6 @@ use futures::task::{Context, Poll};
 use std::pin::Pin;
 use crate::prelude::{Drill, PostQuantumContainer, CryptError};
 
-/// The size, in bytes, of the AES_GCM nonce
-pub const AES_GCM_NONCE_LEN_BYTES: usize = ez_pqcrypto::NONCE_LENGTH_BYTES;
-
 /// holds the the drill (0), the post quantum container (1), the nonce version (2), as well as the input bytes to be encrypted (3)
 pub struct AesGcmEncryptor<'a, T: AsRef<[u8]> + 'a>(pub &'a Drill, pub &'a PostQuantumContainer, pub usize, pub T);
 

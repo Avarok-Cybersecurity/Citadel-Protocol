@@ -46,6 +46,7 @@ fn setup_clap<'a>() -> App<'a, 'a> {
         .author("Thomas Philip Braun <thomas@satorisocial.com>")
         .about("A CLI for the post-quantum distributed networking protocol")
         .setting(AppSettings::NoBinaryName)
+        .setting(AppSettings::TrailingVarArg)
         .arg(Arg::with_name("bind")
             .long("bind")
             .short("b")
@@ -97,7 +98,27 @@ fn setup_clap<'a>() -> App<'a, 'a> {
             .takes_value(true)
             .help("Specifies a backend for storing peer account information. Stores to the local filesystem as default. Enter a url in the format: mysql://username:password@ip/database"))
         //.arg(Arg::with_name("command").required(true).index(1))
-        .arg(Arg::with_name("pipe").long("pipe").takes_value(true).required(false).help("include a locally-running TCP socket address to communicate with local processes. The following argument must be a loopback socket address"))
+        .arg(Arg::with_name("pipe").long("pipe").takes_value(true).hidden(true).required(false).help("include a locally-running TCP socket address to communicate with local processes. The following argument must be a loopback socket address"))
+        .arg(Arg::with_name("tls")
+            .long("tls")
+            .required(false)
+            .requires("tls-domain")
+            .takes_value(true)
+            .help("Enables the use of TLS for this node. Requires an input path to a PKCS-12 file. Self-signed certs are not allowed in production mode. If a password is required, specify tls-pass <path/to/file>"))
+        // https://www.netmeister.org/blog/passing-passwords.html
+        .arg(Arg::with_name("tls-pass")
+            .long("tls-pass")
+            .required(false)
+            .takes_value(true)
+            .display_order(2)
+            .multiple(true)
+            .hidden_long_help(true)
+            .help("A path to a file containing a password for the TLS certificate. Every byte in the file will be interpreted as the password"))
+        .arg(Arg::with_name("tls-domain")
+            .long("tls-domain")
+            .default_value("")
+            .takes_value(true)
+            .help("Specifies a domain"))
 }
 
 pub mod parsers {
@@ -111,6 +132,10 @@ pub mod parsers {
     use crate::console_error::ConsoleError;
     use hyxe_net::re_imports::HyperNodeType;
     use crate::primary_terminal::try_get_local_addr;
+    use hyxe_net::hdp::hdp_server::UnderlyingProtocol;
+    use hyxe_net::hdp::misc::net::TlsListener;
+    use std::fs::File;
+    use std::io::Read;
 
     pub fn parse_all_primary_commands(matches: &ArgMatches, app_config: &mut AppConfig) -> Result<(), ConsoleError> {
         if let Some(node_type) = matches.value_of("node_type") {
@@ -135,9 +160,22 @@ pub mod parsers {
 
         app_config.local_bind_addr = Some(try_get_local_addr(matches)?);
 
-
         if let Some(home_addr) = matches.value_of("home") {
             app_config.home_dir = Some(home_addr.to_string());
+        }
+
+        if let Some(path) = matches.value_of("tls") {
+            let password_path: Option<String> = matches.values_of("tls-pass").map(|r| r.collect::<Vec<&str>>().join(" "));
+            let mut buf = String::new();
+
+            if let Some(path) = password_path {
+                let _ = File::open(path)?.read_to_string(&mut buf)?;
+            }
+
+            let tls_domain = matches.value_of("tls-domain").map(|r| r.to_string()).unwrap();
+            app_config.underlying_protocol = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs(path, buf.trim()).map_err(|err| ConsoleError::Generic(err.to_string()))?, Some(tls_domain)))
+        } else {
+            app_config.underlying_protocol = Some(UnderlyingProtocol::Tcp)
         }
 
 

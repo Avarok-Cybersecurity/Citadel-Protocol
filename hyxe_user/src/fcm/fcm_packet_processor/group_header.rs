@@ -17,7 +17,7 @@ pub fn process<'a, Fcm: Ratchet>(client: &'a Arc<Client>, endpoint_crypto: &'a m
     let local_cid = header.target_cid.get();
 
     let kem_transfer_status = if let Some(transfer) = alice_to_bob_transfer {
-        let constructor = Fcm::Constructor::new_bob(0, local_cid, header.ratchet_version.get().wrapping_add(1), AliceToBobTransferType::Fcm(transfer))?;
+        let constructor = Fcm::Constructor::new_bob(local_cid, header.ratchet_version.get().wrapping_add(1), AliceToBobTransferType::Fcm(transfer))?;
         endpoint_crypto.update_sync_safe(constructor, false, local_cid).map_err(|_| AccountError::IoError("Error while updating crypt container".to_string()))?
     } else {
         // no update needed since one is probably already concurrently happening

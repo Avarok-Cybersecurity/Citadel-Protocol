@@ -16,6 +16,7 @@ pub(crate) mod group_header;
 pub(crate) mod group_header_ack;
 pub(crate) mod truncate;
 pub(crate) mod deregister;
+pub(crate) mod truncate_ack;
 pub mod peer_post_register;
 
 /// If the raw packet was: {"inner": "ABCDEF"}, then, the input here should be simply ABCDEF without quotations.
@@ -95,7 +96,8 @@ pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &Acco
                 match payload {
                     FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet,FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
                     FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(fcm_client, crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer),
-                    FCMPayloadType::Truncate { truncate_vers } => truncate::process(crypt_container,  truncate_vers),
+                    FCMPayloadType::Truncate { truncate_vers } => truncate::process(fcm_client, crypt_container,  truncate_vers, FcmHeader::try_from(&header).unwrap()),
+                    FCMPayloadType::TruncateAck { truncate_vers } => truncate_ack::process(crypt_container, truncate_vers),
                     FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-7890)".to_string()),
                     // below, the implicated cid is obtained from the session_cid, and as such, is the peer_cid
                     FCMPayloadType::PeerDeregistered => deregister::process(implicated_cid, local_cid, ticket, fcm_crypt_container, mutuals)
@@ -149,7 +151,7 @@ pub fn blocking_process_packet_store(mut raw_fcm_packet_store: RawFcmPacketStore
 pub enum FcmProcessorResult {
     Void,
     Err(String),
-    RequiresSave,
+    RequiresSave(Option<FcmPacketMaybeNeedsSending>),
     Value(FcmResult, FcmPacketMaybeNeedsSending),
     Values(Vec<(FcmResult, FcmPacketMaybeNeedsSending)>)
 }
@@ -173,14 +175,14 @@ impl FcmProcessorResult {
     pub fn implies_save_needed(&self) -> bool {
         match self {
             Self::Value(FcmResult::MessageSent { .. } | FcmResult::GroupHeaderAck { .. } | FcmResult::GroupHeader { .. } | FcmResult::PostRegisterInvitation { .. } | FcmResult::PostRegisterResponse { .. } | FcmResult::Deregistered { .. }, ..)=> true,
-            Self::RequiresSave => true,
+            Self::RequiresSave(..) => true,
             _ => false
         }
     }
 
     pub fn implies_packet_needs_sending(&self) -> Option<(&FCMInstance, &RawFcmPacket)> {
         match self {
-            Self::Value(_, packet) => {
+            Self::Value(_, packet) | Self::RequiresSave(Some(packet)) => {
                 match packet.packet.as_ref() {
                     Some((Some(instance), packet)) => {
                         Some((instance, packet))

@@ -75,6 +75,8 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn client_count(&self) -> Result<usize, AccountError>;
     /// Maybe generates a local save path, only if required by the implementation
     fn maybe_generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> Option<PathBuf>;
+    /// Returns a list of unused CIDS
+    async fn client_only_generate_possible_cids(&self) -> Result<Vec<u64>, AccountError>;
     /// Searches the internal database/nac for the first cid that is unused
     async fn find_first_valid_cid(&self, possible_cids: &Vec<u64>) -> Result<Option<u64>, AccountError>;
     /// Determines if a username exists
@@ -134,7 +136,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     #[allow(unused_results, unused_must_use)]
     /// spawns to thread pool
     fn spawn_save_task_to_threadpool(self: Arc<Self>, cnac: ClientNetworkAccount<R, Fcm>) where Self: 'static {
-        tokio::task::spawn(async move { self.save_cnac(cnac); });
+        tokio::task::spawn(async move { self.save_cnac(cnac).await; });
     }
 }
 

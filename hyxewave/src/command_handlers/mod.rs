@@ -76,6 +76,8 @@ pub mod list_sessions;
 
 pub mod list_accounts;
 
+pub mod list_algorithms;
+
 pub mod switch;
 
 pub mod connect;
