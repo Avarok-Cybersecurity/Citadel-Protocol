@@ -1657,6 +1657,7 @@ impl HdpSessionInner {
             let key = GroupKey::new(target_cid, group_id);
             inner_mut!(this.state_container).outbound_transmitters.insert(key, outbound_container);
 
+            // TODO: When large packets are spammed through (e.g., 10,000 bytes+ per packet), expirations occur. Adjust the algorithm below to include network conditions and number of packets in the queue
             this.queue_worker.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |sess| {
                 let state_container = inner!(sess.state_container);
                 if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
