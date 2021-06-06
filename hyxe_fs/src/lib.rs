@@ -1,4 +1,4 @@
-#![feature(const_fn, async_closure,trivial_bounds)]
+#![feature(async_closure,trivial_bounds)]
 #![feature(shrink_to)]
 //! hyxe_fs (Hyxe::FileSystem) organizes the libraries responsible for handling I/O with the disk and notably the variably-centralized virtual-fs
 //! for home, business, enterprise, or government settings

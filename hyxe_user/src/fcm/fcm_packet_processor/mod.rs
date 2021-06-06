@@ -1,7 +1,6 @@
 use crate::account_manager::AccountManager;
-use std::ops::Try;
+use std::ops::{Try, ControlFlow, FromResidual};
 use crate::fcm::data_structures::{FcmPacket, FCMPayloadType, FcmHeader, FcmTicket, RawFcmPacket, RawFcmPacketStore};
-use std::option::NoneError;
 use crate::misc::AccountError;
 use hyxe_fs::io::SyncIO;
 use std::future::Future;
@@ -198,31 +197,45 @@ impl FcmProcessorResult {
 }
 
 impl Try for FcmProcessorResult {
-    type Ok = Self;
-    type Error = Self;
+    type Output = Self;
+    type Residual = Self;
 
-    fn into_result(self) -> Result<Self::Ok, Self::Error> {
+    fn from_output(output: Self::Output) -> Self {
+        output
+    }
+
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
             val @ Self::Err(..) => {
-                Err(val)
+                ControlFlow::Break(val)
             }
 
-            val => Ok(val)
+            val => ControlFlow::Continue(val)
         }
-    }
-
-    fn from_error(v: Self::Error) -> Self {
-        v
-    }
-
-    fn from_ok(v: Self::Ok) -> Self {
-        v
     }
 }
 
-impl From<NoneError> for FcmProcessorResult {
-    fn from(_: NoneError) -> Self {
-        FcmProcessorResult::Err("Invalid input".to_string())
+impl FromResidual for FcmProcessorResult {
+    fn from_residual(residual: <Self as Try>::Residual) -> Self {
+        residual
+    }
+}
+
+impl<T> FromResidual<Option<T>> for FcmProcessorResult {
+    fn from_residual(residual: Option<T>) -> Self {
+        match residual {
+            None => FcmProcessorResult::Err("FromResidual::None".into()),
+            _ => FcmProcessorResult::Void
+        }
+    }
+}
+
+impl<T> FromResidual<Result<T, AccountError>> for FcmProcessorResult {
+    fn from_residual(residual: Result<T, AccountError>) -> Self {
+        match residual {
+            Err(err) => FcmProcessorResult::Err(err.into_string()),
+            _ => FcmProcessorResult::Void
+        }
     }
 }
 

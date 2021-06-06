@@ -1,7 +1,8 @@
-#![feature(async_closure, main, try_trait, ip, type_alias_impl_trait, bindings_after_at)]
+#![feature(async_closure, ip, bindings_after_at)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
-#![feature(or_patterns)]
+#![feature(try_trait_v2)]
+#![feature(control_flow_enum)]
 //! Core networking components for SatoriNET
 #![deny(
 trivial_numeric_casts,

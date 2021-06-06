@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::hint::black_box;
 use std::pin::Pin;
 
 use async_trait::async_trait;
@@ -630,7 +629,7 @@ async fn terminal_ticket_and_loopback_future(ticket_queue_handler: TicketQueueHa
 
 async fn ticket_handler_future(mut ticket_queue_handler: TicketQueueHandler) -> Result<(), ConsoleError> {
     while let Some(_) = ticket_queue_handler.next().await {
-        black_box(())
+
     }
 
     Err(ConsoleError::Default("Ticket handler died"))

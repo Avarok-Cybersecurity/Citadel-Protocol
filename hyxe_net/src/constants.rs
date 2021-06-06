@@ -1,4 +1,4 @@
-pub const BUILD_VERSION: usize = 5031;
+pub const BUILD_VERSION: usize = 5090;
 /// Signal for closing the stream_wrapper
 pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper
@@ -60,7 +60,7 @@ pub const CODEC_BUFFER_CAPACITY: usize = u16::MAX as usize;
 /// The minimum number of bytes allocated in the codec
 pub const CODEC_MIN_BUFFER: usize = 8192;
 /// After the time defined below, any incomplete packet groups will be discarded
-pub const GROUP_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(4000);
+pub const GROUP_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(60000);
 /// After this time, the registration state is invalidated
 pub const DO_REGISTER_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(4000);
 /// After this time, the connect state is invalidated

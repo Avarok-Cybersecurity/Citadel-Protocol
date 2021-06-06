@@ -161,21 +161,17 @@ impl ConsoleContext {
         }
     }
 
+    // TODO: For ffi, route events
     fn startup_channel_listener(mut peer_channel_rx: PeerChannelRecvHalf, peer_username: String, ctx: ConsoleContext) {
         tokio::task::spawn(async move {
             // this task will automatically be dropped once the underlying virtual-conn in the state container gets dropped
             // it receives an empty vec upon drop
             while let Some(message) = peer_channel_rx.next().await {
-                let message = message.into_buffer();
-                if message.is_empty() {
-                    break;
-                }
-
-                printf_ln!(colour::yellow!("[{}]: {}\n", peer_username.as_str(), String::from_utf8(message).unwrap_or(String::from("INVALID UTF-8 MESSAGE"))));
+                printf_ln!(colour::yellow!("[{}]: {}\n", peer_username.as_str(), std::str::from_utf8(message.as_ref()).unwrap_or("INVALID UTF-8 MESSAGE")));
                 INPUT_ROUTER.print_prompt(false, &ctx)
             }
 
-            printf_ln!(colour::yellow!("Peer channel {} has disconnected\n", peer_username))
+            printf_ln!(colour::yellow!("Channel {} has disconnected\n", peer_username))
         });
     }
 

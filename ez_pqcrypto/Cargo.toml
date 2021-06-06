@@ -26,7 +26,7 @@ pqcrypto-ntru = "*"
 enum_primitive = "0.1.1"
 serde = { version = "1.0.118", features = ["derive"] }
 bincode2 = "2.0.1"
-aes-gcm-siv = { version = "^0.9.0", features = ["heapless"]}
+aes-gcm-siv = { version = "*", features = ["heapless"]}
 chacha20poly1305 = { version = "*", features = ["heapless", "xchacha20poly1305"] }
 bytes = "^1.0.1"
 circular-queue = { version = "*", features = ["serde_support"], optional = true }
