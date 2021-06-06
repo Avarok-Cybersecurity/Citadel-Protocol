@@ -29,6 +29,7 @@ pub struct MessageGroup {
 
 /// TODO: Attributed data (e.g., permissions)
 pub(crate) struct MessageGroupPeer {
+    #[allow(dead_code)]
     pub peer_cid: u64,
 }
 

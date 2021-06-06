@@ -1,4 +1,4 @@
-#![feature(try_trait, decl_macro, result_flattening)]
+#![feature(decl_macro, result_flattening)]
 
 #[cfg(test)]
 pub mod tests {
@@ -9,7 +9,6 @@ pub mod tests {
     use std::sync::Arc;
     use std::time::Instant;
 
-    use byteorder::ByteOrder;
     use futures::{Future, SinkExt, StreamExt};
     use parking_lot::{const_mutex, Mutex, RwLock};
     use tokio::net::{TcpListener, TcpStream};
@@ -39,11 +38,8 @@ pub mod tests {
     use hyxe_user::network_account::ConnectProtocol;
     use hyxe_user::proposed_credentials::ProposedCredentials;
 
-    use crate::tests::kernel::{ActionType, TestContainer, TestKernel};
+    use crate::tests::kernel::{ActionType, TestContainer, TestKernel, MessageTransfer};
     use crate::utils::{assert, assert_eq, AssertSendSafeFuture};
-
-    const COUNT: usize = 500;
-    const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 100);
 
     #[allow(dead_code)]
     fn gen(params: impl Into<CryptoParameters>, cid: u64, vers: u32, sec: Option<SecurityLevel>) -> (HyperRatchet, HyperRatchet) {
@@ -164,6 +160,12 @@ pub mod tests {
 
     pub const SECRECY_MODE: SecrecyMode = SecrecyMode::BestEffort;
     pub const USE_TLS: bool = true;
+
+    const COUNT: usize = 500;
+    const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 100);
+
+    // The number of random bytes put into every message
+    pub const RAND_MESSAGE_LEN: usize = 10000;
 
     #[test]
     fn main() -> Result<(), Box<dyn Error>> {
@@ -312,8 +314,34 @@ pub mod tests {
         use hyxe_net::kernel::kernel::NetKernel;
         use hyxe_user::client_account::ClientNetworkAccount;
 
-        use crate::tests::{client2_action4_fire_group, COUNT, GROUP_TICKET_TEST, handle_c2s_peer_channel, handle_peer_channel, NodeType};
+        use crate::tests::{client2_action4_fire_group, COUNT, GROUP_TICKET_TEST, handle_c2s_peer_channel, handle_peer_channel, NodeType, RAND_MESSAGE_LEN};
         use crate::utils::{assert, assert_eq};
+        use serde::{Serialize, Deserialize};
+        use hyxe_crypt::prelude::SecBuffer;
+        use rand::rngs::ThreadRng;
+        use hyxe_fs::io::SyncIO;
+        use rand::Rng;
+
+        #[derive(Serialize, Deserialize)]
+        pub struct MessageTransfer {
+            pub idx: u64,
+            pub rand: Vec<u8>
+        }
+
+        impl MessageTransfer {
+            pub fn create(idx: u64) -> SecBuffer {
+                let mut rng = ThreadRng::default();
+                let mut rand = vec![0u8; RAND_MESSAGE_LEN];
+                rng.fill(rand.as_mut_slice());
+
+                Self { idx, rand }.serialize_to_vector().unwrap().into()
+            }
+
+            pub fn receive(input: SecBuffer) -> Self {
+                Self::deserialize_from_vector(input.as_ref()).unwrap()
+            }
+        }
+
 
         #[derive(Default)]
         pub struct TestContainer {
@@ -569,6 +597,7 @@ pub mod tests {
                                         self.on_valid_ticket_received(GROUP_TICKET_TEST);
                                         let remote = self.remote.clone().unwrap();
                                         tokio::task::spawn(async move {
+                                            // TODO: Replace this with broadcasters
                                             tokio::time::sleep(Duration::from_millis(500)).await;
                                             remote.shutdown().unwrap();
                                         });
@@ -586,6 +615,7 @@ pub mod tests {
                                         self.on_valid_ticket_received(GROUP_TICKET_TEST);
                                         let remote = self.remote.clone().unwrap();
                                         tokio::task::spawn(async move {
+                                            // TODO: Replace this with broadcasters
                                             tokio::time::sleep(Duration::from_millis(500)).await;
                                             remote.shutdown().unwrap();
                                         });
@@ -774,12 +804,13 @@ pub mod tests {
             while let Some(msg) = stream.next().await {
                 log::info!("{:?} Message delivery **", node_type);
                 let mut lock = container.write();
-
+                let data = MessageTransfer::receive(msg);
                 match node_type {
                     NodeType::Client0 => {
                         // client0 already had its sender started. We only need to increment the inner count
-                        let val = byteorder::BigEndian::read_u64(msg.as_ref());
-                        assert_eq(val as usize, lock.client_server_as_client_recv_count, "MRAP");
+                        //let val = byteorder::BigEndian::read_u64(msg.as_ref());
+                        assert_eq(data.idx as usize, lock.client_server_as_client_recv_count, "MRAP");
+                        assert_eq(data.rand.len(), RAND_MESSAGE_LEN, "LZX");
                         log::info!("[Client/Server Stress Test] RECV {} for {:?}", lock.client_server_as_client_recv_count, node_type);
                         lock.client_server_as_client_recv_count += 1;
 
@@ -797,8 +828,9 @@ pub mod tests {
 
                     NodeType::Server => {
                         //log::info!("RBX");
-                        let val = byteorder::BigEndian::read_u64(msg.as_ref());
-                        assert_eq(val as usize, lock.client_server_as_server_recv_count, "NRAP");
+                        //let val = byteorder::BigEndian::read_u64(msg.as_ref());
+                        assert_eq(data.idx as usize, lock.client_server_as_server_recv_count, "NRAP");
+                        assert_eq(data.rand.len(), RAND_MESSAGE_LEN, "QAAM");
                         log::info!("[Client/Server Stress Test] RECV {} for {:?}", lock.client_server_as_server_recv_count, node_type);
                         lock.client_server_as_server_recv_count += 1;
 
@@ -850,7 +882,7 @@ pub mod tests {
                             //tokio::time::sleep(Duration::from_millis(1)).await
                         }
                         //tokio::time::sleep(Duration::from_millis(10)).await;
-                        sink.send_unbounded(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8])).unwrap();
+                        sink.send_unbounded(MessageTransfer::create(x as u64)).unwrap();
                     }
 
                     log::info!("DONE sending {} messages for {:?}", COUNT, node_type);
@@ -862,12 +894,13 @@ pub mod tests {
                 let mut messages_recv = 0;
 
                 while let Some(val) = stream.next().await {
+                    let val = MessageTransfer::receive(val);
                     match node_type {
                         NodeType::Client0 | NodeType::Client1 => {
+                            log::info!("RECV MESSAGE {:?}. CUR COUNT: {}", node_type, messages_recv);
+                            //let value = byteorder::BigEndian::read_u64(val.as_ref()) as usize;
+                            assert_eq(messages_recv, val.idx as usize, "EGQ");
                             messages_recv += 1;
-                            log::info!("{:?} RECV MESSAGE {:?}. CUR COUNT: {}", val.as_ref(), node_type, messages_recv);
-                            let value = byteorder::BigEndian::read_u64(val.as_ref()) as usize;
-                            assert_eq(messages_recv - 1, value, "EGQ");
                             if messages_recv >= COUNT {
                                 break;
                             }
@@ -918,7 +951,7 @@ pub mod tests {
         log::info!("[Server/Client Stress Test] Starting send of {} messages [local type: {:?}]", COUNT, node_type);
 
         for x in 0..COUNT {
-            sink.send(SecBuffer::from(&(x as u64).to_be_bytes() as &[u8])).await.unwrap();
+            sink.send(MessageTransfer::create(x as u64)).await.unwrap();
         }
 
         log::info!("[Server/Client Stress Test] Done sending {} messages as {:?}", COUNT, node_type)

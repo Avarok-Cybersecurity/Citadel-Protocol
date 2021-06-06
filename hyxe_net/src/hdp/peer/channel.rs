@@ -163,7 +163,7 @@ impl Stream for PeerChannelRecvHalf {
             match futures::ready!(self.receiver.poll_recv(cx)) {
                 Some(data) => Poll::Ready(Some(data)),
                 _ => {
-                    log::info!("[PeerChannelRecvHalf] ending?");
+                    log::info!("[PeerChannelRecvHalf] ending");
                     Poll::Ready(None)
                 }
             }

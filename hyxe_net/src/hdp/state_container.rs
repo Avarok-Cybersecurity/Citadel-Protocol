@@ -93,6 +93,7 @@ pub struct FileKey {
 
 /// when the GROUP_HEADER comes inbound with virtual file metadata, this should be created alongside
 /// an async task fired-up on the threadpool
+#[allow(dead_code)]
 pub(crate) struct InboundFileTransfer {
     pub object_id: u32,
     pub total_groups: usize,
@@ -105,6 +106,7 @@ pub(crate) struct InboundFileTransfer {
     pub stream_to_hd: UnboundedSender<Vec<u8>>
 }
 
+#[allow(dead_code)]
 pub(crate) struct OutboundFileTransfer {
     pub object_id: u32,
     pub ticket: Ticket,

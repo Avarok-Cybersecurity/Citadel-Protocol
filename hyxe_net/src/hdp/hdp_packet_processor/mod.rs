@@ -7,6 +7,7 @@ use crate::hdp::hdp_packet_processor::includes::SecBuffer;
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::outbound_sender::{SendError, TrySendError};
 use crate::error::NetworkError;
+use std::ops::{FromResidual, Try, ControlFlow};
 
 pub mod includes {
     pub use std::cell::RefMut;
@@ -92,34 +93,56 @@ pub enum GroupProcessorResult {
     SendToKernel(Ticket, SecBuffer)
 }
 
-impl std::ops::Try for PrimaryProcessorResult {
-    type Ok = Self;
-    type Error = Self;
+impl Try for PrimaryProcessorResult {
+    type Output = Self;
+    type Residual = Self;
 
-    fn into_result(self) -> Result<Self::Ok, Self::Error> {
+    fn from_output(output: Self::Output) -> Self {
+        output
+    }
+
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         if self != PrimaryProcessorResult::Void {
-            Ok(self)
+            ControlFlow::Continue(self)
         } else {
-            Err(self)
+            ControlFlow::Break(self)
         }
-    }
-
-    fn from_error(v: Self::Error) -> Self {
-        v
-    }
-
-    fn from_ok(v: Self::Ok) -> Self {
-        v
     }
 }
 
+impl FromResidual<PrimaryProcessorResult> for PrimaryProcessorResult {
+    fn from_residual(residual: PrimaryProcessorResult) -> Self {
+        residual
+    }
+}
 
+impl<T, E: Into<PrimaryProcessorResult>> FromResidual<Result<T, E>> for PrimaryProcessorResult {
+    fn from_residual(residual: Result<T, E>) -> Self {
+        match residual {
+            Err(err) => err.into(),
+            _ => PrimaryProcessorResult::Void
+        }
+    }
+}
 
-impl From<std::option::NoneError> for PrimaryProcessorResult {
-    #[allow(unreachable_code)]
-    fn from(_: std::option::NoneError) -> Self {
-        log::warn!("[X-03] NoneError");
-        PrimaryProcessorResult::Void
+impl FromResidual<GroupProcessorResult> for GroupProcessorResult {
+    fn from_residual(residual: GroupProcessorResult) -> Self {
+        residual
+    }
+}
+
+impl<T> FromResidual<Option<T>> for PrimaryProcessorResult {
+    fn from_residual(residual: Option<T>) -> Self {
+        match residual {
+            None => {
+                log::warn!("[X-03] NoneError");
+                PrimaryProcessorResult::Void
+            }
+
+            _ => {
+                PrimaryProcessorResult::Void
+            }
+        }
     }
 }
 
@@ -160,30 +183,35 @@ impl From<NetworkError> for PrimaryProcessorResult {
     }
 }
 
-impl std::ops::Try for GroupProcessorResult {
-    type Ok = Self;
-    type Error = Self;
+impl Try for GroupProcessorResult {
+    type Output = Self;
+    type Residual = Self;
 
-    fn into_result(self) -> Result<Self::Ok, GroupProcessorResult> {
+    fn from_output(output: Self::Output) -> Self {
+        output
+    }
+
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         if self != GroupProcessorResult::Void {
-            Ok(self)
+            ControlFlow::Continue(self)
         } else {
-            Err(self)
+            ControlFlow::Break(self)
         }
-    }
-
-    fn from_error(v: GroupProcessorResult) -> Self {
-        v
-    }
-
-    fn from_ok(v: Self::Ok) -> Self {
-        v
     }
 }
 
-impl From<std::option::NoneError> for GroupProcessorResult {
-    fn from(_: std::option::NoneError) -> Self {
-        GroupProcessorResult::Void
+impl<T> FromResidual<Option<T>> for GroupProcessorResult {
+    fn from_residual(residual: Option<T>) -> Self {
+        match residual {
+            None => {
+                log::warn!("[X-03] NoneError");
+                GroupProcessorResult::Void
+            }
+
+            _ => {
+                GroupProcessorResult::Void
+            }
+        }
     }
 }
 
