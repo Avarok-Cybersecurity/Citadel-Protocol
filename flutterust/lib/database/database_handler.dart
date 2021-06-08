@@ -9,7 +9,8 @@ import 'package:sqflite/sqflite.dart';
 
 class DatabaseHandler {
   static const String DB_NAME = "verisend.db";
-  // The holy commandments
+  static const String DB_KERNEL = "hyxewave.db";
+
   static const List<String> genesisCommands = [
     ClientNetworkAccount.GENESIS,
     RawNotification.GENESIS,
@@ -35,6 +36,23 @@ class DatabaseHandler {
       // path to perform database upgrades and downgrades.
       version: 15,
     );
+  }
+
+  // For the kernel
+  static Future<String> databaseKernel() async {
+    var path = join(await getDatabasesPath(), DB_KERNEL);
+    openDatabase(
+      path,
+      onCreate: (db, version) {
+        // genesis is handled entirely by the kernel
+        print("About to create kernel database ...");
+      },
+      // Set the version. This executes the onCreate function and provides a
+      // path to perform database upgrades and downgrades.
+      version: 1,
+    );
+
+    return "sqlite://file:" + path;
   }
 
   static Future<void> clearDatabase() async {

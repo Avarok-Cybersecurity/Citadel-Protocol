@@ -9,7 +9,7 @@ pub(crate) static FFI_STATIC: Mutex<Option<FFIObject>> = const_mutex(None);
 
 /// This spawns a new thread wherein blocking occurs. This function returns after
 /// starting the hyxewave kernel
-pub fn load_and_execute_ffi_static(port: i64, home_dir: &str) -> i32 {
+pub fn load_and_execute_ffi_static(port: i64, home_dir: &str, database: &str) -> i32 {
     let obj = FFIObject::from(port);
     let old_opt = FFI_STATIC.lock().replace(obj);
     if let Some(_) = old_opt {
@@ -18,7 +18,7 @@ pub fn load_and_execute_ffi_static(port: i64, home_dir: &str) -> i32 {
         return -1;
     }
 
-    obj.execute_once(home_dir);
+    obj.execute_once(home_dir, database);
 
     1
 }
@@ -56,8 +56,11 @@ impl FFIObject {
         self.isolate.post(packet)
     }
 
-    fn execute_once(&self, home_dir: &str) {
-        let args = format!("--bind {} --home {} --kthreads 2", BIND_ADDR, home_dir);
+    fn execute_once(&self, home_dir: &str, database: &str) {
+        let args = format!(
+            "--bind {} --home {} --kthreads 2 --backend {}",
+            BIND_ADDR, home_dir, database
+        );
         log::info!("Will execute the CLI/FFI NetKernel with: {}", &args);
         let to_ffi_frontier = FFIObject::get_kernel_to_this_function();
 

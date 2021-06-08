@@ -19,6 +19,8 @@ import 'package:scrap/scrap.dart';
 import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 import 'package:android_power_manager/android_power_manager.dart';
 
+import 'database/database_handler.dart';
+
 const int DEFAULT_PORT = 25021;
 
 class Utils {
@@ -140,7 +142,7 @@ class Utils {
       }
     }
 
-    AndroidPowerManager.requestIgnoreBatteryOptimizations();
+    await AndroidPowerManager.requestIgnoreBatteryOptimizations();
   }
 
   static FirebaseMessaging firebase = FirebaseMessaging.instance;
@@ -176,11 +178,13 @@ class Utils {
     print("[FCM] Received FCM message! " + json);
       //pushNotification("Received a FCM message", json);
     if (prevPacket == json) {
-      print("Duplicate FCM packet recv'd");
+      print("Duplicate FCM packet recv'd (skipping)");
       return;
     } else {
       prevPacket = json;
     }
+
+    String databasePath = await DatabaseHandler.databaseKernel();
 
       // subsystem may be null if we're in the background isolate
       if (RustSubsystem.bridge == null) {
@@ -191,7 +195,7 @@ class Utils {
 
 
       print("[FCM] awaiting kernel response ...");
-      Optional<KernelResponse> kResp = await RustSubsystem.bridge!.handleFcmMessage(json);
+      Optional<KernelResponse> kResp = await RustSubsystem.bridge!.handleFcmMessage(json, databasePath);
       print("[FCM] response received. Is valid? " + kResp.isPresent.toString());
       // Here, we delegate the response to the default handler
       kResp.ifPresent(KernelResponseHandler.handleRustKernelMessage);

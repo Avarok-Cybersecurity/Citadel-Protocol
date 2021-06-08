@@ -25,9 +25,9 @@ class CustomTabView extends StatefulWidget {
 }
 
 class _CustomTabsState extends State<CustomTabView> with TickerProviderStateMixin {
-  late final TabController controller;
-  late final int _currentCount;
-  late final int _currentPosition;
+  late TabController controller;
+  late int _currentCount;
+  late int _currentPosition;
 
   @override
   void initState() {

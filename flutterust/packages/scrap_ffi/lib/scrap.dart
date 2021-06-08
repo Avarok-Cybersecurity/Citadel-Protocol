@@ -32,14 +32,14 @@ class FFIBridge {
     }
   }
 
-  Future<void> initRustSubsystem(void Function(String ffiPacket) onPacketReceived) async {
+  Future<void> initRustSubsystem(void Function(String ffiPacket) onPacketReceived, String databasePath) async {
     print("Calling initRustSubsystem");
     ReceivePort port = ReceivePort();
     SendPort rustComsPort = port.sendPort;
     String path = await localPath();
 
     print("Loaded directory: " + path);
-    var input = Tuple2(rustComsPort, path);
+    var input = Tuple3(rustComsPort, path, databasePath);
     isolate = await Isolate.spawn(ffiInitRustSubsystem, input);
     // the below will be called, non-blocking the primary gui isolate calling this function
     port.listen((ffiPacket) {
@@ -59,12 +59,14 @@ class FFIBridge {
     return directory.path;
   }
 
-  static void ffiInitRustSubsystem(Tuple2<SendPort, String> initInput) {
+  static void ffiInitRustSubsystem(Tuple3<SendPort, String, String> initInput) {
     String homeDir = initInput.item2;
+    String databaseDir = initInput.item3;
     int port = initInput.item1.nativePort;
     Pointer<Utf8> dirPtr = homeDir.toNativeUtf8();
+    Pointer<Utf8> databasePtr = databaseDir.toNativeUtf8();
     // pass the port and pointer to the ffi frontier
-    int initResult = native.execute(port, dirPtr);
+    int initResult = native.execute(port, dirPtr, databasePtr);
     print("Done setting up rust subsystem. Result: " + initResult.toString());
     // now, the rust subsystem is running. The function that calls ffiInitRustSubsystem will handle to inbound messages
     // sent from rust
@@ -85,11 +87,12 @@ class FFIBridge {
     return native.send_to_kernel(ptr).toDartString();
   }
 
-  Future<Optional<KernelResponse>> handleFcmMessage(String rawPayload) async {
+  Future<Optional<KernelResponse>> handleFcmMessage(String rawPayload, String databasePath) async {
     rawPayload.toNativeUtf8();
     Pointer<Utf8> ptr = rawPayload.toNativeUtf8();
     Pointer<Utf8> dirPtr = (await this.localPath()).toNativeUtf8();
-    return FFIParser.tryFrom(native.fcm_process(ptr, dirPtr).toDartString());
+    Pointer<Utf8> databasePtr = databasePath.toNativeUtf8();
+    return FFIParser.tryFrom(native.fcm_process(ptr, dirPtr, databasePtr).toDartString());
   }
 
   void memfree(String ptr) {

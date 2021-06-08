@@ -39,10 +39,10 @@ bstr = "0.2.15"
 serde_bytes = "0.11.5"
 zerocopy = "0.3.0"
 byteorder = "1.4.2"
-sqlx = { version = "^0.5.1", features = ["all-databases", "tls", "runtime-tokio-native-tls"], optional=true }
+sqlx = { version = "^0.5.5", features = ["all-databases", "tls", "runtime-tokio-native-tls"], optional=true }
 
 [dev-dependencies]
 #tokio = { version = "^0.2.22", features = ["full"] }
-tokio = { version = "^1.2.0", features = ["macros"] }
+tokio = { version = "^1.6.0", features = ["macros"] }
 env_logger = "0.8.2"
 dirs2 = "3.0.1"

@@ -1,6 +1,6 @@
 use crate::account_manager::AccountManager;
 use std::ops::{Try, ControlFlow, FromResidual};
-use crate::fcm::data_structures::{FcmPacket, FCMPayloadType, FcmHeader, FcmTicket, RawFcmPacket, RawFcmPacketStore};
+use crate::fcm::data_structures::{FcmPacket, FCMPayloadType, FcmHeader, FcmTicket, RawFcmPacket};
 use crate::misc::AccountError;
 use hyxe_fs::io::SyncIO;
 use std::future::Future;
@@ -27,102 +27,106 @@ pub mod peer_post_register;
 /// NOTE: This implies that sending the re-key payloads is redundant over FCM. We can have notification packets that wake-up the device instead later-on
 ///
 /// Note: This should ONLY be called at the endpoints!!
-pub fn blocking_process<T: Into<String>>(base64_value: T, account_manager: &AccountManager) -> FcmProcessorResult {
-    let account_manager = account_manager.clone();
+pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountManager) -> FcmProcessorResult {
+    //let account_manager = account_manager.clone();
     let base64_value = base64_value.into();
 
-    block_on_async(async move || {
-        log::info!("A0");
-        let raw_packet = RawFcmPacket::from(base64_value);
-        log::info!("A1");
-        let packet = FcmPacket::from_raw_fcm_packet(&raw_packet)?;
-        log::info!("A2");
-        let header = packet.header();
-        let group_id = header.group_id.get();
-        let ticket = header.ticket.get();
-        let use_client_server_ratchet = header.target_cid.get() == 0;
-        log::info!("Using {} ratchet", use_client_server_ratchet.then(|| "client/server").unwrap_or("FCM endpoint"));
-        // if the target cid is zero, it means we aren't using endpoint containers (only client -> server container)
-        let local_cid = if use_client_server_ratchet { header.session_cid.get() } else { header.target_cid.get() };
-        let implicated_cid = header.session_cid.get();
-        let ratchet_version = header.ratchet_version.get();
+    log::info!("A0");
+    let raw_packet = RawFcmPacket::from(base64_value);
+    log::info!("A1");
+    let packet = FcmPacket::from_raw_fcm_packet(&raw_packet)?;
+    log::info!("A2");
+    let header = packet.header();
+    let group_id = header.group_id.get();
+    let ticket = header.ticket.get();
+    let use_client_server_ratchet = header.target_cid.get() == 0;
+    log::info!("Using {} ratchet", use_client_server_ratchet.then(|| "client/server").unwrap_or("FCM endpoint"));
+    // if the target cid is zero, it means we aren't using endpoint containers (only client -> server container)
+    let local_cid = if use_client_server_ratchet { header.session_cid.get() } else { header.target_cid.get() };
+    let implicated_cid = header.session_cid.get();
+    let ratchet_version = header.ratchet_version.get();
 
-        let (header, mut payload) = packet.split();
-        // Due to a bug of the internal connection pool on android/ios, we create a new client each time
-        let ref fcm_client = Arc::new(Client::new());
-        //let fcm_client = account_manager.fcm_client();
+    let (header, mut payload) = packet.split();
+    // Due to a bug of the internal connection pool on android/ios, we create a new client each time
+    let ref fcm_client = Arc::new(Client::new());
+    //let fcm_client = account_manager.fcm_client();
 
-        let cnac = account_manager.get_client_by_cid(local_cid).await?.ok_or(AccountError::<String>::ClientNonExists(local_cid))?;
-        let res = cnac.visit_mut(|mut inner| {
-            // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other
-            let ClientNetworkAccountInner {
-                fcm_crypt_container,
-                kem_state_containers,
-                crypt_container,
-                fcm_invitations,
-                mutuals,
-                ..
-            } = &mut *inner;
+    let cnac = account_manager.get_client_by_cid(local_cid).await?.ok_or(AccountError::<String>::ClientNonExists(local_cid))?;
+    let res = cnac.visit_mut(|mut inner| {
+        // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other
+        let ClientNetworkAccountInner {
+            fcm_crypt_container,
+            kem_state_containers,
+            crypt_container,
+            fcm_invitations,
+            mutuals,
+            ..
+        } = &mut *inner;
 
-            log::info!("A3");
+        log::info!("A3");
 
-            let res = if use_client_server_ratchet {
-                log::info!("A4-CS");
-                let ratchet = crypt_container.toolset.get_static_auxiliary_ratchet();
-                log::info!("A5");
-                ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
-                log::info!("[FCM] Successfully validated packet. Parsing payload ...");
-                let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
-                let source_cid = group_id;
-                log::info!("A6");
+        let res = if use_client_server_ratchet {
+            log::info!("A4-CS");
+            let ratchet = crypt_container.toolset.get_static_auxiliary_ratchet();
+            log::info!("A5");
+            ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
+            log::info!("[FCM] Successfully validated packet. Parsing payload ...");
+            let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
+            let source_cid = group_id;
+            log::info!("A6");
 
-                match payload {
-                    FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(fcm_invitations, kem_state_containers, fcm_crypt_container, mutuals, local_cid, source_cid, ticket, transfer, username),
-                    _ => {
-                        log::warn!("[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
-                        FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
-                    }
+            match payload {
+                FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(fcm_invitations, kem_state_containers, fcm_crypt_container, mutuals, local_cid, source_cid, ticket, transfer, username),
+                _ => {
+                    log::warn!("[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
+                    FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
                 }
-            } else {
-                let crypt_container = fcm_crypt_container.get_mut(&implicated_cid).ok_or_else(|| AccountError::Generic("FCM Peer session crypto nonexistant".to_string()))?;
-                log::info!("A4-E2E");
-                let ratchet = crypt_container.get_hyper_ratchet(Some(ratchet_version)).cloned().ok_or_else(|| AccountError::Generic("FCM Ratchet version not found".to_string()))?;
-                log::info!("A5");
-                ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
-                log::info!("[FCM] Successfully validated packet. Parsing payload ...");
-                let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
+            }
+        } else {
+            let crypt_container = fcm_crypt_container.get_mut(&implicated_cid).ok_or_else(|| AccountError::Generic("FCM Peer session crypto nonexistant".to_string()))?;
+            log::info!("A4-E2E");
+            let ratchet = crypt_container.get_hyper_ratchet(Some(ratchet_version)).cloned().ok_or_else(|| AccountError::Generic("FCM Ratchet version not found".to_string()))?;
+            log::info!("A5");
+            ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
+            log::info!("[FCM] Successfully validated packet. Parsing payload ...");
+            let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
 
-                match payload {
-                    FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet,FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
-                    FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(fcm_client, crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer),
-                    FCMPayloadType::Truncate { truncate_vers } => truncate::process(fcm_client, crypt_container,  truncate_vers, FcmHeader::try_from(&header).unwrap()),
-                    FCMPayloadType::TruncateAck { truncate_vers } => truncate_ack::process(crypt_container, truncate_vers),
-                    FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-7890)".to_string()),
-                    // below, the implicated cid is obtained from the session_cid, and as such, is the peer_cid
-                    FCMPayloadType::PeerDeregistered => deregister::process(implicated_cid, local_cid, ticket, fcm_crypt_container, mutuals)
-                }
-            };
+            match payload {
+                FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet,FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
+                FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(fcm_client, crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer),
+                FCMPayloadType::Truncate { truncate_vers } => truncate::process(fcm_client, crypt_container,  truncate_vers, FcmHeader::try_from(&header).unwrap()),
+                FCMPayloadType::TruncateAck { truncate_vers } => truncate_ack::process(crypt_container, truncate_vers),
+                FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-7890)".to_string()),
+                // below, the implicated cid is obtained from the session_cid, and as such, is the peer_cid
+                FCMPayloadType::PeerDeregistered => deregister::process(implicated_cid, local_cid, ticket, fcm_crypt_container, mutuals)
+            }
+        };
 
-            Ok(res) as Result<FcmProcessorResult, AccountError>
-        })?;
+        Ok(res) as Result<FcmProcessorResult, AccountError>
+    })?;
 
+    log::info!("A7");
 
-        if res.implies_save_needed() {
-            cnac.save().await?;
-        }
+    if res.implies_save_needed() {
+        cnac.save().await?;
+    }
 
-        if let Some((instance, packet)) = res.implies_packet_needs_sending() {
-            let _ = instance.send_to_fcm_user(packet).await?;
-        }
+    log::info!("A8");
 
-        res
-    })?
+    if let Some((instance, packet)) = res.implies_packet_needs_sending() {
+        let _ = instance.send_to_fcm_user(packet).await?;
+    }
+
+    log::info!("FCM-processing complete");
+
+    res
 }
 
 /// The goal of the function is to perform any and all internal updates/re-keys from a set of packets. Most have probably already been processed, and will fail the anti-replay attack stage for being an already received packet
 /// This is needed for packets that don't get delivered
 ///
 /// If this receives GROUP_HEADER_ACKS or DO_TRUNCATES
+/*
 pub fn blocking_process_packet_store(mut raw_fcm_packet_store: RawFcmPacketStore, account_manager: &AccountManager) -> FcmProcessorResult {
     // for each client, perform the inner subroutine
     let cids = raw_fcm_packet_store.inner.keys().map(|r| *r).collect::<Vec<u64>>();
@@ -144,6 +148,7 @@ pub fn blocking_process_packet_store(mut raw_fcm_packet_store: RawFcmPacketStore
 
     FcmProcessorResult::Values(ret)
 }
+*/
 
 #[allow(variant_size_differences)]
 #[derive(Debug)]
@@ -258,22 +263,34 @@ pub enum FcmResult {
 #[allow(unused_results)]
 /// This constructs an independent single-threaded runtime to allow this to be called invariant to environmental tokio context
 pub fn block_on_async<F: Future + Send + 'static>(fx: impl FnOnce() -> F + Send + 'static) -> Result<F::Output, AccountError<String>> where <F as Future>::Output: Send + 'static {
-    static RT: parking_lot::Mutex<Option<Arc<tokio::runtime::Runtime>>> = parking_lot::const_mutex(None);
-
-    let mut lock = RT.lock();
-    if lock.is_none() {
-        log::info!("Constructing current_thread RT ...");
-        *lock = Some(Arc::new(tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|err| AccountError::Generic(err.to_string()))?));
-    }
-
-    log::info!("RT existent, now spawning ...");
-    let rt = lock.clone().unwrap();
-    std::mem::drop(lock);
     // call in a unique thread to not cause a panic when running block_on
+    /*
     std::thread::spawn(move || {
+        /*static RT: parking_lot::Mutex<Option<Arc<tokio::runtime::Runtime>>> = parking_lot::const_mutex(None);
+
+        let mut lock = RT.lock();
+        if lock.is_none() {
+            log::info!("Constructing current_thread RT ...");
+            *lock = Some(Arc::new(tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|err| AccountError::Generic(err.to_string()))?));
+        }
+
+        log::info!("RT existent, now spawning ...");
+        let rt = lock.clone().unwrap();
+        std::mem::drop(lock);
+
+         */
+
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|err| AccountError::Generic(err.to_string()))?;
         rt.block_on(async move {
             log::info!("block_on_async spawned ...");
-            (fx)().await
+            Ok((fx)().await)
         })
-    }).join().map_err(|_| AccountError::Generic("Error while joining thread".to_string()))
+    }).join().map_err(|_| AccountError::Generic("Error while joining thread".to_string()))?
+
+     */
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|err| AccountError::Generic(err.to_string()))?;
+    rt.block_on(async move {
+        log::info!("block_on_async spawned ...");
+        Ok((fx)().await)
+    })
 }
