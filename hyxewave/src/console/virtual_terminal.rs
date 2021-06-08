@@ -595,7 +595,7 @@ pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, App
     }
 
     if let Some(matches) = matches.subcommand_matches("fcm-process") {
-        return crate::command_handlers::fcm_process::handle(matches, ctx)
+        return crate::command_handlers::fcm_process::handle(matches, ctx).await
     }
 
     if let Some(matches) = matches.subcommand_matches("group") {

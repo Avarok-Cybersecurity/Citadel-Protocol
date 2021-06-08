@@ -377,7 +377,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
         }
 
         if let Some(_matches) = matches.subcommand_matches("mutuals") {
-            let _cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC non-existant"))?;
+            let _cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC non-existent"))?;
             let get_consented_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None));
             let ticket = server_remote.unbounded_send(get_consented_request)?;
             ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |ctx, ticket, success| {
@@ -393,6 +393,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
                                 let task = async move {
                                     match persistence_handler.get_hyperlan_peers_with_fcm_keys(ctx_user, &cids).await {
                                         Ok(hyperlan_peers) => {
+                                            log::info!("Local hyperlan peers: {:?}", hyperlan_peers.iter().map(|r| r.0.cid).collect::<Vec<u64>>());
                                             for (cid, is_online) in cids.into_iter().zip(online_status.into_iter()) {
                                                 let entry = hyperlan_peers.iter().find(|peer| peer.0.cid == cid);
                                                 if let Some((peer, keys)) = entry {
@@ -681,7 +682,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
 
             return if use_fcm {
                 let cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Active session CNAC absent"))?;
-                let (fcm_post_register, ticket_id) = cnac.fcm_prepare_accept_register(mail_id as u64, accept).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let (fcm_post_register, ticket_id) = cnac.fcm_prepare_accept_register_as_endpoint(mail_id as u64, accept).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
                 let fcm_post_register = if accept { fcm_post_register } else { FcmPostRegister::Decline };
                 let ticket = ticket_id.into();
                 let username = accept.then(|| cnac.get_username());

@@ -344,18 +344,11 @@ impl TryFrom<PostQuantumExport> for PostQuantumContainer {
         container.data.set_public_key(export.public_key.as_slice())?;
 
         // Now, begin setting the values
-        if let Some(secret_key) = export.secret_key {
-            container.data.set_secret_key(secret_key.as_slice())?;
-        }
+        container.data.set_secret_key(export.secret_key.as_ref().map(|r| r.as_slice()))?;
 
-        if let Some(ciphertext) = export.ciphertext {
-            container.data.set_ciphertext(ciphertext.as_slice())?;
-        }
+        container.data.set_ciphertext(export.ciphertext.as_ref().map(|r| r.as_slice()))?;
 
-        if let Some(shared_secret) = export.shared_secret {
-            let shared_secret_slice = shared_secret.as_slice();
-            container.data.set_shared_secret(shared_secret_slice)?;
-        }
+        container.data.set_shared_secret(export.shared_secret.as_ref().map(|r| r.as_slice()))?;
 
         container.anti_replay_attack = bincode2::deserialize(&export.ara).map_err(|_err| generic_err())?;
 
@@ -522,11 +515,11 @@ pub trait PostQuantumType: Send + Sync {
     /// Gets the shared secret
     fn get_shared_secret(&self) -> Result<&[u8], Error>;
     /// Sets the secret key
-    fn set_secret_key(&mut self, secret_key: &[u8]) -> Result<(), Error>;
+    fn set_secret_key(&mut self, secret_key: Option<&[u8]>) -> Result<(), Error>;
     /// Sets the ciphertext
-    fn set_ciphertext(&mut self, ciphertext: &[u8]) -> Result<(), Error>;
+    fn set_ciphertext(&mut self, ciphertext: Option<&[u8]>) -> Result<(), Error>;
     /// Sets the shared key
-    fn set_shared_secret(&mut self, shared_key: &[u8]) -> Result<(), Error>;
+    fn set_shared_secret(&mut self, shared_key: Option<&[u8]>) -> Result<(), Error>;
     /// Sets the public key
     fn set_public_key(&mut self, public_key: &[u8]) -> Result<(), Error>;
 }
@@ -614,9 +607,13 @@ macro_rules! create_struct {
             }
 
             /// Sets the secret key
-            fn set_secret_key(&mut self, secret_key: &[u8]) -> Result<(), Error> {
-                let secret_key = $base_path::$variant::SecretKey::from_bytes(secret_key)?;
-                self.secret_key = Some(secret_key);
+            fn set_secret_key(&mut self, secret_key: Option<&[u8]>) -> Result<(), Error> {
+                if let Some(secret_key) = secret_key {
+                    let secret_key = $base_path::$variant::SecretKey::from_bytes(secret_key)?;
+                    self.secret_key = Some(secret_key);
+                } else {
+                    self.secret_key = None
+                }
 
                 Ok(())
             }
@@ -630,17 +627,25 @@ macro_rules! create_struct {
             }
 
             /// Sets the ciphertext
-            fn set_ciphertext(&mut self, ciphertext: &[u8]) -> Result<(), Error> {
-                let ciphertext = $base_path::$variant::Ciphertext::from_bytes(ciphertext)?;
-                self.ciphertext = Some(ciphertext);
+            fn set_ciphertext(&mut self, ciphertext: Option<&[u8]>) -> Result<(), Error> {
+                if let Some(ciphertext) = ciphertext {
+                    let ciphertext = $base_path::$variant::Ciphertext::from_bytes(ciphertext)?;
+                    self.ciphertext = Some(ciphertext);
+                } else {
+                    self.ciphertext = None
+                }
 
                 Ok(())
             }
 
             /// Sets the shared key
-            fn set_shared_secret(&mut self, shared_secret: &[u8]) -> Result<(), Error> {
-                let shared_secret = $base_path::$variant::SharedSecret::from_bytes(shared_secret)?;
-                self.shared_secret = Some(shared_secret);
+            fn set_shared_secret(&mut self, shared_secret: Option<&[u8]>) -> Result<(), Error> {
+                if let Some(shared_secret) = shared_secret {
+                    let shared_secret = $base_path::$variant::SharedSecret::from_bytes(shared_secret)?;
+                    self.shared_secret = Some(shared_secret);
+                } else {
+                    self.shared_secret = None
+                }
 
                 Ok(())
             }

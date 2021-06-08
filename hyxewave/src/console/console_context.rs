@@ -75,7 +75,10 @@ impl ConsoleContext {
     pub async fn get_cnac_of_active_session(&self) -> Option<ClientNetworkAccount> {
         let cid = self.get_active_cid();
         if cid != 0 {
-            Some(self.sessions.read().await.get(&cid)?.cnac.clone())
+            // Previously, we use to read the cnac from the `sessions` field in self. However, this is not good since states can change when the backend is the database. Thus
+            // we must instead read from the account manager to ensure we have an up to date version
+            self.account_manager.get_client_by_cid(cid).await.ok().flatten()
+            //Some(self.sessions.read().await.get(&cid)?.cnac.clone())
         } else {
             None
         }
