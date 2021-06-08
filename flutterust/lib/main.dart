@@ -18,6 +18,7 @@ import 'package:optional/optional.dart';
 import 'package:scrap/scrap.dart';
 import 'package:splashscreen/splashscreen.dart';
 import 'components/fade_indexed_stack.dart';
+import 'database/database_handler.dart';
 import 'screens/register.dart';
 import 'themes/default.dart';
 import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
@@ -47,7 +48,6 @@ Future<void> loadInit() async {
   //Utils.pushNotification("title", "message");
   await Utils.configureFCM();
   await BackgroundExecutor.setupBackground();
-  await Utils.checkPowerManager();
   print("Done initializing FFI/Rust subsystem ...");
 }
 
@@ -93,9 +93,10 @@ class RustSubsystem {
       print("Initializing FFI/Rust subsystem ...");
       RustSubsystem.bridge = FFIBridge();
       FFIBridge.setup();
+      String databasePath = await DatabaseHandler.databaseKernel();
 
       await RustSubsystem.bridge!
-          .initRustSubsystem(KernelResponseHandler.handleRustKernelRawMessage);
+          .initRustSubsystem(KernelResponseHandler.handleRustKernelRawMessage, databasePath);
     }
   }
 }
@@ -125,6 +126,7 @@ class MyHomePage extends State<HomePage> with RouteAware {
   void initState() {
     super.initState();
     this.onStart();
+    Utils.checkPowerManager(); //prev had await
   }
 
   Future<void> _maybeResyncClients() async {

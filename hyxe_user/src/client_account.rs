@@ -655,12 +655,13 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
     #[allow(unused_results)]
     /// Returns the FcmPostRegister instance meant to be sent through the ordinary network. Additionally, returns the ticket associated with the transaction
-    pub async fn fcm_prepare_accept_register(&self, peer_cid: u64, accept: bool) -> Result<(FcmPostRegister, u64), AccountError> {
+    pub async fn fcm_prepare_accept_register_as_endpoint(&self, peer_cid: u64, accept: bool) -> Result<(FcmPostRegister, u64), AccountError> {
         let mut write = self.write();
         let local_cid = write.cid;
 
         let local_fcm_keys = write.crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Local client cannot accept an FCM request since local has no FCM keys to reciprocate".to_string()))?;
         // remove regardless
+        log::info!("[FCM PostRegister] Will search for invitation from {}", peer_cid);
         let invite = write.fcm_invitations.remove(&peer_cid).ok_or(AccountError::Generic("Invitation for client does not exist, or, expired".to_string()))?;
 
         /*if write.fcm_crypt_container.contains_key(&peer_cid) {
@@ -677,10 +678,12 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                     let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(AccountError::IoError("Unable to construct Bob's ratchet".to_string()))?;
 
                     write.fcm_crypt_container.insert(peer_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, peer_fcm_keys));
-                    write.mutuals.insert(HYPERLAN_IDX, MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(username) });
+                    write.mutuals.insert(HYPERLAN_IDX, MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(username.clone()) });
+                    let persistence_handler = write.persistence_handler.clone().ok_or_else(||AccountError::Generic("".into()))?;
                     std::mem::drop(write);
                     //self.blocking_save_to_local_fs()?;
                     self.save().await?;
+                    persistence_handler.register_p2p_as_client(local_cid, peer_cid, username).await?;
                     Ok((fcm_post_register, ticket))
                 } else {
                     Ok((FcmPostRegister::Disable, ticket))

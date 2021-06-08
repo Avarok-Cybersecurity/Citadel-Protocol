@@ -29,6 +29,7 @@ pub mod re_exports {
 
     pub use hyxe_user::account_manager::AccountManager;
     pub use hyxe_user::backend::BackendType;
+    pub use hyxe_user::misc::AccountError;
     pub use hyxe_user::fcm::fcm_packet_processor;
     pub use hyxe_net::constants::PRIMARY_PORT;
 

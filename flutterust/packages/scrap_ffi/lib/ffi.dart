@@ -35,34 +35,40 @@ typedef _error_message_utf8_Dart = int Function(
 int execute(
   int port,
   Pointer<ffi.Utf8> home_dir,
+  Pointer<ffi.Utf8> database,
 ) {
-  return _execute(port, home_dir);
+  return _execute(port, home_dir, database);
 }
 final _execute_Dart _execute = _dl.lookupFunction<_execute_C, _execute_Dart>('execute');
 typedef _execute_C = Int32 Function(
   Int64 port,
   Pointer<ffi.Utf8> home_dir,
+  Pointer<ffi.Utf8> database,
 );
 typedef _execute_Dart = int Function(
   int port,
   Pointer<ffi.Utf8> home_dir,
+  Pointer<ffi.Utf8> database,
 );
 
 /// <p class="para-brief"> Meant to be executed by background isolates needing access to the account manager (e.g., FCM)</p>
 Pointer<ffi.Utf8> fcm_process(
   Pointer<ffi.Utf8> packet,
   Pointer<ffi.Utf8> home_dir,
+  Pointer<ffi.Utf8> database,
 ) {
-  return _fcm_process(packet, home_dir);
+  return _fcm_process(packet, home_dir, database);
 }
 final _fcm_process_Dart _fcm_process = _dl.lookupFunction<_fcm_process_C, _fcm_process_Dart>('fcm_process');
 typedef _fcm_process_C = Pointer<ffi.Utf8> Function(
   Pointer<ffi.Utf8> packet,
   Pointer<ffi.Utf8> home_dir,
+  Pointer<ffi.Utf8> database,
 );
 typedef _fcm_process_Dart = Pointer<ffi.Utf8> Function(
   Pointer<ffi.Utf8> packet,
   Pointer<ffi.Utf8> home_dir,
+  Pointer<ffi.Utf8> database,
 );
 
 /// C function `is_kernel_loaded`.

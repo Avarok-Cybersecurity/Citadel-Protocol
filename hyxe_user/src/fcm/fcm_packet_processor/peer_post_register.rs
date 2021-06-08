@@ -73,17 +73,25 @@ pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state
                 log::warn!("Overwrote pre-existing invite request. Previous is thus invalidated");
             }
 
+            log::info!("[FCM POST-REGISTER] Stored invitation from {} for {}", peer_cid, local_cid);
+
             // finally, return signal to caller
             FcmProcessorResult::Value(FcmResult::PostRegisterInvitation { invite: PostRegisterInvitation { peer_cid, local_cid, username: username.into_bytes(), ticket } }, FcmPacketMaybeNeedsSending::none())
         }
 
         FcmPostRegister::BobToAliceTransfer(fcm_bob_to_alice_transfer, fcm_keys, source_cid) => {
             // here, we need to finalize the construction on Alice's side
+            log::info!("BA");
             let mut fcm_constructor = kem_state_containers.remove(source_cid)?.assume_fcm()?;
+            log::info!("BA2");
             fcm_constructor.stage1_alice(fcm_bob_to_alice_transfer)?;
+            log::info!("BA3");
             let fcm_ratchet = fcm_constructor.finish_with_custom_cid(local_cid)?;
+            log::info!("BA4");
             let fcm_endpoint_container = PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), true, fcm_keys.clone());
+            log::info!("BA6");
             fcm_crypt_container.insert(*source_cid, fcm_endpoint_container);
+            log::info!("BA7");
             mutuals.insert(HYPERLAN_IDX, MutualPeer {
                 parent_icid: HYPERLAN_IDX,
                 cid: *source_cid,

@@ -23,7 +23,7 @@ class SessionView extends StatefulWidget {
   final ClientNetworkAccount cnac;
   final StreamController streamController;
 
-  SessionView(this.cnac, Key? key) : this.streamController = StreamController(), super(key: key);
+  SessionView(this.cnac, Key? key) : this.streamController = StreamController.broadcast(), super(key: key);
 
   @override
   State<StatefulWidget> createState() {
@@ -32,13 +32,14 @@ class SessionView extends StatefulWidget {
 }
 
 class SessionViewInner extends State<SessionView> {
-  late final StreamSubscription listener;
+  late StreamSubscription listener;
 
   @override
   void initState() {
     super.initState();
 
     this.listener = this.widget.streamController.stream.listen((dsr) => handleDsr(dsr));
+
   }
 
   void handleDsr(DomainSpecificResponse dsr) {
@@ -51,6 +52,7 @@ class SessionViewInner extends State<SessionView> {
   void dispose() {
     super.dispose();
     this.listener.cancel();
+    //this.widget.streamController.close();
   }
 
   void handle(dynamic dsr) {

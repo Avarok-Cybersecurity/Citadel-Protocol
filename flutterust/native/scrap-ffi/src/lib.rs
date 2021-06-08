@@ -3,7 +3,7 @@
 use crate::ffi_object::load_and_execute_ffi_static;
 use ffi_helpers::null_pointer_check;
 use hyxewave::ffi::KernelResponse;
-use hyxewave::re_exports::{AccountManager, PRIMARY_PORT, BackendType};
+use hyxewave::re_exports::{AccountManager, BackendType, PRIMARY_PORT, AccountError};
 use std::ffi::CString;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -49,9 +49,13 @@ pub unsafe extern "C" fn error_message_utf8(buf: *mut raw::c_char, length: i32) 
 }
 
 #[no_mangle]
-pub extern "C" fn execute(port: i64, home_dir: *const raw::c_char) -> i32 {
+pub extern "C" fn execute(
+    port: i64,
+    home_dir: *const raw::c_char,
+    database: *const raw::c_char,
+) -> i32 {
     start_logger();
-    load_and_execute_ffi_static(port, cstr!(home_dir))
+    load_and_execute_ffi_static(port, cstr!(home_dir), cstr!(database))
 }
 
 #[no_mangle]
@@ -63,16 +67,17 @@ pub extern "C" fn is_kernel_loaded() -> i32 {
     }
 }
 
-
 #[no_mangle]
 /// Meant to be executed by background isolates needing access to the account manager (e.g., FCM)
 pub unsafe extern "C" fn fcm_process(
     packet: *const raw::c_char,
-    home_dir: *const raw::c_char
+    home_dir: *const raw::c_char,
+    database: *const raw::c_char,
 ) -> *mut raw::c_char {
     start_logger();
     let packet = CStr::from_ptr(packet).to_str().unwrap();
     let home_dir = CStr::from_ptr(home_dir).to_str().unwrap();
+    let database = CStr::from_ptr(database).to_str().unwrap();
     log::info!("[Rust BG processor] Received packet: {:?}", &packet);
 
     // if the primary instance is in memory already, don't bother using the account manager. Delegate to "peer fcm-parse <packet/raw>"
@@ -89,29 +94,41 @@ pub unsafe extern "C" fn fcm_process(
     match AccountManager::new_blocking(
         SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),
         Some(home_dir.to_string()),
-        BackendType::Filesystem
+        BackendType::SQLDatabase(database.to_string()),
     ) {
         Ok(acc_mgr) => {
             log::info!("[Rust BG processor] Success setting-up account manager");
-            let fcm_res = KernelResponse::from(
-                hyxewave::re_exports::fcm_packet_processor::blocking_process(packet, &acc_mgr),
-            );
-            CString::new(fcm_res.serialize_json().unwrap())
-                .unwrap()
-                .into_raw()
+            match hyxewave::re_exports::fcm_packet_processor::block_on_async(move || hyxewave::re_exports::fcm_packet_processor::process(packet, acc_mgr)) {
+                Ok(res) => {
+                    let fcm_res = KernelResponse::from(
+                        res,
+                    );
+
+                    CString::new(fcm_res.serialize_json().unwrap())
+                        .unwrap()
+                        .into_raw()
+                }
+
+                Err(err) => {
+                    response_err(err)
+                }
+            }
         }
 
         Err(err) => {
-            let err = err.into_string();
-            return CString::new(
-                KernelResponse::Error(0, err.into_bytes())
-                    .serialize_json()
-                    .unwrap(),
-            )
-            .unwrap()
-            .into_raw();
+            response_err(err)
         }
     }
+}
+
+fn response_err(err: AccountError) -> *mut raw::c_char {
+    CString::new(
+        KernelResponse::Error(0, err.into_string().into_bytes())
+            .serialize_json()
+            .unwrap(),
+    )
+        .unwrap()
+        .into_raw()
 }
 
 #[no_mangle]
