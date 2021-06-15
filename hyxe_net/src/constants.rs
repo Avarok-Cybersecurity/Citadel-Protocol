@@ -62,7 +62,7 @@ pub const CODEC_MIN_BUFFER: usize = 8192;
 /// After the time defined below, any incomplete packet groups will be discarded
 pub const GROUP_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(60000);
 /// After this time, the registration state is invalidated
-pub const DO_REGISTER_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(4000);
+pub const DO_REGISTER_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(10000);
 /// After this time, the connect state is invalidated
 pub const DO_CONNECT_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(8000);
 /// After this timeout,
