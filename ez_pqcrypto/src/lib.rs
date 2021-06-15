@@ -68,7 +68,6 @@ pub const fn get_approx_bytes_per_container() -> usize {
 #[derive(Serialize)]
 pub struct PostQuantumContainer {
     pub params: CryptoParameters,
-    #[serde(with = "serde_traitobject")]
     pub(crate) data: Box<dyn PostQuantumType>,
     pub(crate) anti_replay_attack: AntiReplayAttackContainer,
     #[serde(skip)]
@@ -472,7 +471,8 @@ pub mod algorithm_dictionary {
 }
 
 /// Used to get different algorithm types dynamically
-pub trait PostQuantumType: Send + Sync + serde_traitobject::Serialize + serde_traitobject::Deserialize {
+#[typetag::serde(tag = "type")]
+pub trait PostQuantumType: Send + Sync {
     /// Creates a new self for the initiating node
     fn new_alice() -> Self where Self: Sized;
     /// Creates a new self for the receiving node
@@ -504,6 +504,7 @@ macro_rules! create_struct {
             shared_secret: Option<$base_path::$variant::SharedSecret>
         }
 
+        #[typetag::serde]
         impl PostQuantumType for $struct_name {
             fn new_alice() -> Self {
                 let (public_key, secret_key) = $base_path::$variant::keypair();

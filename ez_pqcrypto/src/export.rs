@@ -6,7 +6,6 @@ use crate::encryption::AeadModule;
 #[derive(Serialize, Deserialize)]
 struct PostQuantumExport {
     pub params: CryptoParameters,
-    #[serde(with = "serde_traitobject")]
     pub(crate) data: Box<dyn PostQuantumType>,
     pub(crate) anti_replay_attack: AntiReplayAttackContainer,
     #[serde(skip)]
