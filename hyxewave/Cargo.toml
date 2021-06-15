@@ -29,6 +29,7 @@ futures-util = "0.3.12"
 hyxe_net = { path = "../hyxe_net", version = "0.1.0", default-features=false }
 hyxe_user = { path = "../hyxe_user", version = "0.1.0", default-features=false }
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0" }
+config = "0.11.0"
 #rpassword = { path = "../rpassword", version = "4.0.5" }
 #shrust = { path = "../shrust", version = "0.0.7" }
 async-trait = "0.1.36"

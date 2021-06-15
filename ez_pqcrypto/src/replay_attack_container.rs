@@ -80,8 +80,9 @@ pub mod unordered {
         #[allow(unused_results)]
         pub fn on_pid_received(&self, pid_received: u64) -> bool {
             let mut queue = self.history.lock();
+            log::info!("Circular queue: {:?}", &queue.1);
             if let Some(_) = queue.1.iter().find(|already_arrived| **already_arrived == pid_received) {
-                log::warn!("[ARA] packet already arrived!");
+                log::warn!("[ARA] packet {} already arrived!", pid_received);
                 false
             } else {
                 // this means the PID is not in the history. HOWEVER, it may still be possible that the packet
@@ -95,6 +96,7 @@ pub mod unordered {
                 if pid_received >= min && pid_received < max {
                     queue.0 += 1;
                     queue.1.push(pid_received);
+                    log::info!("[ARA] Marking {} as received", pid_received);
                     true
                 } else {
                     log::warn!("[ARA] out of range! Recv: {}. Expected >= {} and < {}", pid_received, min, max);

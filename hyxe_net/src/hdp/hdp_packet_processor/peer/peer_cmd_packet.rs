@@ -68,6 +68,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                         to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalReceived(ticket), ticket))?;
                         return PrimaryProcessorResult::Void;
                     }
+
                     PeerSignal::Disconnect(vconn, resp) => {
                         let target = resp.as_ref().map(|_| vconn.get_original_implicated_cid()).unwrap_or(vconn.get_original_target_cid());
                         if let None = state_container.active_virtual_connections.remove(&target) {
@@ -260,7 +261,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 PrimaryProcessorResult::ReplyToSender(stage1_kem)
                             }
 
-                            KeyExchangeProcess::Stage1(transfer, Some((bob_public_addr, peer_connect_proto))) => {
+                            KeyExchangeProcess::Stage1(transfer, Some(bob_public_addr)) => {
                                 // Here, we finalize the creation of the pqc for alice, and then, generate the new toolset
                                 // The toolset gets encrypted to ensure the central server doesn't see the toolset. This is
                                 // to combat a "chinese communist hijack" scenario wherein a rogue government takes over our
@@ -308,13 +309,13 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // now, fire-up the hole-punch future
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
-                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_socket_addr, peer_connect_proto.clone(), implicated_cid, kernel_tx, sync_instant, endpoint_hyper_ratchet, endpoint_security_level);
+                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_socket_addr, implicated_cid, kernel_tx, sync_instant, endpoint_hyper_ratchet, endpoint_security_level);
                                 let _ = spawn!(hole_punch_future);
 
                                 PrimaryProcessorResult::ReplyToSender(stage2_kem_packet)
                             }
 
-                            KeyExchangeProcess::Stage2(sync_time_ns, Some((alice_public_addr, peer_connect_proto))) => {
+                            KeyExchangeProcess::Stage2(sync_time_ns, Some(alice_public_addr)) => {
                                 // NEW UPDATE: now that we know the other side successfully created its toolset,
                                 // calculate sync time then begin the hole punch subroutine
                                 log::info!("RECV STAGE 2 PEER KEM");
@@ -351,7 +352,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
-                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_socket_addr, peer_connect_proto.clone(), implicated_cid, kernel_tx, sync_instant, endpoint_hyper_ratchet, endpoint_security_level);
+                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_socket_addr, implicated_cid, kernel_tx, sync_instant, endpoint_hyper_ratchet, endpoint_security_level);
                                 let _ = spawn!(hole_punch_future);
 
                                 PrimaryProcessorResult::Void
@@ -490,10 +491,9 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             // to allow for STUN-like NAT traversal
             // this gives peer A the socket of peer B and vice versa
             let socket_addr = session.remote_peer.to_string();
-            let peer_only_connect_mode = session.peer_only_connect_protocol.clone()?;
             match &mut kep {
                 KeyExchangeProcess::Stage1(_, val) | KeyExchangeProcess::Stage2(_, val) => {
-                    *val = Some((socket_addr, peer_only_connect_mode));
+                    *val = Some(socket_addr);
                 }
 
                 _ => {}
@@ -759,6 +759,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                     let session_manager = session.session_manager.clone();
                     std::mem::drop(session);
 
+                    log::info!("[GetRegisteredPeers] Getting list");
                     let rebound_signal = if let Some(registered_local_clients) = account_manager.get_registered_impersonal_cids(limit).await? {
                         // TODO: Make check_online_status check database for database mode
                         let online_status = session_manager.check_online_status(&registered_local_clients);
@@ -767,6 +768,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         PeerSignal::GetRegisteredPeers(hypernode_conn_type, None, limit)
                     };
 
+                    log::info!("[GetRegisteredPeers] Done getting list");
                     reply_to_sender(rebound_signal, &sess_hyper_ratchet, ticket, timestamp, security_level)
                 }
 
@@ -784,6 +786,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                     let session_manager = session.session_manager.clone();
                     std::mem::drop(session);
 
+                    log::info!("[GetMutuals] Getting list");
                     let rebound_signal = if let Some(mutuals) = account_manager.get_hyperlan_peer_list(implicated_cid).await? {
                         let online_status = session_manager.check_online_status(&mutuals);
                         PeerSignal::GetMutuals(hypernode_conn_type, Some(PeerResponse::RegisteredCids(mutuals, online_status)))
@@ -791,6 +794,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         PeerSignal::GetMutuals(hypernode_conn_type, None)
                     };
 
+                    log::info!("[GetMutuals] Done getting list");
                     reply_to_sender(rebound_signal, &sess_hyper_ratchet, ticket, timestamp, security_level)
                 }
 
@@ -849,6 +853,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
         }
 
         PeerSignal::FcmFetch(..) => {
+            // TODO: This will be invalid since it doesn't poll the backend
             let cnac = session.cnac.clone()?;
             std::mem::drop(session);
 

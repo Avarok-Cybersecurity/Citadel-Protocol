@@ -1,4 +1,5 @@
 #![feature(decl_macro, result_flattening)]
+#![feature(panic_always_abort)]
 
 #[cfg(test)]
 pub mod tests {
@@ -81,7 +82,7 @@ pub mod tests {
 
         let f1 = tokio::task::spawn(AssertSendSafeFuture::new_silent(async move {
             let listener = TcpListener::bind("127.0.0.1:27000").await.unwrap();
-            let mut tls_listener = TlsListener::new(listener, identity).unwrap();
+            let mut tls_listener = TlsListener::new(listener, identity, "").unwrap();
             while let Some(conn) = tls_listener.next().await {
                 match conn {
                     Ok((_stream, addr)) => {
@@ -161,15 +162,16 @@ pub mod tests {
     pub const SECRECY_MODE: SecrecyMode = SecrecyMode::BestEffort;
     pub const USE_TLS: bool = true;
 
-    const COUNT: usize = 500;
+    const COUNT: usize = 2000;
     const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 100);
 
     // The number of random bytes put into every message
-    pub const RAND_MESSAGE_LEN: usize = 10000;
+    pub const RAND_MESSAGE_LEN: usize = 2000;
 
     #[test]
     fn main() -> Result<(), Box<dyn Error>> {
         super::utils::deadlock_detector();
+
         if USE_TLS {
             *PROTO.lock() = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/devonly.pkcs", "mrmoney10").unwrap(), None));
         } else {
@@ -235,9 +237,11 @@ pub mod tests {
         rt.block_on(async move {
             log::info!("Setting up executors ...");
             let server_executor = create_executor(HyperNodeType::GloballyReachable, handle.clone(), server_bind_addr, Some(test_container.clone()), NodeType::Server, Vec::default(), backend_server(), underlying_proto()).await;
+
             log::info!("Done setting up server executor");
+
             let client0_executor = create_executor(HyperNodeType::BehindResidentialNAT, handle.clone(), client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
-                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_0, keys0, default_security_settings, connect_proto())),
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_0, keys0, default_security_settings)),
                      function(pinbox(client0_action1(test_container0, CLIENT0_PASSWORD, default_security_settings))),
                      function(pinbox(client0_action2(test_container1, ENABLE_FCM))),
                      function(pinbox(client0_action3(test_container2, p2p_security_level)))
@@ -245,13 +249,13 @@ pub mod tests {
             }, backend_client(), underlying_proto()).await;
 
             let client1_executor = create_executor(HyperNodeType::BehindResidentialNAT, handle.clone(), client1_bind_addr, Some(test_container.clone()), NodeType::Client1, {
-                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_1, keys1, default_security_settings, connect_proto())),
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_1, keys1, default_security_settings)),
                      function(pinbox(client1_action1(test_container3, CLIENT1_PASSWORD, default_security_settings)))
                 ]
             }, backend_client(), underlying_proto()).await;
 
             let client2_executor = create_executor(HyperNodeType::BehindResidentialNAT, handle.clone(), client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
-                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_2, keys2, default_security_settings, connect_proto())),
+                vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_2, keys2, default_security_settings)),
                      function(pinbox(client2_action1(test_container4, CLIENT2_PASSWORD, default_security_settings))),
                      function(pinbox(client2_action2(test_container5, ENABLE_FCM))),
                      function(pinbox(client2_action3_start_group(test_container6)))
@@ -275,7 +279,7 @@ pub mod tests {
             // Give time for the server to stop now that the clients are done
             let _ = tokio::time::timeout(Duration::from_millis(100), server_future).await;
 
-            log::info!("Execution time: {}ms", init.elapsed().as_millis());
+            println!("Execution time: {}ms", init.elapsed().as_millis());
 
             Ok(()) as Result<(), Box<dyn Error>>
         })?;
@@ -883,6 +887,7 @@ pub mod tests {
                         }
                         //tokio::time::sleep(Duration::from_millis(10)).await;
                         sink.send_unbounded(MessageTransfer::create(x as u64)).unwrap();
+                        //sink.send(MessageTransfer::create(x as _)).await.unwrap();
                     }
 
                     log::info!("DONE sending {} messages for {:?}", COUNT, node_type);
@@ -929,7 +934,7 @@ pub mod tests {
                         read.cnac_client0.as_ref().unwrap().get_cid()
                     };*/
 
-                    handle_c2s_peer_channel(NodeType::Client0, test_container.clone(), requests.clone(), c2s_channel.unwrap());
+                    handle_c2s_peer_channel(node_type,test_container.clone(), requests.clone(), c2s_channel.unwrap());
                     // begin the sender
                     tokio::time::sleep(Duration::from_millis(200)).await;
                 } else {
@@ -946,12 +951,14 @@ pub mod tests {
         });
     }
 
-    async fn start_client_server_stress_test(requests: Arc<Mutex<HashSet<Ticket>>>, mut sink: PeerChannelSendHalf, node_type: NodeType) {
+    async fn start_client_server_stress_test(requests: Arc<Mutex<HashSet<Ticket>>>, sink: PeerChannelSendHalf, node_type: NodeType) {
         assert(requests.lock().insert(CLIENT_SERVER_MESSAGE_STRESS_TEST), "MV0");
         log::info!("[Server/Client Stress Test] Starting send of {} messages [local type: {:?}]", COUNT, node_type);
 
         for x in 0..COUNT {
-            sink.send(MessageTransfer::create(x as u64)).await.unwrap();
+            //sink.send(MessageTransfer::create(x as u64)).await.unwrap();
+            sink.send_unbounded(MessageTransfer::create(x as _)).unwrap();
+            tokio::time::sleep(Duration::from_millis(1)).await; // For some reason, when THIS line is added, we don't get the error of it randomly stopping ... weird
         }
 
         log::info!("[Server/Client Stress Test] Done sending {} messages as {:?}", COUNT, node_type)

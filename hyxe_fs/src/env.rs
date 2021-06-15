@@ -75,6 +75,11 @@ fn setup_directory_w_bind_addr(bind_addr: &str, nac_serialized_extension: &'stat
     Ok(DirectoryStore { inner: Arc::new(RwLock::new(dirs)) })
 }
 
+/// Returns the default config dir
+pub fn get_default_config_dir() -> Option<String> {
+    Some(format!("{}/{}/settings.toml", dirs_2::home_dir()?.to_str()?, BASE_NAME))
+}
+
 #[cfg(not(target_os="windows"))]
 fn get_home_dir(bind_addr: &str) -> Option<String> {
     Some(format!("{}/{}/{}/", dirs_2::home_dir()?.to_str()?, BASE_NAME, bind_addr))

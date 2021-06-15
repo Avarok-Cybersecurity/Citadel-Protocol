@@ -1,4 +1,4 @@
-pub const BUILD_VERSION: usize = 5115;
+pub const BUILD_VERSION: usize = 5316;
 /// Signal for closing the stream_wrapper
 pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper
@@ -97,3 +97,9 @@ pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from
 pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_secs(60*30);
 ///
 pub const TCP_CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+///
+#[cfg(feature = "single-threaded")]
+pub const PACKET_PROCESS_LIMIT: Option<usize> = Some(1);
+///
+#[cfg(not(feature = "single-threaded"))]
+pub const PACKET_PROCESS_LIMIT: Option<usize> = None;

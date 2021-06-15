@@ -72,6 +72,12 @@ pub trait SyncIO {
         crate::system_file_manager::bytes_to_type(input)
     }
 
+    /// Deserializes from an owned buffer
+    fn deserialize_from_owned_vector(input: Vec<u8>) -> Result<Self, FsError<String>> where Self: DeserializeOwned {
+        use bytes::Buf;
+        bincode2::deserialize_from(input.reader()).map_err(|err| FsError::Generic(err.to_string()))
+    }
+
     /// Serializes self into a buffer
     fn serialize_into_buf(&self, buf: &mut BytesMut) -> Result<(), FsError<String>>
         where Self: Serialize {

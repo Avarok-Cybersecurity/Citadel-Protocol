@@ -1,8 +1,6 @@
 #![allow(non_camel_case_types)]
 
-use crate::export::PostQuantumExport;
 use pqcrypto_traits::Error;
-use std::convert::TryFrom;
 use crate::ez_error::EzError;
 use crate::bytes_in_place::{InPlaceBuffer, InPlaceByteSliceMut, EzBuffer};
 use std::fmt::Debug;
@@ -67,10 +65,13 @@ pub const fn get_approx_bytes_per_container() -> usize {
 //pub const FIRESABER_PK_SIZE: usize = pqcrypto_saber::firesaber_public_key_bytes();
 
 /// Contains the public keys for Alice and Bob
+#[derive(Serialize)]
 pub struct PostQuantumContainer {
     pub params: CryptoParameters,
+    #[serde(with = "serde_traitobject")]
     pub(crate) data: Box<dyn PostQuantumType>,
     pub(crate) anti_replay_attack: AntiReplayAttackContainer,
+    #[serde(skip)]
     pub(crate) shared_secret: Option<Box<dyn AeadModule>>,
     pub(crate) node: PQNode
 }
@@ -151,7 +152,8 @@ impl PostQuantumContainer {
     /// This should always be called after deserialization
     fn load_symmetric_key(&mut self) -> Result<(), Error> {
         let algo = self.params.encryption_algorithm;
-        self.shared_secret = Some(Self::get_aes_gcm_key(algo, self.get_shared_secret()?)?);
+        let ss = self.get_shared_secret()?;
+        self.shared_secret = Some(Self::get_aes_gcm_key(algo, ss)?);
         Ok(())
         //self.shared_secret = Some(AeadKey::new(&GenericArray::clone_from_slice(self.get_shared_secret().unwrap())))
     }
@@ -313,7 +315,7 @@ impl PostQuantumContainer {
 
     /// This, for now, only gets FIRESABER
     fn get_new_alice(kem_algorithm: KemAlgorithm) -> Box<dyn PostQuantumType> {
-        ALICE_FP[kem_algorithm as u8 as usize]()
+        ALICE_FP[kem_algorithm as u8 as usize]().into()
     }
 
     /// This, for now, only gets FIRESABER
@@ -326,35 +328,6 @@ impl Clone for PostQuantumContainer {
     fn clone(&self) -> Self {
         let ser = self.serialize_to_vector().unwrap();
         PostQuantumContainer::deserialize_from_bytes(ser).unwrap()
-    }
-}
-
-impl TryFrom<PostQuantumExport> for PostQuantumContainer {
-    type Error = Error;
-
-    fn try_from(export: PostQuantumExport) -> Result<Self, Self::Error> {
-        // First, create the type, pretending this node is Bob since we already
-        // have the public key
-        let params = export.params;
-        let node = export.node;
-
-        // we override all the values, so we can go with either
-        let mut container = PostQuantumContainer::new_bob(Some(params), export.public_key.as_slice())?;
-        container.node = node;
-        container.data.set_public_key(export.public_key.as_slice())?;
-
-        // Now, begin setting the values
-        container.data.set_secret_key(export.secret_key.as_ref().map(|r| r.as_slice()))?;
-
-        container.data.set_ciphertext(export.ciphertext.as_ref().map(|r| r.as_slice()))?;
-
-        container.data.set_shared_secret(export.shared_secret.as_ref().map(|r| r.as_slice()))?;
-
-        container.anti_replay_attack = bincode2::deserialize(&export.ara).map_err(|_err| generic_err())?;
-
-        container.load_symmetric_key()?;
-
-        Ok(container)
     }
 }
 
@@ -499,7 +472,7 @@ pub mod algorithm_dictionary {
 }
 
 /// Used to get different algorithm types dynamically
-pub trait PostQuantumType: Send + Sync {
+pub trait PostQuantumType: Send + Sync + serde_traitobject::Serialize + serde_traitobject::Deserialize {
     /// Creates a new self for the initiating node
     fn new_alice() -> Self where Self: Sized;
     /// Creates a new self for the receiving node
@@ -514,19 +487,12 @@ pub trait PostQuantumType: Send + Sync {
     fn get_ciphertext(&self) -> Result<&[u8], Error>;
     /// Gets the shared secret
     fn get_shared_secret(&self) -> Result<&[u8], Error>;
-    /// Sets the secret key
-    fn set_secret_key(&mut self, secret_key: Option<&[u8]>) -> Result<(), Error>;
-    /// Sets the ciphertext
-    fn set_ciphertext(&mut self, ciphertext: Option<&[u8]>) -> Result<(), Error>;
-    /// Sets the shared key
-    fn set_shared_secret(&mut self, shared_key: Option<&[u8]>) -> Result<(), Error>;
-    /// Sets the public key
-    fn set_public_key(&mut self, public_key: &[u8]) -> Result<(), Error>;
 }
 
 macro_rules! create_struct {
     ($base_path:ident, $variant:ident, $struct_name:ident) => {
         /// Auto generated
+        #[derive(Serialize, Deserialize)]
         pub(crate) struct $struct_name {
             /// The public key. Both Alice and Bob get this
             public_key: $base_path::$variant::PublicKey,
@@ -605,50 +571,6 @@ macro_rules! create_struct {
                     Err(get_generic_error("Unable to get secret key"))
                 }
             }
-
-            /// Sets the secret key
-            fn set_secret_key(&mut self, secret_key: Option<&[u8]>) -> Result<(), Error> {
-                if let Some(secret_key) = secret_key {
-                    let secret_key = $base_path::$variant::SecretKey::from_bytes(secret_key)?;
-                    self.secret_key = Some(secret_key);
-                } else {
-                    self.secret_key = None
-                }
-
-                Ok(())
-            }
-
-            /// Sets the secret key
-            fn set_public_key(&mut self, public_key: &[u8]) -> Result<(), Error> {
-                let public_key = $base_path::$variant::PublicKey::from_bytes(public_key)?;
-                self.public_key = public_key;
-
-                Ok(())
-            }
-
-            /// Sets the ciphertext
-            fn set_ciphertext(&mut self, ciphertext: Option<&[u8]>) -> Result<(), Error> {
-                if let Some(ciphertext) = ciphertext {
-                    let ciphertext = $base_path::$variant::Ciphertext::from_bytes(ciphertext)?;
-                    self.ciphertext = Some(ciphertext);
-                } else {
-                    self.ciphertext = None
-                }
-
-                Ok(())
-            }
-
-            /// Sets the shared key
-            fn set_shared_secret(&mut self, shared_secret: Option<&[u8]>) -> Result<(), Error> {
-                if let Some(shared_secret) = shared_secret {
-                    let shared_secret = $base_path::$variant::SharedSecret::from_bytes(shared_secret)?;
-                    self.shared_secret = Some(shared_secret);
-                } else {
-                    self.shared_secret = None
-                }
-
-                Ok(())
-            }
         }
     };
 }
@@ -711,6 +633,7 @@ pub(crate) mod function_pointers {
 pub(crate) mod post_quantum_structs {
     use pqcrypto_traits::{Error, kem::{PublicKey, SecretKey, SharedSecret, Ciphertext}};
     use super::PostQuantumType;
+    use serde::{Serialize, Deserialize};
 
     fn get_generic_error(text: &'static str) -> Error {
         Error::BadLength {
@@ -734,16 +657,8 @@ pub(crate) mod post_quantum_structs {
     create_struct!(pqcrypto_ntru, ntruhrss701, Ntru_hrss_701Container);
 }
 
-const fn generic_err() -> Error {
-    Error::BadLength {
-        name: "",
-        actual: 0,
-        expected: 0
-    }
-}
-
 impl Debug for PostQuantumContainer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PQC")
+        write!(f, "PQC {:?} | {:?}", self.node, self.params)
     }
 }

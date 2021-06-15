@@ -340,7 +340,7 @@ pub mod clap_commands {
             .subcommand(SubCommand::with_name("send").about("Sends a message to a target peer using the context user")
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true))
                 .arg(Arg::with_name("message").required(true).takes_value(true).multiple(true))
-                .arg(Arg::with_name("security").long("security").short("s").required(false).takes_value(true).default_value("0").help("Sets the security level for the transmission. 0 is low, 4 is divine"))
+                .arg(Arg::with_name("security").long("security").short("s").required(false).takes_value(true).default_value("0").help("Sets the security level for the transmission. 0 is low, 4 is highest"))
                 .arg(Arg::with_name("fcm").required(false).takes_value(false).long("fcm").help("Sends to the target using FCM at the HyperLAN Server")))
             .subcommand(SubCommand::with_name("transfer").about("Send a target file to a target peer")
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true))
@@ -495,17 +495,6 @@ pub mod clap_commands {
                 .help("Specify a custom encryption algorithm (see: list-algorithms for a list of available mechanisms")
                 .takes_value(true)
                 .required(false))
-            .arg(Arg::with_name("tls")
-                .long("tls")
-                .required(false)
-                .requires("tls-domain")
-                .takes_value(false)
-                .help("Connects using TLS. Specify domain with --tls-domain <domain>, otherwise defaults to an empty string"))
-            .arg(Arg::with_name("tls-domain")
-                .long("tls-domain")
-                .default_value("")
-                .takes_value(true)
-                .help("Specifies a domain"))
     }
 
 

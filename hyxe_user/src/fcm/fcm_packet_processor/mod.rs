@@ -1,15 +1,18 @@
-use crate::account_manager::AccountManager;
-use std::ops::{Try, ControlFlow, FromResidual};
-use crate::fcm::data_structures::{FcmPacket, FCMPayloadType, FcmHeader, FcmTicket, RawFcmPacket};
-use crate::misc::AccountError;
-use hyxe_fs::io::SyncIO;
 use std::future::Future;
-use crate::prelude::ClientNetworkAccountInner;
+use std::ops::{ControlFlow, FromResidual, Try};
 use std::sync::Arc;
-use crate::fcm::fcm_packet_processor::peer_post_register::{PostRegisterInvitation, FcmPostRegisterResponse};
-use hyxe_crypt::hyper_ratchet::Ratchet;
-use crate::fcm::fcm_instance::FCMInstance;
+
 use fcm::Client;
+
+use hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_fs::io::SyncIO;
+
+use crate::account_manager::AccountManager;
+use crate::fcm::data_structures::{FcmHeader, FcmPacket, FCMPayloadType, FcmTicket, RawFcmPacket};
+use crate::fcm::fcm_instance::FCMInstance;
+use crate::fcm::fcm_packet_processor::peer_post_register::{FcmPostRegisterResponse, PostRegisterInvitation};
+use crate::misc::AccountError;
+use crate::prelude::ClientNetworkAccountInner;
 
 pub(crate) mod group_header;
 pub(crate) mod group_header_ack;
@@ -51,10 +54,13 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
     let ref fcm_client = Arc::new(Client::new());
     //let fcm_client = account_manager.fcm_client();
 
+    // TODO: Run packet through can_process_packet. If false, then send a REQ packet to request retransmission of last packet in series, and store packet locally
+
     let cnac = account_manager.get_client_by_cid(local_cid).await?.ok_or(AccountError::<String>::ClientNonExists(local_cid))?;
-    let res = cnac.visit_mut(|mut inner| {
+    let res = cnac.visit_mut(|mut inner| async move {
         // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other
         let ClientNetworkAccountInner {
+            persistence_handler,
             fcm_crypt_container,
             kem_state_containers,
             crypt_container,
@@ -68,6 +74,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
         let res = if use_client_server_ratchet {
             log::info!("A4-CS");
             let ratchet = crypt_container.toolset.get_static_auxiliary_ratchet();
+            let persistence_handler = persistence_handler.as_ref().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".into()))?;
             log::info!("A5");
             ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
             log::info!("[FCM] Successfully validated packet. Parsing payload ...");
@@ -76,7 +83,8 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
             log::info!("A6");
 
             match payload {
-                FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(fcm_invitations, kem_state_containers, fcm_crypt_container, mutuals, local_cid, source_cid, ticket, transfer, username),
+                // NOTE: Lock being held here across .await
+                FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(persistence_handler, fcm_invitations, kem_state_containers, fcm_crypt_container, mutuals, local_cid, source_cid, ticket, transfer, username).await,
                 _ => {
                     log::warn!("[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
                     FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
@@ -92,9 +100,9 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
             let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
 
             match payload {
-                FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet,FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
+                FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet, FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
                 FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(fcm_client, crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer),
-                FCMPayloadType::Truncate { truncate_vers } => truncate::process(fcm_client, crypt_container,  truncate_vers, FcmHeader::try_from(&header).unwrap()),
+                FCMPayloadType::Truncate { truncate_vers } => truncate::process(fcm_client, crypt_container, truncate_vers, FcmHeader::try_from(&header).unwrap()),
                 FCMPayloadType::TruncateAck { truncate_vers } => truncate_ack::process(crypt_container, truncate_vers),
                 FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-7890)".to_string()),
                 // below, the implicated cid is obtained from the session_cid, and as such, is the peer_cid
@@ -103,7 +111,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
         };
 
         Ok(res) as Result<FcmProcessorResult, AccountError>
-    })?;
+    }).await?;
 
     log::info!("A7");
 
