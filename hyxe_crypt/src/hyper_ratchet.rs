@@ -215,6 +215,7 @@ impl HyperRatchet {
     /// Protects the packet, treating the header as AAD, and the payload as the data that gets encrypted
     pub fn protect_message_packet<T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {
         let idx = self.verify_level(security_level)?;
+
         for n in 0..=idx {
             let (pqc, drill) = self.message_pqc_drill(Some(n));
             drill.protect_packet(pqc, header_len_bytes, packet)?;
@@ -866,10 +867,6 @@ impl TryFrom<HyperRatchetConstructor> for HyperRatchet {
 
             inner.push(MessageRatchetInner { drill: message_drill, pqc: container.pqc });
         }
-
-        // now, do the same as above but for the scramble pqc/drill
-
-
 
 
         let message = MessageRatchet {

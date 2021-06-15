@@ -21,7 +21,7 @@ pub fn execute_lusna_kernel<T: ToString>(execute_args: T, to_ffi_frontier: Arc<B
     (to_ffi_frontier)(Ok(Some(KernelResponse::Message("Beginning execution phase of the Lusna Kernel".to_string().into_bytes()))));
     let ffi_object = FFIIO::from(to_ffi_frontier);
     setup_shutdown_hook();
-    let cfg = parse_command_line_arguments_into_app_config(Some(execute_args.to_string()), Some(ffi_object))?;
+    let cfg = parse_command_line_arguments_into_app_config(None, Some(execute_args.to_string()), Some(ffi_object))?;
     log::info!("Obtained information from console. Now beginning instantiation of HdpServer ...");
     INPUT_ROUTER.init(true)?;
 

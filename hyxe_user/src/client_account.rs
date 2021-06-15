@@ -40,6 +40,7 @@ use crate::backend::PersistenceHandler;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::argon_container::{ArgonContainerType, AsyncArgon, ArgonStatus};
 use crate::proposed_credentials::ProposedCredentials;
+use std::sync::atomic::Ordering;
 
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network
@@ -116,9 +117,10 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     /// For storing FCM invites
     pub fcm_invitations: HashMap<u64, InvitationType>,
     /// Only the server should store these values. The first key is the peer cid, the second key is the raw ticket ID, used for organizing proper order
+    /// TODO: Consider removing this, as the 2nd version below is newer
     fcm_packet_store: Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>,
     #[serde(with = "crate::fcm::data_structures::none")]
-    persistence_handler: Option<PersistenceHandler<R, Fcm>>,
+    pub(crate) persistence_handler: Option<PersistenceHandler<R, Fcm>>,
     argon_container: ArgonContainerType
 }
 
@@ -679,10 +681,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
                     write.fcm_crypt_container.insert(peer_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, peer_fcm_keys));
                     write.mutuals.insert(HYPERLAN_IDX, MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(username.clone()) });
-                    let persistence_handler = write.persistence_handler.clone().ok_or_else(||AccountError::Generic("".into()))?;
+                    let persistence_handler = write.persistence_handler.clone().ok_or_else(||AccountError::Generic("Persistence handler not loaded".into()))?;
                     std::mem::drop(write);
                     //self.blocking_save_to_local_fs()?;
                     self.save().await?;
+                    // We need to call the below function to allow calls to get_peer_username_by_cid and friends
                     persistence_handler.register_p2p_as_client(local_cid, peer_cid, username).await?;
                     Ok((fcm_post_register, ticket))
                 } else {
@@ -770,6 +773,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
         let crypt_container = fcm_crypt_container.get_mut(&target_peer_cid).ok_or(AccountError::ClientNonExists(target_peer_cid))?;
 
+        // We may not be able to send a message. We don't want to initiate a send when we are still waiting for the intermediary packets to send
+        if crypt_container.update_in_progress.load(Ordering::Relaxed) {
+            return Err(AccountError::Generic("Cannot send packet yet; update still in progress".to_string()))
+        }
+
         // construct the instance
         let fcm_instance = FCMInstance::new(crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?, client.clone());
 
@@ -848,7 +856,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// NOTE! The only fields that should be mutated internally are the (fcm) crypt containers. The peer information should
     /// only be mutated through the persistence handler. In the case of an FCM crypt container, saving should be called after mutating
     /// TODO: Make visit with restricted input parameter to reflect the above
-    pub fn visit_mut<J>(&self, fx: impl FnOnce(ShardedLockWriteGuard<'_, ClientNetworkAccountInner<R, Fcm>>) -> J) -> J {
+    pub fn visit_mut<'a, 'b: 'a, J: 'b>(&'b self, fx: impl FnOnce(ShardedLockWriteGuard<'a, ClientNetworkAccountInner<R, Fcm>>) -> J) -> J {
         fx(self.write())
     }
 

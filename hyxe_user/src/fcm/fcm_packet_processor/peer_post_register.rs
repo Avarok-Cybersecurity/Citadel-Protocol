@@ -9,6 +9,7 @@ use hyxe_crypt::toolset::Toolset;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use multimap::MultiMap;
 use crate::client_account::{MutualPeer, HYPERLAN_IDX};
+use crate::backend::PersistenceHandler;
 
 #[derive(Serialize, Deserialize)]
 pub enum InvitationType {
@@ -63,7 +64,7 @@ pub struct FcmPostRegisterResponse {
 }
 
 #[allow(unused_results)]
-pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state_containers: &mut HashMap<u64, ConstructorType>, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>, local_cid: u64, source_cid: u64, ticket: u64, transfer: FcmPostRegister, username: String) -> FcmProcessorResult {
+pub async fn process(persistence_handler: &PersistenceHandler, post_register_store: &mut HashMap<u64, InvitationType>, kem_state_containers: &mut HashMap<u64, ConstructorType>, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>, local_cid: u64, source_cid: u64, ticket: u64, transfer: FcmPostRegister, username: String) -> FcmProcessorResult {
     log::info!("FCM RECV PEER_POST_REGISTER");
     match &transfer {
         FcmPostRegister::AliceToBobTransfer(_transfer_bytes, _keys, source_cid) => {
@@ -81,22 +82,23 @@ pub fn process(post_register_store: &mut HashMap<u64, InvitationType>, kem_state
 
         FcmPostRegister::BobToAliceTransfer(fcm_bob_to_alice_transfer, fcm_keys, source_cid) => {
             // here, we need to finalize the construction on Alice's side
-            log::info!("BA");
             let mut fcm_constructor = kem_state_containers.remove(source_cid)?.assume_fcm()?;
-            log::info!("BA2");
+
             fcm_constructor.stage1_alice(fcm_bob_to_alice_transfer)?;
-            log::info!("BA3");
+
             let fcm_ratchet = fcm_constructor.finish_with_custom_cid(local_cid)?;
-            log::info!("BA4");
+
             let fcm_endpoint_container = PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), true, fcm_keys.clone());
-            log::info!("BA6");
+
             fcm_crypt_container.insert(*source_cid, fcm_endpoint_container);
-            log::info!("BA7");
+
             mutuals.insert(HYPERLAN_IDX, MutualPeer {
                 parent_icid: HYPERLAN_IDX,
                 cid: *source_cid,
                 username: Some(username.clone())
             });
+
+            persistence_handler.register_p2p_as_client(local_cid, *source_cid, username.clone()).await?;
 
             // upon return, saving will occur
             FcmProcessorResult::Value(FcmResult::PostRegisterResponse { response: FcmPostRegisterResponse {

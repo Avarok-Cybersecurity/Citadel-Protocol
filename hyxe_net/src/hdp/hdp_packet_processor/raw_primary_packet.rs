@@ -10,7 +10,7 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
     header_obfuscator.on_packet_received(&mut packet)?;
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     let (header, _payload) = packet.parse()?;
-    log::trace!("RECV Raw packet: {:?}", &*header);
+    log::info!("RECV Raw packet: {:?}", &*header);
 
     let target_cid = header.target_cid.get();
     let mut endpoint_cid_info = None;

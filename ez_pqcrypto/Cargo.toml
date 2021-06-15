@@ -19,12 +19,13 @@ default = ["unordered"]
 unordered = ["circular-queue", "parking_lot"]
 
 [dependencies]
-pqcrypto-traits = "*"
-pqcrypto-saber = "*"
-pqcrypto-kyber = "*"
-pqcrypto-ntru = "*"
+pqcrypto-traits = { version = "0.3.3" }
+pqcrypto-saber = { version = "^0.1.7", features = ["serialization"] }
+pqcrypto-kyber = { version = "^0.7.1", features = ["serialization"] }
+pqcrypto-ntru = { version = "^0.5.4", features = ["serialization"] }
 enum_primitive = "0.1.1"
 serde = { version = "1.0.118", features = ["derive"] }
+serde_traitobject = "0.2.7"
 bincode2 = "2.0.1"
 aes-gcm-siv = { version = "*", features = ["heapless"]}
 chacha20poly1305 = { version = "*", features = ["heapless", "xchacha20poly1305"] }

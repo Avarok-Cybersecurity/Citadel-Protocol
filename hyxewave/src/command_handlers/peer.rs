@@ -159,19 +159,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             let use_fcm = matches.is_present("fcm");
             let security_level = parse_security_level(matches)?;
 
-            let cnac = {
-                if use_fcm {
-                    ctx.account_manager.get_client_by_cid(ctx_user).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Client does not exist"))?
-                } else {
-                    let read = ctx.sessions.read().await;
-
-                    let sess = read.get(&ctx_user).ok_or(ConsoleError::Default("Session missing"))?;
-                    let cnac = sess.cnac.clone();
-                    // must drop here, otherwise get_peer_cid_from_cnac will fail
-                    std::mem::drop(read);
-                    cnac
-                }
-            };
+            let cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC missing"))?;
 
 
             let target_cid = get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?;
@@ -391,7 +379,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
                                 let persistence_handler = ctx.account_manager.get_persistence_handler().clone();
 
                                 let task = async move {
-                                    match persistence_handler.get_hyperlan_peers_with_fcm_keys(ctx_user, &cids).await {
+                                    match persistence_handler.get_hyperlan_peers_with_fcm_keys_as_client(ctx_user, &cids).await {
                                         Ok(hyperlan_peers) => {
                                             log::info!("Local hyperlan peers: {:?}", hyperlan_peers.iter().map(|r| r.0.cid).collect::<Vec<u64>>());
                                             for (cid, is_online) in cids.into_iter().zip(online_status.into_iter()) {
@@ -765,19 +753,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
                 Err(ConsoleError::Generic(format!("Mail ID {} does not map to a mail item", mail_id)))
             };
         }
-        /*
-                    .subcommand(SubCommand::with_name("update-fcm-keys").about("Updates the FCM keys for the active CID")
-                .arg(Arg::with_name("fcm-token")
-                    .long("fcm-token")
-                    .help("If supplied, the following parameter must be the client FCM registration ID correlated to the CNAC")
-                    .takes_value(true)
-                    .required(true))
-                .arg(Arg::with_name("fcm-api-key")
-                    .long("fcm-api-key")
-                    .help("If supplied, the following parameter must be the API key for the application")
-                    .takes_value(true)
-                    .required(true)))
-         */
+
         if let Some(matches) = matches.subcommand_matches("update-fcm-keys") {
             let fcm_token = matches.value_of("fcm-token").unwrap();
             let fcm_api_key = matches.value_of("fcm-api-key").unwrap();

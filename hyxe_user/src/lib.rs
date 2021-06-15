@@ -37,6 +37,7 @@ pub mod re_imports {
 
     pub use hyxe_fs::env::DirectoryStore;
     pub use hyxe_fs::file_crypt_scrambler::*;
+    pub use hyxe_fs::env::get_default_config_dir;
 }
 
 /// The general trait for creating account types

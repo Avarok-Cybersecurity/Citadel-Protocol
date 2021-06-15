@@ -42,9 +42,7 @@ pub struct NetworkAccountInner<R: Ratchet, Fcm: Ratchet> {
 /// For saving the state of client-side connections
 pub struct ConnectionInfo {
     /// The address of the adjacent node
-    pub addr: SocketAddr,
-    /// Some for clients/personal-mode, None for servers/impersonal-mode
-    pub proto: Option<ConnectProtocol>
+    pub addr: SocketAddr
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -79,15 +77,20 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     /// 'proto' should be None if calling from a server, and Some if from a client
     /// Server keeps addr in case PINNED_ADDR_MODE is enabled
     #[allow(unused_results)]
-    pub fn new_from_recent_connection(nid: u64, addr: SocketAddr, proto: Option<ConnectProtocol>, persistence_handler: PersistenceHandler<R, Fcm>) -> NetworkAccount<R, Fcm> {
+    pub fn new_from_recent_connection(nid: u64, addr: SocketAddr, persistence_handler: PersistenceHandler<R, Fcm>) -> NetworkAccount<R, Fcm> {
         Self {
             inner: Arc::new((nid, ShardedLock::new(NetworkAccountInner::<R, Fcm> {
                 cids_registered: HashMap::new(),
                 nid,
-                connection_info: Some(ConnectionInfo { addr, proto }),
+                connection_info: Some(ConnectionInfo { addr }),
                 persistence_handler: Some(persistence_handler)
             }))),
         }
+    }
+
+    /// Gets the persistence handler
+    pub fn persistence_handler(&self) -> Option<PersistenceHandler<R, Fcm>> {
+        self.read().persistence_handler.clone()
     }
 
     /// This should be called during the registration phase client-side. It generates a list of CIDs that are available
@@ -247,14 +250,6 @@ impl<R: Ratchet, Fcm: Ratchet> From<NetworkAccountInner<R, Fcm>> for NetworkAcco
 
 impl Display for ConnectionInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.proto.as_ref() {
-            Some(ConnectProtocol::Tcp) | None => {
-                write!(f, "tcp:{}", self.addr)
-            }
-
-            Some(ConnectProtocol::Tls(addr)) => {
-                write!(f, "tls:{}/domain={}", self.addr, addr.as_ref().map(|r| r.as_str()).unwrap_or(""))
-            }
-        }
+        write!(f, "addr: {}", self.addr)
     }
 }

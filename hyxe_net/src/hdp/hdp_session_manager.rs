@@ -150,11 +150,11 @@ impl HdpSessionManager {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
-            let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, connect_proto) = {
-                let (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, connect_proto) = {
-                    let (peer_addr, cnac, connect_proto) = {
+            let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac) = {
+                let (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac) = {
+                    let (peer_addr, cnac) = {
                         match init_mode.clone() {
-                            HdpSessionInitMode::Register(peer_addr, proto) => (peer_addr, None, proto),
+                            HdpSessionInitMode::Register(peer_addr) => (peer_addr, None),
 
                             HdpSessionInitMode::Connect(implicated_cid) => {
                                 let acc_mgr = {
@@ -165,8 +165,8 @@ impl HdpSessionManager {
                                 let cnac = acc_mgr.get_client_by_cid(implicated_cid).await?.ok_or(NetworkError::InternalError("Client does not exist"))?;
                                 let nac = cnac.get_nac();
                                 let conn_info = nac.get_conn_info().ok_or(NetworkError::InternalError("IP address not loaded internally this account"))?;
-                                let (peer_addr, connect_proto) = (conn_info.addr, conn_info.proto.ok_or(NetworkError::InternalError("This node does not have the connect information stored"))?);
-                                (peer_addr, Some(cnac), connect_proto)
+                                let peer_addr = conn_info.addr;
+                                (peer_addr, Some(cnac))
                             }
                         }
                     };
@@ -190,28 +190,28 @@ impl HdpSessionManager {
                         }
                     }
 
-                    (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, connect_proto)
+                    (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac)
                 };
 
 
                 // We must now create a TcpStream towards the peer
                 let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
                 // TODO: For now, all p2p conns use basic TCP. We need to establish a mechanism for underlying proto conflicts. in p2p_conn_handler.rs exists UnderlyingProtocol::Tcp argument
-                let (p2p_listener, primary_stream) = HdpServer::create_init_tcp_listener(listener_underlying_proto.clone(), connect_proto.clone(), peer_addr).await
+                let (p2p_listener, primary_stream) = HdpServer::create_init_tcp_listener(listener_underlying_proto.clone(), peer_addr).await
                     .map_err(|err| NetworkError::SocketError(err.to_string()))?;
-                (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, connect_proto)
+                (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac)
             };
 
             let peer_only_connect_mode = match listener_underlying_proto { UnderlyingProtocol::Tcp => ConnectProtocol::Tcp, UnderlyingProtocol::Tls(_, domain) => ConnectProtocol::Tls(domain) };
 
-            let (stopper, new_session) = HdpSession::new(init_mode.clone(), connect_proto, peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, tcp_only.unwrap_or(TCP_ONLY), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings)?;
+            let (stopper, new_session) = HdpSession::new(init_mode.clone(), peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, tcp_only.unwrap_or(TCP_ONLY), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings)?;
 
             match init_mode {
                 HdpSessionInitMode::Connect(..) => {
                     inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
                 }
 
-                HdpSessionInitMode::Register(peer_addr, ..) => {
+                HdpSessionInitMode::Register(peer_addr) => {
                     inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
                 }
             }
@@ -463,10 +463,12 @@ impl HdpSessionManager {
 
     /// Sends the command outbound. Returns true if sent, false otherwise
     /// In the case that this return false, further interaction should be avoided
-    pub fn dispatch_peer_command(&self, implicated_cid: u64, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> bool {
+    pub async fn dispatch_peer_command(&self, implicated_cid: u64, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
-            return sess.1.dispatch_peer_command(ticket, peer_command, security_level).is_ok();
+            let sess = sess.1.clone();
+            std::mem::drop(this);
+            return sess.dispatch_peer_command(ticket, peer_command, security_level).await.is_ok();
         }
 
         false

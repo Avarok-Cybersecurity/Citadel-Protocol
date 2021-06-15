@@ -178,7 +178,7 @@ impl<T: Into<String>> From<hyxe_crypt::misc::CryptError<T>> for PrimaryProcessor
 
 impl From<NetworkError> for PrimaryProcessorResult {
     fn from(err: NetworkError) -> Self {
-        log::error!("Err occured on session, will propagate shutdown: {}", &err);
+        log::error!("Err occurred in session, will propagate shutdown: {}", &err);
         PrimaryProcessorResult::EndSession("NetworkError triggered shutdown of session")
     }
 }

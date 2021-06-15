@@ -28,6 +28,7 @@ dependencies:
   quiver: ^3.0.0
   material_design_icons_flutter: ^5.0.5955-rc.1
   flutter_easyloading: ^3.0.0
+  crypt: ^4.0.1
   awesome_notifications:
     path: packages/awesome_notifications
   scrap:

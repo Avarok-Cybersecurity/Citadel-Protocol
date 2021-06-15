@@ -3,14 +3,15 @@ use hyxewave::primary_terminal::parse_command_line_arguments_into_app_config;
 use hyxewave::console_error::ConsoleError;
 use hyxewave::{shutdown_sequence, setup_shutdown_hook, setup_log};
 use hyxewave::console::virtual_terminal::INPUT_ROUTER;
+use hyxewave::app_config::TomlConfig;
 
 fn main() -> Result<(), ConsoleError> {
     deadlock_detection();
-    verify_permissions();
     setup_log();
     setup_shutdown_hook();
+    let cfg = TomlConfig::load_default()?;
 
-    match parse_command_line_arguments_into_app_config(None, None) {
+    match parse_command_line_arguments_into_app_config(cfg,None, None) {
         Ok(cfg) => {
             print_welcome();
             INPUT_ROUTER.init(cfg.daemon_mode)?;
@@ -40,18 +41,6 @@ fn print_welcome() {
     colour::red!(" v{} ({}/{})\n", hyxe_net::constants::BUILD_VERSION, hyxe_net::build_tag(), hyxe_net::re_imports::build_tag());
     print!("\x1B[2J\x1B[1;1H");
 }
-
-
-#[cfg(not(target_os = "windows"))]
-fn verify_permissions() {
-    if !nix::unistd::Uid::effective().is_root() {
-        println!("Please run the program with sudo, then try again");
-        std::process::exit(-1);
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn verify_permissions() {}
 
 #[allow(dead_code)]
 fn deadlock_detection() {

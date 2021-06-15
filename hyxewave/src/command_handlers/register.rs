@@ -4,7 +4,6 @@ use crate::primary_terminal::parse_custom_addr;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::prelude::SecBuffer;
 use crate::command_handlers::connect::{parse_kem, parse_enx, get_crypto_params};
-use hyxe_user::prelude::ConnectProtocol;
 
 #[derive(Debug, Serialize)]
 pub enum RegisterResponse {
@@ -38,13 +37,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
 
     let params = get_crypto_params(None, kem, enx, security_level);
 
-    let connect_proto = if matches.is_present("tls") {
-        ConnectProtocol::Tls(Some(matches.value_of("tls-domain").map(|r| r.to_string()).unwrap()))
-    } else {
-        ConnectProtocol::Tcp
-    };
-
-    let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, fcm_keys, params, connect_proto);
+    let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, fcm_keys, params);
     let ticket = server_remote.unbounded_send(request)?;
     ctx.register_ticket(ticket, DO_REGISTER_EXPIRE_TIME_MS, 0, move |_ctx, _, response| {
         match response {

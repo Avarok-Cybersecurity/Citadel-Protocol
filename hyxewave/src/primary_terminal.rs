@@ -2,7 +2,7 @@
 
 use clap::{App, Arg, AppSettings, ArgMatches};
 
-use crate::app_config::AppConfig;
+use crate::app_config::{AppConfig, TomlConfig};
 use crate::console_error::ConsoleError;
 use crate::ffi::FFIIO;
 use hyxe_net::constants::PRIMARY_PORT;
@@ -12,7 +12,8 @@ use std::net::{SocketAddr, IpAddr};
 
 /// The arguments, if None, will default to std::env::args, with the zeroth element removed (the binary name)
 /// Is some,
-pub fn parse_command_line_arguments_into_app_config(cmd: Option<String>, ffi_io: Option<FFIIO>) -> Result<AppConfig, ConsoleError> {
+pub fn parse_command_line_arguments_into_app_config(loaded_config: Option<TomlConfig>, cmd: Option<String>, ffi_io: Option<FFIIO>) -> Result<AppConfig, ConsoleError> {
+
     let arg_matches = if let Some(cmd) = cmd {
         setup_clap().get_matches_from_safe(cmd.split_whitespace().collect::<Vec<&str>>())
             .map_err(|err| ConsoleError::Generic(err.to_string()))?
@@ -21,6 +22,18 @@ pub fn parse_command_line_arguments_into_app_config(cmd: Option<String>, ffi_io:
         args.remove(0); // remove binary name
         setup_clap().get_matches_from(args)
     };
+
+    // check to see if there is a toml config
+    if let Some(toml_cfg) = loaded_config {
+        let default_alias: Option<String> = if let Some(values) = arg_matches.values_of("alias") {
+            Some(values.into_iter().collect::<Vec<&str>>().join(" "))
+        } else {
+            None
+        };
+
+        return toml_cfg.parse_config(default_alias.as_ref().map(|r| r.as_str()));
+    }
+
     let mut app_config = AppConfig::default();
 
     app_config.is_ffi = ffi_io.is_some();
@@ -61,7 +74,7 @@ fn setup_clap<'a>() -> App<'a, 'a> {
         .arg(Arg::with_name("daemon")
             .long("daemon")
             .short("d")
-            .help("Disables terminal input. Useful if running SatoriNET through nohup or as a background service")
+            .help("Disables terminal input. Required if running SatoriNET through nohup or as a background service")
             .takes_value(false)
             .required(false))
         .arg(Arg::with_name("public")
@@ -75,6 +88,12 @@ fn setup_clap<'a>() -> App<'a, 'a> {
             .takes_value(true)
             .default_value("residential")
             .possible_values(&["pure_server", "residential", "cellular"]))
+        .arg(Arg::with_name("alias")
+            .long("alias")
+            .help("Overrides the default used alias inside the config (requires a settings.toml in the application directory). Ignores all other console inputs")
+            .takes_value(true)
+            .multiple(true)
+            .required(false))
         .arg(Arg::with_name("home")
             .long("home")
             .required(false)
@@ -143,7 +162,7 @@ pub mod parsers {
                 "pure_server" => HyperNodeType::GloballyReachable,
                 "residential" => HyperNodeType::BehindResidentialNAT,
                 "cellular" => HyperNodeType::BehindSymmetricalNAT,
-                _ => panic!("unreachable?")
+                _ => return Err(ConsoleError::Default("Invalid node type"))
             };
 
             app_config.hypernode_type = Some(node);
