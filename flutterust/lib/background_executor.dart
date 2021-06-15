@@ -18,6 +18,7 @@ class BackgroundExecutor {
     }
 
     print("[Background Executor] Running 15m periodic poll for task $taskId");
+    // make sure bridge is not null
     await MessageSendHandler.poll();
     //Utils.pushNotification("Running background task", taskId);
     BackgroundFetch.finish(taskId);
