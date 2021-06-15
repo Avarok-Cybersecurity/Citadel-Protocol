@@ -56,7 +56,9 @@ pub fn open_local_firewall_port(protocol: FirewallProtocol) -> std::io::Result<O
 
 #[cfg(not(target_os = "windows"))]
 fn can_use_sudo() -> bool {
-    nix::unistd::Uid::effective().is_root()
+    //#[cfg(not(all(target_os = "windows", target_os = "ios", target_os = "android")))]
+    //nix::unistd::Uid::effective().is_root()
+    false
 }
 
 #[cfg(target_os = "windows")]

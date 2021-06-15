@@ -48,5 +48,4 @@ shutdown_hooks = "0.1.0"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 termion = "1.5.5"
-nix = "*"
 
