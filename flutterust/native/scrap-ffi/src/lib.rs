@@ -3,7 +3,7 @@
 use crate::ffi_object::load_and_execute_ffi_static;
 use ffi_helpers::null_pointer_check;
 use hyxewave::ffi::KernelResponse;
-use hyxewave::re_exports::{AccountManager, BackendType, PRIMARY_PORT, AccountError};
+use hyxewave::re_exports::{AccountManager, BackendType, PRIMARY_PORT, AccountError, AssertSendSafeFuture};
 use std::ffi::CString;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -98,7 +98,7 @@ pub unsafe extern "C" fn fcm_process(
     ) {
         Ok(acc_mgr) => {
             log::info!("[Rust BG processor] Success setting-up account manager");
-            match hyxewave::re_exports::fcm_packet_processor::block_on_async(move || hyxewave::re_exports::fcm_packet_processor::process(packet, acc_mgr)) {
+            match hyxewave::re_exports::fcm_packet_processor::block_on_async(move || AssertSendSafeFuture::new(hyxewave::re_exports::fcm_packet_processor::process(packet, acc_mgr))) {
                 Ok(res) => {
                     let fcm_res = KernelResponse::from(
                         res,

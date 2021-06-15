@@ -117,13 +117,17 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             if secrecy_mode == SecrecyMode::Perfect {
                 let truncate_ack = hdp_packet_crafter::do_drill_update::craft_truncate_ack(&hyper_ratchet, truncate_packet.truncate_version, resp_target_cid, timestamp, security_level);
                 session.send_to_primary_stream(None, truncate_ack)?;
+
+                if do_poll {
+                    let _ = session.poll_next_enqueued(resp_target_cid)?;
+                }
             }
 
             //std::mem::drop(state_container);
 
-            if do_poll {
+            /*if do_poll {
                 let _ = session.poll_next_enqueued(resp_target_cid)?;
-            }
+            }*/
 
             PrimaryProcessorResult::Void
         }

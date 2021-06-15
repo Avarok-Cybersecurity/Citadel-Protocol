@@ -40,24 +40,6 @@ pub const PORT_RANGE: usize = 14;
 /// We limit the number of ports in order. See the explanation for this value within the `byte_count` subroutine of Drill's implementation
 pub const MAX_PORT_RANGE: usize = 352;
 
-/// The number of bytes per inner matrix is equal to the `PORT_RANGE`. For each outer matrix,
-/// there exists `E_OF_X_START_INDEX` inner matrices. Thus, for low security, there exists
-/// `PORT_RANGE` * `E_OF_X_START_INDEX` total bytes. Let p_r = `PORT_RANGE`, and s = `E_OF_X_START_INDEX` (=6).
-/// Thus the total is s*p_r (for low security, which has raw u8 bytes)
-///
-/// For medium security, this formula is a little different. Since we have u16's (2x the size of low's u8's),
-/// we must take s*p_r and multiply by two. Thus, we have 2*s*p_r for medium. For High security, we have twice
-/// the medium's count of bytes. Thus, we have 4*s*p_r. For ultra, once again we multiply the next lowest security
-/// level's byte size by 2 to obtain 8*s*p_r. For divine, we have 16*s*p_r.
-///
-/// To get the total number of bytes, then, we must add up all the level's. Thus, the total number of bytes is:
-/// [equation 1] 1(s*p_r) + 2(s*p_r) + 4(s*p_r) + 8(s*p_r) + 16(s*p_r) = 31(s*p_r) => (2^n -1)(s*p_r) where n is the
-/// index of {1, 2, 4, 8, 16, ...} => n = {1, 2, 3, 4, [...]}
-///
-/// On a side note: We want to limit the port range such that there are no more than u16::max() (65535) bytes or
-/// 65.535 kilobytes of data per drill-update. To do this, set [equation 1] to 65535, and knowing s, divide 65535 by
-/// 31*s to find that p_r = about 352.3. Therefore, the max port range is the floor thereof: p_r_max = 352 when s = `E_OF_X_START_INDEX`.
-
 /// 1*(s*p_r)
 pub const BYTES_IN_LOW: usize = E_OF_X_START_INDEX * PORT_RANGE;
 /// 2*(s*p_r)
@@ -270,7 +252,7 @@ pub enum SecurityLevel {
     HIGH,
     ULTRA,
     DIVINE,
-    TRANSCENDENT(u8)
+    CUSTOM(u8)
 }
 
 impl Default for SecurityLevel {
@@ -288,7 +270,7 @@ impl SecurityLevel {
             SecurityLevel::HIGH => 2,
             SecurityLevel::ULTRA => 3,
             SecurityLevel::DIVINE => 4,
-            SecurityLevel::TRANSCENDENT(val) => val
+            SecurityLevel::CUSTOM(val) => val
         }
     }
 
@@ -306,7 +288,7 @@ impl From<u8> for SecurityLevel {
             2 => SecurityLevel::HIGH,
             3 => SecurityLevel::ULTRA,
             4 => SecurityLevel::DIVINE,
-            n => SecurityLevel::TRANSCENDENT(n)
+            n => SecurityLevel::CUSTOM(n)
         }
     }
 }

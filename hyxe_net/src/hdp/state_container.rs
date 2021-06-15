@@ -655,6 +655,7 @@ impl StateContainerInner {
 
                                 log::info!("PUSHING Group {} to {}", group_id, target_cid);
                             } else {
+                                log::info!("Reached discontinuity. Will await future packets ...");
                                 // hit discontinuity; return. We need to wait for more packets to come
                                 return true;
                             }
@@ -663,6 +664,7 @@ impl StateContainerInner {
                         false
                     }
                 } else {
+                    log::info!("Packet {} NOT in order. Will send when other packets arrive", group_id);
                     // not in order. Store in map
                     let prev = order_map.insert(group_id, data);
                     debug_assert!(prev.is_none());
@@ -753,8 +755,14 @@ impl StateContainerInner {
 
         let res = if let Some(last_ka) = self.network_stats.last_keep_alive.take() {
             if ping_ns > self.keep_alive_timeout_ns {
-                // don't replace the last keep alive, keep it None, and ensure the session disconnects
-                false
+                // possible timeout. There COULD be packets being spammed, preventing KAs from getting through. Thus, check the meta expiry container
+                if self.meta_expiry_state.expired() {
+                    // no packets are backing up the system. We are DC'ed
+                    false
+                } else {
+                    // packets are backed up, return true since other packets are making it across anyways
+                    true
+                }
             } else {
                 self.network_stats.last_keep_alive.replace(current_timestamp_ns);
                 // We subtract two keep alive intervals, since it pauses that long on each end. We multiply by 1 million to convert ms to ns
@@ -1349,7 +1357,7 @@ impl StateContainerInner {
     /// This should be ran periodically by the session timer
     pub fn keep_alive_subsystem_timed_out(&self, current_timestamp_ns: i64) -> bool {
         if let Some(prev_ka_time) = self.network_stats.last_keep_alive.clone() {
-            assert_ne!(self.keep_alive_timeout_ns, 0);
+            //assert_ne!(self.keep_alive_timeout_ns, 0);
             current_timestamp_ns - prev_ka_time > self.keep_alive_timeout_ns
         } else {
             false

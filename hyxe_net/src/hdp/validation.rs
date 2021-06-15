@@ -153,7 +153,6 @@ pub(crate) mod do_register {
     use hyxe_fs::io::SyncIO;
     use crate::hdp::hdp_packet_crafter::do_register::DoRegisterStage2Packet;
     use hyxe_user::backend::PersistenceHandler;
-    use hyxe_user::prelude::ConnectProtocol;
 
     pub(crate) fn validate_stage0<'a>(header: &'a LayoutVerified<&[u8], HdpHeader>, payload: &'a [u8]) -> Option<(AliceToBobTransfer<'a>, Vec<u64>)> {
         let cids_to_get = header.context_info.get() as usize;
@@ -188,14 +187,14 @@ pub(crate) mod do_register {
 
         //let proposed_credentials = ProposedCredentials::new_from_hashed(full_name, username, SecVec::new(password.to_vec()), nonce);
         let adjacent_nid = header.session_cid.get();
-        let adjacent_nac = NetworkAccount::new_from_recent_connection(adjacent_nid, peer_addr, None,persistence_handler.clone());
+        let adjacent_nac = NetworkAccount::new_from_recent_connection(adjacent_nid, peer_addr,persistence_handler.clone());
         Some((packet, adjacent_nac))
     }
 
     /// Returns the decrypted Toolset text, as well as the welcome message
-    pub(crate) fn validate_success(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr, connect_proto: ConnectProtocol, persistence_handler: &PersistenceHandler) -> Option<(Vec<u8>, NetworkAccount)> {
+    pub(crate) fn validate_success(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr, persistence_handler: &PersistenceHandler) -> Option<(Vec<u8>, NetworkAccount)> {
         let (_, payload) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
-        let adjacent_nac = NetworkAccount::new_from_recent_connection(header.session_cid.get(), remote_addr, Some(connect_proto), persistence_handler.clone());
+        let adjacent_nac = NetworkAccount::new_from_recent_connection(header.session_cid.get(), remote_addr, persistence_handler.clone());
         Some((payload.to_vec(), adjacent_nac))
     }
 

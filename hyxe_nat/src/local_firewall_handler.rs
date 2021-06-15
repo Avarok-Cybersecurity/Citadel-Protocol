@@ -39,16 +39,28 @@ impl Display for FirewallProtocol {
     }
 }
 
-pub fn open_local_firewall_port(protocol: FirewallProtocol) -> std::io::Result<Output> {
-    #[cfg(not(target_os="windows"))]
-        {
-            linux(protocol)
-        }
-    #[cfg(target_os = "windows")]
-        {
-            windows(protocol)
-        }
+pub fn open_local_firewall_port(protocol: FirewallProtocol) -> std::io::Result<Option<Output>> {
+    if can_use_sudo() {
+        #[cfg(not(target_os="windows"))]
+            {
+                linux(protocol).map(Some)
+            }
+        #[cfg(target_os = "windows")]
+            {
+                windows(protocol).map(Some)
+            }
+    } else {
+        Ok(None)
+    }
 }
+
+#[cfg(not(target_os = "windows"))]
+fn can_use_sudo() -> bool {
+    nix::unistd::Uid::effective().is_root()
+}
+
+#[cfg(target_os = "windows")]
+fn can_use_sudo() -> bool { true }
 
 // source: https://winaero.com/blog/open-port-windows-firewall-windows-10/
 #[allow(unused)]
@@ -110,16 +122,20 @@ fn linux(protocol: FirewallProtocol) -> std::io::Result<Output> {
 }
 
 #[allow(unused)]
-pub fn remove_firewall_rule(protocol: FirewallProtocol) -> std::io::Result<Output> {
-    #[cfg(not(target_os="windows"))]
-        {
-            linux_remove(protocol)
-        }
+pub fn remove_firewall_rule(protocol: FirewallProtocol) -> std::io::Result<Option<Output>> {
+    if can_use_sudo() {
+        #[cfg(not(target_os="windows"))]
+            {
+                linux_remove(protocol).map(Some)
+            }
 
-    #[cfg(target_os = "windows")]
-        {
-            windows_remove(protocol)
-        }
+        #[cfg(target_os = "windows")]
+            {
+                windows_remove(protocol).map(Some)
+            }
+    } else {
+        Ok(None)
+    }
 }
 
 #[allow(unused)]
@@ -179,6 +195,7 @@ fn linux_remove(protocol: FirewallProtocol) -> std::io::Result<Output> {
 }
 
 /// Will exit if the permissions are not valid
+#[cfg(debug_assertions)]
 pub fn check_permissions() {
     #[cfg(target_os = "windows")]
         {

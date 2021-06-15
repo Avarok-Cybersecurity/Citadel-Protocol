@@ -1,34 +1,47 @@
-use crate::{PostQuantumContainer, PQNode};
-use serde::{Serialize, Deserialize};
+use crate::{PostQuantumContainer, PQNode, AntiReplayAttackContainer, PostQuantumType};
+use serde::{Deserialize, Deserializer, Serialize};
 use crate::algorithm_dictionary::CryptoParameters;
+use crate::encryption::AeadModule;
 
-/// The default type to store data from a [PostQuantumContainer]
 #[derive(Serialize, Deserialize)]
-pub struct PostQuantumExport {
-    pub(super) params: CryptoParameters,
-    pub(super) public_key: Vec<u8>,
-    pub(super) secret_key: Option<Vec<u8>>,
-    pub(super) ciphertext: Option<Vec<u8>>,
-    pub(super) shared_secret: Option<Vec<u8>>,
-    pub(super) ara: Vec<u8>,
-    pub(super) node: PQNode
+struct PostQuantumExport {
+    pub params: CryptoParameters,
+    #[serde(with = "serde_traitobject")]
+    pub(crate) data: Box<dyn PostQuantumType>,
+    pub(crate) anti_replay_attack: AntiReplayAttackContainer,
+    #[serde(skip)]
+    pub(crate) shared_secret: Option<Box<dyn AeadModule>>,
+    pub(crate) node: PQNode
 }
 
-impl From<&'_ PostQuantumContainer> for PostQuantumExport {
-    fn from(container: &PostQuantumContainer) -> Self {
-        let params = container.params;
-        let node = container.node;
-
-        let public_key = container.get_public_key().to_vec();
-        let secret_key = container.get_secret_key().map(|res| res.to_vec()).ok();
-        let ciphertext = container.get_ciphertext().map(|res| res.to_vec()).ok();
-        let shared_secret = container.get_shared_secret().map(|res| res.to_vec()).ok();
-        let ara = bincode2::serialize(&container.anti_replay_attack).unwrap();
-
-        Self { params, public_key, secret_key, ciphertext, shared_secret, ara, node }
+impl From<PostQuantumExport> for PostQuantumContainer {
+    fn from(this: PostQuantumExport) -> Self {
+        Self {
+            params: this.params,
+            data: this.data,
+            anti_replay_attack: this.anti_replay_attack,
+            shared_secret: this.shared_secret,
+            node: this.node
+        }
     }
 }
 
+impl<'de> Deserialize<'de> for PostQuantumContainer {
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
+        D: Deserializer<'de> {
+
+        let mut intermediate = PostQuantumExport::deserialize(deserializer)?;
+
+        // shared secret may not be loaded yet
+        if let Ok(ss) = intermediate.data.get_shared_secret() {
+            intermediate.shared_secret = Some(PostQuantumContainer::get_aes_gcm_key(intermediate.params.encryption_algorithm, ss).map_err(|err| serde::de::Error::custom(err.to_string()))?)
+        }
+
+        Ok(PostQuantumContainer::from(intermediate))
+    }
+}
+
+/*
 pub(crate) mod custom_serde {
     use crate::PostQuantumContainer;
     use serde::{Serializer, Serialize, Deserializer, Deserialize};
@@ -46,7 +59,7 @@ pub(crate) mod custom_serde {
     impl<'de> Deserialize<'de> for PostQuantumContainer {
         fn deserialize<D>(d: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
             D: Deserializer<'de> {
-            Ok(PostQuantumContainer::try_from(PostQuantumExport::deserialize(d).map_err(|_| serde::de::Error::custom("Deser err"))? as PostQuantumExport).map_err(|_| serde::de::Error::custom("Deser err"))?)
+            Ok(PostQuantumContainer::try_from(PostQuantumExport::deserialize(d).map_err(|_| serde::de::Error::custom("PQExport Deser err"))? as PostQuantumExport).map_err(|_| serde::de::Error::custom("PQC Deser err"))?)
         }
     }
-}
+}*/

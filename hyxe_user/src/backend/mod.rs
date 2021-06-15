@@ -117,8 +117,15 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn hyperlan_peers_are_mutuals(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<bool>, AccountError>;
     /// Returns a set of PeerMutual containers
     async fn get_hyperlan_peers(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<MutualPeer>, AccountError>;
-    /// Returns a set of PeerMutual containers
-    async fn get_hyperlan_peers_with_fcm_keys(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<(MutualPeer, Option<FcmKeys>)>, AccountError>;
+    /// Returns a set of PeerMutual containers. Should only be called on the endpoints
+    async fn get_hyperlan_peers_with_fcm_keys_as_client(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<(MutualPeer, Option<FcmKeys>)>, AccountError> {
+        if peers.is_empty() {
+            return Ok(Vec::new())
+        }
+
+        let cnac = self.get_cnac_by_cid(implicated_cid, &self.local_nac().persistence_handler().unwrap()).await?.ok_or(AccountError::ClientNonExists(implicated_cid))?;
+        Ok(cnac.get_hyperlan_peers_with_fcm_keys(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
+    }
     /// Gets hyperland peer by username
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError>;
     /// Gets all peer cids with fcm keys

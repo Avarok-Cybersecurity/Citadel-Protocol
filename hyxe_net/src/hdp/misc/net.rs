@@ -1,7 +1,7 @@
 use tokio_util::codec::LengthDelimitedCodec;
 use crate::hdp::misc::clean_shutdown::{clean_framed_shutdown, CleanShutdownSink, CleanShutdownStream};
 use bytes::Bytes;
-use tokio::io::{AsyncWrite, AsyncRead, ReadBuf};
+use tokio::io::{AsyncWrite, AsyncRead, ReadBuf, AsyncWriteExt};
 use crate::macros::ContextRequirements;
 use std::net::SocketAddr;
 use tokio::net::{TcpStream, TcpListener};
@@ -9,13 +9,16 @@ use tokio_stream::Stream;
 use std::task::{Context, Poll};
 use std::pin::Pin;
 use std::ops::DerefMut;
-use std::io::Error;
+use std::io::{Error, Write};
 use tokio_native_tls::{TlsStream, TlsAcceptor};
 use futures::Future;
 use std::sync::Arc;
 use tokio_native_tls::native_tls::{Identity, Certificate};
 use std::path::Path;
 use crate::error::NetworkError;
+use crate::hdp::hdp_server::TlsDomain;
+use serde::{Serialize, Deserialize};
+use hyxe_fs::io::SyncIO;
 
 /// Wraps a stream into a split interface for I/O that safely shuts-down the interface
 /// upon drop
@@ -85,6 +88,7 @@ impl AsyncWrite for GenericNetworkStream {
     }
 }
 
+#[allow(variant_size_differences)]
 pub enum GenericNetworkListener {
     Tcp(TcpListener),
     Tls(TlsListener)
@@ -105,7 +109,19 @@ impl Stream for GenericNetworkListener {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.deref_mut() {
             Self::Tcp(ref listener) => {
-                listener.poll_accept(cx).map(|r| Some(r.map(|(stream, addr)| (GenericNetworkStream::Tcp(stream), addr))))
+                match futures::ready!(listener.poll_accept(cx)) {
+                    Ok((stream, addr)) => {
+                        let mut stream = stream.into_std()?;
+                        let _ = stream.write(&FirstPacket::Tcp.serialize_to_vector().unwrap())?;
+                        stream.set_nonblocking(true)?;
+
+                        Poll::Ready(Some(Ok((GenericNetworkStream::Tcp(tokio::net::TcpStream::from_std(stream)?), addr))))
+                    }
+
+                    Err(err) => {
+                        Poll::Ready(Some(Err(err)))
+                    }
+                }
             },
 
             Self::Tls(ref mut listener) => {
@@ -120,17 +136,20 @@ impl Stream for GenericNetworkListener {
 pub struct TlsListener {
     inner: TcpListener,
     tls_acceptor: Arc<TlsAcceptor>,
-    queue: Vec<Pin<Box<dyn Future<Output=Result<TlsStream<TcpStream>, tokio_native_tls::native_tls::Error>>>>>
+    domain: TlsDomain,
+    queue: Vec<Pin<Box<dyn Future<Output=Result<TlsStream<TcpStream>, NetworkError>>>>>
 }
 
 impl TlsListener {
-    pub fn new(inner: TcpListener, identity: Identity) -> std::io::Result<Self> {
-        Ok(Self { inner, tls_acceptor: Arc::new(TlsAcceptor::from(tokio_native_tls::native_tls::TlsAcceptor::new(identity).map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?)), queue: Vec::new()})
+    pub fn new<T: Into<String>>(inner: TcpListener, identity: Identity, domain: T) -> std::io::Result<Self> {
+        let domain = Some(domain.into());
+
+        Ok(Self { inner, tls_acceptor: Arc::new(TlsAcceptor::from(tokio_native_tls::native_tls::TlsAcceptor::new(identity).map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?)), queue: Vec::new(), domain })
     }
 
-    pub fn new_pkcs<P: AsRef<Path>, T: AsRef<str>>(path: P, password: T, inner: TcpListener) -> std::io::Result<Self> {
+    pub fn new_pkcs<P: AsRef<Path>, T: AsRef<str>, K: Into<String>>(path: P, password: T, domain: K, inner: TcpListener) -> std::io::Result<Self> {
         let identity = Self::load_tls_pkcs(path, password).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err.into_string()))?;
-        Self::new(inner, identity)
+        Self::new(inner, identity, domain.into())
     }
 
     /// Given a path and password, returns the asymmetric crypto identity
@@ -145,7 +164,7 @@ impl TlsListener {
         Certificate::from_pem(&bytes).map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    fn poll_future(future: &mut Pin<Box<dyn Future<Output=Result<TlsStream<TcpStream>, tokio_native_tls::native_tls::Error>>>>, cx: &mut Context<'_>) -> Poll<Option<<Self as Stream>::Item>> {
+    fn poll_future(future: &mut Pin<Box<dyn Future<Output=Result<TlsStream<TcpStream>, NetworkError>>>>, cx: &mut Context<'_>) -> Poll<Option<<Self as Stream>::Item>> {
         future.as_mut().poll(cx).map(|r| Some(r.map(|stream| {
             let peer_addr = stream.get_ref().get_ref().get_ref().peer_addr().unwrap();
             (stream, peer_addr)
@@ -160,7 +179,8 @@ impl Stream for TlsListener {
         let Self {
             inner,
             tls_acceptor,
-            queue
+            queue,
+            domain
         } = &mut *self;
 
         for (idx, future) in queue.iter_mut().enumerate() {
@@ -188,14 +208,20 @@ impl Stream for TlsListener {
         }
 
         match futures::ready!(Pin::new(inner).poll_accept(cx)) {
-            Ok((stream, _peer_addr)) => {
-                // send first byte
+            Ok((mut stream, _peer_addr)) => {
+
                 let tls_acceptor = tls_acceptor.clone();
+                let domain = domain.clone();
+
                 let future = async move {
-                    tls_acceptor.accept(stream).await
+                    //let _ = stream.write(&[TLS_CONN_TYPE] as &[u8]).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    let serialized_first_packet = FirstPacket::Tls(domain).serialize_to_vector().unwrap();
+                    let _ = stream.write(serialized_first_packet.as_slice()).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    // Upgrade TCP stream to TLS stream
+                    tls_acceptor.accept(stream).await.map_err(|err| NetworkError::Generic(err.to_string()))
                 };
 
-                let mut future = Box::pin(future) as Pin<Box<dyn Future<Output=Result<TlsStream<TcpStream>, tokio_native_tls::native_tls::Error>>>>;
+                let mut future = Box::pin(future) as Pin<Box<dyn Future<Output=Result<TlsStream<TcpStream>, NetworkError>>>>;
                 // poll the future once to register any internal wakers
                 let poll_res = Self::poll_future(&mut future, cx);
                 queue.push(future);
@@ -208,4 +234,10 @@ impl Stream for TlsListener {
             }
         }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub enum FirstPacket {
+    Tcp,
+    Tls(TlsDomain)
 }

@@ -1,4 +1,4 @@
-#![feature(async_closure, ip, bindings_after_at)]
+#![feature(async_closure, ip, bindings_after_at, result_flattening)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
 #![feature(try_trait_v2)]

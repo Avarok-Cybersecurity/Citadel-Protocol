@@ -34,7 +34,7 @@ use hyxe_user::network_account::ConnectProtocol;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 use hyxe_user::re_imports::scramble_encrypt_file;
 
-use crate::constants::{CODEC_BUFFER_CAPACITY, DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME};
+use crate::constants::{CODEC_BUFFER_CAPACITY, DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME, PACKET_PROCESS_LIMIT};
 use crate::error::NetworkError;
 use crate::hdp::file_transfer::VirtualFileMetadata;
 use crate::hdp::hdp_packet::{HdpPacket, HeaderObfuscator, packet_flags};
@@ -113,7 +113,6 @@ pub struct HdpSessionInner {
     pub(super) enqueued_packets: HashMap<u64, VecDeque<(Ticket, SecBuffer, VirtualTargetType, SecurityLevel)>>,
     pub(super) security_settings: Option<SessionSecuritySettings>,
     pub(super) updates_in_progress: DualRwLock<HashMap<u64, Arc<AtomicBool>>>,
-    pub(super) connect_proto: Option<ConnectProtocol>,
     pub(super) peer_only_connect_protocol: Option<ConnectProtocol>,
     on_drop: UnboundedSender<()>
 }
@@ -142,13 +141,13 @@ pub enum SessionState {
 #[allow(variant_size_differences)]
 pub enum HdpSessionInitMode {
     Connect(u64),
-    Register(SocketAddr, ConnectProtocol)
+    Register(SocketAddr)
 }
 
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub fn new(init_mode: HdpSessionInitMode, connect_proto: ConnectProtocol, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, fcm_keys: Option<FcmKeys>, tcp_only: bool, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings) -> Result<(Sender<()>, Self), NetworkError> {
+    pub fn new(init_mode: HdpSessionInitMode, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, fcm_keys: Option<FcmKeys>, tcp_only: bool, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings) -> Result<(Sender<()>, Self), NetworkError> {
         let (cnac, state, implicated_cid) = match &init_mode {
             HdpSessionInitMode::Connect(implicated_cid) => {
                 let cnac = cnac.ok_or(NetworkError::InvalidExternalRequest("Client does not exist"))?;
@@ -166,7 +165,6 @@ impl HdpSession {
         let updates_in_progress = DualRwLock::from(HashMap::new());
 
         let mut inner = HdpSessionInner {
-            connect_proto: Some(connect_proto),
             peer_only_connect_protocol: Some(peer_only_connect_proto),
             security_settings: Some(security_settings),
             on_drop,
@@ -216,7 +214,6 @@ impl HdpSession {
 
         let inner = HdpSessionInner {
             peer_only_connect_protocol: None,
-            connect_proto: None,
             security_settings: None,
             on_drop,
             updates_in_progress,
@@ -528,7 +525,7 @@ impl HdpSession {
             }
         };
 
-            let res = reader.try_for_each_concurrent(None, move |packet| {
+            reader.try_for_each_concurrent(PACKET_PROCESS_LIMIT, move |packet| {
                 async move {
                     //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
                     match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), *local_primary_port, packet, header_obfuscator).await {
@@ -560,9 +557,7 @@ impl HdpSession {
                 }
 
                 NetworkError::Generic(err.to_string())
-            });
-
-        res
+            })
     }
 
     fn send_to_primary_stream_closure(to_primary_stream: &OutboundTcpSender, kernel_tx: &UnboundedSender<HdpServerResult>, msg: BytesMut, ticket: Option<Ticket>) -> Result<(), NetworkError> {
@@ -635,14 +630,14 @@ impl HdpSession {
                 if sess.state == SessionState::Connected {
                     let state_container = inner!(sess.state_container);
                     if state_container.keep_alive_timeout_ns != 0 {
-                        if state_container.keep_alive_subsystem_timed_out(timestamp) {
-                            log::warn!("The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
+                        if state_container.keep_alive_subsystem_timed_out(timestamp) && state_container.meta_expiry_state.expired() {
+                            log::error!("The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
                             QueueWorkerResult::EndSession
                         } else {
                             QueueWorkerResult::Incomplete
                         }
                     } else {
-                        log::warn!("Keep alive subsystem will not be used for this session as requested");
+                        log::error!("Keep alive subsystem will not be used for this session as requested");
                         QueueWorkerResult::Complete
                     }
                 } else {
@@ -1002,7 +997,7 @@ impl HdpSession {
     }
 
     #[allow(unused_results)]
-    pub(crate) fn dispatch_peer_command(&self, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
+    pub(crate) async fn dispatch_peer_command(&self, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
         log::info!("Dispatching peer command ...");
         let this = inner!(self);
         let timestamp = this.time_tracker.get_global_time_ns();
@@ -1010,7 +1005,7 @@ impl HdpSession {
         if let Some(cnac) = this.cnac.as_ref() {
             if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
                 // move into the closure without cloning the drill
-                return cnac.visit_mut(|mut inner| {
+                let packet = cnac.visit_mut(|mut inner| {
                     let this_cid = inner.cid;
                     let signal_processed = match peer_command {
                         // case 1: user just initiated a post-register request that has Fcm enabled
@@ -1023,7 +1018,7 @@ impl HdpSession {
                             }
 
                             // create constructor
-                            // TODO: All we have to do to change fcm ratchet conf is to change the default below
+                            // TODO: Extend FCM to include custom params (within reason, ofc)
                             let fcm_constructor = FcmRatchetConstructor::new_alice(inner.cid, 0, CryptoParameters::default());
                             let fcm_post_register = FcmPostRegister::AliceToBobTransfer(fcm_constructor.stage0_alice().serialize_to_vector().unwrap(), inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Fcm not configured for this client"))?, this_cid);
                             // finally, store the constructor inside the state container
@@ -1062,14 +1057,20 @@ impl HdpSession {
                         }
                     };
 
-                    if do_save {
-                        cnac.spawn_save_task_on_threadpool();
-                    }
-
                     let hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).unwrap();
                     let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
-                    to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string()))
-                })
+                    Ok(packet)
+                })?;
+
+                let to_primary_stream = to_primary_stream.clone();
+                let cnac = cnac.clone();
+                std::mem::drop(this);
+
+                if do_save {
+                    cnac.save().await?;
+                }
+
+                return to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string()))
             }
         }
 
@@ -1534,6 +1535,7 @@ impl HdpSessionInner {
                                 return Ok(Either::Right(packet))
                             }
                         }
+
                         //let group_id = inner.crypt_container.get_and_increment_group_id();
                         let latest_hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).cloned().unwrap();
                         latest_hyper_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_hyper_ratchet.get_default_security_level())))?;
@@ -1586,7 +1588,12 @@ impl HdpSessionInner {
                                 // since update is NOT in progress, are using PFS, and didn't call from poll, we next need to make sure there isn't already a packet
                                 log::info!("PFS, Not called from poll, update is NOT in progress, packets loaded");
                                 let res = this.poll_next_enqueued(target_cid)?;
-                                assert!(res);
+                                //assert!(res);
+                                if !res {
+                                    log::error!("Asserted res, but was false");
+                                    std::process::exit(-1);
+                                }
+
                                 this.enqueue_packet(0, ticket, packet, virtual_target, security_level);
                                 return Ok(())
                             }
@@ -1611,7 +1618,7 @@ impl HdpSessionInner {
                                 }
 
                                 SecrecyMode::Perfect => {
-                                    // Note: we can't just add/send here. What if there are packets in the queue? We thus must poll before calling the below funct
+                                    // Note: we can't just add/send here. What if there are packets in the queue? We thus must poll before calling the below function
                                     if constructor.is_some() {
                                         let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
                                         log::info!("[Perfect] will send group {}", group_id);
@@ -1619,9 +1626,10 @@ impl HdpSessionInner {
                                     } else {
                                         //assert!(!called_from_poll);
                                         if called_from_poll {
-                                            log::error!("Should not happen. {:?}", endpoint_container.endpoint_crypto.lock_set_by_alice.clone());
-                                            std::process::exit(-1);
+                                            log::error!("Should not happen (CFP). {:?}", endpoint_container.endpoint_crypto.lock_set_by_alice.clone());
+                                            std::process::exit(-1); // for dev purposes
                                         }
+
                                         std::mem::drop(state_container);
                                         log::info!("[Perfect] will enqueue packet");
                                         this.enqueue_packet(target_cid, ticket, packet, virtual_target, security_level);
@@ -1645,7 +1653,7 @@ impl HdpSessionInner {
 
 
             // We manually send the header. The tails get sent automatically
-            log::info!("[message] Sending GROUP HEADER through primary stream for group {}", group_id);
+            log::info!("[message] Sending GROUP HEADER through primary stream for group {} as {}", group_id, this.is_server.then(|| "Server").unwrap_or("Client"));
             let group_len = transmitter.get_total_plaintext_bytes();
             this.try_action(Some(ticket), || transmitter.transmit_group_header(virtual_target))?;
 

@@ -19,7 +19,6 @@ use crossbeam_utils::sync::ShardedLock;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use std::convert::{TryFrom, TryInto};
-
 /// A container for handling db conns
 pub struct SqlBackend<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
     url: String,
@@ -103,6 +102,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let conn = self.get_conn()?;
         // The issue: at endpoints, mutuals are being saved inside CNAC, but not the database. We see here that mutuals are not synced to database
         let serded = base64::encode(cnac.generate_proper_bytes()?);
+        log::info!("[CNAC-Sync] Base64 len: {} | sample: {:?} -> {:?}", serded.len(), &serded.as_str()[..10], &serded.as_str()[(serded.len() - 10)..]);
 
         let keys = cnac.get_fcm_keys();
 
@@ -127,7 +127,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         let mut args = AnyArguments::default();
         args.add(metadata.cid.to_string());
-        args.add(false);
+        args.add(false); // TODO: Update this to make is_connected relevant
         args.add(metadata.is_personal);
         args.add(fcm_addr.unwrap_or_else(||"NULL".into()));
         args.add(fcm_api_key.unwrap_or_else(|| "NULL".into()));
@@ -341,6 +341,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     // We must update the CNAC && the sql database
     async fn register_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64, peer_username: String) -> Result<(), AccountError<String>> {
         let conn = self.get_conn()?;
+        log::info!("Registering p2p ({} <-> {}) as client", implicated_cid, peer_cid);
         let _query = sqlx::query(self.format("INSERT INTO peers (peer_cid, cid, username) VALUES (?, ?, ?)").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).bind(peer_username).execute(conn).await?;
         Ok(())
     }
@@ -413,19 +414,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Vec<AnyRow> = sqlx::query(query.as_str()).fetch_all(conn).await?;
 
         Ok(query.into_iter().filter_map(|query| {
-            log::info!("A");
             let cid = query.try_get::<String, _>("cid").ok()?;
-            log::info!("B");
             let cid = u64::from_str(cid.as_str()).ok()?;
-            log::info!("C");
             let is_personal = self.get_bool(&query, "is_personal").ok()?;
-            log::info!("D");
             let username = query.try_get("username").ok()?;
-            log::info!("E");
             let full_name = query.try_get("full_name").ok()?;
-            log::info!("F");
             let creation_date = query.try_get("creation_date").ok()?;
-            log::info!("G");
             Some(CNACMetadata { cid, is_personal, username, full_name, creation_date })
         }).collect())
     }
@@ -492,7 +486,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         }).collect())
     }
 
-    async fn get_hyperlan_peers_with_fcm_keys(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<(MutualPeer, Option<FcmKeys>)>, AccountError<String>> {
+    /*
+    async fn get_hyperlan_peers_with_fcm_keys_as_client(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<(MutualPeer, Option<FcmKeys>)>, AccountError<String>> {
+        /*
         if peers.is_empty() {
             return Ok(Vec::new())
         }
@@ -511,8 +507,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             let peer_username: String = row.try_get("username").ok()?;
             let keys = self.maybe_get_fcm_keys(row);
             Some((MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(peer_username) }, keys))
-        }).collect())
-    }
+        }).collect())*/
+        if peers.is_empty() {
+            return Ok(Vec::new())
+        }
+
+        let cnac = self.get_cnac_by_cid(implicated_cid, &self.local_nac().persistence_handler().unwrap()).await?.ok_or(AccountError::ClientNonExists(implicated_cid))?;
+        Ok(cnac.get_hyperlan_peers_with_fcm_keys(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
+    }*/
 
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError<String>> {
         let conn = self.get_conn()?;
@@ -552,6 +554,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     // We always return false here, since there's no need for manual saving
     async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError<String>> {
+        log::info!("Synchronizing peer list for {}", cnac.get_cid());
         if peers.len() != 0 {
             let conn = self.get_conn()?;
             let mut tx = conn.begin().await?;
@@ -594,8 +597,9 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     fn row_to_cnac(&self, query: Option<AnyRow>, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         if let Some(row) = query {
             let bin: String = row.try_get("bin")?;
+            log::info!("[CNAC-Load] Base64 len: {} | sample: {:?} -> {:?}", bin.len(), &bin.as_str()[..10], &bin.as_str()[(bin.len() - 10)..]);
             let bin = base64::decode(bin)?;
-            let cnac_inner = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_vector(&bin[..])?;
+            let cnac_inner = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_owned_vector(bin)?;
             Ok(Some(ClientNetworkAccount::load_safe(cnac_inner, None, Some(persistence_handler.clone()))?))
         } else {
             Ok(None)

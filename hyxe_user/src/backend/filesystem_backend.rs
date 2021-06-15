@@ -251,14 +251,15 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok(cnac.get_hyperlan_peers(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
     }
 
-    async fn get_hyperlan_peers_with_fcm_keys(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<(MutualPeer, Option<FcmKeys>)>, AccountError<String>> {
+    /*
+    async fn get_hyperlan_peers_with_fcm_keys_as_client(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<(MutualPeer, Option<FcmKeys>)>, AccountError<String>> {
         if peers.is_empty() {
             return Ok(Vec::new())
         }
 
         let cnac = self.get_cnac(implicated_cid)?;
         Ok(cnac.get_hyperlan_peers_with_fcm_keys(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
-    }
+    }*/
 
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError<String>> {
         let cnac = self.get_cnac(implicated_cid)?;

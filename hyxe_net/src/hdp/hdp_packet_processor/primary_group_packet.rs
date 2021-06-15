@@ -207,8 +207,12 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                         //PrimaryProcessorResult::ReplyToSender(truncate_packet)
                                         PrimaryProcessorResult::Void
                                     } else {
-                                        log::info!("Polling next in pgp");
-                                        let _ = session.poll_next_enqueued(resp_target_cid)?;
+
+                                        if secrecy_mode == SecrecyMode::Perfect {
+                                            log::info!("Polling next in pgp");
+                                            let _ = session.poll_next_enqueued(resp_target_cid)?;
+                                        }
+
                                         PrimaryProcessorResult::Void
                                     }
                                 } else {

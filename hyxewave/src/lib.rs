@@ -32,6 +32,7 @@ pub mod re_exports {
     pub use hyxe_user::misc::AccountError;
     pub use hyxe_user::fcm::fcm_packet_processor;
     pub use hyxe_net::constants::PRIMARY_PORT;
+    pub use hyxe_net::hdp::misc::panic_future::AssertSendSafeFuture;
 
     pub use hyxe_net::hdp::hdp_server::Ticket;
     pub use hyxe_net::re_imports::{BufMut, unbounded, UnboundedReceiver, UnboundedSender};

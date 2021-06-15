@@ -25,7 +25,6 @@ use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::fcm::data_structures::RawFcmPacketStore;
-use hyxe_user::network_account::ConnectProtocol;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 
 use crate::constants::{DEFAULT_SO_LINGER_TIME, NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT};
@@ -36,13 +35,15 @@ use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::hdp::hdp_session::HdpSessionInitMode;
 use crate::hdp::hdp_session_manager::HdpSessionManager;
-use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream, TlsListener};
+use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream, TlsListener, FirstPacket};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
 use crate::hdp::peer::channel::PeerChannel;
 use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal};
 use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
 use crate::kernel::RuntimeFuture;
+use tokio::io::AsyncReadExt;
+use hyxe_fs::io::SyncIO;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -192,7 +193,7 @@ impl HdpServer {
     }
 
     fn open_tcp_port(port: u16) {
-        if let Ok(res) = open_local_firewall_port(FirewallProtocol::TCP(port)) {
+        if let Ok(Some(res)) = open_local_firewall_port(FirewallProtocol::TCP(port)) {
             if !res.status.success() {
                 let data = if res.stdout.is_empty() { res.stderr } else { res.stdout };
                 log::warn!("We were unable to ensure that port {}, be open. Reason: {}", port, String::from_utf8(data).unwrap_or_default());
@@ -203,7 +204,7 @@ impl HdpServer {
     }
 
     fn close_tcp_port(port: u16) {
-        if let Ok(res) = remove_firewall_rule(FirewallProtocol::TCP(port)) {
+        if let Ok(Some(res)) = remove_firewall_rule(FirewallProtocol::TCP(port)) {
             if !res.status.success() {
                 let data = if res.stdout.is_empty() { res.stderr } else { res.stdout };
                 log::warn!("We were unable to ensure that port {}, be CLOSED. Reason: {}", port, String::from_utf8(data).unwrap_or_default());
@@ -243,8 +244,8 @@ impl HdpServer {
                         Ok((GenericNetworkListener::Tcp(listener), bind))
                     }
 
-                    UnderlyingProtocol::Tls(identity, ..) => {
-                        let tls_listener = TlsListener::new(listener, identity)?;
+                    UnderlyingProtocol::Tls(identity, domain) => {
+                        let tls_listener = TlsListener::new(listener, identity, domain.unwrap_or_else(|| "".to_string()))?;
                         Ok((GenericNetworkListener::Tls(tls_listener), bind))
                     }
                 }
@@ -253,8 +254,8 @@ impl HdpServer {
 
     /// Returns a TcpStream to the remote addr, as well as a local TcpListener on the same bind addr going to remote
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
-    pub(crate) async fn create_init_tcp_listener<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, connect_proto: ConnectProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
-        let stream = Self::create_reuse_tcp_connect_socket(connect_proto, remote, None).await?;
+    pub(crate) async fn create_init_tcp_listener<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
+        let stream = Self::create_reuse_tcp_connect_socket(remote, None).await?;
 
         let stream_bind_addr = stream.local_addr()?;
 
@@ -270,13 +271,13 @@ impl HdpServer {
         Ok((p2p_listener, stream))
     }
 
-    pub(crate) async fn create_reuse_tcp_connect_socket<R: ToSocketAddrs>(connect_underlying_proto: ConnectProtocol, remote: R, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
+    pub(crate) async fn create_reuse_tcp_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
         let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::connect_defaults(connect_underlying_proto, timeout, remote).await
+        Self::connect_defaults(timeout, remote).await
     }
 
-    async fn connect_defaults(connect_underlying_proto: ConnectProtocol, timeout: Option<Duration>, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
-        let stream = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), tokio::task::spawn_blocking(move || {
+    async fn connect_defaults(timeout: Option<Duration>, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
+        let mut stream = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), tokio::task::spawn_blocking(move || {
             let std_stream = if remote.is_ipv4() {
                 net2::TcpBuilder::new_v4()?
                     .reuse_address(true)?
@@ -289,6 +290,7 @@ impl HdpServer {
             };
 
             std_stream.set_nonblocking(true)?;
+
             let stream = tokio::net::TcpStream::from_std(std_stream)?;
             //stream.set_linger(Some(tokio::time::Duration::from_secs(0)))?;
             stream.set_linger(Some(DEFAULT_SO_LINGER_TIME))?;
@@ -297,23 +299,49 @@ impl HdpServer {
             Ok(stream) as std::io::Result<tokio::net::TcpStream>
         })).await???;
 
-        match connect_underlying_proto {
+        let buf = &mut [0u8; 4096];
+        let amt = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), stream.read(buf as &mut [u8])).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::TimedOut, err.to_string()))??;
+        let first_packet: FirstPacket = FirstPacket::deserialize_from_vector(&buf[..amt]).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
+
+        match first_packet {
+            FirstPacket::Tcp => {
+                log::info!("Host claims TCP DEFAULT CONNECTION");
+                Ok(GenericNetworkStream::Tcp(stream))
+            }
+
+            FirstPacket::Tls(domain) => {
+                log::info!("Host claims TLS CONNECTION (domain: {:?})", &domain);
+                // for debug builds, allow invalid certs to make testing TLS easier
+                //#[cfg(debug_assertions)]
+                let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                //#[cfg(not(debug_assertions))]
+                //    let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+
+                let connector = tokio_native_tls::TlsConnector::from(connector);
+                let stream = connector.connect(domain.as_ref().map(|r| r.as_str()).unwrap_or(""), stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                //let stream = connector.connect("", stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                Ok(GenericNetworkStream::Tls(stream))
+            }
+        }
+
+
+        /*match connect_underlying_proto {
             ConnectProtocol::Tcp => {
                 Ok(GenericNetworkStream::Tcp(stream))
             }
 
             ConnectProtocol::Tls(domain) => {
                 // for debug builds, allow invalid certs to make testing TLS easier
-                #[cfg(debug_assertions)]
+                //#[cfg(debug_assertions)]
                 let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
-                #[cfg(not(debug_assertions))]
-                    let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                //#[cfg(not(debug_assertions))]
+                //    let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
 
                 let connector = tokio_native_tls::TlsConnector::from(connector);
                 let stream = connector.connect(domain.as_ref().map(|r| r.as_str()).unwrap_or(""), stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
                 Ok(GenericNetworkStream::Tls(stream))
             }
-        }
+        }*/
     }
 
     /// In impersonal mode, each hypernode needs to check for incoming connections on the primary port.
@@ -428,8 +456,8 @@ impl HdpServer {
                     }
                 }
 
-                HdpServerRequest::RegisterToHypernode(peer_addr, credentials, fcm_keys,  security_settings, connect_underlying_proto) => {
-                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Register(peer_addr, connect_underlying_proto),ticket_id, credentials, None, listener_underlying_proto.clone(), fcm_keys, None, None, security_settings).await {
+                HdpServerRequest::RegisterToHypernode(peer_addr, credentials, fcm_keys,  security_settings) => {
+                    if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Register(peer_addr),ticket_id, credentials, None, listener_underlying_proto.clone(), fcm_keys, None, None, security_settings).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
@@ -468,9 +496,9 @@ impl HdpServer {
                     }
                 }
 
-                // TODO: Update this to include security levels
+                // TODO: Update this to include security levels (FCM conflicts though)
                 HdpServerRequest::PeerCommand(implicated_cid, peer_command) => {
-                    if !session_manager.dispatch_peer_command(implicated_cid, ticket_id, peer_command, SecurityLevel::LOW) {
+                    if !session_manager.dispatch_peer_command(implicated_cid, ticket_id, peer_command, SecurityLevel::LOW).await {
                         if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
                             return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
                         }
@@ -602,7 +630,7 @@ impl Sink<HdpServerRequest> for HdpServerRemote {
 #[allow(variant_size_differences)]
 pub enum HdpServerRequest {
     /// Sends a request to the underlying [HdpSessionManager] to begin connecting to a new client
-    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<FcmKeys>, SessionSecuritySettings, ConnectProtocol),
+    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<FcmKeys>, SessionSecuritySettings),
     /// A high-level peer command. Can be used to facilitate communications between nodes in the HyperLAN
     PeerCommand(u64, PeerSignal),
     /// For submitting a de-register request
