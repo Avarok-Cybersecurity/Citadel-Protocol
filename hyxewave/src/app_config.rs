@@ -105,7 +105,7 @@ impl TomlConfig {
 
         let home_dir = node.override_home_dir.clone();
         let underlying_proto = if let Some(tls) = node.tls.as_ref() {
-            UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs(tls.pkcs12_path.as_str(), tls.password.as_ref().map(|r| r.as_str()).unwrap_or("")).map_err(|err| format!("Unable to load PKCS-12: {:?}", err))?, tls.domain.clone())
+            UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs(tls.pkcs12_path.as_str(), tls.password.as_ref().map(|r| r.as_str()).unwrap_or("")).map_err(|err| ConsoleError::Generic(format!("Unable to load PKCS-12: {:?}", err)))?, tls.domain.clone())
         } else {
             UnderlyingProtocol::Tcp
         };
