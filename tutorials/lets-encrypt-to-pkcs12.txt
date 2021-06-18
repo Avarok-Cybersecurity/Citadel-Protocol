@@ -1,0 +1,1 @@
+openssl pkcs12 -export -out certificate.p12 -inkey /etc/letsencrypt/live/.org/privkey.pem -in /etc/letsencrypt/live/.org/cert.pem -certfile /etc/letsencrypt/live/.org/chain.pem

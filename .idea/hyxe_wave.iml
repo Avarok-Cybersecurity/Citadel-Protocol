@@ -407,6 +407,8 @@
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/example/.pub" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/.pub" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/old/awesome_notifications/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/old/awesome_notifications/.pub" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

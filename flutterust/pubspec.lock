@@ -25,10 +25,10 @@ packages:
   awesome_notifications:
     dependency: "direct main"
     description:
-      path: "packages/awesome_notifications"
-      relative: true
-    source: path
-    version: "0.0.5+4"
+      name: awesome_notifications
+      url: "https://pub.dartlang.org"
+    source: hosted
+    version: "0.0.6+9"
   background_fetch:
     dependency: "direct main"
     description:
@@ -430,10 +430,12 @@ packages:
   splashscreen:
     dependency: "direct main"
     description:
-      name: splashscreen
-      url: "https://pub.dartlang.org"
-    source: hosted
-    version: "1.3.5"
+      path: "."
+      ref: master
+      resolved-ref: a05b64f8326f7c2615491e9f47a1f2dcf8b28a69
+      url: "https://github.com/DPLYR-dev/SplashScreenFlutterPackage.git"
+    source: git
+    version: "1.4.0"
   sqflite:
     dependency: "direct main"
     description:
@@ -541,4 +543,4 @@ packages:
     version: "5.0.2"
 sdks:
   dart: ">=2.12.0 <3.0.0"
-  flutter: ">=2.0.0"
+  flutter: ">=2.0.4"

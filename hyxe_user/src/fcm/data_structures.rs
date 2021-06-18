@@ -4,7 +4,7 @@ use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
 use zerocopy::{AsBytes, FromBytes, Unaligned, U64, U32, LayoutVerified};
 use bytes::BufMut;
 use byteorder::BigEndian;
-use std::fmt::Formatter;
+use std::fmt::{Formatter, Debug};
 use hyxe_fs::hyxe_crypt::prelude::EzBuffer;
 use crate::fcm::kem::FcmPostRegister;
 use std::collections::{HashMap, BTreeMap};
@@ -97,8 +97,8 @@ impl FcmTicket {
 pub enum FCMPayloadType<'a> {
     GroupHeader { #[serde(borrow)] alice_to_bob_transfer: Option<FcmAliceToBobTransfer<'a>>, #[serde(with = "serde_bytes")] message: &'a [u8] },
     GroupHeaderAck { bob_to_alice_transfer: KemTransferStatus },
-    Truncate { truncate_vers: u32 },
-    TruncateAck { truncate_vers: u32 },
+    Truncate { truncate_vers: Option<u32> },
+    TruncateAck { truncate_vers: Option<u32> },
     PeerPostRegister { transfer: FcmPostRegister, username: String }, // the rest of the info will exist in the FCM header
     PeerDeregistered
 }

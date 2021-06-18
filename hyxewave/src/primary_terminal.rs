@@ -4,7 +4,6 @@ use clap::{App, Arg, AppSettings, ArgMatches};
 
 use crate::app_config::{AppConfig, TomlConfig};
 use crate::console_error::ConsoleError;
-use crate::ffi::FFIIO;
 use hyxe_net::constants::PRIMARY_PORT;
 use std::str::FromStr;
 use std::net::{SocketAddr, IpAddr};
@@ -12,8 +11,7 @@ use std::net::{SocketAddr, IpAddr};
 
 /// The arguments, if None, will default to std::env::args, with the zeroth element removed (the binary name)
 /// Is some,
-pub fn parse_command_line_arguments_into_app_config(loaded_config: Option<TomlConfig>, cmd: Option<String>, ffi_io: Option<FFIIO>) -> Result<AppConfig, ConsoleError> {
-
+pub fn parse_command_line_arguments_into_app_config(loaded_config: Option<TomlConfig>, cmd: Option<String>) -> Result<AppConfig, ConsoleError> {
     let arg_matches = if let Some(cmd) = cmd {
         setup_clap().get_matches_from_safe(cmd.split_whitespace().collect::<Vec<&str>>())
             .map_err(|err| ConsoleError::Generic(err.to_string()))?
@@ -22,6 +20,24 @@ pub fn parse_command_line_arguments_into_app_config(loaded_config: Option<TomlCo
         args.remove(0); // remove binary name
         setup_clap().get_matches_from(args)
     };
+
+    if let Some(millis) = arg_matches.value_of("argon-autotuner") {
+        let millis = u16::from_str(millis).map_err(|_| ConsoleError::Generic(format!("Invalid input: {}. Choose a value between 0 < millis < 65535", millis)))?;
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_io().enable_time().build().map_err(|err| ConsoleError::Generic(err.to_string()))?;
+        rt.block_on(async move {
+            match hyxe_crypt::argon::autotuner::calculate_optimal_params(millis, None, None).await {
+                Ok(cfg) => {
+                    println!("\n\n\r***Optimal settings obtained***\nMem cost: {} | Time cost: {} | Lanes: {}", cfg.mem_cost, cfg.time_cost, cfg.lanes)
+                }
+
+                Err(err) => {
+                    eprintln!("\n\rUnable to execute argon autotuner: {:?}", err);
+                }
+            }
+        });
+
+        std::process::exit(0);
+    }
 
     // check to see if there is a toml config
     if let Some(toml_cfg) = loaded_config {
@@ -36,13 +52,10 @@ pub fn parse_command_line_arguments_into_app_config(loaded_config: Option<TomlCo
 
     let mut app_config = AppConfig::default();
 
-    app_config.is_ffi = ffi_io.is_some();
-    app_config.ffi_io = ffi_io;
-
     #[cfg(any(feature = "enterprise-lite", feature = "enterprise"))]
         {
             use hyxe_user::backend::BackendType;
-            app_config.backend_type = arg_matches.value_of("backend").map(|r| BackendType::SQLDatabase(r.to_string()));
+            app_config.backend_type = arg_matches.value_of("backend").map(|r| BackendType::sql(r));
         }
 
     app_config.daemon_mode = arg_matches.is_present("daemon") || app_config.is_ffi;
@@ -138,6 +151,11 @@ fn setup_clap<'a>() -> App<'a, 'a> {
             .default_value("")
             .takes_value(true)
             .help("Specifies a domain"))
+        .arg(Arg::with_name("argon-autotuner")
+            .long("argon-autotuner")
+            .required(false)
+            .takes_value(true)
+            .help("Used to determine the optimal argon-2id password hashing parameters. Expects an input of a value of a target minimum calculation time in milliseconds"))
 }
 
 pub mod parsers {

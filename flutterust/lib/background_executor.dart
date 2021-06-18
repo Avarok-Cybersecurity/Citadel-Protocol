@@ -1,5 +1,6 @@
 
 import 'package:background_fetch/background_fetch.dart';
+import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/message_send_handler.dart';
 
 class BackgroundExecutor {
@@ -19,6 +20,7 @@ class BackgroundExecutor {
 
     print("[Background Executor] Running 15m periodic poll for task $taskId");
     // make sure bridge is not null
+    await RustSubsystem.init();
     await MessageSendHandler.poll();
     //Utils.pushNotification("Running background task", taskId);
     BackgroundFetch.finish(taskId);

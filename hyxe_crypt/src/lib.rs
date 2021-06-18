@@ -13,16 +13,17 @@ unused_results
 
 /// Convenient imports for external use
 pub mod prelude {
-    pub use crate::toolset::Toolset;
-    pub use crate::drill::{Drill, SecurityLevel};
-    pub use crate::misc::CryptError;
-    pub use crate::drill_algebra::PacketVector;
-    pub use crate::sec_string::SecString;
-    pub use crate::sec_bytes::SecBuffer;
     pub use ::async_trait::async_trait;
-    pub use ez_pqcrypto::{PostQuantumContainer, algorithm_dictionary, bytes_in_place::EzBuffer};
     pub use zerocopy::{ByteSlice, ByteSliceMut};
 
+    pub use ez_pqcrypto::{algorithm_dictionary, bytes_in_place::EzBuffer, PostQuantumContainer};
+
+    pub use crate::drill::{Drill, SecurityLevel};
+    pub use crate::drill_algebra::PacketVector;
+    pub use crate::misc::CryptError;
+    pub use crate::sec_bytes::SecBuffer;
+    pub use crate::sec_string::SecString;
+    pub use crate::toolset::Toolset;
 }
 
 /// This serves as a lock-free method of retrieving specific
@@ -57,6 +58,5 @@ pub mod endpoint_crypto_container;
 pub mod hyper_ratchet;
 /// Contains the cryptographic primitives for handling FCM interactions on the network
 pub mod fcm;
-///
-#[allow(missing_docs)]
-pub mod argon_container;
+/// For argon-related functionality
+pub mod argon;

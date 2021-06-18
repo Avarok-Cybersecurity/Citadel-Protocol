@@ -68,16 +68,14 @@ impl ArgonSettings {
         })}
     }
 
+    /// Creates a new instance with default values
     pub fn new_defaults(ad: Vec<u8>) -> Self {
-        #[cfg(debug_assertions)]
-            {
-                Self::new_gen_salt(ad, 8, 32, 1024 * 64, 1, vec![])
-            }
+        Self::new_gen_salt(ad, DEFAULT_LANES, DEFAULT_HASH_LENGTH, DEFAULT_MEM_COST, DEFAULT_TIME_COST, vec![])
+    }
 
-        #[cfg(not(debug_assertions))]
-            {
-                Self::new_gen_salt(ad, 8, 32, 1024 * 64, 10, vec![])
-            }
+    /// Takes the internal config, then
+    pub fn derive_new_with_custom_ad(&self, ad: Vec<u8>) -> Self {
+        Self::new_gen_salt(ad, self.lanes, self.hash_length, self.mem_cost, self.time_cost, self.secret.clone())
     }
 
     pub fn new_gen_salt(ad: Vec<u8>, lanes: u32, hash_length: u32, mem_cost: u32, time_cost: u32, secret: Vec<u8>) -> Self {
@@ -171,5 +169,42 @@ impl Future for AsyncArgon {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Pin::new(&mut self.task).poll(cx)
+    }
+}
+
+const DEFAULT_LANES: u32 = 8;
+pub const DEFAULT_HASH_LENGTH: u32= 32;
+const DEFAULT_MEM_COST: u32 = 1024 * 64;
+#[cfg(not(debug_assertions))]
+const DEFAULT_TIME_COST: u32 = 10;
+#[cfg(debug_assertions)]
+const DEFAULT_TIME_COST: u32 = 1;
+
+
+#[derive(Debug, Clone)]
+pub struct ArgonDefaultServerSettings {
+    pub lanes: u32,
+    pub hash_length: u32,
+    pub mem_cost: u32,
+    pub time_cost: u32,
+    pub secret: Vec<u8>
+}
+
+impl From<ArgonDefaultServerSettings> for ArgonSettings {
+    fn from(settings: ArgonDefaultServerSettings) -> Self {
+        // AD gets created when deriving a new settings container for the specific user during registration
+        Self::new_gen_salt(vec![], settings.lanes, settings.hash_length, settings.mem_cost, settings.time_cost, settings.secret)
+    }
+}
+
+impl Default for ArgonDefaultServerSettings {
+    fn default() -> Self {
+        Self {
+            lanes: DEFAULT_LANES,
+            hash_length: DEFAULT_HASH_LENGTH,
+            mem_cost: DEFAULT_MEM_COST,
+            time_cost: DEFAULT_TIME_COST,
+            secret: vec![]
+        }
     }
 }

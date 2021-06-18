@@ -6,8 +6,8 @@ use crate::primitives::variable::NetworkVariableInner;
 use crate::application::NetworkUpdateState;
 use std::future::Future;
 use crate::primitives::accessor::NetworkTransferable;
-use serde::export::PhantomData;
 use pin_project::*;
+use std::marker::PhantomData;
 
 #[pin_project]
 pub struct VariableUpdater<T: NetworkTransferable> {

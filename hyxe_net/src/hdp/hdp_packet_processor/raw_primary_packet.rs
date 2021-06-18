@@ -7,9 +7,10 @@ use super::includes::*;
 
 /// For primary-port packet types. NOT for wave ports
 pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, mut packet: BytesMut, header_obfuscator: &HeaderObfuscator) -> PrimaryProcessorResult {
-    header_obfuscator.on_packet_received(&mut packet)?;
+    return_if_none!(header_obfuscator.on_packet_received(&mut packet), "");
+
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
-    let (header, _payload) = packet.parse()?;
+    let (header, _payload) = return_if_none!(packet.parse(), "Unable to parse packet");
     log::info!("RECV Raw packet: {:?}", &*header);
 
     let target_cid = header.target_cid.get();
@@ -67,7 +68,7 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
         }
 
         packet_flags::cmd::primary::GROUP_PACKET => {
-            super::primary_group_packet::process(session, cmd_aux, packet, endpoint_cid_info)
+            super::primary_group_packet::process(session, cmd_aux, packet, endpoint_cid_info).await
         }
 
         packet_flags::cmd::primary::DO_DISCONNECT => {

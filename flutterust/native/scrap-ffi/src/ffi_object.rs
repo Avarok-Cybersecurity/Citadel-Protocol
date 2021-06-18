@@ -1,4 +1,4 @@
-use crate::BIND_ADDR;
+use crate::generate_app_config;
 use allo_isolate::{IntoDart, Isolate};
 use hyxewave::console_error::ConsoleError;
 use hyxewave::ffi::KernelResponse;
@@ -57,18 +57,14 @@ impl FFIObject {
     }
 
     fn execute_once(&self, home_dir: &str, database: &str) {
-        let args = format!(
-            "--bind {} --home {} --kthreads 2 --backend {}",
-            BIND_ADDR, home_dir, database
-        );
-        log::info!("Will execute the CLI/FFI NetKernel with: {}", &args);
+        let config = generate_app_config(home_dir, database);
         let to_ffi_frontier = FFIObject::get_kernel_to_this_function();
 
         // spawn a new thread to not block the FFI call
         std::thread::spawn(move || {
             log::info!("Started SatoriNET main thread ...");
             if let Err(err) =
-                hyxewave::ffi::ffi_entry::execute_lusna_kernel(args, to_ffi_frontier.clone())
+                hyxewave::ffi::ffi_entry::execute_lusna_kernel(config, to_ffi_frontier.clone())
             {
                 log::error!("Err executing kernel: {:?}", &err);
                 *FFI_STATIC.lock() = None;

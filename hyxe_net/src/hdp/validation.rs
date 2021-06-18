@@ -246,30 +246,37 @@ pub(crate) mod pre_connect {
     use hyxe_fs::io::SyncIO;
     use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
     use hyxe_user::prelude::ConnectProtocol;
+    use crate::hdp::hdp_session_manager::HdpSessionManager;
+    use crate::error::NetworkError;
 
     // +1 for node type, +2 for minimum 1 wave port inscribed
     const STAGE0_MIN_PAYLOAD_LEN: usize = 1 + 2;
     // +1 for node type, +1 for nat traversal type, +8 for sync_time, +2 for minimum 1 wave port inscribed
     const STAGE1_MIN_PAYLOAD_LEN: usize = 1 + 1 + 8 + 2;
 
-    pub fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol)> {
+    pub fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol), NetworkError> {
         // refresh the toolset's ARA & get static aux hr
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
-        let (header, payload) = super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload)?;
+        let (header, payload) = super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload).ok_or(NetworkError::InternalError("Unable to validate initial packet"))?;
 
-        let transfer = SynPacket::deserialize_from_vector(&payload).ok()?;
+        // before going further, make sure the user isn't already logged-in. We wouldn't want to replace the toolset that is already being used
+        if session_manager.session_active(header.session_cid.get()) {
+            return Err(NetworkError::InternalError("User is already logged in"))
+        }
+
+        let transfer = SynPacket::deserialize_from_vector(&payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
         let session_security_settings = transfer.session_security_settings;
         let peer_only_connect_mode = transfer.peer_only_connect_protocol;
-        let bob_constructor = HyperRatchetConstructor::new_bob(header.session_cid.get(), 0, transfer.transfer)?;
-        let transfer = bob_constructor.stage0_bob()?;
-        let new_hyper_ratchet = bob_constructor.finish()?;
+        let bob_constructor = HyperRatchetConstructor::new_bob(header.session_cid.get(), 0, transfer.transfer).ok_or(NetworkError::InternalError("Unable to create bob container"))?;
+        let transfer = bob_constructor.stage0_bob().ok_or(NetworkError::InternalError("Unable to execute stage0_bob"))?;
+        let new_hyper_ratchet = bob_constructor.finish().ok_or(NetworkError::InternalError("Unable to finish bob constructor"))?;
         debug_assert!(new_hyper_ratchet.verify_level(transfer.security_level.into()).is_ok());
         // below, we need to ensure the hyper ratchet stays constant throughout transformations
         let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_hyper_ratchet));
 
         cnac.replace_toolset(toolset);
-        Some((static_auxiliary_ratchet, transfer, session_security_settings, peer_only_connect_mode))
+        Ok((static_auxiliary_ratchet, transfer, session_security_settings, peer_only_connect_mode))
     }
 
     /// This returns an error if the packet is maliciously invalid (e.g., due to a false packet)

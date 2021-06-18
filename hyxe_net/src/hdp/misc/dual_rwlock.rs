@@ -3,30 +3,24 @@ use std::ops::Deref;
 
 #[cfg(not(feature = "multi-threaded"))]
 pub struct DualRwLock<T: ContextRequirements> {
-    pub inner: std::cell::RefCell<T>
+    pub inner: std::rc::Rc<std::cell::RefCell<T>>
 }
 
 #[cfg(feature = "multi-threaded")]
 pub struct DualRwLock<T: ContextRequirements> {
-    pub inner: parking_lot::RwLock<T>
-}
-
-impl<T: ContextRequirements> DualRwLock<T> {
-    pub fn get_mut(&mut self) -> &mut T {
-        self.inner.get_mut()
-    }
+    pub inner: std::sync::Arc<parking_lot::RwLock<T>>
 }
 
 impl<T: ContextRequirements> From<T> for DualRwLock<T> {
     fn from(inner: T) -> Self {
         #[cfg(not(feature = "multi-threaded"))]
         {
-            Self { inner: std::cell::RefCell::new(inner) }
+            Self { inner: std::rc::Rc::new(std::cell::RefCell::new(inner)) }
         }
 
         #[cfg(feature = "multi-threaded")]
         {
-            Self { inner: parking_lot::RwLock::new(inner) }
+            Self { inner: std::sync::Arc::new(parking_lot::RwLock::new(inner)) }
         }
     }
 }
@@ -38,6 +32,12 @@ impl<T: ContextRequirements> Deref for DualRwLock<T> {
     type Target = std::cell::RefCell<T>;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner.deref()
+    }
+}
+
+impl<T: ContextRequirements> Clone for DualRwLock<T> {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
     }
 }

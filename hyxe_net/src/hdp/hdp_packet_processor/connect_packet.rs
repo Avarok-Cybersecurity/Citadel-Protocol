@@ -22,9 +22,9 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
     }
 
     // the preconnect stage loads the CNAC for us, as well as re-negotiating the keys
-    let cnac = session.cnac.clone()?;
+    let cnac = return_if_none!(session.cnac.clone(), "Unable to load CNAC [connect]");
     let (header, payload, _, _) = packet.decompose();
-    let (header, payload, hyper_ratchet) = validation::aead::validate(&cnac, &header, payload)?;
+    let (header, payload, hyper_ratchet) = return_if_none!(validation::aead::validate(&cnac, &header, payload), "Unable to validate connect packet");
     let security_level = header.security_level.into();
 
     let time_tracker = session.time_tracker.clone();
@@ -78,6 +78,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     let peers = persistence_handler.get_hyperlan_peer_list_with_fcm_keys_as_server(cid).await?.unwrap_or(Vec::new());
 
                     let fcm_packets = cnac.retrieve_raw_fcm_packets().await?;
+
                     let mut session = inner_mut!(sess_ref);
                     let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, fcm_packets,session.create_welcome_message(cid), peers, success_time, security_level);
 
@@ -144,7 +145,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     state_container.connect_state.on_connect_packet_received();
 
                     let use_ka = state_container.keep_alive_timeout_ns != 0;
-                    let connect_mode = state_container.connect_state.connect_mode.clone()?;
+                    let connect_mode = return_if_none!(state_container.connect_state.connect_mode.clone(), "Unable to load connect mode");
                     let channel = state_container.init_new_c2s_virtual_connection(&cnac,&mut *inner_mut!(session.updates_in_progress), security_level, kernel_ticket, header.session_cid.get());
                     std::mem::drop(state_container);
 

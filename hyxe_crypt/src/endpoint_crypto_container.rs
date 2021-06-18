@@ -24,7 +24,10 @@ pub struct PeerSessionCrypto<R: Ratchet = HyperRatchet> {
     pub local_is_initiator: bool,
     pub rolling_object_id: u32,
     pub rolling_group_id: u64,
-    pub lock_set_by_alice: Option<bool>
+    pub lock_set_by_alice: Option<bool>,
+    /// Alice sends to Bob, then bob updates internally the toolset. However. Bob can't send packets to Alice quite yet using that newest version. He must first wait from Alice to commit on her end and wait for an ACK.
+    /// If alice sends a packet using the latest version, that's okay since we already have that drill version on Bob's side; it's just that Bob can't send packets using the latest version until AFTER receiving the ACK
+    pub latest_usable_version: u32
 }
 
 impl<R: Ratchet> PeerSessionCrypto<R> {
@@ -33,16 +36,16 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     /// `local_is_initiator`: May also be "local_is_server", or any constant designation used to determine
     /// priority in case of concurrent conflicts
     pub fn new(toolset: Toolset<R>, local_is_initiator: bool) -> Self {
-        Self { toolset, update_in_progress: Arc::new(AtomicBool::new(false)), local_is_initiator, rolling_object_id: 1, rolling_group_id: 0, fcm_keys: None, lock_set_by_alice: None }
+        Self { toolset, update_in_progress: Arc::new(AtomicBool::new(false)), local_is_initiator, rolling_object_id: 1, rolling_group_id: 0, fcm_keys: None, lock_set_by_alice: None, latest_usable_version: 0 }
     }
 
     pub fn new_fcm(toolset: Toolset<R>, local_is_initiator: bool, fcm_keys: FcmKeys) -> Self {
-        Self { toolset, update_in_progress: Arc::new(AtomicBool::new(false)), local_is_initiator, rolling_object_id: 1, rolling_group_id: 0, fcm_keys: Some(fcm_keys), lock_set_by_alice: None }
+        Self { toolset, update_in_progress: Arc::new(AtomicBool::new(false)), local_is_initiator, rolling_object_id: 1, rolling_group_id: 0, fcm_keys: Some(fcm_keys), lock_set_by_alice: None, latest_usable_version: 0 }
     }
 
     /// Gets a specific drill version, or, gets the latest version comitted
     pub fn get_hyper_ratchet(&self, version: Option<u32>) -> Option<&R> {
-        self.toolset.get_hyper_ratchet(version.unwrap_or(self.toolset.get_most_recent_hyper_ratchet_version()))
+        self.toolset.get_hyper_ratchet(version.unwrap_or(self.latest_usable_version))
     }
 
     /// This should only be called when Bob receives the new DOU during the ReKey phase (will receive transfer), or, when Alice receives confirmation
@@ -129,6 +132,12 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         self.get_hyper_ratchet(None)
     }
 
+    /// For alice: this should be called ONLY if the update occurred locally. This updates the latest usable version at the endpoint
+    /// For bob: this should be called AFTER receiving the TRUNCATE_STATUS/ACK packet
+    pub fn post_alice_stage1_or_post_stage1_bob(&mut self) {
+        self.latest_usable_version = self.latest_usable_version.wrapping_add(1);
+    }
+
     ///
     pub fn get_and_increment_group_id(&mut self) -> u64 {
         self.rolling_group_id = self.rolling_group_id.wrapping_add(1);
@@ -202,6 +211,13 @@ impl KemTransferStatus {
             }
 
             _ =>  None
+        }
+    }
+
+    pub fn has_some(&self) -> bool {
+        match self {
+            KemTransferStatus::Some(..) => true,
+            _ => false
         }
     }
 }

@@ -34,7 +34,7 @@ use hyxe_user::network_account::ConnectProtocol;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 use hyxe_user::re_imports::scramble_encrypt_file;
 
-use crate::constants::{CODEC_BUFFER_CAPACITY, DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME, PACKET_PROCESS_LIMIT};
+use crate::constants::{CODEC_BUFFER_CAPACITY, DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME};
 use crate::error::NetworkError;
 use crate::hdp::file_transfer::VirtualFileMetadata;
 use crate::hdp::hdp_packet::{HdpPacket, HeaderObfuscator, packet_flags};
@@ -525,7 +525,7 @@ impl HdpSession {
             }
         };
 
-            reader.try_for_each_concurrent(PACKET_PROCESS_LIMIT, move |packet| {
+            reader.try_for_each_concurrent(None, move |packet| {
                 async move {
                     //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
                     match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), *local_primary_port, packet, header_obfuscator).await {
@@ -1088,7 +1088,7 @@ impl HdpSession {
                     } else {
                         if packet != KEEP_ALIVE {
                             let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                            if let Err(err) = this.process_inbound_packet_wave(packet) {
+                            if let Err(err) = this.process_inbound_packet_wave(packet).await {
                                 to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
                                 log::error!("The session manager returned a critical error. Aborting UDP subsystem");
                                 return Err(err);
@@ -1139,12 +1139,12 @@ impl HdpSession {
 
     /// In general, the packets that come through here are one of two general types: Either the modulated transmission of
     /// the encryption file, or, post-registration modulated data
-    pub fn process_inbound_packet_wave(&self, packet: HdpPacket) -> Result<(), NetworkError> {
+    pub async fn process_inbound_packet_wave(&self, packet: HdpPacket) -> Result<(), NetworkError> {
         if packet.get_length() < HDP_HEADER_BYTE_LEN {
             return Ok(());
         }
 
-        let mut this = inner_mut!(self);
+        let this = inner!(self);
 
         //log::info!("Wave inbound port (original): {}", packet.get_remote_port());
 
@@ -1200,14 +1200,18 @@ impl HdpSession {
             let v_recv_port = payload[1] as u16;
             let payload = &payload[2..];
 
+            let state_container_owned = this.state_container.clone();
+            let to_primary_stream = this.to_primary_stream.clone().ok_or(NetworkError::InternalError("Primary stream not loaded"))?;
+            let to_kernel = this.kernel_tx.clone();
+
             log::info!("WAVE Packet with cmd {} being processed by session {}", header.cmd_primary, this.get_id());
             match header.cmd_primary {
                 packet_flags::cmd::primary::GROUP_PACKET => {
-                    match hdp_packet_processor::wave_group_packet::process(&mut wrap_inner_mut!(this), v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
+                    match hdp_packet_processor::wave_group_packet::process(Either::Left(this), v_src_port, v_recv_port, &header, payload, proxy_cid_info).await {
                         GroupProcessorResult::SendToKernel(_ticket, concatenated_packet) => {
                             //this.send_to_kernel(HdpServerResult::MessageDelivery(ticket, this_implicated_cid.unwrap(), concatenated_packet))?;
-                            let mut state_container = inner_mut!(this.state_container);
-                            if !state_container.forward_data_to_channel(0, header.group.get(), concatenated_packet) {
+
+                            if !state_container_owned.forward_data_to_channel(0, header.group.get(), concatenated_packet).await {
                                 log::error!("Unable to send data to c2s channel");
                             }
 
@@ -1215,7 +1219,7 @@ impl HdpSession {
                         }
 
                         GroupProcessorResult::ReplyToSender(return_packet) => {
-                            this.send_to_primary_stream(None, return_packet)?;
+                            to_primary_stream.unbounded_send(return_packet)?;
                             Ok(())
                         }
 
@@ -1225,11 +1229,11 @@ impl HdpSession {
                         }
 
                         GroupProcessorResult::Error(err) => {
-                            this.send_to_kernel(HdpServerResult::InternalServerError(Some(header.context_info.get().into()), err))?;
+                            to_kernel.unbounded_send(HdpServerResult::InternalServerError(Some(header.context_info.get().into()), err))?;
                             Ok(())
                         }
                         GroupProcessorResult::ShutdownSession(err) => {
-                            this.send_to_kernel(HdpServerResult::InternalServerError(Some(header.context_info.get().into()), err))?;
+                            to_kernel.unbounded_send(HdpServerResult::InternalServerError(Some(header.context_info.get().into()), err))?;
                             Err(NetworkError::InternalError("Session signalled to shutdown. Reason sent to kernel"))
                         }
                     }
@@ -1269,7 +1273,8 @@ impl HdpSession {
 impl HdpSessionInner {
     /// Stores the proposed credentials into the register state container
     pub(crate) fn store_proposed_credentials(&mut self, proposed_credentials: ProposedCredentials, init_mode: &HdpSessionInitMode) {
-        let mut state_container = self.state_container.inner.get_mut();
+        let mut state_container = inner_mut!(self.state_container);
+
         match init_mode {
             HdpSessionInitMode::Register(..) => {
                 state_container.register_state.proposed_credentials = Some(proposed_credentials);
@@ -1432,7 +1437,7 @@ impl HdpSessionInner {
         }
     }
 
-    pub(crate) fn initiate_deregister(&self, _virtual_connection_type: VirtualConnectionType, ticket: Ticket) -> bool {
+    pub(crate) fn initiate_deregister(&self, _virtual_connection_type: VirtualConnectionType, ticket: Ticket) -> Result<(), NetworkError> {
         log::info!("Initiating deregister process ...");
         let timestamp = self.time_tracker.get_global_time_ns();
         let cnac = self.cnac.as_ref().unwrap();
@@ -1443,7 +1448,7 @@ impl HdpSessionInner {
         let mut state_container = inner_mut!(self.state_container);
         state_container.deregister_state.on_init(timestamp, ticket);
         std::mem::drop(state_container);
-        self.send_to_primary_stream(Some(ticket), stage0_packet).is_ok()
+        self.send_to_primary_stream(Some(ticket), stage0_packet)
     }
 
     pub(crate) fn is_provisional(&self) -> bool {
@@ -1454,7 +1459,7 @@ impl HdpSessionInner {
 
     fn get_secrecy_mode(&mut self, target_cid: u64) -> Option<SecrecyMode> {
         if target_cid != ENDPOINT_ENCRYPTION_OFF {
-            Some(self.state_container.inner.get_mut().active_virtual_connections.get(&target_cid)?.endpoint_container.as_ref()?.default_security_settings.secrecy_mode)
+            Some(inner!(self.state_container).active_virtual_connections.get(&target_cid)?.endpoint_container.as_ref()?.default_security_settings.secrecy_mode)
         } else {
             self.security_settings.as_ref().map(|r| r.secrecy_mode).clone()
         }
@@ -1469,7 +1474,7 @@ impl HdpSessionInner {
 
             SecrecyMode::Perfect => {
 
-                let update_in_progress = self.updates_in_progress.get_mut().get(&target_cid).map(|r| r.load(Ordering::SeqCst)).ok_or(NetworkError::InternalError("Update state not loaded in hashmap!"))?;
+                let update_in_progress = inner!(self.updates_in_progress).get(&target_cid).map(|r| r.load(Ordering::SeqCst)).ok_or(NetworkError::InternalError("Update state not loaded in hashmap!"))?;
 
                 if update_in_progress {
                     log::info!("Cannot send packet at this time since update_in_progress"); // in this case, update will happen upon reception of TRUNCATE packet
@@ -1528,11 +1533,13 @@ impl HdpSessionInner {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
                     let result = cnac.visit_mut(|mut inner| -> Result<Either<(Option<HyperRatchetConstructor>, HyperRatchet, u64, SecBuffer), SecBuffer>, NetworkError> {
-                        if !inner.crypt_container.update_in_progress.load(Ordering::SeqCst) && secrecy_mode == SecrecyMode::Perfect && !called_from_poll {
-                            //if no update is in progress, in theory a packet would normally get sent. BUT, since this isn't called from poll, we aren't necessarily getting the lastest packet
-                            // Thus, call poll to check to see if there isn't already a packet. If there was a packet, we enqueue this packet. Else, we proceed, knowing this is the latest packet
-                            if this.poll_next_enqueued(0)? {
-                                return Ok(Either::Right(packet))
+                        if secrecy_mode == SecrecyMode::Perfect {
+                            if !inner.crypt_container.update_in_progress.load(Ordering::SeqCst) && !called_from_poll {
+                                //if no update is in progress, in theory a packet would normally get sent. BUT, since this isn't called from poll, we aren't necessarily getting the lastest packet
+                                // Thus, call poll to check to see if there isn't already a packet. If there was a packet, we enqueue this packet. Else, we proceed, knowing this is the latest packet
+                                if this.poll_next_enqueued(0)? {
+                                    return Ok(Either::Right(packet))
+                                }
                             }
                         }
 
@@ -1580,7 +1587,7 @@ impl HdpSessionInner {
 
                     // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and Toolset
 
-                    let update_in_progress = this.updates_in_progress.get_mut().get(&target_cid).map(|r| r.load(Ordering::SeqCst)).ok_or(NetworkError::InternalError("Update progress not loaded"))?;
+                    let update_in_progress = inner!(this.updates_in_progress).get(&target_cid).map(|r| r.load(Ordering::SeqCst)).ok_or(NetworkError::InternalError("Update progress not loaded"))?;
 
                     if secrecy_mode == SecrecyMode::Perfect && !called_from_poll {
                         if this.has_enqueued(target_cid) {

@@ -891,11 +891,11 @@ pub(crate) mod do_drill_update {
 
     #[derive(Serialize, Deserialize)]
     pub(crate) struct TruncatePacket {
-        pub(crate) truncate_version: u32
+        pub(crate) truncate_version: Option<u32>
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_truncate(hyper_ratchet: &HyperRatchet, truncate_version: u32, target_cid: u64, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_truncate(hyper_ratchet: &HyperRatchet, truncate_version: Option<u32>, target_cid: u64, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_DRILL_UPDATE,
             cmd_aux: packet_flags::cmd::aux::do_drill_update::TRUNCATE,
@@ -1010,7 +1010,7 @@ pub(crate) mod do_deregister {
 
 pub(crate) mod pre_connect {
     use bytes::{BufMut, BytesMut};
-    use zerocopy::{I64, U32, U64, LayoutVerified};
+    use zerocopy::{I64, U32, U64};
 
     use hyxe_nat::hypernode_type::HyperNodeType;
     use hyxe_nat::udp_traversal::NatTraversalMethod;
@@ -1302,7 +1302,7 @@ pub(crate) mod pre_connect {
     }
 
 
-    pub fn craft_halt<T: AsRef<[u8]>>(prev_header: &LayoutVerified<&[u8], HdpHeader>, fail_reason: T) -> BytesMut {
+    pub fn craft_halt<T: AsRef<[u8]>>(prev_header: &HdpHeader, fail_reason: T) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::HALT,

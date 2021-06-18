@@ -73,10 +73,19 @@ class AutoLogin {
       uname = unameOpt.value;
     }
 
-    if (await initiateAutoLogin(implicatedCid, uname)) {
-      print("Account successfully logged-in; will now execute enqueued command ...");
-      return await RustSubsystem.bridge!.executeCommand(command);
+    final StreamController<Optional<KernelResponse>> controller = StreamController();
+    await RustSubsystem.bridge!.executeCommand("resync").then((value) => value.ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: ResyncHandler(controller.sink))));
+    Optional<KernelResponse> resyncResult = await controller.stream.first.timeout(Duration(seconds: 3), onTimeout: () async { await controller.close(); throw TimeoutException("Timeout"); });
+
+    if (resyncResult.isPresent) {
+      if (await initiateAutoLogin(implicatedCid, uname)) {
+        print("Account successfully logged-in; will now execute enqueued command ...");
+        return await RustSubsystem.bridge!.executeCommand(command);
+      } else {
+        return Optional.empty();
+      }
     } else {
+      print("Error: resync failed");
       return Optional.empty();
     }
   }
@@ -188,4 +197,28 @@ class AutoLoginHandler implements AbstractHandler {
       return CallbackStatus.Unexpected;
     }
   }
+}
+
+class ResyncHandler implements AbstractHandler {
+  final StreamSink<Optional<KernelResponse>> sink;
+
+  ResyncHandler(this.sink);
+
+
+  @override
+  CallbackStatus onConfirmation(KernelResponse kernelResponse) {
+    return CallbackStatus.Pending;
+  }
+
+  @override
+  void onErrorReceived(ErrorKernelResponse kernelResponse) {
+    this.sink.add(Optional.empty());
+  }
+
+  @override
+  Future<CallbackStatus> onTicketReceived(KernelResponse kernelResponse) async {
+    this.sink.add(Optional.of(kernelResponse));
+    return CallbackStatus.Complete;
+  }
+
 }

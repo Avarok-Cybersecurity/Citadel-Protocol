@@ -68,7 +68,7 @@ class _MyAppState extends State<Splash> {
 
   @override
   Widget build(BuildContext context) {
-    return new SplashScreen(
+    return SplashScreen.future(
         navigateAfterFuture: loadFromFuture(),
         title: new Text('Verisend',
           style: new TextStyle(
@@ -140,7 +140,7 @@ class MyHomePage extends State<HomePage> with RouteAware {
       print("[Notification] recv payload: ${receivedNotification.payload}");
 
       if (receivedNotification.payload != null) {
-        Optional<AbstractPushNotification> apn = AbstractPushNotification.tryFromMap(receivedNotification.payload.map((key, value) => MapEntry(key, value.toString())));
+        Optional<AbstractPushNotification> apn = AbstractPushNotification.tryFromMap(receivedNotification.payload!.map((key, value) => MapEntry(key, value.toString())));
 
         if (apn.isPresent) {
           Optional<Widget> widget = await apn.value.constructWidget();

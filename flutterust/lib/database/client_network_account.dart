@@ -66,7 +66,7 @@ class ClientNetworkAccount extends AbstractSqlObject {
       return -1;
     }
 
-    return (await RustSubsystem.bridge!.executeCommand("list-accounts"))
+     var res = await (await RustSubsystem.bridge!.executeCommand("list-accounts"))
         .map((kResp) {
       return kResp.getDSR().map((dsr) async {
         if (dsr is GetAccountsResponse) {
@@ -96,7 +96,9 @@ class ClientNetworkAccount extends AbstractSqlObject {
           }
         }
       }).orElse(Future.value(-1));
-    }).orElse(Future.value(-1)) as Future<int>;
+    }).orElse(Future.value(-1));
+
+    return res ?? 0;
   }
 
   @override

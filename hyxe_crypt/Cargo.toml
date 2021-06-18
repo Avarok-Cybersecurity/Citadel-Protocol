@@ -38,6 +38,8 @@ bitvec = "0.17.4"
 serde-big-array = "0.3.0"
 rust-argon2 = "0.8.3"
 zeroize = "1.1.1"
+sysinfo = "0.18.2"
+num_cpus = "1.13.0"
 linked-hash-map = "*"
 tokio = { version = "^1.4.0", features = ["full"] }
 

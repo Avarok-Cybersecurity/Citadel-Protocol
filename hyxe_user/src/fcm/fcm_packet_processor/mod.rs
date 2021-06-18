@@ -43,7 +43,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
     let group_id = header.group_id.get();
     let ticket = header.ticket.get();
     let use_client_server_ratchet = header.target_cid.get() == 0;
-    log::info!("Using {} ratchet", use_client_server_ratchet.then(|| "client/server").unwrap_or("FCM endpoint"));
+
     // if the target cid is zero, it means we aren't using endpoint containers (only client -> server container)
     let local_cid = if use_client_server_ratchet { header.session_cid.get() } else { header.target_cid.get() };
     let implicated_cid = header.session_cid.get();
@@ -56,6 +56,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
 
     // TODO: Run packet through can_process_packet. If false, then send a REQ packet to request retransmission of last packet in series, and store packet locally
 
+    log::info!("Using {} ratchet (local CID: {} | ratchet vers: {})", use_client_server_ratchet.then(|| "client/server").unwrap_or("FCM endpoint"), local_cid, ratchet_version);
     let cnac = account_manager.get_client_by_cid(local_cid).await?.ok_or(AccountError::<String>::ClientNonExists(local_cid))?;
     let res = cnac.visit_mut(|mut inner| async move {
         // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other

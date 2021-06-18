@@ -4,17 +4,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::error::NetworkError;
 use crate::hdp::state_container::VirtualConnectionType;
-use crate::hdp::outbound_sender::UnboundedReceiver;
+use crate::hdp::outbound_sender::BoundedReceiver;
 use futures::{Sink, Stream};
 use futures::task::{Context, Poll};
 use tokio::macros::support::Pin;
 use std::fmt::Debug;
 use crate::hdp::peer::peer_layer::PeerConnectionType;
-use tokio::io::{AsyncWrite, AsyncRead, ReadBuf};
-use futures::io::Error;
-use std::ops::Deref;
 use hyxe_crypt::sec_bytes::SecBuffer;
-use bytes::{BufMut, BytesMut};
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.
 // This thus bypasses the kernel.
@@ -25,9 +21,9 @@ pub struct PeerChannel {
 }
 
 impl PeerChannel {
-    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>) -> Self {
+    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: BoundedReceiver<SecBuffer>) -> Self {
         let implicated_cid = vconn_type.get_implicated_cid();
-        let overflow = BytesMut::new();
+
         let send_half = PeerChannelSendHalf {
             server_remote,
             target_cid,
@@ -43,8 +39,7 @@ impl PeerChannel {
             target_cid,
             vconn_type,
             channel_id,
-            is_alive,
-            overflow
+            is_alive
         };
 
         PeerChannel { send_half, recv_half }
@@ -86,24 +81,17 @@ pub struct PeerChannelSendHalf {
 }
 
 impl PeerChannelSendHalf {
-    // TODO: multithreaded mode instant send
-    fn send_unchecked(&self, data: SecBuffer) -> Result<(), NetworkError> {
-        let request = HdpServerRequest::SendMessage(data, self.implicated_cid, self.vconn_type, self.security_level);
-        self.server_remote.send_with_custom_ticket(self.channel_id, request)
-    }
-
-    pub fn send_unbounded(&self, data: SecBuffer) -> Result<(), NetworkError> {
-        if self.is_alive.load(Ordering::SeqCst) {
-            self.send_unchecked(data)
-        } else {
-            Err(NetworkError::InternalError("Server closed"))
-        }
-    }
-
     pub fn set_security_level(&mut self, security_level: SecurityLevel) {
         self.security_level = security_level;
     }
 
+    /// Sends a message using the sink interface
+    pub async fn send_message(&mut self, message: SecBuffer) -> Result<(), NetworkError> {
+        use futures::SinkExt;
+        self.send(message).await
+    }
+
+    /// used to identify this channel in the network
     pub fn channel_id(&self) -> Ticket {
         self.channel_id
     }
@@ -116,16 +104,19 @@ impl PeerChannelSendHalf {
 impl Sink<SecBuffer> for PeerChannelSendHalf {
     type Error = NetworkError;
 
-    fn poll_ready(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         if self.is_alive.load(Ordering::SeqCst) {
-            futures::Sink::<HdpServerRequest>::poll_ready(Pin::new(&mut self.server_remote), _cx)
+            futures::Sink::<HdpServerRequest>::poll_ready(Pin::new(&mut self.server_remote), cx)
         } else {
             Poll::Ready(Err(NetworkError::InternalError("Server closed")))
         }
     }
 
-    fn start_send(self: Pin<&mut Self>, item: SecBuffer) -> Result<(), Self::Error> {
-        self.send_unchecked(item)
+    fn start_send(mut self: Pin<&mut Self>, item: SecBuffer) -> Result<(), Self::Error> {
+        let channel_id = self.channel_id;
+        let item = HdpServerRequest::SendMessage(item, self.implicated_cid, self.vconn_type, self.security_level);
+
+        Pin::new(&mut self.server_remote).start_send((channel_id, item))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -143,12 +134,11 @@ impl Unpin for PeerChannelRecvHalf {}
 #[derive(Debug)]
 pub struct PeerChannelRecvHalf {
     // when the state container removes the vconn, this will get closed
-    receiver: UnboundedReceiver<SecBuffer>,
+    receiver: BoundedReceiver<SecBuffer>,
     target_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
-    is_alive: Arc<AtomicBool>,
-    overflow: BytesMut
+    is_alive: Arc<AtomicBool>
 }
 
 impl Stream for PeerChannelRecvHalf {
@@ -160,67 +150,12 @@ impl Stream for PeerChannelRecvHalf {
             log::info!("[POLL] closing PeerChannel RecvHalf");
             Poll::Ready(None)
         } else {
-            match futures::ready!(self.receiver.poll_recv(cx)) {
+            match futures::ready!(Pin::new(&mut self.receiver).poll_next(cx)) {
                 Some(data) => Poll::Ready(Some(data)),
                 _ => {
                     log::info!("[PeerChannelRecvHalf] ending");
                     Poll::Ready(None)
                 }
-            }
-        }
-    }
-}
-
-impl AsyncWrite for PeerChannelSendHalf {
-    fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
-        self.deref().send_unbounded(SecBuffer::from(buf))
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))?;
-
-        Poll::Ready(Ok(buf.len()))
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        futures::Sink::poll_flush(self, cx)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))
-    }
-
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        self.close();
-        Poll::Ready(Ok(()))
-    }
-}
-
-impl AsyncRead for PeerChannelRecvHalf {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
-        if self.overflow.len() != 0 {
-            let amt =  std::cmp::min(buf.remaining(), self.overflow.len());
-            let bytes = self.overflow.split_to(amt);
-            buf.put_slice(&bytes[..]);
-            if self.overflow.len() != 0 {
-                //return early, so that we can poll some more bytes immediately after. Otherwise, move-on to potentially pend for new bytes
-                return Poll::Ready(Ok(()))
-            }
-        }
-
-        match futures::ready!(self.as_mut().poll_next(cx)) {
-            Some(secbuf) => {
-                let secbuf_vec = secbuf.into_buffer();
-                let bytes = secbuf_vec.as_slice();
-                let amt = std::cmp::min(buf.remaining(), bytes.len());
-                let (left, right) = bytes.split_at(amt);
-                buf.put_slice(left);
-
-                if right.len() != 0 {
-                    // place into overflow
-                    self.overflow.put_slice(right);
-                }
-
-                Poll::Ready(Ok(()))
-            }
-
-            None => {
-                // EOF
-                Poll::Ready(Ok(()))
             }
         }
     }

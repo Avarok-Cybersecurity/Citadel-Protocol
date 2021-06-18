@@ -10,6 +10,7 @@ use rand::prelude::ThreadRng;
 use rand::{RngCore, Rng};
 use crate::functional::PairMap;
 use std::io::Write;
+use crate::hdp::misc::dual_cell::DualCell;
 
 pub(crate) mod packet_flags {
     pub(crate) mod cmd {
@@ -343,17 +344,9 @@ impl<B: HdpBuffer> HdpPacket<B> {
     }
 }
 
-
-#[cfg(feature = "multi-threaded")]
 #[derive(Clone)]
 pub struct HeaderObfuscator {
-    inner: std::sync::Arc<atomic::Atomic<Option<u128>>>
-}
-
-#[cfg(not(feature = "multi-threaded"))]
-#[derive(Clone)]
-pub struct HeaderObfuscator {
-    inner: std::rc::Rc<std::cell::Cell<Option<u128>>>
+    inner: DualCell<u128>
 }
 
 impl HeaderObfuscator {
@@ -433,14 +426,7 @@ impl HeaderObfuscator {
     }
 
     fn store(&self, val0: u64, val1: u64) {
-        #[cfg(feature = "multi-threaded")]
-            {
-                self.inner.store(Some(u64s_to_u128(val0, val1)), atomic::Ordering::Acquire);
-            }
-        #[cfg(not(feature = "multi-threaded"))]
-            {
-                self.inner.set(Some(u64s_to_u128(val0, val1)))
-            }
+        self.inner.set(Some(u64s_to_u128(val0, val1)));
     }
 
     fn new_from_u64s(val0: u64, val1: u64) -> Self {
@@ -448,14 +434,7 @@ impl HeaderObfuscator {
     }
 
     fn load(&self) -> Option<u128> {
-        #[cfg(feature = "multi-threaded")]
-            {
-                self.inner.load(atomic::Ordering::Acquire)
-            }
-        #[cfg(not(feature = "multi-threaded"))]
-            {
-                self.inner.get()
-            }
+        self.inner.get()
     }
 }
 
@@ -494,14 +473,7 @@ fn cipher_inner(a: u8, b: u8, c: &mut u8, inverse: bool) {
 
 impl From<Option<u128>> for HeaderObfuscator {
     fn from(inner: Option<u128>) -> Self {
-        #[cfg(feature = "multi-threaded")]
-        {
-            Self { inner: std::sync::Arc::new(atomic::Atomic::new(inner)) }
-        }
-        #[cfg(not(feature = "multi-threaded"))]
-            {
-                Self { inner: std::rc::Rc::new(std::cell::Cell::new(inner)) }
-            }
+        Self { inner: DualCell::from(inner) }
     }
 }
 

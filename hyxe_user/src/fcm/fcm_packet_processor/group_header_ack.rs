@@ -14,6 +14,8 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
     let fcm_instance = FCMInstance::new(endpoint_crypto.fcm_keys.clone()?, client.clone());
     let peer_cid = header.session_cid.get();
     let local_cid = header.target_cid.get();
+
+    let update_ocurred = bob_to_alice_transfer.has_some();
     let requires_truncation = bob_to_alice_transfer.requires_truncation();
 
     let next_ratchet: Option<&Fcm> = match bob_to_alice_transfer {
@@ -33,12 +35,16 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
                     }
                 }
 
+                endpoint_crypto.post_alice_stage1_or_post_stage1_bob();
+                // we unlock only upon getting the truncate ack. This helps prevent an unnecessary amount of packets from being sent outbound too early
+                Some(endpoint_crypto.get_hyper_ratchet(None)?)
+                /*
                 if requires_truncation.is_some() {
                     // we unlock once we get the truncate ack
                     Some(endpoint_crypto.get_hyper_ratchet(None)?)
                 } else {
                     Some(endpoint_crypto.maybe_unlock(true)?)
-                }
+                }*/
             } else {
                 log::warn!("No constructor, yet, KemTransferStatus is Some?? (did KEM constructor not get sent when the initial message got sent out?)");
                 None
@@ -61,15 +67,13 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
         }
     };
 
-    let duplicate = if let Some(truncate_vers) = requires_truncation {
+    let packet = if update_ocurred {
         if let Some(ratchet) = next_ratchet {
             // send TRUNCATE packet
-            let truncate_packet = super::super::fcm_packet_crafter::craft_truncate(ratchet, header.object_id.get(), header.group_id.get(), header.session_cid.get(), header.ticket.get(), truncate_vers);
-            //let duplicate = truncate_packet.clone();
-
-            //let _res = fcm_instance.send_to_fcm_user(truncate_packet).await?;
+            let truncate_packet = super::super::fcm_packet_crafter::craft_truncate(ratchet, header.object_id.get(), header.group_id.get(), header.session_cid.get(), header.ticket.get(), requires_truncation);
             FcmPacketMaybeNeedsSending::some(Some(fcm_instance), truncate_packet)
         } else {
+            log::error!("No ratchet returned when one was expected");
             FcmPacketMaybeNeedsSending::none()
         }
     } else {
@@ -77,5 +81,5 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
     };
 
     log::info!("SUBROUTINE COMPLETE: PROCESS GROUP_HEADER_ACK");
-    FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) }, duplicate)
+    FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) }, packet)
 }

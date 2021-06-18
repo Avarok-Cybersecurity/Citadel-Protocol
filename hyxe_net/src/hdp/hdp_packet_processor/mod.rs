@@ -131,11 +131,12 @@ impl FromResidual<GroupProcessorResult> for GroupProcessorResult {
     }
 }
 
+
 impl<T> FromResidual<Option<T>> for PrimaryProcessorResult {
     fn from_residual(residual: Option<T>) -> Self {
         match residual {
             None => {
-                log::warn!("[X-03] NoneError");
+                log::warn!("[X-03] NoneError [default]");
                 PrimaryProcessorResult::Void
             }
 

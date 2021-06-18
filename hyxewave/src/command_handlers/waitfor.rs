@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 /// This will BLOCK the calling thread if the command returns a ticket
 #[async_recursion(?Send)]
-pub async fn handle<'a>(matches: &ArgMatches<'a>, clap: MutexGuard<'a, AppThreadSafe>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, clap: MutexGuard<'a, AppThreadSafe>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<KernelResponse>, ConsoleError> {
     let message_parts = matches.values_of("command").unwrap().collect::<Vec<&str>>();
     let timeout = usize::from_str(matches.value_of("timeout").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
 

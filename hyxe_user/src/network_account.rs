@@ -10,7 +10,7 @@ use log::info;
 use rand::{random, RngCore, thread_rng};
 use serde::{Deserialize, Serialize};
 
-use hyxe_crypt::argon_container::ArgonContainerType;
+use hyxe_crypt::argon::argon_container::ArgonContainerType;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};

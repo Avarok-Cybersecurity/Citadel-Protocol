@@ -395,7 +395,7 @@ impl InputRouter {
     #[cfg(target_os = "windows")]
     pub fn deinit(&self) -> Result<(), ConsoleError> {
         if !self.daemon_mode() {
-            Self::clear_screen();
+            //Self::clear_screen();
             Self::reset_cursor_position();
             crossterm::terminal::disable_raw_mode().map_err(|err| ConsoleError::Generic(err.to_string()))
         } else {
@@ -409,7 +409,7 @@ impl InputRouter {
             let raw_terminal = self.inner.write().raw_termion.take().ok_or(ConsoleError::Default("Already turned off"))?;
             raw_terminal.suspend_raw_mode().unwrap();
             std::mem::drop(raw_terminal);
-            Self::clear_screen();
+            //Self::clear_screen();
             Self::reset_cursor_position();
         }
 
