@@ -5,7 +5,6 @@ members = [
     "lusna_ffi",
     "hyxe_nat",
 	"hyxe_user",
-	"hyxe_config",
 	"hyxe_fs",
 	"hyxe_crypt",
 	"async_ip",

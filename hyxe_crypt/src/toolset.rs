@@ -190,7 +190,13 @@ impl<R: Ratchet> Toolset<R> {
     pub fn get_hyper_ratchet(&self, version: u32) -> Option<&R> {
         let idx = self.get_adjusted_index(version);
         //println!("Getting idx {} which should have v{}", idx, version);
-        self.map.get(idx)
+
+        let res = self.map.get(idx);
+        if res.is_none() {
+            log::error!("Attempted to get ratchet v{}, but does not exist! len: {}. Oldest: {}. Newest: {}", version, &self.map.len(), self.oldest_hyper_ratchet_version, self.most_recent_hyper_ratchet_version);
+        }
+
+        res
     }
 
     /// Returns a range of drills. Returns None if any drill in the range is missing

@@ -16,7 +16,7 @@ use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::prelude::SecBuffer;
 use hyxe_crypt::fcm::keys::FcmKeys;
-use hyxe_crypt::argon_container::{AsyncArgon, ArgonSettings, ArgonStatus, ServerArgonContainer, ArgonContainerType};
+use hyxe_crypt::argon::argon_container::{AsyncArgon, ArgonSettings, ArgonStatus, ServerArgonContainer, ArgonContainerType, ArgonDefaultServerSettings};
 use crate::fcm::fcm_packet_processor::block_on_async;
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
@@ -24,20 +24,22 @@ use crate::fcm::fcm_packet_processor::block_on_async;
 #[derive(Clone)]
 pub struct AccountManager<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
     fcm_client: Arc<Client>,
-    persistence_handler: PersistenceHandler<R, Fcm>
+    persistence_handler: PersistenceHandler<R, Fcm>,
+    node_argon_settings: ArgonSettings
 }
 
 impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
     /// `bind_addr`: Required for determining the local save directories for this instance
     /// `home_dir`: Optional. Overrides the default storage location for files
+    /// `server_argon_settings`: Security settings used for saving the password to the backend. The AD will be replaced each time a new user is created, so it can be empty
     #[allow(unused_results)]
-    pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType) -> Result<Self, AccountError> {
+    pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType, server_argon_settings: Option<ArgonDefaultServerSettings>) -> Result<Self, AccountError> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
         let directory_store = hyxe_fs::env::setup_directories(bind_addr, NAC_SERIALIZED_EXTENSION, home_dir)?;
         let fcm_client = Arc::new(Client::new());
 
-        let persistence_handler = match backend_type.clone() {
+        let persistence_handler = match &backend_type {
             BackendType::Filesystem => {
                 // note: call connect HERE! we need &mut, and cant thru Arc
                 let mut backend = FilesystemBackend::from(directory_store.clone());
@@ -46,10 +48,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             }
 
             #[cfg(feature = "enterprise")]
-            BackendType::SQLDatabase(url) => {
+            BackendType::SQLDatabase(..) => {
                 use crate::backend::mysql_backend::SqlBackend;
                 use std::convert::TryFrom;
-                let mut backend = SqlBackend::try_from((url, backend_type)).map_err(|_| AccountError::Generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
+                let mut backend = SqlBackend::try_from(backend_type).map_err(|_| AccountError::Generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
                 backend.connect(&directory_store).await?;
                 PersistenceHandler::new(backend, directory_store)
             }
@@ -57,12 +59,12 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         persistence_handler.post_connect(&persistence_handler)?;
 
-        Ok(Self { persistence_handler, fcm_client })
+        Ok(Self { persistence_handler, fcm_client, node_argon_settings: server_argon_settings.unwrap_or_default().into() })
     }
 
     /// Using an internal single-threaded executor, creates the account manager. NOTE: It is best not to mix executors. This should be used only in background modes that need to poll
-    pub fn new_blocking(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType) -> Result<Self, AccountError> {
-        block_on_async(move || Self::new(bind_addr, home_dir, backend_type))?
+    pub fn new_blocking(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType, argon_server_settings: Option<ArgonDefaultServerSettings>) -> Result<Self, AccountError> {
+        block_on_async(move || Self::new(bind_addr, home_dir, backend_type, argon_server_settings))?
     }
 
     /// Returns the directory store for this local node session
@@ -86,7 +88,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     ///
     /// This also generates the argon-2id password hash
     pub async fn register_impersonal_hyperlan_client_network_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: NetworkAccount<R, Fcm>, username: T, password_hashed: SecBuffer, full_name: V, init_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError<String>> {
-        let settings = ArgonSettings::new_defaults(username.to_string().into_bytes());
+        //let settings = ArgonSettings::new_defaults(username.to_string().into_bytes());
+        let settings = self.node_argon_settings.derive_new_with_custom_ad(username.to_string().into_bytes());
         match AsyncArgon::hash(password_hashed, settings.clone()).await.map_err(|err| AccountError::Generic(err.to_string()))? {
             ArgonStatus::HashSuccess(hash_x2) => {
                 let server_container = ArgonContainerType::Server(ServerArgonContainer::new(settings, hash_x2));

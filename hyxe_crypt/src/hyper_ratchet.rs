@@ -434,6 +434,7 @@ pub mod constructor {
                 }
             }
         }
+
         pub fn assume_default(self) -> Option<R::Constructor> {
             if let ConstructorType::Default(c) = self {
                 Some(c)

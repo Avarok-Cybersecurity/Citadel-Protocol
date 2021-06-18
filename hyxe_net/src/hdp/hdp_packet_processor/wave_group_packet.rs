@@ -3,9 +3,10 @@ use crate::hdp::hdp_server::HdpServerRequest;
 
 use super::includes::*;
 use atomic::Ordering;
+use crate::macros::EitherOwnedGuard;
 
 /// This will handle an inbound group packet
-pub fn process<K: ExpectedInnerTargetMut<HdpSessionInner>>(session: &mut InnerParameterMut<K, HdpSessionInner>, v_src_port: u16, v_local_port: u16, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], proxy_cid_info: Option<(u64, u64)>) -> GroupProcessorResult {
+pub async fn process(session: EitherOwnedGuard<'_, HdpSessionInner>, v_src_port: u16, v_local_port: u16, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], proxy_cid_info: Option<(u64, u64)>) -> GroupProcessorResult {
     debug_assert_eq!(packet_flags::cmd::primary::GROUP_PACKET, header.cmd_primary);
 
     let sess_cnac = session.cnac.as_ref()?;
@@ -36,7 +37,13 @@ pub fn process<K: ExpectedInnerTargetMut<HdpSessionInner>>(session: &mut InnerPa
                                     // NOTE: This form of routing is less efficient than proxying with a nonzero target_cid in the packet headers.
                                     // However, it ensures that a packet's trajectory cannot be discerned, thus hiding a "who" in the conversation
                                     let reroute_request = HdpServerRequest::SendMessage(reconstructed_packet, target_cid, virtual_target, security_level);
-                                    let _ = session.session_manager.send_local_server_request(Some(ticket), reroute_request);
+                                    let sess_mgr = session.session_manager.clone();
+
+                                    std::mem::drop(state_container);
+                                    std::mem::drop(session);
+
+                                    let _ = sess_mgr.send_local_server_request(Some(ticket), reroute_request).await;
+
                                     GroupProcessorResult::Void
                                 } else {
                                     // This means that the target client disconnected in the middle of the transfer
@@ -48,7 +55,11 @@ pub fn process<K: ExpectedInnerTargetMut<HdpSessionInner>>(session: &mut InnerPa
                                 // if the target cid is this sessions, it means the packet has arrived.
                                 // We need to route the packet to the channel
                                 //GroupProcessorResult::SendToKernel(ticket, reconstructed_packet)
-                                if !state_container.forward_data_to_channel(implicated_cid, header.group.get(), reconstructed_packet) {
+                                let state_container_owned = session.state_container.clone();
+                                std::mem::drop(state_container);
+                                std::mem::drop(session);
+
+                                if !state_container_owned.forward_data_to_channel(implicated_cid, header.group.get(), reconstructed_packet).await {
                                     log::error!("Unable to forward data to local channel");
                                 }
                                 GroupProcessorResult::Void

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::fcm::keys::FcmKeys;
+use crate::backend::mysql_backend::SqlConnectionOptions;
 
 #[cfg(feature = "enterprise")]
 /// Implementation for the SQL backend
@@ -25,7 +26,7 @@ pub enum BackendType {
     Filesystem,
     #[cfg(feature = "enterprise")]
     /// Synchronization will occur on a remote SQL database
-    SQLDatabase(String)
+    SQLDatabase(String, SqlConnectionOptions)
 }
 
 impl BackendType {
@@ -39,10 +40,15 @@ impl BackendType {
     /// "postgres:// [...]"
     /// "sqlite:// [...]"
     ///
-    /// PostgreSQL, MSSQL, MySQL, SqLite supported
+    /// PostgreSQL, MySQL, SqLite supported
     #[cfg(feature = "enterprise")]
     pub fn sql<T: Into<String>>(url: T) -> BackendType {
-        BackendType::SQLDatabase(url.into())
+        BackendType::SQLDatabase(url.into(), Default::default())
+    }
+
+    /// Like [sql], but with custom options
+    pub fn sql_with<T: Into<String>>(url: T, opts: SqlConnectionOptions) -> BackendType {
+        BackendType::SQLDatabase(url.into(), opts)
     }
 }
 

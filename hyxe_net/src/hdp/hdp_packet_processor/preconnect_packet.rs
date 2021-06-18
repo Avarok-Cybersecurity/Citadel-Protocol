@@ -25,13 +25,15 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
         return PrimaryProcessorResult::Void;
     }
 
-    let (header, payload) = packet.parse()?;
-    let header = &header;
+    let (header_main, payload) = packet.parse()?;
+    let header = &header_main;
     let security_level = header.security_level.into();
 
     match header.cmd_aux {
         packet_flags::cmd::aux::do_preconnect::SYN => {
             log::info!("RECV STAGE SYN PRE_CONNECT PACKET");
+            // first make sure the cid isn't already connected
+
             let state_container = inner!(session.state_container);
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN {
                 let account_manager = session.account_manager.clone();
@@ -46,8 +48,10 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                     let kat = header.target_cid.get() as i64;
                     let adjacent_proto_version = header.group.get();
 
-                    match validation::pre_connect::validate_syn(&cnac, packet){
-                        Some((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode)) => {
+                    let header_if_err_occurs = header_main.clone();
+
+                    match validation::pre_connect::validate_syn(&cnac, packet, &session.session_manager) {
+                        Ok((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode)) => {
                             // since the SYN's been validated, the CNACs toolset has been updated
                             let new_session_sec_lvl = transfer.security_level;
 
@@ -79,9 +83,10 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                             PrimaryProcessorResult::ReplyToSender(syn_ack)
                         }
 
-                        None => {
+                        Err(err) => {
                             log::error!("Invalid SYN packet received");
-                            PrimaryProcessorResult::Void
+                            let packet = hdp_packet_crafter::pre_connect::craft_halt(&header_if_err_occurs, err.into_string());
+                            PrimaryProcessorResult::ReplyToSender(packet)
                         }
                     }
                 } else {
@@ -153,6 +158,10 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
 
         packet_flags::cmd::aux::do_preconnect::STAGE0 => {
             log::info!("RECV STAGE 0 PRE_CONNECT PACKET");
+
+            // At this point, the user's static-key identity has been verified. We can now check the online status to ensure no double-logins
+
+
             let tcp_only = session.tcp_only;
             let timestamp_header = header.timestamp.get();
             let cnac = session.cnac.as_ref()?;

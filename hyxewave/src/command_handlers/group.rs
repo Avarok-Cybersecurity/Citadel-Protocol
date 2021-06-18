@@ -3,12 +3,12 @@ use hyxe_net::hdp::peer::message_group::MessageGroupKey;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use multimap::MultiMap;
 
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let ctx_cid = ctx.get_active_cid();
     let ref cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC missing"))?;
 
     if let Some(matches) = matches.subcommand_matches("accept-invite") {
-        return handle_accept_invite(matches, server_remote, ctx);
+        return handle_accept_invite(matches, server_remote, ctx).await;
     }
 
     if let Some(_matches) = matches.subcommand_matches("invites") {
@@ -20,7 +20,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
     }
 
     if let Some(matches) = matches.subcommand_matches("end") {
-        return handle_end(matches, server_remote, ctx);
+        return handle_end(matches, server_remote, ctx).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("add") {
@@ -36,23 +36,23 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
     }
 
     if let Some(matches) = matches.subcommand_matches("leave") {
-        return handle_leave(matches, server_remote, ctx);
+        return handle_leave(matches, server_remote, ctx).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("send") {
-        return handle_send(matches, server_remote, ctx, cnac);
+        return handle_send(matches, server_remote, ctx, cnac).await;
     }
 
     Ok(None)
 }
 
-fn handle_leave<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_leave<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
     let signal = GroupBroadcast::LeaveRoom(key.key);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
-    let ticket = server_remote.unbounded_send(request)?;
+    let ticket = server_remote.send(request).await?;
 
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, move |_ctx, _ticket, peer_response| {
         match peer_response {
@@ -75,7 +75,7 @@ fn handle_leave<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote
     Ok(Some(ticket))
 }
 
-fn handle_accept_invite<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_accept_invite<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let mail_id = usize::from_str(matches.value_of("mid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     let mut write = ctx.unread_mail.write();
     return if let Some(invitation) = write.remove_group_request(mail_id) {
@@ -86,7 +86,7 @@ fn handle_accept_invite<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServ
         let signal = GroupBroadcast::AcceptMembership(key);
         let request = HdpServerRequest::GroupBroadcastCommand(implicated_local_cid, signal);
 
-        server_remote.send_with_custom_ticket(ticket, request)?;
+        server_remote.send_with_custom_ticket(ticket, request).await?;
         std::mem::drop(write);
 
         // track request
@@ -153,7 +153,7 @@ async fn handle_invites(ctx: &ConsoleContext) -> Result<Option<Ticket>, ConsoleE
     Ok(None)
 }
 
-async fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ctx_cid: u64) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ctx_cid: u64) -> Result<Option<Ticket>, ConsoleError> {
     let target_cids = if let Some(target_cids) = matches.values_of("target_cids") {
         let mut ret = Vec::new();
         for target_cid in target_cids {
@@ -179,7 +179,7 @@ async fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServe
     let signal = GroupBroadcast::Create(target_cids);
     let request = HdpServerRequest::GroupBroadcastCommand(ctx_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request)?;
+    let ticket = server_remote.send(request).await?;
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, ctx_cid, move |ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -220,7 +220,7 @@ async fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServe
     Ok(Some(ticket))
 }
 
-fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
@@ -230,7 +230,7 @@ fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let signal = GroupBroadcast::End(key.key);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request)?;
+    let ticket = server_remote.send(request).await?;
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -260,7 +260,7 @@ fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     Ok(Some(ticket))
 }
 
-async fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
@@ -281,7 +281,7 @@ async fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
     let signal = GroupBroadcast::Add(key.key, target_cids);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request)?;
+    let ticket = server_remote.send(request).await?;
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -316,7 +316,7 @@ async fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
     Ok(Some(ticket))
 }
 
-async fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
@@ -337,7 +337,7 @@ async fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerR
     let signal = GroupBroadcast::Kick(key.key, target_cids);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request)?;
+    let ticket = server_remote.send(request).await?;
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -395,7 +395,7 @@ async fn handle_list(ctx: &ConsoleContext) -> Result<Option<Ticket>, ConsoleErro
     Ok(None)
 }
 
-fn handle_send<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_send<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
@@ -405,7 +405,7 @@ fn handle_send<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote,
     let signal = GroupBroadcast::Message(username.clone(), key.key, SecBuffer::from(message.clone()));
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request)?;
+    let ticket = server_remote.send(request).await?;
 
     // once the server broadcasts the message, the console will print-out the data
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, move |_ctx, _ticket, signal| {

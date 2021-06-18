@@ -19,7 +19,9 @@ pub enum NetworkError {
     ///
     InternalError(&'static str),
     /// For a converted error
-    Generic(String)
+    Generic(String),
+    ///
+    ProperShutdown
 }
 
 impl Error for NetworkError {}
@@ -55,6 +57,9 @@ impl NetworkError {
             NetworkError::InvalidPacket(err) => {
                 format!("{}", *err)
             }
+            NetworkError::ProperShutdown => {
+                format!("Proper shutdown called")
+            }
         }
     }
 
@@ -81,6 +86,9 @@ impl NetworkError {
             }
             NetworkError::InvalidPacket(err) => {
                 format!("{}", err)
+            }
+            NetworkError::ProperShutdown => {
+                format!("{:?}", NetworkError::ProperShutdown)
             }
         }
     }

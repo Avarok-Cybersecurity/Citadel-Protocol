@@ -3,6 +3,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 use std::net::SocketAddr;
 use crate::io::FsError;
+use std::path::PathBuf;
 
 /// Home directory
 pub const BASE_NAME: &'static str = ".HyxeWave";
@@ -29,11 +30,35 @@ pub struct HyxeDirsInner {
     pub nac_node_default_store_location: String
 }
 
+/// Correlated to important directories for the program
+#[allow(missing_docs)]
+pub enum BasePath {
+    Home, NacDirBase, NacDirImpersonal, NacDirPersonal, ServerDir, ConfigDir, VirtualDir
+}
+
 /// A thread-safe container
 #[derive(Clone)]
 pub struct DirectoryStore {
     /// Enables access to the inner elements
     pub inner: Arc<RwLock<HyxeDirsInner>>
+}
+
+impl DirectoryStore {
+    /// Creates a properly formatted path given the `base` value (the base value should come from self)
+    pub fn make_path<T: AsRef<str>>(&self, base: BasePath, file: T) -> PathBuf {
+        let read = self.inner.read();
+        let base = match base {
+            BasePath::Home => &read.hyxe_home,
+            BasePath::NacDirBase => &read.hyxe_nac_dir_base,
+            BasePath::NacDirImpersonal => &read.hyxe_nac_dir_impersonal,
+            BasePath::NacDirPersonal => &read.hyxe_nac_dir_personal,
+            BasePath::ServerDir => &read.hyxe_server_dir,
+            BasePath::ConfigDir => &read.hyxe_config_dir,
+            BasePath::VirtualDir => &read.hyxe_virtual_dir
+        };
+
+        PathBuf::from(append_to_path(base.clone(), file.as_ref()))
+    }
 }
 
 #[allow(unused_results)]
@@ -102,7 +127,7 @@ pub fn format_path(input: String) -> String {
     input.replace("/", "\\")
 }
 
-fn append_to_path(base: String, addition: &'static str) -> String {
+fn append_to_path(base: String, addition: &str) -> String {
     format_path(base + addition)
 }
 

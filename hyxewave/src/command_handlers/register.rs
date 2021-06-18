@@ -11,7 +11,7 @@ pub enum RegisterResponse {
     Failure(#[serde(serialize_with = "string")] u64, String)
 }
 
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let target_addr = get_remote_addr(matches)?;
 
     let security_level = parse_security_level(matches)?;
@@ -38,7 +38,8 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
     let params = get_crypto_params(None, kem, enx, security_level);
 
     let request = HdpServerRequest::RegisterToHypernode(target_addr, proposed_credentials, fcm_keys, params);
-    let ticket = server_remote.unbounded_send(request)?;
+    let ticket = server_remote.send(request).await?;
+
     ctx.register_ticket(ticket, DO_REGISTER_EXPIRE_TIME_MS, 0, move |_ctx, _, response| {
         match response {
             PeerResponse::Ok(welcome_message_opt) => {

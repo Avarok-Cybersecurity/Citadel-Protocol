@@ -1,7 +1,7 @@
 use super::imports::*;
 
 #[allow(unused_results)]
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<Ticket>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<Ticket>, ConsoleError> {
     let do_purge = matches.is_present("purge");
 
     if do_purge {
@@ -36,7 +36,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
         let write = ctx.sessions.write().await;
         if write.contains_key(&cid) {
             let request = HdpServerRequest::DeregisterFromHypernode(cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(cid));
-            let ticket = server_remote.unbounded_send(request)?;
+            let ticket = server_remote.send(request).await?;
             std::mem::drop(write);
             let username = username.to_string();
 

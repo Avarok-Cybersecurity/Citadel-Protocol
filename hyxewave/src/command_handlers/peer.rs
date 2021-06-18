@@ -92,7 +92,7 @@ pub struct DeregisterResponse {
     pub success: bool
 }
 
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let ctx_user = ctx.get_active_cid();
 
     if ctx_user != 0 {
@@ -194,7 +194,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             let signal = PeerSignal::Disconnect(removed_conn.cxn_type, None);
             let request = HdpServerRequest::PeerCommand(ctx_user, signal);
 
-            let ticket = server_remote.unbounded_send(request)?;
+            let ticket = server_remote.send(request).await?;
 
             ctx.register_ticket(ticket, DISCONNECT_TIMEOUT, ctx_user, move |_ctx, _ticket, response| {
                 match response {
@@ -230,7 +230,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             let signal = PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid_raw), use_fcm);
             let request = HdpServerRequest::PeerCommand(ctx_user, signal);
 
-            let ticket = server_remote.unbounded_send(request)?;
+            let ticket = server_remote.send(request).await?;
 
             let target_cid = target_cid_raw.to_string();
             ctx.register_ticket(ticket, DISCONNECT_TIMEOUT, ctx_user, move |_ctx, _ticket, response| {
@@ -292,7 +292,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             }
 
             let request = HdpServerRequest::SendFile(path, chunk_size, ctx_user, vconn_type);
-            let ticket = server_remote.unbounded_send(request)?;
+            let ticket = server_remote.send(request).await?;
 
             // TODO: Register callback to monitor for download state changes, interacting with FFI_IO, etc
 
@@ -307,7 +307,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             };
 
             let list_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetRegisteredPeers(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None, limit));
-            let ticket = server_remote.unbounded_send(list_request)?;
+            let ticket = server_remote.send(list_request).await?;
             ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |_, ticket, response| {
                 match response {
                     PeerResponse::RegisteredCids(cids, online_status) => {
@@ -367,7 +367,8 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
         if let Some(_matches) = matches.subcommand_matches("mutuals") {
             let _cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC non-existent"))?;
             let get_consented_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(ctx_user), None));
-            let ticket = server_remote.unbounded_send(get_consented_request)?;
+            let ticket = server_remote.send(get_consented_request).await?;
+
             ctx.register_ticket(ticket, GET_REGISTERED_USERS_TIMEOUT, ctx_user, move |ctx, ticket, success| {
                 match success {
                     PeerResponse::RegisteredCids(cids, online_status) => {
@@ -508,7 +509,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             }
 
             let post_register_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), username, None, None, fcm));
-            let ticket = server_remote.unbounded_send(post_register_request)?;
+            let ticket = server_remote.send(post_register_request).await?;
 
             let timeout = if use_fcm { FCM_POST_REGISTER_TIMEOUT } else { POST_REGISTER_TIMEOUT };
 
@@ -611,7 +612,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             let params = get_crypto_params(None, kem, enx, security_level);
 
             let post_connect_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), None, None, params));
-            let ticket = server_remote.unbounded_send(post_connect_request)?;
+            let ticket = server_remote.send(post_connect_request).await?;
 
             ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, ctx_user, move |_ctx, ticket, response| {
                 match response {
@@ -678,7 +679,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
                 let vconn = PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), mail_id as u64);
                 // TODO: Get rid of redundant use of username
                 let outbound_request = HdpServerRequest::PeerCommand(cnac.get_cid(), PeerSignal::PostRegister(vconn, username.unwrap_or("DECLINED".to_string()), Some(ticket), Some(response), fcm_post_register));
-                server_remote.send_with_custom_ticket(ticket, outbound_request).map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                server_remote.send_with_custom_ticket(ticket, outbound_request).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
 
                 Ok(Some(KernelResponse::ResponseFcmTicket(FcmTicket::new(mail_id as u64, ctx_user, ticket.0))))
             } else {
@@ -710,7 +711,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
                     // now, send the signal outbound and we are good to go
                     let peer_request = HdpServerRequest::PeerCommand(implicated_cid, outbound_request);
                     // use the same ticket
-                    server_remote.send_with_custom_ticket(ticket, peer_request)?;
+                    server_remote.send_with_custom_ticket(ticket, peer_request).await?;
                     colour::white_ln!("Registration consent request sent back to peer");
                     // No registering tickets needed since this is just a registration request
                     Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
@@ -746,7 +747,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
                 // this handles the flipping of the signal
                 let outbound_request = request.prepare_response_assert_connection(response).unwrap();
                 let peer_request = HdpServerRequest::PeerCommand(implicated_cid, outbound_request);
-                server_remote.send_with_custom_ticket(ticket, peer_request)?;
+                server_remote.send_with_custom_ticket(ticket, peer_request).await?;
                 colour::white_ln!("Connection consent request sent back to peer\n");
                 Ok(Some(KernelResponse::ResponseTicket(ticket.0)))
             } else {
@@ -759,7 +760,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
             let fcm_api_key = matches.value_of("fcm-api-key").unwrap();
             let fcm_keys = FcmKeys::new(fcm_api_key, fcm_token);
             let request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::FcmTokenUpdate(fcm_keys));
-            let ticket = server_remote.unbounded_send(request)?;
+            let ticket = server_remote.send(request).await?;
 
             ctx.register_ticket(ticket, FCM_FETCH_TIMEOUT, ctx_user, move |_,_, signal| {
                 match signal {

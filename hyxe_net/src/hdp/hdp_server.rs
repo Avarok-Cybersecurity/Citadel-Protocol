@@ -27,7 +27,7 @@ use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::fcm::data_structures::RawFcmPacketStore;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 
-use crate::constants::{DEFAULT_SO_LINGER_TIME, NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT};
+use crate::constants::{DEFAULT_SO_LINGER_TIME, NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT, MAX_OUTGOING_UNPROCESSED_REQUESTS};
 use crate::error::NetworkError;
 use crate::functional::PairMap;
 use crate::hdp::file_transfer::FileTransferStatus;
@@ -37,7 +37,7 @@ use crate::hdp::hdp_session::HdpSessionInitMode;
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream, TlsListener, FirstPacket};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
-use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
+use crate::hdp::outbound_sender::{UnboundedSender, BoundedSender, BoundedReceiver};
 use crate::hdp::peer::channel::PeerChannel;
 use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal};
 use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
@@ -127,7 +127,7 @@ impl HdpServer {
         let kernel_tx = read.to_kernel.clone();
         let node_type = read.local_node_type;
 
-        let (outbound_send_request_tx, outbound_send_request_rx) = unbounded(); // for the Hdp remote
+        let (outbound_send_request_tx, outbound_send_request_rx) = BoundedSender::new(MAX_OUTGOING_UNPROCESSED_REQUESTS); // for the Hdp remote
         let remote = HdpServerRemote::new(outbound_send_request_tx);
         let tt = read.session_manager.load_server_remote_get_tt(remote.clone());
 
@@ -420,7 +420,7 @@ impl HdpServer {
         }
     }
 
-    async fn outbound_kernel_request_handler(this: HdpServer, to_kernel_tx: UnboundedSender<HdpServerResult>, outbound_send_request_rx: UnboundedReceiver<(HdpServerRequest, Ticket)>) -> Result<(), NetworkError> {
+    async fn outbound_kernel_request_handler(this: HdpServer, ref to_kernel_tx: UnboundedSender<HdpServerResult>, mut outbound_send_request_rx: BoundedReceiver<(HdpServerRequest, Ticket)>) -> Result<(), NetworkError> {
         let (primary_port, local_bind_addr, local_node_type, session_manager, listener_underlying_proto) = {
             let read = inner!(this);
             let primary_port = read.local_bind_addr.port();
@@ -436,80 +436,74 @@ impl HdpServer {
             (primary_port, local_bind_addr, local_node_type, session_manager, listener_underlying_proto)
         };
 
-        let mut stream = tokio_stream::wrappers::UnboundedReceiverStream::new(outbound_send_request_rx);
+        let send_error = |ticket_id: Ticket, err: NetworkError| {
+            if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.into_string())) {
+                return Err(NetworkError::InternalError("kernel disconnected from hypernode instance"));
+            } else {
+                Ok(())
+            }
+        };
 
-        while let Some((outbound_request, ticket_id)) = stream.next().await {
+        while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.next().await {
             match outbound_request {
                 HdpServerRequest::SendMessage(packet, implicated_cid, virtual_target, security_level) => {
                     if let Err(err) = session_manager.process_outbound_packet(ticket_id, packet, implicated_cid, virtual_target, security_level) {
-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
-                        }
+                        send_error(ticket_id, err)?;
                     }
                 }
 
                 HdpServerRequest::GroupBroadcastCommand(implicated_cid, cmd) => {
                     if let Err(err) = session_manager.process_outbound_broadcast_command(ticket_id, implicated_cid, cmd) {
-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
-                        }
+                        send_error(ticket_id, err)?;
                     }
                 }
 
                 HdpServerRequest::RegisterToHypernode(peer_addr, credentials, fcm_keys,  security_settings) => {
                     if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Register(peer_addr),ticket_id, credentials, None, listener_underlying_proto.clone(), fcm_keys, None, None, security_settings).await {
-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
-                        }
+                        send_error(ticket_id, err)?;
                     }
                 }
 
                 HdpServerRequest::ConnectToHypernode(implicated_cid, credentials, connect_mode, fcm_keys, tcp_only, keep_alive_timeout,  security_settings) => {
                     if let Err(err) = session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Connect(implicated_cid), ticket_id, credentials, Some(connect_mode), listener_underlying_proto.clone(), fcm_keys, tcp_only, keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000), security_settings).await {
-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
-                        }
+                        send_error(ticket_id, err)?;
                     }
                 }
 
                 HdpServerRequest::DisconnectFromHypernode(implicated_cid, target) => {
                     if let Err(err) = session_manager.initiate_disconnect(implicated_cid, target, ticket_id) {
-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
-                        }
+                        send_error(ticket_id, err)?;
                     }
                 }
 
                 HdpServerRequest::UpdateDrill(virtual_target) => {
                     if let Err(err) = session_manager.initiate_update_drill_subroutine(virtual_target, ticket_id) {
-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
-                        }
+                        send_error(ticket_id, err)?;
                     }
                 }
 
                 HdpServerRequest::DeregisterFromHypernode(implicated_cid, virtual_connection_type) => {
-                    if !session_manager.initiate_deregistration_subroutine(implicated_cid, virtual_connection_type, ticket_id) {
-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
-                        }
+                    if let Err(err) = session_manager.initiate_deregistration_subroutine(implicated_cid, virtual_connection_type, ticket_id) {
+                        send_error(ticket_id, err)?;
                     }
                 }
 
                 // TODO: Update this to include security levels (FCM conflicts though)
                 HdpServerRequest::PeerCommand(implicated_cid, peer_command) => {
-                    if !session_manager.dispatch_peer_command(implicated_cid, ticket_id, peer_command, SecurityLevel::LOW).await {
-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), "CID not found".to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
-                        }
+                    if let Err(err) = session_manager.dispatch_peer_command(implicated_cid, ticket_id, peer_command, SecurityLevel::LOW).await {
+                        send_error(ticket_id, err)?;
                     }
                 }
 
                 HdpServerRequest::SendFile(path, chunk_size, implicated_cid, virtual_target) => {
                     if let Err(err) = session_manager.process_outbound_file(ticket_id, chunk_size, path, implicated_cid, virtual_target, SecurityLevel::LOW) {
-                        if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.to_string())) {
-                            return Err(NetworkError::InternalError("kernel disconnected from Hypernode instance"));
-                        }
+                        send_error(ticket_id, err)?;
+                    }
+                }
+
+                HdpServerRequest::GetActiveSessions => {
+                    if let Err(err) = to_kernel_tx.unbounded_send(HdpServerResult::SessionList(ticket_id, session_manager.get_active_sessions())) {
+                        send_error(ticket_id, NetworkError::Generic(err.to_string()))?;
                     }
                 }
 
@@ -526,7 +520,7 @@ impl HdpServer {
 /// allows convenient communication with the server
 #[derive(Clone)]
 pub struct HdpServerRemote {
-    outbound_send_request_tx: UnboundedSender<(HdpServerRequest, Ticket)>,
+    outbound_send_request_tx: BoundedSender<(HdpServerRequest, Ticket)>,
     ticket_counter: Arc<AtomicUsize>,
 }
 
@@ -538,31 +532,50 @@ impl Debug for HdpServerRemote {
 
 impl HdpServerRemote {
     /// Creates a new [HdpServerRemote]
-    pub fn new(outbound_send_request_tx: UnboundedSender<(HdpServerRequest, Ticket)>) -> Self {
+    pub fn new(outbound_send_request_tx: BoundedSender<(HdpServerRequest, Ticket)>) -> Self {
         // starts at 1. Ticket 0 is for reserved
         Self { ticket_counter: Arc::new(AtomicUsize::new(1)), outbound_send_request_tx }
     }
 
-    /// Sends a request to the HDP server. This should always be used to communicate with the server
-    /// in order to obtain a ticket
-    pub fn unbounded_send(&self, request: HdpServerRequest) -> Result<Ticket, NetworkError> {
-        let ticket = self.get_next_ticket();
-        self.outbound_send_request_tx.unbounded_send((request, ticket))
-            .map(|_| ticket)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+    /// Especially used to keep track of a conversation (b/c a certain ticket number may be expected)
+    pub async fn send_with_custom_ticket(&mut self, ticket: Ticket, request: HdpServerRequest) -> Result<(), NetworkError> {
+        struct Send<T> {
+            inner: Option<T>
+        }
+
+        let mut item = Send {
+            inner: Some((request, ticket))
+        };
+
+        futures::future::poll_fn(|cx| {
+            let mut this = &mut self.outbound_send_request_tx;
+            let mut this = Pin::new(&mut this);
+            futures::ready!(this.as_mut().poll_ready(cx))?;
+
+            if let Some(item) = item.inner.take() {
+                this.as_mut().start_send(item)?;
+            }
+
+            this.poll_flush(cx).map_err(|err| NetworkError::Generic(err.to_string()))
+        }).await
     }
 
-    /// Especially used to keep track of a conversation (b/c a certain ticket number may be expected)
-    pub fn send_with_custom_ticket(&self, ticket: Ticket, request: HdpServerRequest) -> Result<(), NetworkError> {
-        self.outbound_send_request_tx.unbounded_send((request, ticket))
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+    /// Sends a request to the HDP server. This should always be used to communicate with the server
+    /// in order to obtain a ticket
+    pub async fn send(&mut self, request: HdpServerRequest) -> Result<Ticket, NetworkError> {
+        let ticket = self.get_next_ticket();
+        self.send_with_custom_ticket(ticket, request).await.map(|_| ticket)
     }
 
     /// Safely shutsdown the internal server
-    pub fn shutdown(&self) -> Result<(), NetworkError> {
-        let ticket = self.get_next_ticket();
-        self.outbound_send_request_tx.unbounded_send((HdpServerRequest::Shutdown, ticket))
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+    pub async fn shutdown(&mut self) -> Result<(), NetworkError> {
+        let _ = self.send(HdpServerRequest::Shutdown).await?;
+
+        futures::future::poll_fn(|cx| {
+            let mut this = &mut self.outbound_send_request_tx;
+            let this = Pin::new(&mut this);
+            this.poll_close(cx).map_err(|err| NetworkError::Generic(err.to_string()))
+        }).await
     }
 
     pub fn get_next_ticket(&self) -> Ticket {
@@ -575,53 +588,43 @@ impl Unpin for HdpServerRemote {}
 impl Sink<(Ticket, HdpServerRequest)> for HdpServerRemote {
     type Error = NetworkError;
 
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        <Self as Sink<HdpServerRequest>>::poll_ready(self, _cx)
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        <Self as Sink<HdpServerRequest>>::poll_ready(self, cx)
     }
 
-    fn start_send(self: Pin<&mut Self>, item: (Ticket, HdpServerRequest)) -> Result<(), Self::Error> {
-        self.get_mut().send_with_custom_ticket(item.0, item.1)
+    fn start_send(mut self: Pin<&mut Self>, item: (Ticket, HdpServerRequest)) -> Result<(), Self::Error> {
+        Pin::new(&mut self.outbound_send_request_tx).start_send((item.1, item.0))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        <Self as Sink<HdpServerRequest>>::poll_flush(self, _cx)
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        <Self as Sink<HdpServerRequest>>::poll_flush(self, cx)
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        <Self as Sink<HdpServerRequest>>::poll_close(self, _cx)
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        <Self as Sink<HdpServerRequest>>::poll_close(self, cx)
     }
 }
 
 impl Sink<HdpServerRequest> for HdpServerRemote {
     type Error = NetworkError;
 
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if self.outbound_send_request_tx.0.is_closed() {
-            Poll::Ready(Err(NetworkError::InternalError("Closed")))
-        } else {
-            Poll::Ready(Ok(()))
-        }
+    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Pin::new(&mut self.outbound_send_request_tx).poll_ready(cx)
     }
 
-    fn start_send(self: Pin<&mut Self>, item: HdpServerRequest) -> Result<(), Self::Error> {
-        self.get_mut().unbounded_send(item)
-            .map(|_|())
+    fn start_send(mut self: Pin<&mut Self>, item: HdpServerRequest) -> Result<(), Self::Error> {
+        let ticket = self.get_next_ticket();
+        Pin::new(&mut self.outbound_send_request_tx).start_send((item, ticket))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Pin::new(&mut self.outbound_send_request_tx).poll_flush(cx)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        match self.shutdown() {
-            Ok(_) => {
-                Poll::Ready(Ok(()))
-            },
-
-            Err(err) =>{
-                Poll::Ready(Err(err))
-            }
-        }
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Pin::new(&mut self.outbound_send_request_tx).poll_close(cx)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 }
 
@@ -647,6 +650,8 @@ pub enum HdpServerRequest {
     GroupBroadcastCommand(u64, GroupBroadcast),
     /// Tells the server to disconnect a session (implicated cid, target_cid)
     DisconnectFromHypernode(u64, VirtualConnectionType),
+    /// Returns a list of connected sessions
+    GetActiveSessions,
     /// shutdown signal
     Shutdown,
 }
@@ -691,6 +696,8 @@ pub enum HdpServerResult {
     InternalServerError(Option<Ticket>, String),
     /// A channel was created, with channel_id = ticket (same as post-connect ticket received)
     PeerChannelCreated(Ticket, PeerChannel),
+    /// A list of running sessions
+    SessionList(Ticket, Vec<u64>),
     /// For shutdowns
     Shutdown,
 }

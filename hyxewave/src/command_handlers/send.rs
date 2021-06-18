@@ -9,7 +9,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, _server_remote: &'a HdpServerR
     if let Some(session) = ctx.sessions.write().await.get_mut(&cid) {
         log::info!("About to send: {}", &message);
         session.channel_tx.set_security_level(security_level);
-        session.channel_tx.send_unbounded(SecBuffer::from(message))?;
+        session.channel_tx.send_message(SecBuffer::from(message)).await?;
         Ok(Some(KernelResponse::ResponseTicket(session.channel_tx.channel_id().0)))
     } else {
         Err(ConsoleError::Default("Please make sure you have switched to an active session, and then try again"))

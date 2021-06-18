@@ -137,7 +137,7 @@ pub mod tests {
     }
 
     static PROTO: Mutex<Option<UnderlyingProtocol>> = const_mutex(None);
-    const USE_FILESYSYEM: bool = true;
+    const USE_FILESYSYEM: bool = false;
 
     fn underlying_proto() -> UnderlyingProtocol {
         let lock = PROTO.lock();
@@ -162,7 +162,7 @@ pub mod tests {
     pub const SECRECY_MODE: SecrecyMode = SecrecyMode::BestEffort;
     pub const USE_TLS: bool = true;
 
-    const COUNT: usize = 2000;
+    const COUNT: usize = 1000;
     const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 100);
 
     // The number of random bytes put into every message
@@ -291,7 +291,7 @@ pub mod tests {
 
     #[allow(unused_results)]
     async fn create_executor(hypernode_type: HyperNodeType, rt: Handle, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: NodeType, commands: Vec<ActionType>, backend_type: BackendType, underlying_proto: UnderlyingProtocol) -> KernelExecutor<TestKernel> {
-        let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port())), backend_type).await.unwrap();
+        let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port())), backend_type, None).await.unwrap();
         account_manager.purge().await.unwrap();
         let kernel = TestKernel::new(node_type, commands, test_container);
         KernelExecutor::new(rt, hypernode_type, account_manager, kernel, bind_addr, underlying_proto).await.unwrap()
@@ -408,10 +408,10 @@ pub mod tests {
             }
 
             #[async_recursion]
-            async fn execute_action(&self, request: ActionType, remote: &HdpServerRemote) {
+            async fn execute_action(&self, request: ActionType, remote: &mut HdpServerRemote) {
                 match request {
                     ActionType::Request(request) => {
-                        let ticket = remote.unbounded_send(request).unwrap();
+                        let ticket = remote.send(request).await.unwrap();
                         assert(self.queued_requests.lock().insert(ticket), "KLP");
                     }
 
@@ -429,7 +429,7 @@ pub mod tests {
             #[async_recursion]
             async fn execute_next_action(&self) {
                 if self.node_type != NodeType::Server {
-                    let remote = self.remote.as_ref().unwrap();
+                    let mut remote = self.remote.clone().unwrap();
                     let item = {
                         let mut lock = self.commands.lock();
                         if lock.len() != 0 {
@@ -442,7 +442,7 @@ pub mod tests {
                         }
                     };
 
-                    self.execute_action(item, remote).await;
+                    self.execute_action(item, &mut remote).await;
 
                 }
             }
@@ -456,28 +456,28 @@ pub mod tests {
 
             #[allow(dead_code)]
             fn shutdown_in(&self, time: Option<Duration>) {
-                let remote = self.remote.clone().unwrap();
-                if let Some(time) = time {
-                    tokio::task::spawn(async move {
+                let mut remote = self.remote.clone().unwrap();
+                tokio::task::spawn(async move {
+                    if let Some(time) = time {
                         tokio::time::sleep(time).await;
-                        remote.shutdown().unwrap();
-                    });
-                } else {
-                    remote.shutdown().unwrap();
-                }
+                        remote.shutdown().await.unwrap();
+                    } else {
+                        remote.shutdown().await.unwrap();
+                    }
+                });
             }
         }
 
         #[async_trait]
         impl NetKernel for TestKernel {
-            async fn on_start(&mut self, server_remote: HdpServerRemote) -> Result<(), NetworkError> {
+            async fn on_start(&mut self, mut server_remote: HdpServerRemote) -> Result<(), NetworkError> {
                 log::info!("Running node {:?} onStart", self.node_type);
                 if self.node_type != NodeType::Server {
                     let item = {
                         self.commands.lock().remove(0)
                     };
 
-                    self.execute_action(item, &server_remote).await;
+                    self.execute_action(item, &mut server_remote).await;
                     let container = self.item_container.as_ref().unwrap();
                     let mut write = container.write();
                     if self.node_type == NodeType::Client0 {
@@ -514,8 +514,8 @@ pub mod tests {
                                     // accept it
                                     if self.node_type == NodeType::Client0 || self.node_type == NodeType::Client1 {
                                         let accept = GroupBroadcast::AcceptMembership(key);
-                                        let remote = self.remote.clone().unwrap();
-                                        remote.send_with_custom_ticket(ticket, HdpServerRequest::GroupBroadcastCommand(implicated_cid, accept)).unwrap();
+                                        let mut remote = self.remote.clone().unwrap();
+                                        remote.send_with_custom_ticket(ticket, HdpServerRequest::GroupBroadcastCommand(implicated_cid, accept)).await.unwrap();
                                     } else {
                                         return Err(NetworkError::InternalError("Invalid group invitation recipient"));
                                     }
@@ -599,11 +599,11 @@ pub mod tests {
                                     if count >= COUNT {
                                         log::info!("[Group] {:?} is done receiving messages", self.node_type);
                                         self.on_valid_ticket_received(GROUP_TICKET_TEST);
-                                        let remote = self.remote.clone().unwrap();
+                                        let mut remote = self.remote.clone().unwrap();
                                         tokio::task::spawn(async move {
                                             // TODO: Replace this with broadcasters
                                             tokio::time::sleep(Duration::from_millis(500)).await;
-                                            remote.shutdown().unwrap();
+                                            remote.shutdown().await.unwrap();
                                         });
                                     }
                                 }
@@ -617,11 +617,11 @@ pub mod tests {
                                     if lock.group_messages_verified_client2_host >= COUNT {
                                         log::info!("[Group] {:?}/Host has successfully sent all messages", self.node_type);
                                         self.on_valid_ticket_received(GROUP_TICKET_TEST);
-                                        let remote = self.remote.clone().unwrap();
+                                        let mut remote = self.remote.clone().unwrap();
                                         tokio::task::spawn(async move {
                                             // TODO: Replace this with broadcasters
                                             tokio::time::sleep(Duration::from_millis(500)).await;
-                                            remote.shutdown().unwrap();
+                                            remote.shutdown().await.unwrap();
                                         });
                                     }
                                 }
@@ -720,13 +720,16 @@ pub mod tests {
                                         // the receiver of peer register requests is client 1 (c0 -> c1, c2 -> c1)
                                         assert_eq(self.node_type, NodeType::Client1, "LV0");
                                         let item_container = self.item_container.as_ref().unwrap();
-                                        let read = item_container.read();
-                                        let this_cnac = read.cnac_client1.as_ref().unwrap();
+                                        let accept_post_register = {
+                                            let read = item_container.read();
+                                            let this_cnac = read.cnac_client1.as_ref().unwrap();
 
-                                        let this_cid = this_cnac.get_cid();
-                                        let this_username = this_cnac.get_username();
-                                        let accept_post_register = HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostRegister(vconn.reverse(), this_username, Some(ticket), Some(PeerResponse::Accept(None)), fcm));
-                                        self.remote.as_ref().unwrap().send_with_custom_ticket(ticket, accept_post_register).unwrap();
+                                            let this_cid = this_cnac.get_cid();
+                                            let this_username = this_cnac.get_username();
+                                            HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostRegister(vconn.reverse(), this_username, Some(ticket), Some(PeerResponse::Accept(None)), fcm))
+                                        };
+
+                                        self.remote.clone().unwrap().send_with_custom_ticket(ticket, accept_post_register).await.unwrap();
                                         //self.shutdown_in(Some(Duration::from_millis(500)));
                                     }
                                 }
@@ -735,18 +738,22 @@ pub mod tests {
                                     if let Some(_resp) = resp_opt {
                                         // TODO
                                     } else {
-                                        // the receiver is client 1
-                                        assert_eq(self.node_type, NodeType::Client1, "PQZ");
-                                        // receiver peer. ALlow the connection
-                                        let item_container = self.item_container.as_ref().unwrap();
-                                        let read = item_container.read();
-                                        let this_cnac = read.cnac_client1.as_ref().unwrap();
+                                        let accept_post_connect = {
+                                            // the receiver is client 1
+                                            assert_eq(self.node_type, NodeType::Client1, "PQZ");
+                                            // receiver peer. ALlow the connection
+                                            let item_container = self.item_container.as_ref().unwrap();
+                                            let read = item_container.read();
+                                            let this_cnac = read.cnac_client1.as_ref().unwrap();
 
-                                        let this_cid = this_cnac.get_cid();
-                                        let accept_post_connect = HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostConnect(vconn.reverse(), Some(ticket), Some(PeerResponse::Accept(None)), p2p_sec_lvl));
-                                        // we will expect a PeerChannel
-                                        self.queued_requests.lock().insert(ticket);
-                                        self.remote.as_ref().unwrap().send_with_custom_ticket(ticket, accept_post_connect).unwrap();
+                                            let this_cid = this_cnac.get_cid();
+                                            let accept_post_connect = HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostConnect(vconn.reverse(), Some(ticket), Some(PeerResponse::Accept(None)), p2p_sec_lvl));
+                                            // we will expect a PeerChannel
+                                            self.queued_requests.lock().insert(ticket);
+                                            accept_post_connect
+                                        };
+
+                                        self.remote.clone().unwrap().send_with_custom_ticket(ticket, accept_post_connect).await.unwrap();
                                         //self.shutdown_in(Some(Duration::from_millis(1500)));
                                     }
                                 }
@@ -879,15 +886,15 @@ pub mod tests {
         log::info!("[Peer channel] received on {:?}", node_type);
         tokio::task::spawn(async move {
             tokio::time::sleep(Duration::from_millis(300)).await;
-            let (sink, mut stream) = channel.split();
+            let (mut sink, mut stream) = channel.split();
             let sender = async move {
                     for x in 0..COUNT {
                         if x % 10 == 9 {
                             //tokio::time::sleep(Duration::from_millis(1)).await
                         }
                         //tokio::time::sleep(Duration::from_millis(10)).await;
-                        sink.send_unbounded(MessageTransfer::create(x as u64)).unwrap();
-                        //sink.send(MessageTransfer::create(x as _)).await.unwrap();
+                        //sink.send_unbounded(MessageTransfer::create(x as u64)).unwrap();
+                        sink.send(MessageTransfer::create(x as _)).await.unwrap();
                     }
 
                     log::info!("DONE sending {} messages for {:?}", COUNT, node_type);
@@ -951,13 +958,13 @@ pub mod tests {
         });
     }
 
-    async fn start_client_server_stress_test(requests: Arc<Mutex<HashSet<Ticket>>>, sink: PeerChannelSendHalf, node_type: NodeType) {
+    async fn start_client_server_stress_test(requests: Arc<Mutex<HashSet<Ticket>>>, mut sink: PeerChannelSendHalf, node_type: NodeType) {
         assert(requests.lock().insert(CLIENT_SERVER_MESSAGE_STRESS_TEST), "MV0");
         log::info!("[Server/Client Stress Test] Starting send of {} messages [local type: {:?}]", COUNT, node_type);
 
         for x in 0..COUNT {
-            //sink.send(MessageTransfer::create(x as u64)).await.unwrap();
-            sink.send_unbounded(MessageTransfer::create(x as _)).unwrap();
+            sink.send(MessageTransfer::create(x as u64)).await.unwrap();
+            //sink.send_unbounded(MessageTransfer::create(x as _)).unwrap();
             tokio::time::sleep(Duration::from_millis(1)).await; // For some reason, when THIS line is added, we don't get the error of it randomly stopping ... weird
         }
 
@@ -1010,7 +1017,7 @@ pub mod tests {
 
     // client 2 will initiate the p2p *registration* to client1
     async fn client2_action2(item_container: Arc<RwLock<TestContainer>>, enable_fcm: bool) -> Option<ActionType> {
-        tokio::task::spawn(async move {
+        AssertSendSafeFuture::spawn(async move {
             log::info!("Executing Client2_action2");
             let write = item_container.write();
             let cnac = write.cnac_client1.clone().unwrap();
@@ -1018,10 +1025,13 @@ pub mod tests {
             let client2_id = client2_cnac.get_cid();
             let target_cid = cnac.get_cid();
             let client2_username = client2_cnac.get_username();
-            let requests = write.queued_requests_client2.as_ref().unwrap();
+            let requests = write.queued_requests_client2.clone().unwrap();
             let fcm = enable_fcm.then(|| FcmPostRegister::Enable).unwrap_or(FcmPostRegister::Disable);
             let post_register_request = HdpServerRequest::PeerCommand(client2_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client2_id, target_cid), client2_username, None, None, fcm));
-            let ticket = write.remote_client2.as_ref().unwrap().unbounded_send(post_register_request).unwrap();
+
+            let mut remote_client2 = write.remote_client2.clone().unwrap();
+            std::mem::drop(write);
+            let ticket = remote_client2.send(post_register_request).await.unwrap();
             assert(requests.lock().insert(ticket), "RDXY");
         });
 
@@ -1048,7 +1058,7 @@ pub mod tests {
 
     /// Client 2 will patiently wait to send a group invite
     async fn client2_action3_start_group(item_container: Arc<RwLock<TestContainer>>) -> Option<ActionType> {
-        tokio::task::spawn(async move {
+        AssertSendSafeFuture::spawn(async move {
             loop {
                 {
                     let read = item_container.read();
@@ -1059,8 +1069,10 @@ pub mod tests {
                         let this_cid = read.cnac_client2.as_ref().unwrap().get_cid();
 
                         let request = HdpServerRequest::GroupBroadcastCommand(this_cid, GroupBroadcast::Create(vec![client0_cnac.get_cid(), client1_cnac.get_cid()]));
-                        let remote = read.remote_client2.clone().unwrap();
-                        let _ticket = remote.unbounded_send(request).unwrap();
+                        let mut remote = read.remote_client2.clone().unwrap();
+
+                        std::mem::drop(read);
+                        let _ticket = remote.send(request).await.unwrap();
                         //assert(read.queued_requests_client2.as_ref().unwrap().lock().insert(ticket), "MDY");
                         return;
                     }
@@ -1095,17 +1107,20 @@ pub mod tests {
 
     // client 0 will initiate the p2p *registration* to client1
     async fn client0_action2(item_container: Arc<RwLock<TestContainer>>, enable_fcm: bool) -> Option<ActionType> {
-        tokio::task::spawn(async move {
+        AssertSendSafeFuture::spawn(async move {
             let write = item_container.write();
             let cnac = write.cnac_client1.clone().unwrap();
             let client0_cnac = write.cnac_client0.as_ref().unwrap();
             let client0_id = client0_cnac.get_cid();
             let target_cid = cnac.get_cid();
             let client0_username = client0_cnac.get_username();
-            let requests = write.queued_requests_client0.as_ref().unwrap();
+            let requests = write.queued_requests_client0.clone().unwrap();
             let fcm = enable_fcm.then(|| FcmPostRegister::Enable).unwrap_or(FcmPostRegister::Disable);
             let post_register_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), client0_username, None, None, fcm));
-            let ticket = write.remote_client0.as_ref().unwrap().unbounded_send(post_register_request).unwrap();
+
+            let mut remote_client0 = write.remote_client0.clone().unwrap();
+            std::mem::drop(write);
+            let ticket = remote_client0.send(post_register_request).await.unwrap();
             assert(requests.lock().insert(ticket), "ABK");
         });
 
@@ -1114,16 +1129,19 @@ pub mod tests {
 
     // client 0 will initiate the p2p *connection* to client1
     async fn client0_action3(item_container: Arc<RwLock<TestContainer>>, p2p_security_level: SecurityLevel) -> Option<ActionType> {
-        tokio::task::spawn(async move {
+        AssertSendSafeFuture::spawn(async move {
             let read = item_container.read();
             let cnac = read.cnac_client1.clone().unwrap();
             let client0_cnac = read.cnac_client0.as_ref().unwrap();
             let client0_id = client0_cnac.get_cid();
             let target_cid = cnac.get_cid();
-            let requests = read.queued_requests_client0.as_ref().unwrap();
+            let requests = read.queued_requests_client0.clone().unwrap();
             let settings = SessionSecuritySettingsBuilder::default().with_security_level(p2p_security_level).with_secrecy_mode(SECRECY_MODE).build();
             let post_connect_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), None, None, settings));
-            let ticket = read.remote_client0.as_ref().unwrap().unbounded_send(post_connect_request).unwrap();
+
+            let mut remote_client0 = read.remote_client0.clone().unwrap();
+            std::mem::drop(read);
+            let ticket = remote_client0.send(post_connect_request).await.unwrap();
             assert(requests.lock().insert(ticket), "Z12");
         });
 
@@ -1152,6 +1170,11 @@ pub mod utils {
         }
         pub fn new_silent(fx: impl Future<Output=Out> + 'a) -> Self {
             Self(Box::pin(fx))
+        }
+
+        pub fn spawn(fx: impl Future<Output=Out> + 'static) where Out: Send + 'static {
+            let task = AssertSendSafeFuture::new_silent(fx);
+            tokio::task::spawn(task);
         }
     }
 
