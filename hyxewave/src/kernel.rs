@@ -453,6 +453,10 @@ impl NetKernel for CLIKernel {
                 }
             }
 
+            HdpServerResult::SessionList(ticket, sess_list) => {
+                self.on_ticket_received(ticket, PeerResponse::RegisteredCids(sess_list, vec![]))
+            }
+
             _ => {}
         }
 

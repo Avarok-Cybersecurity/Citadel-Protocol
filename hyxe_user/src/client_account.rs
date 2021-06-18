@@ -38,7 +38,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use crate::backend::PersistenceHandler;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use hyxe_crypt::argon_container::{ArgonContainerType, AsyncArgon, ArgonStatus};
+use hyxe_crypt::argon::argon_container::{ArgonContainerType, AsyncArgon, ArgonStatus};
 use crate::proposed_credentials::ProposedCredentials;
 use std::sync::atomic::Ordering;
 

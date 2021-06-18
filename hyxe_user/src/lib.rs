@@ -21,6 +21,8 @@ unused_results,
 warnings
 )]
 
+#![allow(rustdoc::broken_intra_doc_links)]
+
 /// Standard imports for this library
 pub mod prelude {
     pub use hyxe_fs::file_crypt_scrambler::MAX_BYTES_PER_GROUP;

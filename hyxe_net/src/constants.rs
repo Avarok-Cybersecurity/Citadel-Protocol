@@ -1,4 +1,4 @@
-pub const BUILD_VERSION: usize = 5328;
+pub const BUILD_VERSION: usize = 5706;
 /// Signal for closing the stream_wrapper
 pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper
@@ -15,7 +15,7 @@ pub const DEFAULT_SO_LINGER_TIME: std::time::Duration = std::time::Duration::fro
 pub const HDP_WAVE_PAYLOAD_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 /// For calculating network latency
 pub const NANOSECONDS_PER_SECOND: i64 = 1_000_000_000;
-/// The length of an ethernet header. Source: https://app.netrounds.com/static/2.24/support/defs-notes/l2-eth-frame-sizes.html
+/// The length of an ethernet header. Source: `<https://app.netrounds.com/static/2.24/support/defs-notes/l2-eth-frame-sizes.html>`
 pub const LAYER2_ETHERNET_HEADER_BYTE_LEN: usize = 18;
 /// The IPv4 Header len
 pub const LAYER3_IPV4_HEADER_BYTE_LEN: usize = 20;
@@ -97,9 +97,6 @@ pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from
 pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_secs(60*30);
 ///
 pub const TCP_CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
-///
-#[cfg(feature = "single-threaded")]
-pub const PACKET_PROCESS_LIMIT: Option<usize> = Some(1);
-///
-#[cfg(not(feature = "single-threaded"))]
-pub const PACKET_PROCESS_LIMIT: Option<usize> = None;
+
+pub const MAX_OUTGOING_UNPROCESSED_REQUESTS: usize = 512;
+pub const MAX_INCOMING_UNPROCESSED_REQUESTS: usize = 512;

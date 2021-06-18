@@ -3,7 +3,6 @@ use std::pin::Pin;
 use tokio::net::ToSocketAddrs;
 use tokio::runtime::Handle;
 use tokio::task::LocalSet;
-use tokio_stream::StreamExt;
 
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_user::account_manager::AccountManager;
@@ -14,6 +13,7 @@ use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult, Underl
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::kernel::kernel::NetKernel;
 use crate::kernel::RuntimeFuture;
+use futures::TryStreamExt;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
@@ -76,40 +76,44 @@ impl<K: NetKernel> KernelExecutor<K> {
     }
 
     #[allow(unused_must_use)]
-    async fn multithreaded_kernel_inner_loop(mut kernel: K, server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, hdp_server_remote: HdpServerRemote, shutdown: tokio::sync::oneshot::Receiver<()>) -> Result<(), NetworkError> {
+    async fn multithreaded_kernel_inner_loop(mut kernel: K, mut server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, hdp_server_remote: HdpServerRemote, shutdown: tokio::sync::oneshot::Receiver<()>) -> Result<(), NetworkError> {
         log::info!("Kernel multithreaded environment executed ...");
         // Load the remote into the kernel
         kernel.on_start(hdp_server_remote.clone()).await?;
 
-        let kernel = std::sync::Arc::new(kernel);
+        let ref kernel = std::sync::Arc::new(kernel);
 
-        let mut receiver = tokio_stream::wrappers::UnboundedReceiverStream::new(server_to_kernel_rx);
+        let reader = async_stream::try_stream! {
+            while let Some(value) = server_to_kernel_rx.recv().await {
+                yield value;
+            }
+        };
 
-        while let Some(message) = receiver.next().await {
+        let ref remote = hdp_server_remote;
+        let _ = reader.try_for_each_concurrent(None, |message: HdpServerResult| async move {
             match message {
                 HdpServerResult::Shutdown => {
                     log::info!("Kernel received safe shutdown signal");
-                    break;
+                    Err(NetworkError::ProperShutdown)
                 }
 
                 message => {
                     if !kernel.can_run() {
-                        break;
-                    }
-
-                    let kernel = kernel.clone();
-                    let remote = hdp_server_remote.clone();
-                    // Ensure that we don't block further calls to next().await, and offload the task to the tokio runtime
-                    let _ = tokio::task::spawn(async move {
+                        Err(NetworkError::ProperShutdown)
+                    } else {
+                        // Ensure that we don't block further calls to next().await, and offload the task to the tokio runtime
                         if let Err(err) = kernel.on_server_message_received(message).await {
                             log::error!("Kernel threw an error: {:?}. Will end", &err);
                             // calling this will cause server_to_kernel_rx to receive a shutdown message
-                            remote.shutdown();
+                            remote.clone().shutdown().await?;
+                            Err(err)
+                        } else {
+                            Ok(())
                         }
-                    });
+                    }
                 }
             }
-        }
+        }).await;
 
         log::info!("Calling kernel on_stop, but first awaiting HdpServer for clean shutdown ...");
         tokio::time::timeout(Duration::from_millis(300), shutdown).await;

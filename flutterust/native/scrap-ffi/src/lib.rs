@@ -8,8 +8,41 @@ use std::ffi::CString;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::{ffi::CStr, os::raw};
+use hyxewave::app_config::{TomlConfig, HypernodeConfig, BackendTomlConfig};
 
 const BIND_ADDR: &str = "0.0.0.0";
+
+fn generate_backend_config(url: &str) -> BackendTomlConfig {
+    BackendTomlConfig {
+        url: url.to_string(),
+        max_connections: None,
+        min_connections: None,
+        connect_timeout_sec: None,
+        idle_timeout_sec: Some(30),
+        max_lifetime_sec: Some(30),
+        car_mode: None
+    }
+}
+
+pub(crate) fn generate_app_config(home_dir: &str, database_url: &str) -> TomlConfig {
+    let backend = generate_backend_config(database_url);
+
+    let node = HypernodeConfig {
+        alias: "default".to_string(),
+        local_bind_addr: None,
+        override_home_dir: Some(home_dir.to_string()),
+        tls: None,
+        backend: Some(backend),
+        kernel_threads: Some(2),
+        daemon_mode: None,
+        argon: None
+    };
+
+    TomlConfig {
+        default_node: "default".to_string(),
+        hypernodes: vec![node]
+    }
+}
 
 pub mod ffi_object;
 
@@ -78,6 +111,10 @@ pub unsafe extern "C" fn fcm_process(
     let packet = CStr::from_ptr(packet).to_str().unwrap();
     let home_dir = CStr::from_ptr(home_dir).to_str().unwrap();
     let database = CStr::from_ptr(database).to_str().unwrap();
+
+    let backend_cfg = generate_backend_config(database);
+    let backend_type = BackendType::sql_with(&backend_cfg.url, (&backend_cfg).into());
+
     log::info!("[Rust BG processor] Received packet: {:?}", &packet);
 
     // if the primary instance is in memory already, don't bother using the account manager. Delegate to "peer fcm-parse <packet/raw>"
@@ -91,33 +128,31 @@ pub unsafe extern "C" fn fcm_process(
     // setup account manager. We MUST reload each time this gets called, because the main instance may have
     // experienced changes that wouldn't otherwise register in this background isolate
     log::info!("[Rust BG processor] Setting up background processor ...");
-    match AccountManager::new_blocking(
-        SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),
-        Some(home_dir.to_string()),
-        BackendType::SQLDatabase(database.to_string()),
-    ) {
-        Ok(acc_mgr) => {
-            log::info!("[Rust BG processor] Success setting-up account manager");
-            match hyxewave::re_exports::fcm_packet_processor::block_on_async(move || AssertSendSafeFuture::new(hyxewave::re_exports::fcm_packet_processor::process(packet, acc_mgr))) {
-                Ok(res) => {
-                    let fcm_res = KernelResponse::from(
-                        res,
-                    );
 
-                    CString::new(fcm_res.serialize_json().unwrap())
-                        .unwrap()
-                        .into_raw()
-                }
+    let home_dir = home_dir.to_string();
 
-                Err(err) => {
-                    response_err(err)
-                }
+    let task = async move {
+        match AccountManager::new(SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),Some(home_dir.to_string()), backend_type, None).await {
+            Ok(acc_mgr) => {
+                log::info!("[Rust BG processor] Success setting-up account manager");
+                let fcm_res = hyxewave::re_exports::fcm_packet_processor::process(packet, acc_mgr).await;
+
+                KernelResponse::from(fcm_res)
+            }
+
+            Err(err) => {
+                KernelResponse::Error(0, err.into_string().into_bytes())
             }
         }
+    };
 
-        Err(err) => {
-            response_err(err)
-        }
+    let task = AssertSendSafeFuture::new(task);
+
+    match hyxewave::re_exports::fcm_packet_processor::block_on_async(|| task) {
+        Ok(res) => CString::new(res.serialize_json().unwrap())
+            .unwrap()
+            .into_raw(),
+        Err(err) => response_err(err)
     }
 }
 

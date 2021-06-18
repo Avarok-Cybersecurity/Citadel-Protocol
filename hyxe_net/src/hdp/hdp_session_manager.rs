@@ -20,7 +20,6 @@ use hyxe_user::proposed_credentials::ProposedCredentials;
 
 use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS, TCP_ONLY};
 use crate::error::NetworkError;
-use crate::hdp::hdp_packet::HdpPacket;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, GroupMemberAlterMode, MemberState};
@@ -103,14 +102,17 @@ impl HdpSessionManager {
     }
 
     /// `ticket`: If none, returns a new ticket for the request. Is Some, uses the ticket provided and returns None
-    pub(crate) fn send_local_server_request(&self, ticket: Option<Ticket>, request: HdpServerRequest) -> Option<Ticket> {
+    pub(crate) async fn send_local_server_request(&self, ticket: Option<Ticket>, request: HdpServerRequest) -> Option<Ticket> {
         let this = inner!(self);
-        if let Some(remote) = this.server_remote.as_ref() {
+        let mut remote = this.server_remote.clone();
+        std::mem::drop(this);
+
+        if let Some(ref mut remote) = remote {
             if let Some(ticket) = ticket {
-                remote.send_with_custom_ticket(ticket, request).ok()
+                remote.send_with_custom_ticket(ticket, request).await.ok()
                     .map(|_| ticket)
             } else {
-                remote.unbounded_send(request).ok()
+                remote.send(request).await.ok()
             }
         } else {
             None
@@ -252,7 +254,7 @@ impl HdpSessionManager {
                     session_manager.clear_provisional_session(&peer_addr);
                 }
             }
-        };
+        }
 
         // TODO: Use RAII w/ HdpSessionInner & StateContainerInner ? Hmm ... seems good on PC/Linux/Mac,
         // but not good with android when connections really have the tendency to linger since background
@@ -266,9 +268,10 @@ impl HdpSessionManager {
             // we do not need to save here. When the ratchet is reloaded, it will be zeroed out anyways.
             // the only reason we call this is to ensure that FCM packets that get protected on their way out
             // don't cause false-positives on the anti-replay-attack container
-            // Especially needed for FM
+            // Especially needed for FCM
             let _ = cnac.refresh_static_hyper_ratchet();
         }
+
         // the following shutdown sequence is valid for only for the HyperLAN server
         // This final sequence alerts all CIDs in the network
         if sess.is_server {
@@ -397,38 +400,6 @@ impl HdpSessionManager {
         }
     }
 
-    /// When an inbound packet is received, the packet is sent immediately from the server to here for processing.
-    /// Note: Not all packets need to be returned to the higher-levels, because some are utility packets like ACK's
-    ///
-    /// This will return an [HdpServerResult] if an event occurs, such as the fulfillment
-    pub fn process_inbound_packet(&self, packet: BytesMut, remote_peer: SocketAddr, local_port_recv: u16) -> Result<(), NetworkError> {
-        // Since the packet is less than the MTU, the below conversion will not fail. However, it still needs to be check for validity
-        let this = inner!(self);
-        let packet = HdpPacket::new_recv(packet, remote_peer, local_port_recv);
-        // TODO: Ensure the v_ports are placed correctly here
-        // NOTE: during the NAT traversal process, SYN's/ACK's may come through here, but will get discarded. It is up to the SO_REUSED UDP socket
-        // passed to the UDP hole puncher to handle these packets
-        match packet.get_header() {
-            Some(header) => {
-                match this.sessions.get(&header.session_cid.get()) {
-                    Some(active_session) => {
-                        active_session.1.process_inbound_packet_wave(packet)
-                    }
-
-                    None => {
-                        log::trace!("A packet acted like it was in a session, but is not. Dropping");
-                        Ok(())
-                    }
-                }
-            }
-            None => {
-                // invalid header. Drop
-                log::trace!("A packet with an invalid header received. Dropping, but returning Ok(())");
-                Ok(())
-            }
-        }
-    }
-
     /// Returns true if the process continued successfully
     pub fn initiate_update_drill_subroutine(&self, virtual_target: VirtualTargetType, ticket: Ticket) -> Result<(), NetworkError> {
         let implicated_cid = virtual_target.get_implicated_cid();
@@ -444,14 +415,13 @@ impl HdpSessionManager {
     }
 
     /// Returns true if the process initiated successfully
-    pub fn initiate_deregistration_subroutine(&self, implicated_cid: u64, connection_type: VirtualConnectionType, ticket: Ticket) -> bool {
+    pub fn initiate_deregistration_subroutine(&self, implicated_cid: u64, connection_type: VirtualConnectionType, ticket: Ticket) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
             let sess = inner!(sess.1);
             sess.initiate_deregister(connection_type, ticket)
         } else {
-            log::error!("Unable to initiate deregister subroutine for {} (not an active session)", implicated_cid);
-            false
+            Err(NetworkError::Generic(format!("Unable to initiate deregister subroutine for {} (not an active session)", implicated_cid)))
         }
     }
 
@@ -463,15 +433,21 @@ impl HdpSessionManager {
 
     /// Sends the command outbound. Returns true if sent, false otherwise
     /// In the case that this return false, further interaction should be avoided
-    pub async fn dispatch_peer_command(&self, implicated_cid: u64, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> bool {
+    pub async fn dispatch_peer_command(&self, implicated_cid: u64, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
             let sess = sess.1.clone();
             std::mem::drop(this);
-            return sess.dispatch_peer_command(ticket, peer_command, security_level).await.is_ok();
+            sess.dispatch_peer_command(ticket, peer_command, security_level).await
+        } else {
+            Err(NetworkError::InternalError("Session not found in session manager"))
         }
+    }
 
-        false
+    /// Returns a list of active sessions
+    pub fn get_active_sessions(&self) -> Vec<u64> {
+        let this = inner!(self);
+        this.sessions.keys().map(|r| *r).collect()
     }
 
     /// This upgrades a provisional connection to a full connection. Returns true if the upgrade

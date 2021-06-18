@@ -19,7 +19,7 @@ lazy_static! {
     pub static ref CLAP_APP: Mutex<AppThreadSafe> = Mutex::new(AppThreadSafe(setup_clap()));
 }
 
-pub async fn terminal_future(server_remote: HdpServerRemote, ctx: ConsoleContext) -> Result<(), ConsoleError> {
+pub async fn terminal_future(mut server_remote: HdpServerRemote, ctx: ConsoleContext) -> Result<(), ConsoleError> {
     let (input_tx, input_rx) = tokio::sync::mpsc::channel::<SecString>(2);
     let mut input_rx = tokio_stream::wrappers::ReceiverStream::new(input_rx);
     INPUT_ROUTER.print_prompt(true, &ctx);
@@ -31,7 +31,7 @@ pub async fn terminal_future(server_remote: HdpServerRemote, ctx: ConsoleContext
         if trimmed.len() != 0 {
             let parts = trimmed.split(" ").collect::<Vec<&str>>();
             was_cleared = parts.get(0).map(|res| *res == "clear").unwrap_or(false);
-            if let Err(err) = handle(CLAP_APP.lock().await, parts, &server_remote, &ctx, None).await {
+            if let Err(err) = handle(CLAP_APP.lock().await, parts, &mut server_remote, &ctx, None).await {
                 printf!(colour::white_ln!("\r{}", err.into_string()));
             }
         }
@@ -190,6 +190,7 @@ pub mod clap_commands {
     fn setup_subcommands() -> Vec<App<'static, 'static>> {
         let mut subcommands = Vec::new();
         subcommands.push(setup_cd_command());
+        subcommands.push(setup_resync_command());
         subcommands.push(setup_algorithms_command());
         subcommands.push(setup_ls_command());
         subcommands.push(setup_send_command());
@@ -230,6 +231,10 @@ pub mod clap_commands {
     fn setup_ls_command() -> App<'static, 'static> {
         SubCommand::with_name("ls").about("lists the current directory")
             .alias("dir")
+    }
+
+    fn setup_resync_command() -> App<'static, 'static> {
+        SubCommand::with_name("resync").about("Polls the HdpServer for a list of active sessions, compares to the kernel's list, and trims the list to ensure synchronicity")
     }
 
     fn setup_clear_command() -> App<'static, 'static> {
@@ -517,12 +522,16 @@ pub mod clap_commands {
 
 use async_recursion::async_recursion;
 #[async_recursion(?Send)]
-pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, AppThreadSafe>, parts: A, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, AppThreadSafe>, parts: A, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let matches = clap.0.get_matches_from_safe_borrow(parts.as_ref()).map_err(|err| ConsoleError::Generic(err.message))?;
 
     if let Some(_matches) = matches.subcommand_matches("clear") {
         INPUT_ROUTER.print_prompt(true, ctx);
         return Ok(None);
+    }
+
+    if let Some(_matches) = matches.subcommand_matches("resync") {
+        return crate::command_handlers::resync::handle(ctx, ffi_io, server_remote).await
     }
 
     if let Some(matches) = matches.subcommand_matches("cd") {

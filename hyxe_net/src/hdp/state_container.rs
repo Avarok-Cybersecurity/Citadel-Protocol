@@ -7,20 +7,20 @@ use serde::{Serialize, Deserialize};
 use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, ConstructorType};
 use crate::hdp::hdp_packet_processor::primary_group_packet::attempt_kem_as_alice_finish;
 
-use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
+use crate::hdp::outbound_sender::{UnboundedSender, unbounded, BoundedSender};
 use zerocopy::LayoutVerified;
 
 use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig, GroupReceiverStatus, GroupSenderDevice};
 use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::client_account::ClientNetworkAccount;
 
-use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS};
+use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS, MAX_OUTGOING_UNPROCESSED_REQUESTS, MAX_INCOMING_UNPROCESSED_REQUESTS};
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::GroupTransmitter;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr, HdpSession};
-use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, HdpServerRequest, SecrecyMode};
+use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, SecrecyMode};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;
@@ -37,7 +37,7 @@ use tokio::io::{BufWriter, AsyncWriteExt};
 use hyxe_crypt::sec_bytes::SecBuffer;
 use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
 use crate::functional::IfEqConditional;
-use futures::StreamExt;
+use futures::{StreamExt, SinkExt};
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
 use hyxe_fs::prelude::SyncIO;
 use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
@@ -45,7 +45,9 @@ use crate::hdp::peer::peer_layer::PeerConnectionType;
 use hyxe_fs::env::DirectoryStore;
 use crate::hdp::misc::dual_rwlock::DualRwLock;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
+use crate::hdp::misc::dual_cell::DualCell;
 
+#[derive(Clone)]
 pub struct StateContainer {
     pub inner: DualRwLock<StateContainerInner>
 }
@@ -155,17 +157,17 @@ pub struct EndpointChannelContainer<R: Ratchet = HyperRatchet> {
     pub(crate) default_security_settings: SessionSecuritySettings,
     pub(crate) direct_p2p_remote: Option<DirectP2PRemote>,
     pub(crate) endpoint_crypto: PeerSessionCrypto<R>,
-    to_channel: UnboundedSender<SecBuffer>,
-    pub(crate) order_map: BTreeMap<u64, SecBuffer>,
+    to_channel: BoundedSender<SecBuffer>,
+    pub(crate) order_map: DualRwLock<BTreeMap<u64, SecBuffer>>,
     #[allow(dead_code)]
     pub(crate) peer_socket_addr: SocketAddr,
-    pub(crate) last_delivered_message: Option<u64>
+    pub(crate) last_delivered_message: DualCell<u64>
 }
 
 pub struct C2SChannelContainer {
-    to_channel: UnboundedSender<SecBuffer>,
-    pub(crate) order_map: BTreeMap<u64, SecBuffer>,
-    pub(crate) last_delivered_message: Option<u64>
+    to_channel: BoundedSender<SecBuffer>,
+    pub(crate) order_map: DualRwLock<BTreeMap<u64, SecBuffer>>,
+    pub(crate) last_delivered_message: DualCell<u64>
 }
 
 impl EndpointChannelContainer {
@@ -177,11 +179,11 @@ impl EndpointChannelContainer {
 impl<R: Ratchet> Drop for VirtualConnection<R> {
     fn drop(&mut self) {
         self.is_active.store(false, Ordering::SeqCst);
-        if let Some(endpoint_container) = self.endpoint_container.take() {
+        /*if let Some(endpoint_container) = self.endpoint_container.take() {
             // next, since the is_active field is false, send an empty vec through the channel
             // in order to wake the receiving end, thus causing a poll, thus ending it
-            if let Err(_) = endpoint_container.to_channel.unbounded_send(SecBuffer::empty()) {}
-        }
+            if let Err(_) = endpoint_container.to_channel.sen(SecBuffer::empty()) {}
+        }*/
     }
 }
 
@@ -491,6 +493,117 @@ impl GroupReceiverContainer {
     }
 }
 
+impl StateContainer {
+    /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
+/// (thus bypassing the kernel)
+    pub async fn forward_data_to_channel(&self, target_cid: u64, group_id: u64, data: SecBuffer) -> bool {
+        let pass_message = |last_delivered_message: DualCell<u64>, mut to_channel: BoundedSender<SecBuffer>, order_map: DualRwLock<BTreeMap<u64, SecBuffer>>| async move {
+            async fn send(to_channel: &mut BoundedSender<SecBuffer>, data: SecBuffer) -> bool {
+                match to_channel.send(data).await {
+                    Ok(_) => {
+                        //log::info!("[Channel] Success sending message to channel");
+                        true
+                    }
+
+                    Err(err) => {
+                        log::error!("[Channel] TrySendError: Unable to send data to channel. Reason: {}", err.to_string());
+                        false
+                    }
+                }
+            }
+
+            // before forwarding, we need to ensure ordered delivery
+            if let Some(last_message_group) = last_delivered_message.get() {
+                if last_message_group + 1 == group_id {
+                    // is in sequential order; we can just send it
+                    last_delivered_message.set(Some(group_id));
+
+                    if send(&mut to_channel, data).await {
+                        log::info!("PUSHING Group {} to {}", group_id, target_cid);
+                        // first send worked. Now, send all in the order map (if available) until we hit discontinuity
+                        loop {
+                            let next_group = last_message_group + 1;
+                            let mut order_map = inner_mut!(order_map);
+                            if let Some(next_packet) = order_map.remove(&next_group) {
+                                log::info!("Continuity hit for {}", next_group);
+                                // continuity; send item and update last ticket
+                                last_delivered_message.set(Some(next_group));
+
+                                log::info!("[loop] PUSHING Group {} to {}", next_group, target_cid);
+                                if !send(&mut to_channel, next_packet).await {
+                                    return false;
+                                }
+
+                            } else {
+                                log::info!("Reached discontinuity. Will await future packets ...");
+                                // hit discontinuity; return. We need to wait for more packets to come
+                                return true;
+                            }
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    log::info!("Packet {} NOT in order. Will send when other packets arrive", group_id);
+                    // not in order. Store in map
+                    let mut order_map = inner_mut!(order_map);
+                    let prev = order_map.insert(group_id, data);
+                    if prev.is_some() {
+                        log::error!("Overwrote previous value!! {}", group_id);
+                    }
+                    true
+                }
+            } else {
+                // this is the first message. Just set the ticket and send
+                last_delivered_message.set(Some(group_id));
+                send(&mut to_channel, data).await
+            }
+        };
+
+        let this = inner!(self.inner);
+
+        if target_cid == 0 {
+            if let Some(c2s_container) = this.c2s_channel_container.as_ref() {
+                let C2SChannelContainer {
+                    last_delivered_message,
+                    to_channel,
+                    order_map,
+                    ..
+                } = c2s_container;
+
+                let last_delivered_message = last_delivered_message.clone();
+                let to_channel = to_channel.clone();
+                let order_map = order_map.clone();
+
+                std::mem::drop(this);
+
+                return pass_message(last_delivered_message, to_channel, order_map).await;
+            }
+        } else {
+            if let Some(vconn) = this.active_virtual_connections.get(&target_cid) {
+                if let Some(channel) = vconn.endpoint_container.as_ref() {
+                    let EndpointChannelContainer {
+                        last_delivered_message,
+                        to_channel,
+                        order_map,
+                        ..
+                    } = channel;
+
+                    let last_delivered_message = last_delivered_message.clone();
+                    let to_channel = to_channel.clone();
+                    let order_map = order_map.clone();
+
+                    std::mem::drop(this);
+
+                    return pass_message(last_delivered_message, to_channel, order_map).await;
+                }
+            }
+        }
+
+        false
+    }
+}
+
 impl StateContainerInner {
     /// Creates a new container
     pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote, keep_alive_timeout_ns: i64) -> StateContainer {
@@ -541,17 +654,17 @@ impl StateContainerInner {
 
     #[allow(unused_results)]
     pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, map: &mut HashMap<u64, Arc<AtomicBool>>, peer_socket_addr: SocketAddr, default_security_settings: SessionSecuritySettings, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto) -> PeerChannel {
-        let (channel_tx, channel_rx) = unbounded();
+        let (channel_tx, channel_rx) = BoundedSender::new(MAX_INCOMING_UNPROCESSED_REQUESTS);
         let is_active = Arc::new(AtomicBool::new(true));
 
         map.insert(target_cid, endpoint_crypto.update_in_progress.clone());
 
         let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket, default_security_settings.security_level, is_active.clone(), channel_rx);
-        let order_map = BTreeMap::new();
+        let order_map = DualRwLock::from(BTreeMap::new());
 
         let endpoint_container = Some(EndpointChannelContainer {
             default_security_settings,
-            last_delivered_message: None,
+            last_delivered_message: Default::default(),
             order_map,
             direct_p2p_remote: None,
             endpoint_crypto,
@@ -575,17 +688,17 @@ impl StateContainerInner {
     /// This should be ran at the beginning of a session to provide ordered delivery to clients
     #[allow(unused_results)]
     pub fn init_new_c2s_virtual_connection(&mut self, cnac: &ClientNetworkAccount, map: &mut HashMap<u64, Arc<AtomicBool>>, security_level: SecurityLevel, channel_ticket: Ticket, implicated_cid: u64) -> PeerChannel {
-        let (channel_tx, channel_rx) = unbounded();
+        let (channel_tx, channel_rx) = BoundedSender::new(MAX_OUTGOING_UNPROCESSED_REQUESTS);
         let is_active = Arc::new(AtomicBool::new(true));
 
 
         let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), channel_ticket, security_level, is_active.clone(), channel_rx);
-        let order_map = BTreeMap::new();
+        let order_map = DualRwLock::from(BTreeMap::new());
 
         let c2s = C2SChannelContainer {
             to_channel: channel_tx,
             order_map,
-            last_delivered_message: None
+            last_delivered_message: Default::default()
         };
 
         self.c2s_channel_container = Some(c2s);
@@ -604,106 +717,6 @@ impl StateContainerInner {
         }
 
         log::info!("Vconn {} -> {} established", connection_type.get_implicated_cid(), target_cid);
-    }
-
-    /// Checks to see that the vconn is valid, then sends a request through it
-    #[allow(unused_results)]
-    pub fn send_data_to_hyperlan_vconn(&self, target_cid: u64, security_level: SecurityLevel, data: SecBuffer) -> bool {
-        // when the `target_cid` disconnects, it will remove its entry from this vconn table
-        if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
-            let conn_type = vconn.connection_type;
-            self.hdp_server_remote.unbounded_send(HdpServerRequest::SendMessage(data, target_cid, conn_type, security_level)).is_ok()
-        } else {
-            false
-        }
-    }
-
-    /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
-    /// (thus bypassing the kernel)
-    pub fn forward_data_to_channel(&mut self, target_cid: u64, group_id: u64, data: SecBuffer) -> bool {
-        let pass_message = |last_delivered_message: &mut Option<u64>, to_channel: &UnboundedSender<SecBuffer>, order_map: &mut BTreeMap<u64, SecBuffer>| {
-            let send = |data: SecBuffer| {
-                return match to_channel.unbounded_send(data) {
-                    Ok(_) => {
-                        //log::info!("[Channel] Success sending message to channel");
-                        true
-                    }
-
-                    Err(err) => {
-                        log::error!("[Channel] TrySendError: Unable to send data to channel. Reason: {}", err.to_string());
-                        false
-                    }
-                }
-            };
-
-            // before forwarding, we need to ensure ordered delivery
-            if let Some(last_message_group) = last_delivered_message.as_mut() {
-                if *last_message_group + 1 == group_id {
-                    // is in sequential order; we can just send it
-                    *last_message_group = group_id;
-                    if send(data) {
-                        log::info!("PUSHING Group {} to {}", group_id, target_cid);
-                        // first send worked. Now, send all in the order map (if available) until we hit discontinuity
-                        loop {
-                            let next_group = *last_message_group + 1;
-                            if let Some(next_packet) = order_map.remove(&next_group) {
-                                // continuity; send item and update last ticket
-                                *last_message_group = next_group;
-                                if !send(next_packet) {
-                                    return false;
-                                }
-
-                                log::info!("PUSHING Group {} to {}", group_id, target_cid);
-                            } else {
-                                log::info!("Reached discontinuity. Will await future packets ...");
-                                // hit discontinuity; return. We need to wait for more packets to come
-                                return true;
-                            }
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    log::info!("Packet {} NOT in order. Will send when other packets arrive", group_id);
-                    // not in order. Store in map
-                    let prev = order_map.insert(group_id, data);
-                    debug_assert!(prev.is_none());
-                    true
-                }
-            } else {
-                // this is the first message. Just set the ticket and send
-                *last_delivered_message = Some(group_id);
-                send(data)
-            }
-        };
-
-        if target_cid == 0 {
-            if let Some(c2s_container) = self.c2s_channel_container.as_mut() {
-                let C2SChannelContainer {
-                    last_delivered_message,
-                    to_channel,
-                    order_map,
-                    ..
-                } = c2s_container;
-
-                return pass_message(last_delivered_message, to_channel, order_map);
-            }
-        } else {
-            if let Some(vconn) = self.active_virtual_connections.get_mut(&target_cid) {
-                if let Some(channel) = vconn.endpoint_container.as_mut() {
-                    let EndpointChannelContainer {
-                        last_delivered_message,
-                        to_channel,
-                        order_map,
-                        ..
-                    } = channel;
-
-                    return pass_message(last_delivered_message, to_channel, order_map);
-                }
-            }
-        }
-
-        false
     }
 
     /// Once NAT-traversal succeeds between two peers, this should be called

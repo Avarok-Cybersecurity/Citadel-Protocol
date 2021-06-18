@@ -11,9 +11,10 @@ mod tests {
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::net::crypt_splitter::{scramble_encrypt_group, GroupReceiver, par_scramble_encrypt_group};
     use std::time::Instant;
-    use hyxe_crypt::argon_container::{ArgonSettings, AsyncArgon, ArgonStatus, ServerArgonContainer};
+    use hyxe_crypt::argon::argon_container::{ArgonSettings, AsyncArgon, ArgonStatus, ServerArgonContainer};
     use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm, ALGORITHM_COUNT, CryptoParameters};
     use std::convert::TryFrom;
+    use hyxe_crypt::argon::autotuner::calculate_optimal_params;
 
 
     fn setup_log() {
@@ -23,6 +24,15 @@ mod tests {
         log::info!("INFO enabled");
         log::warn!("WARN enabled");
         log::error!("ERROR enabled");
+    }
+
+    #[tokio::test]
+    async fn argon_autotuner() {
+        setup_log();
+        let start_time = Instant::now();
+        let final_cfg = calculate_optimal_params(500 as _, 32, None).await.unwrap();
+        log::info!("DONE. Elapsed time: {:?}", start_time.elapsed());
+        log::info!("{:?}", final_cfg)
     }
 
     #[tokio::test]

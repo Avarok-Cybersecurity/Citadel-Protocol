@@ -12,6 +12,9 @@ use std::str::FromStr;
 use crate::re_exports::PRIMARY_PORT;
 use std::net::IpAddr;
 use hyxe_net::hdp::misc::net::TlsListener;
+use hyxe_user::backend::mysql_backend::SqlConnectionOptions;
+use std::time::Duration;
+use hyxe_crypt::argon::argon_container::ArgonDefaultServerSettings;
 
 /// Created when parsing the command-line. If pure server or client mode is chosen,
 /// only one of the fields below will contain a value. If distributed mode is used,
@@ -23,6 +26,7 @@ pub struct AppConfig {
     pub hypernode_type: Option<HyperNodeType>,
     pub ffi_io: Option<FFIIO>,
     pub backend_type: Option<BackendType>,
+    pub argon_settings_server: Option<ArgonDefaultServerSettings>,
     pub is_ffi: bool,
     pub home_dir: Option<String>,
     pub underlying_protocol: Option<UnderlyingProtocol>,
@@ -47,7 +51,8 @@ pub struct HypernodeConfig {
     pub tls: Option<TLSTomlConfig>,
     pub backend: Option<BackendTomlConfig>,
     pub kernel_threads: Option<usize>,
-    pub daemon_mode: Option<bool>
+    pub daemon_mode: Option<bool>,
+    pub argon: Option<ArgonTomlConfig>
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,7 +64,35 @@ pub struct TLSTomlConfig {
 
 #[derive(Debug, Deserialize)]
 pub struct BackendTomlConfig {
-    pub url: String
+    pub url: String,
+    pub max_connections: Option<usize>,
+    pub min_connections: Option<usize>,
+    pub connect_timeout_sec: Option<usize>,
+    pub idle_timeout_sec: Option<usize>,
+    pub max_lifetime_sec: Option<usize>,
+    pub car_mode: Option<bool>
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ArgonTomlConfig {
+    pub lanes: u32,
+    pub hash_length: u32,
+    pub mem_cost: u32,
+    pub time_cost: u32,
+    pub secret: String
+}
+
+impl Into<SqlConnectionOptions> for &'_ BackendTomlConfig {
+    fn into(self) -> SqlConnectionOptions {
+        SqlConnectionOptions {
+            max_connections: self.max_connections,
+            min_connections: self.min_connections,
+            connect_timeout: self.connect_timeout_sec.map(|r| Duration::from_secs(r as _)),
+            idle_timeout: self.idle_timeout_sec.map(|r| Duration::from_secs(r as _)),
+            max_lifetime: self.max_lifetime_sec.map(|r| Duration::from_secs(r as _)),
+            car_mode: self.car_mode
+        }
+    }
 }
 
 impl TomlConfig {
@@ -101,7 +134,10 @@ impl TomlConfig {
             (SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), PRIMARY_PORT), HyperNodeType::BehindResidentialNAT)
         };
 
-        let backend_type = node.backend.as_ref().map(|r| BackendType::SQLDatabase(r.url.clone()));
+        let backend_type = node.backend.as_ref().map(|r| {
+            let opts = r.into();
+            BackendType::sql_with(r.url.clone(), opts)
+        });
 
         let home_dir = node.override_home_dir.clone();
         let underlying_proto = if let Some(tls) = node.tls.as_ref() {
@@ -113,7 +149,16 @@ impl TomlConfig {
         let kernel_threads = node.kernel_threads.clone();
         let daemon_mode = node.daemon_mode.unwrap_or(false);
 
+        let argon_settings_server = node.argon.as_ref().map(|r| ArgonDefaultServerSettings{
+            lanes: r.lanes,
+            hash_length: r.hash_length,
+            mem_cost: r.mem_cost,
+            time_cost: r.time_cost,
+            secret: r.secret.clone().into_bytes()
+        });
+
         Ok(AppConfig {
+            argon_settings_server,
             local_bind_addr: Some(local_bind_addr),
             pipe: None,
             hypernode_type: Some(hypernode_type),

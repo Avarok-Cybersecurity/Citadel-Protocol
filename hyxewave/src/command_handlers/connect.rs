@@ -17,7 +17,7 @@ pub enum ConnectResponse {
 }
 
 #[allow(unused_results)]
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let username = matches.value_of("username").unwrap();
     let tcp_only = !matches.is_present("qudp");
 
@@ -52,7 +52,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRe
     let proposed_credentials = get_proposed_credentials(matches, ctx, username, &peer_cnac, conn_info, security_level, cid, full_name).await?;
 
     let request = HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, connect_mode, fcm_keys, Some(tcp_only), kat, params);
-    let ticket = server_remote.unbounded_send(request)?;
+    let ticket = server_remote.send(request).await?;
 
     let tx = parking_lot::Mutex::new(None);
     if ffi_io.is_none() {

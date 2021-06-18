@@ -9,7 +9,7 @@ workspace = "../"
 default = ["enterprise"]
 standard = ["hyxe_net/single-threaded"]
 plus = ["hyxe_net/multi-threaded"]
-enterprise-lite = ["hyxe_net/single-threaded", "hyxe_user/enterprise"]
+enterprise-lite = ["hyxe_net/single-threaded", "hyxe_net/enterprise"]
 enterprise = ["hyxe_net/multi-threaded", "hyxe_net/enterprise"]
 
 [dependencies]

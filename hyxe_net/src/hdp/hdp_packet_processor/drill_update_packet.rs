@@ -22,7 +22,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
 
     let cnac_sess = cnac.as_ref()?;
     let (header, payload, _, _) = packet.decompose();
-    let mut state_container = state_container.inner.get_mut();
+    let mut state_container = inner_mut!(state_container);
+
     let hyper_ratchet = get_proper_hyper_ratchet(header_drill_vers, cnac_sess, &wrap_inner_mut!(state_container), proxy_cid_info)?;
     let (header, payload) = validation::aead::validate_custom(&hyper_ratchet, &header, payload)?;
     let ref header = header;
@@ -66,13 +67,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                     let secrecy_mode = security_settings.map(|r| r.secrecy_mode).clone()?;
 
                     let latest_hr = attempt_kem_as_alice_finish(secrecy_mode, peer_cid, target_cid, transfer.update_status, &mut state_container.active_virtual_connections, Some(ConstructorType::Default(constructor)), cnac_sess).ok()?.unwrap_or(RatchetType::Default(hyper_ratchet)).assume_default()?;
-
-                    if let Some(truncate_vers) = needs_truncate {
-                        let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&latest_hr, truncate_vers, resp_target_cid, timestamp, security_level);
-                        PrimaryProcessorResult::ReplyToSender(truncate_packet)
-                    } else {
-                        PrimaryProcessorResult::Void
-                    }
+                    let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&latest_hr, needs_truncate, resp_target_cid, timestamp, security_level);
+                    PrimaryProcessorResult::ReplyToSender(truncate_packet)
                 }
 
                 _ => {
@@ -82,8 +78,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             }
         }
 
-        // Bob will always receive this, whether the toolset being upgraded is a CNAC or a PeerSessionCrypto
-        // It is up to Alice to make sure she's removed her hyper ratchet before sending this packet
+        // Bob will always receive this, whether the toolset being upgraded or not. This allows Bob to begin using the latest drill version
         packet_flags::cmd::aux::do_drill_update::TRUNCATE => {
             log::info!("DO_DRILL_UPDATE TRUNCATE PACKET RECV");
             let truncate_packet = validation::do_drill_update::validate_truncate(payload)?;
@@ -99,35 +94,41 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                 (ToolsetUpdate::SessCNAC(cnac_sess), security_settings.map(|r| r.secrecy_mode).clone().unwrap())
             };
 
-            match method.deregister(truncate_packet.truncate_version) {
-                Ok(_) => {
-                    log::info!("[Toolset Update] Successfully truncated version {}", truncate_packet.truncate_version)
-                },
-                Err(err) => {
-                    log::error!("[Toolset Update] Error truncating vers {}: {:?}", truncate_packet.truncate_version, err);
+            // We optionally deregister at this endpoint to prevent any further packets with this version from being sent
+            if let Some(truncate_vers) = truncate_packet.truncate_version {
+                match method.deregister(truncate_vers) {
+                    Ok(_) => {
+                        log::info!("[Toolset Update] Successfully truncated version {}", truncate_vers)
+                    },
+                    Err(err) => {
+                        log::error!("[Toolset Update] Error truncating vers {}: {:?}", truncate_vers, err);
+                    }
                 }
             }
+
+            // We update the internal latest version usable
+            method.post_stage1_alice_or_bob();
+
 
             let (_, lock_set_by_alice) = method.unlock(false)?; // unconditional unlock
             // if lock set by bob, do poll
             let do_poll = lock_set_by_alice.map(|r| !r).unwrap_or(false);
 
+            std::mem::drop(state_container);
 
+
+            // If we didn't have to deregister, then our job is done. alice does not need to hear from Bob
+            // But, if deregistration occured, we need to alert alice that way she can unlock hers
+            if let Some(truncate_vers) = truncate_packet.truncate_version {
+                let truncate_ack = hdp_packet_crafter::do_drill_update::craft_truncate_ack(&hyper_ratchet, truncate_vers, resp_target_cid, timestamp, security_level);
+                session.send_to_primary_stream(None, truncate_ack)?;
+            }
 
             if secrecy_mode == SecrecyMode::Perfect {
-                let truncate_ack = hdp_packet_crafter::do_drill_update::craft_truncate_ack(&hyper_ratchet, truncate_packet.truncate_version, resp_target_cid, timestamp, security_level);
-                session.send_to_primary_stream(None, truncate_ack)?;
-
                 if do_poll {
                     let _ = session.poll_next_enqueued(resp_target_cid)?;
                 }
             }
-
-            //std::mem::drop(state_container);
-
-            /*if do_poll {
-                let _ = session.poll_next_enqueued(resp_target_cid)?;
-            }*/
 
             PrimaryProcessorResult::Void
         }
@@ -136,22 +137,27 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             log::info!("DO_DRILL_UPDATE TRUNCATE_ACK PACKET RECV");
             let truncate_ack_packet = validation::do_drill_update::validate_truncate_ack(payload)?;
             log::info!("Adjacent node has finished deregistering version {}", truncate_ack_packet.truncated_version);
+
             let resp_target_cid = get_resp_target_cid_from_header(header);
 
-            let mut method = if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
-                let crypt = &mut state_container.active_virtual_connections.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
+            let (mut method, secrecy_mode) = if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
+                let endpoint_container = state_container.active_virtual_connections.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?;
+                let crypt = &mut endpoint_container.endpoint_crypto;
                 let local_cid = header.target_cid.get();
-                ToolsetUpdate::E2E { crypt, local_cid }
+                (ToolsetUpdate::E2E { crypt, local_cid }, endpoint_container.default_security_settings.secrecy_mode)
             } else {
                 // Cnac
-                ToolsetUpdate::SessCNAC(cnac_sess)
+                (ToolsetUpdate::SessCNAC(cnac_sess), security_settings.map(|r| r.secrecy_mode).clone().unwrap())
             };
 
             let _ = method.unlock(false)?; // unconditional unlock
 
             // now, we can poll any packets
             std::mem::drop(state_container);
-            let _ = session.poll_next_enqueued(resp_target_cid)?;
+            if secrecy_mode == SecrecyMode::Perfect {
+                let _ = session.poll_next_enqueued(resp_target_cid)?;
+            }
+
             PrimaryProcessorResult::Void
         }
 

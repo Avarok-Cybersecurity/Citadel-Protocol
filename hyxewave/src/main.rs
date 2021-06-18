@@ -11,7 +11,7 @@ fn main() -> Result<(), ConsoleError> {
     setup_shutdown_hook();
     let cfg = TomlConfig::load_default()?;
 
-    match parse_command_line_arguments_into_app_config(cfg,None, None) {
+    match parse_command_line_arguments_into_app_config(cfg,None) {
         Ok(cfg) => {
             print_welcome();
             INPUT_ROUTER.init(cfg.daemon_mode)?;

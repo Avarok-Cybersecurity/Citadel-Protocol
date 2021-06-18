@@ -15,7 +15,7 @@ use hyxe_net::hdp::peer::peer_layer::PeerResponse;
 use crate::mail::ConsoleSessionMail;
 use crate::console_error::ConsoleError;
 use hyxe_net::hdp::peer::channel::{PeerChannel, PeerChannelRecvHalf};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, SinkExt};
 use hyxe_net::hdp::hdp_packet_processor::includes::SecurityLevel;
 use tokio::time::Instant;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
@@ -184,7 +184,7 @@ impl ConsoleContext {
             if let Some(peer_sess) = sess.concurrent_peers.get_mut(&peer_cid) {
                 let ticket = peer_sess.peer_channel_tx.channel_id();
                 peer_sess.peer_channel_tx.set_security_level(security_level);
-                peer_sess.peer_channel_tx.send_unbounded(message)
+                peer_sess.peer_channel_tx.send(message).await
                     .map_err(|err| ConsoleError::Generic(err.to_string()))
                     .map(|_| ticket)
             } else {
@@ -230,18 +230,18 @@ impl ConsoleContext {
     }
 
     #[allow(unused_results)]
-    pub async fn disconnect_session(&self, cid: u64, cxn_type: VirtualConnectionType, server_remote: &HdpServerRemote) -> Result<Ticket, ConsoleError> {
+    pub async fn disconnect_session(&self, cid: u64, cxn_type: VirtualConnectionType, server_remote: &mut HdpServerRemote) -> Result<Ticket, ConsoleError> {
         let read = self.sessions.read().await;
         if let Some(sess) = read.get(&cid) {
             let username = sess.cnac.get_username();
             match cxn_type {
                 VirtualConnectionType::HyperLANPeerToHyperLANServer(target_cid) => {
                     debug_assert_eq!(cid, target_cid);
-                    self.send_disconnect_request(cid, Some(username), cxn_type, server_remote)
+                    self.send_disconnect_request(cid, Some(username), cxn_type, server_remote).await
                 }
                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(_implicated_cid, peer_cid) => {
                     debug_assert_ne!(cid, peer_cid);
-                    self.send_disconnect_request(cid, Some(username),cxn_type, server_remote)
+                    self.send_disconnect_request(cid, Some(username),cxn_type, server_remote).await
                 }
                 VirtualConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, _target_cid) => {
                     unimplemented!()
@@ -256,11 +256,11 @@ impl ConsoleContext {
     }
 
     #[allow(unused_results, unused_must_use)]
-    pub async fn disconnect_all(&self, server_remote: &HdpServerRemote, shutdown_sequence: bool) {
+    pub async fn disconnect_all(&self, server_remote: &mut HdpServerRemote, shutdown_sequence: bool) {
         let mut write = self.sessions.write().await;
         for (cid, session) in write.drain() {
             //let username = session.cnac.get_username_blocking();
-            self.send_disconnect_request(cid, None, session.virtual_cxn_type, server_remote);
+            self.send_disconnect_request(cid, None, session.virtual_cxn_type, server_remote).await;
         }
 
         if shutdown_sequence {
@@ -269,8 +269,8 @@ impl ConsoleContext {
     }
 
     /// `username` should be some if resetting the print prompt is expected (should be Some when disconnecting from hypernodes over peers)
-    fn send_disconnect_request(&self, cid: u64, username: Option<String>, virt_cxn_type: VirtualConnectionType, server_remote: &HdpServerRemote) -> Result<Ticket, ConsoleError> {
-        let ticket = server_remote.unbounded_send(HdpServerRequest::DisconnectFromHypernode(cid, virt_cxn_type))?;
+    async fn send_disconnect_request(&self, cid: u64, username: Option<String>, virt_cxn_type: VirtualConnectionType, server_remote: &mut HdpServerRemote) -> Result<Ticket, ConsoleError> {
+        let ticket = server_remote.send(HdpServerRequest::DisconnectFromHypernode(cid, virt_cxn_type)).await?;
         let queue = self.ticket_queue.as_ref().unwrap();
         queue.register_ticket(ticket, DISCONNECT_TIMEOUT, cid, move |ctx,_, response| {
             match response {

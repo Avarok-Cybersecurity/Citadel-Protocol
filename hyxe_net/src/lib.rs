@@ -1,3 +1,4 @@
+#![doc(html_no_source)]
 #![feature(async_closure, ip, bindings_after_at, result_flattening)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
@@ -13,6 +14,8 @@ unused_features,
 unused_results,
 warnings
 )]
+
+#![allow(rustdoc::broken_intra_doc_links)]
 
 #[cfg(feature = "single-threaded")]
 pub const fn build_tag() -> &'static str {
@@ -30,6 +33,12 @@ pub mod macros {
     use std::future::Future;
 
     use crate::hdp::hdp_session::HdpSessionInner;
+    use either::Either;
+
+    pub type OwnedReadGuard<'a, T> = std::cell::Ref<'a, T>;
+    pub type OwnedWriteGuard<'a, T> = std::cell::RefMut<'a, T>;
+
+    pub type EitherOwnedGuard<'a, T> = Either<OwnedReadGuard<'a, T>, OwnedWriteGuard<'a, T>>;
 
     pub trait ContextRequirements: 'static {}
     impl<T: 'static> ContextRequirements for T {}
@@ -126,6 +135,18 @@ pub mod macros {
         (&$item).into()
     };
 }
+
+    macro_rules! return_if_none {
+        ($opt:expr, $err:expr) => {
+            match $opt {
+                Some(val) => val,
+                _ => {
+                    log::warn!("[X-03] NoneError: {}", $err);
+                    return PrimaryProcessorResult::Void;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(feature = "multi-threaded")]
@@ -134,6 +155,12 @@ pub mod macros {
     use std::future::Future;
 
     use crate::hdp::hdp_session::HdpSessionInner;
+    use either::Either;
+
+    pub type OwnedReadGuard<'a, T> = parking_lot::RwLockReadGuard<'a, T>;
+    pub type OwnedWriteGuard<'a, T> = parking_lot::RwLockWriteGuard<'a, T>;
+
+    pub type EitherOwnedGuard<'a, T> = Either<OwnedReadGuard<'a, T>, OwnedWriteGuard<'a, T>>;
 
     pub trait ContextRequirements: Send + 'static {}
     impl<T: Send + 'static> ContextRequirements for T {}
@@ -238,6 +265,18 @@ pub mod macros {
         (&$item).into()
     };
 }
+
+    macro_rules! return_if_none {
+        ($opt:expr, $err:expr) => {
+            match $opt {
+                Some(val) => val,
+                _ => {
+                    log::warn!("[X-03] NoneError: {}", $err);
+                    return PrimaryProcessorResult::Void;
+                }
+            }
+        }
+    }
 }
 
 pub mod re_imports {

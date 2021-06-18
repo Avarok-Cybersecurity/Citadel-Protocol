@@ -32,6 +32,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         // NOTE: since we don't have access to the persistence handler yet, we will need to load it later
         self.local_nac = Some(local_nac);
         self.clients_map = Some(Arc::new(ShardedLock::new(map)));
+
         Ok(())
     }
 

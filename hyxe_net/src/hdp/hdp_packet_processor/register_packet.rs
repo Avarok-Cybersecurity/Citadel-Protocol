@@ -2,7 +2,7 @@ use super::includes::*;
 use std::sync::atomic::Ordering;
 use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
 use crate::error::NetworkError;
-use hyxe_crypt::argon_container::{ClientArgonContainer, ArgonContainerType};
+use hyxe_crypt::argon::argon_container::{ClientArgonContainer, ArgonContainerType};
 
 /// This will handle an HDP registration packet
 #[inline]
@@ -16,7 +16,7 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
     }
 
     let (header, payload, _, _) = packet.decompose();
-    let ref header = LayoutVerified::new(&header[..])? as LayoutVerified<&[u8], HdpHeader>;
+    let ref header = return_if_none!(LayoutVerified::new(&header[..]), "Unable to parse header") as LayoutVerified<&[u8], HdpHeader>;
     debug_assert_eq!(packet_flags::cmd::primary::DO_REGISTER, header.cmd_primary);
     let security_level = header.security_level.into();
 
@@ -40,14 +40,14 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
 
                         let reserved_true_cid = account_manager.get_persistence_handler().find_first_valid_cid(&possible_cids).await?.ok_or(NetworkError::InvalidExternalRequest("Infinitesimally small probability this happens"))?;
                         let bob_constructor = HyperRatchetConstructor::new_bob(reserved_true_cid, 0, transfer).ok_or(NetworkError::InvalidExternalRequest("Bad bob transfer"))?;
-                        let transfer = bob_constructor.stage0_bob()?;
+                        let transfer = return_if_none!(bob_constructor.stage0_bob(), "Unable to advance past stage0-bob");
 
 
                         let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, local_nid, transfer, reserved_true_cid);
                         let session = inner!(session_ref);
                         let mut state_container = inner_mut!(session.state_container);
                         state_container.register_state.proposed_cid = Some(reserved_true_cid);
-                        state_container.register_state.created_hyper_ratchet = Some(bob_constructor.finish()?);
+                        state_container.register_state.created_hyper_ratchet = Some(return_if_none!(bob_constructor.finish(), "Unable to finish bob constructor"));
                         state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE1;
                         state_container.register_state.on_register_packet_received();
 
@@ -81,16 +81,16 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                 // pqc is stored in the register state container for now
                 //debug_assert!(session.post_quantum.is_none());
                 if let Some(mut alice_constructor) = state_container.register_state.constructor.take() {
-                    let transfer = BobToAliceTransfer::deserialize_from(&payload[..])?;
+                    let transfer = return_if_none!(BobToAliceTransfer::deserialize_from(&payload[..]), "Unable to deserialize BobToAliceTransfer");
                     let security_level = transfer.security_level;
-                    alice_constructor.stage1_alice(&BobToAliceTransferType::Default(transfer))?;
-                    let new_hyper_ratchet = alice_constructor.finish()?;
+                    return_if_none!(alice_constructor.stage1_alice(&BobToAliceTransferType::Default(transfer)), "Unable to advance past stage1_alice");
+                    let new_hyper_ratchet = return_if_none!(alice_constructor.finish(), "Unable to finish alice constructor");
 
                     let reserved_true_cid = header.group.get();
                     let timestamp = session.time_tracker.get_global_time_ns();
                     let local_nid = session.account_manager.get_local_nid();
 
-                    let proposed_credentials = state_container.register_state.proposed_credentials.as_ref()?;
+                    let proposed_credentials = return_if_none!(state_container.register_state.proposed_credentials.as_ref(), "Unable to load proposed credentials");
                     let fcm_keys = session.fcm_keys.clone();
 
                     let stage2_packet = hdp_packet_crafter::do_register::craft_stage2(&new_hyper_ratchet, algorithm, local_nid, timestamp, proposed_credentials, fcm_keys, security_level);
@@ -119,12 +119,12 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
             let state_container = inner!(session.state_container);
             if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE1 {
                 let algorithm = header.algorithm;
-                let hyper_ratchet = state_container.register_state.created_hyper_ratchet.clone()?;
+                let hyper_ratchet = return_if_none!(state_container.register_state.created_hyper_ratchet.clone(), "Unable to load created hyper ratchet");
                     if let Some((stage2_packet, adjacent_nac)) = validation::do_register::validate_stage2(&hyper_ratchet, header, payload, remote_addr, session.account_manager.get_persistence_handler()) {
                         let (username, password, full_name, _) = stage2_packet.credentials.decompose();
                         let timestamp = session.time_tracker.get_global_time_ns();
                         let local_nid = session.account_manager.get_local_nid();
-                        let reserved_true_cid = state_container.register_state.proposed_cid.clone()?;
+                        let reserved_true_cid = return_if_none!(state_container.register_state.proposed_cid.clone(), "Unable to load proposed cid");
                         let account_manager = session.account_manager.clone();
                         std::mem::drop(state_container);
                         std::mem::drop(session);
@@ -177,14 +177,14 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
             // run: pub async fn register_personal_hyperlan_server<T: AsRef<[u8]>>(&self, cnac_inner_bytes: T, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>) -> Result<ClientNetworkAccount, AccountError<String>>
             let mut state_container = inner_mut!(session.state_container);
             if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE2 {
-                let hyper_ratchet = state_container.register_state.created_hyper_ratchet.clone()?;
+                let hyper_ratchet = return_if_none!(state_container.register_state.created_hyper_ratchet.clone(), "Unable to load created hyper ratchet");
 
                     if let Some((success_message, adjacent_nac)) = validation::do_register::validate_success(&hyper_ratchet, header, payload, remote_addr, session.account_manager.get_persistence_handler()) {
                         // Now, register the CNAC locally
 
-                        let credentials = state_container.register_state.proposed_credentials.take()?;
+                        let credentials = return_if_none!(state_container.register_state.proposed_credentials.take(), "Unable to take proposed credentials");
                         let (username, _password, full_name, argon_settings) = credentials.decompose();
-                        let reserved_true_cid = state_container.register_state.proposed_cid.clone()?;
+                        let reserved_true_cid = return_if_none!(state_container.register_state.proposed_cid.clone(), "Unable to load proposed CID");
                         std::mem::drop(state_container);
 
                         let reg_ticket = session.kernel_ticket.clone();
@@ -192,7 +192,7 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                         let kernel_tx = session.kernel_tx.clone();
                         let fcm_keys = session.fcm_keys.take();
                         let needs_close_message = session.needs_close_message.clone();
-                        let argon_container = ArgonContainerType::Client(ClientArgonContainer::from(argon_settings?));
+                        let argon_container = ArgonContainerType::Client(ClientArgonContainer::from(return_if_none!(argon_settings, "Unable to load argon settings")));
 
 
                         std::mem::drop(session);
