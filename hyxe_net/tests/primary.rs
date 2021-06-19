@@ -35,7 +35,7 @@ pub mod tests {
     use hyxe_net::kernel::kernel_executor::KernelExecutor;
     use hyxe_user::account_manager::AccountManager;
     use hyxe_user::backend::BackendType;
-    use hyxe_user::fcm::kem::FcmPostRegister;
+    use hyxe_user::external_services::fcm::kem::FcmPostRegister;
     use hyxe_user::network_account::ConnectProtocol;
     use hyxe_user::proposed_credentials::ProposedCredentials;
 
@@ -69,9 +69,10 @@ pub mod tests {
     }
 
     #[tokio::test]
+    /// TODO: This does not work because it's mixing protocols together. Needs to be re-done using the functions under HdpServer.rs for proto negotiation
     async fn tls() {
         setup_log();
-        const PKCS: &str = "/Users/nologik/satori.net/keys/devonly.pkcs";
+        const PKCS: &str = "/Users/nologik/satori.net/keys/testing.p12";
         const CERT: &str = "/Users/nologik/satori.net/keys/devonly.crt";
 
         let identity = TlsListener::load_tls_pkcs(PKCS, "mrmoney10").unwrap();
@@ -82,7 +83,7 @@ pub mod tests {
 
         let f1 = tokio::task::spawn(AssertSendSafeFuture::new_silent(async move {
             let listener = TcpListener::bind("127.0.0.1:27000").await.unwrap();
-            let mut tls_listener = TlsListener::new(listener, identity, "").unwrap();
+            let mut tls_listener = TlsListener::new(listener, identity, "mail.satorisocial.com").unwrap();
             while let Some(conn) = tls_listener.next().await {
                 match conn {
                     Ok((_stream, addr)) => {
@@ -102,7 +103,7 @@ pub mod tests {
         let f2 = tokio::task::spawn(async move {
             let stream = TcpStream::connect("127.0.0.1:27000").await.unwrap();
             tokio::time::sleep(Duration::from_millis(100)).await;
-            let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err)).unwrap();
+            let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(false).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err)).unwrap();
             let connector = tokio_native_tls::TlsConnector::from(connector);
             let stream = connector.connect("", stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err)).unwrap();
             log::info!("[Client] Success connecting to {:?}", stream.get_ref().get_ref().get_ref().peer_addr().unwrap());
@@ -137,7 +138,7 @@ pub mod tests {
     }
 
     static PROTO: Mutex<Option<UnderlyingProtocol>> = const_mutex(None);
-    const USE_FILESYSYEM: bool = false;
+    const USE_FILESYSYEM: bool = true;
 
     fn underlying_proto() -> UnderlyingProtocol {
         let lock = PROTO.lock();
@@ -291,7 +292,7 @@ pub mod tests {
 
     #[allow(unused_results)]
     async fn create_executor(hypernode_type: HyperNodeType, rt: Handle, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: NodeType, commands: Vec<ActionType>, backend_type: BackendType, underlying_proto: UnderlyingProtocol) -> KernelExecutor<TestKernel> {
-        let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port())), backend_type, None).await.unwrap();
+        let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port())), backend_type, None, None).await.unwrap();
         account_manager.purge().await.unwrap();
         let kernel = TestKernel::new(node_type, commands, test_container);
         KernelExecutor::new(rt, hypernode_type, account_manager, kernel, bind_addr, underlying_proto).await.unwrap()
@@ -653,7 +654,7 @@ pub mod tests {
                             self.on_valid_ticket_received(ticket);
                         }
 
-                        HdpServerResult::ConnectSuccess(ticket, _, _, _, _, _, _, channel) => {
+                        HdpServerResult::ConnectSuccess(ticket, _, _, _, _, _, _, _, channel) => {
                             log::info!("SUCCESS connecting ticket {} for {:?}", ticket, self.node_type);
                             self.on_valid_ticket_received(ticket);
 

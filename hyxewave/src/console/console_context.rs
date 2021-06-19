@@ -2,7 +2,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering, AtomicBool};
 use std::collections::HashMap;
-use crate::ticket_event::{CallbackStatus, TicketQueueHandler};
+use crate::ticket_event::{CallbackStatus, TicketQueueHandler, ResponseType, CustomPayload, CallbackType};
 use crate::kernel::{KernelSession, PeerSession};
 use hyxe_net::hdp::hdp_server::{Ticket, HdpServerRemote, HdpServerRequest};
 use std::path::PathBuf;
@@ -93,11 +93,16 @@ impl ConsoleContext {
 
     pub fn register_ticket(&self, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: impl Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + Send + 'static) {
         let queue = self.ticket_queue.as_ref().unwrap();
-        queue.register_ticket(ticket, lifetime, implicated_cid, fx)
+        queue.register_ticket(ticket, lifetime, implicated_cid, CallbackType::Standard(Box::pin(fx)))
     }
 
-    pub fn on_ticket_received(&self, ticket: Ticket, response: PeerResponse) {
-        self.ticket_queue.as_ref().unwrap().on_ticket_received(ticket, response)
+    pub fn register_ticket_custom_response(&self, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: impl Fn(&ConsoleContext, Ticket, CustomPayload) -> CallbackStatus + Send + 'static) {
+        let queue = self.ticket_queue.as_ref().unwrap();
+        queue.register_ticket(ticket, lifetime, implicated_cid, CallbackType::Custom(Box::pin(fx)))
+    }
+
+    pub fn on_ticket_received<T: Into<ResponseType>>(&self, ticket: Ticket, response: T) {
+        self.ticket_queue.as_ref().unwrap().on_ticket_received(ticket, response.into())
     }
 
     /// Does not actually create a new message group with the server; it only register an entry locally
@@ -272,7 +277,7 @@ impl ConsoleContext {
     async fn send_disconnect_request(&self, cid: u64, username: Option<String>, virt_cxn_type: VirtualConnectionType, server_remote: &mut HdpServerRemote) -> Result<Ticket, ConsoleError> {
         let ticket = server_remote.send(HdpServerRequest::DisconnectFromHypernode(cid, virt_cxn_type)).await?;
         let queue = self.ticket_queue.as_ref().unwrap();
-        queue.register_ticket(ticket, DISCONNECT_TIMEOUT, cid, move |ctx,_, response| {
+        queue.register_ticket(ticket, DISCONNECT_TIMEOUT, cid, CallbackType::Standard(Box::pin(move |ctx,_, response| {
             match response {
                 PeerResponse::Ok(_) => {
                     //printf_ln!(colour::green!("Disconnect success for {}", virt_cxn_type));
@@ -291,7 +296,7 @@ impl ConsoleContext {
             }
 
             CallbackStatus::TaskComplete
-        });
+        })));
 
         Ok(ticket)
     }

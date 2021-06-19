@@ -10,7 +10,8 @@ members = [
 	"async_ip",
 	"ez_pqcrypto",
 	"hyxe_net",
-    "rpassword"
+    "rpassword",
+    "firebase-rtdb"
 ]
 
 exclude = [

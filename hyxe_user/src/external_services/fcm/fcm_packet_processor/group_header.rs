@@ -1,11 +1,11 @@
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus, EndpointRatchetConstructor};
 use hyxe_crypt::hyper_ratchet::Ratchet;
-use crate::fcm::data_structures::{FcmHeader, FcmTicket};
+use crate::external_services::fcm::data_structures::{FcmHeader, FcmTicket};
 use zerocopy::LayoutVerified;
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
+use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
 use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransferType;
 use crate::misc::AccountError;
-use crate::fcm::fcm_instance::FCMInstance;
+use crate::external_services::fcm::fcm_instance::FCMInstance;
 use std::sync::Arc;
 use fcm::Client;
 use hyxe_crypt::fcm::fcm_ratchet::FcmAliceToBobTransfer;

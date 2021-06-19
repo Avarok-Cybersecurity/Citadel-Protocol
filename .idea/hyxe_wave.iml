@@ -338,6 +338,7 @@
       <sourceFolder url="file://$MODULE_DIR$/fcm-rust/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/hyxe_fcm/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/hyxewave/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/firebase-rtdb/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/target" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/target" />
       <excludeFolder url="file://$MODULE_DIR$/async_ip/target" />

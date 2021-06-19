@@ -8,9 +8,9 @@ use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_fs::io::SyncIO;
 
 use crate::account_manager::AccountManager;
-use crate::fcm::data_structures::{FcmHeader, FcmPacket, FCMPayloadType, FcmTicket, RawFcmPacket};
-use crate::fcm::fcm_instance::FCMInstance;
-use crate::fcm::fcm_packet_processor::peer_post_register::{FcmPostRegisterResponse, PostRegisterInvitation};
+use crate::external_services::fcm::data_structures::{FcmHeader, FcmPacket, FCMPayloadType, FcmTicket, RawFcmPacket};
+use crate::external_services::fcm::fcm_instance::FCMInstance;
+use crate::external_services::fcm::fcm_packet_processor::peer_post_register::{FcmPostRegisterResponse, PostRegisterInvitation};
 use crate::misc::AccountError;
 use crate::prelude::ClientNetworkAccountInner;
 

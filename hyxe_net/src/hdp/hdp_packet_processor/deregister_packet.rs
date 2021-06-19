@@ -101,7 +101,7 @@ async fn deregister_from_hyperlan_server_as_client(implicated_cid: u64, session_
     std::mem::drop(state_container);
     std::mem::drop(session);
 
-    if let Err(err) = cnac.fcm_raw_broadcast_to_all_peers(fcm_client, |fcm, peer_cid| hyxe_user::fcm::fcm_packet_crafter::craft_deregistered(fcm, peer_cid, 0)).await {
+    if let Err(err) = cnac.fcm_raw_broadcast_to_all_peers(fcm_client, |fcm, peer_cid| hyxe_user::external_services::fcm::fcm_packet_crafter::craft_deregistered(fcm, peer_cid, 0)).await {
         log::error!("Error when fcm broadcasting: {:#?}", err);
     }
 

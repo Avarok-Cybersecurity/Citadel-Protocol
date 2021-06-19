@@ -19,13 +19,15 @@ dependencies:
     git:
       url: https://github.com/DPLYR-dev/SplashScreenFlutterPackage.git
       ref: master
+  firebase_auth: 1.4.1
+  firebase_database: ^7.1.1
   firebase_core: ^1.0.1
   flutter_chat_bubble: ^1.0.2
   rxdart: ^0.26.0
   sqflite: ^2.0.0+3
   path: ^1.8.0
   cached_network_image: ^3.0.0-nullsafety
-  firebase_messaging: ^9.0.0
+  firebase_messaging: ^10.0.2
   cupertino_icons: any
   optional: ^6.0.0-nullsafety.0
   quiver: ^3.0.0

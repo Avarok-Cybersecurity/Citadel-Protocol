@@ -1,8 +1,8 @@
 use super::imports::*;
 use hyxe_crypt::sec_bytes::SecBuffer;
-use hyxe_user::fcm::kem::FcmPostRegister;
-use hyxe_user::fcm::fcm_packet_processor::FcmProcessorResult;
-use hyxe_user::fcm::data_structures::{base64_string, string, FcmTicket};
+use hyxe_user::external_services::fcm::kem::FcmPostRegister;
+use hyxe_user::external_services::fcm::fcm_packet_processor::FcmProcessorResult;
+use hyxe_user::external_services::fcm::data_structures::{base64_string, string, FcmTicket};
 use crate::constants::{FCM_POST_REGISTER_TIMEOUT, FCM_FETCH_TIMEOUT};
 use hyxe_user::prelude::Client;
 use std::sync::Arc;

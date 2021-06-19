@@ -8,12 +8,20 @@ use hyxe_crypt::prelude::algorithm_dictionary::{KemAlgorithm, EncryptionAlgorith
 use hyxe_net::hdp::misc::session_security_settings::{SessionSecuritySettingsBuilder, SessionSecuritySettings};
 use std::convert::TryFrom;
 use hyxe_user::prelude::ConnectionInfo;
+use hyxe_user::external_services::PostLoginObject;
+use crate::ticket_event::CustomPayload;
 
 #[derive(Debug, Serialize)]
 pub enum ConnectResponse {
     // ticket, implicated cid, message
-    Success(#[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64, String),
+    Success(#[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64, String, String),
     Failure(#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64, String),
+}
+
+pub struct ConnectResponseReceived {
+    pub success: bool,
+    pub message: Option<String>,
+    pub login_object: PostLoginObject
 }
 
 #[allow(unused_results)]
@@ -79,16 +87,18 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
     }
 
     let username = username.to_string();
-    ctx.register_ticket(ticket, DO_CONNECT_EXPIRE_TIME_MS, cid, move |ctx, _, response| {
+    ctx.register_ticket_custom_response(ticket, DO_CONNECT_EXPIRE_TIME_MS, cid, move |ctx, _, response| {
         tx.lock().take().map(|sender| sender.send(()));
         match response {
-            PeerResponse::Ok(welcome_message_opt) => {
-                if let Some(ref ffi_io) = ffi_io {
-                    (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Connect(ConnectResponse::Success(ticket.0, cid, welcome_message_opt.unwrap_or(String::from("Connect success"))))))))
-                } else {
-                    printfs!({
+            CustomPayload::Connect(ConnectResponseReceived { success, message, login_object }) => {
+                if success {
+                    if let Some(ref ffi_io) = ffi_io {
+                        (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Connect(ConnectResponse::Success(ticket.0, cid, message.unwrap_or(String::from("Connect success")), login_object.google_auth_jwt.unwrap_or_default()))))))
+                    } else {
+                        log::info!("LoginObject: {:?}", &login_object);
+                        printfs!({
                         colour::green_ln!("\nConnection forged for {} ({})! You may now begin message passing within the HyperLAN", &username, cid);
-                        if let Some(welcome_message) = welcome_message_opt {
+                        if let Some(welcome_message) = message {
                             colour::white!("Hypernode welcome message: ");
                             colour::yellow!("{}\n\n", &welcome_message);
                         } else {
@@ -96,22 +106,23 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
                         }
                     });
 
-                    *ctx.active_user.write() = username.clone();
-                    ctx.set_active_cid(cid);
+                        *ctx.active_user.write() = username.clone();
+                        ctx.set_active_cid(cid);
 
-                    ctx.in_personal.store(true, Ordering::SeqCst);
-                }
-            }
-
-            PeerResponse::Err(err_opt) => {
-                if let Some(ref ffi_io) = ffi_io {
-                    (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Connect(ConnectResponse::Failure(ticket.0, cid, err_opt.unwrap_or(String::from("Unable to connect"))))))))
+                        ctx.in_personal.store(true, Ordering::SeqCst);
+                    }
                 } else {
-                    printf_ln!(colour::red!("\nConnection failed: {}\n", err_opt.unwrap_or(String::from("Please try again later"))))
+                    if let Some(ref ffi_io) = ffi_io {
+                        (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Connect(ConnectResponse::Failure(ticket.0, cid, message.unwrap_or(String::from("Unable to connect"))))))))
+                    } else {
+                        printf_ln!(colour::red!("\nConnection failed: {}\n", message.unwrap_or(String::from("Please try again later"))))
+                    }
                 }
             }
 
             _ => {
+                log::error!("Invalid custom payload response under connect");
+
                 if let Some(ref ffi_io) = ffi_io {
                     (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Connect(ConnectResponse::Failure(ticket.0, cid, String::from("Unable to connect")))))))
                 } else {

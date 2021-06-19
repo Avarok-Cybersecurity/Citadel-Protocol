@@ -1,6 +1,6 @@
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
-use crate::fcm::fcm_packet_processor::FcmProcessorResult;
+use crate::external_services::fcm::fcm_packet_processor::FcmProcessorResult;
 
 pub fn process<Fcm: Ratchet>(endpoint_crypto: &mut PeerSessionCrypto<Fcm>, truncate_vers: Option<u32>) -> FcmProcessorResult {
     log::info!("FCM RECV TRUNCATE_ACK");

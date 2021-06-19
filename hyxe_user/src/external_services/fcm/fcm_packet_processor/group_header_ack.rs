@@ -1,11 +1,11 @@
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus, EndpointRatchetConstructor};
 use zerocopy::LayoutVerified;
-use crate::fcm::data_structures::{FcmHeader, FcmTicket};
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
+use crate::external_services::fcm::data_structures::{FcmHeader, FcmTicket};
+use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
 use std::sync::Arc;
 use fcm::Client;
-use crate::fcm::fcm_instance::FCMInstance;
+use crate::external_services::fcm::fcm_instance::FCMInstance;
 use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
 

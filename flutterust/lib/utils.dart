@@ -154,6 +154,8 @@ class Utils {
     FirebaseMessaging.onMessage.listen(onFcmMessageReceived);
     FirebaseMessaging.onBackgroundMessage(onFcmMessageReceived);
 
+
+
     var key = await firebase.getToken();
     if (key == null) {
       print("Firebase token returned null");

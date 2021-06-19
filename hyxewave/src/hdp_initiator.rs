@@ -32,7 +32,7 @@ pub fn execute(mut config: AppConfig) -> Result<(), NetworkError> {
 }
 
 async fn get_account_manager(app_config: &AppConfig) -> Result<AccountManager, NetworkError> {
-    AccountManager::new(app_config.local_bind_addr.clone().unwrap(), app_config.home_dir.clone(), app_config.backend_type.clone().unwrap_or(BackendType::Filesystem), app_config.argon_settings_server.clone()).await
+    AccountManager::new(app_config.local_bind_addr.clone().unwrap(), app_config.home_dir.clone(), app_config.backend_type.clone().unwrap_or(BackendType::Filesystem), app_config.argon_settings_server.clone(), app_config.external_services.clone()).await
         .map_err(|err| NetworkError::Generic(err.into_string()))
 }
 

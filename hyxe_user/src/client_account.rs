@@ -28,11 +28,11 @@ use hyxe_crypt::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmRatchet};
 use hyxe_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, AliceToBobTransferType};
 use fcm::{Client, FcmResponse};
-use crate::fcm::fcm_instance::FCMInstance;
-use crate::fcm::data_structures::{FcmTicket, RawFcmPacket};
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
-use crate::fcm::fcm_packet_processor::peer_post_register::InvitationType;
-use crate::fcm::kem::FcmPostRegister;
+use crate::external_services::fcm::fcm_instance::FCMInstance;
+use crate::external_services::fcm::data_structures::{FcmTicket, RawFcmPacket};
+use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
+use crate::external_services::fcm::fcm_packet_processor::peer_post_register::InvitationType;
+use crate::external_services::fcm::kem::FcmPostRegister;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
@@ -80,7 +80,7 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     pub username: String,
     /// While this NAC should be session-oriented, it may be replaced if [PINNED_IP_MODE] is disabled, meaning, a new IP
     /// address can enact as the CNAC, otherwise the IP address must stay constant
-    #[serde(with = "crate::fcm::data_structures::none")]
+    #[serde(with = "crate::external_services::fcm::data_structures::none")]
     pub adjacent_nac: Option<NetworkAccount<R, Fcm>>,
     /// If this CNAC is for a personal connection, this is true
     pub is_local_personal: bool,
@@ -119,7 +119,7 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     /// Only the server should store these values. The first key is the peer cid, the second key is the raw ticket ID, used for organizing proper order
     /// TODO: Consider removing this, as the 2nd version below is newer
     fcm_packet_store: Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>,
-    #[serde(with = "crate::fcm::data_structures::none")]
+    #[serde(with = "crate::external_services::fcm::data_structures::none")]
     pub(crate) persistence_handler: Option<PersistenceHandler<R, Fcm>>,
     argon_container: ArgonContainerType
 }
@@ -790,7 +790,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
         let constructor = crypt_container.get_next_constructor(Some(params));
         let transfer = constructor.as_ref().map(|con| con.stage0_alice());
-        let packet = crate::fcm::fcm_packet_crafter::craft_group_header(ratchet, object_id, group_id, target_peer_cid, ticket_id, message, transfer).ok_or(AccountError::Generic("Report to developers (x-77)".to_string()))?;
+        let packet = crate::external_services::fcm::fcm_packet_crafter::craft_group_header(ratchet, object_id, group_id, target_peer_cid, ticket_id, message, transfer).ok_or(AccountError::Generic("Report to developers (x-77)".to_string()))?;
 
         // store constructor if required (may not be required if an update is already in progress)
         if let Some(constructor) = constructor {

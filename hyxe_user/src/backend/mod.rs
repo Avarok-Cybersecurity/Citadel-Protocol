@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::fcm::keys::FcmKeys;
+#[cfg(feature = "enterprise")]
 use crate::backend::mysql_backend::SqlConnectionOptions;
 
 #[cfg(feature = "enterprise")]
@@ -47,6 +48,7 @@ impl BackendType {
     }
 
     /// Like [sql], but with custom options
+    #[cfg(feature = "enterprise")]
     pub fn sql_with<T: Into<String>>(url: T, opts: SqlConnectionOptions) -> BackendType {
         BackendType::SQLDatabase(url.into(), opts)
     }

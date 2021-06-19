@@ -16,7 +16,7 @@ use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
 use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use crate::inner_arg::{ExpectedInnerTarget, InnerParameter};
-use hyxe_user::fcm::kem::FcmPostRegister;
+use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use bytes::BytesMut;
 use crate::hdp::outbound_sender::OutboundTcpSender;
 use crate::hdp::hdp_session_manager::HdpSessionManager;
@@ -91,7 +91,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                             std::mem::drop(session);
                             let peer_cid = *peer_cid;
                             // now, send an FCM dereg signal. Then, create FCM dereg signal+handler. Finally, remove the kernel's dereg operation
-                            match cnac.fcm_raw_send_to_peer(peer_cid, |fcm_ratchet| hyxe_user::fcm::fcm_packet_crafter::craft_deregistered(fcm_ratchet, peer_cid, ticket.0), acc_mgr.fcm_client()).await {
+                            match cnac.fcm_raw_send_to_peer(peer_cid, |fcm_ratchet| hyxe_user::external_services::fcm::fcm_packet_crafter::craft_deregistered(fcm_ratchet, peer_cid, ticket.0), acc_mgr.fcm_client()).await {
                                 Ok(_) => {
                                     log::info!("Successfully alerted peer {} that deregistration occurred", peer_cid);
                                 }
@@ -540,8 +540,8 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                                     }
                                 }
 
-                                let res = sess_mgr.clone().fcm_post_register_to(header.session_cid.get(), peer_conn_type.get_original_target_cid(), true, move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, tx, username) },
-                                                                                       move |res| {
+                                let res = sess_mgr.clone().fcm_post_register_to(header.session_cid.get(), peer_conn_type.get_original_target_cid(), true, move |static_hr| { hyxe_user::external_services::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, tx, username) },
+                                                                                move |res| {
                                                                                            post_fcm_send(res, sess_mgr.clone(), ticket, implicated_cid, security_level)
                                                                                        }).await;
 
@@ -596,7 +596,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                                 let sess_mgr = session.session_manager.clone(); // we must clone since the session may end after the FCM send occurs. We don't want to hold a strong ref
 
                                 std::mem::drop(session);
-                                let res = sess_mgr.clone().fcm_post_register_to(implicated_cid, target_cid, false, move |static_hr| { hyxe_user::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, fcm, username) }, move |res| {
+                                let res = sess_mgr.clone().fcm_post_register_to(implicated_cid, target_cid, false, move |static_hr| { hyxe_user::external_services::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, fcm, username) }, move |res| {
                                     post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
                                 }).await;
 

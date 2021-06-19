@@ -76,7 +76,9 @@ class AutoLogin {
     final StreamController<Optional<KernelResponse>> controller = StreamController();
     await RustSubsystem.bridge!.executeCommand("resync").then((value) => value.ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: ResyncHandler(controller.sink))));
     Optional<KernelResponse> resyncResult = await controller.stream.first.timeout(Duration(seconds: 3), onTimeout: () async { await controller.close(); throw TimeoutException("Timeout"); });
+    await controller.close();
 
+    print("Resync complete");
     if (resyncResult.isPresent) {
       if (await initiateAutoLogin(implicatedCid, uname)) {
         print("Account successfully logged-in; will now execute enqueued command ...");

@@ -19,8 +19,8 @@ use crate::macros::SyncContextRequirements;
 
 #[cfg(feature = "multi-threaded")]
 use futures::task::AtomicWaker;
-use hyxe_user::fcm::kem::FcmPostRegister;
-use hyxe_user::fcm::data_structures::{RawFcmPacket, FcmTicket};
+use hyxe_user::external_services::fcm::kem::FcmPostRegister;
+use hyxe_user::external_services::fcm::data_structures::{RawFcmPacket, FcmTicket};
 use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 

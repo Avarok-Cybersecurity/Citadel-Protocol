@@ -17,13 +17,14 @@ use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::prelude::SecBuffer;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::argon::argon_container::{AsyncArgon, ArgonSettings, ArgonStatus, ServerArgonContainer, ArgonContainerType, ArgonDefaultServerSettings};
-use crate::fcm::fcm_packet_processor::block_on_async;
+use crate::external_services::fcm::fcm_packet_processor::block_on_async;
+use crate::external_services::{ServicesHandler, ServicesConfig};
 
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
 #[derive(Clone)]
 pub struct AccountManager<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
-    fcm_client: Arc<Client>,
+    services_handler: ServicesHandler,
     persistence_handler: PersistenceHandler<R, Fcm>,
     node_argon_settings: ArgonSettings
 }
@@ -34,10 +35,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// `home_dir`: Optional. Overrides the default storage location for files
     /// `server_argon_settings`: Security settings used for saving the password to the backend. The AD will be replaced each time a new user is created, so it can be empty
     #[allow(unused_results)]
-    pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType, server_argon_settings: Option<ArgonDefaultServerSettings>) -> Result<Self, AccountError> {
+    pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType, server_argon_settings: Option<ArgonDefaultServerSettings>, services_cfg: Option<ServicesConfig>) -> Result<Self, AccountError> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
         let directory_store = hyxe_fs::env::setup_directories(bind_addr, NAC_SERIALIZED_EXTENSION, home_dir)?;
-        let fcm_client = Arc::new(Client::new());
+        let services_handler = services_cfg.unwrap_or_default().to_services_handler().await?;
 
         let persistence_handler = match &backend_type {
             BackendType::Filesystem => {
@@ -59,12 +60,12 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         persistence_handler.post_connect(&persistence_handler)?;
 
-        Ok(Self { persistence_handler, fcm_client, node_argon_settings: server_argon_settings.unwrap_or_default().into() })
+        Ok(Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into() })
     }
 
     /// Using an internal single-threaded executor, creates the account manager. NOTE: It is best not to mix executors. This should be used only in background modes that need to poll
-    pub fn new_blocking(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType, argon_server_settings: Option<ArgonDefaultServerSettings>) -> Result<Self, AccountError> {
-        block_on_async(move || Self::new(bind_addr, home_dir, backend_type, argon_server_settings))?
+    pub fn new_blocking(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType, argon_server_settings: Option<ArgonDefaultServerSettings>, services_config: Option<ServicesConfig>) -> Result<Self, AccountError> {
+        block_on_async(move || Self::new(bind_addr, home_dir, backend_type, argon_server_settings, services_config))?
     }
 
     /// Returns the directory store for this local node session
@@ -72,9 +73,14 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         self.persistence_handler.directory_store()
     }
 
+    /// Returns a reference to the services handler
+    pub fn services_handler(&self) -> &ServicesHandler {
+        &self.services_handler
+    }
+
     /// Returns the fcm client
     pub fn fcm_client(&self) -> &Arc<Client> {
-        &self.fcm_client
+        &self.services_handler.fcm_client
     }
 
     /// For testing purposes only
