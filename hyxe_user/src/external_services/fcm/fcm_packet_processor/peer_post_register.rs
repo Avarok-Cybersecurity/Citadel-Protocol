@@ -1,5 +1,5 @@
-use crate::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
-use crate::fcm::kem::FcmPostRegister;
+use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
+use crate::external_services::fcm::kem::FcmPostRegister;
 use serde::{Serialize, Deserialize};
 use super::super::data_structures::{string, base64_string};
 use std::collections::HashMap;

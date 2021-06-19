@@ -10,6 +10,7 @@ workspace = "../"
 [features]
 default = ["single-threaded"]
 enterprise = ["sqlx"]
+#google-auth = ["jwt", "openssl"]
 multi-threaded = ["hyxe_crypt/multi-threaded"]
 single-threaded = ["hyxe_crypt/single-threaded"]
 
@@ -40,6 +41,9 @@ serde_bytes = "0.11.5"
 zerocopy = "0.3.0"
 byteorder = "1.4.2"
 sqlx = { version = "^0.5.5", features = ["all-databases", "tls", "runtime-tokio-native-tls"], optional=true }
+
+jwt = { version = "0.14.0", features = ["openssl"] }
+openssl = { version = "^0.10.35", features = ["vendored"] }
 
 [dev-dependencies]
 #tokio = { version = "^0.2.22", features = ["full"] }

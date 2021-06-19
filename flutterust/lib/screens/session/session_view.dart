@@ -7,6 +7,7 @@ import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/handlers/peer_mutuals_handler.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/peer_list_handler.dart';
+import 'package:flutterust/misc/auto_login.dart';
 import 'package:flutterust/screens/session/session_subscreens/mutuals.dart';
 import 'package:flutterust/screens/session/session_subscreens/peer_list.dart';
 import 'package:flutterust/themes/default.dart';
@@ -122,16 +123,16 @@ class SessionViewInner extends State<SessionView> {
   void listPeers() async {
     print("Listing peers ...");
     String cmd = "switch " + widget.cnac.username + " peer list";
-    (await RustSubsystem.bridge!.executeCommand(cmd)).ifPresent((kResp) =>
-        KernelResponseHandler.handleFirstCommand(kResp,
-            handler: PeerListHandler(context, handleDsr)));
+    await AutoLogin.executeCommandRequiresConnected(this.widget.cnac.implicatedCid, cmd).then((value) => value
+        .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp,
+        handler: PeerListHandler(context, handleDsr))));
   }
 
   void listMutuals() async {
     print("Listing mutuals ...");
     String cmd = "switch " + widget.cnac.username + " peer mutuals";
-    (await RustSubsystem.bridge!.executeCommand(cmd)).ifPresent((kResp) =>
-        KernelResponseHandler.handleFirstCommand(kResp,
-            handler: PeerMutualsHandler(context, handleDsr)));
+    await AutoLogin.executeCommandRequiresConnected(this.widget.cnac.implicatedCid, cmd).then((value) => value
+        .ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp,
+        handler: PeerMutualsHandler(context, handleDsr))));
   }
 }

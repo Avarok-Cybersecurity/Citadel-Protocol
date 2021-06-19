@@ -24,7 +24,7 @@ use hyxe_nat::local_firewall_handler::{FirewallProtocol, open_local_firewall_por
 use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
-use hyxe_user::fcm::data_structures::RawFcmPacketStore;
+use hyxe_user::external_services::fcm::data_structures::RawFcmPacketStore;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 
 use crate::constants::{DEFAULT_SO_LINGER_TIME, NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT, MAX_OUTGOING_UNPROCESSED_REQUESTS};
@@ -44,6 +44,7 @@ use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetT
 use crate::kernel::RuntimeFuture;
 use tokio::io::AsyncReadExt;
 use hyxe_fs::io::SyncIO;
+use hyxe_user::external_services::PostLoginObject;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -663,6 +664,7 @@ pub enum ConnectMode {
 }
 
 /// This type is for relaying results between the lower-level server and the higher-level kernel
+/// TODO: Convert to enum structs
 #[derive(Debug)]
 pub enum HdpServerResult {
     /// Returns the CNAC which was created during the registration process
@@ -671,8 +673,8 @@ pub enum HdpServerResult {
     RegisterFailure(Ticket, String),
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(VirtualConnectionType, Option<Ticket>, bool, bool),
-    /// Connection succeeded for the cid self.0. bool is "is personal". Final arg is fcm_reg_status
-    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, Option<RawFcmPacketStore>, String, PeerChannel),
+    /// Connection succeeded for the cid self.0. bool is "is personal"
+    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, Option<RawFcmPacketStore>, PostLoginObject, String, PeerChannel),
     /// The connection was a failure
     ConnectFail(Ticket, Option<u64>, String),
     /// The outbound request was rejected

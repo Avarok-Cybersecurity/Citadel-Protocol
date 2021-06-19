@@ -30,12 +30,13 @@ use crate::console_error::ConsoleError;
 use crate::constants::INVALID_UTF8;
 use crate::ffi::{DomainResponse, FFIIO, KernelResponse};
 use crate::mail::IncomingPeerRequest;
-use crate::ticket_event::TicketQueueHandler;
+use crate::ticket_event::{TicketQueueHandler, CustomPayload, ResponseType};
 use hyxe_net::functional::IfEqConditional;
-use hyxe_user::fcm::kem::FcmPostRegister;
+use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use crate::command_handlers::peer::PostRegisterRequest;
 use hyxe_net::hdp::misc::panic_future::AssertSendSafeFuture;
 use hyxe_net::hdp::misc::session_security_settings::SessionSecuritySettings;
+use crate::command_handlers::connect::ConnectResponseReceived;
 
 #[allow(dead_code)]
 pub struct CLIKernel {
@@ -58,11 +59,11 @@ impl CLIKernel {
 
     /// Returns true if the ticket was removed, false otherwise. If false, the ticket may have expired, or, it was never input
     /// Also runs the function
-    pub fn on_ticket_received(&self, ticket: Ticket, response: PeerResponse) {
+    pub fn on_ticket_received<T: Into<ResponseType>>(&self, ticket: Ticket, response: T) {
         self.console_context.on_ticket_received(ticket, response)
     }
 
-    pub fn on_ticket_received_opt(&self, ticket: Option<Ticket>, response: PeerResponse) {
+    pub fn on_ticket_received_opt<T: Into<ResponseType>>(&self, ticket: Option<Ticket>, response: T) {
         if let Some(ticket) = ticket {
             self.console_context.on_ticket_received(ticket, response)
         }
@@ -269,8 +270,8 @@ impl NetKernel for CLIKernel {
             }
 
             // FFI handler built-in to the ticket callback
-            HdpServerResult::ConnectSuccess(ticket, cid, ip_addr, is_personal, virtual_cxn_type, raw_fcm_packet_store, message, channel) => {
-                self.on_ticket_received(ticket, PeerResponse::Ok(Some(message)));
+            HdpServerResult::ConnectSuccess(ticket, cid, ip_addr, is_personal, virtual_cxn_type, raw_fcm_packet_store, login_object, welcome_message, channel) => {
+                self.on_ticket_received(ticket, CustomPayload::Connect(ConnectResponseReceived { success: true, message: Some(welcome_message), login_object }));
                 if let Ok(Some(cnac)) = self.console_context.account_manager.get_client_by_cid(cid).await {
                     let username = cnac.get_username();
                     if !is_personal {
@@ -293,7 +294,7 @@ impl NetKernel for CLIKernel {
 
             // FFI Handles this in the callback
             HdpServerResult::ConnectFail(ticket, cid, reason) => {
-                self.on_ticket_received(ticket, PeerResponse::Err(Some(reason)));
+                self.on_ticket_received(ticket, CustomPayload::Connect(ConnectResponseReceived { success: false, message: Some(reason), login_object: Default::default() }));
             }
 
             HdpServerResult::OutboundRequestRejected(ticket, reason_opt) => {

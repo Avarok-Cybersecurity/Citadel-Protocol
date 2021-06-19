@@ -35,7 +35,8 @@ pub(crate) fn generate_app_config(home_dir: &str, database_url: &str) -> TomlCon
         backend: Some(backend),
         kernel_threads: Some(2),
         daemon_mode: None,
-        argon: None
+        argon: None,
+        external_services: None
     };
 
     TomlConfig {
@@ -132,7 +133,7 @@ pub unsafe extern "C" fn fcm_process(
     let home_dir = home_dir.to_string();
 
     let task = async move {
-        match AccountManager::new(SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),Some(home_dir.to_string()), backend_type, None).await {
+        match AccountManager::new(SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),Some(home_dir.to_string()), backend_type, None, None).await {
             Ok(acc_mgr) => {
                 log::info!("[Rust BG processor] Success setting-up account manager");
                 let fcm_res = hyxewave::re_exports::fcm_packet_processor::process(packet, acc_mgr).await;

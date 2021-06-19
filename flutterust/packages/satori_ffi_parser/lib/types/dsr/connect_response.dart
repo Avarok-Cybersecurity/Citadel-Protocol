@@ -10,9 +10,11 @@ class ConnectResponse extends DomainSpecificResponse {
   final StandardTicket ticket;
   final u64 implicatedCid;
   final bool success;
+  final Optional<String> jwt;
+
   Optional<String> username = Optional.empty();
 
-  ConnectResponse._(this.success, this.ticket, this.implicatedCid, this.message);
+  ConnectResponse._(this.success, this.ticket, this.implicatedCid, this.message, this.jwt);
 
   @override
   Optional<String> getMessage() {
@@ -32,7 +34,7 @@ class ConnectResponse extends DomainSpecificResponse {
   static Optional<DomainSpecificResponse> tryFrom(Map<String, dynamic> infoNode) {
     bool success = infoNode.containsKey("Success");
     List<dynamic> leaf = infoNode[success ? "Success" : "Failure"];
-    if (leaf.length != 3) {
+    if ((success && leaf.length != 4) || (!success && leaf.length != 3)) {
       return Optional.empty();
     }
 
@@ -40,7 +42,9 @@ class ConnectResponse extends DomainSpecificResponse {
     var implicatedCid = u64.tryFrom(leaf[1]);
     String message = leaf[2];
 
-    return ticket.isPresent && implicatedCid.isPresent ? Optional.of(ConnectResponse._(success, ticket.value, implicatedCid.value, message)) : Optional.empty();
+    Optional<String> jwt = success ? Optional.of(leaf[3]) : Optional.empty();
+
+    return ticket.isPresent && implicatedCid.isPresent ? Optional.of(ConnectResponse._(success, ticket.value, implicatedCid.value, message, jwt)) : Optional.empty();
   }
 
   void attachUsername(String username) {

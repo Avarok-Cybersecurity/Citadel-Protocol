@@ -491,7 +491,8 @@ pub(crate) mod do_connect {
     use serde::{Serialize, Deserialize};
     use hyxe_crypt::fcm::keys::FcmKeys;
     use std::collections::{HashMap, BTreeMap};
-    use hyxe_user::fcm::data_structures::RawFcmPacket;
+    use hyxe_user::external_services::fcm::data_structures::RawFcmPacket;
+    use hyxe_user::external_services::PostLoginObject;
 
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectStage0Packet<'a> {
@@ -539,13 +540,14 @@ pub(crate) mod do_connect {
         pub mailbox: Option<MailboxTransfer>,
         pub fcm_packets: Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>,
         pub peers: Vec<(u64, Option<String>, Option<FcmKeys>)>,
+        pub post_login_object: PostLoginObject,
         #[serde(borrow)]
         pub message: &'a [u8]
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, success: bool, mailbox: Option<MailboxTransfer>, fcm_packets: Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>, message: T, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
-        let payload = DoConnectFinalStatusPacket { mailbox, fcm_packets, peers, message: message.as_ref() };
+    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, success: bool, mailbox: Option<MailboxTransfer>, fcm_packets: Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>, post_login_object: PostLoginObject, message: T, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+        let payload = DoConnectFinalStatusPacket { mailbox, fcm_packets, peers, message: message.as_ref(), post_login_object };
 
         let cmd_aux = if success {
             packet_flags::cmd::aux::do_connect::SUCCESS

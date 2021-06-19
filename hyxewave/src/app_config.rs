@@ -15,6 +15,7 @@ use hyxe_net::hdp::misc::net::TlsListener;
 use hyxe_user::backend::mysql_backend::SqlConnectionOptions;
 use std::time::Duration;
 use hyxe_crypt::argon::argon_container::ArgonDefaultServerSettings;
+use hyxe_user::external_services::ServicesConfig;
 
 /// Created when parsing the command-line. If pure server or client mode is chosen,
 /// only one of the fields below will contain a value. If distributed mode is used,
@@ -26,6 +27,7 @@ pub struct AppConfig {
     pub hypernode_type: Option<HyperNodeType>,
     pub ffi_io: Option<FFIIO>,
     pub backend_type: Option<BackendType>,
+    pub external_services: Option<ServicesConfig>,
     pub argon_settings_server: Option<ArgonDefaultServerSettings>,
     pub is_ffi: bool,
     pub home_dir: Option<String>,
@@ -52,7 +54,8 @@ pub struct HypernodeConfig {
     pub backend: Option<BackendTomlConfig>,
     pub kernel_threads: Option<usize>,
     pub daemon_mode: Option<bool>,
-    pub argon: Option<ArgonTomlConfig>
+    pub argon: Option<ArgonTomlConfig>,
+    pub external_services: Option<ServicesConfig>
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,7 +152,7 @@ impl TomlConfig {
         let kernel_threads = node.kernel_threads.clone();
         let daemon_mode = node.daemon_mode.unwrap_or(false);
 
-        let argon_settings_server = node.argon.as_ref().map(|r| ArgonDefaultServerSettings{
+        let argon_settings_server = node.argon.as_ref().map(|r| ArgonDefaultServerSettings {
             lanes: r.lanes,
             hash_length: r.hash_length,
             mem_cost: r.mem_cost,
@@ -157,7 +160,10 @@ impl TomlConfig {
             secret: r.secret.clone().into_bytes()
         });
 
+        let external_services = node.external_services.clone();
+
         Ok(AppConfig {
+            external_services,
             argon_settings_server,
             local_bind_addr: Some(local_bind_addr),
             pipe: None,

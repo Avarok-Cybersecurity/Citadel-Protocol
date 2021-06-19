@@ -79,12 +79,11 @@ pub mod account_manager;
 /// The server needs to keep track of existing clients and implied CID values when creating users etc.
 /// The server can keep track of this between runtimes by saving data to the disk
 pub mod server_config_handler;
-///
-#[allow(missing_docs)]
-pub mod fcm;
 /// For errors
 pub mod misc;
 /// For handling different I/O operations
 pub mod backend;
 /// For handling misc requirements
 pub mod proposed_credentials;
+/// For services
+pub mod external_services;
