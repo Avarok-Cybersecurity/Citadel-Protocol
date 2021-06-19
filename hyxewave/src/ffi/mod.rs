@@ -11,10 +11,10 @@ use crate::command_handlers::peer::{PeerList, PostRegisterRequest, PostRegisterR
 use crate::command_handlers::register::RegisterResponse;
 use crate::console_error::ConsoleError;
 use ser::string;
-use hyxe_user::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult};
-use hyxe_user::fcm::data_structures::FcmTicket;
-use hyxe_user::fcm::data_structures::base64_string;
-use hyxe_user::fcm::fcm_packet_processor::peer_post_register::FcmPostRegisterResponse;
+use hyxe_user::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult};
+use hyxe_user::external_services::fcm::data_structures::FcmTicket;
+use hyxe_user::external_services::fcm::data_structures::base64_string;
+use hyxe_user::external_services::fcm::fcm_packet_processor::peer_post_register::FcmPostRegisterResponse;
 
 pub mod ffi_entry;
 

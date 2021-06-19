@@ -5,7 +5,7 @@ use std::fmt::{Display, Formatter};
 use tokio::time::Instant;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
 use serde::{Serialize, Deserialize};
-use hyxe_user::fcm::kem::FcmPostRegister;
+use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use hyxe_net::hdp::misc::session_security_settings::SessionSecuritySettings;
 
 #[derive(Default)]

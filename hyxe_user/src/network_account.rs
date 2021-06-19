@@ -32,7 +32,7 @@ pub struct NetworkAccountInner<R: Ratchet, Fcm: Ratchet> {
     /// Contains a list of registered HyperLAN CIDS. We only store values herein if using the local filesystem
     pub cids_registered: HashMap<u64, String>,
     /// for serialization
-    #[serde(with = "crate::fcm::data_structures::none")]
+    #[serde(with = "crate::external_services::fcm::data_structures::none")]
     pub persistence_handler: Option<PersistenceHandler<R, Fcm>>,
     /// The NID
     nid: u64,

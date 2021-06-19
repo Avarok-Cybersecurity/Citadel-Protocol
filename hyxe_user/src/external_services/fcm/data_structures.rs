@@ -6,7 +6,7 @@ use bytes::BufMut;
 use byteorder::BigEndian;
 use std::fmt::{Formatter, Debug};
 use hyxe_fs::hyxe_crypt::prelude::EzBuffer;
-use crate::fcm::kem::FcmPostRegister;
+use crate::external_services::fcm::kem::FcmPostRegister;
 use std::collections::{HashMap, BTreeMap};
 use std::collections::hash_map::RandomState;
 

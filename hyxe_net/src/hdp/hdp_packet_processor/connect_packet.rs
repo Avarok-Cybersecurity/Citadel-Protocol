@@ -5,6 +5,7 @@ use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::hdp::hdp_server::ConnectMode;
 use hyxe_user::backend::PersistenceHandler;
 use crate::error::NetworkError;
+use hyxe_user::external_services::PostLoginObject;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
 #[inline]
@@ -68,25 +69,26 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     let mailbox_items = session.session_manager.register_session_with_peer_layer(cid);
 
                     let sess_ref = sess_ref.clone();
-                    let persistence_handler = session.account_manager.get_persistence_handler().clone();
+                    let account_manager = session.account_manager.clone();
 
                     std::mem::drop(session);
 
 
                     // Now, we handle the FCM setup
-                    let _ = handle_client_fcm_keys(fcm_keys, &cnac, &persistence_handler).await?;
-                    let peers = persistence_handler.get_hyperlan_peer_list_with_fcm_keys_as_server(cid).await?.unwrap_or(Vec::new());
+                    let _ = handle_client_fcm_keys(fcm_keys, &cnac, account_manager.get_persistence_handler()).await?;
+                    let peers = account_manager.get_persistence_handler().get_hyperlan_peer_list_with_fcm_keys_as_server(cid).await?.unwrap_or(Vec::new());
+                    let post_login_object = account_manager.services_handler().on_post_login_serverside(cid).await?;
 
                     let fcm_packets = cnac.retrieve_raw_fcm_packets().await?;
 
                     let mut session = inner_mut!(sess_ref);
-                    let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, fcm_packets,session.create_welcome_message(cid), peers, success_time, security_level);
+                    let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, fcm_packets, post_login_object.clone(), session.create_welcome_message(cid), peers, success_time, security_level);
 
                     session.implicated_cid.store(Some(cid), Ordering::SeqCst);
                     session.state = SessionState::Connected;
 
                     let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, format!("Client {} successfully established a connection to the local HyperNode", cid), channel))?;
+                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel))?;
 
                     PrimaryProcessorResult::ReplyToSender(success_packet)
                 }
@@ -96,7 +98,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     let fail_time = time_tracker.get_global_time_ns();
 
                     //session.state = SessionState::NeedsConnect;
-                    let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, None,err.to_string(), Vec::new(), fail_time, security_level);
+                    let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, None, PostLoginObject::default(), err.to_string(), Vec::new(), fail_time, security_level);
                     PrimaryProcessorResult::ReplyToSender(packet)
                 }
             }
@@ -162,7 +164,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                     //session.post_quantum = pqc;
                     let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), message, channel))?;
+                    session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), payload.post_login_object, message, channel))?;
 
                     // Now, send keep alives!
                     let timestamp = session.time_tracker.get_global_time_ns();

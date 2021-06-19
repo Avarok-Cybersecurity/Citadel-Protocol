@@ -29,7 +29,7 @@ use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
-use hyxe_user::fcm::kem::FcmPostRegister;
+use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use hyxe_user::network_account::ConnectProtocol;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 use hyxe_user::re_imports::scramble_encrypt_file;

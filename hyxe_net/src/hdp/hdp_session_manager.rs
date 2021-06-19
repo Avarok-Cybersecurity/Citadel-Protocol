@@ -13,8 +13,8 @@ use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
-use hyxe_user::fcm::data_structures::RawFcmPacket;
-use hyxe_user::fcm::fcm_instance::FCMInstance;
+use hyxe_user::external_services::fcm::data_structures::RawFcmPacket;
+use hyxe_user::external_services::fcm::fcm_instance::FCMInstance;
 use hyxe_user::misc::AccountError;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 
