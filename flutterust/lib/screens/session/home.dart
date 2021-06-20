@@ -1,6 +1,7 @@
 
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutterust/components/custom_tab_view.dart';
@@ -103,6 +104,16 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
             tabs.add(cnac.username);
             notifications.add(storedNotifications);
             sessionViews.add(SessionView(cnac, widget.key));
+
+            // TODO: Merge multiple possible users into a single one per device
+            if (conn.jwt.isPresent) {
+              print("JWT present: ${conn.jwt.value}");
+              if (FirebaseAuth.instance.currentUser == null) {
+                var creds = await FirebaseAuth.instance.signInWithCustomToken(conn.jwt.value);
+                print("Creds obtained: $creds");
+
+              }
+            }
 
             print("Len: " + tabs.length.toString() + ", len: " + sessionViews.length.toString());
           }

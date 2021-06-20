@@ -8,7 +8,7 @@ use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_fs::io::SyncIO;
 
 use crate::account_manager::AccountManager;
-use crate::external_services::fcm::data_structures::{FcmHeader, FcmPacket, FCMPayloadType, FcmTicket, RawFcmPacket};
+use crate::external_services::fcm::data_structures::{FcmHeader, FcmPacket, FCMPayloadType, FcmTicket, RawExternalPacket};
 use crate::external_services::fcm::fcm_instance::FCMInstance;
 use crate::external_services::fcm::fcm_packet_processor::peer_post_register::{FcmPostRegisterResponse, PostRegisterInvitation};
 use crate::misc::AccountError;
@@ -35,7 +35,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
     let base64_value = base64_value.into();
 
     log::info!("A0");
-    let raw_packet = RawFcmPacket::from(base64_value);
+    let raw_packet = RawExternalPacket::from(base64_value);
     log::info!("A1");
     let packet = FcmPacket::from_raw_fcm_packet(&raw_packet)?;
     log::info!("A2");
@@ -171,7 +171,7 @@ pub enum FcmProcessorResult {
 
 #[derive(Debug)]
 pub struct FcmPacketMaybeNeedsSending {
-    pub packet: Option<(Option<FCMInstance>, RawFcmPacket)>
+    pub packet: Option<(Option<FCMInstance>, RawExternalPacket)>
 }
 
 impl FcmPacketMaybeNeedsSending {
@@ -179,7 +179,7 @@ impl FcmPacketMaybeNeedsSending {
         Self { packet: None }
     }
 
-    pub fn some(instance: Option<FCMInstance>, packet: RawFcmPacket) -> Self {
+    pub fn some(instance: Option<FCMInstance>, packet: RawExternalPacket) -> Self {
         Self { packet: Some((instance, packet)) }
     }
 }
@@ -193,7 +193,7 @@ impl FcmProcessorResult {
         }
     }
 
-    pub fn implies_packet_needs_sending(&self) -> Option<(&FCMInstance, &RawFcmPacket)> {
+    pub fn implies_packet_needs_sending(&self) -> Option<(&FCMInstance, &RawExternalPacket)> {
         match self {
             Self::Value(_, packet) | Self::RequiresSave(Some(packet)) => {
                 match packet.packet.as_ref() {

@@ -4,10 +4,9 @@ use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use hyxe_user::external_services::fcm::fcm_packet_processor::FcmProcessorResult;
 use hyxe_user::external_services::fcm::data_structures::{base64_string, string, FcmTicket};
 use crate::constants::{FCM_POST_REGISTER_TIMEOUT, FCM_FETCH_TIMEOUT};
-use hyxe_user::prelude::Client;
-use std::sync::Arc;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::command_handlers::connect::{parse_kem, parse_enx, get_crypto_params};
+use hyxe_user::external_services::ExternalService;
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
@@ -157,23 +156,26 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
         if let Some(matches) = matches.subcommand_matches("send") {
             let target_cid = matches.value_of("target_cid").unwrap();
             let use_fcm = matches.is_present("fcm");
+            let use_rtdb = matches.is_present("rtdb");
             let security_level = parse_security_level(matches)?;
 
             let cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC missing"))?;
-
 
             let target_cid = get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?;
 
             let message: String = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
             let buf = SecBuffer::from(message);
 
-            return if use_fcm {
+            return if use_fcm || use_rtdb {
                 // TODO: NOTE: Due to a connection pool bug, we need to re-create the fcm client each time
                 //let fcm_client = ctx.account_manager.fcm_client();
-                let fcm_client = Arc::new(Client::new());
+                //let fcm_client = Arc::new(Client::new());
+                // TODO: Consider logic of using below for generating unique IDs ... this may not be good for android/ios
                 let ticket = server_remote.get_next_ticket().0;
-                let fcm_res = cnac.fcm_send_message_to(target_cid, buf, ticket, &fcm_client).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
-                Ok(Some(KernelResponse::from(fcm_res)))
+                let method = if use_fcm { ExternalService::Fcm } else { ExternalService::Rtdb };
+
+                let res = cnac.send_message_to_external(method,target_cid, buf, ticket).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                Ok(Some(KernelResponse::from(res)))
             } else {
                 // now, use the console context to send the message
                 let _ticket = ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, buf).await?;

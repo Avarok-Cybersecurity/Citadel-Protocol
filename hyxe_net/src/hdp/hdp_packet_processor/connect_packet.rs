@@ -6,6 +6,8 @@ use crate::hdp::hdp_server::ConnectMode;
 use hyxe_user::backend::PersistenceHandler;
 use crate::error::NetworkError;
 use hyxe_user::external_services::PostLoginObject;
+use hyxe_user::external_services::rtdb::RtdbClientConfig;
+use hyxe_user::re_imports::FirebaseRTDB;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
 #[inline]
@@ -162,6 +164,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                         return PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection");
                     }
 
+                    let post_login_object = payload.post_login_object.clone();
                     //session.post_quantum = pqc;
                     let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
                     session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), payload.post_login_object, message, channel))?;
@@ -182,12 +185,25 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     session.state = SessionState::Connected;
                     std::mem::drop(session);
 
-                    let did_save = handle_client_fcm_keys(fcm_keys, &cnac, &persistence_handler).await?;
-                    let needs_save = persistence_handler.synchronize_hyperlan_peer_list_as_client(&cnac, payload.peers).await?;
+                    // TODO: Clean this up to prevent multiple saves
+                    let _ = handle_client_fcm_keys(fcm_keys, &cnac, &persistence_handler).await?;
+                    let _ = persistence_handler.synchronize_hyperlan_peer_list_as_client(&cnac, payload.peers).await?;
+                    match (post_login_object.rtdb, post_login_object.google_auth_jwt) {
+                        (Some(rtdb), Some(jwt)) => {
+                            log::info!("Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
+                            let rtdb = FirebaseRTDB::new_from_jwt(&rtdb.url, jwt, rtdb.api_key).await.map_err(|_| PrimaryProcessorResult::Void)?;// login
+                            let client_rtdb_config = RtdbClientConfig { url: rtdb.base_url, token: rtdb.token };
+                            cnac.visit_mut(|mut inner| {
+                               inner.client_rtdb_config = Some(client_rtdb_config);
+                            });
 
-                    if !did_save && needs_save {
-                        cnac.save().await?;
-                    }
+                            log::info!("Successfully logged-in to RTDB + stored config inside CNAC ...");
+                        }
+
+                        _ => {}
+                    };
+
+                    cnac.save().await?;
 
                     if connect_mode == ConnectMode::Fetch {
                         log::info!("[FETCH] complete ...");

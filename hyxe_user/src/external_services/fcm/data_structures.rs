@@ -22,7 +22,7 @@ impl std::fmt::Debug for FcmPacket {
 }
 
 impl FcmPacket {
-    pub fn from_raw_fcm_packet(packet: &RawFcmPacket) -> Option<Self> {
+    pub fn from_raw_fcm_packet(packet: &RawExternalPacket) -> Option<Self> {
         let mut raw = base64::decode(packet.inner.as_bytes()).ok()?;
         if raw.len() < FCM_HEADER_BYTES {
             log::warn!("[FCM] packet too small");
@@ -104,11 +104,11 @@ pub enum FCMPayloadType<'a> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RawFcmPacket {
+pub struct RawExternalPacket {
     pub(crate) inner: String
 }
 
-impl<T: Into<String>> From<T> for RawFcmPacket {
+impl<T: Into<String>> From<T> for RawExternalPacket {
     fn from(val: T) -> Self {
         Self { inner: val.into() }
     }
@@ -116,7 +116,7 @@ impl<T: Into<String>> From<T> for RawFcmPacket {
 
 #[derive(Debug)]
 pub struct RawFcmPacketStore {
-    pub inner: HashMap<u64, BTreeMap<u64, RawFcmPacket>>
+    pub inner: HashMap<u64, BTreeMap<u64, RawExternalPacket>>
 }
 
 impl RawFcmPacketStore {
@@ -130,8 +130,8 @@ impl RawFcmPacketStore {
     }
 }
 
-impl From<HashMap<u64, BTreeMap<u64, RawFcmPacket>>> for RawFcmPacketStore {
-    fn from(inner: HashMap<u64, BTreeMap<u64, RawFcmPacket>, RandomState>) -> Self {
+impl From<HashMap<u64, BTreeMap<u64, RawExternalPacket>>> for RawFcmPacketStore {
+    fn from(inner: HashMap<u64, BTreeMap<u64, RawExternalPacket>, RandomState>) -> Self {
         Self { inner }
     }
 }
