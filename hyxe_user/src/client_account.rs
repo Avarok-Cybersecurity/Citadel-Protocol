@@ -29,7 +29,7 @@ use hyxe_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
 use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, AliceToBobTransferType};
 use fcm::{Client, FcmResponse};
 use crate::external_services::fcm::fcm_instance::FCMInstance;
-use crate::external_services::fcm::data_structures::{FcmTicket, RawFcmPacket};
+use crate::external_services::fcm::data_structures::{FcmTicket, RawExternalPacket};
 use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
 use crate::external_services::fcm::fcm_packet_processor::peer_post_register::InvitationType;
 use crate::external_services::fcm::kem::FcmPostRegister;
@@ -41,6 +41,9 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::argon::argon_container::{ArgonContainerType, AsyncArgon, ArgonStatus};
 use crate::proposed_credentials::ProposedCredentials;
 use std::sync::atomic::Ordering;
+use crate::external_services::rtdb::{RtdbClientConfig, RtdbInstance};
+use crate::external_services::ExternalService;
+use crate::external_services::service_interface::ExternalServiceChannel;
 
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network
@@ -118,9 +121,11 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     pub fcm_invitations: HashMap<u64, InvitationType>,
     /// Only the server should store these values. The first key is the peer cid, the second key is the raw ticket ID, used for organizing proper order
     /// TODO: Consider removing this, as the 2nd version below is newer
-    fcm_packet_store: Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>,
+    fcm_packet_store: Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>,
     #[serde(with = "crate::external_services::fcm::data_structures::none")]
     pub(crate) persistence_handler: Option<PersistenceHandler<R, Fcm>>,
+    /// RTDB config for client-side communications
+    pub client_rtdb_config: Option<RtdbClientConfig>,
     argon_container: ArgonContainerType
 }
 
@@ -168,8 +173,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let kem_state_containers = HashMap::with_capacity(0);
         let fcm_invitations = HashMap::with_capacity(0);
         let fcm_packet_store = None;
+        let client_rtdb_config = None;
 
-        let inner = ClientNetworkAccountInner::<R, Fcm> { fcm_packet_store, fcm_invitations, kem_state_containers, fcm_crypt_container, persistence_handler, creation_date, cid: valid_cid, argon_container, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, crypt_container };
+        let inner = ClientNetworkAccountInner::<R, Fcm> { client_rtdb_config, fcm_packet_store, fcm_invitations, kem_state_containers, fcm_crypt_container, persistence_handler, creation_date, cid: valid_cid, argon_container, username, adjacent_nac: Some(adjacent_nac), is_local_personal: is_personal, full_name, mutuals, local_save_path, inner_encrypted_nac: None, crypt_container };
         let this = Self::from(inner);
 
         this.save().await?;
@@ -261,7 +267,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                     }
 
                     ArgonStatus::VerificationFailed(Some(err)) => {
-                        log::error!("Password verifcation failed: {}", &err);
+                        log::error!("Password verification failed: {}", &err);
                         Err(AccountError::Generic(err))
                     }
 
@@ -700,7 +706,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// For sending a pre-prepared packet. Specifying a nonzero target cid will send to target's FCM. If target cid is zero, then will send to self
-    pub async fn fcm_raw_send(&self, target_cid: u64, raw_fcm_packet: RawFcmPacket, fcm_client: &Arc<Client>) -> Result<FcmResponse, AccountError> {
+    pub async fn fcm_raw_send(&self, target_cid: u64, raw_fcm_packet: RawExternalPacket, fcm_client: &Arc<Client>) -> Result<FcmResponse, AccountError> {
         let read = self.read();
         let fcm_keys = if target_cid == 0 {
             read.crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?
@@ -713,7 +719,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// For sending a raw packet obtained as a result of using the function-supplied ratchet. Target_cid must be nonzero
-    pub async fn fcm_raw_send_to_peer(&self, target_cid: u64, raw_fcm_packet: impl FnOnce(&Fcm) -> RawFcmPacket, fcm_client: &Arc<Client>) -> Result<FcmResponse, AccountError> {
+    pub async fn fcm_raw_send_to_peer(&self, target_cid: u64, raw_fcm_packet: impl FnOnce(&Fcm) -> RawExternalPacket, fcm_client: &Arc<Client>) -> Result<FcmResponse, AccountError> {
         if target_cid == 0 {
             return Err(AccountError::Generic("Target CID cannot be zero".to_string()))
         }
@@ -730,7 +736,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Sends to all FCM-registered peers. Enforces the use of endpoint encryption
-    pub async fn fcm_raw_broadcast_to_all_peers(&self, fcm_client: Arc<Client>, raw_fcm_constructor: impl Fn(&Fcm, u64) -> RawFcmPacket) -> Result<(), AccountError> {
+    pub async fn fcm_raw_broadcast_to_all_peers(&self, fcm_client: Arc<Client>, raw_fcm_constructor: impl Fn(&Fcm, u64) -> RawExternalPacket) -> Result<(), AccountError> {
         let read = self.read();
         let tasks = FuturesUnordered::new();
 
@@ -750,9 +756,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Sends the request to the FCM server, returns the ticket for the request
-    pub async fn fcm_send_message_to(&self, target_peer_cid: u64, message: SecBuffer, ticket: u64, client: &Arc<Client>) -> Result<FcmProcessorResult, AccountError> {
-        let (ticket, fcm_instance, packet) = self.prepare_fcm_send_message(target_peer_cid, message, ticket, client).await?;
-        fcm_instance.send_to_fcm_user(packet.clone()).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }, FcmPacketMaybeNeedsSending::some(None, packet)))
+    pub async fn send_message_to_external(&self, service: ExternalService, target_peer_cid: u64, message: SecBuffer, ticket: u64) -> Result<FcmProcessorResult, AccountError> {
+        let (ticket, sender, packet) = self.prepare_external_service_send_message(service, target_peer_cid, message, ticket).await?;
+        sender.send(packet, self.get_cid(), target_peer_cid).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }, FcmPacketMaybeNeedsSending::none()))
     }
 
     /// Stores the new FCM keys inside the CNAC (operation used by both fs and db)
@@ -762,12 +768,13 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Prepares the requires abstractions needed to send data
-    async fn prepare_fcm_send_message(&self, target_peer_cid: u64, message: SecBuffer, ticket_id: u64, client: &Arc<Client>) -> Result<(FcmTicket, FCMInstance, RawFcmPacket), AccountError> {
+    async fn prepare_external_service_send_message(&self, service: ExternalService, target_peer_cid: u64, message: SecBuffer, ticket_id: u64) -> Result<(FcmTicket, Box<dyn ExternalServiceChannel>, RawExternalPacket), AccountError> {
         let mut write = self.write();
         let ClientNetworkAccountInner::<R, Fcm> {
             fcm_crypt_container,
             kem_state_containers,
             cid,
+            client_rtdb_config,
             ..
         } = &mut *write;
 
@@ -779,7 +786,15 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         }
 
         // construct the instance
-        let fcm_instance = FCMInstance::new(crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?, client.clone());
+        let sender = match service {
+            ExternalService::Fcm => {
+                Box::new(FCMInstance::new(crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?, Arc::new(Client::new()))) as Box<dyn ExternalServiceChannel>
+            }
+
+            ExternalService::Rtdb => {
+                Box::new(RtdbInstance::new(client_rtdb_config.as_ref().ok_or_else(|| AccountError::Generic("RTDB is not available on this node".to_string()))?)?)
+            }
+        };
 
         let ref ratchet = crypt_container.get_hyper_ratchet(None).unwrap().clone();
         let object_id = crypt_container.get_and_increment_object_id();
@@ -803,7 +818,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             self.save().await?;
         }
 
-        Ok((ticket, fcm_instance, packet))
+        Ok((ticket, sender, packet))
     }
 
     /// Generates the serialized bytes
@@ -864,7 +879,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     ///
     /// NOTE: Ordering should be consequent. I.e.. no missing values, 3,4,5,6 is OK, 3,4,6,7 is not
     #[allow(unused_results)]
-    pub async fn store_raw_fcm_packet_into_recipient(&self, ticket: FcmTicket, packet: RawFcmPacket) -> Result<(), AccountError> {
+    pub async fn store_raw_fcm_packet_into_recipient(&self, ticket: FcmTicket, packet: RawExternalPacket) -> Result<(), AccountError> {
         let mut write = self.write();
 
         if write.fcm_packet_store.is_none() {
@@ -889,7 +904,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Retrieves the raw packets delivered to this CNAC
-    pub async fn retrieve_raw_fcm_packets(&self) -> Result<Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>, AccountError> {
+    pub async fn retrieve_raw_fcm_packets(&self) -> Result<Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>, AccountError> {
         let ret = self.write().fcm_packet_store.take();
 
         if ret.is_some() {

@@ -186,6 +186,23 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
     /// Registers the two accounts together at the server
     pub async fn register_hyperlan_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
+        if let Some(rtdb_instance) = self.services_handler.rtdb_root_instance.as_ref() {
+            let cid0_str = cid0.to_string();
+            let cid1_str = cid1.to_string();
+
+            #[derive(serde::Serialize)]
+            struct PeerMint {
+                registered: bool
+            }
+
+            let mint = PeerMint { registered: true };
+
+            // We have root access, so we can edit anything we want here. Our goal is to insert each other's nodes inside the tree to allow each
+            // other to insert messages inside the tree
+            let _ = rtdb_instance.root().child("users").child(cid0_str.as_str()).child("peers").final_node(cid1_str.as_str()).put(&mint).await.map_err(|err| AccountError::Generic(err.inner))?;
+            let _ = rtdb_instance.root().child("users").child(cid1_str.as_str()).child("peers").final_node(cid0_str.as_str()).put(&mint).await.map_err(|err| AccountError::Generic(err.inner))?;
+        }
+
         self.persistence_handler.register_p2p_as_server(cid0, cid1).await
     }
 
