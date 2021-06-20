@@ -101,6 +101,6 @@ class MessageSendHandler {
   static String constructSendCommand(Message message) {
     return message.peerCid == u64.zero
         ? "switch ${message.implicatedCid} send ${message.message}"
-        : "switch ${message.implicatedCid} peer send ${message.peerCid} --fcm ${message.message}";
+        : "switch ${message.implicatedCid} peer send --rtdb ${message.peerCid} ${message.message}";
   }
 }
