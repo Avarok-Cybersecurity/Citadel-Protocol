@@ -13,6 +13,10 @@ use crate::external_services::fcm::fcm_instance::FCMInstance;
 use crate::external_services::fcm::fcm_packet_processor::peer_post_register::{FcmPostRegisterResponse, PostRegisterInvitation};
 use crate::misc::AccountError;
 use crate::prelude::ClientNetworkAccountInner;
+use crate::external_services::ExternalService;
+use crate::external_services::service_interface::ExternalServiceChannel;
+use crate::external_services::rtdb::{RtdbClientConfig, RtdbInstance};
+use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 
 pub(crate) mod group_header;
 pub(crate) mod group_header_ack;
@@ -30,7 +34,7 @@ pub mod peer_post_register;
 /// NOTE: This implies that sending the re-key payloads is redundant over FCM. We can have notification packets that wake-up the device instead later-on
 ///
 /// Note: This should ONLY be called at the endpoints!!
-pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountManager) -> FcmProcessorResult {
+pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountManager, send_service_type: ExternalService) -> FcmProcessorResult {
     //let account_manager = account_manager.clone();
     let base64_value = base64_value.into();
 
@@ -51,7 +55,6 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
 
     let (header, mut payload) = packet.split();
     // Due to a bug of the internal connection pool on android/ios, we create a new client each time
-    let ref fcm_client = Arc::new(Client::new());
     //let fcm_client = account_manager.fcm_client();
 
     // TODO: Run packet through can_process_packet. If false, then send a REQ packet to request retransmission of last packet in series, and store packet locally
@@ -67,6 +70,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
             crypt_container,
             fcm_invitations,
             mutuals,
+            client_rtdb_config,
             ..
         } = &mut *inner;
 
@@ -100,10 +104,13 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
             log::info!("[FCM] Successfully validated packet. Parsing payload ...");
             let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
 
+            let ref fcm_client = match send_service_type { ExternalService::Fcm => Some(Arc::new(Client::new())), _ => None };
+            let svc_params = InstanceParameter { client: fcm_client.as_ref(), service_type: send_service_type, rtdb_client_cfg: client_rtdb_config.as_ref() };
+
             match payload {
-                FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(fcm_client, crypt_container, ratchet, FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message),
-                FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(fcm_client, crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer),
-                FCMPayloadType::Truncate { truncate_vers } => truncate::process(fcm_client, crypt_container, truncate_vers, FcmHeader::try_from(&header).unwrap()),
+                FCMPayloadType::GroupHeader { alice_to_bob_transfer, message } => group_header::process(svc_params, crypt_container, ratchet, FcmHeader::try_from(&header).unwrap(), alice_to_bob_transfer, message).await,
+                FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(svc_params,crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer).await,
+                FCMPayloadType::Truncate { truncate_vers } => truncate::process(svc_params,crypt_container, truncate_vers, FcmHeader::try_from(&header).unwrap()).await,
                 FCMPayloadType::TruncateAck { truncate_vers } => truncate_ack::process(crypt_container, truncate_vers),
                 FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-7890)".to_string()),
                 // below, the implicated cid is obtained from the session_cid, and as such, is the peer_cid
@@ -118,12 +125,6 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
 
     if res.implies_save_needed() {
         cnac.save().await?;
-    }
-
-    log::info!("A8");
-
-    if let Some((instance, packet)) = res.implies_packet_needs_sending() {
-        let _ = instance.send_to_fcm_user(packet).await?;
     }
 
     log::info!("FCM-processing complete");
@@ -164,48 +165,17 @@ pub fn blocking_process_packet_store(mut raw_fcm_packet_store: RawFcmPacketStore
 pub enum FcmProcessorResult {
     Void,
     Err(String),
-    RequiresSave(Option<FcmPacketMaybeNeedsSending>),
-    Value(FcmResult, FcmPacketMaybeNeedsSending),
-    Values(Vec<(FcmResult, FcmPacketMaybeNeedsSending)>)
-}
-
-#[derive(Debug)]
-pub struct FcmPacketMaybeNeedsSending {
-    pub packet: Option<(Option<FCMInstance>, RawExternalPacket)>
-}
-
-impl FcmPacketMaybeNeedsSending {
-    pub fn none() -> Self {
-        Self { packet: None }
-    }
-
-    pub fn some(instance: Option<FCMInstance>, packet: RawExternalPacket) -> Self {
-        Self { packet: Some((instance, packet)) }
-    }
+    RequiresSave,
+    Value(FcmResult),
+    Values(Vec<FcmResult>)
 }
 
 impl FcmProcessorResult {
     pub fn implies_save_needed(&self) -> bool {
         match self {
-            Self::Value(FcmResult::MessageSent { .. } | FcmResult::GroupHeaderAck { .. } | FcmResult::GroupHeader { .. } | FcmResult::PostRegisterInvitation { .. } | FcmResult::PostRegisterResponse { .. } | FcmResult::Deregistered { .. }, ..)=> true,
-            Self::RequiresSave(..) => true,
+            Self::Value(FcmResult::MessageSent { .. } | FcmResult::GroupHeaderAck { .. } | FcmResult::GroupHeader { .. } | FcmResult::PostRegisterInvitation { .. } | FcmResult::PostRegisterResponse { .. } | FcmResult::Deregistered { .. })=> true,
+            Self::RequiresSave => true,
             _ => false
-        }
-    }
-
-    pub fn implies_packet_needs_sending(&self) -> Option<(&FCMInstance, &RawExternalPacket)> {
-        match self {
-            Self::Value(_, packet) | Self::RequiresSave(Some(packet)) => {
-                match packet.packet.as_ref() {
-                    Some((Some(instance), packet)) => {
-                        Some((instance, packet))
-                    }
-
-                    _ => None
-                }
-            }
-
-            _ => None
         }
     }
 }
@@ -267,6 +237,21 @@ pub enum FcmResult {
     PostRegisterInvitation { invite: PostRegisterInvitation },
     PostRegisterResponse { response: FcmPostRegisterResponse },
     Deregistered { requestor_cid: u64, ticket: u64, peer_cid: u64 }
+}
+
+pub struct InstanceParameter<'a> {
+    pub(crate) client: Option<&'a Arc<Client>>,
+    pub(crate) service_type: ExternalService,
+    pub(crate) rtdb_client_cfg: Option<&'a RtdbClientConfig>,
+}
+
+impl InstanceParameter<'_> {
+    pub fn create_instance<R: Ratchet>(&self, endpoint_crypto: &PeerSessionCrypto<R>) -> Result<Box<dyn ExternalServiceChannel>, AccountError> {
+        match self.service_type {
+            ExternalService::Fcm => Ok(Box::new(FCMInstance::new(endpoint_crypto.fcm_keys.clone().ok_or_else(|| AccountError::Generic("FCM Selected, but target does not have FCM keys".to_string()))?, self.client.cloned().ok_or_else(|| AccountError::Generic("FCM selected, but sender is not loaded".to_string()))?)) as Box<dyn ExternalServiceChannel>),
+            ExternalService::Rtdb => RtdbInstance::new(self.rtdb_client_cfg.ok_or_else(|| AccountError::Generic("RTDB selected, but sender is not loaded".to_string()))?).map(|r| Box::new(r) as Box<dyn ExternalServiceChannel>)
+        }
+    }
 }
 
 #[allow(unused_results)]

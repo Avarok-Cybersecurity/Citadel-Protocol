@@ -92,7 +92,7 @@ pub mod disconnect;
 
 pub mod os;
 
-pub mod fcm_process;
+pub mod external_process;
 
 pub mod ticket;
 

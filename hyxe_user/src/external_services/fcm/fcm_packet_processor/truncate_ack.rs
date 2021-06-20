@@ -9,5 +9,5 @@ pub fn process<Fcm: Ratchet>(endpoint_crypto: &mut PeerSessionCrypto<Fcm>, trunc
         log::info!("[FCM] Adjacent node successfully deregistered ratchet v{}", truncate_vers);
     }
 
-    FcmProcessorResult::RequiresSave(None)
+    FcmProcessorResult::RequiresSave
 }

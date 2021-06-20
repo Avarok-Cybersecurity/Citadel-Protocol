@@ -138,7 +138,7 @@ impl From<Result<Option<KernelResponse>, ConsoleError>> for KernelResponse {
 impl From<FcmProcessorResult> for KernelResponse {
     fn from(res: FcmProcessorResult) -> Self {
         match res {
-            FcmProcessorResult::Void | FcmProcessorResult::RequiresSave(..) => {
+            FcmProcessorResult::Void | FcmProcessorResult::RequiresSave => {
                 KernelResponse::Confirmation
             }
 
@@ -195,7 +195,7 @@ impl From<FcmProcessorResult> for KernelResponse {
 
 
             FcmProcessorResult::Values(vals) => {
-                KernelResponse::Multiple(vals.into_iter().map(|(r,v)| KernelResponse::from(FcmProcessorResult::Value(r, v))).collect::<Vec<KernelResponse>>())
+                KernelResponse::Multiple(vals.into_iter().map(|r| KernelResponse::from(FcmProcessorResult::Value(r))).collect::<Vec<KernelResponse>>())
             }
         }
     }

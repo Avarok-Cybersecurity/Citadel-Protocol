@@ -54,6 +54,6 @@ impl From<FirebaseRTDB> for RtdbInstance {
 impl ExternalServiceChannel for RtdbInstance {
     async fn send(&self, data: RawExternalPacket, implicated_cid: u64, peer_cid: u64) -> Result<(), AccountError> {
         // implicated CID is sending to peer CID. Thus, access the peer CID's node, and push/post/append message under implicated CID's peer node
-        Ok(self.root().child("users").child(peer_cid.to_string()).child("peers").child(implicated_cid.to_string()).child("packets").post(data).await.map(|_| ()).map_err(|err| AccountError::Generic(err.inner))?)
+        Ok(self.root().child("users").child(peer_cid.to_string()).child("peers").child(implicated_cid.to_string()).final_node("packets").post(data).await.map(|_| ()).map_err(|err| AccountError::Generic(err.inner))?)
     }
 }

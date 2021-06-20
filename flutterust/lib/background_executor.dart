@@ -1,7 +1,7 @@
 
 import 'package:background_fetch/background_fetch.dart';
 import 'package:flutterust/main.dart';
-import 'package:flutterust/misc/message_send_handler.dart';
+import 'package:flutterust/utils.dart';
 
 class BackgroundExecutor {
   static final config = BackgroundFetchConfig(minimumFetchInterval: 15, stopOnTerminate: false, enableHeadless: true, startOnBoot: true, requiredNetworkType: NetworkType.ANY);
@@ -21,7 +21,9 @@ class BackgroundExecutor {
     print("[Background Executor] Running 15m periodic poll for task $taskId");
     // make sure bridge is not null
     await RustSubsystem.init();
-    await MessageSendHandler.poll();
+    await Utils.configureRTDB(false);
+    // TODO: check db perhaps?
+    //await MessageSendHandler.poll();
     //Utils.pushNotification("Running background task", taskId);
     BackgroundFetch.finish(taskId);
   }

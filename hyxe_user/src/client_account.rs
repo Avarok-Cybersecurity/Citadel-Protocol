@@ -30,7 +30,7 @@ use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, AliceToBobTransfer
 use fcm::{Client, FcmResponse};
 use crate::external_services::fcm::fcm_instance::FCMInstance;
 use crate::external_services::fcm::data_structures::{FcmTicket, RawExternalPacket};
-use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
+use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult};
 use crate::external_services::fcm::fcm_packet_processor::peer_post_register::InvitationType;
 use crate::external_services::fcm::kem::FcmPostRegister;
 use hyxe_crypt::fcm::keys::FcmKeys;
@@ -758,7 +758,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Sends the request to the FCM server, returns the ticket for the request
     pub async fn send_message_to_external(&self, service: ExternalService, target_peer_cid: u64, message: SecBuffer, ticket: u64) -> Result<FcmProcessorResult, AccountError> {
         let (ticket, sender, packet) = self.prepare_external_service_send_message(service, target_peer_cid, message, ticket).await?;
-        sender.send(packet, self.get_cid(), target_peer_cid).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }, FcmPacketMaybeNeedsSending::none()))
+        sender.send(packet, self.get_cid(), target_peer_cid).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }))
     }
 
     /// Stores the new FCM keys inside the CNAC (operation used by both fs and db)
