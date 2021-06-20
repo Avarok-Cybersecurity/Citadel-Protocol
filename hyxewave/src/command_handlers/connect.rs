@@ -8,13 +8,13 @@ use hyxe_crypt::prelude::algorithm_dictionary::{KemAlgorithm, EncryptionAlgorith
 use hyxe_net::hdp::misc::session_security_settings::{SessionSecuritySettingsBuilder, SessionSecuritySettings};
 use std::convert::TryFrom;
 use hyxe_user::prelude::ConnectionInfo;
-use hyxe_user::external_services::PostLoginObject;
+use hyxe_user::external_services::{PostLoginObject, RtdbConfig};
 use crate::ticket_event::CustomPayload;
 
 #[derive(Debug, Serialize)]
 pub enum ConnectResponse {
     // ticket, implicated cid, message
-    Success(#[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64, String, String),
+    Success(#[serde(serialize_with = "string")] u64, #[serde(serialize_with = "string")] u64, String, String, RtdbConfig),
     Failure(#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64, String),
 }
 
@@ -93,7 +93,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
             CustomPayload::Connect(ConnectResponseReceived { success, message, login_object }) => {
                 if success {
                     if let Some(ref ffi_io) = ffi_io {
-                        (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Connect(ConnectResponse::Success(ticket.0, cid, message.unwrap_or(String::from("Connect success")), login_object.google_auth_jwt.unwrap_or_default()))))))
+                        (ffi_io)(Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::Connect(ConnectResponse::Success(ticket.0, cid, message.unwrap_or(String::from("Connect success")), login_object.google_auth_jwt.unwrap_or_default(), login_object.rtdb.unwrap_or_default()))))))
                     } else {
                         log::info!("LoginObject: {:?}", &login_object);
                         printfs!({

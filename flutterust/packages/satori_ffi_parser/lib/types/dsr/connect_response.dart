@@ -5,16 +5,24 @@ import 'package:satori_ffi_parser/types/standard_ticket.dart';
 
 import '../u64.dart';
 
+class RtdbConfig {
+  final String apiKey;
+  final String url;
+
+  RtdbConfig(this.apiKey, this.url);
+}
+
 class ConnectResponse extends DomainSpecificResponse {
   final String message;
   final StandardTicket ticket;
   final u64 implicatedCid;
   final bool success;
   final Optional<String> jwt;
+  final Optional<RtdbConfig> rtdbConfig;
 
   Optional<String> username = Optional.empty();
 
-  ConnectResponse._(this.success, this.ticket, this.implicatedCid, this.message, this.jwt);
+  ConnectResponse._(this.success, this.ticket, this.implicatedCid, this.message, this.jwt, this.rtdbConfig);
 
   @override
   Optional<String> getMessage() {
@@ -34,7 +42,7 @@ class ConnectResponse extends DomainSpecificResponse {
   static Optional<DomainSpecificResponse> tryFrom(Map<String, dynamic> infoNode) {
     bool success = infoNode.containsKey("Success");
     List<dynamic> leaf = infoNode[success ? "Success" : "Failure"];
-    if ((success && leaf.length != 4) || (!success && leaf.length != 3)) {
+    if ((success && leaf.length != 5) || (!success && leaf.length != 3)) {
       return Optional.empty();
     }
 
@@ -43,8 +51,21 @@ class ConnectResponse extends DomainSpecificResponse {
     String message = leaf[2];
 
     Optional<String> jwt = success ? Optional.of(leaf[3]) : Optional.empty();
+    Optional<RtdbConfig> rtdb = success ? ConnectResponse.tryParseRtdbConfig(leaf) : Optional.empty();
 
-    return ticket.isPresent && implicatedCid.isPresent ? Optional.of(ConnectResponse._(success, ticket.value, implicatedCid.value, message, jwt)) : Optional.empty();
+    return ticket.isPresent && implicatedCid.isPresent ? Optional.of(ConnectResponse._(success, ticket.value, implicatedCid.value, message, jwt, rtdb)) : Optional.empty();
+  }
+
+  static Optional<RtdbConfig> tryParseRtdbConfig(List<dynamic> leaf) {
+    try {
+      Map<String, dynamic> json = leaf[4];
+      String apiKey = json["api_key"];
+      String url = json["url"];
+
+      return Optional.of(RtdbConfig(apiKey, url));
+    } catch (_) {
+      return Optional.empty();
+    }
   }
 
   void attachUsername(String username) {

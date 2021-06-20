@@ -13,7 +13,7 @@ use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
-use hyxe_user::external_services::fcm::data_structures::RawFcmPacket;
+use hyxe_user::external_services::fcm::data_structures::RawExternalPacket;
 use hyxe_user::external_services::fcm::fcm_instance::FCMInstance;
 use hyxe_user::misc::AccountError;
 use hyxe_user::proposed_credentials::ProposedCredentials;
@@ -521,7 +521,7 @@ impl HdpSessionManager {
     ///
     /// Since the user may or may not be online, we use the static aux ratchet
     #[allow(unused_results)]
-    pub async fn fcm_post_register_to(&self, implicated_cid: u64, peer_cid: u64, is_response: bool, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
+    pub async fn fcm_post_register_to(&self, implicated_cid: u64, peer_cid: u64, is_response: bool, packet_crafter: impl FnOnce(&HyperRatchet) -> RawExternalPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
         let this_ref = self.clone();
         let this = inner!(self);
 
@@ -576,7 +576,7 @@ impl HdpSessionManager {
     ///
     /// Since the user may or may not be online, we use the static aux ratchet
     #[allow(unused_results)]
-    pub async fn fcm_send_to_as_server(&self, implicated_cid: u64, peer_cid: u64, packet_crafter: impl FnOnce(&HyperRatchet) -> RawFcmPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
+    pub async fn fcm_send_to_as_server(&self, implicated_cid: u64, peer_cid: u64, packet_crafter: impl FnOnce(&HyperRatchet) -> RawExternalPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
         let this = inner!(self);
         if implicated_cid != peer_cid {
             let account_manager = this.account_manager.clone();

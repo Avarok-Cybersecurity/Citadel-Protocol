@@ -20,7 +20,7 @@ use crate::macros::SyncContextRequirements;
 #[cfg(feature = "multi-threaded")]
 use futures::task::AtomicWaker;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
-use hyxe_user::external_services::fcm::data_structures::{RawFcmPacket, FcmTicket};
+use hyxe_user::external_services::fcm::data_structures::{RawExternalPacket, FcmTicket};
 use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 
@@ -441,9 +441,9 @@ pub enum PeerSignal {
     // for key-exchange
     Kem(PeerConnectionType, KeyExchangeProcess),
     // For redundant fcm transfers, ensuring no loss of packets when using FCM
-    Fcm(FcmTicket, RawFcmPacket),
+    Fcm(FcmTicket, RawExternalPacket),
     // For polling for packets
-    FcmFetch(Option<HashMap<u64, BTreeMap<u64, RawFcmPacket>>>),
+    FcmFetch(Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>),
     // For denoting that reg info changed
     FcmTokenUpdate(FcmKeys)
 }

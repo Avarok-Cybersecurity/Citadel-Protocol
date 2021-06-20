@@ -49,7 +49,7 @@ impl GoogleAuth {
 
     /// Creates a new JWT for the given user, allowing the user to login to google services
     #[allow(unused_results)]
-    pub fn sign_new_custom_jwt_auth(&self, implicated_cid: u64) -> Result<JsonWebToken, AccountError> {
+    pub fn sign_new_custom_jwt_auth<T: ToString>(&self, uid: T) -> Result<JsonWebToken, AccountError> {
         let key = &self.key;
         let service_email = &self.email;
 
@@ -58,7 +58,9 @@ impl GoogleAuth {
 
         let iat = iat.to_string();
         let exp = exp.to_string();
-        let implicated_cid = implicated_cid.to_string();
+        let implicated_cid = uid.to_string();
+
+        //let final_claim = format!("array(\"cid\" => ${})", &implicated_cid);
 
         let mut claims = HashMap::new();
         claims.insert("alg", "RS256");
@@ -68,6 +70,9 @@ impl GoogleAuth {
         claims.insert("iat", iat.as_str());
         claims.insert("exp", exp.as_str());
         claims.insert("uid", &implicated_cid);
+        //claims.insert("claims", final_claim.as_str());
+
+        log::info!("{:?}", &claims);
 
         claims.sign_with_key(&*key as &PKeyWithDigest<Private>).map_err(|err| AccountError::Generic(err.to_string()))
     }
