@@ -2,16 +2,13 @@ use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus, EndpointRatchetConstructor};
 use zerocopy::LayoutVerified;
 use crate::external_services::fcm::data_structures::{FcmHeader, FcmTicket};
-use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
-use std::sync::Arc;
-use fcm::Client;
-use crate::external_services::fcm::fcm_instance::FCMInstance;
+use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, InstanceParameter};
 use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
 
-pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, constructors: &mut HashMap<u64, ConstructorType<R, Fcm>>, header: LayoutVerified<&'a [u8], FcmHeader>, bob_to_alice_transfer: KemTransferStatus) -> FcmProcessorResult {
+pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter<'a>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, constructors: &mut HashMap<u64, ConstructorType<R, Fcm>>, header: LayoutVerified<&'a [u8], FcmHeader>, bob_to_alice_transfer: KemTransferStatus) -> FcmProcessorResult {
     log::info!("FCM RECV GROUP_HEADER_ACK");
-    let fcm_instance = FCMInstance::new(endpoint_crypto.fcm_keys.clone()?, client.clone());
+    let instance = svc_params.create_instance(endpoint_crypto)?;
     let peer_cid = header.session_cid.get();
     let local_cid = header.target_cid.get();
 
@@ -67,19 +64,16 @@ pub fn process<'a, R: Ratchet, Fcm: Ratchet>(client: &Arc<Client>, endpoint_cryp
         }
     };
 
-    let packet = if update_ocurred {
+    if update_ocurred {
         if let Some(ratchet) = next_ratchet {
             // send TRUNCATE packet
-            let truncate_packet = super::super::fcm_packet_crafter::craft_truncate(ratchet, header.object_id.get(), header.group_id.get(), header.session_cid.get(), header.ticket.get(), requires_truncation);
-            FcmPacketMaybeNeedsSending::some(Some(fcm_instance), truncate_packet)
+            let truncate_packet = super::super::fcm_packet_crafter::craft_truncate(ratchet, header.object_id.get(), header.group_id.get(), peer_cid, header.ticket.get(), requires_truncation);
+            instance.send(truncate_packet, local_cid, peer_cid).await?;
         } else {
             log::error!("No ratchet returned when one was expected");
-            FcmPacketMaybeNeedsSending::none()
         }
-    } else {
-      FcmPacketMaybeNeedsSending::none()
-    };
+    }
 
     log::info!("SUBROUTINE COMPLETE: PROCESS GROUP_HEADER_ACK");
-    FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) }, packet)
+    FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) })
 }

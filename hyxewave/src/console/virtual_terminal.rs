@@ -205,7 +205,7 @@ pub mod clap_commands {
         subcommands.push(setup_disconnect_command());
         subcommands.push(setup_deregister_command());
         subcommands.push(setup_clear_command());
-        subcommands.push(setup_fcm_process());
+        subcommands.push(setup_external_process());
         subcommands.push(setup_peer_command());
         subcommands.push(setup_group_command());
         subcommands
@@ -283,9 +283,11 @@ pub mod clap_commands {
             .arg(Arg::with_name("command").required(false).takes_value(true).multiple(true).help("An optional command to run after switching to a new CID (runs with new context CID)"))
     }
 
-    fn setup_fcm_process() -> App<'static, 'static> {
-        SubCommand::with_name("fcm-process").about("parses an JSON string, returning the decrypted result. Only input the 'inner' value in the raw json packet, without quotations")
-            .arg(Arg::with_name("input").required(true).takes_value(true).multiple(true))
+    fn setup_external_process() -> App<'static, 'static> {
+        SubCommand::with_name("external-process").about("parses an JSON string, returning the decrypted result. Only input the 'inner' value in the raw json packet, without quotations")
+            .arg(Arg::with_name("rtdb").long("rtdb").required(false).takes_value(false).conflicts_with("fcm"))
+            .arg(Arg::with_name("fcm").long("fcm").required(false).takes_value(false).conflicts_with("rtdb"))
+            .arg(Arg::with_name("input").long("input").required(true).takes_value(true).multiple(true))
     }
 
     fn setup_ticket_command() -> App<'static, 'static> {
@@ -593,8 +595,8 @@ pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, App
         return crate::command_handlers::peer::handle(matches, server_remote, ctx, ffi_io).await;
     }
 
-    if let Some(matches) = matches.subcommand_matches("fcm-process") {
-        return crate::command_handlers::fcm_process::handle(matches, ctx).await
+    if let Some(matches) = matches.subcommand_matches("external-process") {
+        return crate::command_handlers::external_process::handle(matches, ctx).await
     }
 
     if let Some(matches) = matches.subcommand_matches("group") {
