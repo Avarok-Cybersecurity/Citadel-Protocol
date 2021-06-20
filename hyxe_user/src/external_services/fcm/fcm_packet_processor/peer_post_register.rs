@@ -1,4 +1,4 @@
-use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, FcmPacketMaybeNeedsSending};
+use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult};
 use crate::external_services::fcm::kem::FcmPostRegister;
 use serde::{Serialize, Deserialize};
 use super::super::data_structures::{string, base64_string};
@@ -77,7 +77,7 @@ pub async fn process(persistence_handler: &PersistenceHandler, post_register_sto
             log::info!("[FCM POST-REGISTER] Stored invitation from {} for {}", peer_cid, local_cid);
 
             // finally, return signal to caller
-            FcmProcessorResult::Value(FcmResult::PostRegisterInvitation { invite: PostRegisterInvitation { peer_cid, local_cid, username: username.into_bytes(), ticket } }, FcmPacketMaybeNeedsSending::none())
+            FcmProcessorResult::Value(FcmResult::PostRegisterInvitation { invite: PostRegisterInvitation { peer_cid, local_cid, username: username.into_bytes(), ticket } })
         }
 
         FcmPostRegister::BobToAliceTransfer(fcm_bob_to_alice_transfer, fcm_keys, source_cid) => {
@@ -107,7 +107,7 @@ pub async fn process(persistence_handler: &PersistenceHandler, post_register_sto
                 ticket,
                 accept: true,
                 username
-            }}, FcmPacketMaybeNeedsSending::none())
+            }})
         }
 
         // Bob denied the request
@@ -119,7 +119,7 @@ pub async fn process(persistence_handler: &PersistenceHandler, post_register_sto
                 ticket,
                 accept: false,
                 username
-            }}, FcmPacketMaybeNeedsSending::none())
+            }})
         }
         s @ FcmPostRegister::Enable | s @ FcmPostRegister::Disable => {
             log::error!("Received unexpected signal: {:?}", s);

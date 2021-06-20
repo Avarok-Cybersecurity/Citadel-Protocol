@@ -1020,6 +1020,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "firebase-rtdb"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "reqwest",
+ "serde 1.0.126",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1544,6 +1553,7 @@ dependencies = [
  "bytes 1.0.1",
  "crossbeam-utils",
  "fcm",
+ "firebase-rtdb",
  "futures",
  "hyxe_crypt",
  "hyxe_fs",

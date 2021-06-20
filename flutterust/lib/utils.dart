@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutterust/database/client_network_account.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/active_message_broadcast.dart';
@@ -154,8 +157,6 @@ class Utils {
     FirebaseMessaging.onMessage.listen(onFcmMessageReceived);
     FirebaseMessaging.onBackgroundMessage(onFcmMessageReceived);
 
-
-
     var key = await firebase.getToken();
     if (key == null) {
       print("Firebase token returned null");
@@ -172,6 +173,41 @@ class Utils {
     });
   }
 
+  static HashMap<u64, LeafListener>? listeners;
+
+  /// This should be called periodically as required
+  static Future<void> configureRTDB(bool newUserAdded) async {
+    if (newUserAdded || listeners == null) {
+      if (listeners == null) {
+        listeners = HashMap();
+      }
+
+      var res = await FirebaseDatabase.instance.setPersistenceEnabled(true);
+      // we need to listen to a series of leafs. Listen on each user logged-in
+      List<u64> accounts = await ClientNetworkAccount.getAllClients().then((value) => value.orElse([]));
+      print("[RTDB handler] SPE Result $res, ${accounts.length} accounts to listen on");
+
+      for (u64 cid in accounts) {
+        if (!listeners!.containsKey(cid)) {
+          var ref = FirebaseDatabase.instance.reference().child("users").child(cid.toString());
+          await ref.keepSynced(true);
+          var listener = ref.onChildAdded.listen((event) async {
+            print("[RTDB] Data received: KEY: ${event.snapshot.key}. VALUE: ${event.snapshot.value}");
+
+            // TODO: This expects only packets. In the future, make it accept more
+            var key = event.snapshot.key;
+            Map<String, dynamic> value = event.snapshot.value;
+            String json = value["inner"];
+            await processJsonPacket(json);
+          });
+
+          listeners![cid] = LeafListener(listener, ref);
+          print("Added RTDB listener for $cid");
+        }
+      }
+    }
+  }
+
   static String prevPacket = "";
 
   static Future<dynamic> onFcmMessageReceived(RemoteMessage message) async {
@@ -186,22 +222,24 @@ class Utils {
       prevPacket = json;
     }
 
+    await processJsonPacket(json);
+  }
+
+  static Future<void> processJsonPacket(String json) async {
     String databasePath = await DatabaseHandler.databaseKernel();
 
-      // subsystem may be null if we're in the background isolate
-      if (RustSubsystem.bridge == null) {
-        print("[FCM] RustSubsystem not loaded. Will load *basic* FFI connection ...");
-        RustSubsystem.bridge = FFIBridge();
-        FFIBridge.setup();
-      }
+    // subsystem may be null if we're in the background isolate
+    if (RustSubsystem.bridge == null) {
+      print("[FCM] RustSubsystem not loaded. Will load *basic* FFI connection ...");
+      RustSubsystem.bridge = FFIBridge();
+      FFIBridge.setup();
+    }
 
-
-      print("[FCM] awaiting kernel response ...");
-      Optional<KernelResponse> kResp = await RustSubsystem.bridge!.handleFcmMessage(json, databasePath);
-      print("[FCM] response received. Is valid? " + kResp.isPresent.toString());
-      // Here, we delegate the response to the default handler
-      kResp.ifPresent(KernelResponseHandler.handleRustKernelMessage);
-    // Or do other work.
+    print("[FCM] awaiting kernel response ...");
+    Optional<KernelResponse> kResp = await RustSubsystem.bridge!.handleFcmMessage(json, databasePath);
+    print("[FCM] response received. Is valid? " + kResp.isPresent.toString());
+    // Here, we delegate the response to the default handler
+    kResp.ifPresent(KernelResponseHandler.handleRustKernelMessage);
   }
 
   static Route createDefaultRoute(final Widget widget) {
@@ -228,4 +266,13 @@ class Utils {
   static StreamController<KernelInitiated> kernelInitiatedSink = StreamController();
 
   static Optional<u64> currentlyOpenedMessenger = Optional.empty();
+}
+
+class LeafListener {
+  final StreamSubscription listener;
+
+  LeafListener(this.listener, this.ref);
+
+  final DatabaseReference ref;
+
 }

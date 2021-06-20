@@ -3,7 +3,7 @@
 use crate::ffi_object::load_and_execute_ffi_static;
 use ffi_helpers::null_pointer_check;
 use hyxewave::ffi::KernelResponse;
-use hyxewave::re_exports::{AccountManager, BackendType, PRIMARY_PORT, AccountError, AssertSendSafeFuture};
+use hyxewave::re_exports::{AccountManager, BackendType, PRIMARY_PORT, AccountError, AssertSendSafeFuture, ExternalService};
 use std::ffi::CString;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -123,7 +123,7 @@ pub unsafe extern "C" fn fcm_process(
         log::info!(
             "FFI_STATIC exists, therefore, will route packet from BG to primary processor ..."
         );
-        return kernel_response_into_raw(&*("fcm-process ".to_string() + packet));
+        return kernel_response_into_raw(&*("external-process --rtdb --input ".to_string() + packet));
     }
 
     // setup account manager. We MUST reload each time this gets called, because the main instance may have
@@ -136,7 +136,7 @@ pub unsafe extern "C" fn fcm_process(
         match AccountManager::new(SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),Some(home_dir.to_string()), backend_type, None, None).await {
             Ok(acc_mgr) => {
                 log::info!("[Rust BG processor] Success setting-up account manager");
-                let fcm_res = hyxewave::re_exports::fcm_packet_processor::process(packet, acc_mgr).await;
+                let fcm_res = hyxewave::re_exports::fcm_packet_processor::process(packet, acc_mgr, ExternalService::Rtdb).await;
 
                 KernelResponse::from(fcm_res)
             }
