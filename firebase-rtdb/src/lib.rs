@@ -1,16 +1,29 @@
 #![allow(non_snake_case)]
 
 use reqwest::{Client, Response};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::error::Error;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Serialize, Deserialize};
+use std::str::FromStr;
 
 #[derive(Clone, Debug)]
 pub struct FirebaseRTDB {
     pub base_url: String,
     client: Client,
-    pub token: String
+    pub auth: AuthResponsePayload,
+    pub expire_time: Instant,
+    pub api_key: String,
+    pub jwt: String
+}
+
+pub const DEFAULT_EXPIRE_BUFFER_SECS: Duration = Duration::from_secs(5);
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct AuthResponsePayload {
+    pub idToken: String,
+    pub refreshToken: String,
+    pub expiresIn: String
 }
 
 pub struct Node<'a> {
@@ -37,11 +50,11 @@ impl FirebaseRTDB {
     ///
     /// This will contact the authorization server in order to get the proper values
     pub async fn new_from_jwt<T: Into<String>, R: Into<String>, V: AsRef<str>>(project_url: T, jwt: R, api_key: V) -> Result<Self, RtdbError> {
-        let token = jwt.into();
+        let jwt = jwt.into();
 
         //let token = resp.get("token").ok_or_else(|| RtdbError { inner: "Payload did not contain token".to_string() })?;
         let base_url = project_url.into();
-
+        let api_key = api_key.as_ref();
         let client = Self::build_client()?;
 
         #[derive(Serialize)]
@@ -50,26 +63,64 @@ impl FirebaseRTDB {
             returnSecureToken: bool
         }
 
-        #[derive(Deserialize, Debug)]
-        struct AuthResponsePayload {
-            idToken: String,
-            refreshToken: String,
-            expiresIn: String
-        }
-
-        let payload = AuthPayload { token, returnSecureToken: true };
+        let payload = AuthPayload { token: jwt.clone(), returnSecureToken: true };
         // auth first
-        let resp: AuthResponsePayload = client.post(format!("https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={}", api_key.as_ref())).header(CONTENT_TYPE, "application/json").json(&payload).send().await?.json().await?;
+        let resp: AuthResponsePayload = client.post(format!("https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={}", api_key)).header(CONTENT_TYPE, "application/json").json(&payload).send().await?.json().await?;
         log::info!("RESP AUTH: {:?}", resp);
 
-        Ok(Self { base_url, client, token: resp.idToken })
+        let expire_time = Instant::now() + Duration::from_secs(u64::from_str(resp.expiresIn.as_str())?);
+
+        Ok(Self { base_url, client, auth: resp, expire_time, api_key: api_key.to_string(), jwt })
     }
 
     /// Use this if authentication already occurred, and the token is still valid
-    pub fn new_from_token<T: Into<String>, R: Into<String>>(project_url: T, token: R) -> Result<Self, RtdbError> {
+    pub fn new_from_token<T: Into<String>, R: Into<String>, V: Into<String>>(project_url: T, api_key: R, jwt: V, auth: AuthResponsePayload, expire_time: Instant) -> Result<Self, RtdbError> {
         let client = Self::build_client()?;
 
-        Ok(Self { client, base_url: project_url.into(), token: token.into() })
+        Ok(Self { client, base_url: project_url.into(), auth, expire_time, api_key: api_key.into(), jwt: jwt.into() })
+    }
+
+    /// Unconditionally renews the token. Make sure to update internal client config afterwards as data could have changed
+    pub async fn renew_token(&mut self) -> Result<(), RtdbError> {
+        #[derive(Serialize)]
+        struct RenewPayload {
+            grant_type: String,
+            refresh_token: String
+        }
+
+        #[derive(Deserialize, Debug)]
+        struct RenewResponse {
+            expires_in: String,
+            token_type: String,
+            refresh_token: String,
+            id_token: String,
+            user_id: String,
+            project_id: String
+        }
+
+        let payload = RenewPayload { grant_type: "refresh_token".to_string(), refresh_token: self.auth.refreshToken.clone() };
+
+        let resp: RenewResponse = self.client.post(format!("https://securetoken.googleapis.com/v1/token?key={}", self.api_key.as_str())).header(CONTENT_TYPE, "application/x-www-form-urlencoded").json(&payload).send().await?.json().await?;
+
+        log::info!("RESP RENEW: {:?}", &resp);
+        // update internal value using the new response
+        let expire_time = Instant::now() + Duration::from_secs(u64::from_str(resp.expires_in.as_str())?);
+        self.expire_time = expire_time;
+
+        let auth = AuthResponsePayload {
+            idToken: resp.id_token,
+            refreshToken: resp.refresh_token,
+            expiresIn: resp.expires_in
+        };
+
+        self.auth = auth;
+
+        Ok(())
+    }
+
+    /// Returns true if the token expired. will need to be refreshed before use again
+    pub fn token_expired(&self) -> bool {
+        Instant::now() + DEFAULT_EXPIRE_BUFFER_SECS > self.expire_time
     }
 
     fn build_client() -> Result<Client, RtdbError> {
@@ -77,7 +128,7 @@ impl FirebaseRTDB {
     }
 
     pub fn root(&self) -> Node<'_> {
-        Node { string_builder: self.base_url.clone(), client: &self.client, token: &self.token }
+        Node { string_builder: self.base_url.clone(), client: &self.client, token: &self.auth.idToken }
     }
 }
 

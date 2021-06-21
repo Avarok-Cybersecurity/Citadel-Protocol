@@ -108,11 +108,10 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
             // TODO: Merge multiple possible users into a single one per device
             if (conn.jwt.isPresent) {
               print("JWT present: ${conn.jwt.value}");
-              if (FirebaseAuth.instance.currentUser == null) {
-                var creds = await FirebaseAuth.instance.signInWithCustomToken(conn.jwt.value);
-                print("Creds obtained: $creds");
+              var creds = await FirebaseAuth.instance.signInWithCustomToken(conn.jwt.value);
+              print("Creds obtained: $creds");
 
-              }
+              await Utils.configureRTDB(cnac.implicatedCid);
             }
 
             print("Len: " + tabs.length.toString() + ", len: " + sessionViews.length.toString());

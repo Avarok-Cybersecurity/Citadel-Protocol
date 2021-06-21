@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -176,36 +178,54 @@ class Utils {
   static HashMap<u64, LeafListener>? listeners;
 
   /// This should be called periodically as required
-  static Future<void> configureRTDB(bool newUserAdded) async {
-    if (newUserAdded || listeners == null) {
+  static Future<void> configureRTDB(u64 newlyLoggedInUser) async {
       if (listeners == null) {
         listeners = HashMap();
       }
 
       var res = await FirebaseDatabase.instance.setPersistenceEnabled(true);
       // we need to listen to a series of leafs. Listen on each user logged-in
-      List<u64> accounts = await ClientNetworkAccount.getAllClients().then((value) => value.orElse([]));
-      print("[RTDB handler] SPE Result $res, ${accounts.length} accounts to listen on");
+      //List<u64> accounts = await ClientNetworkAccount.getAllClients().then((value) => value.orElse([]));
+      print("[RTDB handler] SPE Result $res");
 
-      for (u64 cid in accounts) {
-        if (!listeners!.containsKey(cid)) {
-          var ref = FirebaseDatabase.instance.reference().child("users").child(cid.toString());
+      //for (u64 cid in accounts) {
+          var ref = FirebaseDatabase.instance.reference().child("users").child(newlyLoggedInUser.toString());
           await ref.keepSynced(true);
-          var listener = ref.onChildAdded.listen((event) async {
-            print("[RTDB] Data received: KEY: ${event.snapshot.key}. VALUE: ${event.snapshot.value}");
 
+          // ignore: cancel_subscriptions
+          var listener = ref.onValue.listen((event) async {
+            print("[RTDB] Data received: KEY: ${event.snapshot.key}. prev sibling: ${event.previousSiblingKey}. VALUE: ${event.snapshot.value}");
+            // await ref.child(event.snapshot.key).remove();
             // TODO: This expects only packets. In the future, make it accept more
             var key = event.snapshot.key;
-            Map<String, dynamic> value = event.snapshot.value;
-            String json = value["inner"];
-            await processJsonPacket(json);
+            Map<String, dynamic> tree = new Map<String, dynamic>.from(event.snapshot.value);
+            print("Outer tree: $tree");
+            for (MapEntry<String, dynamic> superPeerTreeUncast in tree.entries) {
+              Map<String, dynamic> superPeerTree = new Map<String, dynamic>.from(superPeerTreeUncast.value);
+              print("Super peer tree: \n$superPeerTree\n");
+              for (MapEntry<String, dynamic> peerTreeUncast in superPeerTree.entries) {
+                  Map<String, dynamic> peerTree = new Map<String, dynamic>.from(peerTreeUncast.value);
+                  print("Peer tree: \n$peerTree\n");
+
+                  if (peerTree.containsKey("packets")) {
+                    Map<String, dynamic> packetsTree = new Map<String, dynamic>.from(peerTree["packets"]);
+                    for (MapEntry<String, dynamic> entry in packetsTree.entries) {
+                      Map<String, dynamic> newPacketTree = new Map<String, dynamic>.from(entry.value);
+                      String json = newPacketTree["inner"];
+
+                      await processJsonPacket(json);
+                      // delete AFTER being processed
+                      await ref.child("peers").child(peerTreeUncast.key).child("packets").child(entry.key).remove();
+                    }
+
+                  }
+              }
+            }
           });
 
-          listeners![cid] = LeafListener(listener, ref);
-          print("Added RTDB listener for $cid");
-        }
-      }
-    }
+          listeners![newlyLoggedInUser] = LeafListener(listener, ref);
+          print("Added RTDB listener for $newlyLoggedInUser");
+      //}
   }
 
   static String prevPacket = "";

@@ -44,8 +44,6 @@ class LoginHandler implements AbstractHandler {
         } else {
           await SecureStorageHandler.deleteCredentialsFor(this.username);
         }
-
-        await Utils.configureRTDB(true);
       } else {
         print("[Login Handler] Login failed: " + resp.message);
         this.sink.add(LoginUISignal(LoginUpdateSignalType.LoginFailure, message: resp.message));

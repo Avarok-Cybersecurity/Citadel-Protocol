@@ -17,6 +17,7 @@ single-threaded = ["hyxe_crypt/single-threaded"]
 [dependencies]
 #futures-preview = { version = "=0.3.0-alpha.19", features = ["compat", "async-await"]}
 serde = { version = "1.0.104", features=["rc", "derive"] }
+serde_millis = "0.1.1"
 #async-std = "1.6.0-beta.2"
 #tokio = "0.2.21"
 #tokio = {version = "^0.2.22", features=["rt-core"] }

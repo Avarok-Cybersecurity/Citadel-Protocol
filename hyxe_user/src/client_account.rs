@@ -792,7 +792,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             }
 
             ExternalService::Rtdb => {
-                Box::new(RtdbInstance::new(client_rtdb_config.as_ref().ok_or_else(|| AccountError::Generic("RTDB is not available on this node".to_string()))?)?)
+                Box::new(RtdbInstance::new_maybe_refresh(client_rtdb_config.as_ref().ok_or_else(|| AccountError::Generic("RTDB is not available on this node".to_string()))?).await?)
             }
         };
 
@@ -814,7 +814,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             }
 
             std::mem::drop(write);
-            //self.blocking_save_to_local_fs()?;
             self.save().await?;
         }
 

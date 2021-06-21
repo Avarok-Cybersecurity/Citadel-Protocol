@@ -167,9 +167,6 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
             let buf = SecBuffer::from(message);
 
             return if use_fcm || use_rtdb {
-                // TODO: NOTE: Due to a connection pool bug, we need to re-create the fcm client each time
-                //let fcm_client = ctx.account_manager.fcm_client();
-                //let fcm_client = Arc::new(Client::new());
                 // TODO: Consider logic of using below for generating unique IDs ... this may not be good for android/ios
                 let ticket = server_remote.get_next_ticket().0;
                 let method = if use_fcm { ExternalService::Fcm } else { ExternalService::Rtdb };
