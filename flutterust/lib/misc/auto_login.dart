@@ -7,6 +7,7 @@ import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/login.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/secure_storage_handler.dart';
+import 'package:flutterust/utils.dart';
 import 'package:optional/optional.dart';
 import 'package:retry/retry.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';

@@ -8,7 +8,7 @@ use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
 
 pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter<'a>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, constructors: &mut HashMap<u64, ConstructorType<R, Fcm>>, header: LayoutVerified<&'a [u8], FcmHeader>, bob_to_alice_transfer: KemTransferStatus) -> FcmProcessorResult {
     log::info!("FCM RECV GROUP_HEADER_ACK");
-    let instance = svc_params.create_instance(endpoint_crypto)?;
+    let instance = svc_params.create_instance(endpoint_crypto).await?;
     let peer_cid = header.session_cid.get();
     let local_cid = header.target_cid.get();
 

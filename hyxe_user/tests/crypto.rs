@@ -21,12 +21,14 @@ mod tests {
         let jwt = auth.sign_new_custom_jwt_auth(USER).unwrap();
         log::info!("JWT: {}", jwt);
 
-        let firebase_rtdb = firebase_rtdb::FirebaseRTDB::new_from_jwt("https://verisend-d3aec-default-rtdb.firebaseio.com/", jwt, API_KEY).await.unwrap();
+        let mut firebase_rtdb = firebase_rtdb::FirebaseRTDB::new_from_jwt("https://verisend-d3aec-default-rtdb.firebaseio.com/", jwt, API_KEY).await.unwrap();
         let mut map = HashMap::new();
         map.insert("cid", "777");
         map.insert("name", "A peer");
 
         let resp = firebase_rtdb.root().child("users").child(USER.to_string()).child("peers").final_node("777").post(&map).await.unwrap();
         log::info!("RESP: {}", resp);
+
+        firebase_rtdb.renew_token().await.unwrap();
     }
 }

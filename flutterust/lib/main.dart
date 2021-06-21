@@ -48,7 +48,7 @@ Future<void> loadInit() async {
   //Utils.pushNotification("title", "message");
   await Utils.configureFCM();
   await BackgroundExecutor.setupBackground();
-  await Utils.configureRTDB(false);
+  //await Utils.configureRTDB(false);
   print("Done initializing FFI/Rust subsystem ...");
 }
 

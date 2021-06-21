@@ -1673,6 +1673,7 @@ dependencies = [
  "serde 1.0.126",
  "serde_bytes",
  "serde_json",
+ "serde_millis",
  "sqlx",
  "tokio 1.7.0",
  "zerocopy 0.3.0",
@@ -3284,6 +3285,15 @@ checksum = "ea1c6153794552ea7cf7cf63b1231a25de00ec90db326ba6264440fa08e31486"
 dependencies = [
  "itoa",
  "ryu",
+ "serde 1.0.126",
+]
+
+[[package]]
+name = "serde_millis"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6e2dc780ca5ee2c369d1d01d100270203c4ff923d2a4264812d723766434d00"
+dependencies = [
  "serde 1.0.126",
 ]
 

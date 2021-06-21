@@ -50,7 +50,8 @@ class NotificationsScreenInner extends State<NotificationsScreen> {
     return DefaultPageWidget(
       align: Alignment.topCenter,
         title: Text("Notifications for ${this.widget.cnac.username}"),
-        child: this.widget.notifications.isEmpty ? Text("No notifications!") : SingleChildScrollView(child: compileWidget(context)),
+        // prev: had SingleChildScrollWidget
+        child: this.widget.notifications.isEmpty ? Text("No notifications!") : compileWidget(context),
       actions: [
         PopupMenuButton<String>(
           onSelected: onSettingsPressed,
