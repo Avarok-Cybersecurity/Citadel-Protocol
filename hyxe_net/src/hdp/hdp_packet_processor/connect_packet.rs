@@ -189,10 +189,15 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     let _ = handle_client_fcm_keys(fcm_keys, &cnac, &persistence_handler).await?;
                     let _ = persistence_handler.synchronize_hyperlan_peer_list_as_client(&cnac, payload.peers).await?;
                     match (post_login_object.rtdb, post_login_object.google_auth_jwt) {
-                        (Some(rtdb), Some(jwt)) => {
+                        (Some(rtdb_cfg), Some(jwt)) => {
                             log::info!("Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
-                            let rtdb = FirebaseRTDB::new_from_jwt(&rtdb.url, jwt, rtdb.api_key).await.map_err(|_| PrimaryProcessorResult::Void)?;// login
-                            let client_rtdb_config = RtdbClientConfig { url: rtdb.base_url, token: rtdb.token };
+                            let rtdb = FirebaseRTDB::new_from_jwt(&rtdb_cfg.url, jwt.clone(), rtdb_cfg.api_key.clone()).await.map_err(|_| PrimaryProcessorResult::Void)?;// login
+
+                            let FirebaseRTDB {
+                                base_url, auth, expire_time, api_key, jwt, ..
+                            } = rtdb;
+
+                            let client_rtdb_config = RtdbClientConfig { url: base_url, api_key, auth_payload: auth, expire_time, jwt };
                             cnac.visit_mut(|mut inner| {
                                inner.client_rtdb_config = Some(client_rtdb_config);
                             });
