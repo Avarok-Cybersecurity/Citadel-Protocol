@@ -9,7 +9,7 @@ use hyxe_crypt::fcm::fcm_ratchet::FcmAliceToBobTransfer;
 
 pub async fn process<'a, Fcm: Ratchet>(svc_params: InstanceParameter<'a>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, ratchet: Fcm, header: LayoutVerified<&'a [u8], FcmHeader>, alice_to_bob_transfer: Option<FcmAliceToBobTransfer<'a>>, message: &'a [u8]) -> FcmProcessorResult {
     log::info!("FCM RECV GROUP_HEADER");
-    let instance = svc_params.create_instance(endpoint_crypto).await?;
+    let mut instance = svc_params.create_instance(endpoint_crypto)?;
     // at this point, the packet was verified to be valid. Calculate return packet, send it via fcm to target. Finally, return the message
     let local_cid = header.target_cid.get();
 

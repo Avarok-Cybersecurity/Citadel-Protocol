@@ -8,8 +8,8 @@ class MessageStreamer {
 
   MessageStreamer() : this.stream = StreamController.broadcast();
 
-  void subscribe(void Function(Message) listener) {
-    this.stream.stream.listen(listener);
+  StreamSubscription<Message> subscribe(void Function(Message) listener) {
+    return this.stream.stream.listen(listener);
   }
 
   void broadcast(Message message) {

@@ -26,9 +26,12 @@ mod tests {
         map.insert("cid", "777");
         map.insert("name", "A peer");
 
-        let resp = firebase_rtdb.root().child("users").child(USER.to_string()).child("peers").final_node("777").post(&map).await.unwrap();
+        let resp = firebase_rtdb.root().await.unwrap().child("users").child(USER.to_string()).child("peers").final_node("777").post(&map).await.unwrap();
         log::info!("RESP: {}", resp);
 
         firebase_rtdb.renew_token().await.unwrap();
+
+        let resp = firebase_rtdb.root().await.unwrap().child("users").child(USER.to_string()).child("peers").child("second").final_node("777").post(&map).await.unwrap();
+        log::info!("RESP: {}", resp);
     }
 }

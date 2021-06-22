@@ -9,6 +9,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutterust/database/client_network_account.dart';
+import 'package:flutterust/database/message.dart';
 import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/active_message_broadcast.dart';
