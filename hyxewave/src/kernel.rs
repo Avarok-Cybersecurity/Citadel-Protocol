@@ -230,7 +230,7 @@ impl NetKernel for CLIKernel {
             // FFI Handled below
             HdpServerResult::InternalServerError(ticket, err) => {
                 printf_ln!(colour::red!("\nInternal Server Error: {}\n", err));
-                self.on_ticket_received_opt(ticket, PeerResponse::Err(Some(err.clone())));
+                self.on_ticket_received_opt(ticket, ResponseType::Error(err.clone()));
                 //return Err(NetworkError::Generic(err))
 
                 if *self.console_context.is_ffi {
@@ -255,7 +255,7 @@ impl NetKernel for CLIKernel {
                     });
                 }
 
-                self.on_ticket_received(ticket, PeerResponse::Err(Some(err)));
+                self.on_ticket_received(ticket, ResponseType::Error(err));
             }
 
             HdpServerResult::DeRegistration(vconn, ticket, is_personal, status) => {
@@ -263,7 +263,7 @@ impl NetKernel for CLIKernel {
                     let username = self.get_username_display(vconn.get_implicated_cid()).await;
                     printf_ln!(colour::yellow!("Deregistration of {:?} was {}\n", username , status.if_eq(true, "successful").if_false("not successful")));
                 } else {
-                    let resp = status.if_eq(true, PeerResponse::Ok(None)).if_false(PeerResponse::Err(None));
+                    let resp = status.if_eq(true, ResponseType::PeerResponse(PeerResponse::Ok(None))).if_false_then(|| ResponseType::Error("Deregistration failed".to_string()));
                     self.on_ticket_received_opt(ticket, resp);
                 }
                 self.unload_kernel_session(vconn.get_implicated_cid()).await;
@@ -303,10 +303,7 @@ impl NetKernel for CLIKernel {
                     colour::red!(" REJECTED!\n\n");
                 });
 
-                let resp = reason_opt.map(|reason|
-                    PeerResponse::Err(Some(String::from_utf8(reason).unwrap_or(String::from(INVALID_UTF8)))))
-                    .unwrap_or(PeerResponse::Err(None));
-
+                let resp = reason_opt.map(|reason| ResponseType::Error(String::from_utf8(reason).unwrap_or(String::from(INVALID_UTF8)))).unwrap_or_else(|| ResponseType::Error("Outbound request rejected".to_string()));
 
                 self.on_ticket_received(ticket, resp);
             }
@@ -363,7 +360,7 @@ impl NetKernel for CLIKernel {
                     }
 
                     PeerSignal::SignalError(ticket, err) => {
-                        self.on_ticket_received(ticket, PeerResponse::Err(Some(err)))
+                        self.on_ticket_received(ticket, ResponseType::Error(err))
                     }
 
                     PeerSignal::Deregister(conn, _fcm) => {
@@ -400,7 +397,7 @@ impl NetKernel for CLIKernel {
                                         }
 
                                         PeerConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, _target_cid) => {
-                                            unimplemented!("HyperWAN functionality not yet implemented")
+                                            log::warn!("HyperWAN functionality not yet implemented")
                                         }
                                     }
                                 }

@@ -37,6 +37,14 @@ impl TrackedTicket {
                 (fx)(ctx, self.ticket, response)
             }
 
+            (ResponseType::Error(err), CallbackType::Custom(fx)) => {
+                (fx)(ctx, self.ticket, CustomPayload::Error(err))
+            }
+
+            (ResponseType::Error(err), CallbackType::Standard(fx)) => {
+                (fx)(ctx, self.ticket, PeerResponse::Err(Some(err)))
+            }
+
             _ => {
                 log::error!("Incompatible function type/response paired");
                 CallbackStatus::TaskComplete
@@ -61,7 +69,8 @@ impl TrackedTicket {
 
 pub enum ResponseType {
     PeerResponse(PeerResponse),
-    Custom(CustomPayload)
+    Custom(CustomPayload),
+    Error(String)
 }
 
 impl From<PeerResponse> for ResponseType {
@@ -83,7 +92,8 @@ pub enum CallbackType {
 
 pub enum CustomPayload {
     Timeout,
-    Connect(ConnectResponseReceived)
+    Connect(ConnectResponseReceived),
+    Error(String)
 }
 
 struct TicketQueueHandlerInner {
