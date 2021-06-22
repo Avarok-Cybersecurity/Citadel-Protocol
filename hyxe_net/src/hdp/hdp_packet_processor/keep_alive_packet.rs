@@ -20,7 +20,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
         let security_level = header.security_level.into();
 
         let mut state_container = inner_mut!(session.state_container);
-        if state_container.on_keep_alive_received(header.timestamp.get(), current_timestamp_ns) {
+        // if the KA came in on time, then we pass. If it did not come-in on time, BUT, the meta expiry container is unexpired (meaning packets are coming in), then, pass
+        if state_container.on_keep_alive_received(header.timestamp.get(), current_timestamp_ns) || !state_container.meta_expiry_state.expired() {
             // We no longer send the ka here since the sleeping blocked the ENTIRE task
             const DELTA_NS: i64 = (KEEP_ALIVE_INTERVAL_MS * 1_000_000) as i64;
             // we can no longer hold-on to the HyperRatchet due to truncation
