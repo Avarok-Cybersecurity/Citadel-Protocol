@@ -98,6 +98,7 @@ impl FirebaseRTDB {
             project_id: String
         }
 
+        log::info!("[RTDB] About to renew token");
         let payload = RenewPayload { grant_type: "refresh_token".to_string(), refresh_token: self.auth.refreshToken.clone() };
 
         let resp: RenewResponse = self.client.post(format!("https://securetoken.googleapis.com/v1/token?key={}", self.api_key.as_str())).header(CONTENT_TYPE, "application/x-www-form-urlencoded").json(&payload).send().await?.json().await?;
@@ -127,8 +128,13 @@ impl FirebaseRTDB {
         Ok(Client::builder().use_native_tls().connect_timeout(CONNECT_TIMEOUT).tcp_nodelay(true).build()?)
     }
 
-    pub fn root(&self) -> Node<'_> {
-        Node { string_builder: self.base_url.clone(), client: &self.client, token: &self.auth.idToken }
+    /// Updates the token if required
+    pub async fn root(&mut self) -> Result<Node<'_>, RtdbError> {
+        if self.token_expired() {
+            self.renew_token().await?
+        }
+
+        Ok(Node { string_builder: self.base_url.clone(), client: &self.client, token: &self.auth.idToken })
     }
 }
 

@@ -7,7 +7,7 @@ use crate::external_services::fcm::data_structures::FcmHeader;
 
 pub async fn process<Fcm: Ratchet>(svc_params: InstanceParameter<'a>, endpoint_crypto: &mut PeerSessionCrypto<Fcm>, truncate_vers: Option<u32>, header: LayoutVerified<&'a [u8], FcmHeader>) -> FcmProcessorResult {
     log::info!("FCM RECV TRUNCATE");
-    let instance = svc_params.create_instance(endpoint_crypto).await?;
+    let mut instance = svc_params.create_instance(endpoint_crypto)?;
     if let Some(truncate_vers) = truncate_vers {
         endpoint_crypto.deregister_oldest_hyper_ratchet(truncate_vers).map_err(|err| AccountError::Generic(err.to_string()))?;
         log::info!("[FCM] Successfully deregistered FcmRatchet v {} locally, sending TRUNCATE_ACK", truncate_vers);

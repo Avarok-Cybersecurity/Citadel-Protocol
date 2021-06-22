@@ -84,7 +84,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                         }
 
                         Err(err) => {
-                            log::error!("Invalid SYN packet received");
+                            log::error!("Invalid SYN packet received: {:?}", &err);
                             let packet = hdp_packet_crafter::pre_connect::craft_halt(&header_if_err_occurs, err.into_string());
                             PrimaryProcessorResult::ReplyToSender(packet)
                         }

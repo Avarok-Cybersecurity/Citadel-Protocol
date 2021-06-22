@@ -246,10 +246,12 @@ pub struct InstanceParameter<'a> {
 }
 
 impl InstanceParameter<'_> {
-    pub async fn create_instance<R: Ratchet>(&self, endpoint_crypto: &PeerSessionCrypto<R>) -> Result<Box<dyn ExternalServiceChannel>, AccountError> {
+    pub fn create_instance<R: Ratchet>(&self, endpoint_crypto: &PeerSessionCrypto<R>) -> Result<Box<dyn ExternalServiceChannel>, AccountError> {
         match self.service_type {
             ExternalService::Fcm => Ok(Box::new(FCMInstance::new(endpoint_crypto.fcm_keys.clone().ok_or_else(|| AccountError::Generic("FCM Selected, but target does not have FCM keys".to_string()))?, self.client.cloned().ok_or_else(|| AccountError::Generic("FCM selected, but sender is not loaded".to_string()))?)) as Box<dyn ExternalServiceChannel>),
-            ExternalService::Rtdb => RtdbInstance::new_maybe_refresh(self.rtdb_client_cfg.ok_or_else(|| AccountError::Generic("RTDB selected, but sender is not loaded".to_string()))?).await.map(|r| Box::new(r) as Box<dyn ExternalServiceChannel>)
+            ExternalService::Rtdb => {
+                RtdbInstance::new(self.rtdb_client_cfg.ok_or_else(|| AccountError::Generic("RTDB selected, but sender is not loaded".to_string()))?).map(|r| Box::new(r) as Box<dyn ExternalServiceChannel>)
+            }
         }
     }
 }

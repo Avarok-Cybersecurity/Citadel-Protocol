@@ -42,7 +42,6 @@ class KernelResponseHandler {
     kernelResponse.setCallbackAction(handler.onTicketReceived); // by DEFAULT, this runs when handleRustKernelMessage executes
     kernelResponse.setOneshot(oneshot);
 
-
     switch (kernelResponse.getType()) {
       case KernelResponseType.Error:
         handler.onErrorReceived(kernelResponse as ErrorKernelResponse);
@@ -244,6 +243,8 @@ class KernelResponseHandler {
       Utils.broadcaster.broadcast(notification.toMessage());
     }
 
+    // if we are in the background, and the screen was never destroyed, we won't get a notification
+
     if (Utils.currentlyOpenedMessenger != Optional.of(implicatedCid)) {
       // only save the notification if not in the screen
       //var screen = MessagingScreen(implicatedCnac, peerNac);
@@ -252,7 +253,6 @@ class KernelResponseHandler {
       print("Will not push message to notifications (already in messenger screen)");
     }
   }
-
 }
 
 class DefaultHandler implements AbstractHandler {

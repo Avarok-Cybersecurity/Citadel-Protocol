@@ -7,7 +7,6 @@ import 'package:flutterust/handlers/kernel_response_handler.dart';
 import 'package:flutterust/handlers/login.dart';
 import 'package:flutterust/main.dart';
 import 'package:flutterust/misc/secure_storage_handler.dart';
-import 'package:flutterust/utils.dart';
 import 'package:optional/optional.dart';
 import 'package:retry/retry.dart';
 import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
@@ -74,13 +73,7 @@ class AutoLogin {
       uname = unameOpt.value;
     }
 
-    final StreamController<Optional<KernelResponse>> controller = StreamController();
-    await RustSubsystem.bridge!.executeCommand("resync").then((value) => value.ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: ResyncHandler(controller.sink))));
-    Optional<KernelResponse> resyncResult = await controller.stream.first.timeout(Duration(seconds: 3), onTimeout: () async { await controller.close(); throw TimeoutException("Timeout"); });
-    await controller.close();
-
-    print("Resync complete");
-    if (resyncResult.isPresent) {
+    if (await resync()) {
       if (await initiateAutoLogin(implicatedCid, uname)) {
         print("Account successfully logged-in; will now execute enqueued command ...");
         return await RustSubsystem.bridge!.executeCommand(command);
@@ -93,6 +86,15 @@ class AutoLogin {
     }
   }
 
+  static Future<bool> resync() async {
+    final StreamController<Optional<KernelResponse>> controller = StreamController();
+    await RustSubsystem.bridge!.executeCommand("resync").then((value) => value.ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: ResyncHandler(controller.sink))));
+    Optional<KernelResponse> resyncResult = await controller.stream.first.timeout(Duration(seconds: 3), onTimeout: () async { await controller.close(); throw TimeoutException("Timeout"); });
+    await controller.close();
+
+    return resyncResult.isPresent;
+  }
+
   static Future<bool> initiateAutoLogin(u64 implicatedCid, String username) async {
     print("[AutoLogin] Engaging reconnection mechanism ...");
     final Credentials? creds = autologinAccounts![implicatedCid];
@@ -101,64 +103,73 @@ class AutoLogin {
       print("implicated CID is not in the autologin hashmap");
       return false;
     }
-    // initiate exponential backoff ...
-    final String connectCmd = LoginHandler.constructConnectCommand(creds.username, creds.password, creds.securityLevel);
 
-    // Returns true if end-result is connected, regaurdless if connection attempts required
-    var future = retry(() async {
-      // first step is to always make sure that we're not already connected
-      if (await implicatedCid.isLocallyConnected()) {
-        print("[AutoLoginHandler] User is already connected; no need to continue autologin ...");
-        return true;
-      }
+    // first, resync the kernel
+    if (await resync()) {
+      // initiate exponential backoff ...
+      final String connectCmd = LoginHandler.constructConnectCommand(creds.username, creds.password, creds.securityLevel);
 
-      // Make sure the account exists in the local db
-      if (!await ClientNetworkAccount.getCnacByCid(implicatedCid).then((value) => value.isPresent)) {
-        print("Account does not exist locally. Will not connect (newly registered?)");
-        return false;
-      }
-
-      // We also want to make sure that the account is registered
-
-      final StreamController<bool> controller = StreamController();
-      var res = await RustSubsystem.bridge!.executeCommand(connectCmd).then((value) {
-        if (value.isPresent) {
-          KernelResponseHandler.handleFirstCommand(value.value, handler: AutoLoginHandler(controller.sink, username), oneshot: false);
+      // Returns true if end-result is connected, regaurdless if connection attempts required
+      var future = retry(() async {
+        // first step is to always make sure that we're not already connected
+        if (await implicatedCid.isLocallyConnected()) {
+          print("[AutoLoginHandler] User is already connected; no need to continue autologin ...");
           return true;
-        } else {
+        }
+
+        // Make sure the account exists in the local db
+        if (!await ClientNetworkAccount.getCnacByCid(implicatedCid).then((value) => value.isPresent)) {
+          print("Account does not exist locally. Will not connect (newly registered?)");
           return false;
         }
-      });
 
-      if (res) {
-        // 8 seconds is the default in hyxe_net. This high value was needed for connecting to remote high-latency islands, lol
-        // It will in 99.9% of the cases terminate far before then unless the server is simply unreachable
-        var loginResult =  await controller.stream.first.timeout(Duration(seconds: 8), onTimeout: () async { await controller.close(); throw TimeoutException("Timeout"); });
-        await controller.close();
 
-        if (loginResult) {
-          print("[AutoLogin] Login success!");
-          return true;
+
+        final StreamController<bool> controller = StreamController();
+        var res = await RustSubsystem.bridge!.executeCommand(connectCmd).then((value) {
+          if (value.isPresent) {
+            KernelResponseHandler.handleFirstCommand(value.value, handler: AutoLoginHandler(controller.sink, username), oneshot: false);
+            return true;
+          } else {
+            return false;
+          }
+        });
+
+        if (res) {
+          // 8 seconds is the default in hyxe_net. This high value was needed for connecting to remote high-latency islands, lol
+          // It will in 99.9% of the cases terminate far before then unless the server is simply unreachable
+          var loginResult =  await controller.stream.first.timeout(Duration(seconds: 8), onTimeout: () async { await controller.close(); throw TimeoutException("Timeout"); });
+          await controller.close();
+
+          if (loginResult) {
+            print("[AutoLogin] Login success!");
+            return true;
+          } else {
+            print("[AutoLogin] Login failure ...");
+            throw Exception("Login failed");
+          }
         } else {
-          print("[AutoLogin] Login failure ...");
-          throw Exception("Login failed");
+          throw Exception("Unable to login past stage 1");
         }
-      } else {
-        throw Exception("Unable to login past stage 1");
+      },
+
+          onRetry: (ex) async {
+            print("[Exponential Backoff] Will re-attempt connection to $implicatedCid. Ex: $ex");
+          },
+
+          maxDelay: Duration(minutes: 10),
+
+          retryIf: (e) => e is TimeoutException || e is Exception,
+          maxAttempts: MAX_RETRY_ATTEMPTS
+      );
+
+      try {
+        return await future;
+      } catch(_) {
+        return false;
       }
-    },
-
-        onRetry: (ex) async {
-          print("[Exponential Backoff] Will re-attempt connection to $implicatedCid");
-        },
-
-        retryIf: (e) => e is TimeoutException || e is Exception,
-        maxAttempts: MAX_RETRY_ATTEMPTS
-    );
-
-    try {
-      return await future;
-    } catch(_) {
+    } else {
+      print("Error: resync failed");
       return false;
     }
   }
@@ -190,7 +201,7 @@ class AutoLoginHandler implements AbstractHandler {
       try {
         this.sink.add(resp.success);
       } catch(_) {
-        print("Autlogin Sink closed");
+        print("Autologin Sink closed w/ error");
       }
 
       HomePage.pushObjectToSession(resp);

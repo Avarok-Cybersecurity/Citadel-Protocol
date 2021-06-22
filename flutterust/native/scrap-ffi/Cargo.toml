@@ -6,10 +6,9 @@ edition = "2018"
 
 [lib]
 name = "scrap_ffi"
-crate-type = ["rlib", "rlib", "staticlib"]
+crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
-
 ffi_helpers = "0.2"
 allo-isolate = "0.1.6"
 hyxewave = { path = "../../../hyxewave", version = "0.1.0", default-features=false, features = ["enterprise"] }

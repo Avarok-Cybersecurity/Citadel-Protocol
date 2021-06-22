@@ -18,8 +18,6 @@ import 'package:satori_ffi_parser/types/domain_specific_response_type.dart';
 import 'package:satori_ffi_parser/types/dsr/peer_list.dart';
 import 'package:satori_ffi_parser/types/dsr/peer_mutuals.dart';
 
-import '../../main.dart';
-
 class SessionView extends StatefulWidget {
   final ClientNetworkAccount cnac;
   final StreamController streamController;
@@ -38,9 +36,7 @@ class SessionViewInner extends State<SessionView> {
   @override
   void initState() {
     super.initState();
-
     this.listener = this.widget.streamController.stream.listen((dsr) => handleDsr(dsr));
-
   }
 
   void handleDsr(DomainSpecificResponse dsr) {

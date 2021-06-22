@@ -35,6 +35,7 @@ class MessagingScreenInner extends State<MessagingScreen> {
   ScrollController _scrollController = ScrollController();
   late final Stream<Widget> messageStream;
   StreamController<MessageWidgetUpdateStore> sendIntake = StreamController();
+
   int initMessageCount = 0;
 
   Stream<MessageWidgetUpdateStore> initStream() async* {
@@ -108,6 +109,7 @@ class MessagingScreenInner extends State<MessagingScreen> {
   @override
   void dispose() {
     super.dispose();
+    print("[Messaging Screen] Disposing ...");
     this.sendIntake.close();
     Utils.currentlyOpenedMessenger = Optional.empty();
   }
@@ -142,7 +144,6 @@ class MessagingScreenInner extends State<MessagingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    print("build called on messenger");
     return Scaffold(
       appBar: AppBar(
         title: Row(

@@ -50,6 +50,8 @@ class DefaultBubbleImpl extends State<DefaultBubble> {
     this.updateIcons(widget.message.status);
     if (widget.needsSend && widget.message.status == PeerSendState.Unprocessed) {
       print("[ChatBubble] Sending message ${widget.message}");
+      // wait for the GUI bubble to build before sending to not have visual lag
+      //await Future.delayed(Duration(milliseconds: 500));
       await MessageSendHandler.sendMessageFromScreen(this.widget.message, PeerSendHandler.screen(onMessageUpdateRecv, this.widget.message, this.widget.parentList));
     }
   }

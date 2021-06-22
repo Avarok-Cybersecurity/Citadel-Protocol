@@ -1316,7 +1316,7 @@ pub(crate) mod pre_connect {
             session_cid: prev_header.session_cid,
             drill_version: prev_header.drill_version,
             timestamp: prev_header.timestamp,
-            target_cid: prev_header.target_cid
+            target_cid: U64::new(0)
         };
 
         let fail_reason = fail_reason.as_ref();
