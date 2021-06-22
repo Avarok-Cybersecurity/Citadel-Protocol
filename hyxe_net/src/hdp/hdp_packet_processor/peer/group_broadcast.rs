@@ -3,7 +3,6 @@ use serde::{Serialize, Deserialize};
 use crate::hdp::peer::message_group::MessageGroupKey;
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
-use atomic::Ordering;
 use crate::inner_arg::ExpectedInnerTarget;
 use crate::functional::IfEqConditional;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
@@ -219,7 +218,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
 }
 
 fn send_to_kernel(session: &dyn ExpectedInnerTarget<HdpSessionInner>, ticket: Ticket, broadcast: GroupBroadcast) -> PrimaryProcessorResult {
-    let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
+    let implicated_cid = session.implicated_cid.get()?;
     session.kernel_tx.unbounded_send((implicated_cid, ticket, broadcast).into())?;
     PrimaryProcessorResult::Void
 }

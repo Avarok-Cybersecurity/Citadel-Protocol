@@ -163,7 +163,7 @@ pub mod tests {
     pub const SECRECY_MODE: SecrecyMode = SecrecyMode::BestEffort;
     pub const USE_TLS: bool = true;
 
-    const COUNT: usize = 1000;
+    const COUNT: usize = 4000;
     const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 100);
 
     // The number of random bytes put into every message
@@ -174,7 +174,7 @@ pub mod tests {
         super::utils::deadlock_detector();
 
         if USE_TLS {
-            *PROTO.lock() = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/devonly.pkcs", "mrmoney10").unwrap(), None));
+            *PROTO.lock() = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10").unwrap(), Some("mail.satorisocial.com".to_string())));
         } else {
             *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
         }

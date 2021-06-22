@@ -124,7 +124,6 @@ class AutoLogin {
         }
 
 
-
         final StreamController<bool> controller = StreamController();
         var res = await RustSubsystem.bridge!.executeCommand(connectCmd).then((value) {
           if (value.isPresent) {

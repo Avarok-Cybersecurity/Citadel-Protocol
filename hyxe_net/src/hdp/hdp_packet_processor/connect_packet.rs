@@ -86,7 +86,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     let mut session = inner_mut!(sess_ref);
                     let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, fcm_packets, post_login_object.clone(), session.create_welcome_message(cid), peers, success_time, security_level);
 
-                    session.implicated_cid.store(Some(cid), Ordering::SeqCst);
+                    session.implicated_cid.set(Some(cid));
                     session.state = SessionState::Connected;
 
                     let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
@@ -120,7 +120,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                 //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
 
-                session.implicated_cid.store(None, Ordering::SeqCst);
+                session.implicated_cid.set(None);
                 session.state = SessionState::NeedsConnect;
                 session.needs_close_message.store(false, Ordering::SeqCst);
                 session.send_to_kernel(HdpServerResult::ConnectFail(kernel_ticket, Some(cid), message))?;
@@ -154,7 +154,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     std::mem::drop(state_container);
 
 
-                    session.implicated_cid.store(Some(cid), Ordering::Relaxed); // This makes is_provisional equal to false
+                    session.implicated_cid.set(Some(cid)); // This makes is_provisional equal to false
 
                     let addr = session.remote_peer.clone();
                     let is_personal = !session.is_server;

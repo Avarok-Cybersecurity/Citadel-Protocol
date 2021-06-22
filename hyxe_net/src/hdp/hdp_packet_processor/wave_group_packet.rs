@@ -2,7 +2,6 @@ use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_rat
 use crate::hdp::hdp_server::HdpServerRequest;
 
 use super::includes::*;
-use atomic::Ordering;
 use crate::macros::EitherOwnedGuard;
 
 /// This will handle an inbound group packet
@@ -18,7 +17,7 @@ pub async fn process(session: EitherOwnedGuard<'_, HdpSessionInner>, v_src_port:
             //let local_multiport_start = session.local_multiport_start;
             //let remote_multiport_start = session.remote_peer_multiport_start;
             let to_primary_stream = session.to_primary_stream.as_ref()?;
-            let session_cid = session.implicated_cid.load(Ordering::Relaxed)?;
+            let session_cid = session.implicated_cid.get()?;
             let mut state_container = inner_mut!(session.state_container);
 
             let hyper_ratchet = get_proper_hyper_ratchet(header.drill_version.get(), sess_cnac,&wrap_inner_mut!(state_container), proxy_cid_info)?;
