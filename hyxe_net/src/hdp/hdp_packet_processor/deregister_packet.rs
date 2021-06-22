@@ -40,7 +40,7 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket) -> PrimaryProc
             let ticket = state_container.deregister_state.current_ticket.clone();
             // state_container.deregister_state.on_fail();
             std::mem::drop(state_container);
-            let cid = session.implicated_cid.load(Ordering::Relaxed)?;
+            let cid = session.implicated_cid.get()?;
             session.kernel_tx.unbounded_send(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), ticket, true, false))?;
             log::error!("Unable to locally purge account {}. Please report this to the HyperLAN Server admin", cid);
             PrimaryProcessorResult::EndSession("Deregistration failure. Closing connection anyways")

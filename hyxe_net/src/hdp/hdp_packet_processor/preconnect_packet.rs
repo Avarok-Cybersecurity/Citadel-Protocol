@@ -114,7 +114,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                 if let Some((new_hyper_ratchet, external_ip)) = validation::pre_connect::validate_syn_ack(cnac, alice_constructor, packet) {
                     // The toolset, at this point, has already been updated. The CNAC can be used to
                     //let ref drill = cnac.get_drill_blocking(None)?;
-                    session.external_addr.store(Some(external_ip), Ordering::SeqCst);
+                    session.external_addr.set(Some(external_ip));
                     let local_node_type = session.local_node_type;
                     let timestamp = session.time_tracker.get_global_time_ns();
                     let ticket = session.kernel_ticket;
@@ -170,7 +170,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
                 if let Some((adjacent_node_type, adjacent_unnated_ports, external_ip)) = validation::pre_connect::validate_stage0(&hyper_ratchet, packet) {
                     // the server now has its external IP
-                    session.external_addr.store(Some(external_ip), Ordering::SeqCst);
+                    session.external_addr.set(Some(external_ip));
                     let timestamp = session.time_tracker.get_global_time_ns();
                     let local_bind_ip = session.local_bind_addr.ip();
                     let remote_ip = session.remote_peer.ip();

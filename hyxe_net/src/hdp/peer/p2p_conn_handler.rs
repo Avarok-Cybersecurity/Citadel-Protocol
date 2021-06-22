@@ -1,6 +1,3 @@
-use std::sync::Arc;
-
-use atomic::Atomic;
 use tokio::sync::oneshot::{channel, Receiver, Sender};
 use tokio_stream::StreamExt;
 
@@ -19,6 +16,7 @@ use crate::hdp::outbound_sender::{OutboundTcpReceiver, unbounded, UnboundedSende
 use crate::hdp::outbound_sender::OutboundTcpSender;
 use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
 use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
+use crate::hdp::misc::dual_cell::DualCell;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
@@ -89,7 +87,7 @@ pub async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session:
     }
 }
 
-fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: Arc<Atomic<Option<u64>>>, session: HdpSession, kernel_tx: UnboundedSender<HdpServerResult>, from_listener: bool) -> std::io::Result<OutboundTcpSender> {
+fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<u64>, session: HdpSession, kernel_tx: UnboundedSender<HdpServerResult>, from_listener: bool) -> std::io::Result<OutboundTcpSender> {
     // SECURITY: Since this branch only occurs IF the primary session is connected, then the primary user is
     // logged-in. However, what if a malicious user decides to connect here?
     // They won't be able to register through here, since registration requires that the state is NeedsRegister
@@ -176,13 +174,13 @@ pub struct P2PInboundHandle {
     pub remote_peer: SocketAddr,
     pub local_bind_port: u16,
     // this has to be the CID of the local session, not the peer's CID
-    pub implicated_cid: Arc<Atomic<Option<u64>>>,
+    pub implicated_cid: DualCell<u64>,
     pub kernel_tx: UnboundedSender<HdpServerResult>,
     pub to_primary_stream: OutboundTcpSender
 }
 
 impl P2PInboundHandle {
-    fn new(remote_peer: SocketAddr, local_bind_port: u16, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, to_primary_stream: OutboundTcpSender) -> Self {
+    fn new(remote_peer: SocketAddr, local_bind_port: u16, implicated_cid: DualCell<u64>, kernel_tx: UnboundedSender<HdpServerResult>, to_primary_stream: OutboundTcpSender) -> Self {
         Self { remote_peer, local_bind_port, implicated_cid, kernel_tx, to_primary_stream }
     }
 }
@@ -194,7 +192,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 
 /// Both sides need to begin this process at `sync_time` to bypass the firewall
 #[allow(warnings)]
-pub async fn attempt_tcp_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, session: HdpSession, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant,
+pub async fn attempt_tcp_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, session: HdpSession, peer_endpoint_addr: SocketAddr, implicated_cid: DualCell<u64>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant,
 endpoint_hyper_ratchet: HyperRatchet, security_level: SecurityLevel) -> std::io::Result<()> {
 
     tokio::time::sleep_until(sync_time).await;

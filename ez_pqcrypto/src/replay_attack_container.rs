@@ -89,17 +89,18 @@ pub mod unordered {
                 // was withheld long enough for the history to be cleared, thus enabling a delayed replay attack.
                 // To ensure we protect against a delayed replay attack, check to see that the received PID is
                 // within HISTORY_LEN of counter_in
+                //let min = queue.0.saturating_sub(HISTORY_LEN);
                 let min = queue.0.saturating_sub(HISTORY_LEN);
-                let max = queue.0 + HISTORY_LEN;
+                //let max = queue.0 + HISTORY_LEN;
 
                 // TODO: Consider logic of this section of code. This may not do what I want it to do
-                if pid_received >= min && pid_received < max {
+                if pid_received >= min {
                     queue.0 += 1;
                     queue.1.push(pid_received);
                     //log::info!("[ARA] Marking {} as received", pid_received);
                     true
                 } else {
-                    log::warn!("[ARA] out of range! Recv: {}. Expected >= {} and < {}", pid_received, min, max);
+                    log::warn!("[ARA] out of range! Recv: {}. Expected >= {}", pid_received, min);
                     false
                 }
             }
