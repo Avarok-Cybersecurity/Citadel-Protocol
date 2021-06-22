@@ -199,9 +199,9 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
             // We have root access, so we can edit anything we want here. Our goal is to insert each other's nodes inside the tree to allow each
             // other to insert messages inside the tree
-            rtdb_instance.refresh().await?;
-            let _ = rtdb_instance.root().child("users").child(cid0_str.as_str()).child("peers").final_node(cid1_str.as_str()).put(&mint).await.map_err(|err| AccountError::Generic(err.inner))?;
-            let _ = rtdb_instance.root().child("users").child(cid1_str.as_str()).child("peers").final_node(cid0_str.as_str()).put(&mint).await.map_err(|err| AccountError::Generic(err.inner))?;
+            rtdb_instance.refresh()?;
+            let _ = rtdb_instance.root().await.map_err(|err| AccountError::Generic(err.inner))?.child("users").child(cid0_str.as_str()).child("peers").final_node(cid1_str.as_str()).put(&mint).await.map_err(|err| AccountError::Generic(err.inner))?;
+            let _ = rtdb_instance.root().await.map_err(|err| AccountError::Generic(err.inner))?.child("users").child(cid1_str.as_str()).child("peers").final_node(cid0_str.as_str()).put(&mint).await.map_err(|err| AccountError::Generic(err.inner))?;
         }
 
         self.persistence_handler.register_p2p_as_server(cid0, cid1).await

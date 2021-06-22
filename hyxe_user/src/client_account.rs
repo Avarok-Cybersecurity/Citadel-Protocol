@@ -757,7 +757,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
     /// Sends the request to the FCM server, returns the ticket for the request
     pub async fn send_message_to_external(&self, service: ExternalService, target_peer_cid: u64, message: SecBuffer, ticket: u64) -> Result<FcmProcessorResult, AccountError> {
-        let (ticket, sender, packet) = self.prepare_external_service_send_message(service, target_peer_cid, message, ticket).await?;
+        let (ticket, mut sender, packet) = self.prepare_external_service_send_message(service, target_peer_cid, message, ticket).await?;
         sender.send(packet, self.get_cid(), target_peer_cid).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }))
     }
 
@@ -792,7 +792,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             }
 
             ExternalService::Rtdb => {
-                Box::new(RtdbInstance::new_maybe_refresh(client_rtdb_config.as_ref().ok_or_else(|| AccountError::Generic("RTDB is not available on this node".to_string()))?).await?)
+                Box::new(RtdbInstance::new(client_rtdb_config.as_ref().ok_or_else(|| AccountError::Generic("RTDB is not available on this node".to_string()))?)?)
             }
         };
 
