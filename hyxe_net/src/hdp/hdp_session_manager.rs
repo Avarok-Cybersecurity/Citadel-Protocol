@@ -278,7 +278,7 @@ impl HdpSessionManager {
             // if the account was newly registered, it is possible that implicated_cid is none
             // if this is the case, ignore safe-shutdown of the session since no possible vconns
             // exist
-            if let Some(implicated_cid) = sess.implicated_cid.clone().load(Ordering::Relaxed) {
+            if let Some(implicated_cid) = sess.implicated_cid.get() {
                 sess_mgr.hypernode_peer_layer.on_session_shutdown(implicated_cid);
                 let timestamp = sess.time_tracker.get_global_time_ns();
                 let security_level = sess.security_settings.clone().map(|r| r.security_level).unwrap_or(SecurityLevel::LOW);

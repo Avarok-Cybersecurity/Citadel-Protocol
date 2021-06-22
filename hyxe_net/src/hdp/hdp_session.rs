@@ -2,9 +2,8 @@ use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use atomic::{Atomic, Ordering};
 //use async_std::prelude::*;
 use bytes::{Bytes, BytesMut};
 use either::Either;
@@ -63,6 +62,7 @@ use crate::hdp::time::TransferStats;
 use crate::inner_arg::{ExpectedInnerTargetMut, InnerParameterMut};
 use crate::macros::SessionBorrow;
 use hyxe_user::backend::PersistenceHandler;
+use crate::hdp::misc::dual_cell::DualCell;
 
 //use crate::define_struct;
 
@@ -82,9 +82,9 @@ pub struct HdpSession {
 /// Structure for holding and keep track of packets, as well as basic connection information
 #[allow(unused)]
 pub struct HdpSessionInner {
-    pub(super) implicated_cid: Arc<Atomic<Option<u64>>>,
+    pub(super) implicated_cid: DualCell<u64>,
     // the external IP of the local node with respect to the outside world. May or may not be natted
-    pub(super) external_addr: Arc<Atomic<Option<SocketAddr>>>,
+    pub(super) external_addr: DualCell<SocketAddr>,
     pub(super) kernel_ticket: Ticket,
     pub(super) remote_peer: SocketAddr,
     pub(super) cnac: Option<ClientNetworkAccount>,
@@ -104,6 +104,7 @@ pub struct HdpSessionInner {
     pub(super) local_bind_addr: SocketAddr,
     // if this is enabled, then UDP won't be used
     pub(super) tcp_only: bool,
+    pub(super) dc_signal_sent_to_kernel: bool,
     pub(super) transfer_stats: TransferStats,
     pub(super) is_server: bool,
     pub(super) needs_close_message: Arc<AtomicBool>,
@@ -165,6 +166,7 @@ impl HdpSession {
         let updates_in_progress = DualRwLock::from(HashMap::new());
 
         let mut inner = HdpSessionInner {
+            dc_signal_sent_to_kernel: false,
             peer_only_connect_protocol: Some(peer_only_connect_proto),
             security_settings: Some(security_settings),
             on_drop,
@@ -177,8 +179,8 @@ impl HdpSession {
             local_node_type,
             remote_node_type: None,
             kernel_tx: kernel_tx.clone(),
-            external_addr: Arc::new(Atomic::new(None)),
-            implicated_cid: Arc::new(Atomic::new(implicated_cid)),
+            external_addr: DualCell::default(),
+            implicated_cid: DualCell::new(implicated_cid),
             time_tracker,
             kernel_ticket,
             to_primary_stream: None,
@@ -213,6 +215,7 @@ impl HdpSession {
         let updates_in_progress = DualRwLock::from(HashMap::new());
 
         let inner = HdpSessionInner {
+            dc_signal_sent_to_kernel: false,
             peer_only_connect_protocol: None,
             security_settings: None,
             on_drop,
@@ -224,8 +227,8 @@ impl HdpSession {
             wave_socket_loader: None,
             local_node_type,
             remote_node_type: None,
-            implicated_cid: Arc::new(Atomic::new(None)),
-            external_addr: Arc::new(Atomic::new(None)),
+            implicated_cid: DualCell::default(),
+            external_addr: DualCell::default(),
             time_tracker,
             kernel_ticket: provisional_ticket,
             remote_peer,
@@ -331,7 +334,7 @@ impl HdpSession {
 
         if let Err(err) = handle_zero_state.await {
             log::error!("Unable to proceed past session zero-state. Stopping session: {:?}", &err);
-            return Err((err, implicated_cid.load(Ordering::SeqCst)));
+            return Err((err, implicated_cid.get()));
         }
 
         let res = session_future.await.map_err(|err| (NetworkError::Generic(err.to_string()), None))?
@@ -340,14 +343,16 @@ impl HdpSession {
         match res {
             Ok(_) => {
                 log::info!("Done EXECUTING sess");
-                Ok(implicated_cid.load(Ordering::SeqCst))
+                Ok(implicated_cid.get())
             }
 
             Err(err) => {
-                let ticket = inner!(this_close).kernel_ticket;
+                let mut this = inner_mut!(this_close);
+
+                let ticket = this.kernel_ticket;
                 let reason = err.to_string();
                 let needs_close_message = needs_close_message.load(Ordering::Relaxed);
-                let cid = implicated_cid.load(Ordering::Relaxed);
+                let cid = implicated_cid.get();
 
                 log::info!("Session {} connected to {} is ending! Reason: {}. Needs close message? {} (strong count: {})", ticket.0, peer_addr, reason.as_str(), needs_close_message, this_close.strong_count());
 
@@ -356,6 +361,7 @@ impl HdpSession {
                         let result = HdpServerResult::Disconnect(ticket, cid, false, None, reason);
                         // false indicates a D/C caused by a non-dc subroutine
                         let _ = to_kernel_tx.unbounded_send(result);
+                        this.dc_signal_sent_to_kernel = true;
                     }
                 }
 
@@ -525,10 +531,16 @@ impl HdpSession {
             }
         };
 
+        /*#[cfg(feature = "single-threaded")]
+            const AMT: Option<usize> = Some(1);
+
+        #[cfg(not(feature = "single-threaded"))]
+        const AMT: Option<usize> = None;*/
+
             reader.try_for_each_concurrent(None, move |packet| {
                 async move {
                     //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
-                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), *local_primary_port, packet, header_obfuscator).await {
+                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet, header_obfuscator).await {
                         PrimaryProcessorResult::ReplyToSender(return_packet) => {
                             Self::send_to_primary_stream_closure(&primary_stream, &kernel_tx, return_packet, None)
                                 .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.into_string()))
@@ -1155,7 +1167,7 @@ impl HdpSession {
             // to see if the target_cid is not zero
             let target_cid = header.target_cid.get();
             let mut proxy_cid_info = None;
-            let this_implicated_cid = this.implicated_cid.load(Ordering::SeqCst);
+            let this_implicated_cid = this.implicated_cid.get();
             if target_cid != 0 {
                 // after the UDP hole-punching process, it is possible that packets arrive here
                 // that are small ACK's. Ignore them, but check implicated_cid below since, if they arrive,
@@ -1361,7 +1373,7 @@ impl HdpSessionInner {
     }
 
     fn get_id(&self) -> u64 {
-        match self.implicated_cid.load(Ordering::SeqCst) {
+        match self.implicated_cid.get() {
             Some(implicated_cid) => {
                 implicated_cid
             }
@@ -1705,6 +1717,14 @@ impl Drop for HdpSessionInner {
         log::info!("*** Dropping HdpSession ***");
         if let Err(_) = self.on_drop.unbounded_send(()) {
             //log::error!("Unable to cleanly alert node that session ended: {:?}", err);
+        }
+
+        if !self.dc_signal_sent_to_kernel {
+            if let Some(cid) = self.implicated_cid.get() {
+                if let Err(_) = self.kernel_tx.unbounded_send(HdpServerResult::Disconnect(Ticket(0), cid, false, None, "Session dropped".to_string())) {
+                    //
+                }
+            }
         }
     }
 }
