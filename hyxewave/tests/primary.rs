@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use hyxewave::ffi::{KernelResponse, DomainResponse};
-    use hyxe_user::fcm::data_structures::FcmTicket;
+    use hyxe_user::external_services::fcm::data_structures::FcmTicket;
     use hyxewave::command_handlers::peer::DeregisterResponse;
     use hyxewave::app_config::TomlConfig;
 

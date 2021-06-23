@@ -55,9 +55,17 @@ pub async fn calculate_optimal_params(millis_minimum: u16, hash_length: Option<u
                         mem_cost_tuned = true;
                         time_cost += 1;
                     } else {
-                        // MEM_COST => elapsed. We want MEM_COST => elapsed where elapsed < target/2
-                        let diff = 0.20f32 * (mem_cost as f32);
-                        mem_cost -= diff as u64;
+                        let times_over = (elapsed as f32 / millis_minimum as f32).ceil();
+                        log::info!("Times over: {}", times_over);
+
+                        let diff = if times_over > 2f32 {
+                            mem_cost - (mem_cost as f32 / times_over).floor() as u64
+                        } else {
+                            (0.20f32 * (mem_cost as f32)) as u64
+                        };
+
+                        log::info!("DIFF: {}", diff);
+                        mem_cost -= diff;
                     }
                 }
             }

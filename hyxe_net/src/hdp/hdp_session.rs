@@ -104,6 +104,7 @@ pub struct HdpSessionInner {
     pub(super) local_bind_addr: SocketAddr,
     // if this is enabled, then UDP won't be used
     pub(super) tcp_only: bool,
+    pub(super) do_static_hr_refresh_atexit: bool,
     pub(super) dc_signal_sent_to_kernel: bool,
     pub(super) transfer_stats: TransferStats,
     pub(super) is_server: bool,
@@ -166,6 +167,7 @@ impl HdpSession {
         let updates_in_progress = DualRwLock::from(HashMap::new());
 
         let mut inner = HdpSessionInner {
+            do_static_hr_refresh_atexit: true,
             dc_signal_sent_to_kernel: false,
             peer_only_connect_protocol: Some(peer_only_connect_proto),
             security_settings: Some(security_settings),
@@ -215,6 +217,7 @@ impl HdpSession {
         let updates_in_progress = DualRwLock::from(HashMap::new());
 
         let inner = HdpSessionInner {
+            do_static_hr_refresh_atexit: true,
             dc_signal_sent_to_kernel: false,
             peer_only_connect_protocol: None,
             security_settings: None,
@@ -409,6 +412,7 @@ impl HdpSession {
                 let timestamp = session_ref.time_tracker.get_global_time_ns();
                 let cnac = cnac.as_ref().unwrap();
                 let session_security_settings = session_ref.security_settings.clone().unwrap();
+
                 let peer_only_connect_mode = session_ref.peer_only_connect_protocol.clone().unwrap();
                 // reset the toolset's ARA
                 let ref static_aux_hr = cnac.refresh_static_hyper_ratchet();
@@ -420,11 +424,11 @@ impl HdpSession {
 
                 let mut state_container = inner_mut!(session_ref.state_container);
                 // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
-                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, tcp_only, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode);
+                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, tcp_only, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode, connect_mode.unwrap_or_default());
 
                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                 state_container.pre_connect_state.constructor = Some(alice_constructor);
-                state_container.connect_state.connect_mode = connect_mode;
+                state_container.connect_state.connect_mode = Some(connect_mode.unwrap_or_default());
 
                 to_outbound.unbounded_send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
 
