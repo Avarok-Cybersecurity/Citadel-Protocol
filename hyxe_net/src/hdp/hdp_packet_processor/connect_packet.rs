@@ -210,10 +210,14 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                     cnac.save().await?;
 
-                    if connect_mode == ConnectMode::Fetch {
-                        log::info!("[FETCH] complete ...");
-                        // we can end the session now. The fcm packets have already been sent alongside the connect signal above
-                        return PrimaryProcessorResult::EndSession("Fetch succeeded")
+                    match connect_mode {
+                        ConnectMode::Fetch { .. } => {
+                            log::info!("[FETCH] complete ...");
+                            // we can end the session now. The fcm packets have already been sent alongside the connect signal above
+                            return PrimaryProcessorResult::EndSession("Fetch succeeded")
+                        }
+
+                        _ => {}
                     }
 
                     if use_ka {

@@ -87,12 +87,14 @@ class AutoLogin {
   }
 
   static Future<bool> resync() async {
+    return true;
+    /*
     final StreamController<Optional<KernelResponse>> controller = StreamController();
     await RustSubsystem.bridge!.executeCommand("resync").then((value) => value.ifPresent((kResp) => KernelResponseHandler.handleFirstCommand(kResp, handler: ResyncHandler(controller.sink))));
     Optional<KernelResponse> resyncResult = await controller.stream.first.timeout(Duration(seconds: 3), onTimeout: () async { await controller.close(); throw TimeoutException("Timeout"); });
     await controller.close();
 
-    return resyncResult.isPresent;
+    return resyncResult.isPresent;*/
   }
 
   static Future<bool> initiateAutoLogin(u64 implicatedCid, String username) async {

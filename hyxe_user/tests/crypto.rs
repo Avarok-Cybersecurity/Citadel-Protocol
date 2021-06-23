@@ -1,6 +1,12 @@
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use hyxe_crypt::prelude::PostQuantumContainer;
+    use hyxe_crypt::prelude::algorithm_dictionary::{KemAlgorithm, EncryptionAlgorithm};
+    use openssl::pkey::{PKey, Private};
+    use hyxe_user::misc::AccountError;
+    use openssl::hash::MessageDigest;
+    use jwt::{PKeyWithDigest, SignWithKey};
 
     #[allow(unused_must_use)]
     fn setup_log() {

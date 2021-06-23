@@ -28,6 +28,7 @@ pub struct ConnectResponseReceived {
 pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let username = matches.value_of("username").unwrap();
     let tcp_only = !matches.is_present("qudp");
+    let force_login = matches.is_present("force");
 
     let secrecy_mode = matches.is_present("pfs").then(|| SecrecyMode::Perfect);
     let kem = parse_kem(matches)?;
@@ -52,7 +53,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
     let full_name = read.full_name.clone();
     let adjacent_nac = read.adjacent_nac.clone().ok_or(ConsoleError::Default("Adjacent NAC missing from CNAC. Corrupt. Please remove CNAC"))?;
     let conn_info = adjacent_nac.get_conn_info().ok_or(ConsoleError::Default("Adjacent NAC does not have an IP address. Corrupt. Please remove CNAC"))?;
-    let connect_mode = matches.is_present("fetch").then(|| ConnectMode::Fetch).unwrap_or(ConnectMode::Standard);
+    let connect_mode = matches.is_present("fetch").then(|| ConnectMode::Fetch {force_login}).unwrap_or(ConnectMode::Standard{force_login});
     let params = get_crypto_params(secrecy_mode, kem, enx, security_level);
 
     std::mem::drop(read);

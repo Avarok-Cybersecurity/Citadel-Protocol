@@ -639,7 +639,7 @@ pub enum HdpServerRequest {
     PeerCommand(u64, PeerSignal),
     /// For submitting a de-register request
     DeregisterFromHypernode(u64, VirtualConnectionType),
-    /// Send data to client. Peer addr, implicated cid, hdp_nodelay, quantum algorithm, tcp only,
+    /// Implicated CID, creds, connect mode, fcm keys, TCP/TLS only, keep alive timeout, security settings
     ConnectToHypernode(u64, ProposedCredentials, ConnectMode, Option<FcmKeys>, Option<bool>, Option<u32>, SessionSecuritySettings),
     /// Updates the drill for the given CID
     UpdateDrill(VirtualTargetType),
@@ -657,10 +657,17 @@ pub enum HdpServerRequest {
     Shutdown,
 }
 
-#[derive(Eq, PartialEq, Copy, Clone)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
+/// If force_login is true, will disconnect any previously existent sessions in the session manager attributed to the account logging-in
 pub enum ConnectMode {
-    Standard,
-    Fetch
+    Standard { force_login: bool },
+    Fetch { force_login: bool }
+}
+
+impl Default for ConnectMode {
+    fn default() -> Self {
+        Self::Standard { force_login: false }
+    }
 }
 
 /// This type is for relaying results between the lower-level server and the higher-level kernel

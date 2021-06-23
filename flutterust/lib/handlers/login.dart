@@ -65,6 +65,7 @@ class LoginHandler implements AbstractHandler {
   static String constructConnectCommand(String username, String password, int securityLevel) {
     return "connect " +
         username +
+        " --keep_alive_timeout 900" +
         " -s " + securityLevel.toString() +
         " --password " + password +
         " --ffi" +
