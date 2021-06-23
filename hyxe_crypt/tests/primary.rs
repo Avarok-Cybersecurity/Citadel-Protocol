@@ -30,7 +30,7 @@ mod tests {
     async fn argon_autotuner() {
         setup_log();
         let start_time = Instant::now();
-        let final_cfg = calculate_optimal_params(500 as _, 32, None).await.unwrap();
+        let final_cfg = calculate_optimal_params(500 as _, Some(32), None).await.unwrap();
         log::info!("DONE. Elapsed time: {:?}", start_time.elapsed());
         log::info!("{:?}", final_cfg)
     }

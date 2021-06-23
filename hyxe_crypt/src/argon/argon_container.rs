@@ -14,7 +14,8 @@ const ARGON_SALT_LENGTH: usize = 16;
 
 // A wrapper that allows asynchronous hashing and verification
 pub struct AsyncArgon {
-    task: JoinHandle<ArgonStatus>
+    /// for access to the handle as required
+    pub task: JoinHandle<ArgonStatus>
 }
 
 impl AsyncArgon {

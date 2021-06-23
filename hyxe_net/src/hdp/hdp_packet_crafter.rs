@@ -1030,16 +1030,18 @@ pub(crate) mod pre_connect {
     use serde::{Serialize, Deserialize};
     use hyxe_fs::io::SyncIO;
     use hyxe_user::prelude::ConnectProtocol;
+    use crate::hdp::hdp_server::ConnectMode;
 
     #[derive(Serialize, Deserialize)]
     pub struct SynPacket<'a> {
         #[serde(borrow)]
         pub transfer: AliceToBobTransfer<'a>,
         pub session_security_settings: SessionSecuritySettings,
-        pub peer_only_connect_protocol: ConnectProtocol
+        pub peer_only_connect_protocol: ConnectProtocol,
+        pub connect_mode: ConnectMode
     }
 
-    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, tcp_only: bool, timestamp: i64, keep_alive_timeout_ns: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol) -> BytesMut {
+    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, tcp_only: bool, timestamp: i64, keep_alive_timeout_ns: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol, connect_mode: ConnectMode) -> BytesMut {
         let tcp_only = if tcp_only {
             1
         } else {
@@ -1063,7 +1065,7 @@ pub(crate) mod pre_connect {
         let mut packet  = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        SynPacket { transfer, session_security_settings, peer_only_connect_protocol }.serialize_into_buf(&mut packet).unwrap();
+        SynPacket { transfer, session_security_settings, peer_only_connect_protocol, connect_mode }.serialize_into_buf(&mut packet).unwrap();
 
         static_aux_hr.protect_message_packet(Some(security_level),HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet

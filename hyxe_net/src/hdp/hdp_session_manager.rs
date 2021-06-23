@@ -269,7 +269,10 @@ impl HdpSessionManager {
             // the only reason we call this is to ensure that FCM packets that get protected on their way out
             // don't cause false-positives on the anti-replay-attack container
             // Especially needed for FCM
-            let _ = cnac.refresh_static_hyper_ratchet();
+            // The only time the static HR won't get refreshed if a lingering connection gets cleaned-up
+            if sess.do_static_hr_refresh_atexit {
+                let _ = cnac.refresh_static_hyper_ratchet();
+            }
         }
 
         // the following shutdown sequence is valid for only for the HyperLAN server
@@ -462,7 +465,7 @@ impl HdpSessionManager {
         let mut this = inner_mut!(self);
         if let Some((_, stopper, session)) = this.provisional_connections.remove(&socket_addr) {
             //let _ = this.hypernode_peer_layer.register_peer(implicated_cid, true);
-            if this.sessions.insert(implicated_cid, (stopper, session)).is_some() {
+            if let Some(lingering_conn) = this.sessions.insert(implicated_cid, (stopper, session)) {
                 // sometimes (especially on cellular networks), when the network changes due to
                 // changing cell towers (or between WIFI/Cellular modes), the session lingers
                 // without cleaning itself up. It will automatically drop by itself, however,
@@ -472,6 +475,8 @@ impl HdpSessionManager {
                 // then return true to allow the new connection to proceed instead of returning false
                 // due to overlapping connection
                 log::warn!("Cleaned up lingering session for {}", implicated_cid);
+                let mut prev_conn = inner_mut!(lingering_conn.1);
+                prev_conn.do_static_hr_refresh_atexit = false;
             }
 
             true

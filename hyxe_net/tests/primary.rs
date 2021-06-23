@@ -987,7 +987,7 @@ pub mod tests {
         let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard,  None, Some(true), None, security_settings)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard {force_login: false},  None, Some(true), None, security_settings)))
     }
 
     async fn client1_action1(item_container: Arc<RwLock<TestContainer>>, password: &'static str, security_settings: SessionSecuritySettings) -> Option<ActionType> {
@@ -1000,7 +1000,7 @@ pub mod tests {
         let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard,  None, Some(true), None, security_settings)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard {force_login: false},  None, Some(true), None, security_settings)))
     }
 
     async fn client2_action1(item_container: Arc<RwLock<TestContainer>>, password: &'static str, security_settings: SessionSecuritySettings) -> Option<ActionType> {
@@ -1013,7 +1013,7 @@ pub mod tests {
         let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard,  None, Some(true), None, security_settings)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard {force_login: false},  None, Some(true), None, security_settings)))
     }
 
     // client 2 will initiate the p2p *registration* to client1
