@@ -13,7 +13,7 @@ import '../globals.dart';
 
 class ClientNetworkAccount extends AbstractSqlObject {
   static const String DB_TABLE = "cnacs";
-  static const String GENESIS = "CREATE TABLE $DB_TABLE (id TEXT NOT NULL PRIMARY KEY, username TEXT, fullName TEXT, isPersonal INTEGER , creationDate TEXT, avatarUrl TEXT)";
+  static const String GENESIS = "CREATE TABLE $DB_TABLE (id TEXT NOT NULL PRIMARY KEY, username TEXT, fullName TEXT, isPersonal INTEGER , creationDate TEXT, avatarUrl TEXT, jwt TEXT)";
 
   final u64 implicatedCid;
   final String username;
@@ -21,9 +21,10 @@ class ClientNetworkAccount extends AbstractSqlObject {
   final bool isPersonal;
   final String creationDate;
   final String avatarUrl;
+  Optional<String> jwt;
 
-  const ClientNetworkAccount(this.implicatedCid, this.username, this.fullName,
-      this.isPersonal, this.creationDate, { this.avatarUrl = DEFAULT_AVATAR_IMAGE });
+  ClientNetworkAccount(this.implicatedCid, this.username, this.fullName,
+      this.isPersonal, this.creationDate, String? jwt, { this.avatarUrl = DEFAULT_AVATAR_IMAGE }) : this.jwt = Optional.ofNullable(jwt);
 
   ClientNetworkAccount.fromMap(Map<String, dynamic> sqlMap) :
         this.implicatedCid = u64.tryFrom(sqlMap["id"]).value,
@@ -31,7 +32,8 @@ class ClientNetworkAccount extends AbstractSqlObject {
         this.fullName = sqlMap["fullName"],
         this.isPersonal = sqlMap["isPersonal"] == 1,
         this.creationDate = sqlMap["creationDate"],
-        this.avatarUrl = sqlMap["avatarUrl"];
+        this.avatarUrl = sqlMap["avatarUrl"],
+        this.jwt = sqlMap.containsKey("jwt") ? Optional.ofNullable(sqlMap["jwt"]) : Optional.empty();
 
   @override
   Map<String, dynamic> toMap() {
@@ -41,7 +43,8 @@ class ClientNetworkAccount extends AbstractSqlObject {
       'fullName': this.fullName,
       'isPersonal': this.isPersonal ? 1 : 0,
       'creationDate': this.creationDate,
-      'avatarUrl': this.avatarUrl
+      'avatarUrl': this.avatarUrl,
+      'jwt': this.jwt.isPresent ? this.jwt.value : null
     };
   }
 
@@ -83,7 +86,7 @@ class ClientNetworkAccount extends AbstractSqlObject {
               dsr.fullNames,
               dsr.isPersonals,
               dsr.creationDates
-            ]).map((e) => ClientNetworkAccount(e[0] as u64, e[1] as String, e[2] as String, e[3] as bool, e[4] as String))
+            ]).map((e) => ClientNetworkAccount(e[0] as u64, e[1] as String, e[2] as String, e[3] as bool, e[4] as String, null))
                 .toList(growable: false);
 
             await DatabaseHandler.upsertObjects(cnacs);

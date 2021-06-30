@@ -9,7 +9,7 @@ use futures::{Sink, Stream};
 use futures::task::{Context, Poll};
 use tokio::macros::support::Pin;
 use std::fmt::Debug;
-use crate::hdp::peer::peer_layer::PeerConnectionType;
+use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use hyxe_crypt::sec_bytes::SecBuffer;
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.
@@ -25,7 +25,7 @@ impl PeerChannel {
         let implicated_cid = vconn_type.get_implicated_cid();
 
         let send_half = PeerChannelSendHalf {
-            server_remote,
+            server_remote: server_remote.clone(),
             target_cid,
             vconn_type,
             implicated_cid,
@@ -35,6 +35,7 @@ impl PeerChannel {
         };
 
         let recv_half = PeerChannelRecvHalf {
+            server_remote,
             receiver,
             target_cid,
             vconn_type,
@@ -138,7 +139,8 @@ pub struct PeerChannelRecvHalf {
     target_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
-    is_alive: Arc<AtomicBool>
+    is_alive: Arc<AtomicBool>,
+    server_remote: HdpServerRemote
 }
 
 impl Stream for PeerChannelRecvHalf {
@@ -157,6 +159,24 @@ impl Stream for PeerChannelRecvHalf {
                     Poll::Ready(None)
                 }
             }
+        }
+    }
+}
+
+impl Drop for PeerChannelRecvHalf {
+    fn drop(&mut self) {
+        match self.vconn_type {
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid) => {
+                log::info!("[PeerChannelRecvHalf] Dropping. Will set is_alive to false since this is a p2p connection");
+                self.is_alive.store(false, Ordering::SeqCst);
+
+                if let Err(err) = self.server_remote.try_send(HdpServerRequest::PeerCommand(local_cid, PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), None))) {
+                    log::warn!("[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
+                }
+
+            }
+
+            _ => {}
         }
     }
 }

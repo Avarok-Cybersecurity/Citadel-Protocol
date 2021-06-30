@@ -104,9 +104,9 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
             KemTransferStatus::StatusNoTransfer(status)
         };
 
-        // if ret implies truncation, we need one more thing. If we are upgrading the ratchet here on bob's end, we need to place a lock to ensure to updates come from this end until after an TRUNCATE packet comes
+        // if ret has some, we need one more thing. If we are upgrading the ratchet here on bob's end, we need to place a lock to ensure to updates come from this end until after a TRUNCATE packet comes
         // if this is alice's end, we don't unlock quite yet
-        if !local_is_alice && ret.requires_truncation().is_some() {
+        if !local_is_alice && ret.has_some() {
             self.update_in_progress.store(true, Ordering::SeqCst);
             self.lock_set_by_alice = Some(false);
         }
@@ -119,11 +119,20 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     pub fn maybe_unlock(&mut self, requires_locked_by_alice: bool) -> Option<&R> {
         if requires_locked_by_alice {
             if self.lock_set_by_alice.clone().unwrap_or(false) {
+                if !self.update_in_progress.load(Ordering::Relaxed) {
+                    log::error!("Expected update_in_progress to be true");
+                }
+
                 self.update_in_progress.store(false, Ordering::SeqCst);
                 self.lock_set_by_alice = None;
                 log::info!("Unlocking for {}", self.toolset.cid);
             }
         } else {
+
+            if !self.update_in_progress.load(Ordering::Relaxed) {
+                log::error!("Expected update_in_progress to be true. LSBA: {:?} | Cid: {}", self.lock_set_by_alice, self.toolset.cid);
+            }
+
             self.update_in_progress.store(false, Ordering::SeqCst);
             self.lock_set_by_alice = None;
             log::info!("Unlocking for {}", self.toolset.cid);

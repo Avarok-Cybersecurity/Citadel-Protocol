@@ -338,6 +338,7 @@ pub mod algorithm_dictionary {
     use serde::{Serialize, Deserialize};
     use std::ops::Add;
     use crate::{AES_GCM_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES};
+    use strum::ParseError;
 
     #[derive(Default, Serialize, Deserialize, Copy, Clone, Debug)]
     pub struct CryptoParameters {
@@ -432,11 +433,28 @@ pub mod algorithm_dictionary {
     pub const ALGORITHM_COUNT: u8 = 10;
 
     enum_from_primitive! {
-        #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+        #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, strum::EnumString, strum::EnumIter)]
         pub enum KemAlgorithm {
-            Lightsaber = 0, Saber = 1, Firesaber = 2,
-            Kyber512_90s = 3, Kyber768_90s = 4, Kyber1024_90s = 5,
-            Ntruhps2048509 = 6, Ntruhps2048677 = 7, Ntruhps4096821 = 8, Ntruhrss701 = 9
+            #[strum(ascii_case_insensitive)]
+            Lightsaber = 0,
+            #[strum(ascii_case_insensitive)]
+            Saber = 1,
+            #[strum(ascii_case_insensitive)]
+            Firesaber = 2,
+            #[strum(ascii_case_insensitive)]
+            Kyber512_90s = 3,
+            #[strum(ascii_case_insensitive)]
+            Kyber768_90s = 4,
+            #[strum(ascii_case_insensitive)]
+            Kyber1024_90s = 5,
+            #[strum(ascii_case_insensitive)]
+            Ntruhps2048509 = 6,
+            #[strum(ascii_case_insensitive)]
+            Ntruhps2048677 = 7,
+            #[strum(ascii_case_insensitive)]
+            Ntruhps4096821 = 8,
+            #[strum(ascii_case_insensitive)]
+            Ntruhrss701 = 9
         }
     }
 
@@ -445,6 +463,16 @@ pub mod algorithm_dictionary {
             vec![KemAlgorithm::Lightsaber, KemAlgorithm::Saber, KemAlgorithm::Firesaber,
             KemAlgorithm::Kyber512_90s, KemAlgorithm::Kyber768_90s, KemAlgorithm::Kyber1024_90s,
             KemAlgorithm::Ntruhps2048509, KemAlgorithm::Ntruhps2048677, KemAlgorithm::Ntruhps4096821, KemAlgorithm::Ntruhrss701]
+        }
+
+        pub fn try_from_str<R: AsRef<str>>(t: R) -> Result<Self, ParseError> {
+            use std::str::FromStr;
+            KemAlgorithm::from_str(t.as_ref())
+        }
+
+        pub fn names() -> Vec<String> {
+            use strum::IntoEnumIterator;
+            KemAlgorithm::iter().map(|r| format!("{:?}", r).to_lowercase()).collect()
         }
     }
 

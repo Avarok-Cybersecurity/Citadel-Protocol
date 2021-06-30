@@ -178,8 +178,12 @@ class Utils {
 
   static HashMap<u64, LeafListener>? listeners;
 
+  static DateTime? lastRtdbMessageReceived;
   /// This should be called periodically as required
   static Future<void> configureRTDB(u64 newlyLoggedInUser) async {
+    // for purposes of allowing time for messages to come-thru, set the last rtdb message time as now
+    lastRtdbMessageReceived = DateTime.now();
+
       if (listeners == null) {
         listeners = HashMap();
       }
@@ -217,6 +221,7 @@ class Utils {
                       await processJsonPacket(json);
                       // delete AFTER being processed
                       await ref.child("peers").child(peerTreeUncast.key).child("packets").child(entry.key).remove();
+                      lastRtdbMessageReceived = DateTime.now();
                     }
 
                   }

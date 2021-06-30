@@ -3,7 +3,6 @@ use serde::{Serialize, Deserialize};
 use crate::hdp::peer::message_group::MessageGroupKey;
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
-use crate::inner_arg::ExpectedInnerTarget;
 use crate::functional::IfEqConditional;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_fs::io::SyncIO;
@@ -52,7 +51,7 @@ impl Into<HdpServerResult> for (u64, Ticket, GroupBroadcast) {
 }
 
 pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], HdpHeader>, payload: &[u8], sess_hyper_ratchet: &HyperRatchet) -> PrimaryProcessorResult {
-    let session = inner!(session_ref);
+    let session = session_ref;
     let signal = GroupBroadcast::deserialize_from_vector(payload).ok()?;
     let timestamp = session.time_tracker.get_global_time_ns();
     let ticket = header.context_info.get().into();
@@ -217,7 +216,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
     }
 }
 
-fn send_to_kernel(session: &dyn ExpectedInnerTarget<HdpSessionInner>, ticket: Ticket, broadcast: GroupBroadcast) -> PrimaryProcessorResult {
+fn send_to_kernel(session: &HdpSession, ticket: Ticket, broadcast: GroupBroadcast) -> PrimaryProcessorResult {
     let implicated_cid = session.implicated_cid.get()?;
     session.kernel_tx.unbounded_send((implicated_cid, ticket, broadcast).into())?;
     PrimaryProcessorResult::Void

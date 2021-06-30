@@ -4,10 +4,10 @@ use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use hyxe_crypt::hyper_ratchet::RatchetType;
 use crate::hdp::hdp_server::SecrecyMode;
+use std::ops::Deref;
 
 pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
-    let mut session = inner_mut!(session);
-    if session.state != SessionState::Connected {
+    if session.state.get() != SessionState::Connected {
         log::error!("Session state is not connected; dropping drill update packet");
         return PrimaryProcessorResult::Void;
     }
@@ -18,9 +18,9 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
         time_tracker,
         security_settings,
         ..
-    } = &mut *session;
+    } = session.inner.deref();
 
-    let cnac_sess = cnac.as_ref()?;
+    let ref cnac_sess = cnac.get()?;
     let (header, payload, _, _) = packet.decompose();
     let mut state_container = inner_mut!(state_container);
 
@@ -64,7 +64,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                     let needs_truncate = transfer.update_status.requires_truncation();
                     let constructor = if target_cid != ENDPOINT_ENCRYPTION_OFF { state_container.drill_update_state.p2p_updates.remove(&peer_cid)? } else { state_container.drill_update_state.alice_hyper_ratchet.take()? };
                     log::info!("Obtained constructor for {}", resp_target_cid);
-                    let secrecy_mode = security_settings.map(|r| r.secrecy_mode).clone()?;
+                    let secrecy_mode = security_settings.get().map(|r| r.secrecy_mode).clone()?;
 
                     let latest_hr = attempt_kem_as_alice_finish(secrecy_mode, peer_cid, target_cid, transfer.update_status, &mut state_container.active_virtual_connections, Some(ConstructorType::Default(constructor)), cnac_sess).ok()?.unwrap_or(RatchetType::Default(hyper_ratchet)).assume_default()?;
                     let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&latest_hr, needs_truncate, resp_target_cid, timestamp, security_level);
@@ -91,7 +91,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                 (ToolsetUpdate::E2E { crypt, local_cid }, endpoint_container.default_security_settings.secrecy_mode)
             } else {
                 // Cnac
-                (ToolsetUpdate::SessCNAC(cnac_sess), security_settings.map(|r| r.secrecy_mode).clone().unwrap())
+                (ToolsetUpdate::SessCNAC(cnac_sess), security_settings.get().map(|r| r.secrecy_mode).clone().unwrap())
             };
 
             // We optionally deregister at this endpoint to prevent any further packets with this version from being sent
@@ -109,8 +109,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             // We update the internal latest version usable
             method.post_stage1_alice_or_bob();
 
+            let lock_set_by_alice = method.unlock(false)?.1;
 
-            let (_, lock_set_by_alice) = method.unlock(false)?; // unconditional unlock
             // if lock set by bob, do poll
             let do_poll = lock_set_by_alice.map(|r| !r).unwrap_or(false);
 
@@ -147,7 +147,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                 (ToolsetUpdate::E2E { crypt, local_cid }, endpoint_container.default_security_settings.secrecy_mode)
             } else {
                 // Cnac
-                (ToolsetUpdate::SessCNAC(cnac_sess), security_settings.map(|r| r.secrecy_mode).clone().unwrap())
+                (ToolsetUpdate::SessCNAC(cnac_sess), security_settings.get().map(|r| r.secrecy_mode).clone().unwrap())
             };
 
             let _ = method.unlock(false)?; // unconditional unlock

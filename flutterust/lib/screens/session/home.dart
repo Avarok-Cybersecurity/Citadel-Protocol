@@ -112,6 +112,8 @@ class SessionHomeScreenInner extends State<SessionHomeScreen> {
               print("Creds obtained: $creds");
 
               await Utils.configureRTDB(cnac.implicatedCid);
+              cnac.jwt = Optional.of(conn.jwt.value);
+              await cnac.sync();
             }
 
             print("Len: " + tabs.length.toString() + ", len: " + sessionViews.length.toString());

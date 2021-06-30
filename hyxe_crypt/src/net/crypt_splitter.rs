@@ -9,7 +9,7 @@ use num_integer::Integer;
 use rand::prelude::{SliceRandom, ThreadRng};
 
 use crate::drill::Drill;
-use crate::drill_algebra::{generate_packet_coordinates_inv, generate_packet_vector, PacketVector};
+use crate::packet_vector::{generate_packet_coordinates_inv, generate_packet_vector, PacketVector};
 use crate::prelude::{CryptError, SecurityLevel, SecBuffer};
 use rayon::prelude::*;
 use rayon::iter::IndexedParallelIterator;

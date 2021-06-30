@@ -1,5 +1,5 @@
 #![doc(html_no_source)]
-#![feature(async_closure, ip, bindings_after_at, result_flattening)]
+#![feature(async_closure, ip, bindings_after_at, result_flattening, arbitrary_self_types)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
 #![feature(try_trait_v2)]
@@ -51,9 +51,17 @@ pub mod macros {
         tokio::task::spawn_local(async move { (fx)(future().await) });
     }
 
+    pub type WeakBorrowType<T> = std::rc::Weak<std::cell::RefCell<T>>;
     pub type SessionBorrow<'a> = std::cell::RefMut<'a, HdpSessionInner>;
+
     pub struct WeakBorrow<T> {
         pub inner: std::rc::Weak<std::cell::RefCell<T>>
+    }
+
+    impl<T> Clone for WeakBorrow<T> {
+        fn clone(&self) -> Self {
+            Self { inner: self.inner.clone() }
+        }
     }
 
     macro_rules! inner {
@@ -130,12 +138,6 @@ pub mod macros {
     };
 }
 
-    macro_rules! wrap_inner {
-    ($item:expr) => {
-        (&$item).into()
-    };
-}
-
     macro_rules! return_if_none {
         ($opt:expr, $err:expr) => {
             match $opt {
@@ -173,9 +175,17 @@ pub mod macros {
         tokio::task::spawn(async move { (fx)(future().await) });
     }
 
+    pub type WeakBorrowType<T> = std::sync::Weak<parking_lot::RwLock<T>>;
     pub type SessionBorrow<'a> = parking_lot::RwLockWriteGuard<'a, HdpSessionInner>;
+
     pub struct WeakBorrow<T> {
         pub inner: std::sync::Weak<parking_lot::RwLock<T>>
+    }
+
+    impl<T> Clone for WeakBorrow<T> {
+        fn clone(&self) -> Self {
+            Self { inner: self.inner.clone() }
+        }
     }
 
     macro_rules! inner {
@@ -257,12 +267,6 @@ pub mod macros {
     macro_rules! wrap_inner_mut {
     ($item:expr) => {
         (&mut $item).into()
-    };
-}
-
-    macro_rules! wrap_inner {
-    ($item:expr) => {
-        (&$item).into()
     };
 }
 

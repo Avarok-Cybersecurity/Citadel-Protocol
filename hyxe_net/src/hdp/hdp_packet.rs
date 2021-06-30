@@ -346,7 +346,7 @@ impl<B: HdpBuffer> HdpPacket<B> {
 
 #[derive(Clone)]
 pub struct HeaderObfuscator {
-    inner: DualCell<u128>
+    inner: DualCell<Option<u128>>
 }
 
 impl HeaderObfuscator {

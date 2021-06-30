@@ -66,6 +66,7 @@ class LoginHandler implements AbstractHandler {
     return "connect " +
         username +
         " --keep_alive_timeout 900" +
+        " --force"
         " -s " + securityLevel.toString() +
         " --password " + password +
         " --ffi" +

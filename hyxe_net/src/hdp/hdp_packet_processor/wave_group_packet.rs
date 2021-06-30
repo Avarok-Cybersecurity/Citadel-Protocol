@@ -2,13 +2,12 @@ use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_rat
 use crate::hdp::hdp_server::HdpServerRequest;
 
 use super::includes::*;
-use crate::macros::EitherOwnedGuard;
 
 /// This will handle an inbound group packet
-pub async fn process(session: EitherOwnedGuard<'_, HdpSessionInner>, v_src_port: u16, v_local_port: u16, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], proxy_cid_info: Option<(u64, u64)>) -> GroupProcessorResult {
+pub async fn process(session: &HdpSession, v_src_port: u16, v_local_port: u16, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], proxy_cid_info: Option<(u64, u64)>) -> GroupProcessorResult {
     debug_assert_eq!(packet_flags::cmd::primary::GROUP_PACKET, header.cmd_primary);
 
-    let sess_cnac = session.cnac.as_ref()?;
+    let ref sess_cnac = session.cnac.get()?;
     match header.cmd_aux {
         packet_flags::cmd::aux::group::GROUP_PAYLOAD => {
             //log::info!("GROUP PAYLOAD RECEIVED");

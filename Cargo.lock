@@ -191,9 +191,9 @@ dependencies = [
 
 [[package]]
 name = "async-stream"
-version = "0.3.0"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3670df70cbc01729f901f94c887814b3c68db038aad1329a418bae178bc5295c"
+checksum = "171374e7e3b2504e0e5236e3b59260560f9fe94bfe9ac39ba5e4e929c5590625"
 dependencies = [
  "async-stream-impl",
  "futures-core",
@@ -201,9 +201,9 @@ dependencies = [
 
 [[package]]
 name = "async-stream-impl"
-version = "0.3.0"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3548b8efc9f8e8a5a0a2808c5bd8451a9031b9e5b879a79590304ae928b0a70"
+checksum = "648ed8c8d2ce5409ccd57453d9d1b214b342a0d69376a6feda1fd6cae3299308"
 dependencies = [
  "proc-macro2 1.0.24",
  "quote 1.0.8",
@@ -984,6 +984,7 @@ dependencies = [
  "pqcrypto-traits",
  "rand 0.7.3",
  "serde 1.0.126",
+ "strum",
  "typetag",
 ]
 
@@ -1031,7 +1032,7 @@ dependencies = [
  "log",
  "reqwest 0.11.3",
  "serde 1.0.126",
- "tokio 1.7.0",
+ "tokio 1.7.1",
 ]
 
 [[package]]
@@ -1301,8 +1302,8 @@ dependencies = [
  "http",
  "indexmap",
  "slab",
- "tokio 1.7.0",
- "tokio-util 0.6.3",
+ "tokio 1.7.1",
+ "tokio-util 0.6.7",
  "tracing",
  "tracing-futures",
 ]
@@ -1502,7 +1503,7 @@ dependencies = [
  "itoa",
  "pin-project 1.0.2",
  "socket2",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "tower-service",
  "tracing",
  "want",
@@ -1530,7 +1531,7 @@ dependencies = [
  "bytes 1.0.1",
  "hyper 0.14.4",
  "native-tls",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "tokio-native-tls",
 ]
 
@@ -1562,7 +1563,7 @@ dependencies = [
  "serde-big-array",
  "serde_derive",
  "sysinfo",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "zerocopy 0.2.8",
  "zeroize",
 ]
@@ -1587,7 +1588,7 @@ dependencies = [
  "pin-project 0.4.27",
  "rand 0.7.3",
  "serde 1.0.126",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "tokio-stream",
  "zerocopy 0.2.8",
 ]
@@ -1607,7 +1608,7 @@ dependencies = [
  "net2",
  "parking_lot 0.11.1",
  "rsntp",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "tokio-stream",
  "whoami 0.9.0",
 ]
@@ -1625,6 +1626,7 @@ dependencies = [
  "bstr",
  "byteorder",
  "bytes 1.0.1",
+ "clap",
  "either",
  "env_logger 0.8.4",
  "ez_pqcrypto",
@@ -1634,16 +1636,18 @@ dependencies = [
  "hyxe_nat",
  "hyxe_user",
  "log",
+ "native-tls",
  "net2",
  "num 0.2.1",
  "num_cpus",
+ "once_cell",
  "parking_lot 0.11.1",
  "rand 0.7.3",
  "serde 1.0.126",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "tokio-native-tls",
  "tokio-stream",
- "tokio-util 0.6.3",
+ "tokio-util 0.6.7",
  "zerocopy 0.3.0",
 ]
 
@@ -1675,7 +1679,7 @@ dependencies = [
  "serde_json",
  "serde_millis",
  "sqlx",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "zerocopy 0.3.0",
 ]
 
@@ -1706,9 +1710,9 @@ dependencies = [
  "serde_json",
  "shutdown_hooks",
  "termion",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "tokio-stream",
- "tokio-util 0.6.3",
+ "tokio-util 0.6.7",
 ]
 
 [[package]]
@@ -1735,7 +1739,7 @@ dependencies = [
  "hyper 0.14.4",
  "log",
  "rand 0.8.3",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "url",
  "xmltree",
 ]
@@ -2383,9 +2387,9 @@ checksum = "8d3b63360ec3cb337817c2dbd47ab4a0f170d285d8e5a2064600f3def1402397"
 
 [[package]]
 name = "once_cell"
-version = "1.5.2"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13bd41f508810a131401606d54ac32a467c97172d74ba7662562ebba5ad07fa0"
+checksum = "692fcb63b64b1758029e0a96ee63e049ce8c5948587f2f7208df04625e5f6b56"
 
 [[package]]
 name = "oorandom"
@@ -3039,7 +3043,7 @@ dependencies = [
  "serde 1.0.126",
  "serde_json",
  "serde_urlencoded",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "tokio-native-tls",
  "url",
  "wasm-bindgen",
@@ -3084,7 +3088,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd6fca37e86da35d4417913f47a864e59f663d99096d75dbd93edd7a1309852d"
 dependencies = [
  "chrono",
- "tokio 1.7.0",
+ "tokio 1.7.1",
 ]
 
 [[package]]
@@ -3509,7 +3513,7 @@ checksum = "8199b421ecf3493ee9ef3e7bc90c904844cfb2ea7ea2f57347a93f52bfd3e057"
 dependencies = [
  "native-tls",
  "once_cell",
- "tokio 1.7.0",
+ "tokio 1.7.1",
  "tokio-native-tls",
 ]
 
@@ -3540,6 +3544,27 @@ name = "strsim"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
+
+[[package]]
+name = "strum"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aaf86bbcfd1fa9670b7a129f64fc0c9fcbbfe4f1bc4210e9e98fe71ffc12cde2"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d06aaeeee809dbc59eb4556183dd927df67db1540de5be8d3ec0b6636358a5ec"
+dependencies = [
+ "heck",
+ "proc-macro2 1.0.24",
+ "quote 1.0.8",
+ "syn 1.0.64",
+]
 
 [[package]]
 name = "subtle"
@@ -3772,9 +3797,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.7.0"
+version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c79ba603c337335df6ba6dd6afc38c38a7d5e1b0c871678439ea973cd62a118e"
+checksum = "5fb2ed024293bb19f7a5dc54fe83bf86532a44c12a2bb8ba40d64a4509395ca2"
 dependencies = [
  "autocfg 1.0.1",
  "bytes 1.0.1",
@@ -3819,7 +3844,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7d995660bd2b7f8c1568414c1126076c13fbb725c40112dc0120b78eb9b717b"
 dependencies = [
  "native-tls",
- "tokio 1.7.0",
+ "tokio 1.7.1",
 ]
 
 [[package]]
@@ -3830,7 +3855,7 @@ checksum = "1981ad97df782ab506a1f43bf82c967326960d278acf3bf8279809648c3ff3ea"
 dependencies = [
  "futures-core",
  "pin-project-lite 0.2.4",
- "tokio 1.7.0",
+ "tokio 1.7.1",
 ]
 
 [[package]]
@@ -3859,9 +3884,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.6.3"
+version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebb7cb2f00c5ae8df755b252306272cd1790d39728363936e01827e11f0b017b"
+checksum = "1caa0b0c8d94a049db56b5acf8cba99dc0623aab1b26d5b5f5e2d945846b3592"
 dependencies = [
  "bytes 1.0.1",
  "futures-core",
@@ -3869,7 +3894,7 @@ dependencies = [
  "log",
  "pin-project-lite 0.2.4",
  "slab",
- "tokio 1.7.0",
+ "tokio 1.7.1",
 ]
 
 [[package]]

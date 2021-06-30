@@ -15,23 +15,23 @@ pub mod ordered {
     impl AntiReplayAttackContainer {
         #[inline]
         pub fn get_next_pid(&self) -> u64 {
-            self.out_counter.fetch_add(1, Ordering::Relaxed)
+            self.out_counter.fetch_add(1, Ordering::SeqCst)
         }
 
         /// Returns true if the value is valid, false otherwise
         #[inline]
         pub fn on_pid_received(&self, pid: u64) -> bool {
-            self.in_counter.compare_exchange(pid, pid + 1, Ordering::Relaxed, Ordering::Relaxed).is_ok()
+            self.in_counter.compare_exchange(pid, pid + 1, Ordering::SeqCst, Ordering::SeqCst).is_ok()
         }
 
         pub fn has_tracked_packets(&self) -> bool {
-            self.in_counter.load(Ordering::Relaxed) != 0
-            || self.out_counter.load(Ordering::Relaxed) != 0
+            self.in_counter.load(Ordering::SeqCst) != 0
+            || self.out_counter.load(Ordering::SeqCst) != 0
         }
 
         pub fn reset(&self) {
-            self.in_counter.store(0, Ordering::Relaxed);
-            self.out_counter.store(0, Ordering::Relaxed);
+            self.in_counter.store(0, Ordering::SeqCst);
+            self.out_counter.store(0, Ordering::SeqCst);
         }
     }
 
@@ -72,7 +72,7 @@ pub mod unordered {
     impl AntiReplayAttackContainer {
         #[inline]
         pub fn get_next_pid(&self) -> u64 {
-            self.counter_out.fetch_add(1, Ordering::Relaxed)
+            self.counter_out.fetch_add(1, Ordering::SeqCst)
         }
 
         /// If the value already exists, this will return an error. If not, this will save
@@ -107,12 +107,12 @@ pub mod unordered {
         }
 
         pub fn has_tracked_packets(&self) -> bool {
-            (self.counter_out.load(Ordering::Relaxed) != 0)
+            (self.counter_out.load(Ordering::SeqCst) != 0)
             || (self.history.lock().0 != 0)
         }
 
         pub fn reset(&self) {
-            self.counter_out.store(0, Ordering::Relaxed);
+            self.counter_out.store(0, Ordering::SeqCst);
             let mut lock = self.history.lock();
             lock.0 = 0;
             lock.1 = CircularQueue::with_capacity(HISTORY_LEN as usize);

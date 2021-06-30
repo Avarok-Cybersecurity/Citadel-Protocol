@@ -23,7 +23,7 @@ pub mod tests {
     use hyxe_crypt::sec_bytes::SecBuffer;
     use hyxe_nat::hypernode_type::HyperNodeType;
     use hyxe_net::error::NetworkError;
-    use hyxe_net::functional::{PairMap, TriMap};
+    use hyxe_net::functional::{PairMap, TriMap, IfEqConditional};
     use hyxe_net::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
     use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
     use hyxe_net::hdp::hdp_server::{ConnectMode, HdpServerRemote, HdpServerRequest, SecrecyMode, Ticket, UnderlyingProtocol};
@@ -41,6 +41,9 @@ pub mod tests {
 
     use crate::tests::kernel::{ActionType, TestContainer, TestKernel, MessageTransfer};
     use crate::utils::{assert, assert_eq, AssertSendSafeFuture};
+    use hyxe_net::hdp::misc::panic_future::ExplicitPanicFuture;
+    use std::sync::atomic::Ordering;
+    use once_cell::sync::OnceCell;
 
     #[allow(dead_code)]
     fn gen(params: impl Into<CryptoParameters>, cid: u64, vers: u32, sec: Option<SecurityLevel>) -> (HyperRatchet, HyperRatchet) {
@@ -160,20 +163,135 @@ pub mod tests {
         }
     }
 
-    pub const SECRECY_MODE: SecrecyMode = SecrecyMode::BestEffort;
-    pub const USE_TLS: bool = true;
+    #[derive(Eq, PartialEq)]
+    enum ProtoSelected { TCP, TLS }
 
-    const COUNT: usize = 4000;
-    const TIMEOUT_CNT_MS: usize = 10000 + (COUNT * 100);
+    fn setup_clap() -> Option<ProtoSelected> {
+        /*
+        KemAlgorithm::Lightsaber, KemAlgorithm::Saber, KemAlgorithm::Firesaber,
+            KemAlgorithm::Kyber512_90s, KemAlgorithm::Kyber768_90s, KemAlgorithm::Kyber1024_90s,
+            KemAlgorithm::Ntruhps2048509, KemAlgorithm::Ntruhps2048677, KemAlgorithm::Ntruhps4096821, KemAlgorithm::Ntruhrss701
+         */
+        let kems = KemAlgorithm::names();
+        let kems = kems.iter().map(|r| r.as_str()).collect::<Vec<&str>>();
 
-    // The number of random bytes put into every message
-    pub const RAND_MESSAGE_LEN: usize = 2000;
+        let app = clap::App::new("stress-testing harness").arg(clap::Arg::with_name("count").long("count").takes_value(true).required(false))
+            .arg(clap::Arg::with_name("tls").long("tls").required(false).takes_value(false).conflicts_with("tcp"))
+            .arg(clap::Arg::with_name("security_level").long("sec").required(false).takes_value(true))
+            .arg(clap::Arg::with_name("timeout").long("timeout").required(false).takes_value(true))
+            .arg(clap::Arg::with_name("message_length").long("len").required(false).takes_value(true))
+            .arg(clap::Arg::with_name("secrecy_mode").long("secrecy").required(false).takes_value(true).possible_values(&["pfs", "bem"]))
+            .arg(clap::Arg::with_name("encryption_algorithm").long("enx").required(false).takes_value(true).possible_values(&["aes", "chacha"]))
+            .arg(clap::Arg::with_name("key_exchange_mechanism").long("kem").required(false).takes_value(true).possible_values(kems.as_slice()))
+            .arg(clap::Arg::with_name("tcp").long("tcp").required(false).takes_value(false).conflicts_with("tls"));
+
+        let matches = app.get_matches_from(std::env::args().skip_while(|v| v != "--clap").collect::<Vec<String>>());
+        if let Some(matches) = matches.value_of("count") {
+            COUNT.set(usize::from_str(matches).unwrap()).unwrap();
+        } else {
+            COUNT.set(DEFAULT_COUNT).unwrap();
+        }
+
+        if let Some(matches) = matches.value_of("secrecy_mode") {
+            SECRECY_MODE.set( matches.if_eq("pfs", SecrecyMode::Perfect).if_false(SecrecyMode::BestEffort)).unwrap();
+        } else {
+            SECRECY_MODE.set(DEFAULT_SECRECY_MODE).unwrap()
+        }
+
+        if let Some(matches) = matches.value_of("encryption_algorithm") {
+            ENCRYPTION_ALGORITHM.set( matches.if_eq("aes", EncryptionAlgorithm::AES_GCM_256_SIV).if_false(EncryptionAlgorithm::Xchacha20Poly_1305)).unwrap();
+        } else {
+            ENCRYPTION_ALGORITHM.set(DEFAULT_ENCRYPTION_ALGORITHM).unwrap()
+        }
+
+        if let Some(matches) = matches.value_of("key_exchange_mechanism") {
+            KEM_ALGORITHM.set(KemAlgorithm::try_from_str(matches).unwrap()).unwrap()
+        } else {
+            KEM_ALGORITHM.set(DEFAULT_KEM_ALGORITHM).unwrap();
+        }
+
+        if let Some(matches) = matches.value_of("security_level") {
+            let level = SecurityLevel::from(u8::from_str(matches).unwrap());
+            SESSION_SECURITY_LEVEL.set(level).unwrap();
+            P2P_SECURITY_LEVEL.set(level).unwrap();
+        } else {
+            SESSION_SECURITY_LEVEL.set(DEFAULT_SESSION_SECURITY_LEVEL).unwrap();
+            P2P_SECURITY_LEVEL.set(DEFAULT_P2P_SECURITY_LEVEL).unwrap();
+        }
+
+        if let Some(matches) = matches.value_of("timeout") {
+            let timeout = usize::from_str(matches).unwrap();
+            TIMEOUT_CNT_MS.set(timeout).unwrap();
+        } else {
+            TIMEOUT_CNT_MS.set(DEFAULT_TIMEOUT_CNT_MS).unwrap();
+        }
+
+        if let Some(matches) = matches.value_of("message_length") {
+            let len = usize::from_str(matches).unwrap();
+            RAND_MESSAGE_LEN.set(len).unwrap();
+        } else {
+            RAND_MESSAGE_LEN.set(DEFAULT_RAND_MESSAGE_LEN).unwrap();
+        }
+
+        if matches.is_present("tls") || matches.is_present("tcp") {
+            if matches.is_present("tls") {
+                Some(ProtoSelected::TLS)
+            } else {
+                Some(ProtoSelected::TCP)
+            }
+        } else {
+            None
+        }
+    }
+
+    fn count() -> usize {
+        *COUNT.get().unwrap()
+    }
+    fn secrecy_mode() -> SecrecyMode { *SECRECY_MODE.get().unwrap() }
+    fn session_security_level() -> SecurityLevel { *SESSION_SECURITY_LEVEL.get().unwrap() }
+    fn p2p_security_level() -> SecurityLevel { *P2P_SECURITY_LEVEL.get().unwrap() }
+    fn timeout_cnt_ms() -> usize { *TIMEOUT_CNT_MS.get().unwrap() }
+    fn rand_message_len() -> usize { *RAND_MESSAGE_LEN.get().unwrap() }
+    fn encryption_algorithm() -> EncryptionAlgorithm { *ENCRYPTION_ALGORITHM.get().unwrap() }
+    fn kem_algorithm() -> KemAlgorithm { *KEM_ALGORITHM.get().unwrap() }
+
+    pub static SECRECY_MODE: OnceCell<SecrecyMode> = OnceCell::new();
+    pub static SESSION_SECURITY_LEVEL: OnceCell<SecurityLevel> = OnceCell::new();
+    pub static P2P_SECURITY_LEVEL: OnceCell<SecurityLevel> = OnceCell::new();
+    pub static COUNT: OnceCell<usize> = OnceCell::new();
+    pub static RAND_MESSAGE_LEN: OnceCell<usize> = OnceCell::new();
+    pub static TIMEOUT_CNT_MS: OnceCell<usize> = OnceCell::new();
+    pub static ENCRYPTION_ALGORITHM: OnceCell<EncryptionAlgorithm> = OnceCell::new();
+    pub static KEM_ALGORITHM: OnceCell<KemAlgorithm> = OnceCell::new();
+
+    pub const DEFAULT_SESSION_SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
+    pub const DEFAULT_P2P_SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
+    pub const DEFAULT_SECRECY_MODE: SecrecyMode = SecrecyMode::BestEffort;
+    pub const DEFAULT_USE_TLS: bool = true;
+    pub const DEFAULT_COUNT: usize = 4000;
+    pub const DEFAULT_TIMEOUT_CNT_MS: usize = 60000 * 2;
+    pub const DEFAULT_RAND_MESSAGE_LEN: usize = 2000;
+    pub const DEFAULT_ENCRYPTION_ALGORITHM: EncryptionAlgorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
+    pub const DEFAULT_KEM_ALGORITHM: KemAlgorithm = KemAlgorithm::Firesaber;
 
     #[test]
+    // line 874 contains message for you
     fn main() -> Result<(), Box<dyn Error>> {
         super::utils::deadlock_detector();
 
-        if USE_TLS {
+        setup_log();
+        let proto_selected = setup_clap();
+        let use_tls = proto_selected.map(|r| r == ProtoSelected::TLS).unwrap_or(DEFAULT_USE_TLS);
+        println!("Using TLS: {}", use_tls);
+        println!("Encryption algorithm: {:?}", encryption_algorithm());
+        println!("Post-quantum key exchange algorithm: {:?}", kem_algorithm());
+        println!("Message count per node per activity: {}", count());
+        println!("Message length: {} bytes", rand_message_len());
+        println!("Using secrecy mode: {:?}", secrecy_mode());
+        println!("Session/P2P security level: {:?}/{:?}", session_security_level(), p2p_security_level());
+        println!("Timeout: {}ms", timeout_cnt_ms());
+
+        if use_tls {
             *PROTO.lock() = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10").unwrap(), Some("mail.satorisocial.com".to_string())));
         } else {
             *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
@@ -181,18 +299,15 @@ pub mod tests {
 
         let rt = Builder::new_multi_thread().enable_time().enable_io().build().unwrap();
 
-        setup_log();
+
         let server_bind_addr = SocketAddr::from_str("127.0.0.1:33332").unwrap();
         let client0_bind_addr = SocketAddr::from_str("127.0.0.1:33333").unwrap();
         let client1_bind_addr = SocketAddr::from_str("127.0.0.1:33334").unwrap();
         let client2_bind_addr = SocketAddr::from_str("127.0.0.1:33335").unwrap();
 
-        let security_level = SecurityLevel::LOW;
-        let p2p_security_level = SecurityLevel::LOW;
+        let params = kem_algorithm() + encryption_algorithm();
 
-        let params = KemAlgorithm::Firesaber + EncryptionAlgorithm::AES_GCM_256_SIV;
-
-        let default_security_settings = SessionSecuritySettingsBuilder::default().with_secrecy_mode(SECRECY_MODE).with_security_level(security_level).with_crypto_params(params).build();
+        let default_security_settings = SessionSecuritySettingsBuilder::default().with_secrecy_mode(secrecy_mode()).with_security_level(session_security_level()).with_crypto_params(params).build();
 
         static CLIENT0_FULLNAME: &'static str = "Thomas P Braun (test)";
         static CLIENT0_USERNAME: &'static str = "nologik";
@@ -205,9 +320,6 @@ pub mod tests {
         static CLIENT2_FULLNAME: &'static str = "Thomas P Braun II (test)";
         static CLIENT2_USERNAME: &'static str = "nologik2";
         static CLIENT2_PASSWORD: &'static str = "mrmoney10";
-
-
-
 
 
         let (proposed_credentials_0, proposed_credentials_1, proposed_credentials_2) = rt.block_on(async move {
@@ -245,7 +357,7 @@ pub mod tests {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_0, keys0, default_security_settings)),
                      function(pinbox(client0_action1(test_container0, CLIENT0_PASSWORD, default_security_settings))),
                      function(pinbox(client0_action2(test_container1, ENABLE_FCM))),
-                     function(pinbox(client0_action3(test_container2, p2p_security_level)))
+                     function(pinbox(client0_action3(test_container2, p2p_security_level())))
                 ]
             }, backend_client(), underlying_proto()).await;
 
@@ -265,11 +377,11 @@ pub mod tests {
 
             log::info!("Done setting up executors");
 
-            let client0_future = handle.spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(client0_executor.execute())));
-            let client1_future = handle.spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(client1_executor.execute())));
-            let client2_future = handle.spawn(tokio::time::timeout(Duration::from_millis(TIMEOUT_CNT_MS as u64), AssertSendSafeFuture::new_silent(client2_executor.execute())));
+            let client0_future = ExplicitPanicFuture::new(handle.spawn(tokio::time::timeout(Duration::from_millis(timeout_cnt_ms() as u64), AssertSendSafeFuture::new_silent(client0_executor.execute()))));
+            let client1_future = ExplicitPanicFuture::new(handle.spawn(tokio::time::timeout(Duration::from_millis(timeout_cnt_ms() as u64), AssertSendSafeFuture::new_silent(client1_executor.execute()))));
+            let client2_future = ExplicitPanicFuture::new(handle.spawn(tokio::time::timeout(Duration::from_millis(timeout_cnt_ms() as u64), AssertSendSafeFuture::new_silent(client2_executor.execute()))));
+            let server_future = ExplicitPanicFuture::new(handle.spawn(AssertSendSafeFuture::new_silent(server_executor.execute())));
 
-            let server_future = handle.spawn(AssertSendSafeFuture::new_silent(server_executor.execute()));
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             //futures::future::try_join_all(vec![client0_future, client1_future]).await.map(|res|)
@@ -319,7 +431,7 @@ pub mod tests {
         use hyxe_net::kernel::kernel::NetKernel;
         use hyxe_user::client_account::ClientNetworkAccount;
 
-        use crate::tests::{client2_action4_fire_group, COUNT, GROUP_TICKET_TEST, handle_c2s_peer_channel, handle_peer_channel, NodeType, RAND_MESSAGE_LEN};
+        use crate::tests::{client2_action4_fire_group, GROUP_TICKET_TEST, handle_c2s_peer_channel, handle_peer_channel, NodeType, count, rand_message_len};
         use crate::utils::{assert, assert_eq};
         use serde::{Serialize, Deserialize};
         use hyxe_crypt::prelude::SecBuffer;
@@ -336,7 +448,7 @@ pub mod tests {
         impl MessageTransfer {
             pub fn create(idx: u64) -> SecBuffer {
                 let mut rng = ThreadRng::default();
-                let mut rand = vec![0u8; RAND_MESSAGE_LEN];
+                let mut rand = vec![0u8; rand_message_len()];
                 rng.fill(rand.as_mut_slice());
 
                 Self { idx, rand }.serialize_to_vector().unwrap().into()
@@ -361,6 +473,8 @@ pub mod tests {
             pub queued_requests_client2: Option<Arc<Mutex<HashSet<Ticket>>>>,
             pub can_begin_peer_post_register_recv: Option<VecDeque<broadcast::Receiver<()>>>,
             pub can_begin_peer_post_register_notifier_cl_1: Option<broadcast::Sender<()>>,
+            pub p2p_sending_complete_tx: Option<broadcast::Sender<()>>,
+            pub p2p_sending_complete_rx: Option<VecDeque<broadcast::Receiver<()>>>,
             pub client0_c2s_channel: Option<PeerChannel>,
             pub client_server_as_server_recv_count: usize,
             pub client_server_as_client_recv_count: usize,
@@ -376,6 +490,15 @@ pub mod tests {
             pub fn new() -> Self {
                 let (can_begin_peer_post_register_notifier_cl_1, can_begin_peer_post_register_recv_cl_0) = broadcast::channel(10);
                 let can_begin_peer_post_register_recv_cl_2 = can_begin_peer_post_register_notifier_cl_1.subscribe();
+                let (p2p_sending_complete_tx, p2p_sending_complete_rx) = broadcast::channel(10);
+                let p2p_sending_complete_rx_1 = p2p_sending_complete_tx.subscribe();
+                let p2p_sending_complete_tx = Some(p2p_sending_complete_tx);
+
+                let mut p2p_sending_complete_rxs = VecDeque::new();
+                p2p_sending_complete_rxs.push_back(p2p_sending_complete_rx);
+                p2p_sending_complete_rxs.push_back(p2p_sending_complete_rx_1);
+                let p2p_sending_complete_rx = Some(p2p_sending_complete_rxs);
+
                 // client 0 and 2 must wait for client 1 to connect
                 let mut can_begin_peer_post_register_recv = VecDeque::with_capacity(2);
                 can_begin_peer_post_register_recv.push_back(can_begin_peer_post_register_recv_cl_0);
@@ -384,7 +507,7 @@ pub mod tests {
 
                 let can_begin_peer_post_register_notifier_cl_1 = Some(can_begin_peer_post_register_notifier_cl_1);
 
-                Self { can_begin_peer_post_register_notifier_cl_1, can_begin_peer_post_register_recv, ..Default::default() }
+                Self { p2p_sending_complete_rx, p2p_sending_complete_tx, can_begin_peer_post_register_notifier_cl_1, can_begin_peer_post_register_recv, ..Default::default() }
             }
         }
 
@@ -584,10 +707,10 @@ pub mod tests {
 
                                 GroupBroadcast::Message(_, _, msg) => {
                                     let val = byteorder::BigEndian::read_u64(msg.as_ref());
-                                    assert(val <= COUNT as u64, "DFT");
+                                    assert(val <= count() as u64, "DFT");
                                     assert(self.node_type == NodeType::Client0 || self.node_type == NodeType::Client1, "LKJ");
                                     let mut lock = self.item_container.as_ref().unwrap().write();
-                                    let count = if self.node_type == NodeType::Client0 {
+                                    let cnt = if self.node_type == NodeType::Client0 {
                                         lock.group_messages_received_client0 += 1;
                                         lock.group_messages_received_client0
                                     } else {
@@ -597,7 +720,7 @@ pub mod tests {
 
                                     log::info!("[Group] {:?} received {} messages", self.node_type, lock.group_messages_received_client0);
 
-                                    if count >= COUNT {
+                                    if cnt >= count() {
                                         log::info!("[Group] {:?} is done receiving messages", self.node_type);
                                         self.on_valid_ticket_received(GROUP_TICKET_TEST);
                                         let mut remote = self.remote.clone().unwrap();
@@ -615,7 +738,7 @@ pub mod tests {
                                     let mut lock = self.item_container.as_ref().unwrap().write();
                                     lock.group_messages_verified_client2_host += 1;
 
-                                    if lock.group_messages_verified_client2_host >= COUNT {
+                                    if lock.group_messages_verified_client2_host >= count() {
                                         log::info!("[Group] {:?}/Host has successfully sent all messages", self.node_type);
                                         self.on_valid_ticket_received(GROUP_TICKET_TEST);
                                         let mut remote = self.remote.clone().unwrap();
@@ -766,7 +889,8 @@ pub mod tests {
                                 }
 
                                 _ => {
-                                    panic!("Unexpected signal: {:?}", signal);
+                                    log::error!("Unexpected signal: {:?}", signal);
+                                    std::process::exit(-1);
                                 }
                             }
                         }
@@ -807,7 +931,6 @@ pub mod tests {
         assert(node_type == NodeType::Server || node_type == NodeType::Client0, "POZX");
         let (sink, mut stream) = channel.split();
 
-
         if node_type == NodeType::Client0 {
             tokio::task::spawn(start_client_server_stress_test(queued_requests.clone(), sink.clone(),  node_type));
         }
@@ -822,12 +945,12 @@ pub mod tests {
                         // client0 already had its sender started. We only need to increment the inner count
                         //let val = byteorder::BigEndian::read_u64(msg.as_ref());
                         assert_eq(data.idx as usize, lock.client_server_as_client_recv_count, "MRAP");
-                        assert_eq(data.rand.len(), RAND_MESSAGE_LEN, "LZX");
+                        assert_eq(data.rand.len(), rand_message_len(), "LZX");
                         log::info!("[Client/Server Stress Test] RECV {} for {:?}", lock.client_server_as_client_recv_count, node_type);
                         lock.client_server_as_client_recv_count += 1;
 
-                        if lock.client_server_as_client_recv_count >= COUNT {
-                            log::info!("Client has finished receiving {} messages", COUNT);
+                        if lock.client_server_as_client_recv_count >= count() {
+                            log::info!("Client has finished receiving {} messages", count());
                             lock.client_server_stress_test_done_as_client = true;
                             std::mem::drop(lock);
                             let mut lock = queued_requests.lock();
@@ -842,7 +965,7 @@ pub mod tests {
                         //log::info!("RBX");
                         //let val = byteorder::BigEndian::read_u64(msg.as_ref());
                         assert_eq(data.idx as usize, lock.client_server_as_server_recv_count, "NRAP");
-                        assert_eq(data.rand.len(), RAND_MESSAGE_LEN, "QAAM");
+                        assert_eq(data.rand.len(), rand_message_len(), "QAAM");
                         log::info!("[Client/Server Stress Test] RECV {} for {:?}", lock.client_server_as_server_recv_count, node_type);
                         lock.client_server_as_server_recv_count += 1;
 
@@ -854,12 +977,14 @@ pub mod tests {
                             let queued_requests = queued_requests.clone();
                             std::mem::drop(lock);
                             // The server begins firing packets at the client once 1 packet is received. The client begins firing c2s packets once it finished the p2p peer channel subroutine
+                            hyxe_net::hdp::hdp_session::STATUS.store(999, Ordering::Relaxed);
                             tokio::task::spawn(start_client_server_stress_test(queued_requests, sink.clone(),  node_type));
                             continue;
+                            // The signal supposedly gets sent to the primary_outbound_stream, but, they aren't all received there by the sink ... TCP, this does not occur, but with TLS, the error occurs
                         }
 
-                        if lock.client_server_as_server_recv_count >= COUNT {
-                            log::info!("SERVER has finished receiving {} messages", COUNT);
+                        if lock.client_server_as_server_recv_count >= count() {
+                            log::info!("SERVER has finished receiving {} messages", count());
                             lock.client_server_stress_test_done_as_server = true;
                             std::mem::drop(lock);
                             let mut lock = queued_requests.lock();
@@ -889,7 +1014,8 @@ pub mod tests {
             tokio::time::sleep(Duration::from_millis(300)).await;
             let (mut sink, mut stream) = channel.split();
             let sender = async move {
-                    for x in 0..COUNT {
+
+                    for x in 0..count() {
                         if x % 10 == 9 {
                             //tokio::time::sleep(Duration::from_millis(1)).await
                         }
@@ -897,10 +1023,19 @@ pub mod tests {
                         //sink.send_unbounded(MessageTransfer::create(x as u64)).unwrap();
                         sink.send(MessageTransfer::create(x as _)).await.unwrap();
                     }
+                //let mut stream = tokio_stream::iter((0..COUNT).map(|x| Ok(MessageTransfer::create(x as u64))).collect::<Vec<Result<SecBuffer, _>>>());
+                //sink.send_all(&mut stream).await.unwrap();
 
-                    log::info!("DONE sending {} messages for {:?}", COUNT, node_type);
+                    log::info!("DONE sending {} messages for {:?}", count(), node_type);
 
                 true
+            };
+
+            let (broadcast_tx, mut broadcast_rx) = {
+                let mut write = test_container.write();
+                let broadcast_tx = write.p2p_sending_complete_tx.clone().unwrap();
+                let broadcast_rx = write.p2p_sending_complete_rx.as_mut().unwrap().pop_front().unwrap();
+                (broadcast_tx, broadcast_rx)
             };
 
             let receiver = async move {
@@ -914,7 +1049,7 @@ pub mod tests {
                             //let value = byteorder::BigEndian::read_u64(val.as_ref()) as usize;
                             assert_eq(messages_recv, val.idx as usize, "EGQ");
                             messages_recv += 1;
-                            if messages_recv >= COUNT {
+                            if messages_recv >= count() {
                                 break;
                             }
                         }
@@ -925,32 +1060,30 @@ pub mod tests {
                     }
                 }
 
-                if messages_recv >= COUNT {
-                    log::info!("DONE receiving {} messages for {:?}", COUNT, node_type);
+                let res = if messages_recv >= count() {
+                    log::info!("DONE receiving {} messages for {:?}", count(), node_type);
                     true
                 } else {
-                    log::error!("Unable to receive all messages {:?}: {}/{}", node_type, messages_recv, COUNT);
+                    log::error!("Unable to receive all messages {:?}: {}/{}", node_type, messages_recv, count());
                     false
-                }
+                };
+
+                // before dropping the channel, we want to wait for the other side to send its signal, as well as count this one's.
+                broadcast_tx.send(()).unwrap();
+                broadcast_rx.recv().await.unwrap();
+                broadcast_rx.recv().await.unwrap();
+
+                res
             };
 
             if tokio::join!(sender, receiver) == (true, true) {
                 assert(requests.lock().remove(&P2P_MESSAGE_STRESS_TEST), "KPA");
                 if node_type == NodeType::Client0 {
-                    /*let implicated_cid = {
-                        let read = test_container.read();
-                        read.cnac_client0.as_ref().unwrap().get_cid()
-                    };*/
-
                     handle_c2s_peer_channel(node_type,test_container.clone(), requests.clone(), c2s_channel.unwrap());
-                    // begin the sender
-                    tokio::time::sleep(Duration::from_millis(200)).await;
                 } else {
                     // at this point, client 1 will idle until the client/server stress test is done
                     log::info!("Client1 awaiting for group command ...");
                     assert(requests.lock().insert(GROUP_TICKET_TEST), "KPK");
-                    /*tokio::time::sleep(Duration::from_millis(1000)).await;
-                    remote.shutdown().unwrap();*/
                 }
             } else {
                 log::error!("One or more tx/rx failed for {:?}", node_type);
@@ -961,15 +1094,18 @@ pub mod tests {
 
     async fn start_client_server_stress_test(requests: Arc<Mutex<HashSet<Ticket>>>, mut sink: PeerChannelSendHalf, node_type: NodeType) {
         assert(requests.lock().insert(CLIENT_SERVER_MESSAGE_STRESS_TEST), "MV0");
-        log::info!("[Server/Client Stress Test] Starting send of {} messages [local type: {:?}]", COUNT, node_type);
+        log::info!("[Server/Client Stress Test] Starting send of {} messages [local type: {:?}]", count(), node_type);
 
-        for x in 0..COUNT {
+        //let mut stream = tokio_stream::iter((0..COUNT).map(|x| Ok(MessageTransfer::create(x as u64))).collect::<Vec<Result<SecBuffer, _>>>());
+        //sink.send_all(&mut stream).await.unwrap();
+
+        for x in 0..count() {
             sink.send(MessageTransfer::create(x as u64)).await.unwrap();
             //sink.send_unbounded(MessageTransfer::create(x as _)).unwrap();
-            tokio::time::sleep(Duration::from_millis(1)).await; // For some reason, when THIS line is added, we don't get the error of it randomly stopping ... weird
+            //tokio::time::sleep(Duration::from_micros(1000)).await; // For some reason, when THIS line is added, we don't get the error of it randomly stopping ... weird
         }
 
-        log::info!("[Server/Client Stress Test] Done sending {} messages as {:?}", COUNT, node_type)
+        log::info!("[Server/Client Stress Test] Done sending {} messages as {:?}", count(), node_type)
     }
 
     #[allow(dead_code)]
@@ -1099,7 +1235,7 @@ pub mod tests {
             let this_cid = this_cnac.get_cid();
             let this_username = this_cnac.get_username();
 
-            let mut stream = tokio_stream::iter((0..COUNT).into_iter().map(|idx| Ok((ticket, HdpServerRequest::GroupBroadcastCommand(this_cid, GroupBroadcast::Message(this_username.clone(), group_key, SecBuffer::from(&idx.to_be_bytes() as &[u8])))))));
+            let mut stream = tokio_stream::iter((0..count()).into_iter().map(|idx| Ok((ticket, HdpServerRequest::GroupBroadcastCommand(this_cid, GroupBroadcast::Message(this_username.clone(), group_key, SecBuffer::from(&idx.to_be_bytes() as &[u8])))))));
             remote.send_all(&mut stream).await.unwrap();
             log::info!("[GROUP Stress test] Client2/Host done firing messages");
             // We don't get to remove the GROUP_TICKET_TEST quite yet. We need to receive COUNT of GroupBroadcast::MessageResponse(key, true) first
@@ -1137,7 +1273,7 @@ pub mod tests {
             let client0_id = client0_cnac.get_cid();
             let target_cid = cnac.get_cid();
             let requests = read.queued_requests_client0.clone().unwrap();
-            let settings = SessionSecuritySettingsBuilder::default().with_security_level(p2p_security_level).with_secrecy_mode(SECRECY_MODE).build();
+            let settings = SessionSecuritySettingsBuilder::default().with_security_level(p2p_security_level).with_secrecy_mode(secrecy_mode()).build();
             let post_connect_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), None, None, settings));
 
             let mut remote_client0 = read.remote_client0.clone().unwrap();

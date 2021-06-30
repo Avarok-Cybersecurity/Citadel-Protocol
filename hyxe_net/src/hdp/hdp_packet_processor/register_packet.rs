@@ -1,5 +1,4 @@
 use super::includes::*;
-use std::sync::atomic::Ordering;
 use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
 use crate::error::NetworkError;
 use hyxe_crypt::argon::argon_container::{ClientArgonContainer, ArgonContainerType};
@@ -7,9 +6,11 @@ use hyxe_crypt::argon::argon_container::{ClientArgonContainer, ArgonContainerTyp
 /// This will handle an HDP registration packet
 #[inline]
 pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr) -> PrimaryProcessorResult {
-    let mut session = inner_mut!(session_ref);
-    if session.state != SessionState::NeedsRegister {
-        if session.state != SessionState::SocketJustOpened {
+    let session = session_ref;
+    let state = session.state.get();
+
+    if state != SessionState::NeedsRegister {
+        if state != SessionState::SocketJustOpened {
             log::error!("Register packet received, but the system's state is not NeedsRegister. Dropping packet");
             return PrimaryProcessorResult::Void;
         }
@@ -36,7 +37,6 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                         let account_manager = session.account_manager.clone();
 
                         std::mem::drop(state_container);
-                        std::mem::drop(session);
 
                         let reserved_true_cid = account_manager.get_persistence_handler().find_first_valid_cid(&possible_cids).await?.ok_or(NetworkError::InvalidExternalRequest("Infinitesimally small probability this happens"))?;
                         let bob_constructor = HyperRatchetConstructor::new_bob(reserved_true_cid, 0, transfer).ok_or(NetworkError::InvalidExternalRequest("Bad bob transfer"))?;
@@ -44,7 +44,7 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
 
 
                         let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, local_nid, transfer, reserved_true_cid);
-                        let session = inner!(session_ref);
+
                         let mut state_container = inner_mut!(session.state_container);
                         state_container.register_state.proposed_cid = Some(reserved_true_cid);
                         state_container.register_state.created_hyper_ratchet = Some(return_if_none!(bob_constructor.finish(), "Unable to finish bob constructor"));
@@ -60,7 +60,7 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                         state_container.register_state.on_register_packet_received();
                         std::mem::drop(state_container);
 
-                        session.state = SessionState::NeedsRegister;
+                        session.state.set(SessionState::NeedsRegister);
 
                         PrimaryProcessorResult::Void
                     }
@@ -127,19 +127,17 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                         let reserved_true_cid = return_if_none!(state_container.register_state.proposed_cid.clone(), "Unable to load proposed cid");
                         let account_manager = session.account_manager.clone();
                         std::mem::drop(state_container);
-                        std::mem::drop(session);
 
                         // we must now create the CNAC
                         match account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid, adjacent_nac, &username, password, full_name,  hyper_ratchet.clone(), stage2_packet.fcm_keys).await {
                             Ok(peer_cnac) => {
                                 log::info!("Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_id());
-                                let session = inner_mut!(session_ref);
 
                                 let success_message = session.create_register_success_message();
                                 let packet = hdp_packet_crafter::do_register::craft_success(&hyper_ratchet, algorithm, local_nid, timestamp, success_message, security_level);
 
                                 // We set this that way, once the adjacent node closes, this node won't get a propagated error message
-                                session.needs_close_message.store(false, Ordering::SeqCst);
+                                session.needs_close_message.set(false);
                                 // below was moved above
                                 //let _ = handle_client_fcm_keys(stage2_packet.fcm_keys, &peer_cnac);
 
@@ -190,7 +188,7 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                         let reg_ticket = session.kernel_ticket.clone();
                         let account_manager = session.account_manager.clone();
                         let kernel_tx = session.kernel_tx.clone();
-                        let fcm_keys = session.fcm_keys.take();
+                        let fcm_keys = session.fcm_keys.clone();
                         let needs_close_message = session.needs_close_message.clone();
                         let argon_container = ArgonContainerType::Client(ClientArgonContainer::from(return_if_none!(argon_settings, "Unable to load argon settings")));
 
@@ -201,15 +199,15 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                         match account_manager.register_personal_hyperlan_server(reserved_true_cid, hyper_ratchet, username, full_name, adjacent_nac, argon_container, fcm_keys).await {
                             Ok(new_cnac) => {
                                 // Finally, alert the higher-level kernel about the success
-                                kernel_tx.unbounded_send(HdpServerResult::RegisterOkay(reg_ticket, new_cnac, success_message))?;
+                                kernel_tx.unbounded_send(HdpServerResult::RegisterOkay(reg_ticket.get(), new_cnac, success_message))?;
                             }
 
                             Err(err) => {
-                                kernel_tx.unbounded_send(HdpServerResult::RegisterFailure(reg_ticket, err.into_string()))?;
+                                kernel_tx.unbounded_send(HdpServerResult::RegisterFailure(reg_ticket.get(), err.into_string()))?;
                             }
                         }
 
-                        needs_close_message.store(false, Ordering::Relaxed);
+                        needs_close_message.set(false);
 
                         PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: Success)")
                     } else {
@@ -228,8 +226,8 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
             // A failure can be sent at any stage greater than the zeroth
             if inner!(session.state_container).register_state.last_stage > packet_flags::cmd::aux::do_register::STAGE0 {
                 if let Some(error_message) = validation::do_register::validate_failure(header, &payload[..]) {
-                    session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, String::from_utf8(error_message).unwrap_or("Non-UTF8 error message".to_string())))?;
-                    session.needs_close_message.store(false, Ordering::SeqCst);
+                    session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket.get(), String::from_utf8(error_message).unwrap_or("Non-UTF8 error message".to_string())))?;
+                    session.needs_close_message.set(false);
                     session.shutdown();
                 } else {
                     log::error!("Error validating FAILURE packet");

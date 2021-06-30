@@ -6,13 +6,13 @@ use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet, RatchetType};
 use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus, EndpointRatchetConstructor};
-use crate::functional::IfTrueConditional;
 use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
 use crate::error::NetworkError;
 use std::collections::HashMap;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use crate::hdp::hdp_server::SecrecyMode;
-use either::Either;
+use crate::functional::IfTrueConditional;
+use std::ops::Deref;
 
 /// This will handle an inbound primary group packet
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
@@ -23,7 +23,7 @@ use either::Either;
 /// If `proxy_cid_info` is Some, then a tuple of the original implicated cid (peer cid) and the original target cid (this cid)
 /// will be provided. In this case, we must use the virtual conn's crypto
 pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
-    let mut session = inner_mut!(session_ref);
+    let session = session_ref;
 
     let HdpSessionInner {
         time_tracker,
@@ -34,9 +34,9 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
         state,
         security_settings,
         ..
-    } = & *session;
+    } = session.inner.deref();
 
-    if *state != SessionState::Connected {
+    if state.get() != SessionState::Connected {
         log::error!("Group packet dropped; session not connected");
         return PrimaryProcessorResult::Void;
     }
@@ -46,10 +46,10 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
     // that TCP_ONLY mode is engaged, in which case, the packets are funneled through here
     if cmd_aux != packet_flags::cmd::aux::group::GROUP_PAYLOAD {
         let (header, payload, _, _) = packet.decompose();
-        let cnac_sess = return_if_none!(cnac.as_ref(), "Unable to load CNAC [PGP]");
+        let ref cnac_sess = return_if_none!(cnac.get(), "Unable to load CNAC [PGP]");
 
         let timestamp = time_tracker.get_global_time_ns();
-        let tcp_only = *tcp_only;
+        let tcp_only = tcp_only.get();
 
         let mut state_container = inner_mut!(state_container);
         // get the proper pqc
@@ -87,8 +87,7 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
                                         let group_id = header.group.get();
                                         let peer_cid = header.session_cid.get();
 
-                                        session.queue_worker.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |sess| {
-                                            let mut state_container = inner_mut!(sess.state_container);
+                                        session.queue_worker.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                                             let key = GroupKey::new(peer_cid, group_id);
                                             if let Some(group) = state_container.inbound_groups.get(&key) {
                                                 if group.has_begun {
@@ -199,7 +198,13 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
                                 let target_cid = header.target_cid.get();
                                 let needs_truncate = transfer.requires_truncation();
                                 let transfer_occured = transfer.has_some();
-                                let secrecy_mode = return_if_none!(security_settings.map(|r| r.secrecy_mode).clone(), "Unable to get secrecy mode [PGP]");
+                                let secrecy_mode = return_if_none!(security_settings.get().map(|r| r.secrecy_mode).clone(), "Unable to get secrecy mode [PGP]");
+
+                                if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
+                                    // If there is a pending disconnect, we need to make sure the session gets dropped until after all packets get processed
+                                    let vconn = return_if_none!(state_container.active_virtual_connections.get(&resp_target_cid), "Vconn not loaded");
+                                    vconn.last_delivered_message_timestamp.set(Some(Instant::now()));
+                                }
 
                                 if state_container.on_group_header_ack_received(secrecy_mode, object_id, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg, cnac_sess) {
                                     //std::mem::drop(state_container);
@@ -370,7 +375,7 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
         let state_container_owned = session.state_container.clone();
         std::mem::drop(state_container);
 
-        match super::wave_group_packet::process(Either::Right(session), v_src_port, v_recv_port, &header, payload, proxy_cid_info).await {
+        match super::wave_group_packet::process(session, v_src_port, v_recv_port, &header, payload, proxy_cid_info).await {
             GroupProcessorResult::SendToKernel(_ticket, reconstructed_packet) => {
                 if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
                     // send to channel
@@ -599,7 +604,7 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
                     }
                 }
 
-                // Since alice has updated, and bob has the latest ratchet commited (but not yet able to use it), we can begin sending packets from the latest version to bob
+                // Since alice has updated, and bob has the latest ratchet committed (but not yet able to use it), we can begin sending packets from the latest version to bob
                 // in order for bob to begin using the latest version, he needs to receive the TRUNCATE_STATUS packet
                 toolset_update_method.post_stage1_alice_or_bob();
 
@@ -619,7 +624,7 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
                     }*/
                 }
             } else {
-                log::warn!("No constructor, yet, KemTransferStatus is Some??");
+                log::error!("No constructor, yet, KemTransferStatus is Some??");
                 Ok(None)
             }
         }
@@ -634,7 +639,7 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
 
                 SecrecyMode::BestEffort => {
                     //Ok(Some(toolset_update_method.get_latest_ratchet().ok_or(())?))
-                    Ok(Some(toolset_update_method.unlock(false).ok_or(())?.0))
+                    Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0))
                 }
             }
 

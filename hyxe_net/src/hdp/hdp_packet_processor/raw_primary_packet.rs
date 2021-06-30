@@ -31,15 +31,19 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
                 let _source_implicated_cid = header.session_cid.get();
                 log::info!("Proxying {}:{} packet from {} to {}", header.cmd_primary, header.cmd_aux, this_implicated_cid, target_cid);
                 // Proxy will only occur if there exists a virtual connection, in which case, we get the TcpSender (since these are primary packets)
-                let sess = inner!(session);
-                let state_container = inner!(sess.state_container);
+
+                let mut state_container = inner_mut!(session.state_container);
+                state_container.meta_expiry_state.on_event_confirmation();
+
                 if let Some(peer_vconn) = state_container.active_virtual_connections.get(&target_cid) {
+                    // Ensure that any p2p conn proxied packets (i.e., TURNed packets) can continue to traverse until any full disconnections occur
+                    peer_vconn.last_delivered_message_timestamp.set(Some(Instant::now()));
                     // into_packet is a cheap operation the freezes the internal packet; we attain zero-copy through proxying here
                     if let Err(_err) = peer_vconn.sender.as_ref().unwrap().1.unbounded_send(packet.into_packet()) {
                         log::error!("Proxy TrySendError to {}", target_cid);
                     }
                 } else {
-                    log::error!("Unable to proxy; virtual connection to {} is not alive", target_cid);
+                    log::warn!("Unable to proxy; virtual connection to {} is not alive", target_cid);
                 }
 
                 return PrimaryProcessorResult::Void
@@ -64,7 +68,7 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
         }
 
         packet_flags::cmd::primary::KEEP_ALIVE => {
-            super::keep_alive_packet::process(session, packet)
+            super::keep_alive_packet::process(session, packet).await
         }
 
         packet_flags::cmd::primary::GROUP_PACKET => {

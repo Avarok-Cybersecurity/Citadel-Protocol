@@ -26,7 +26,6 @@ import 'package:satori_ffi_parser/types/root/kernel_initiated.dart';
 
 // color: 0xFF9575CD
 
-// TODO: Fix bug where the ticket ID on the adjacent node collides with a ticket ID client-side (A uniqueness problem. May already be fixed with FcmTickets for ~100% of FCM interactions. Client/server interactions will require Tickets to have a boolean flag denoting source)
 // TODO: individual deregister + ensure SecureStorage + database wiped
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,6 +42,7 @@ void main() async {
 final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
 
 Future<void> loadInit() async {
+  BackgroundExecutor.programStartTime = DateTime.now();
   await RustSubsystem.init();
   Utils.initNotificationSubsystem();
   Utils.setupDebugListener();
