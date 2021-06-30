@@ -1,11 +1,13 @@
 use futures::stream::{SplitSink, SplitStream};
 use tokio_util::codec::{Framed, Encoder, Decoder};
 use std::ops::{Deref, DerefMut};
-use futures::{StreamExt, SinkExt};
+use futures::{StreamExt, SinkExt, Sink};
 use std::marker::PhantomData;
 use std::fmt::Debug;
 use crate::macros::ContextRequirements;
 use tokio::io::{AsyncWrite, AsyncRead};
+use std::task::{Context, Poll};
+use std::pin::Pin;
 
 pub fn clean_framed_shutdown<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements, U: Encoder<I, Error: From<std::io::Error> + Debug> + Decoder + ContextRequirements, I: ContextRequirements>(framed: Framed<S, U>)
  -> (CleanShutdownSink<S, U, I>, CleanShutdownStream<S, U, I>) {
@@ -27,6 +29,26 @@ pub struct CleanShutdownStream<S: AsyncWrite + AsyncRead + Unpin + ContextRequir
 impl<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements, U: Encoder<I, Error: From<std::io::Error> + Debug> + Decoder + ContextRequirements, I: ContextRequirements> CleanShutdownSink<S, U, I> {
     pub fn new(inner: SplitSink<Framed<S, U>, I>) -> Self {
         Self { inner: Some(inner) }
+    }
+}
+
+impl<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements, U: Encoder<I, Error: From<std::io::Error> + Debug> + Decoder + ContextRequirements, I: ContextRequirements> Sink<I> for CleanShutdownSink<S, U ,I> {
+    type Error = <U as Encoder<I>>::Error;
+
+    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.as_mut().map(Pin::new).unwrap().poll_ready(cx)
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, item: I) -> Result<(), Self::Error> {
+        self.inner.as_mut().map(Pin::new).unwrap().start_send(item)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.as_mut().map(Pin::new).unwrap().poll_flush(cx)
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.as_mut().map(Pin::new).unwrap().poll_close(cx)
     }
 }
 

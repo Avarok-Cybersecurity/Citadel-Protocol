@@ -1,6 +1,5 @@
 use super::includes::*;
 use crate::hdp::state_container::VirtualConnectionType;
-use atomic::Ordering;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::hdp::hdp_server::ConnectMode;
 use hyxe_user::backend::PersistenceHandler;
@@ -12,7 +11,7 @@ use hyxe_user::re_imports::FirebaseRTDB;
 /// This will optionally return an HdpPacket as a response if deemed necessary
 #[inline]
 pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResult {
-    let mut session = inner_mut!(sess_ref);
+    let session = sess_ref;
 
     if !session.is_provisional() {
         log::error!("Connect packet received, but the system is not in a provisional state. Dropping");
@@ -25,7 +24,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
     }
 
     // the preconnect stage loads the CNAC for us, as well as re-negotiating the keys
-    let cnac = return_if_none!(session.cnac.clone(), "Unable to load CNAC [connect]");
+    let cnac = return_if_none!(session.cnac.get(), "Unable to load CNAC [connect]");
     let (header, payload, _, _) = packet.decompose();
     let (header, payload, hyper_ratchet) = return_if_none!(validation::aead::validate(&cnac, &header, payload), "Unable to validate connect packet");
     let security_level = header.security_level.into();
@@ -36,18 +35,15 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
         // Node is Bob. Bob gets the encrypted username and password (separately encrypted)
         packet_flags::cmd::aux::do_connect::STAGE0 => {
             log::info!("STAGE 2 CONNECT PACKET");
-            std::mem::drop(session);
             match validation::do_connect::validate_stage0_packet(&cnac, &*payload).await {
                 Ok(fcm_keys) => {
-
-                    let session = inner!(sess_ref);
                     let mut state_container = inner_mut!(session.state_container);
 
                     let cid = hyper_ratchet.get_cid();
                     let success_time = session.time_tracker.get_global_time_ns();
                     let addr = session.remote_peer.clone();
                     let is_personal = !session.is_server;
-                    let kernel_ticket = session.kernel_ticket.clone();
+                    let kernel_ticket = session.kernel_ticket.get();
 
                     // transmit peers to synchronize
 
@@ -69,12 +65,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                     //cnac.spawn_save_task_on_threadpool();
                     // register w/ peer layer, get mail in the process
                     let mailbox_items = session.session_manager.register_session_with_peer_layer(cid);
-
-                    let sess_ref = sess_ref.clone();
                     let account_manager = session.account_manager.clone();
-
-                    std::mem::drop(session);
-
 
                     // Now, we handle the FCM setup
                     let _ = handle_client_fcm_keys(fcm_keys, &cnac, account_manager.get_persistence_handler()).await?;
@@ -83,11 +74,10 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                     let fcm_packets = cnac.retrieve_raw_fcm_packets().await?;
 
-                    let mut session = inner_mut!(sess_ref);
                     let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, fcm_packets, post_login_object.clone(), session.create_welcome_message(cid), peers, success_time, security_level);
 
                     session.implicated_cid.set(Some(cid));
-                    session.state = SessionState::Connected;
+                    session.state.set(SessionState::Connected);
 
                     let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
                     session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel))?;
@@ -108,7 +98,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
         packet_flags::cmd::aux::do_connect::FAILURE => {
             log::info!("STAGE FAILURE CONNECT PACKET");
-            let kernel_ticket = session.kernel_ticket.clone();
+            let kernel_ticket = session.kernel_ticket.get();
 
             let mut state_container = inner_mut!(session.state_container);
             if let Some(payload) = validation::do_connect::validate_final_status_packet(&*payload) {
@@ -121,8 +111,9 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                 //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
 
                 session.implicated_cid.set(None);
-                session.state = SessionState::NeedsConnect;
-                session.needs_close_message.store(false, Ordering::SeqCst);
+                session.state.set(SessionState::NeedsConnect);
+                session.needs_close_message.set(false);
+
                 session.send_to_kernel(HdpServerResult::ConnectFail(kernel_ticket, Some(cid), message))?;
                 PrimaryProcessorResult::EndSession("Failed connecting. Retry again")
             } else {
@@ -141,7 +132,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                 if let Some(payload) = validation::do_connect::validate_final_status_packet(&*payload) {
                     let cnac = cnac.clone();
                     let message = String::from_utf8(payload.message.to_vec()).unwrap_or(String::from("Invalid message"));
-                    let kernel_ticket = session.kernel_ticket;
+                    let kernel_ticket = session.kernel_ticket.get();
                     let cid = hyper_ratchet.get_cid();
 
                     log::info!("The login to the server was a success. Welcome Message: {}", &message);
@@ -181,9 +172,8 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                     let persistence_handler = session.account_manager.get_persistence_handler().clone();
                     //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
-                    let fcm_keys = session.fcm_keys.take();
-                    session.state = SessionState::Connected;
-                    std::mem::drop(session);
+                    let fcm_keys = session.fcm_keys.clone();
+                    session.state.set(SessionState::Connected);
 
                     // TODO: Clean this up to prevent multiple saves
                     let _ = handle_client_fcm_keys(fcm_keys, &cnac, &persistence_handler).await?;

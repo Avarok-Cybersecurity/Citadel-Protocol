@@ -5,7 +5,7 @@ use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{Ordering, AtomicU64};
 use std::task::{Context, Poll};
 
 use futures::{Sink, StreamExt};
@@ -27,11 +27,11 @@ use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::external_services::fcm::data_structures::RawFcmPacketStore;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 
-use crate::constants::{DEFAULT_SO_LINGER_TIME, NTP_RESYNC_FREQUENCY, TCP_CONN_TIMEOUT, MAX_OUTGOING_UNPROCESSED_REQUESTS};
+use crate::constants::{DEFAULT_SO_LINGER_TIME, TCP_CONN_TIMEOUT, MAX_OUTGOING_UNPROCESSED_REQUESTS};
 use crate::error::NetworkError;
 use crate::functional::PairMap;
 use crate::hdp::file_transfer::FileTransferStatus;
-use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
+use crate::hdp::hdp_packet_processor::includes::Duration;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::hdp::hdp_session::HdpSessionInitMode;
 use crate::hdp::hdp_session_manager::HdpSessionManager;
@@ -45,6 +45,7 @@ use crate::kernel::RuntimeFuture;
 use tokio::io::AsyncReadExt;
 use hyxe_fs::io::SyncIO;
 use hyxe_user::external_services::PostLoginObject;
+use futures::channel::mpsc::TrySendError;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -97,7 +98,7 @@ impl HdpServer {
 
         info!("HdpServer established on {}", local_bind_addr);
 
-        let time_tracker = TimeTracker::new().await?;
+        let time_tracker = TimeTracker::new();
         let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone());
         let inner = HdpServerInner {
             underlying_proto,
@@ -262,10 +263,10 @@ impl HdpServer {
 
         let (p2p_listener, _stream_bind_addr) = if stream_bind_addr.is_ipv4() {
             let ref builder = net2::TcpBuilder::new_v4()?;
-            Self::bind_defaults(listener_underlying_proto, builder, stream_bind_addr, 16)?
+            Self::bind_defaults(listener_underlying_proto, builder, stream_bind_addr, 1024)?
         } else {
             let builder = net2::TcpBuilder::new_v6()?;
-            Self::bind_defaults(listener_underlying_proto,builder.only_v6(false)?, stream_bind_addr, 16)?
+            Self::bind_defaults(listener_underlying_proto,builder.only_v6(false)?, stream_bind_addr, 1024)?
         };
         Self::open_tcp_port(stream_bind_addr.port());
 
@@ -295,6 +296,7 @@ impl HdpServer {
             let stream = tokio::net::TcpStream::from_std(std_stream)?;
             //stream.set_linger(Some(tokio::time::Duration::from_secs(0)))?;
             stream.set_linger(Some(DEFAULT_SO_LINGER_TIME))?;
+            //stream.set_nodelay(true)?;
             //stream.set_keepalive(None)?;
 
             Ok(stream) as std::io::Result<tokio::net::TcpStream>
@@ -352,26 +354,28 @@ impl HdpServer {
     /// In personal mode, if a new connection needs to be forged with another node, then a new SO_REUSE socket
     /// will need to be created that is bound to the local primary port and connected to the adjacent hypernode's
     /// primary port. That socket will be created in the underlying HdpSessionManager during the connection process
-    async fn listen_primary(server: HdpServer, tt: TimeTracker, to_kernel: UnboundedSender<HdpServerResult>) -> Result<(), NetworkError> {
-        let (primary_port_future, tt_updater_future) = {
+    async fn listen_primary(server: HdpServer, _tt: TimeTracker, to_kernel: UnboundedSender<HdpServerResult>) -> Result<(), NetworkError> {
+        let primary_port_future= {
             let mut this = inner_mut!(server);
             let socket = this.primary_socket.take().unwrap();
             let session_manager = this.session_manager.clone();
             std::mem::drop(this);
             let primary_port_future = spawn_handle!(Self::primary_session_creator_loop(to_kernel, session_manager, socket));
-            let tt_updater_future = spawn_handle!(Self::time_tracker_updater(tt));
+            //let tt_updater_future = spawn_handle!(Self::time_tracker_updater(tt));
             // If the timer detects that the server is shutdown, it will return an error, thus causing the try_join to end the future
-            (primary_port_future, tt_updater_future)
+            primary_port_future
         };
 
+        /*
         let res = tokio::select! {
             res = primary_port_future => res,
             res1 = tt_updater_future => res1
-        };
+        };*/
 
-        res.map_err(|err| NetworkError::Generic(err.to_string()))?
+        primary_port_future.await.map_err(|err| NetworkError::Generic(err.to_string()))?
     }
 
+    /*
     #[allow(unused_results)]
     async fn time_tracker_updater(tt: TimeTracker) -> Result<(), NetworkError> {
         let mut iter = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval_at(Instant::now() + NTP_RESYNC_FREQUENCY, NTP_RESYNC_FREQUENCY));
@@ -382,7 +386,7 @@ impl HdpServer {
         }
 
         Ok(())
-    }
+    }*/
 
 
     async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, mut socket: GenericNetworkListener) -> Result<(), NetworkError> {
@@ -438,7 +442,9 @@ impl HdpServer {
         };
 
         let send_error = |ticket_id: Ticket, err: NetworkError| {
-            if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.into_string())) {
+            let err = err.into_string();
+            if let Err(_) = to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket_id), err.clone())) {
+                log::error!("TO_KERNEL_TX Error: {:?}", err);
                 return Err(NetworkError::InternalError("kernel disconnected from hypernode instance"));
             } else {
                 Ok(())
@@ -522,7 +528,7 @@ impl HdpServer {
 #[derive(Clone)]
 pub struct HdpServerRemote {
     outbound_send_request_tx: BoundedSender<(HdpServerRequest, Ticket)>,
-    ticket_counter: Arc<AtomicUsize>,
+    ticket_counter: Arc<AtomicU64>,
 }
 
 impl Debug for HdpServerRemote {
@@ -535,7 +541,7 @@ impl HdpServerRemote {
     /// Creates a new [HdpServerRemote]
     pub fn new(outbound_send_request_tx: BoundedSender<(HdpServerRequest, Ticket)>) -> Self {
         // starts at 1. Ticket 0 is for reserved
-        Self { ticket_counter: Arc::new(AtomicUsize::new(1)), outbound_send_request_tx }
+        Self { ticket_counter: Arc::new(AtomicU64::new(1)), outbound_send_request_tx }
     }
 
     /// Especially used to keep track of a conversation (b/c a certain ticket number may be expected)
@@ -573,14 +579,23 @@ impl HdpServerRemote {
         let _ = self.send(HdpServerRequest::Shutdown).await?;
 
         futures::future::poll_fn(|cx| {
-            let mut this = &mut self.outbound_send_request_tx;
-            let this = Pin::new(&mut this);
+            let this = &mut self.outbound_send_request_tx;
+            let this = Pin::new(this);
             this.poll_close(cx).map_err(|err| NetworkError::Generic(err.to_string()))
         }).await
     }
 
     pub fn get_next_ticket(&self) -> Ticket {
-        Ticket(self.ticket_counter.fetch_add(1, Ordering::Relaxed) as u64)
+        self.ticket_counter.fetch_add(1, Ordering::SeqCst).into()
+    }
+
+    pub fn try_send_with_custom_ticket(&mut self, ticket: Ticket, request: HdpServerRequest) -> Result<(), TrySendError<(HdpServerRequest, Ticket)>> {
+        self.outbound_send_request_tx.try_send((request, ticket))
+    }
+
+    pub fn try_send(&mut self, request: HdpServerRequest) -> Result<(), TrySendError<(HdpServerRequest, Ticket)>> {
+        let ticket = self.get_next_ticket();
+        self.outbound_send_request_tx.try_send((request, ticket))
     }
 }
 

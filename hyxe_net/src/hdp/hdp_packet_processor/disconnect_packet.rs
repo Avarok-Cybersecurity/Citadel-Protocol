@@ -4,15 +4,13 @@ use super::includes::*;
 /// Stage 1: Bob sends Alice an FINAL, whereafter Alice may disconnect
 #[inline]
 pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResult {
-    let mut session = inner_mut!(session);
-
-    if session.state != SessionState::Connected {
+    if session.state.get() != SessionState::Connected {
         log::error!("disconnect packet received, but session state is not connected. Dropping");
         return PrimaryProcessorResult::Void;
     }
 
 
-    let cnac = session.cnac.as_ref()?;
+    let ref cnac = session.cnac.get()?;
     let (header, payload, _, _) = packet.decompose();
     let (header, _, hyper_ratchet) = validation::aead::validate(cnac, &header, payload)?;
     let ticket = header.context_info.get().into();
@@ -28,8 +26,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
 
             packet_flags::cmd::aux::do_disconnect::FINAL => {
                 log::info!("STAGE 1 DISCONNECT PACKET RECEIVED (ticket: {})", ticket);
-                session.kernel_ticket = ticket;
-                session.state = SessionState::Disconnected;
+                session.kernel_ticket.set(ticket);
+                session.state.set(SessionState::Disconnected);
                 PrimaryProcessorResult::EndSession("Successfully disconnected")
             }
 

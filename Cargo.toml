@@ -17,3 +17,6 @@ members = [
 exclude = [
     "./target/*"
 ]
+
+[profile.dev]
+panic = "abort"

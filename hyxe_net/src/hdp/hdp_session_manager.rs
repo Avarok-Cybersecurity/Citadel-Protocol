@@ -25,7 +25,7 @@ use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, GroupMemberAlterMode, MemberState};
 use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
 use crate::hdp::hdp_server::{ConnectMode, HdpServer, HdpServerRemote, HdpServerRequest, HdpServerResult, Ticket, UnderlyingProtocol};
-use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode, HdpSessionInner};
+use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode};
 use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::outbound_sender::{Sender, unbounded, UnboundedReceiver, UnboundedSender};
@@ -33,7 +33,6 @@ use crate::hdp::outbound_sender::{OutboundTcpSender, OutboundUdpSender};
 use crate::hdp::peer::message_group::MessageGroupKey;
 use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal};
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
-use crate::inner_arg::ExpectedInnerTarget;
 use crate::macros::{ContextRequirements, SyncContextRequirements};
 use hyxe_user::prelude::ConnectProtocol;
 
@@ -262,15 +261,15 @@ impl HdpSessionManager {
 
         let sess_mgr = inner!(session_manager);
         // the final step is to take all virtual conns inside the session, and remove them from other sessions
-        let sess = inner!(new_session);
+        let sess = new_session;
 
-        if let Some(cnac) = sess.cnac.as_ref() {
+        if let Some(cnac) = sess.cnac.get() {
             // we do not need to save here. When the ratchet is reloaded, it will be zeroed out anyways.
             // the only reason we call this is to ensure that FCM packets that get protected on their way out
             // don't cause false-positives on the anti-replay-attack container
             // Especially needed for FCM
             // The only time the static HR won't get refreshed if a lingering connection gets cleaned-up
-            if sess.do_static_hr_refresh_atexit {
+            if sess.do_static_hr_refresh_atexit.get() {
                 let _ = cnac.refresh_static_hyper_ratchet();
             }
         }
@@ -284,7 +283,7 @@ impl HdpSessionManager {
             if let Some(implicated_cid) = sess.implicated_cid.get() {
                 sess_mgr.hypernode_peer_layer.on_session_shutdown(implicated_cid);
                 let timestamp = sess.time_tracker.get_global_time_ns();
-                let security_level = sess.security_settings.clone().map(|r| r.security_level).unwrap_or(SecurityLevel::LOW);
+                let security_level = sess.security_settings.get().map(|r| r.security_level).unwrap_or(SecurityLevel::LOW);
                 let mut state_container = inner_mut!(sess.state_container);
 
                 state_container.active_virtual_connections.drain().for_each(|(peer_id, vconn)| {
@@ -306,7 +305,7 @@ impl HdpSessionManager {
                                     }
 
                                     if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
-                                        let peer_sess = inner!(peer_sess.1);
+                                        let ref peer_sess = peer_sess.1;
                                         let mut peer_state_container = inner_mut!(peer_sess.state_container);
                                         if let None = peer_state_container.active_virtual_connections.remove(&implicated_cid) {
                                             log::warn!("While dropping session {}, attempted to remove vConn to {}, but peer did not have the vConn listed. Report to developers", implicated_cid, peer_cid);
@@ -408,7 +407,7 @@ impl HdpSessionManager {
         let implicated_cid = virtual_target.get_implicated_cid();
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
-            let sess = inner!(sess.1);
+            let ref sess = sess.1;
             let timestamp = sess.time_tracker.get_global_time_ns();
             let mut state_container = inner_mut!(sess.state_container);
             sess.initiate_drill_update(timestamp, virtual_target, &mut wrap_inner_mut!(state_container), Some(ticket))
@@ -421,7 +420,7 @@ impl HdpSessionManager {
     pub fn initiate_deregistration_subroutine(&self, implicated_cid: u64, connection_type: VirtualConnectionType, ticket: Ticket) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&implicated_cid) {
-            let sess = inner!(sess.1);
+            let ref sess = sess.1;
             sess.initiate_deregister(connection_type, ticket)
         } else {
             Err(NetworkError::Generic(format!("Unable to initiate deregister subroutine for {} (not an active session)", implicated_cid)))
@@ -475,8 +474,8 @@ impl HdpSessionManager {
                 // then return true to allow the new connection to proceed instead of returning false
                 // due to overlapping connection
                 log::warn!("Cleaned up lingering session for {}", implicated_cid);
-                let mut prev_conn = inner_mut!(lingering_conn.1);
-                prev_conn.do_static_hr_refresh_atexit = false;
+                let ref prev_conn = lingering_conn.1;
+                prev_conn.do_static_hr_refresh_atexit.set(false);
             }
 
             true
@@ -711,7 +710,7 @@ impl HdpSessionManager {
     pub fn route_packet_to_primary_stream(&self, cid: u64, ticket_opt: Option<Ticket>, packet: BytesMut) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
-            let sess = inner!(sess.1);
+            let ref sess = sess.1;
             sess.send_to_primary_stream(ticket_opt, packet).is_ok()
         } else {
             false
@@ -723,9 +722,9 @@ impl HdpSessionManager {
     pub fn send_signal_to_peer(&self, target_cid: u64, ticket: Ticket, signal: PeerSignal, timestamp: i64, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&target_cid) {
-            let sess = inner!(sess.1);
+            let ref sess = sess.1;
             if let Some(to_primary_stream) = sess.to_primary_stream.as_ref() {
-                if let Some(cnac) = sess.cnac.as_ref() {
+                if let Some(cnac) = sess.cnac.get() {
                     return cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
                         if let Some(hyper_ratchet) = hyper_ratchet_opt {
                             let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
@@ -745,7 +744,7 @@ impl HdpSessionManager {
     pub fn get_handle_to_udp_sender(&self, cid: u64) -> Option<OutboundUdpSender> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
-            let sess = inner!(sess.1);
+            let ref sess = sess.1;
             let state_container = inner!(sess.state_container);
             state_container.udp_sender.clone()
         } else {
@@ -757,7 +756,7 @@ impl HdpSessionManager {
     pub fn get_handle_to_tcp_sender(&self, cid: u64) -> Option<OutboundTcpSender> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
-            let sess = inner!(sess.1);
+            let ref sess = sess.1;
             sess.to_primary_stream.clone()
         } else {
             None
@@ -769,7 +768,7 @@ impl HdpSessionManager {
     pub fn get_tcp_udp_senders(&self, cid: u64) -> Option<(OutboundTcpSender, OutboundUdpSender)> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
-            let sess = inner!(sess.1);
+            let ref sess = sess.1;
             let tcp_sender = sess.to_primary_stream.clone()?;
             let state_container = inner!(sess.state_container);
             let udp_sender = state_container.udp_sender.clone()?;
@@ -787,11 +786,15 @@ impl HdpSessionManager {
 
     /// Removes a virtual connection `implicated_cid` from `peer_cid`
     pub fn disconnect_virtual_conn(&self, implicated_cid: u64, peer_cid: u64, on_internal_disconnect: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), String> {
+        if implicated_cid == peer_cid {
+            return Err("Implicated CID cannot equal peer cid".to_string())
+        }
+
         let this = inner!(self);
         if let Some(peer_sess) = this.sessions.get(&peer_cid) {
-            let sess = inner!(peer_sess.1);
+            let ref sess = peer_sess.1;
             let to_primary = sess.to_primary_stream.as_ref().unwrap();
-            let peer_cnac = sess.cnac.as_ref().unwrap();
+            let peer_cnac = sess.cnac.get().unwrap();
 
             let mut state_container = inner_mut!(sess.state_container);
             if state_container.active_virtual_connections.remove(&implicated_cid).is_some() {
@@ -809,10 +812,10 @@ impl HdpSessionManager {
                     Err("Unable to obtain peer drill".to_string())
                 }
             } else {
-                Err(format!("Peer {} already internally disconnected from {}", peer_cid, implicated_cid))
+                Ok(())
             }
         } else {
-            Err(format!("Peer {}'s session is disconnected", peer_cid))
+            Ok(())
         }
     }
 
@@ -834,9 +837,9 @@ impl HdpSessionManager {
             // get the target cid's session
             if let Some(sess) = this.sessions.get(&target_cid) {
                 this.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout);
-                let sess_ref = inner!(sess.1);
+                let ref sess_ref = sess.1;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
-                let peer_cnac = sess_ref.cnac.as_ref().unwrap();
+                let peer_cnac = sess_ref.cnac.get().unwrap();
 
                 peer_cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
                     if let Some(peer_latest_hyper_ratchet) = hyper_ratchet_opt {
@@ -900,16 +903,16 @@ impl HdpSessionManagerInner {
     /// Also returns the [TrackedPosting] that was posted when the signal initially crossed through
     /// the HyperLAN Server
     #[inline]
-    pub fn route_signal_response_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, packet: impl FnOnce(&HyperRatchet) -> BytesMut, post_send: impl FnOnce(&dyn ExpectedInnerTarget<HdpSessionInner>, PeerSignal) -> PrimaryProcessorResult) -> Result<PrimaryProcessorResult, String> {
+    pub fn route_signal_response_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, packet: impl FnOnce(&HyperRatchet) -> BytesMut, post_send: impl FnOnce(&HdpSession, PeerSignal) -> PrimaryProcessorResult) -> Result<PrimaryProcessorResult, String> {
         // Instead of checking for registration, check the `implicated_cid`'s timed queue for a ticket corresponding to Ticket.
         if let Some(tracked_posting) = self.hypernode_peer_layer.remove_tracked_posting(target_cid, ticket) {
             // since the posting was valid, we just need to forward the signal to `implicated_cid`
             if let Some(target_sess) = self.sessions.get(&target_cid) {
                 //let ret = target_sess.clone();
 
-                let sess_ref = inner!(target_sess.1);
+                let ref sess_ref = target_sess.1;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
-                let peer_cnac = sess_ref.cnac.as_ref().unwrap();
+                let peer_cnac = sess_ref.cnac.get().unwrap();
 
                 peer_cnac.borrow_hyper_ratchet(None, |peer_latest_hyper_ratchet_opt| {
                     if let Some(peer_latest_hyper_ratchet) = peer_latest_hyper_ratchet_opt {
@@ -934,9 +937,9 @@ impl HdpSessionManagerInner {
     // for use by the server. This skips the whole ticket-tracking processes intermediate to the routing above
     pub fn send_signal_to_peer_direct(&self, target_cid: u64, packet: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), NetworkError> {
         if let Some(peer_sess) = self.sessions.get(&target_cid) {
-            let peer_sess = inner!(peer_sess.1);
+            let ref peer_sess = peer_sess.1;
             let peer_sender = peer_sess.to_primary_stream.as_ref().ok_or_else(|| NetworkError::InternalError("Peer stream absent"))?;
-            let peer_cnac = peer_sess.cnac.as_ref().ok_or_else(|| NetworkError::InternalError("Peer CNAC absent"))?;
+            let peer_cnac = peer_sess.cnac.get().ok_or_else(|| NetworkError::InternalError("Peer CNAC absent"))?;
 
             peer_cnac.borrow_hyper_ratchet(None, |latest_peer_hr_opt| {
                 if let Some(peer_latest_hr) = latest_peer_hr_opt {

@@ -4,30 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::misc::CryptError;
 use std::ops::RangeInclusive;
-use crate::hyper_ratchet::{get_approx_bytes_per_hyper_ratchet, Ratchet, HyperRatchet};
+use crate::hyper_ratchet::{Ratchet, HyperRatchet};
 
-/// The maximum amount of memory per toolset in RAM is 300kb
-pub const MAX_TOOLSET_MEMORY_BYTES: usize = 1024 * 120;
 /// Returns the max number of drill that can be stored in memory
-pub const MAX_HYPER_RATCHETS_IN_MEMORY: usize = calculate_max_hyper_ratchets();
-///
-const MAX_NEEDED_HYPER_RATCHETS_IN_MEMORY: usize = 6;
-/// According to [Equation 1] in drill.rs, the formula to calculate the number of bytes
-/// in memory from the encryption pairs alone is 31(s*p_r). Thus, to calculate the max
-/// number of drills, we need to take the floor of MAX_TOOLSET_MEMORY_BYTES/(31(s*p_r))
-/// where 31(s*p_r) == BYTES_PER_3D_ARRAY
-const fn calculate_max_hyper_ratchets() -> usize {
-    let val = (MAX_TOOLSET_MEMORY_BYTES / get_approx_bytes_per_hyper_ratchet()) as isize - 1;
-    if val > 0 {
-        if val > MAX_NEEDED_HYPER_RATCHETS_IN_MEMORY as isize {
-             MAX_NEEDED_HYPER_RATCHETS_IN_MEMORY
-        } else {
-            val as usize
-        }
-    } else {
-        1
-    }
-}
+#[cfg(debug_assertions)]
+pub const MAX_HYPER_RATCHETS_IN_MEMORY: usize = 6;
+#[cfg(not(debug_assertions))]
+pub const MAX_HYPER_RATCHETS_IN_MEMORY: usize = 100;
 
 /// The [Toolset] is the layer of abstraction between a [ClientNetworkAccount] and the
 /// inner hyper ratchets.

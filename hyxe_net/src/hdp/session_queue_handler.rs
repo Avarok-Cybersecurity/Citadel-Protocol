@@ -4,15 +4,16 @@ use std::pin::Pin;
 use tokio_util::time::{delay_queue, DelayQueue};
 use tokio::time::error::Error;
 use std::collections::HashMap;
-use crate::hdp::hdp_session::{HdpSession, HdpSessionInner, SessionState, WeakHdpSessionBorrow};
+use crate::hdp::hdp_session::SessionState;
 use crate::hdp::hdp_packet_processor::includes::Duration;
-use crate::inner_arg::InnerParameterMut;
-use crate::macros::{SessionBorrow, ContextRequirements};
+use crate::macros::{ContextRequirements, OwnedWriteGuard, WeakBorrowType};
 use crate::error::NetworkError;
 use crate::hdp::outbound_sender::Sender;
 
 #[cfg(feature = "multi-threaded")]
 use futures::task::AtomicWaker;
+use crate::hdp::state_container::{StateContainerInner, StateContainer};
+use crate::hdp::misc::dual_rwlock::DualRwLock;
 
 /// any index below 10 are reserved for the session. Inbound GROUP timeouts will begin at 10 or high
 pub const QUEUE_WORKER_RESERVED_INDEX: usize = 10;
@@ -31,13 +32,11 @@ pub struct SessionQueueWorker {
     waker: std::sync::Arc<AtomicWaker>,
 }
 
-pub trait QueueFunction: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements {}
+pub trait QueueFunction: Fn(&mut OwnedWriteGuard<StateContainerInner>) -> QueueWorkerResult + ContextRequirements {}
+pub trait QueueOneshotFunction: Fn(&mut OwnedWriteGuard<StateContainerInner>) + ContextRequirements {}
 
-pub trait QueueOneshotFunction: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) + ContextRequirements {}
-
-impl<T: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements> QueueFunction for T {}
-
-impl<T: Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) + ContextRequirements> QueueOneshotFunction for T {}
+impl<T: Fn(&mut OwnedWriteGuard<StateContainerInner>) -> QueueWorkerResult + ContextRequirements> QueueFunction for T {}
+impl<T: Fn(&mut OwnedWriteGuard<StateContainerInner>) + ContextRequirements> QueueOneshotFunction for T {}
 
 #[cfg(not(feature = "multi-threaded"))]
 #[derive(Clone)]
@@ -63,7 +62,7 @@ macro_rules! unlock {
 pub struct SessionQueueWorkerInner {
     entries: HashMap<QueueWorkerTicket, (Box<dyn QueueFunction>, delay_queue::Key, Duration)>,
     expirations: DelayQueue<QueueWorkerTicket>,
-    session: Option<WeakHdpSessionBorrow>,
+    state_container: Option<WeakBorrowType<StateContainerInner>>,
     sess_shutdown: Sender<()>,
     // keeps track of how many items have been added
     rolling_idx: usize,
@@ -87,14 +86,14 @@ impl SessionQueueWorker {
     pub fn new(sess_shutdown: Sender<()>) -> Self {
         let waker = std::sync::Arc::new(AtomicWaker::new());
         //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
-        Self { waker, inner: std::sync::Arc::new(parking_lot::Mutex::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::new(), expirations: DelayQueue::new(), session: None })) }
+        Self { waker, inner: std::sync::Arc::new(parking_lot::Mutex::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::new(), expirations: DelayQueue::new(), state_container: None })) }
     }
 
     #[cfg(not(feature = "multi-threaded"))]
     pub fn new(sess_shutdown: Sender<()>) -> Self {
         let waker = std::rc::Rc::new(std::cell::RefCell::new(None));
         //Self::from(SessionQueueWorkerInner { rolling_idx: 0, entries: HashMap::with_hasher(NoHash(0)), expirations: DelayQueue::new(), waker: Arc::new(AtomicWaker::new()), session: None })
-        Self { waker, inner: std::rc::Rc::new(std::cell::RefCell::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::new(), expirations: DelayQueue::new(), session: None })) }
+        Self { waker, inner: std::rc::Rc::new(std::cell::RefCell::new(SessionQueueWorkerInner { sess_shutdown, rolling_idx: 0, entries: HashMap::new(), expirations: DelayQueue::new(), state_container: None })) }
     }
 
     pub fn signal_shutdown(&self) {
@@ -106,18 +105,18 @@ impl SessionQueueWorker {
     }
 
     /// MUST be called when a session's timer subroutine begins!
-    pub fn load_session(&self, session: &HdpSession) {
+    pub fn load_session(&self, state_container: StateContainer) {
         let mut this = unlock!(self);
-        this.session = Some(session.as_weak());
+        this.state_container = Some(state_container.inner.as_weak());
     }
 
     /// Inserts a reserved system process. We now spawn this as a task to prevent deadlocking
     #[allow(unused_results)]
-    pub fn insert_reserved(&self, key: Option<QueueWorkerTicket>, timeout: Duration, on_timeout: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements) {
-        let this_ref = self.clone();
-        spawn!(async move {
+    pub fn insert_reserved(&self, key: Option<QueueWorkerTicket>, timeout: Duration, on_timeout: impl Fn(&mut OwnedWriteGuard<StateContainerInner>) -> QueueWorkerResult + ContextRequirements) {
+        //let this_ref = self.clone();
+        //spawn!(async move {
             //tokio::task::yield_now().await;
-            let mut this = unlock!(this_ref);
+            let mut this = unlock!(self);
             // the zero in the default unwrap ensures that the key is going to be unique
             let key = key.unwrap_or(QueueWorkerTicket::Oneshot(this.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1, RESERVED_CID_IDX));
             let delay = this.expirations
@@ -131,12 +130,12 @@ impl SessionQueueWorker {
 
             std::mem::drop(this);
             // may not be registered yet
-            this_ref.wake();
-        });
+            //self.wake();
+        //});
     }
 
     /// A conveniant way to check on a task once sometime in the future
-    pub fn insert_oneshot(&self, call_in: Duration, on_call: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) + ContextRequirements) {
+    pub fn insert_oneshot(&self, call_in: Duration, on_call: impl Fn(&mut OwnedWriteGuard<StateContainerInner>) + ContextRequirements) {
         self.insert_reserved(None, call_in, move |sess| {
             (on_call)(sess);
             QueueWorkerResult::Complete
@@ -144,7 +143,7 @@ impl SessionQueueWorker {
     }
 
     /// factors-in the offset
-    pub fn insert_ordinary(&self, idx: usize, target_cid: u64, timeout: Duration, on_timeout: impl Fn(&mut InnerParameterMut<SessionBorrow, HdpSessionInner>) -> QueueWorkerResult + ContextRequirements) {
+    pub fn insert_ordinary(&self, idx: usize, target_cid: u64, timeout: Duration, on_timeout: impl Fn(&mut OwnedWriteGuard<StateContainerInner>) -> QueueWorkerResult + ContextRequirements) {
         self.insert_reserved(Some(QueueWorkerTicket::Periodic(idx + QUEUE_WORKER_RESERVED_INDEX, target_cid)), timeout, on_timeout)
     }
 
@@ -161,6 +160,7 @@ impl SessionQueueWorker {
             }
     }
 
+    #[allow(dead_code)]
     fn wake(&self) {
         #[cfg(feature = "multi-threaded")]
             {
@@ -183,9 +183,9 @@ impl SessionQueueWorker {
 
         let mut this = unlock!(self);
 
-        if let Some(sess) = HdpSession::upgrade_weak(this.session.as_ref().unwrap()) {
-            let mut sess = inner_mut!(sess);
-            if sess.state != SessionState::Disconnected {
+        if let Some(sess) = DualRwLock::upgrade(this.state_container.as_ref().unwrap()) {
+            let mut state_container = inner_mut!(sess);
+            if state_container.state.get() != SessionState::Disconnected {
                 while let Some(res) = futures::ready!(this.expirations.poll_expired(cx)) {
                     let entry: QueueWorkerTicket = res?.into_inner();
                     //log::info!("POLL_EXPIRED: {:?}", &entry);
@@ -193,7 +193,7 @@ impl SessionQueueWorker {
                         QueueWorkerTicket::Oneshot(_, _) => {
                             // already removed from expiration; now, just remove from hashmap
                             let (fx, _, _) = this.entries.remove(&entry).unwrap();
-                            match (fx)(&mut wrap_inner_mut!(sess)) {
+                            match (fx)(&mut state_container) {
                                 QueueWorkerResult::EndSession => {
                                     return Poll::Ready(Err(Error::shutdown()));
                                 }
@@ -205,7 +205,7 @@ impl SessionQueueWorker {
                         QueueWorkerTicket::Periodic(_, _) => {
                             let (fx, _key, duration) = this.entries.get(&entry).unwrap();
 
-                            let next_key = match (fx)(&mut wrap_inner_mut!(sess)) {
+                            let next_key = match (fx)(&mut state_container) {
                                 QueueWorkerResult::Complete => {
                                     // nothing to do here since already removed entry
                                     //this.expirations.remove(&key2);
@@ -213,7 +213,7 @@ impl SessionQueueWorker {
                                     // the below line was to fix a bug where the queue wouldn't be polled if ANY
                                     // task returned Complete
                                     std::mem::drop(this);
-                                    std::mem::drop(sess);
+                                    std::mem::drop(state_container);
                                     self.wake();
                                     return Poll::Pending;
                                 }
@@ -232,6 +232,7 @@ impl SessionQueueWorker {
                                     // since we re-inserted the item, we need to schedule it to be awaken again
                                 }
                             };
+
                             let (_fx, key, _duration) = this.entries.get_mut(&entry).unwrap();
                             *key = next_key;
                         }

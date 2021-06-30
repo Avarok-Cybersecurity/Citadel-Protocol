@@ -19,7 +19,7 @@ pub mod prelude {
     pub use ez_pqcrypto::{algorithm_dictionary, bytes_in_place::EzBuffer, PostQuantumContainer};
 
     pub use crate::drill::{Drill, SecurityLevel};
-    pub use crate::drill_algebra::PacketVector;
+    pub use crate::packet_vector::PacketVector;
     pub use crate::misc::CryptError;
     pub use crate::sec_bytes::SecBuffer;
     pub use crate::sec_string::SecString;
@@ -35,8 +35,8 @@ pub mod toolset;
 /// Organizes the different types of drills that can be used. Currently, there is only one: The Standard Drill
 pub mod drill;
 
-/// Contains the fundamental operations across custom rings;
-pub mod drill_algebra;
+/// For endowing packets with coordinates
+pub mod packet_vector;
 
 /// Contains the subroutines for network-related functionality
 pub mod net;
