@@ -112,6 +112,7 @@ impl Stream for GenericNetworkListener {
                 match futures::ready!(listener.poll_accept(cx)) {
                     Ok((stream, addr)) => {
                         let mut stream = stream.into_std()?;
+                        stream.set_nonblocking(false)?;
                         let _ = stream.write(&FirstPacket::Tcp.serialize_to_vector().unwrap())?;
                         stream.set_nonblocking(true)?;
 

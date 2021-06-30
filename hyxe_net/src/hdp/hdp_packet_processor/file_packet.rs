@@ -3,14 +3,13 @@ use crate::hdp::hdp_server::Ticket;
 use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 
 pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
-    let session = inner!(session);
-    if session.state != SessionState::Connected {
+    if session.state.get() != SessionState::Connected {
         return PrimaryProcessorResult::Void
     }
 
     let (header, payload, _, _) = packet.decompose();
 
-    let cnac_sess = session.cnac.as_ref()?;
+    let ref cnac_sess = session.cnac.get()?;
     let timestamp = session.time_tracker.get_global_time_ns();
     let mut state_container = inner_mut!(session.state_container);
     // get the proper pqc

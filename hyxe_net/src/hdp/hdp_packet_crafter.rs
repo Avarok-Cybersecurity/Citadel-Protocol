@@ -264,7 +264,7 @@ pub(crate) mod group {
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U32, U64};
 
-    use hyxe_crypt::drill_algebra::PacketVector;
+    use hyxe_crypt::packet_vector::PacketVector;
     use hyxe_crypt::prelude::*;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;

@@ -58,7 +58,7 @@ impl From<UnboundedReceiver<bytes::BytesMut>> for OutboundTcpReceiver {
 }
 
 /// For keeping the firewall open
-pub static KEEP_ALIVE: Bytes = Bytes::from_static(b"ACK");
+pub static KEEP_ALIVE: Bytes = Bytes::from_static(b"KA");
 
 #[derive(Clone)]
 pub struct OutboundUdpSender {
@@ -159,6 +159,11 @@ impl<T> BoundedSender<T> {
     pub fn new(limit: usize) -> (BoundedSender<T>, futures::channel::mpsc::Receiver<T>) {
         let (tx, rx) = futures::channel::mpsc::channel(limit);
         (Self(tx), rx)
+    }
+
+    /// Attempts to send a value through the stream non-blocking and synchronously
+    pub fn try_send(&mut self, t: T) -> Result<(), futures::channel::mpsc::TrySendError<T>> {
+        self.0.try_send(t)
     }
 }
 

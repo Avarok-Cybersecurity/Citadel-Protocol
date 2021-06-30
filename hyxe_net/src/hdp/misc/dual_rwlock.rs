@@ -1,4 +1,4 @@
-use crate::macros::ContextRequirements;
+use crate::macros::{ContextRequirements, WeakBorrowType};
 use std::ops::Deref;
 
 #[cfg(not(feature = "multi-threaded"))]
@@ -9,6 +9,36 @@ pub struct DualRwLock<T: ContextRequirements> {
 #[cfg(feature = "multi-threaded")]
 pub struct DualRwLock<T: ContextRequirements> {
     pub inner: std::sync::Arc<parking_lot::RwLock<T>>
+}
+
+impl<T: ContextRequirements> DualRwLock<T> {
+    #[cfg(feature = "multi-threaded")]
+    pub fn as_weak(&self) -> WeakBorrowType<T> {
+        std::sync::Arc::downgrade(&self.inner)
+    }
+
+    #[cfg(not(feature = "multi-threaded"))]
+    pub fn as_weak(&self) -> WeakBorrowType<T> {
+        std::rc::Rc::downgrade(&self.inner)
+    }
+
+    pub fn upgrade(this: &WeakBorrowType<T>) -> Option<DualRwLock<T>> {
+        this.upgrade().map(|inner| Self { inner })
+    }
+
+    pub fn get(&self) -> T
+        where T: Clone {
+        inner!(self).clone()
+    }
+
+    pub fn set(&self, t: T) {
+        *inner_mut!(self) = t;
+    }
+
+    pub fn take(&self) -> T
+        where T: Default {
+        std::mem::take(&mut *inner_mut!(self))
+    }
 }
 
 impl<T: ContextRequirements> From<T> for DualRwLock<T> {

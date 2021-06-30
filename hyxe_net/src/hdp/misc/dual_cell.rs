@@ -1,16 +1,18 @@
-pub struct DualCell<T: Copy> {
+use crate::macros::ContextRequirements;
+
+pub struct DualCell<T: ContextRequirements> {
     #[cfg(not(feature = "multi-threaded"))]
-    inner: std::rc::Rc<std::cell::Cell<Option<T>>>,
+    inner: std::rc::Rc<std::cell::Cell<T>>,
     #[cfg(feature = "multi-threaded")]
-    inner: std::sync::Arc<atomic::Atomic<Option<T>>>
+    inner: std::sync::Arc<atomic::Atomic<T>>
 }
 
-impl<T: Copy> DualCell<T> {
-    pub fn new(value: Option<T>) -> Self {
+impl<T: ContextRequirements> DualCell<T> {
+    pub fn new(value: T) -> Self {
         Self::from(value)
     }
 
-    pub fn set(&self, new: Option<T>) {
+    pub fn set(&self, new: T) where T: Copy {
         #[cfg(not(feature = "multi-threaded"))]
             {
                 let _ = self.inner.set(new);
@@ -21,7 +23,7 @@ impl<T: Copy> DualCell<T> {
             }
     }
 
-    pub fn get(&self) -> Option<T> {
+    pub fn get(&self) -> T where T: Copy {
         #[cfg(not(feature = "multi-threaded"))]
             {
                 self.inner.get()
@@ -33,8 +35,8 @@ impl<T: Copy> DualCell<T> {
     }
 }
 
-impl<T: Copy> From<Option<T>> for DualCell<T> {
-    fn from(inner: Option<T>) -> Self {
+impl<T: ContextRequirements> From<T> for DualCell<T> {
+    fn from(inner: T) -> Self {
         #[cfg(not(feature = "multi-threaded"))]
             {
                 Self { inner: std::rc::Rc::new(std::cell::Cell::new(inner)) }
@@ -46,14 +48,8 @@ impl<T: Copy> From<Option<T>> for DualCell<T> {
     }
 }
 
-impl<T: Copy> Clone for DualCell<T> {
+impl<T: ContextRequirements> Clone for DualCell<T> {
     fn clone(&self) -> Self {
         Self { inner: self.inner.clone() }
-    }
-}
-
-impl<T: Copy> Default for DualCell<T> {
-    fn default() -> Self {
-        Self::new(None)
     }
 }

@@ -44,15 +44,9 @@ impl Drop for DirectP2PRemote {
 }
 
 pub async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session: HdpSession) -> Result<(), NetworkError> {
-    let (ref kernel_tx, ref implicated_cid, ref weak) = {
-        let sess = inner!(session);
-        let kernel_tx = sess.kernel_tx.clone();
-        let implicated_cid = sess.implicated_cid.clone();
-        std::mem::drop(sess);
-        let weak = session.as_weak();
-        std::mem::drop(session);
-        (kernel_tx, implicated_cid, weak)
-    };
+    let kernel_tx = session.kernel_tx.clone();
+    let implicated_cid = session.implicated_cid.clone();
+    let ref weak = session.as_weak();
 
     log::info!("[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
 
@@ -60,13 +54,11 @@ pub async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session:
         match p2p_listener.next().await {
             Some(Ok((p2p_stream, _))) => {
                 let session = HdpSession::upgrade_weak(weak).ok_or(NetworkError::InternalError("HdpSession dropped"))?;
-                let sess = inner!(session);
-                if sess.state != SessionState::Connected {
+                if session.state.get() != SessionState::Connected {
                     log::warn!("Blocked an eager p2p connection (session state not yet connected)");
                     continue;
                 }
 
-                std::mem::drop(sess);
                 if let Err(err) = handle_p2p_stream(p2p_stream,implicated_cid.clone(), session.clone(), kernel_tx.clone(), true) {
                     log::error!("[P2P-stream] Unable to handle P2P stream: {:?}", err);
                 }
@@ -87,7 +79,7 @@ pub async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session:
     }
 }
 
-fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<u64>, session: HdpSession, kernel_tx: UnboundedSender<HdpServerResult>, from_listener: bool) -> std::io::Result<OutboundTcpSender> {
+fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<Option<u64>>, session: HdpSession, kernel_tx: UnboundedSender<HdpServerResult>, from_listener: bool) -> std::io::Result<OutboundTcpSender> {
     // SECURITY: Since this branch only occurs IF the primary session is connected, then the primary user is
     // logged-in. However, what if a malicious user decides to connect here?
     // They won't be able to register through here, since registration requires that the state is NeedsRegister
@@ -111,7 +103,7 @@ fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<
     let stopper_future = p2p_stopper(stopper_rx);
 
     let direct_p2p_remote = DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx.clone(), from_listener);
-    let sess = inner!(session);
+    let sess = session;
     let mut state_container = inner_mut!(sess.state_container);
     if !state_container.load_provisional_direct_p2p_remote(remote_peer, direct_p2p_remote) {
         log::warn!("[P2P-stream] Peer from {:?} already trying to connect. Dropping connection", remote_peer);
@@ -120,9 +112,10 @@ fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<
         log::info!("Successfully loaded conn for addr: {:?}", remote_peer);
     }
 
+    std::mem::drop(state_container);
+
     // have the conn automatically drop after 5s if it's still a provisional type
-    sess.queue_worker.insert_oneshot(Duration::from_millis(3000), move |sess| {
-        let mut state_container = inner_mut!(sess.state_container);
+    sess.queue_worker.insert_oneshot(Duration::from_millis(3000), move |state_container| {
         if let Some(conn) = state_container.provisional_direct_p2p_conns.remove(&remote_peer) {
             if let Some(peer_cid) = conn.fallback.clone() {
                 // since this connection was marked as a fallback, we need to upgrade it
@@ -174,13 +167,13 @@ pub struct P2PInboundHandle {
     pub remote_peer: SocketAddr,
     pub local_bind_port: u16,
     // this has to be the CID of the local session, not the peer's CID
-    pub implicated_cid: DualCell<u64>,
+    pub implicated_cid: DualCell<Option<u64>>,
     pub kernel_tx: UnboundedSender<HdpServerResult>,
     pub to_primary_stream: OutboundTcpSender
 }
 
 impl P2PInboundHandle {
-    fn new(remote_peer: SocketAddr, local_bind_port: u16, implicated_cid: DualCell<u64>, kernel_tx: UnboundedSender<HdpServerResult>, to_primary_stream: OutboundTcpSender) -> Self {
+    fn new(remote_peer: SocketAddr, local_bind_port: u16, implicated_cid: DualCell<Option<u64>>, kernel_tx: UnboundedSender<HdpServerResult>, to_primary_stream: OutboundTcpSender) -> Self {
         Self { remote_peer, local_bind_port, implicated_cid, kernel_tx, to_primary_stream }
     }
 }
@@ -192,7 +185,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 
 /// Both sides need to begin this process at `sync_time` to bypass the firewall
 #[allow(warnings)]
-pub async fn attempt_tcp_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, session: HdpSession, peer_endpoint_addr: SocketAddr, implicated_cid: DualCell<u64>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant,
+pub async fn attempt_tcp_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, session: HdpSession, peer_endpoint_addr: SocketAddr, implicated_cid: DualCell<Option<u64>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant,
 endpoint_hyper_ratchet: HyperRatchet, security_level: SecurityLevel) -> std::io::Result<()> {
 
     tokio::time::sleep_until(sync_time).await;
@@ -222,7 +215,7 @@ endpoint_hyper_ratchet: HyperRatchet, security_level: SecurityLevel) -> std::io:
 }
 
 fn send_hole_punch_packet(session: HdpSession, signal: PeerSignal, endpoint_hyper_ratchet: HyperRatchet, ticket: Ticket, expected_peer_cid: u64, p2p_outbound_stream_opt: Option<&OutboundTcpSender>, security_level: SecurityLevel) -> std::io::Result<()> {
-    let sess = inner!(session);
+    let sess = session;
     let p2p_outbound_stream = p2p_outbound_stream_opt.unwrap_or_else(|| sess.to_primary_stream.as_ref().unwrap());
     let timestamp = sess.time_tracker.get_global_time_ns();
     let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal_endpoint(&endpoint_hyper_ratchet, signal, ticket, timestamp, expected_peer_cid, security_level);

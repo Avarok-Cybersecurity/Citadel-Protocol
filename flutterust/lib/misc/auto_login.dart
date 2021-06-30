@@ -74,7 +74,7 @@ class AutoLogin {
     }
 
     if (await resync()) {
-      if (await initiateAutoLogin(implicatedCid, uname)) {
+      if (await initiateAutoLogin(implicatedCid, uname).then((value) => value.success)) {
         print("Account successfully logged-in; will now execute enqueued command ...");
         return await RustSubsystem.bridge!.executeCommand(command);
       } else {
@@ -97,13 +97,43 @@ class AutoLogin {
     return resyncResult.isPresent;*/
   }
 
-  static Future<bool> initiateAutoLogin(u64 implicatedCid, String username) async {
-    print("[AutoLogin] Engaging reconnection mechanism ...");
-    final Credentials? creds = autologinAccounts![implicatedCid];
+  static HashMap<u64, DateTime> lastAutologinAttempt = HashMap();
+
+  static Future<AutoLoginObject> initiateAutoLogin(u64 implicatedCid, String username, { bool backgroundMode = false }) async {
+    print("[AutoLogin] Maybe Engaging reconnection mechanism ...");
+
+    if (autologinAccounts == null) {
+      autologinAccounts = HashMap();
+    }
+
+    // first step is to always make sure that we're not already connected
+    if (await implicatedCid.isLocallyConnected()) {
+      print("[AutoLoginHandler] User is already connected; no need to continue autologin ...");
+      return AutoLoginObject.none(true);
+    }
+
+    var lastAttempt = lastAutologinAttempt[implicatedCid];
+    if (lastAttempt != null) {
+      if (DateTime.now().difference(lastAttempt) < Duration(minutes: 15)) {
+        print("[AutoLogin] Will NOT initiate autologin since we have already recently attempted to autologin to $implicatedCid");
+        return AutoLoginObject.none(false);
+      }
+    }
+
+    Credentials? creds = autologinAccounts![implicatedCid];
 
     if (creds == null) {
-      print("implicated CID is not in the autologin hashmap");
-      return false;
+      print("implicated CID is not in the autologin hashmap; will get the creds if in background mode");
+      if (backgroundMode = true) {
+        var credsOpt = await SecureStorageHandler.getCredentialsByUsername(username);
+        if (credsOpt.isEmpty) {
+          return AutoLoginObject.none(false);
+        }
+
+        creds = credsOpt.value;
+      } else {
+        return AutoLoginObject.none(false);
+      }
     }
 
     // first, resync the kernel
@@ -111,25 +141,26 @@ class AutoLogin {
       // initiate exponential backoff ...
       final String connectCmd = LoginHandler.constructConnectCommand(creds.username, creds.password, creds.securityLevel);
 
-      // Returns true if end-result is connected, regaurdless if connection attempts required
+      // Returns true if end-result is connected, regardless if connection attempts required
       var future = retry(() async {
         // first step is to always make sure that we're not already connected
         if (await implicatedCid.isLocallyConnected()) {
           print("[AutoLoginHandler] User is already connected; no need to continue autologin ...");
-          return true;
+          return AutoLoginObject.none(true);
         }
 
         // Make sure the account exists in the local db
         if (!await ClientNetworkAccount.getCnacByCid(implicatedCid).then((value) => value.isPresent)) {
           print("Account does not exist locally. Will not connect (newly registered?)");
-          return false;
+          return AutoLoginObject.none(false);
         }
 
+        lastAutologinAttempt[implicatedCid] = DateTime.now();
 
-        final StreamController<bool> controller = StreamController();
+        final StreamController<AutoLoginObject> controller = StreamController();
         var res = await RustSubsystem.bridge!.executeCommand(connectCmd).then((value) {
           if (value.isPresent) {
-            KernelResponseHandler.handleFirstCommand(value.value, handler: AutoLoginHandler(controller.sink, username), oneshot: false);
+            KernelResponseHandler.handleFirstCommand(value.value, handler: AutoLoginHandler(controller.sink, username, backgroundMode), oneshot: false);
             return true;
           } else {
             return false;
@@ -142,9 +173,9 @@ class AutoLogin {
           var loginResult =  await controller.stream.first.timeout(Duration(seconds: 8), onTimeout: () async { await controller.close(); throw TimeoutException("Timeout"); });
           await controller.close();
 
-          if (loginResult) {
+          if (loginResult.success) {
             print("[AutoLogin] Login success!");
-            return true;
+            return loginResult;
           } else {
             print("[AutoLogin] Login failure ...");
             throw Exception("Login failed");
@@ -167,20 +198,21 @@ class AutoLogin {
       try {
         return await future;
       } catch(_) {
-        return false;
+        return AutoLoginObject.none(false);
       }
     } else {
       print("Error: resync failed");
-      return false;
+      return AutoLoginObject.none(false);
     }
   }
 }
 
 class AutoLoginHandler implements AbstractHandler {
-  final StreamSink<bool> sink;
+  final StreamSink<AutoLoginObject> sink;
   final String username;
+  final bool backgroundMode;
 
-  AutoLoginHandler(this.sink, this.username);
+  AutoLoginHandler(this.sink, this.username, this.backgroundMode);
 
   @override
   CallbackStatus onConfirmation(KernelResponse kernelResponse) {
@@ -189,7 +221,7 @@ class AutoLoginHandler implements AbstractHandler {
 
   @override
   void onErrorReceived(ErrorKernelResponse kernelResponse) {
-    this.sink.add(false);
+    this.sink.add(AutoLoginObject.some(false, kernelResponse));
   }
 
   @override
@@ -200,18 +232,30 @@ class AutoLoginHandler implements AbstractHandler {
       resp.attachUsername(this.username);
 
       try {
-        this.sink.add(resp.success);
+        this.sink.add(AutoLoginObject.some(true, kernelResponse));
       } catch(_) {
         print("Autologin Sink closed w/ error");
       }
 
-      HomePage.pushObjectToSession(resp);
+      if (!this.backgroundMode) {
+        HomePage.pushObjectToSession(resp);
+      }
+
       return CallbackStatus.Complete;
     } else {
       print("[AutoLoginHandler] unexpected kernel response $kernelResponse");
       return CallbackStatus.Unexpected;
     }
   }
+}
+
+class AutoLoginObject {
+  final bool success;
+  final Optional<KernelResponse> connectResponse;
+
+  AutoLoginObject(this.success, this.connectResponse);
+  AutoLoginObject.some(this.success, KernelResponse kResp) : this.connectResponse = Optional.of(kResp);
+  AutoLoginObject.none(this.success): this.connectResponse = Optional.empty();
 }
 
 class ResyncHandler implements AbstractHandler {

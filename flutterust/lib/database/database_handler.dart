@@ -21,6 +21,13 @@ class DatabaseHandler {
   static Future<Database> database() async {
     return openDatabase(
       join(await getDatabasesPath(), DB_NAME),
+      onUpgrade: (db, prev, newVers) async {
+        if (prev == 15 && newVers == 16) {
+          print("UPGRADING database from 15 to 16");
+          await db.execute("ALTER TABLE cnacs ADD COLUMN jwt TEXT");
+          await db.setVersion(16);
+        }
+      },
       onCreate: (db, version) {
         print("About to create database ...");
         // Run the CREATE TABLE statement on the database.
@@ -34,7 +41,7 @@ class DatabaseHandler {
       },
       // Set the version. This executes the onCreate function and provides a
       // path to perform database upgrades and downgrades.
-      version: 15,
+      version: 16,
     );
   }
 
