@@ -240,7 +240,7 @@ pub(crate) mod pre_connect {
     use crate::hdp::hdp_packet::{packet_sizes, HdpPacket};
     use crate::hdp::hdp_packet_processor::includes::SocketAddr;
     use std::str::FromStr;
-    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
     use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
     use crate::hdp::hdp_packet_crafter::pre_connect::SynPacket;
     use hyxe_fs::io::SyncIO;
@@ -256,9 +256,10 @@ pub(crate) mod pre_connect {
     const STAGE1_MIN_PAYLOAD_LEN: usize = 1 + 1 + 8 + 2;
 
     pub fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol), NetworkError> {
-        // refresh the toolset's ARA & get static aux hr
+        // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
+        // After this point, we validate that the other end had the right static symmetric key. This proves device identity, thought not necessarily account identity
         let (header, payload) = super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload).ok_or(NetworkError::InternalError("Unable to validate initial packet"))?;
 
         let transfer = SynPacket::deserialize_from_vector(&payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -276,10 +277,13 @@ pub(crate) mod pre_connect {
 
         let session_security_settings = transfer.session_security_settings;
         let peer_only_connect_mode = transfer.peer_only_connect_protocol;
-        let bob_constructor = HyperRatchetConstructor::new_bob(header.session_cid.get(), 0, transfer.transfer).ok_or(NetworkError::InternalError("Unable to create bob container"))?;
+        let _ = static_auxiliary_ratchet.verify_level(Some(transfer.session_security_settings.security_level)).map_err(|err| NetworkError::Generic(err.into_string()))?;
+        let opts = static_auxiliary_ratchet.get_next_constructor_opts().into_iter().take((transfer.session_security_settings.security_level.value() + 1) as usize).collect();
+        //let opts = ConstructorOpts::new_vec_init(Some(transfer.transfer.params), (transfer.transfer.security_level.value() + 1) as usize).into_i;
+        let bob_constructor = HyperRatchetConstructor::new_bob(header.session_cid.get(), 0, opts, transfer.transfer).ok_or(NetworkError::InternalError("Unable to create bob container"))?;
         let transfer = bob_constructor.stage0_bob().ok_or(NetworkError::InternalError("Unable to execute stage0_bob"))?;
         let new_hyper_ratchet = bob_constructor.finish().ok_or(NetworkError::InternalError("Unable to finish bob constructor"))?;
-        debug_assert!(new_hyper_ratchet.verify_level(transfer.security_level.into()).is_ok());
+        let _ = new_hyper_ratchet.verify_level(transfer.security_level.into()).map_err(|err| NetworkError::Generic(err.into_string()))?;
         // below, we need to ensure the hyper ratchet stays constant throughout transformations
         let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_hyper_ratchet));
 
@@ -304,6 +308,7 @@ pub(crate) mod pre_connect {
             let lvl = transfer.security_level;
             log::info!("Session security level based-on returned transfer: {:?}", lvl);
             alice_constructor.stage1_alice(&BobToAliceTransferType::Default(transfer))?;
+
             let new_hyper_ratchet = alice_constructor.finish()?;
             let _ = new_hyper_ratchet.verify_level(lvl.into()).ok()?;
             let toolset = Toolset::from((static_auxiliary_ratchet, new_hyper_ratchet.clone()));

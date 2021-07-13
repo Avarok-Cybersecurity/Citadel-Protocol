@@ -82,7 +82,7 @@ pub mod unordered {
             let mut queue = self.history.lock();
             //log::info!("Circular queue: {:?}", &queue.1);
             if let Some(_) = queue.1.iter().find(|already_arrived| **already_arrived == pid_received) {
-                log::warn!("[ARA] packet {} already arrived!", pid_received);
+                log::error!("[ARA] packet {} already arrived!", pid_received);
                 false
             } else {
                 // this means the PID is not in the history. HOWEVER, it may still be possible that the packet
@@ -92,15 +92,19 @@ pub mod unordered {
                 //let min = queue.0.saturating_sub(HISTORY_LEN);
                 let min = queue.0.saturating_sub(HISTORY_LEN);
                 //let max = queue.0 + HISTORY_LEN;
-
+                //log::info!("RECV {}. Must be >= {} (st: {})", pid_received, min, queue.0);
                 // TODO: Consider logic of this section of code. This may not do what I want it to do
                 if pid_received >= min {
+                    // only increment if we received the smallest value
+                    //if pid_received == queue.0 {
                     queue.0 += 1;
+                    //}
+
                     queue.1.push(pid_received);
                     //log::info!("[ARA] Marking {} as received", pid_received);
                     true
                 } else {
-                    log::warn!("[ARA] out of range! Recv: {}. Expected >= {}", pid_received, min);
+                    log::error!("[ARA] out of range! Recv: {}. Expected >= {}", pid_received, min);
                     false
                 }
             }

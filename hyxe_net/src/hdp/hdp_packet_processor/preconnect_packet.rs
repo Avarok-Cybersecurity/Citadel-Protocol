@@ -33,68 +33,59 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
             log::info!("RECV STAGE SYN PRE_CONNECT PACKET");
             // first make sure the cid isn't already connected
 
-            let state_container = inner!(session.state_container);
-            if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN {
-                let account_manager = session.account_manager.clone();
+            let account_manager = session.account_manager.clone();
+            if let Some(cnac) = account_manager.get_client_by_cid(header.session_cid.get()).await? {
+                let mut state_container = inner_mut!(session.state_container);
+                let tcp_only = header.context_info.get() == 1;
+                let kat = header.target_cid.get() as i64;
+                let adjacent_proto_version = header.group.get();
 
-                std::mem::drop(state_container);
+                let header_if_err_occurs = header_main.clone();
 
-                if let Some(cnac) = account_manager.get_client_by_cid(header.session_cid.get()).await? {
-                    let mut state_container = inner_mut!(session.state_container);
-                    let tcp_only = header.context_info.get() == 1;
-                    let kat = header.target_cid.get() as i64;
-                    let adjacent_proto_version = header.group.get();
+                match validation::pre_connect::validate_syn(&cnac, packet, &session.session_manager) {
+                    Ok((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode)) => {
+                        // since the SYN's been validated, the CNACs toolset has been updated
+                        let new_session_sec_lvl = transfer.security_level;
 
-                    let header_if_err_occurs = header_main.clone();
-
-                    match validation::pre_connect::validate_syn(&cnac, packet, &session.session_manager) {
-                        Ok((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode)) => {
-                            // since the SYN's been validated, the CNACs toolset has been updated
-                            let new_session_sec_lvl = transfer.security_level;
-
-                            // TODO: prevent logins if versions out of sync. For now, don't
-                            if proto_version_out_of_sync(adjacent_proto_version) {
-                                log::warn!("\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", crate::constants::BUILD_VERSION, adjacent_proto_version);
-                            }
-
-                            log::info!("Synchronizing toolsets. TCP only? {}. Session security level: {:?}", tcp_only, new_session_sec_lvl);
-                            // TODO: Rate limiting to prevent SYN flooding
-                            let timestamp = session.time_tracker.get_global_time_ns();
-
-                            // here, we also send the peer's external address to itself
-                            // Also, we use the security level that was created on init b/c the other side still uses the static aux ratchet
-                            let syn_ack = hdp_packet_crafter::pre_connect::craft_syn_ack(&static_aux_ratchet, transfer,  timestamp, peer_addr, security_level);
-
-                            state_container.pre_connect_state.on_packet_received();
-
-                            state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
-                            state_container.keep_alive_timeout_ns = kat;
-
-                            std::mem::drop(state_container);
-
-                            session.tcp_only.set(tcp_only);
-                            session.cnac.set(Some(cnac));
-                            session.security_settings.set(Some(session_security_settings));
-                            session.peer_only_connect_protocol.set(Some(peer_only_connect_mode));
-
-                            PrimaryProcessorResult::ReplyToSender(syn_ack)
+                        // TODO: prevent logins if versions out of sync. For now, don't
+                        if proto_version_out_of_sync(adjacent_proto_version) {
+                            log::warn!("\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", crate::constants::BUILD_VERSION, adjacent_proto_version);
                         }
 
-                        Err(err) => {
-                            log::error!("Invalid SYN packet received: {:?}", &err);
-                            let packet = hdp_packet_crafter::pre_connect::craft_halt(&header_if_err_occurs, err.into_string());
-                            PrimaryProcessorResult::ReplyToSender(packet)
-                        }
+                        log::info!("Synchronizing toolsets. TCP only? {}. Session security level: {:?}", tcp_only, new_session_sec_lvl);
+                        // TODO: Rate limiting to prevent SYN flooding
+                        let timestamp = session.time_tracker.get_global_time_ns();
+
+                        // here, we also send the peer's external address to itself
+                        // Also, we use the security level that was created on init b/c the other side still uses the static aux ratchet
+                        let syn_ack = hdp_packet_crafter::pre_connect::craft_syn_ack(&static_aux_ratchet, transfer, timestamp, peer_addr, security_level);
+
+                        state_container.pre_connect_state.on_packet_received();
+
+                        state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
+                        state_container.keep_alive_timeout_ns = kat;
+
+                        std::mem::drop(state_container);
+
+                        session.tcp_only.set(tcp_only);
+                        session.cnac.set(Some(cnac));
+                        session.security_settings.set(Some(session_security_settings));
+                        session.peer_only_connect_protocol.set(Some(peer_only_connect_mode));
+
+                        PrimaryProcessorResult::ReplyToSender(syn_ack)
                     }
-                } else {
-                    let bad_cid = header.session_cid.get();
-                    let error = format!("CID {} is not registered to this node", bad_cid);
-                    let packet = hdp_packet_crafter::pre_connect::craft_halt(header, &error);
-                    PrimaryProcessorResult::ReplyToSender(packet)
+
+                    Err(err) => {
+                        log::error!("Invalid SYN packet received: {:?}", &err);
+                        let packet = hdp_packet_crafter::pre_connect::craft_halt(&header_if_err_occurs, err.into_string());
+                        PrimaryProcessorResult::ReplyToSender(packet)
+                    }
                 }
             } else {
-                log::error!("Expected stage SYN, but local state was not");
-                PrimaryProcessorResult::Void
+                let bad_cid = header.session_cid.get();
+                let error = format!("CID {} is not registered to this node", bad_cid);
+                let packet = hdp_packet_crafter::pre_connect::craft_halt(header, &error);
+                return PrimaryProcessorResult::ReplyToSender(packet);
             }
         }
 
@@ -237,7 +228,6 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
             let hyper_ratchet = session.cnac.get()?.get_hyper_ratchet(Some(header.drill_version.get()))?;
             let mut state_container = inner_mut!(session.state_container);
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::STAGE1 {
-
                 if let Some((adjacent_node_type, proposed_traversal_method, sync_time, base_wave_ports)) = validation::pre_connect::validate_stage1(&hyper_ratchet, packet) {
                     // it is expected that these base_wave_ports are reachable from this node
                     let endpoints = base_wave_ports.iter().map(|adjacent_port| SocketAddr::new(endpoint_ip, *adjacent_port)).collect::<Vec<SocketAddr>>();
@@ -507,7 +497,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                     let begin_connect = hdp_packet_crafter::pre_connect::craft_begin_connect(&hyper_ratchet, timestamp, security_level);
                     PrimaryProcessorResult::ReplyToSender(begin_connect)
                 } else {
-                    let ticket = state_container.pre_connect_state.ticket.unwrap_or_else(||session.kernel_ticket.get());
+                    let ticket = state_container.pre_connect_state.ticket.unwrap_or_else(|| session.kernel_ticket.get());
                     std::mem::drop(state_container);
                     session.needs_close_message.set(false);
                     session.send_to_kernel(HdpServerResult::ConnectFail(ticket, Some(cid), "Preconnect stage failed".to_string()))?;
@@ -589,7 +579,7 @@ async fn handle_nat_traversal_as_receiver_inner(session_orig: HdpSession, hyper_
                     let mut state_container = inner_mut!(sess.state_container);
                     state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
                     state_container.pre_connect_state.on_packet_received(); // this is hacky. Just to help prevent a timeout
-                    let finished_hole_punch = hdp_packet_crafter::pre_connect::craft_server_finished_hole_punch(&hyper_ratchet,true, timestamp, security_level);
+                    let finished_hole_punch = hdp_packet_crafter::pre_connect::craft_server_finished_hole_punch(&hyper_ratchet, true, timestamp, security_level);
                     std::mem::drop(state_container);
                     if sess.send_to_primary_stream(None, finished_hole_punch).is_err() {
                         log::error!("Primary stream disconnected");
@@ -712,7 +702,7 @@ async fn handle_nat_traversal_as_initiator_inner(session_orig: HdpSession, hyper
     }
 }
 
-fn begin_connect_process(session: &HdpSession,  hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> PrimaryProcessorResult {
+fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> PrimaryProcessorResult {
     // at this point, the session keys have already been re-established. We just need to begin the login stage
     let mut state_container = inner_mut!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();

@@ -2,7 +2,6 @@ use tokio::sync::oneshot::{channel, Receiver, Sender};
 use tokio_stream::StreamExt;
 
 use hyxe_crypt::drill::SecurityLevel;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
@@ -17,6 +16,8 @@ use crate::hdp::outbound_sender::OutboundTcpSender;
 use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
 use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::hdp::misc::dual_cell::DualCell;
+use crate::hdp::state_container::StateContainer;
+use crate::hdp::misc::panic_future::AssertSendSafeFuture;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
@@ -47,6 +48,8 @@ pub async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session:
     let kernel_tx = session.kernel_tx.clone();
     let implicated_cid = session.implicated_cid.clone();
     let ref weak = session.as_weak();
+
+    std::mem::drop(session);
 
     log::info!("[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
 
@@ -150,9 +153,12 @@ fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<
         }
 
         log::info!("[P2P-stream] Dropping tri-joined future");
+        Ok(())
     };
 
-    let _ = spawn!(future);
+    sess.p2p_session_tx.as_ref().unwrap().unbounded_send(Box::pin(AssertSendSafeFuture::new(future))).map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))?;
+
+    //let _ = spawn!(future);
 
     // send the packet, if necessary
     if let Some(zero) = packet_opt {
@@ -184,9 +190,10 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 }
 
 /// Both sides need to begin this process at `sync_time` to bypass the firewall
+/// TODO: Use Better NAT traversal. This doesn't work very well
 #[allow(warnings)]
 pub async fn attempt_tcp_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, session: HdpSession, peer_endpoint_addr: SocketAddr, implicated_cid: DualCell<Option<u64>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant,
-endpoint_hyper_ratchet: HyperRatchet, security_level: SecurityLevel) -> std::io::Result<()> {
+state_container: StateContainer, security_level: SecurityLevel) -> std::io::Result<()> {
 
     tokio::time::sleep_until(sync_time).await;
     let expected_peer_cid = peer_connection_type.get_original_target_cid();
@@ -203,18 +210,19 @@ endpoint_hyper_ratchet: HyperRatchet, security_level: SecurityLevel) -> std::io:
                 // its connection
                 log::warn!("[P2P-stream/client] Success connecting to {:?}", peer_endpoint_addr);
                 let success_signal = PeerSignal::Kem(peer_connection_type, KeyExchangeProcess::HolePunchEstablished);
-                send_hole_punch_packet(session, success_signal, endpoint_hyper_ratchet, ticket, expected_peer_cid, Some(&p2p_outbound_stream), security_level)
+                send_hole_punch_packet(session, success_signal, state_container, ticket, expected_peer_cid, Some(&p2p_outbound_stream), security_level)
             })
     } else {
         // Since this node gets no stream, it doesn't matter if we're the initiator or not. We discard the connection,
         // and alert the other side so that it may keep its connection (if established)
         log::warn!("Unable to connect to {:?}. Sending failure packet", peer_endpoint_addr);
         let fail_signal = PeerSignal::Kem(peer_connection_type, KeyExchangeProcess::HolePunchFailed);
-        send_hole_punch_packet(session, fail_signal, endpoint_hyper_ratchet, ticket, expected_peer_cid, None, security_level)
+        send_hole_punch_packet(session, fail_signal, state_container, ticket, expected_peer_cid, None, security_level)
     }
 }
 
-fn send_hole_punch_packet(session: HdpSession, signal: PeerSignal, endpoint_hyper_ratchet: HyperRatchet, ticket: Ticket, expected_peer_cid: u64, p2p_outbound_stream_opt: Option<&OutboundTcpSender>, security_level: SecurityLevel) -> std::io::Result<()> {
+fn send_hole_punch_packet(session: HdpSession, signal: PeerSignal, state_container: StateContainer, ticket: Ticket, expected_peer_cid: u64, p2p_outbound_stream_opt: Option<&OutboundTcpSender>, security_level: SecurityLevel) -> std::io::Result<()> {
+    let endpoint_hyper_ratchet = inner!(state_container).active_virtual_connections.get(&expected_peer_cid).ok_or_else(|| generic_error("Active Vconn not loaded"))?.endpoint_container.as_ref().ok_or_else(|| generic_error("Endpoint container not loaded"))?.endpoint_crypto.get_hyper_ratchet(None).ok_or_else(|| generic_error("Peer hyper ratchet does not exist"))?.clone();
     let sess = session;
     let p2p_outbound_stream = p2p_outbound_stream_opt.unwrap_or_else(|| sess.to_primary_stream.as_ref().unwrap());
     let timestamp = sess.time_tracker.get_global_time_ns();
@@ -222,4 +230,8 @@ fn send_hole_punch_packet(session: HdpSession, signal: PeerSignal, endpoint_hype
     log::info!("***ABT TO SEND {} PACKET***", p2p_outbound_stream_opt.is_some().if_true("SUCCESS").if_false("FAILURE"));
     p2p_outbound_stream.unbounded_send(packet)
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+}
+
+fn generic_error(err: &'static str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, err)
 }

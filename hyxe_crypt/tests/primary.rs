@@ -15,6 +15,7 @@ mod tests {
     use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm, ALGORITHM_COUNT, CryptoParameters};
     use std::convert::TryFrom;
     use hyxe_crypt::argon::autotuner::calculate_optimal_params;
+    use ez_pqcrypto::constructor_opts::ConstructorOpts;
 
 
     fn setup_log() {
@@ -108,7 +109,7 @@ mod tests {
 
         let chain = CryptoRelayChain::<R>::from_iter((0..LEN).into_iter().map(|_idx| rand::random::<u64>())
             .map(|cid| {
-                let mut alice_hr = R::Constructor::new_alice(Some(algo), 0, 0, None);
+                let mut alice_hr = R::Constructor::new_alice(vec![ConstructorOpts::new_init(Some(algo))], 0, 0, None);
                 let transfer = alice_hr.stage0_alice();
                 let bob_hr = R::Constructor::new_bob(0, 0, transfer).unwrap();
                 let transfer = bob_hr.stage0_bob().unwrap();
@@ -211,7 +212,7 @@ mod tests {
         println!("Using {:?} with {:?} @ {:?} security level", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level);
         setup_log();
         let algorithm = Some(algorithm);
-        let mut alice_hyper_ratchet = R::Constructor::new_alice(algorithm, 99, 0, security_level);
+        let mut alice_hyper_ratchet = R::Constructor::new_alice(vec![ConstructorOpts::new_init(algorithm)], 99, 0, security_level);
         let transfer = alice_hyper_ratchet.stage0_alice();
 
         let bob_hyper_ratchet = R::Constructor::new_bob(99, 0, transfer).unwrap();

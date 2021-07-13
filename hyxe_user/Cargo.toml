@@ -24,11 +24,10 @@ serde_millis = "0.1.1"
 tokio = "^1.4.0"
 async-trait = "^0.1.48"
 futures = "0.3.5"
-crossbeam-utils = "*"
 #future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
 rand = "0.7.0"
 multimap = "^0.8.3"
-parking_lot = "0.11.0"
+parking_lot = { version = "0.11.0", features = ["serde"] }
 log = { version = "0.4.8", features = ["max_level_trace", "release_max_level_error"] }
 
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
@@ -51,3 +50,5 @@ openssl = { version = "^0.10.35", features = ["vendored"] }
 tokio = { version = "^1.6.0", features = ["macros"] }
 env_logger = "0.8.2"
 dirs2 = "3.0.1"
+
+ez_pqcrypto = { version = "0.1.1", path = "../ez_pqcrypto" }

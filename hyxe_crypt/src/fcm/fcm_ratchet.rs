@@ -13,6 +13,7 @@ use ez_pqcrypto::bytes_in_place::EzBuffer;
 use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
 use ez_pqcrypto::LARGEST_NONCE_LEN;
 use arrayvec::ArrayVec;
+use ez_pqcrypto::constructor_opts::ConstructorOpts;
 
 #[derive(Clone, Serialize, Deserialize)]
 /// A compact ratchet meant for FCM messages
@@ -72,6 +73,10 @@ impl Ratchet for FcmRatchet {
         &self.inner.drill
     }
 
+    fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts> {
+        vec![ConstructorOpts::new_from_previous(Some(self.inner.pqc.params), self.inner.pqc.get_chain().unwrap())]
+    }
+
     fn protect_message_packet<T: EzBuffer>(&self, _security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
         drill.protect_packet(pqc, header_len_bytes, packet)
@@ -103,14 +108,14 @@ pub struct FcmRatchetConstructor {
 }
 
 impl EndpointRatchetConstructor<FcmRatchet> for FcmRatchetConstructor {
-    fn new_alice(algorithm: Option<impl Into<CryptoParameters>>, cid: u64, new_version: u32, _security_level: Option<SecurityLevel>) -> Self {
-        FcmRatchetConstructor::new_alice(cid, new_version, algorithm.map(|r| r.into()).unwrap_or_default())
+    fn new_alice(mut opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, _security_level: Option<SecurityLevel>) -> Self {
+        FcmRatchetConstructor::new_alice(cid, new_version, opts.remove(0))
     }
 
-    fn new_bob(_cid: u64, _new_drill_vers: u32, transfer: AliceToBobTransferType<'_>) -> Option<Self> {
+    fn new_bob(_cid: u64, _new_drill_vers: u32, mut opts: Vec<ConstructorOpts>, transfer: AliceToBobTransferType<'_>) -> Option<Self> {
         match transfer {
             AliceToBobTransferType::Fcm(transfer) => {
-                FcmRatchetConstructor::new_bob(transfer)
+                FcmRatchetConstructor::new_bob(opts.remove(0), transfer)
             }
 
             _ => {
@@ -158,7 +163,7 @@ impl EndpointRatchetConstructor<FcmRatchet> for FcmRatchetConstructor {
 ///
 pub struct FcmAliceToBobTransfer<'a> {
     pk: &'a [u8],
-    params: CryptoParameters,
+    pub params: CryptoParameters,
     nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
     /// the declared cid
     pub cid: u64,
@@ -174,9 +179,10 @@ pub struct FcmBobToAliceTransfer {
 
 impl FcmRatchetConstructor {
     /// FCM limits messages to 4Kb, so we need to use firesaber alone
-    pub fn new_alice(cid: u64, version: u32, algorithm: impl Into<CryptoParameters>) -> Self {
-        let params = algorithm.into();
-        let pqc = PostQuantumContainer::new_alice(Some(params));
+    pub fn new_alice(cid: u64, version: u32, opts: ConstructorOpts) -> Self {
+        let params = opts.cryptography.unwrap_or_default();
+        let pqc = PostQuantumContainer::new_alice(opts);
+
         Self {
             params,
             pqc,
@@ -188,10 +194,11 @@ impl FcmRatchetConstructor {
     }
 
     ///
-    pub fn new_bob(transfer: FcmAliceToBobTransfer<'_>) -> Option<Self> {
+    pub fn new_bob(opts: ConstructorOpts, transfer: FcmAliceToBobTransfer<'_>) -> Option<Self> {
         let params = transfer.params;
-        let pqc = PostQuantumContainer::new_bob(Some(params), transfer.pk).ok()?;
+        let pqc = PostQuantumContainer::new_bob(opts, transfer.pk).ok()?;
         let drill = Drill::new(transfer.cid, transfer.version, params.encryption_algorithm).ok()?;
+
         Some(Self {
             params,
             pqc,

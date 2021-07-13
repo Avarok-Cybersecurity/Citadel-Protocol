@@ -6,13 +6,13 @@ use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::path::PathBuf;
 use hyxe_fs::env::DirectoryStore;
 use crate::prelude::NetworkAccount;
-use crossbeam_utils::sync::ShardedLock;
 use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::fcm::keys::FcmKeys;
 #[cfg(feature = "enterprise")]
 use crate::backend::mysql_backend::SqlConnectionOptions;
+use parking_lot::RwLock;
 
 #[cfg(feature = "enterprise")]
 /// Implementation for the SQL backend
@@ -145,7 +145,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Determines if a remote db is used
     fn uses_remote_db(&self) -> bool;
     /// Returns the filesystem list
-    fn get_local_map(&self) -> Option<Arc<ShardedLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>>;
+    fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>>;
     /// Returns the local nac
     fn local_nac(&self) -> &NetworkAccount<R, Fcm>;
     #[allow(unused_results, unused_must_use)]

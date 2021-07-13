@@ -162,7 +162,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     #[cfg(debug_assertions)]
     pub fn visit_all_users_blocking_debug(&self, fx: impl FnMut(&ClientNetworkAccount<R, Fcm>)) {
         if let Some(map) = self.persistence_handler.get_local_map() {
-            map.read().unwrap().values().for_each(fx)
+            map.read().values().for_each(fx)
         }
     }
 

@@ -24,6 +24,7 @@ pub mod prelude {
     pub use crate::sec_bytes::SecBuffer;
     pub use crate::sec_string::SecString;
     pub use crate::toolset::Toolset;
+    pub use ez_pqcrypto::constructor_opts::ConstructorOpts;
 }
 
 /// This serves as a lock-free method of retrieving specific
