@@ -72,7 +72,7 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
         }
 
         packet_flags::cmd::primary::GROUP_PACKET => {
-            super::primary_group_packet::process(session, cmd_aux, packet, endpoint_cid_info).await
+            super::primary_group_packet::process(session, cmd_aux, packet, endpoint_cid_info)
         }
 
         packet_flags::cmd::primary::DO_DISCONNECT => {

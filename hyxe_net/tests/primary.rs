@@ -12,21 +12,18 @@ pub mod tests {
 
     use futures::{Future, SinkExt, StreamExt};
     use parking_lot::{const_mutex, Mutex, RwLock};
-    use tokio::net::{TcpListener, TcpStream};
     use tokio::runtime::{Builder, Handle};
 
-    use ez_pqcrypto::algorithm_dictionary::{CryptoParameters, EncryptionAlgorithm, KemAlgorithm};
+    use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::fcm::keys::FcmKeys;
-    use hyxe_crypt::hyper_ratchet::constructor::{BobToAliceTransferType, HyperRatchetConstructor};
-    use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::sec_bytes::SecBuffer;
     use hyxe_nat::hypernode_type::HyperNodeType;
     use hyxe_net::error::NetworkError;
-    use hyxe_net::functional::{PairMap, TriMap, IfEqConditional};
+    use hyxe_net::functional::{TriMap, IfEqConditional};
     use hyxe_net::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
     use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-    use hyxe_net::hdp::hdp_server::{ConnectMode, HdpServerRemote, HdpServerRequest, SecrecyMode, Ticket, UnderlyingProtocol};
+    use hyxe_net::hdp::hdp_server::{ConnectMode, HdpServerRemote, HdpServerRequest, SecrecyMode, Ticket, UnderlyingProtocol, HdpServer};
     use hyxe_net::hdp::misc::net::TlsListener;
     use hyxe_net::hdp::misc::session_security_settings::{SessionSecuritySettings, SessionSecuritySettingsBuilder};
     use hyxe_net::hdp::peer::channel::{PeerChannel, PeerChannelSendHalf};
@@ -44,14 +41,7 @@ pub mod tests {
     use hyxe_net::hdp::misc::panic_future::ExplicitPanicFuture;
     use std::sync::atomic::Ordering;
     use once_cell::sync::OnceCell;
-
-    #[allow(dead_code)]
-    fn gen(params: impl Into<CryptoParameters>, cid: u64, vers: u32, sec: Option<SecurityLevel>) -> (HyperRatchet, HyperRatchet) {
-        let mut alice_con = HyperRatchetConstructor::new_alice(Some(params.into()), cid, vers, sec);
-        let bob_con = HyperRatchetConstructor::new_bob(cid, vers, alice_con.stage0_alice()).unwrap();
-        alice_con.stage1_alice(&bob_con.stage0_bob().map(BobToAliceTransferType::Default).unwrap()).unwrap();
-        (alice_con.finish().unwrap(), bob_con.finish().unwrap())
-    }
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -72,47 +62,40 @@ pub mod tests {
     }
 
     #[tokio::test]
-    /// TODO: This does not work because it's mixing protocols together. Needs to be re-done using the functions under HdpServer.rs for proto negotiation
-    async fn tls() {
+    async fn tcp_or_tls() {
+        const USE_TLS: bool = true;
         setup_log();
-        const PKCS: &str = "/Users/nologik/satori.net/keys/testing.p12";
-        const CERT: &str = "/Users/nologik/satori.net/keys/devonly.crt";
 
-        let identity = TlsListener::load_tls_pkcs(PKCS, "mrmoney10").unwrap();
-        let _cert = TlsListener::load_tls_cert(CERT).unwrap();
-        let _identity2 = identity.clone();
+        let proto = if USE_TLS {
+            UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10").unwrap(), Some("mail.satorisocial.com".to_string()))
+        } else {
+            UnderlyingProtocol::Tcp
+        };
 
-        // We need to use danger_accept_invalid_certs in the dev setting b/c self-signed certs are invalid. We can use letsencrypt follwed by an ACME challenge to generate the right certs
+        let server = async move {
+            let (mut listener, _bind_addr) = HdpServer::create_tcp_listen_socket(proto, "127.0.0.1:27000").unwrap();
 
-        let f1 = tokio::task::spawn(AssertSendSafeFuture::new_silent(async move {
-            let listener = TcpListener::bind("127.0.0.1:27000").await.unwrap();
-            let mut tls_listener = TlsListener::new(listener, identity, "mail.satorisocial.com").unwrap();
-            while let Some(conn) = tls_listener.next().await {
-                match conn {
-                    Ok((_stream, addr)) => {
-                        log::info!("Received conn from {:?}", addr);
-                        tokio::time::sleep(Duration::from_millis(1000)).await;
-                        return;
-                    }
-
-                    Err(err) => {
-                        log::error!("Error accepting stream: {:?}", err);
-                        return;
-                    }
-                }
+            while let Some(val) = listener.next().await {
+                let (mut stream, peer_addr) = val.unwrap();
+                log::info!("[Server] Received stream from {}", peer_addr);
+                let buf = &mut [0u8; 4096];
+                let _ = stream.read(buf as &mut [u8]).await.unwrap();
+                assert_eq(buf[0], 0xff, "Invalid read");
+                let _ = stream.write(&[0xfa]).await.unwrap();
+                return;
             }
-        }));
+        };
 
-        let f2 = tokio::task::spawn(async move {
-            let stream = TcpStream::connect("127.0.0.1:27000").await.unwrap();
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(false).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err)).unwrap();
-            let connector = tokio_native_tls::TlsConnector::from(connector);
-            let stream = connector.connect("", stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err)).unwrap();
-            log::info!("[Client] Success connecting to {:?}", stream.get_ref().get_ref().get_ref().peer_addr().unwrap());
-        });
+        let client = async move {
+            let mut stream = HdpServer::connect_defaults(None, SocketAddr::from_str("127.0.0.1:27000").unwrap()).await.unwrap();
+            log::info!("Client connected");
+            let buf = &mut [0u8; 4096];
+            let _ = stream.write(&[0xff]).await.unwrap();
+            let _ = stream.read(buf as &mut [u8]).await.unwrap();
+            assert_eq(buf[0], 0xfa, "Invalid read - client");
+        };
 
-        let _ = tokio::join!(f1, f2).map(|r1, r2| r1.and(r2));
+        tokio::join!(server, client);
 
     }
 
@@ -167,11 +150,6 @@ pub mod tests {
     enum ProtoSelected { TCP, TLS }
 
     fn setup_clap() -> Option<ProtoSelected> {
-        /*
-        KemAlgorithm::Lightsaber, KemAlgorithm::Saber, KemAlgorithm::Firesaber,
-            KemAlgorithm::Kyber512_90s, KemAlgorithm::Kyber768_90s, KemAlgorithm::Kyber1024_90s,
-            KemAlgorithm::Ntruhps2048509, KemAlgorithm::Ntruhps2048677, KemAlgorithm::Ntruhps4096821, KemAlgorithm::Ntruhrss701
-         */
         let kems = KemAlgorithm::names();
         let kems = kems.iter().map(|r| r.as_str()).collect::<Vec<&str>>();
 
@@ -274,6 +252,10 @@ pub mod tests {
     pub const DEFAULT_ENCRYPTION_ALGORITHM: EncryptionAlgorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
     pub const DEFAULT_KEM_ALGORITHM: KemAlgorithm = KemAlgorithm::Firesaber;
 
+    // misc statics
+    pub static P2P_SENDING_START_TIME: Mutex<Option<Instant>> = const_mutex(None);
+    pub static P2P_SENDING_END_TIME: Mutex<Option<Instant>> = const_mutex(None);
+
     #[test]
     // line 874 contains message for you
     fn main() -> Result<(), Box<dyn Error>> {
@@ -282,10 +264,13 @@ pub mod tests {
         setup_log();
         let proto_selected = setup_clap();
         let use_tls = proto_selected.map(|r| r == ProtoSelected::TLS).unwrap_or(DEFAULT_USE_TLS);
+        let total_p2p_messages = 2 * count();
+        let total_messages = total_p2p_messages + (2 * count()) + (3 * count()); // p2p sending to each other simultaneously, c2s sending to each other simultaneously, then one group member using central server to broadcast to two others (3 encryptions)
+
         println!("Using TLS: {}", use_tls);
         println!("Encryption algorithm: {:?}", encryption_algorithm());
         println!("Post-quantum key exchange algorithm: {:?}", kem_algorithm());
-        println!("Message count per node per activity: {}", count());
+        println!("Message count per node per activity: {} (total: {})", count(), total_messages);
         println!("Message length: {} bytes", rand_message_len());
         println!("Using secrecy mode: {:?}", secrecy_mode());
         println!("Session/P2P security level: {:?}/{:?}", session_security_level(), p2p_security_level());
@@ -320,7 +305,6 @@ pub mod tests {
         static CLIENT2_FULLNAME: &'static str = "Thomas P Braun II (test)";
         static CLIENT2_USERNAME: &'static str = "nologik2";
         static CLIENT2_PASSWORD: &'static str = "mrmoney10";
-
 
         let (proposed_credentials_0, proposed_credentials_1, proposed_credentials_2) = rt.block_on(async move {
             let p_0 = ProposedCredentials::new_register(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecBuffer::from(CLIENT0_PASSWORD)).await.unwrap();
@@ -391,8 +375,10 @@ pub mod tests {
 
             // Give time for the server to stop now that the clients are done
             let _ = tokio::time::timeout(Duration::from_millis(100), server_future).await;
-
-            println!("Execution time: {}ms", init.elapsed().as_millis());
+            let elapsed = init.elapsed();
+            let p2p_elapsed = P2P_SENDING_END_TIME.lock().as_ref().unwrap().duration_since(*P2P_SENDING_START_TIME.lock().as_ref().unwrap());
+            let messages_per_sec = total_p2p_messages as f32 / p2p_elapsed.as_secs_f32();
+            println!("Execution time: {}ms (p2p elapsed: {}ms. Approx min p2p rate: {} messages/sec)", elapsed.as_millis(), p2p_elapsed.as_millis() , messages_per_sec);
 
             Ok(()) as Result<(), Box<dyn Error>>
         })?;
@@ -407,7 +393,7 @@ pub mod tests {
         let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port())), backend_type, None, None).await.unwrap();
         account_manager.purge().await.unwrap();
         let kernel = TestKernel::new(node_type, commands, test_container);
-        KernelExecutor::new(rt, hypernode_type, account_manager, kernel, bind_addr, underlying_proto).await.unwrap()
+        KernelExecutor::new(rt, hypernode_type, account_manager, kernel, bind_addr, underlying_proto).unwrap()
     }
 
     pub mod kernel {
@@ -473,8 +459,12 @@ pub mod tests {
             pub queued_requests_client2: Option<Arc<Mutex<HashSet<Ticket>>>>,
             pub can_begin_peer_post_register_recv: Option<VecDeque<broadcast::Receiver<()>>>,
             pub can_begin_peer_post_register_notifier_cl_1: Option<broadcast::Sender<()>>,
+            pub p2p_pre_sending_tx: Option<broadcast::Sender<()>>,
+            pub p2p_pre_sending_rx: Option<VecDeque<broadcast::Receiver<()>>>,
             pub p2p_sending_complete_tx: Option<broadcast::Sender<()>>,
             pub p2p_sending_complete_rx: Option<VecDeque<broadcast::Receiver<()>>>,
+            pub group_end_tx: Option<broadcast::Sender<()>>,
+            pub group_end_rxs: Option<VecDeque<broadcast::Receiver<()>>>,
             pub client0_c2s_channel: Option<PeerChannel>,
             pub client_server_as_server_recv_count: usize,
             pub client_server_as_client_recv_count: usize,
@@ -493,6 +483,7 @@ pub mod tests {
                 let (p2p_sending_complete_tx, p2p_sending_complete_rx) = broadcast::channel(10);
                 let p2p_sending_complete_rx_1 = p2p_sending_complete_tx.subscribe();
                 let p2p_sending_complete_tx = Some(p2p_sending_complete_tx);
+                let can_begin_peer_post_register_notifier_cl_1 = Some(can_begin_peer_post_register_notifier_cl_1);
 
                 let mut p2p_sending_complete_rxs = VecDeque::new();
                 p2p_sending_complete_rxs.push_back(p2p_sending_complete_rx);
@@ -505,9 +496,22 @@ pub mod tests {
                 can_begin_peer_post_register_recv.push_back(can_begin_peer_post_register_recv_cl_2);
                 let can_begin_peer_post_register_recv = Some(can_begin_peer_post_register_recv);
 
-                let can_begin_peer_post_register_notifier_cl_1 = Some(can_begin_peer_post_register_notifier_cl_1);
+                let (group_end_tx, group_end_rx0) = broadcast::channel(10);
+                let mut group_end_rxs = VecDeque::with_capacity(3);
+                group_end_rxs.push_back(group_end_rx0);
+                group_end_rxs.push_back(group_end_tx.subscribe());
+                group_end_rxs.push_back(group_end_tx.subscribe());
+                let group_end_tx = Some(group_end_tx);
+                let group_end_rxs = Some(group_end_rxs);
 
-                Self { p2p_sending_complete_rx, p2p_sending_complete_tx, can_begin_peer_post_register_notifier_cl_1, can_begin_peer_post_register_recv, ..Default::default() }
+                let (p2p_pre_sending_tx, p2p_pre_sending_rx) = broadcast::channel(10);
+                let mut p2p_pre_sending_rxs = VecDeque::with_capacity(2);
+                p2p_pre_sending_rxs.push_back(p2p_pre_sending_rx);
+                p2p_pre_sending_rxs.push_back(p2p_pre_sending_tx.subscribe());
+                let p2p_pre_sending_tx = Some(p2p_pre_sending_tx);
+                let p2p_pre_sending_rx = Some(p2p_pre_sending_rxs);
+
+                Self { p2p_pre_sending_rx, p2p_pre_sending_tx, group_end_tx, group_end_rxs, p2p_sending_complete_rx, p2p_sending_complete_tx, can_begin_peer_post_register_notifier_cl_1, can_begin_peer_post_register_recv, ..Default::default() }
             }
         }
 
@@ -648,15 +652,6 @@ pub mod tests {
                                 GroupBroadcast::CreateResponse(Some(key)) => {
                                     log::info!("[Group] Successfully created group {} for {:?}", key, self.node_type);
                                     assert(self.node_type == NodeType::Client2, "FTQ");
-                                    // Even as the host, we do nothing here. We wait until both members joined the room
-                                    //self.on_valid_ticket_received(GROUP_TICKET_TEST);
-                                    /*
-                                    let remote = self.remote.clone().unwrap();
-
-                                    tokio::task::spawn(async move {
-                                        tokio::time::sleep(Duration::from_millis(500)).await;
-                                        remote.shutdown().unwrap();
-                                    });*/
                                 }
 
                                 GroupBroadcast::AcceptMembershipResponse(success) => {
@@ -664,16 +659,6 @@ pub mod tests {
                                     assert(self.node_type == NodeType::Client0 || self.node_type == NodeType::Client1, "EQW");
                                     assert(success, "YTR");
                                     log::info!("[Group] Successfully entered* group for {:?}? {}", self.node_type, success);
-                                    /*
-                                    let remote = self.remote.clone().unwrap();
-                                    self.on_valid_ticket_received(GROUP_TICKET_TEST);
-                                    // We don't have to do anything here; we just wait for group messages to start
-                                    // pouring-in
-
-                                    tokio::task::spawn(async move {
-                                        tokio::time::sleep(Duration::from_millis(500)).await;
-                                        remote.shutdown().unwrap();
-                                    });*/
                                 }
 
                                 GroupBroadcast::MemberStateChanged(key, state) => {
@@ -688,14 +673,7 @@ pub mod tests {
                                                     log::info!("[Group] Client2/Host will now begin group stress test ...");
                                                     let test_container = self.item_container.clone().unwrap();
                                                     std::mem::drop(lock);
-                                                    /*
-                                                    let remote = self.remote.clone().unwrap();
-                                                    self.on_valid_ticket_received(GROUP_TICKET_TEST);
 
-                                                    tokio::task::spawn(async move {
-                                                        tokio::time::sleep(Duration::from_millis(500)).await;
-                                                        remote.shutdown().unwrap();
-                                                    });*/
                                                     client2_action4_fire_group(test_container, key, ticket);
                                                 }
                                             }
@@ -724,9 +702,17 @@ pub mod tests {
                                         log::info!("[Group] {:?} is done receiving messages", self.node_type);
                                         self.on_valid_ticket_received(GROUP_TICKET_TEST);
                                         let mut remote = self.remote.clone().unwrap();
+
+                                        let tx = lock.group_end_tx.clone().unwrap();
+                                        let mut rx = lock.group_end_rxs.as_mut().map(|r| r.pop_front().unwrap()).unwrap();
+                                        tx.send(()).unwrap();
+                                        std::mem::drop(lock);
+
+                                        // now, await 3 times
                                         tokio::task::spawn(async move {
-                                            // TODO: Replace this with broadcasters
-                                            tokio::time::sleep(Duration::from_millis(500)).await;
+                                            rx.recv().await.unwrap();
+                                            rx.recv().await.unwrap();
+                                            rx.recv().await.unwrap();
                                             remote.shutdown().await.unwrap();
                                         });
                                     }
@@ -742,9 +728,17 @@ pub mod tests {
                                         log::info!("[Group] {:?}/Host has successfully sent all messages", self.node_type);
                                         self.on_valid_ticket_received(GROUP_TICKET_TEST);
                                         let mut remote = self.remote.clone().unwrap();
+
+                                        let tx = lock.group_end_tx.clone().unwrap();
+                                        let mut rx = lock.group_end_rxs.as_mut().map(|r| r.pop_front().unwrap()).unwrap();
+                                        tx.send(()).unwrap();
+                                        std::mem::drop(lock);
+
+                                        // now, await 3 times
                                         tokio::task::spawn(async move {
-                                            // TODO: Replace this with broadcasters
-                                            tokio::time::sleep(Duration::from_millis(500)).await;
+                                            rx.recv().await.unwrap();
+                                            rx.recv().await.unwrap();
+                                            rx.recv().await.unwrap();
                                             remote.shutdown().await.unwrap();
                                         });
                                     }
@@ -755,7 +749,8 @@ pub mod tests {
                         }
 
                         HdpServerResult::InternalServerError(_, err) => {
-                            panic!("Internal server error: {}", err);
+                            log::error!("Internal server error: {}", err);
+                            std::process::exit(-1);
                         }
 
                         HdpServerResult::RegisterOkay(ticket, cnac, _) => {
@@ -807,6 +802,8 @@ pub mod tests {
 
                         HdpServerResult::PeerChannelCreated(ticket, channel) => {
                             self.on_valid_ticket_received(ticket);
+                            assert(self.node_type == NodeType::Server || self.node_type == NodeType::Client0 || self.node_type == NodeType::Client1, "ZSQ");
+                            // pull out the c2s channel loaded earlier
                             let c2s_channel = if self.node_type == NodeType::Client0 {
                                 let container = self.item_container.as_ref().unwrap();
                                 let item = container.write().client0_c2s_channel.take().unwrap();
@@ -1011,7 +1008,22 @@ pub mod tests {
         assert(node_type != NodeType::Server, "This function is not for servers");
         log::info!("[Peer channel] received on {:?}", node_type);
         tokio::task::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(300)).await;
+            let (broadcast_tx, mut broadcast_rx, p2p_broadcast_tx, mut p2p_broadcast_rx) = {
+                let mut write = test_container.write();
+                let p2p_broadcast_tx = write.p2p_pre_sending_tx.clone().unwrap();
+                let p2p_broadcast_rx = write.p2p_pre_sending_rx.as_mut().unwrap().pop_front().unwrap();
+
+                let broadcast_tx = write.p2p_sending_complete_tx.clone().unwrap();
+                let broadcast_rx = write.p2p_sending_complete_rx.as_mut().unwrap().pop_front().unwrap();
+                (broadcast_tx, broadcast_rx, p2p_broadcast_tx, p2p_broadcast_rx)
+            };
+
+            //tokio::time::sleep(Duration::from_millis(300)).await;
+            p2p_broadcast_tx.send(()).unwrap();
+            p2p_broadcast_rx.recv().await.unwrap();
+            p2p_broadcast_rx.recv().await.unwrap();
+            //tokio::time::sleep(Duration::from_millis(300)).await;
+            *P2P_SENDING_START_TIME.lock() = Some(Instant::now());
             let (mut sink, mut stream) = channel.split();
             let sender = async move {
 
@@ -1031,12 +1043,7 @@ pub mod tests {
                 true
             };
 
-            let (broadcast_tx, mut broadcast_rx) = {
-                let mut write = test_container.write();
-                let broadcast_tx = write.p2p_sending_complete_tx.clone().unwrap();
-                let broadcast_rx = write.p2p_sending_complete_rx.as_mut().unwrap().pop_front().unwrap();
-                (broadcast_tx, broadcast_rx)
-            };
+
 
             let receiver = async move {
                 let mut messages_recv = 0;
@@ -1072,7 +1079,7 @@ pub mod tests {
                 broadcast_tx.send(()).unwrap();
                 broadcast_rx.recv().await.unwrap();
                 broadcast_rx.recv().await.unwrap();
-
+                *P2P_SENDING_END_TIME.lock() = Some(Instant::now());
                 res
             };
 

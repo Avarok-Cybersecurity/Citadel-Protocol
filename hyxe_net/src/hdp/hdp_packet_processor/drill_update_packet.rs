@@ -24,7 +24,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
     let (header, payload, _, _) = packet.decompose();
     let mut state_container = inner_mut!(state_container);
 
-    let hyper_ratchet = get_proper_hyper_ratchet(header_drill_vers, cnac_sess, &wrap_inner_mut!(state_container), proxy_cid_info)?;
+    let hyper_ratchet = get_proper_hyper_ratchet(header_drill_vers, cnac_sess, &state_container, proxy_cid_info)?;
     let (header, payload) = validation::aead::validate_custom(&hyper_ratchet, &header, payload)?;
     let ref header = header;
     let payload = &payload[..];
@@ -39,7 +39,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             match validation::do_drill_update::validate_stage0(payload) {
                 Some(transfer) => {
                     let resp_target_cid = get_resp_target_cid_from_header(header);
-                    let status = attempt_kem_as_bob(resp_target_cid, header, Some(AliceToBobTransferType::Default(transfer)), &mut state_container.active_virtual_connections, cnac_sess)?;
+                    let status = attempt_kem_as_bob(resp_target_cid, header, Some(AliceToBobTransferType::Default(transfer)), &mut state_container.active_virtual_connections, cnac_sess, &hyper_ratchet)?;
                     let packet = hdp_packet_crafter::do_drill_update::craft_stage1(&hyper_ratchet,status, timestamp, resp_target_cid, security_level);
                     PrimaryProcessorResult::ReplyToSender(packet)
                 }
@@ -114,9 +114,6 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             // if lock set by bob, do poll
             let do_poll = lock_set_by_alice.map(|r| !r).unwrap_or(false);
 
-            std::mem::drop(state_container);
-
-
             // If we didn't have to deregister, then our job is done. alice does not need to hear from Bob
             // But, if deregistration occured, we need to alert alice that way she can unlock hers
             if let Some(truncate_vers) = truncate_packet.truncate_version {
@@ -124,9 +121,11 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                 session.send_to_primary_stream(None, truncate_ack)?;
             }
 
+            //std::mem::drop(state_container);
+
             if secrecy_mode == SecrecyMode::Perfect {
                 if do_poll {
-                    let _ = session.poll_next_enqueued(resp_target_cid)?;
+                    let _ = session.poll_next_enqueued(resp_target_cid, state_container.into())?;
                 }
             }
 
@@ -150,12 +149,12 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                 (ToolsetUpdate::SessCNAC(cnac_sess), security_settings.get().map(|r| r.secrecy_mode).clone().unwrap())
             };
 
-            let _ = method.unlock(false)?; // unconditional unlock
+            let _ = method.unlock(true)?; // unconditional unlock
 
             // now, we can poll any packets
-            std::mem::drop(state_container);
+            //std::mem::drop(state_container);
             if secrecy_mode == SecrecyMode::Perfect {
-                let _ = session.poll_next_enqueued(resp_target_cid)?;
+                let _ = session.poll_next_enqueued(resp_target_cid, state_container.into())?;
             }
 
             PrimaryProcessorResult::Void

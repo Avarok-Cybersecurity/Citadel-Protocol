@@ -13,6 +13,7 @@ use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use crate::hdp::hdp_server::SecrecyMode;
 use crate::functional::IfTrueConditional;
 use std::ops::Deref;
+use crate::inner_arg::ExpectedInnerTarget;
 
 /// This will handle an inbound primary group packet
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
@@ -22,7 +23,7 @@ use std::ops::Deref;
 /// `proxy_cid_info`: is None if the packets were not proxied, and will thus use the session's pqcrypto to authenticate the data.
 /// If `proxy_cid_info` is Some, then a tuple of the original implicated cid (peer cid) and the original target cid (this cid)
 /// will be provided. In this case, we must use the virtual conn's crypto
-pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
+pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
     let session = session_ref;
 
     let HdpSessionInner {
@@ -55,7 +56,7 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
         // get the proper pqc
         let header_bytes = &header[..];
         let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to load header [PGP]") as LayoutVerified<&[u8], HdpHeader>;
-        let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess, &wrap_inner_mut!(state_container), proxy_cid_info), "Unable to get proper HyperRatchet [PGP]");
+        let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess, &state_container, proxy_cid_info), "Unable to get proper HyperRatchet [PGP]");
         let security_level = header.security_level.into();
         log::info!("[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
         match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
@@ -142,26 +143,15 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
                                     // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
 
                                     // now, update the keys (if applicable)
-                                    let transfer = return_if_none!(attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut state_container.active_virtual_connections, cnac_sess), "Unable to attempt_kem_as_bob [PGP]");
-
-                                    let state_container_owned = session.state_container.clone();
-
-                                    std::mem::drop(state_container);
-                                    std::mem::drop(session);
+                                    let transfer = return_if_none!(attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut state_container.active_virtual_connections, cnac_sess, &hyper_ratchet), "Unable to attempt_kem_as_bob [PGP]");
 
                                     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
-                                        // send to channel
-
-                                        if !state_container_owned.forward_data_to_channel(original_implicated_cid, header.group.get(), plaintext).await {
+                                        if !state_container.forward_data_to_channel(original_implicated_cid, header.group.get(), plaintext) {
                                             log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
                                             return PrimaryProcessorResult::Void;
                                         }
                                     } else {
-                                        // send to kernel
-                                        //let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
-                                        //session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, plaintext))?;
-
-                                        if !state_container_owned.forward_data_to_channel(0, header.group.get(), plaintext).await {
+                                        if !state_container.forward_data_to_channel(0, header.group.get(), plaintext) {
                                             log::error!("Unable to forward data to c2s channel");
                                             return PrimaryProcessorResult::Void;
                                         }
@@ -197,6 +187,7 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
 
                                 let target_cid = header.target_cid.get();
                                 let needs_truncate = transfer.requires_truncation();
+
                                 let transfer_occured = transfer.has_some();
                                 let secrecy_mode = return_if_none!(security_settings.get().map(|r| r.secrecy_mode).clone(), "Unable to get secrecy mode [PGP]");
 
@@ -209,7 +200,7 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
                                 if state_container.on_group_header_ack_received(secrecy_mode, object_id, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg, cnac_sess) {
                                     //std::mem::drop(state_container);
                                     log::info!("[Toolset Update] Needs truncation? {:?}", &needs_truncate);
-                                    std::mem::drop(state_container);
+
                                     session.send_to_kernel(HdpServerResult::MessageDelivered(header.context_info.get().into()))?;
                                     // now, we need to do one last thing. We need to send a truncate packet to atleast allow bob to begin sending packets using the latest HR
                                     // we need to send a truncate packet. BUT, only if the package was SOME. Just b/c it is some does not mean a truncation is necessary
@@ -220,9 +211,12 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
                                         session.send_to_primary_stream(None, truncate_packet)?;
                                     }
 
+                                    //std::mem::drop(state_container);
+
+                                    // if a transfer occured, we will get polled once we get an TRUNCATE_ACK. No need to double poll
                                     if secrecy_mode == SecrecyMode::Perfect {
                                         log::info!("Polling next in pgp");
-                                        let _ = session.poll_next_enqueued(resp_target_cid)?;
+                                        let _ = session.poll_next_enqueued(resp_target_cid, state_container.into())?;
                                     }
 
                                     PrimaryProcessorResult::Void
@@ -373,14 +367,13 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
         let payload = &payload[2..];
 
         let state_container_owned = session.state_container.clone();
-        std::mem::drop(state_container);
 
-        match super::wave_group_packet::process(session, v_src_port, v_recv_port, &header, payload, proxy_cid_info).await {
+        match super::wave_group_packet::process(session, v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
             GroupProcessorResult::SendToKernel(_ticket, reconstructed_packet) => {
                 if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
                     // send to channel
 
-                    if !state_container_owned.forward_data_to_channel(original_implicated_cid, header.group.get(), reconstructed_packet).await {
+                    if !inner_mut!(state_container_owned).forward_data_to_channel(original_implicated_cid, header.group.get(), reconstructed_packet) {
                         log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
                     }
 
@@ -390,7 +383,7 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
                     //let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
                     // session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, reconstructed_packet))?;
 
-                    if !state_container_owned.forward_data_to_channel(0, header.group.get(), reconstructed_packet).await {
+                    if !inner_mut!(state_container_owned).forward_data_to_channel(0, header.group.get(), reconstructed_packet) {
                         log::error!("Unable to forward data to c2s channel");
                     }
 
@@ -404,7 +397,7 @@ pub async fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, p
 }
 
 #[inline]
-pub(super) fn get_proper_hyper_ratchet<K: ExpectedInnerTargetMut<StateContainerInner>>(header_drill_vers: u32, sess_cnac: &ClientNetworkAccount, state_container: &InnerParameterMut<K, StateContainerInner>, proxy_cid_info: Option<(u64, u64)>) -> Option<HyperRatchet> {
+pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, sess_cnac: &ClientNetworkAccount, state_container: &dyn ExpectedInnerTarget<StateContainerInner>, proxy_cid_info: Option<(u64, u64)>) -> Option<HyperRatchet> {
     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
         // since this conn was proxied, we need to go into the virtual conn layer to get the peer session crypto. HOWEVER:
         // In the case that a packet is proxied back to the source, the adjacent endpoint inscribes this node's cid
@@ -582,6 +575,7 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
         (ToolsetUpdate::SessCNAC(cnac_sess), base_session_secrecy_mode)
     };
 
+    //let transfer_ocurred = transfer.has_some();
     let requires_truncation = transfer.requires_truncation();
 
     match transfer {
@@ -657,30 +651,33 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
     }
 }
 
-// TODO: Figure out FCM
-pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: Option<AliceToBobTransferType<'_>>, vconns: &mut HashMap<u64, VirtualConnection>, cnac_sess: &ClientNetworkAccount) -> Option<KemTransferStatus> {
+/// NOTE! Assumes the `hr` passed is the latest version IF the transfer is some
+pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: Option<AliceToBobTransferType<'_>>, vconns: &mut HashMap<u64, VirtualConnection>, cnac_sess: &ClientNetworkAccount, hr: &HyperRatchet) -> Option<KemTransferStatus> {
     if let Some(transfer) = transfer {
         if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
             let crypt = &mut vconns.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
             let method = ToolsetUpdate::E2E { crypt, local_cid: header.target_cid.get() };
-            update_toolset_as_bob(method, transfer)
+            update_toolset_as_bob(method, transfer, hr)
         } else {
             let method = ToolsetUpdate::SessCNAC(cnac_sess);
-            update_toolset_as_bob(method, transfer)
+            update_toolset_as_bob(method, transfer, hr)
         }
     } else {
         Some(KemTransferStatus::Empty)
     }
 }
 
-pub(crate) fn update_toolset_as_bob(mut update_method: ToolsetUpdate<'_>, transfer: AliceToBobTransferType<'_>) -> Option<KemTransferStatus> {
+pub(crate) fn update_toolset_as_bob(mut update_method: ToolsetUpdate<'_>, transfer: AliceToBobTransferType<'_>, hr: &HyperRatchet) -> Option<KemTransferStatus> {
     let cid = update_method.get_local_cid();
     let new_version = transfer.get_declared_new_version();
+    //let (crypto_params, session_security_level) = transfer.get_security_opts();
+    //let opts = ConstructorOpts::new_vec_init(Some(crypto_params), (session_security_level.value() + 1) as usize);
+    let opts = hr.get_next_constructor_opts();
     if transfer.is_fcm() {
-        let constructor = EndpointRatchetConstructor::<FcmRatchet>::new_bob(cid, new_version, transfer)?;
+        let constructor = EndpointRatchetConstructor::<FcmRatchet>::new_bob(cid, new_version, opts, transfer)?;
         Some(update_method.update(ConstructorType::Fcm(constructor), false).ok()?)
     } else {
-        let constructor = EndpointRatchetConstructor::<HyperRatchet>::new_bob(cid, new_version, transfer)?;
+        let constructor = EndpointRatchetConstructor::<HyperRatchet>::new_bob(cid, new_version, opts, transfer)?;
         Some(update_method.update(ConstructorType::Default(constructor), false).ok()?)
     }
 }

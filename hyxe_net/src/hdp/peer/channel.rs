@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::error::NetworkError;
 use crate::hdp::state_container::VirtualConnectionType;
-use crate::hdp::outbound_sender::BoundedReceiver;
+use crate::hdp::outbound_sender::UnboundedReceiver;
 use futures::{Sink, Stream};
 use futures::task::{Context, Poll};
 use tokio::macros::support::Pin;
@@ -21,7 +21,7 @@ pub struct PeerChannel {
 }
 
 impl PeerChannel {
-    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: BoundedReceiver<SecBuffer>) -> Self {
+    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>) -> Self {
         let implicated_cid = vconn_type.get_implicated_cid();
 
         let send_half = PeerChannelSendHalf {
@@ -135,7 +135,7 @@ impl Unpin for PeerChannelRecvHalf {}
 #[derive(Debug)]
 pub struct PeerChannelRecvHalf {
     // when the state container removes the vconn, this will get closed
-    receiver: BoundedReceiver<SecBuffer>,
+    receiver: UnboundedReceiver<SecBuffer>,
     target_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
@@ -152,7 +152,7 @@ impl Stream for PeerChannelRecvHalf {
             log::info!("[POLL] closing PeerChannel RecvHalf");
             Poll::Ready(None)
         } else {
-            match futures::ready!(Pin::new(&mut self.receiver).poll_next(cx)) {
+            match futures::ready!(Pin::new(&mut self.receiver).poll_recv(cx)) {
                 Some(data) => Poll::Ready(Some(data)),
                 _ => {
                     log::info!("[PeerChannelRecvHalf] ending");

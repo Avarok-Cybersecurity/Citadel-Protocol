@@ -43,6 +43,9 @@ pub mod macros {
     pub trait ContextRequirements: 'static {}
     impl<T: 'static> ContextRequirements for T {}
 
+    pub trait LocalContextRequirements<'a>: 'a {}
+    impl<'a, T: 'a> LocalContextRequirements<'a> for T {}
+
     pub trait SyncContextRequirements: 'static {}
     impl<T: 'static> SyncContextRequirements for T {}
 
@@ -132,12 +135,6 @@ pub mod macros {
     };
 }
 
-    macro_rules! wrap_inner_mut {
-    ($item:expr) => {
-        (&mut $item).into()
-    };
-}
-
     macro_rules! return_if_none {
         ($opt:expr, $err:expr) => {
             match $opt {
@@ -167,6 +164,9 @@ pub mod macros {
     pub trait ContextRequirements: Send + 'static {}
     impl<T: Send + 'static> ContextRequirements for T {}
 
+    pub trait LocalContextRequirements<'a>: Send + 'a {}
+    impl<'a, T: Send + 'a> LocalContextRequirements<'a> for T {}
+
     pub trait SyncContextRequirements: Send + Sync + 'static {}
     impl<T: Send + Sync + 'static> SyncContextRequirements for T {}
 
@@ -190,15 +190,15 @@ pub mod macros {
 
     macro_rules! inner {
     ($item:expr) => {
-        //$item.inner.try_read_for(std::time::Duration::from_millis(1000)).expect("PANIC ON READ (TIMEOUT)")
-        $item.inner.read()
+        $item.inner.try_read_for(std::time::Duration::from_millis(1000)).expect("PANIC ON READ (TIMEOUT)")
+        //$item.inner.read()
     };
 }
 
     macro_rules! inner_mut {
     ($item:expr) => {
-        //$item.inner.try_write_for(std::time::Duration::from_millis(1000)).expect("PANIC ON WRITE (TIMEOUT)")
-        $item.inner.write()
+        $item.inner.try_write_for(std::time::Duration::from_millis(1000)).expect("PANIC ON WRITE (TIMEOUT)")
+        //$item.inner.write()
     };
 }
 
@@ -261,12 +261,6 @@ pub mod macros {
     macro_rules! spawn_handle {
     ($future:expr) => {
         crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn(crate::hdp::misc::panic_future::AssertSendSafeFuture::new($future)))
-    };
-}
-
-    macro_rules! wrap_inner_mut {
-    ($item:expr) => {
-        (&mut $item).into()
     };
 }
 

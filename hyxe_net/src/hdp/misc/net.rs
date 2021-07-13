@@ -2,7 +2,7 @@ use tokio_util::codec::LengthDelimitedCodec;
 use crate::hdp::misc::clean_shutdown::{clean_framed_shutdown, CleanShutdownSink, CleanShutdownStream};
 use bytes::Bytes;
 use tokio::io::{AsyncWrite, AsyncRead, ReadBuf, AsyncWriteExt};
-use crate::macros::ContextRequirements;
+use crate::macros::{ContextRequirements, SyncContextRequirements};
 use std::net::SocketAddr;
 use tokio::net::{TcpStream, TcpListener};
 use tokio_stream::Stream;
@@ -138,8 +138,11 @@ pub struct TlsListener {
     inner: TcpListener,
     tls_acceptor: Arc<TlsAcceptor>,
     domain: TlsDomain,
-    queue: Vec<Pin<Box<dyn Future<Output=Result<TlsStream<TcpStream>, NetworkError>>>>>
+    queue: Vec<Pin<Box<dyn TlsOutputImpl>>>
 }
+
+trait TlsOutputImpl: Future<Output=Result<TlsStream<TcpStream>, NetworkError>> + SyncContextRequirements {}
+impl<T: Future<Output=Result<TlsStream<TcpStream>, NetworkError>> + SyncContextRequirements> TlsOutputImpl for T {}
 
 impl TlsListener {
     pub fn new<T: Into<String>>(inner: TcpListener, identity: Identity, domain: T) -> std::io::Result<Self> {
@@ -165,7 +168,7 @@ impl TlsListener {
         Certificate::from_pem(&bytes).map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    fn poll_future(future: &mut Pin<Box<dyn Future<Output=Result<TlsStream<TcpStream>, NetworkError>>>>, cx: &mut Context<'_>) -> Poll<Option<<Self as Stream>::Item>> {
+    fn poll_future(future: &mut Pin<Box<dyn TlsOutputImpl>>, cx: &mut Context<'_>) -> Poll<Option<<Self as Stream>::Item>> {
         future.as_mut().poll(cx).map(|r| Some(r.map(|stream| {
             let peer_addr = stream.get_ref().get_ref().get_ref().peer_addr().unwrap();
             (stream, peer_addr)
@@ -222,7 +225,7 @@ impl Stream for TlsListener {
                     tls_acceptor.accept(stream).await.map_err(|err| NetworkError::Generic(err.to_string()))
                 };
 
-                let mut future = Box::pin(future) as Pin<Box<dyn Future<Output=Result<TlsStream<TcpStream>, NetworkError>>>>;
+                let mut future = Box::pin(future) as Pin<Box<dyn TlsOutputImpl>>;
                 // poll the future once to register any internal wakers
                 let poll_res = Self::poll_future(&mut future, cx);
                 queue.push(future);

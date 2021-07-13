@@ -6,7 +6,7 @@ use tokio::time::error::Error;
 use std::collections::HashMap;
 use crate::hdp::hdp_session::SessionState;
 use crate::hdp::hdp_packet_processor::includes::Duration;
-use crate::macros::{ContextRequirements, OwnedWriteGuard, WeakBorrowType};
+use crate::macros::{ContextRequirements, WeakBorrowType};
 use crate::error::NetworkError;
 use crate::hdp::outbound_sender::Sender;
 
@@ -14,6 +14,7 @@ use crate::hdp::outbound_sender::Sender;
 use futures::task::AtomicWaker;
 use crate::hdp::state_container::{StateContainerInner, StateContainer};
 use crate::hdp::misc::dual_rwlock::DualRwLock;
+use crate::inner_arg::ExpectedInnerTargetMut;
 
 /// any index below 10 are reserved for the session. Inbound GROUP timeouts will begin at 10 or high
 pub const QUEUE_WORKER_RESERVED_INDEX: usize = 10;
@@ -32,11 +33,11 @@ pub struct SessionQueueWorker {
     waker: std::sync::Arc<AtomicWaker>,
 }
 
-pub trait QueueFunction: Fn(&mut OwnedWriteGuard<StateContainerInner>) -> QueueWorkerResult + ContextRequirements {}
-pub trait QueueOneshotFunction: Fn(&mut OwnedWriteGuard<StateContainerInner>) + ContextRequirements {}
+pub trait QueueFunction: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult + ContextRequirements {}
+pub trait QueueOneshotFunction: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) + ContextRequirements {}
 
-impl<T: Fn(&mut OwnedWriteGuard<StateContainerInner>) -> QueueWorkerResult + ContextRequirements> QueueFunction for T {}
-impl<T: Fn(&mut OwnedWriteGuard<StateContainerInner>) + ContextRequirements> QueueOneshotFunction for T {}
+impl<T: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult + ContextRequirements> QueueFunction for T {}
+impl<T: Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) + ContextRequirements> QueueOneshotFunction for T {}
 
 #[cfg(not(feature = "multi-threaded"))]
 #[derive(Clone)]
@@ -112,30 +113,22 @@ impl SessionQueueWorker {
 
     /// Inserts a reserved system process. We now spawn this as a task to prevent deadlocking
     #[allow(unused_results)]
-    pub fn insert_reserved(&self, key: Option<QueueWorkerTicket>, timeout: Duration, on_timeout: impl Fn(&mut OwnedWriteGuard<StateContainerInner>) -> QueueWorkerResult + ContextRequirements) {
-        //let this_ref = self.clone();
-        //spawn!(async move {
-            //tokio::task::yield_now().await;
-            let mut this = unlock!(self);
-            // the zero in the default unwrap ensures that the key is going to be unique
-            let key = key.unwrap_or(QueueWorkerTicket::Oneshot(this.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1, RESERVED_CID_IDX));
-            let delay = this.expirations
-                .insert(key, timeout);
+    pub fn insert_reserved(&self, key: Option<QueueWorkerTicket>, timeout: Duration, on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult + ContextRequirements) {
+        let mut this = unlock!(self);
+        // the zero in the default unwrap ensures that the key is going to be unique
+        let key = key.unwrap_or(QueueWorkerTicket::Oneshot(this.rolling_idx + QUEUE_WORKER_RESERVED_INDEX + 1, RESERVED_CID_IDX));
+        let delay = this.expirations
+            .insert(key, timeout);
 
-            if let Some(key) = this.entries.insert(key, (Box::new(on_timeout), delay, timeout)) {
-                log::error!("Overwrote a session key: {:?}", key.1);
-            }
+        if let Some(key) = this.entries.insert(key, (Box::new(on_timeout), delay, timeout)) {
+            log::error!("Overwrote a session key: {:?}", key.1);
+        }
 
-            this.rolling_idx += 1;
-
-            std::mem::drop(this);
-            // may not be registered yet
-            //self.wake();
-        //});
+        this.rolling_idx += 1;
     }
 
     /// A conveniant way to check on a task once sometime in the future
-    pub fn insert_oneshot(&self, call_in: Duration, on_call: impl Fn(&mut OwnedWriteGuard<StateContainerInner>) + ContextRequirements) {
+    pub fn insert_oneshot(&self, call_in: Duration, on_call: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) + ContextRequirements) {
         self.insert_reserved(None, call_in, move |sess| {
             (on_call)(sess);
             QueueWorkerResult::Complete
@@ -143,7 +136,7 @@ impl SessionQueueWorker {
     }
 
     /// factors-in the offset
-    pub fn insert_ordinary(&self, idx: usize, target_cid: u64, timeout: Duration, on_timeout: impl Fn(&mut OwnedWriteGuard<StateContainerInner>) -> QueueWorkerResult + ContextRequirements) {
+    pub fn insert_ordinary(&self, idx: usize, target_cid: u64, timeout: Duration, on_timeout: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) -> QueueWorkerResult + ContextRequirements) {
         self.insert_reserved(Some(QueueWorkerTicket::Periodic(idx + QUEUE_WORKER_RESERVED_INDEX, target_cid)), timeout, on_timeout)
     }
 

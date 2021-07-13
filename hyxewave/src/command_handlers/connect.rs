@@ -51,7 +51,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
     }
 
     let full_name = read.full_name.clone();
-    let adjacent_nac = read.adjacent_nac.clone().ok_or(ConsoleError::Default("Adjacent NAC missing from CNAC. Corrupt. Please remove CNAC"))?;
+    let adjacent_nac = read.adjacent_nac.clone();
     let conn_info = adjacent_nac.get_conn_info().ok_or(ConsoleError::Default("Adjacent NAC does not have an IP address. Corrupt. Please remove CNAC"))?;
     let connect_mode = matches.is_present("fetch").then(|| ConnectMode::Fetch {force_login}).unwrap_or(ConnectMode::Standard{force_login});
     let params = get_crypto_params(secrecy_mode, kem, enx, security_level);

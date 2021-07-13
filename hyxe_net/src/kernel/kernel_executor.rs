@@ -14,6 +14,7 @@ use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::kernel::kernel::NetKernel;
 use crate::kernel::RuntimeFuture;
 use futures::TryStreamExt;
+use crate::hdp::misc::panic_future::ExplicitPanicFuture;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
@@ -26,11 +27,11 @@ pub struct KernelExecutor<K: NetKernel> {
 
 impl<K: NetKernel> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
-    pub async fn new<T: ToSocketAddrs + std::net::ToSocketAddrs + Send + 'static>(rt: Handle, hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
+    pub fn new<T: ToSocketAddrs + std::net::ToSocketAddrs + Send + 'static>(rt: Handle, hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) = tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt) = HdpServer::init(hypernode_type, server_to_kernel_tx, bind_addr, account_manager, server_shutdown_alerter_tx, underlying_proto).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let (remote, future, localset_opt) = HdpServer::init(hypernode_type, server_to_kernel_tx, bind_addr, account_manager, server_shutdown_alerter_tx, underlying_proto).map_err(|err| NetworkError::Generic(err.to_string()))?;
 
         Ok(Self { shutdown_aleter_rx: Some(server_shutdown_alerter_rx), server_remote: Some(remote), server_to_kernel_rx: Some(server_to_kernel_rx), kernel, context: Some((rt, future, localset_opt)) })
     }
@@ -45,14 +46,14 @@ impl<K: NetKernel> KernelExecutor<K> {
 
         let (rt, hdp_server, _localset_opt) = self.context.take().unwrap();
 
-        let kernel_future = rt.spawn(Self::multithreaded_kernel_inner_loop(kernel, server_to_kernel_rx, server_remote ,shutdown_alerter_rx));
+        let kernel_future = ExplicitPanicFuture::new(rt.spawn(Self::multithreaded_kernel_inner_loop(kernel, server_to_kernel_rx, server_remote ,shutdown_alerter_rx)));
 
         log::info!("KernelExecutor::execute is now executing ...");
 
         let ret = {
             #[cfg(feature = "multi-threaded")]
                 {
-                    let hdp_server_future = rt.spawn(hdp_server);
+                    let hdp_server_future = ExplicitPanicFuture::new(rt.spawn(hdp_server));
                     tokio::select! {
                         ret0 = kernel_future => ret0.map_err(|err| NetworkError::Generic(err.to_string()))?,
                         ret1 = hdp_server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?

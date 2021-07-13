@@ -20,6 +20,7 @@ use bytes::BytesMut;
 use crate::hdp::outbound_sender::OutboundTcpSender;
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use std::sync::atomic::Ordering;
+use hyxe_crypt::prelude::ConstructorOpts;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
@@ -35,7 +36,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
     log::info!("RECV PEER CMD packet (proxy: {})", endpoint_cid_info.is_some());
     let mut state_container = inner_mut!(session.state_container);
-    let sess_hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header_drill_version, cnac, &wrap_inner_mut!(state_container), endpoint_cid_info), "Unable to obtain peer HR (P_CMD_PKT)");
+    let sess_hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header_drill_version, cnac, &state_container, endpoint_cid_info), "Unable to obtain peer HR (P_CMD_PKT)");
 
     let (header, payload, peer_addr, _) = packet.decompose();
     let (header, payload) = validation::aead::validate_custom(&sess_hyper_ratchet, &header, payload)?;
@@ -62,7 +63,6 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                         let persistence_handler = session.account_manager.get_persistence_handler().clone();
                         let to_kernel = session.kernel_tx.clone();
                         std::mem::drop(state_container);
-                        std::mem::drop(session);
 
                         persistence_handler.update_fcm_keys(&cnac, new_keys.clone()).await?;
                         to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalReceived(ticket), ticket))?;
@@ -101,7 +101,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
                             let _ = spawn!(task);
                         } else {
-                            log::error!("Unable to clear vconn");
+                            log::warn!("Vconn already removed");
                         }
 
                         session.send_to_kernel(HdpServerResult::PeerEvent(signal, ticket))?;
@@ -117,7 +117,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
                         if *used_fcm {
                             std::mem::drop(state_container);
-                            std::mem::drop(session);
+
                             let peer_cid = *peer_cid;
                             // now, send an FCM dereg signal. Then, create FCM dereg signal+handler. Finally, remove the kernel's dereg operation
                             match cnac.fcm_raw_send_to_peer(peer_cid, |fcm_ratchet| hyxe_user::external_services::fcm::fcm_packet_crafter::craft_deregistered(fcm_ratchet, peer_cid, ticket.0), acc_mgr.fcm_client()).await {
@@ -164,7 +164,6 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                             match peer_resp_ {
                                 PeerResponse::Accept(Some(peer_uname)) => {
 
-                                    std::mem::drop(session);
                                     match account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_uname).await {
                                         Ok(_) => {
                                             log::info!("[FCM] Successfully finished registration!");
@@ -195,7 +194,6 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                         let peer_cid = vconn.get_original_implicated_cid();
                         let this_cid = vconn.get_original_target_cid();
                         std::mem::drop(state_container);
-                        std::mem::drop(session);
 
                         match account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_username).await {
                             Ok(_) => {
@@ -228,7 +226,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                             //let peer_cid = conn.get_original_implicated_cid();
                                             let mut peer_kem_state_container = PeerKemStateContainer::new(*endpoint_security_settings);
 
-                                            let alice_constructor = HyperRatchetConstructor::new_alice(Some(endpoint_security_settings.crypto_params), conn.get_original_target_cid(), 0, Some(endpoint_security_settings.security_level));
+                                            let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(endpoint_security_settings.crypto_params), (endpoint_security_settings.security_level.value() + 1) as usize), conn.get_original_target_cid(), 0, Some(endpoint_security_settings.security_level));
                                             let transfer = alice_constructor.stage0_alice();
                                             //log::info!("0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
                                             let msg_bytes = transfer.serialize_to_vec()?;
@@ -270,7 +268,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 //let this_cid = conn.get_original_target_cid();
                                 let peer_cid = conn.get_original_implicated_cid();
 
-                                let bob_constructor = HyperRatchetConstructor::new_bob(conn.get_original_target_cid(), 0, AliceToBobTransfer::deserialize_from(transfer)?)?;
+                                let bob_constructor = HyperRatchetConstructor::new_bob(conn.get_original_target_cid(), 0, ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), AliceToBobTransfer::deserialize_from(transfer)?)?;
                                 let transfer = bob_constructor.stage0_bob()?;
 
                                 let bob_transfer = transfer.serialize_to_vector().ok()?;
@@ -320,7 +318,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 log::info!("[STUN] Peer public addr: {:?}", &bob_socket_addr);
                                 let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(&mut *inner_mut!(session.updates_in_progress), bob_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto);
                                 // load the channel now that the keys have been exchanged
-                                state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
+
                                 kem_state.local_is_initiator = true;
                                 state_container.peer_kem_states.insert(peer_cid, kem_state);
                                 log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
@@ -338,10 +336,14 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // now, fire-up the hole-punch future
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
-                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_socket_addr, implicated_cid, kernel_tx, sync_instant, endpoint_hyper_ratchet, endpoint_security_level);
-                                let _ = spawn!(hole_punch_future);
+                                session.send_to_primary_stream(None, stage2_kem_packet)?;
+                                session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
 
-                                PrimaryProcessorResult::ReplyToSender(stage2_kem_packet)
+                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_socket_addr, implicated_cid, kernel_tx, sync_instant, session.state_container.clone(), endpoint_security_level);
+                                //let _ = spawn!(hole_punch_future);
+
+                                let _ = hole_punch_future.await;
+                                PrimaryProcessorResult::Void
                             }
 
                             KeyExchangeProcess::Stage2(sync_time_ns, Some(alice_public_addr)) => {
@@ -358,7 +360,6 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // other side's toolset
                                 let bob_constructor = kem.constructor.take()?;
                                 let hyper_ratchet = bob_constructor.finish_with_custom_cid(this_cid)?;
-                                let endpoint_hyper_ratchet = hyper_ratchet.clone();
                                 //let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();
                                 let endpoint_security_level = session_security_settings.security_level;
                                 let toolset = Toolset::new(this_cid, hyper_ratchet);
@@ -381,9 +382,11 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
-                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_socket_addr, implicated_cid, kernel_tx, sync_instant, endpoint_hyper_ratchet, endpoint_security_level);
-                                let _ = spawn!(hole_punch_future);
+                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_socket_addr, implicated_cid, kernel_tx, sync_instant, session.state_container.clone(), endpoint_security_level);
+                                //let _ = spawn!(hole_punch_future);
+                                std::mem::drop(state_container);
 
+                                let _ = hole_punch_future.await;
                                 PrimaryProcessorResult::Void
                             }
 
@@ -494,7 +497,6 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                 PrimaryProcessorResult::Void
             } else {
                 std::mem::drop(state_container);
-                std::mem::drop(session);
 
                 process_signal_command_as_server(session_orig, signal, ticket, sess_hyper_ratchet, header, timestamp, security_level).await
             }
@@ -561,7 +563,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                                 let sess_mgr = session.session_manager.clone();
                                 let decline = tx == FcmPostRegister::Decline;
                                 let account_manager = session.account_manager.clone();
-                                std::mem::drop(session);
 
                                 if !decline {
                                     if let Err(err) = account_manager.register_hyperlan_p2p_as_server(peer_conn_type.get_original_implicated_cid(), peer_conn_type.get_original_target_cid()).await {
@@ -603,17 +604,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
 
                                                               let _ = tokio::task::spawn(task);
                                                           }
-                                                          /*
-                                                          if !decline {
-
-                                                              if let Some(this_cnac) = this_sess.cnac.as_ref() {
-                                                                  if let Some(other_cnac) = peer_sess.cnac.as_ref() {
-                                                                      this_cnac.register_hyperlan_p2p_as_server_filesystem(other_cnac);
-                                                                      log::info!("Observed registration between {} <-> {} locally", implicated_cid, target_cid);
-                                                                  }
-                                                              }
-
-                                                          }*/
                                                       }, security_level)
                             }
                         }
@@ -624,7 +614,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                                 let implicated_cid = header.session_cid.get();
                                 let sess_mgr = session.session_manager.clone(); // we must clone since the session may end after the FCM send occurs. We don't want to hold a strong ref
 
-                                std::mem::drop(session);
                                 let res = sess_mgr.clone().fcm_post_register_to(implicated_cid, target_cid, false, move |static_hr| { hyxe_user::external_services::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, fcm, username) }, move |res| {
                                     post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
                                 }).await;
@@ -667,7 +656,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                     let cnac = session.cnac.get()?;
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
-                    std::mem::drop(session);
 
                     if cnac.get_id() == implicated_cid {
                         match account_manager.deregister_hyperlan_p2p_as_server(implicated_cid, target_cid).await {
@@ -738,7 +726,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
                         let to_primary_stream = session.to_primary_stream.clone()?;
                         let sess_mgr = session.session_manager.clone();
-                        std::mem::drop(session);
 
                         route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr,  &sess_hyper_ratchet, security_level).await
                     }
@@ -765,7 +752,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         let outbound_tx = return_if_none!(session.to_primary_stream.clone(), "Outbound sender not loaded");
 
                         std::mem::drop(state_container);
-                        std::mem::drop(session);
 
                         let task = async move {
                             loop {
@@ -829,7 +815,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                 HypernodeConnectionType::HyperLANPeerToHyperLANServer(_implicated_cid) => {
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
-                    std::mem::drop(session);
 
                     log::info!("[GetRegisteredPeers] Getting list");
                     let rebound_signal = if let Some(registered_local_clients) = account_manager.get_registered_impersonal_cids(limit).await? {
@@ -856,7 +841,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                 HypernodeConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
-                    std::mem::drop(session);
 
                     log::info!("[GetMutuals] Getting list");
                     let rebound_signal = if let Some(mutuals) = account_manager.get_hyperlan_peer_list(implicated_cid).await? {
@@ -907,7 +891,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
         PeerSignal::Fcm(fcm_ticket, raw_fcm_packet) => {
             // since we are at the server, the raw fcm packet can't be accessed. We only need to store the packet inside
             let account_manager = session.account_manager.clone();
-            std::mem::drop(session);
 
             if let Some(recipient_cnac) = account_manager.get_client_by_cid(fcm_ticket.target_cid).await? {
                 match recipient_cnac.store_raw_fcm_packet_into_recipient(fcm_ticket, raw_fcm_packet).await {
@@ -927,7 +910,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
         PeerSignal::FcmFetch(..) => {
             // TODO: This will be invalid since it doesn't poll the backend
             let ref cnac = session.cnac.get()?;
-            std::mem::drop(session);
 
             reply_to_sender(PeerSignal::FcmFetch(cnac.retrieve_raw_fcm_packets().await?), &sess_hyper_ratchet, ticket, timestamp, security_level)
         }
@@ -937,7 +919,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             let account_manager = session.account_manager.clone();
             let tt = session.time_tracker.clone();
             let ref cnac = session.cnac.get()?;
-            std::mem::drop(session);
 
             let res = account_manager.get_persistence_handler().update_fcm_keys(&cnac, new_keys.clone()).await;
             let timestamp = tt.get_global_time_ns();

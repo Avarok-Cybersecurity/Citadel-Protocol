@@ -11,6 +11,7 @@ mod tests {
     use enum_primitive::FromPrimitive;
     use std::iter::FromIterator;
     use std::convert::TryFrom;
+    use ez_pqcrypto::constructor_opts::ConstructorOpts;
 
     #[allow(unused_must_use)]
     fn setup_log() {
@@ -24,8 +25,8 @@ mod tests {
 
     fn gen(kem_algorithm: KemAlgorithm, encryption_algorithm: EncryptionAlgorithm) -> (PostQuantumContainer, PostQuantumContainer) {
         println!("Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
-        let mut alice_container = PostQuantumContainer::new_alice(Some(kem_algorithm + encryption_algorithm));
-        let bob_container = PostQuantumContainer::new_bob(Some(kem_algorithm + encryption_algorithm), alice_container.get_public_key()).unwrap();
+        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)));
+        let bob_container = PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)), alice_container.get_public_key()).unwrap();
         alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
         (alice_container, bob_container)
     }
@@ -53,13 +54,13 @@ mod tests {
         let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
         println!("Test: {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
         // Alice wants to share data with Bob. She first creates a PostQuantumContainer
-        let mut alice_container = PostQuantumContainer::new_alice(Some(kem_algorithm + encryption_algorithm));
+        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)));
         // Then, alice sends her public key to Bob. She must also send the byte value of algorithm_dictionary::BABYBEAR to him
         let alice_public_key = alice_container.get_public_key();
         //
         // Then, Bob gets the public key. To process it, he must create a PostQuantumContainer for himself
-        let bob_container = PostQuantumContainer::new_bob(Some(kem_algorithm + encryption_algorithm), alice_public_key)?;
-        let eve_container = PostQuantumContainer::new_bob(Some(kem_algorithm + encryption_algorithm), alice_public_key)?;
+        let bob_container = PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)), alice_public_key)?;
+        let eve_container = PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)), alice_public_key)?;
         // Internally, this computes the CipherText. The next step is to send this CipherText back over to alice
         let bob_ciphertext = bob_container.get_ciphertext().unwrap();
         let _eve_ciphertext = eve_container.get_ciphertext().unwrap();
@@ -251,6 +252,7 @@ mod tests {
             let header = packet_n.split_to(HEADER_LEN);
             bob_container.validate_packet_in_place(&header, &mut packet_n, &nonce).unwrap();
         }
+
         let header = packet0.split_to(HEADER_LEN);
         assert!(bob_container.validate_packet_in_place(&header, &mut packet0, &nonce).is_err());
     }
@@ -291,6 +293,7 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize() {
+        setup_log();
         let kem_algorithm = KemAlgorithm::Kyber1024_90s;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
         let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
@@ -300,6 +303,7 @@ mod tests {
         let msg = "hello, world!";
 
         let enc = alice_container.encrypt(msg, &nonce).unwrap();
+        let enc2 = bob_container.encrypt(msg, &nonce).unwrap();
 
         let al_pub0 = alice_container.get_public_key();
         let al_ss0 = alice_container.get_shared_secret().unwrap();
@@ -332,11 +336,11 @@ mod tests {
         //assert_ne!(al_pub0, bob_pub0);
         assert_eq!(bob_ss1, al_ss1);
 
-        let _decr_alice = alice_container.decrypt(&enc, &nonce).unwrap();
-        let _decr_bob = bob_container.decrypt(&enc, &nonce).unwrap();
+        let _decr_alice = bob_container.decrypt(&enc, &nonce).unwrap();
+        let _decr_bob = alice_container.decrypt(&enc2, &nonce).unwrap();
 
-        let decr_alice = pqq_alice.decrypt(&enc, &nonce).unwrap();
-        let decr_bob = pqq_bob.decrypt(&enc, &nonce).unwrap();
+        let decr_alice = pqq_bob.decrypt(&enc, &nonce).unwrap();
+        let decr_bob = pqq_alice.decrypt(&enc2, &nonce).unwrap();
 
         assert_eq!(decr_alice, decr_bob);
     }

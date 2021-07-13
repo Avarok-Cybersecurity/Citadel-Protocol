@@ -52,13 +52,16 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket) -> PrimaryProc
 
 async fn deregister_client_from_self(implicated_cid: u64, session_ref: &HdpSession, hyper_ratchet: &HyperRatchet, timestamp: i64, security_level: SecurityLevel) -> PrimaryProcessorResult {
     let session = session_ref;
-    let state_container = inner!(session.state_container);
-    let ticket = state_container.deregister_state.current_ticket;
+    let (acc_mgr, ticket) = {
+        let state_container = inner!(session.state_container);
+        let ticket = state_container.deregister_state.current_ticket;
 
-    let acc_manager = session.account_manager.clone();
-    std::mem::drop(state_container);
+        let acc_manager = session.account_manager.clone();
+        std::mem::drop(state_container);
+        (acc_manager, ticket)
+    };
 
-    let (ret, success) = match acc_manager.delete_client_by_cid(implicated_cid).await {
+    let (ret, success) = match acc_mgr.delete_client_by_cid(implicated_cid).await {
         Ok(_) => {
             log::info!("Successfully purged account {} locally!", implicated_cid);
             let stage_success_packet = hdp_packet_crafter::do_deregister::craft_final(hyper_ratchet, true, timestamp, security_level);
@@ -86,15 +89,18 @@ async fn deregister_client_from_self(implicated_cid: u64, session_ref: &HdpSessi
 
 async fn deregister_from_hyperlan_server_as_client(implicated_cid: u64, session_ref: &HdpSession) -> PrimaryProcessorResult {
     let session = session_ref;
-    let state_container = inner!(session.state_container);
-    let acc_manager = session.account_manager.clone();
-    let to_kernel = session.kernel_tx.clone();
-    let cnac = session.cnac.get()?;
-    let needs_close_message = session.needs_close_message.clone();
-    let fcm_client = acc_manager.fcm_client().clone();
-    let dereg_ticket = state_container.deregister_state.current_ticket;
+    let (fcm_client, needs_close_message, acc_manager, to_kernel, cnac, dereg_ticket) = {
+        let state_container = inner!(session.state_container);
+        let acc_manager = session.account_manager.clone();
+        let to_kernel = session.kernel_tx.clone();
+        let cnac = session.cnac.get()?;
+        let needs_close_message = session.needs_close_message.clone();
+        let fcm_client = acc_manager.fcm_client().clone();
+        let dereg_ticket = state_container.deregister_state.current_ticket;
 
-    std::mem::drop(state_container);
+        std::mem::drop(state_container);
+        (fcm_client, needs_close_message, acc_manager, to_kernel, cnac, dereg_ticket)
+    };
 
     if let Err(err) = cnac.fcm_raw_broadcast_to_all_peers(fcm_client, |fcm, peer_cid| hyxe_user::external_services::fcm::fcm_packet_crafter::craft_deregistered(fcm, peer_cid, 0)).await {
         log::error!("Error when fcm broadcasting: {:#?}", err);

@@ -11,7 +11,7 @@ use std::alloc::Global;
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::fcm::fcm_ratchet::FcmRatchet;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
-use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
+use ez_pqcrypto::constructor_opts::ConstructorOpts;
 
 /// A container meant to establish perfect forward secrecy AND scrambling w/ an independent key
 /// This is meant for messages, not file transfer. File transfers should use a single key throughout
@@ -33,14 +33,16 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
     fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill);
     fn get_scramble_drill(&self) -> &Drill;
 
+    fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts>;
+
     fn protect_message_packet<T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>>;
     fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header: H, packet: &mut T) -> Result<(), CryptError<String>>;
 
     fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
     fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
 
-    fn next_alice_constructor(&self, algorithm: Option<impl Into<CryptoParameters>>) -> Self::Constructor {
-        Self::Constructor::new_alice(algorithm, self.get_cid(), self.version().wrapping_add(1), Some(self.get_default_security_level()))
+    fn next_alice_constructor(&self) -> Self::Constructor {
+        Self::Constructor::new_alice(self.get_next_constructor_opts(), self.get_cid(), self.version().wrapping_add(1), Some(self.get_default_security_level()))
     }
 }
 
@@ -139,6 +141,11 @@ impl Ratchet for HyperRatchet {
 
     fn get_scramble_drill(&self) -> &Drill {
         self.get_scramble_drill()
+    }
+
+    // This may panic if any of the ratchets are in an incomplete state
+    fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts> {
+        self.inner.message.inner.iter().map(|r| ConstructorOpts::new_from_previous(Some(r.pqc.params), r.pqc.get_chain().unwrap())).collect()
     }
 
     fn protect_message_packet<T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {
@@ -347,11 +354,6 @@ impl HyperRatchet {
     pub fn get_default_security_level(&self) -> SecurityLevel {
         self.inner.default_security_level
     }
-
-    /// A conveniance method for beginning the initialization of a new hyper ratchet w/ equivalent params of this [HyperRatchet]
-    pub fn next_alice_constructor(&self, algorithm: Option<impl Into<CryptoParameters>>) -> HyperRatchetConstructor {
-        HyperRatchetConstructor::new_alice(algorithm, self.get_cid(), self.version().wrapping_add(1), Some(self.get_default_security_level()))
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -401,6 +403,7 @@ pub mod constructor {
     use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
     use ez_pqcrypto::LARGEST_NONCE_LEN;
     use arrayvec::ArrayVec;
+    use ez_pqcrypto::constructor_opts::ConstructorOpts;
 
     /// Used during the key exchange process
     #[derive(Serialize, Deserialize)]
@@ -485,6 +488,13 @@ pub mod constructor {
     }
 
     impl AliceToBobTransferType<'_> {
+        pub fn get_security_opts(&self) -> (CryptoParameters, SecurityLevel) {
+            match self {
+                Self::Default(tx) => (tx.params, tx.security_level),
+                Self::Fcm(tx) => (tx.params, SecurityLevel::LOW)
+            }
+        }
+
         pub fn get_declared_new_version(&self) -> u32 {
             match self {
                 AliceToBobTransferType::Default(tx) => tx.new_version,
@@ -515,14 +525,14 @@ pub mod constructor {
     }
 
     impl EndpointRatchetConstructor<HyperRatchet> for HyperRatchetConstructor {
-        fn new_alice(algorithm: Option<impl Into<CryptoParameters>>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self {
-            HyperRatchetConstructor::new_alice(algorithm, cid, new_version, security_level)
+        fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self {
+            HyperRatchetConstructor::new_alice(opts, cid, new_version, security_level)
         }
 
-        fn new_bob(cid: u64, new_drill_vers: u32, transfer: AliceToBobTransferType<'_>) -> Option<Self> {
+        fn new_bob(cid: u64, new_drill_vers: u32, opts: Vec<ConstructorOpts>, transfer: AliceToBobTransferType<'_>) -> Option<Self> {
             match transfer {
                 AliceToBobTransferType::Default(transfer) => {
-                    HyperRatchetConstructor::new_bob(cid, new_drill_vers, transfer)
+                    HyperRatchetConstructor::new_bob(cid, new_drill_vers, opts, transfer)
                 }
 
                 _ => {
@@ -560,14 +570,16 @@ pub mod constructor {
     #[derive(Serialize, Deserialize)]
     /// Transferred during KEM
     pub struct AliceToBobTransfer<'a> {
-        params: CryptoParameters,
+        ///
+        pub params: CryptoParameters,
         #[serde(borrow)]
         pks: Vec<&'a [u8]>,
         #[serde(borrow)]
         scramble_alice_pk: &'a [u8],
         scramble_nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
         msg_nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
-        security_level: SecurityLevel,
+        ///
+        pub security_level: SecurityLevel,
         cid: u64,
         new_version: u32
     }
@@ -658,16 +670,17 @@ pub mod constructor {
 
     impl HyperRatchetConstructor {
         /// Called during the initialization stage
-        pub fn new_alice(algorithm: Option<impl Into<CryptoParameters>>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self {
+        pub fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self {
             let security_level = security_level.unwrap_or(SecurityLevel::LOW);
             log::info!("[ALICE] creating container with {:?} security level", security_level);
-            let count = security_level.value() as usize + 1;
-            let params = algorithm.map(|r| r.into()).unwrap_or_default();
-            let keys = (0..count).into_iter().map(|_| MessageRatchetConstructorInner { drill: None, pqc: PostQuantumContainer::new_alice(Some(params)) }).collect();
+            //let count = security_level.value() as usize + 1;
+            let params = opts[0].cryptography.unwrap_or_default();
+            let keys = opts.into_iter().map(|opts| MessageRatchetConstructorInner { drill: None, pqc: PostQuantumContainer::new_alice(opts) }).collect();
+
             Self {
                 params,
                 message: MessageRatchetConstructor { inner: keys },
-                scramble: ScrambleRatchetConstructor { drill: None, pqc: PostQuantumContainer::new_alice(Some(params)) },
+                scramble: ScrambleRatchetConstructor { drill: None, pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params))) },
                 nonce_message: Drill::generate_public_nonce(params.encryption_algorithm),
                 nonce_scramble: Drill::generate_public_nonce(params.encryption_algorithm),
                 cid,
@@ -677,11 +690,11 @@ pub mod constructor {
         }
 
         /// Called when bob receives alice's pk's
-        pub fn new_bob(cid: u64, new_drill_vers: u32, transfer: AliceToBobTransfer) -> Option<Self> {
+        pub fn new_bob(cid: u64, new_drill_vers: u32, opts: Vec<ConstructorOpts>, transfer: AliceToBobTransfer) -> Option<Self> {
             log::info!("[BOB] creating container with {:?} security level", transfer.security_level);
             let count = transfer.security_level.value() as usize + 1;
             let params = transfer.params;
-            let keys: Vec<MessageRatchetConstructorInner> = transfer.pks.into_iter().filter_map(|pk| Some(MessageRatchetConstructorInner { drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?), pqc: PostQuantumContainer::new_bob(Some(params), pk).ok()? })).collect();
+            let keys: Vec<MessageRatchetConstructorInner> = transfer.pks.into_iter().zip(opts.into_iter()).filter_map(|(pk, opts)| Some(MessageRatchetConstructorInner { drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?), pqc: PostQuantumContainer::new_bob(opts, pk).ok()? })).collect();
 
             if keys.len() != count {
                 log::error!("[BOB] not all keys parsed correctly");
@@ -691,7 +704,7 @@ pub mod constructor {
             Some(Self {
                 params,
                 message: MessageRatchetConstructor { inner: keys },
-                scramble: ScrambleRatchetConstructor { drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?), pqc: PostQuantumContainer::new_bob(Some(params), transfer.scramble_alice_pk).ok()? },
+                scramble: ScrambleRatchetConstructor { drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?), pqc: PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(params)), transfer.scramble_alice_pk).ok()? },
                 nonce_message: transfer.msg_nonce,
                 nonce_scramble: transfer.scramble_nonce,
                 cid,
@@ -712,6 +725,7 @@ pub mod constructor {
             let cid = self.cid;
             let new_version = self.new_version;
             let params = self.params;
+            let security_level = self.security_level;
 
             AliceToBobTransfer {
                 params,
@@ -719,7 +733,7 @@ pub mod constructor {
                 scramble_alice_pk,
                 msg_nonce,
                 scramble_nonce,
-                security_level: self.security_level,
+                security_level,
                 cid,
                 new_version
             }
