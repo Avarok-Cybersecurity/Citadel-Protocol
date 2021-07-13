@@ -1,15 +1,16 @@
-use crate::{PostQuantumContainer, PQNode, AntiReplayAttackContainer, PostQuantumType};
+use crate::{PostQuantumContainer, PQNode, AntiReplayAttackContainer, PostQuantumType, KeyStore};
 use serde::{Deserialize, Deserializer, Serialize};
 use crate::algorithm_dictionary::CryptoParameters;
-use crate::encryption::AeadModule;
+use crate::constructor_opts::RecursiveChain;
 
 #[derive(Serialize, Deserialize)]
 struct PostQuantumExport {
     pub params: CryptoParameters,
     pub(crate) data: Box<dyn PostQuantumType>,
+    pub(crate) previous_symmetric_key: Option<RecursiveChain>,
     pub(crate) anti_replay_attack: AntiReplayAttackContainer,
     #[serde(skip)]
-    pub(crate) shared_secret: Option<Box<dyn AeadModule>>,
+    pub(crate) shared_secret: Option<KeyStore>,
     pub(crate) node: PQNode
 }
 
@@ -18,6 +19,7 @@ impl From<PostQuantumExport> for PostQuantumContainer {
         Self {
             params: this.params,
             data: this.data,
+            chain: this.previous_symmetric_key,
             anti_replay_attack: this.anti_replay_attack,
             shared_secret: this.shared_secret,
             node: this.node
@@ -33,7 +35,9 @@ impl<'de> Deserialize<'de> for PostQuantumContainer {
 
         // shared secret may not be loaded yet
         if let Ok(ss) = intermediate.data.get_shared_secret() {
-            intermediate.shared_secret = Some(PostQuantumContainer::get_aes_gcm_key(intermediate.params.encryption_algorithm, ss).map_err(|err| serde::de::Error::custom(err.to_string()))?)
+            let (chain, key) = PostQuantumContainer::get_symmetric_key(intermediate.params.encryption_algorithm, ss, intermediate.previous_symmetric_key.as_ref()).map_err(|err| serde::de::Error::custom(err.to_string()))?;
+            intermediate.shared_secret = Some(key);
+            intermediate.previous_symmetric_key = Some(chain);
         }
 
         Ok(PostQuantumContainer::from(intermediate))

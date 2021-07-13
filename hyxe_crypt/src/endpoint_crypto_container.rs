@@ -10,6 +10,7 @@ use crate::fcm::keys::FcmKeys;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
+use ez_pqcrypto::constructor_opts::ConstructorOpts;
 
 /// A container that holds the toolset as well as some boolean flags to ensure validity
 /// in tight concurrency situations. It is up to the networking protocol to ensure
@@ -119,21 +120,22 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     pub fn maybe_unlock(&mut self, requires_locked_by_alice: bool) -> Option<&R> {
         if requires_locked_by_alice {
             if self.lock_set_by_alice.clone().unwrap_or(false) {
-                if !self.update_in_progress.load(Ordering::Relaxed) {
+                if !self.update_in_progress.fetch_nand(true, Ordering::SeqCst) {
                     log::error!("Expected update_in_progress to be true");
                 }
 
-                self.update_in_progress.store(false, Ordering::SeqCst);
+                //self.update_in_progress.store(false, Ordering::SeqCst);
                 self.lock_set_by_alice = None;
                 log::info!("Unlocking for {}", self.toolset.cid);
             }
         } else {
 
-            if !self.update_in_progress.load(Ordering::Relaxed) {
+            if !self.update_in_progress.fetch_nand(true, Ordering::SeqCst) {
                 log::error!("Expected update_in_progress to be true. LSBA: {:?} | Cid: {}", self.lock_set_by_alice, self.toolset.cid);
+                //std::process::exit(-1);
             }
 
-            self.update_in_progress.store(false, Ordering::SeqCst);
+            //self.update_in_progress.store(false, Ordering::SeqCst);
             self.lock_set_by_alice = None;
             log::info!("Unlocking for {}", self.toolset.cid);
         }
@@ -160,13 +162,22 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     }
 
     /// Returns a new constructor only if a concurrent update isn't occurring
-    pub fn get_next_constructor(&mut self, algorithm: Option<impl Into<CryptoParameters>>) -> Option<R::Constructor> {
+    /// `force`: If the internal boolean was locked prior to calling this in anticipation, force should be true
+    pub fn get_next_constructor(&mut self, force: bool) -> Option<R::Constructor> {
+        let set_lock = move |this: &mut Self| {
+            this.update_in_progress.store(true, Ordering::SeqCst);
+            this.lock_set_by_alice = Some(true);
+            Some(this.get_hyper_ratchet(None)?.next_alice_constructor())
+        };
+
+        if force {
+            return set_lock(self)
+        }
+
         if self.update_in_progress.load(Ordering::SeqCst) {
             None
         } else {
-            self.update_in_progress.store(true, Ordering::SeqCst);
-            self.lock_set_by_alice = Some(true);
-            Some(self.get_hyper_ratchet(None)?.next_alice_constructor(algorithm))
+            set_lock(self)
         }
     }
 
@@ -192,8 +203,8 @@ impl<R: Ratchet> Drop for PeerSessionCrypto<R> {
 
 // TODO: Use GAT's to have a type AliceToBobConstructor<'a>. Get rid of these enums
 pub trait EndpointRatchetConstructor<R: Ratchet>: Send + Sync + 'static {
-    fn new_alice(algorithm: Option<impl Into<CryptoParameters>>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self where Self: Sized;
-    fn new_bob(cid: u64, new_drill_vers: u32, transfer: AliceToBobTransferType<'_>) -> Option<Self> where Self: Sized;
+    fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self where Self: Sized;
+    fn new_bob(cid: u64, new_drill_vers: u32, opts: Vec<ConstructorOpts>, transfer: AliceToBobTransferType<'_>) -> Option<Self> where Self: Sized;
     fn stage0_alice(&self) -> AliceToBobTransferType<'_>;
     fn stage0_bob(&self) -> Option<BobToAliceTransferType>;
     fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()>;
@@ -223,6 +234,13 @@ impl KemTransferStatus {
         }
     }
 
+    pub fn omitted(&self) -> bool {
+        match self {
+            Self::Omitted => true,
+            _ => false
+        }
+    }
+
     pub fn has_some(&self) -> bool {
         match self {
             KemTransferStatus::Some(..) => true,
@@ -230,3 +248,59 @@ impl KemTransferStatus {
         }
     }
 }
+
+/*
+#[cfg(test)]
+mod tests {
+    use crate::hyper_ratchet::HyperRatchet;
+    use crate::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
+    use crate::prelude::{ConstructorOpts, Toolset};
+    use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
+    use crate::drill::SecurityLevel;
+    use crate::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
+
+    fn setup_log() {
+        std::env::set_var("RUST_LOG", "info");
+        let _ = env_logger::try_init();
+        log::trace!("TRACE enabled");
+        log::info!("INFO enabled");
+        log::warn!("WARN enabled");
+        log::error!("ERROR enabled");
+    }
+
+    fn gen(enx: EncryptionAlgorithm, kem: KemAlgorithm, security_level: SecurityLevel, version: u32, opts: Option<Vec<ConstructorOpts>>) -> (HyperRatchet, HyperRatchet) {
+        let opts = opts.unwrap_or_else(||ConstructorOpts::new_vec_init(Some(enx + kem), (security_level.value() + 1) as usize));
+        let mut cx_alice = HyperRatchetConstructor::new_alice(opts.clone(), 0, version, Some(security_level));
+        let cx_bob = HyperRatchetConstructor::new_bob(0, version, opts, cx_alice.stage0_alice()).unwrap();
+        cx_alice.stage1_alice(&BobToAliceTransferType::Default(cx_bob.stage0_bob().unwrap())).unwrap();
+
+        (cx_alice.finish().unwrap(), cx_bob.finish().unwrap())
+    }
+
+    #[test]
+    fn upgrades() {
+        const NUM_UPDATES: usize = 1;
+        setup_log();
+        for level in 0..10u8 {
+            let level = SecurityLevel::from(level);
+            let (hr_alice, hr_bob) = gen(EncryptionAlgorithm::AES_GCM_256_SIV, KemAlgorithm::Firesaber, level, 0, None);
+            let mut endpoint_alice = PeerSessionCrypto::new(Toolset::new(0, hr_alice), true);
+            let mut endpoint_bob = PeerSessionCrypto::new(Toolset::new(0, hr_bob), false);
+
+            for vers in 1..=NUM_UPDATES {
+                // now, upgrade
+                let alice_hr_cons = endpoint_alice.get_next_constructor(false).unwrap();
+                let transfer = alice_hr_cons.stage0_alice();
+
+                let bob_constructor = HyperRatchetConstructor::new_bob(0, vers as _, )
+                match endpoint_bob.update_sync_safe(next_alice_2_bob, false, 0).unwrap() {
+                    KemTransferStatus::Some(transfer, status) => {
+                        let
+                        endpoint_alice.update_sync_safe(transfer.assume_default().unwrap())
+                    }
+                    _ => panic!("Did not expect this kem status")
+                }
+            }
+        }
+    }
+}*/

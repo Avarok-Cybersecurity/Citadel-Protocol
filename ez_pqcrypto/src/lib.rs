@@ -9,6 +9,8 @@ use crate::algorithm_dictionary::{KemAlgorithm, CryptoParameters, EncryptionAlgo
 use serde::{Serialize, Deserialize};
 use crate::function_pointers::{ALICE_FP, BOB_FP};
 use crate::encryption::AeadModule;
+use sha3::Digest;
+use crate::constructor_opts::{ConstructorOpts, RecursiveChain};
 
 #[cfg(not(feature = "unordered"))]
 pub type AntiReplayAttackContainer = crate::replay_attack_container::ordered::AntiReplayAttackContainer;
@@ -41,6 +43,8 @@ pub mod replay_attack_container;
 /// For abstracting-away the use of aead
 pub mod encryption;
 
+pub mod constructor_opts;
+
 /// For debug purposes
 #[cfg(not(feature = "unordered"))]
 pub const fn build_tag() -> &'static str {
@@ -69,9 +73,11 @@ pub const fn get_approx_bytes_per_container() -> usize {
 pub struct PostQuantumContainer {
     pub params: CryptoParameters,
     pub(crate) data: Box<dyn PostQuantumType>,
+    // the first pqc won't have a chain
+    pub(crate) chain: Option<RecursiveChain>,
     pub(crate) anti_replay_attack: AntiReplayAttackContainer,
     #[serde(skip)]
-    pub(crate) shared_secret: Option<Box<dyn AeadModule>>,
+    pub(crate) shared_secret: Option<KeyStore>,
     pub(crate) node: PQNode
 }
 
@@ -84,8 +90,13 @@ pub enum PQNode {
     /// The second node in the exchange. Bob receives the Public key, pk, and encapsulates it.
     /// The encapsulation function returns a shared secret (ss) and a ciphertext (ct) for Bob.
     /// Bob then sends ct to Alice. Finally, Bob uses the newly received ct, coupled with his
-    /// local sk to get the shared secret, ss. Ultimately, the ss is used to xor the bytes
+    /// local sk to get the shared secret, ss
     Bob,
+}
+
+pub(crate) struct KeyStore {
+    alice_symmetric_key: Box<dyn AeadModule>,
+    bob_symmetric_key: Box<dyn AeadModule>
 }
 
 impl PostQuantumContainer {
@@ -93,53 +104,139 @@ impl PostQuantumContainer {
     /// invalid
     ///
     /// `algorithm`: If this is None, a random algorithm will be used
-    pub fn new_alice(params: Option<impl Into<CryptoParameters>>) -> Self {
-        let params = params.map(|r| r.into()).unwrap_or_default();
+    pub fn new_alice(opts: ConstructorOpts) -> Self {
+        let params = opts.cryptography.unwrap_or_default();
+        let previous_symmetric_key = opts.chain;
         let data = Self::get_new_alice(params.kem_algorithm);
         let aes_gcm_key = None;
-        Self { params, data, shared_secret: aes_gcm_key, anti_replay_attack: AntiReplayAttackContainer::default(), node: PQNode::Alice }
+
+        Self { params, data, chain: previous_symmetric_key, shared_secret: aes_gcm_key, anti_replay_attack: AntiReplayAttackContainer::default(), node: PQNode::Alice }
     }
 
     /// Creates a new [PostQuantumContainer] for Bob. This will panic if the algorithm is
     /// invalid
-    pub fn new_bob(params: Option<impl Into<CryptoParameters>>, public_key: &[u8]) -> Result<Self, Error> {
-        let params = params.map(|r| r.into()).unwrap_or_default();
+    pub fn new_bob(opts: ConstructorOpts, public_key: &[u8]) -> Result<Self, Error> {
+        let params = opts.cryptography.unwrap_or_default();
+        let chain = opts.chain;
 
         let data = Self::get_new_bob(params.kem_algorithm, public_key)?;
         // We must call the below to refresh the internal state to allow get_shared_secret to function
         let ss = data.get_shared_secret().unwrap();
 
+        let (chain, aes_gcm_key) = Self::get_symmetric_key(params.encryption_algorithm, ss, chain.as_ref())?;
 
-        let aes_gcm_key = Some(Self::get_aes_gcm_key(params.encryption_algorithm, ss)?);
+        let aes_gcm_key = Some(aes_gcm_key);
 
-        Ok(Self { params, shared_secret: aes_gcm_key, data, anti_replay_attack: AntiReplayAttackContainer::default(), node: PQNode::Bob })
+        Ok(Self { chain: Some(chain), params, shared_secret: aes_gcm_key, data, anti_replay_attack: AntiReplayAttackContainer::default(), node: PQNode::Bob })
     }
 
-    fn get_aes_gcm_key(encryption_algorithm: EncryptionAlgorithm, ss: &[u8]) -> Result<Box<dyn AeadModule>, Error> {
+    fn get_symmetric_key(encryption_algorithm: EncryptionAlgorithm, ss: &[u8], previous_chain: Option<&RecursiveChain>) -> Result<(RecursiveChain, KeyStore), Error> {
+        let (chain, ref alice_key, ref bob_key) = if let Some(ref prev) = previous_chain {
+            // prev = C_n
+            // If a previous key, S_n, existed, we calculate S_(n+1)' = KDF(C_n || S_(n+1))
+            let mut hasher_temp = sha3::Sha3_512::new();
+            let mut hasher_alice = sha3::Sha3_256::new();
+            let mut hasher_bob = sha3::Sha3_256::new();
+            hasher_temp.update(&prev.chain.iter().chain(ss.iter()).cloned().collect::<Vec<u8>>()[..]);
+
+            let temp_key = hasher_temp.finalize();
+
+            let (temp_alice_key, temp_bob_key) = temp_key.as_slice().split_at(32);
+            debug_assert_eq!(temp_alice_key.len(), 32);
+            debug_assert_eq!(temp_bob_key.len(), 32);
+
+            hasher_alice.update(&prev.alice.iter().zip(temp_alice_key.into_iter()).map(|(r1, r2)| *r1 ^ *r2).collect::<Vec<u8>>()[..]);
+            hasher_bob.update(&prev.bob.iter().zip(temp_bob_key.into_iter()).map(|(r1, r2)| *r1 ^ *r2).collect::<Vec<u8>>()[..]);
+
+            let alice_key = hasher_alice.finalize();
+            let bob_key = hasher_bob.finalize();
+
+            // create chain: C_n = KDF(A xor B)
+            let mut hasher = sha3::Sha3_256::new();
+            hasher.update(&alice_key.into_iter().zip(bob_key.into_iter()).map(|(r1, r2)| r1 ^ r2).collect::<Vec<u8>>()[..]);
+            let chain = hasher.finalize();
+
+            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key).ok_or_else(|| pqcrypto_traits::Error::BadLength {
+                name: "Bad Chain length",
+                actual: chain.as_slice().len(),
+                expected: 32
+            })?;
+
+            //log::info!("Alice, Bob keys: {:?} || {:?}", alice_key, bob_key);
+
+            let alice_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(alice_key.as_slice().into_iter().cloned()).ok_or(Error::BadLength {
+                name: "Alice key",
+                actual: alice_key.len(),
+                expected: 32
+            })?;
+
+            let bob_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(bob_key.as_slice().into_iter().cloned()).ok_or(Error::BadLength {
+                name: "Bob key",
+                actual: bob_key.len(),
+                expected: 32
+            })?;
+
+            (chain, alice_key, bob_key)
+        } else {
+            // The first key, S_0', = KDF(S_0)
+            let mut hasher_temp = sha3::Sha3_512::new();
+            hasher_temp.update(ss);
+            let temp_key = hasher_temp.finalize();
+            let (alice_key, bob_key) = temp_key.as_slice().split_at(32);
+
+            let mut hasher = sha3::Sha3_256::new();
+            hasher.update(&alice_key.into_iter().zip(bob_key.into_iter()).map(|(r1, r2)| *r1 ^ *r2).collect::<Vec<u8>>()[..]);
+            let chain = hasher.finalize();
+            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key).ok_or_else(|| pqcrypto_traits::Error::BadLength {
+                name: "Bad Chain length",
+                actual: chain.as_slice().len(),
+                expected: 32
+            })?;
+
+            let alice_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(alice_key.into_iter().cloned()).ok_or(Error::BadLength {
+                name: "Alice key",
+                actual: alice_key.len(),
+                expected: 32
+            })?;
+
+            let bob_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(bob_key.into_iter().cloned()).ok_or(Error::BadLength {
+                name: "Bob key",
+                actual: bob_key.len(),
+                expected: 32
+            })?;
+
+            (chain, alice_key, bob_key)
+        };
+
         match encryption_algorithm {
             EncryptionAlgorithm::AES_GCM_256_SIV => {
                 use aes_gcm_siv::aead::NewAead;
                 //let key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_slice(ss);
-                let key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(ss.into_iter().cloned()).ok_or(Error::BadLength {
-                    name: "",
-                    actual: 0,
-                    expected: 0
-                })?;
 
-                Ok(Box::new(aes_gcm_siv::Aes256GcmSiv::new(&key)))
+                
+                Ok((chain, KeyStore { alice_symmetric_key: Box::new(aes_gcm_siv::Aes256GcmSiv::new(alice_key)), bob_symmetric_key: Box::new(aes_gcm_siv::Aes256GcmSiv::new(bob_key)) }))
             }
 
             EncryptionAlgorithm::Xchacha20Poly_1305 => {
                 use chacha20poly1305::aead::NewAead;
                 //let key = chacha20poly1305::aead::generic_array::GenericArray::<u8, _>::from_slice(ss);
-                let key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(ss.into_iter().cloned()).ok_or(Error::BadLength {
-                    name: "",
-                    actual: 0,
-                    expected: 0
-                })?;
 
-                Ok(Box::new(chacha20poly1305::XChaCha20Poly1305::new(&key)))
+                Ok((chain, KeyStore { alice_symmetric_key: Box::new(chacha20poly1305::XChaCha20Poly1305::new(alice_key)), bob_symmetric_key: Box::new(chacha20poly1305::XChaCha20Poly1305::new(bob_key)) }))
             }
+        }
+    }
+
+    fn get_encryption_key(&self) -> Option<&Box<dyn AeadModule>> {
+        match self.node {
+            PQNode::Alice => Some(&self.shared_secret.as_ref()?.alice_symmetric_key),
+            PQNode::Bob => Some(&self.shared_secret.as_ref()?.bob_symmetric_key)
+        }
+    }
+
+    fn get_decryption_key(&self) -> Option<&Box<dyn AeadModule>> {
+        match self.node {
+            PQNode::Alice => Some(&self.shared_secret.as_ref()?.bob_symmetric_key),
+            PQNode::Bob => Some(&self.shared_secret.as_ref()?.alice_symmetric_key)
         }
     }
 
@@ -149,10 +246,16 @@ impl PostQuantumContainer {
     }
 
     /// This should always be called after deserialization
-    fn load_symmetric_key(&mut self) -> Result<(), Error> {
+    fn load_symmetric_keys(&mut self) -> Result<(), Error> {
         let algo = self.params.encryption_algorithm;
         let ss = self.get_shared_secret()?;
-        self.shared_secret = Some(Self::get_aes_gcm_key(algo, ss)?);
+        let prev_symmetric_key = self.chain.as_ref();
+
+        let (chain, key) = Self::get_symmetric_key(algo, ss, prev_symmetric_key)?;
+
+        self.shared_secret = Some(key);
+        self.chain = Some(chain);
+
         Ok(())
         //self.shared_secret = Some(AeadKey::new(&GenericArray::clone_from_slice(self.get_shared_secret().unwrap())))
     }
@@ -162,13 +265,27 @@ impl PostQuantumContainer {
         //debug_assert_eq!(self.node, PQNode::Alice);
         self.data.alice_on_receive_ciphertext(ciphertext)?;
         let _ss = self.data.get_shared_secret()?; // call once to load internally
-        self.load_symmetric_key()
+        self.load_symmetric_keys()
     }
 
     /// Returns true if either Tx/Rx Anti-replay attack counters have been engaged (useful for determining
     /// if resetting the state is necessary)
     pub fn has_verified_packets(&self) -> bool {
         self.anti_replay_attack.has_tracked_packets()
+    }
+
+    /// Returns the previous symmetric chain key. If this is the first in the series, then returns the shared
+    pub fn get_chain(&self) -> Result<RecursiveChain, Error> {
+        if let Some(ref chain) = self.chain {
+            Ok(chain.clone())
+        } else {
+            // chain won't be loaded for alice until she builds hers
+            Err(pqcrypto_traits::Error::BadLength {
+                name: "Chain not loaded",
+                actual: 0,
+                expected: 0
+            })
+        }
     }
 
     /// Gets the public key
@@ -211,7 +328,7 @@ impl PostQuantumContainer {
 
         // if the shared secret is loaded, the AES GCM abstraction should too.
 
-        if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
+        if let Some(aes_gcm_key) = self.get_encryption_key() {
             aes_gcm_key.encrypt(nonce, input)
         } else {
             Err(EzError::SharedSecretNotLoaded)
@@ -228,7 +345,7 @@ impl PostQuantumContainer {
         let payload_len = payload.len();
 
         let mut in_place_payload = InPlaceBuffer::new(&mut payload, 0..payload_len).ok_or_else(|| EzError::Generic("Bad window range"))?;
-        if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
+        if let Some(aes_gcm_key) = self.get_encryption_key() {
             aes_gcm_key.encrypt_in_place(nonce, header.subset(0..header_len), &mut in_place_payload).map_err(|_| EzError::AesGcmEncryptionFailure)?;
             header.unsplit(payload);
             Ok(())
@@ -244,7 +361,7 @@ impl PostQuantumContainer {
         let payload_len = payload.len();
 
         let mut in_place_payload = InPlaceBuffer::new(payload, 0..payload_len).ok_or_else(|| EzError::Generic("Bad window range"))?;
-        if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
+        if let Some(aes_gcm_key) = self.get_decryption_key() {
             aes_gcm_key.decrypt_in_place(nonce, header, &mut in_place_payload).map_err(|_| EzError::AesGcmDecryptionFailure)
                 .and_then(|_| {
                     // get the last 8 bytes of the payload
@@ -275,16 +392,8 @@ impl PostQuantumContainer {
         let nonce = nonce.as_ref();
         // if the shared secret is loaded, the AES GCM abstraction should too.
 
-        if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
-            match aes_gcm_key.decrypt(nonce, input) {
-                Err(_) => {
-                    Err(EzError::AesGcmDecryptionFailure)
-                },
-
-                Ok(vec) => {
-                    Ok(vec)
-                }
-            }
+        if let Some(aes_gcm_key) = self.get_decryption_key() {
+            aes_gcm_key.decrypt(nonce, input)
         } else {
             Err(EzError::SharedSecretNotLoaded)
         }
@@ -297,7 +406,7 @@ impl PostQuantumContainer {
         let nonce = nonce.as_ref();
         // if the shared secret is loaded, the AES GCM abstraction should too.
 
-        if let Some(aes_gcm_key) = self.shared_secret.as_ref() {
+        if let Some(aes_gcm_key) = self.get_decryption_key() {
             match aes_gcm_key.decrypt_in_place(nonce, &[], &mut buf) {
                 Err(_) => {
                     Err(EzError::AesGcmDecryptionFailure)

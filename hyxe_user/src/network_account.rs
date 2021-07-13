@@ -3,8 +3,7 @@ use std::fmt::{Debug, Display};
 use std::fmt::Formatter;
 use std::net::SocketAddr;
 use std::sync::Arc;
-
-use crossbeam_utils::sync::{ShardedLock, ShardedLockReadGuard, ShardedLockWriteGuard};
+use parking_lot::{RwLock, RwLockWriteGuard, RwLockReadGuard};
 //use future_parking_lot::rwlock::{FutureReadable, FutureWriteable, RwLock};
 use log::info;
 use rand::{random, RngCore, thread_rng};
@@ -55,10 +54,11 @@ pub enum ConnectProtocol {
 }
 
 /// Thread-safe handle
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NetworkAccount<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
     /// the inner device
-    inner: Arc<(u64, ShardedLock<NetworkAccountInner<R, Fcm>>)>
+    #[serde(bound = "")]
+    inner: Arc<(u64, RwLock<NetworkAccountInner<R, Fcm>>)>
 }
 
 impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
@@ -70,7 +70,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
         let cids_registered = HashMap::new();
         info!("Attempting to create a NAC at {:?}", &local_path);
 
-        Ok(Self { inner: Arc::new((nid, ShardedLock::new(NetworkAccountInner::<R, Fcm> { cids_registered, nid, connection_info: None, persistence_handler: None}))) })
+        Ok(Self { inner: Arc::new((nid, RwLock::new(NetworkAccountInner::<R, Fcm> { cids_registered, nid, connection_info: None, persistence_handler: None}))) })
     }
 
     /// When a new connection is created, this may be called
@@ -79,7 +79,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     #[allow(unused_results)]
     pub fn new_from_recent_connection(nid: u64, addr: SocketAddr, persistence_handler: PersistenceHandler<R, Fcm>) -> NetworkAccount<R, Fcm> {
         Self {
-            inner: Arc::new((nid, ShardedLock::new(NetworkAccountInner::<R, Fcm> {
+            inner: Arc::new((nid, RwLock::new(NetworkAccountInner::<R, Fcm> {
                 cids_registered: HashMap::new(),
                 nid,
                 connection_info: Some(ConnectionInfo { addr }),
@@ -173,7 +173,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
         username_has_invalid_symbols(&username)?;
         log::info!("Checking username {} for correspondence ...", &username);
 
-        let persistence_handler = self.inner.1.read().unwrap().persistence_handler.clone().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".to_string()))?;
+        let persistence_handler = self.inner.1.read().persistence_handler.clone().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".to_string()))?;
 
         if persistence_handler.username_exists(&username).await? {
             return Err(AccountError::Generic(format!("Username {} already exists!", &username)))
@@ -204,13 +204,13 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     }
 
     /// Reads futures-style
-    pub fn read(&self) -> ShardedLockReadGuard<NetworkAccountInner<R, Fcm>> {
-        self.inner.1.read().unwrap()
+    pub fn read(&self) -> RwLockReadGuard<NetworkAccountInner<R, Fcm>> {
+        self.inner.1.read()
     }
 
     /// Reads futures-style
-    pub fn write(&self) -> ShardedLockWriteGuard<NetworkAccountInner<R, Fcm>> {
-        self.inner.1.write().unwrap()
+    pub fn write(&self) -> RwLockWriteGuard<NetworkAccountInner<R, Fcm>> {
+        self.inner.1.write()
     }
 
     /// blocking version of async_save_to_local_fs
@@ -244,7 +244,7 @@ impl<R: Ratchet, Fcm: Ratchet> HyperNodeAccountInformation for NetworkAccount<R,
 
 impl<R: Ratchet, Fcm: Ratchet> From<NetworkAccountInner<R, Fcm>> for NetworkAccount<R, Fcm> {
     fn from(inner: NetworkAccountInner<R, Fcm>) -> Self {
-        Self { inner: Arc::new((inner.nid, ShardedLock::new(inner))) }
+        Self { inner: Arc::new((inner.nid, RwLock::new(inner))) }
     }
 }
 

@@ -35,6 +35,8 @@ use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, MailboxTransfer, PeerConn
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::macros::{ContextRequirements, SyncContextRequirements};
 use hyxe_user::prelude::ConnectProtocol;
+use crate::kernel::RuntimeFuture;
+use std::pin::Pin;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -147,7 +149,7 @@ impl HdpSessionManager {
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, init_mode: HdpSessionInitMode, ticket: Ticket, proposed_credentials: ProposedCredentials, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, tcp_only: Option<bool>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings) -> Result<(), NetworkError> {
+    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, init_mode: HdpSessionInitMode, ticket: Ticket, proposed_credentials: ProposedCredentials, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, tcp_only: Option<bool>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
@@ -221,9 +223,7 @@ impl HdpSessionManager {
         };
 
 
-        spawn!(Self::execute_session_with_safe_shutdown(session_manager, new_session, peer_addr, Some(p2p_listener), primary_stream, connect_mode));
-
-        Ok(())
+        Ok(Box::pin(Self::execute_session_with_safe_shutdown(session_manager, new_session, peer_addr, Some(p2p_listener), primary_stream, connect_mode)))
     }
 
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
@@ -341,7 +341,7 @@ impl HdpSessionManager {
 
     /// When the primary port listener receives a new connection, the stream gets sent here for handling
     #[allow(unused_results)]
-    pub fn process_new_inbound_connection(&self, local_bind_addr: SocketAddr, peer_addr: SocketAddr, primary_stream: GenericNetworkStream) -> Result<(), NetworkError> {
+    pub fn process_new_inbound_connection(&self, local_bind_addr: SocketAddr, peer_addr: SocketAddr, primary_stream: GenericNetworkStream) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
         let this_dc = self.clone();
         let mut this = inner_mut!(self);
         let on_drop = this.clean_shutdown_tracker_tx.clone();
@@ -367,9 +367,9 @@ impl HdpSessionManager {
 
         // Note: Must send TICKET on finish
         //self.insert_provisional_expiration(peer_addr, provisional_ticket);
-        spawn!(Self::execute_session_with_safe_shutdown(this_dc, new_session,peer_addr, None, primary_stream, None));
+        let session = Self::execute_session_with_safe_shutdown(this_dc, new_session,peer_addr, None, primary_stream, None);
 
-        Ok(())
+        Ok(Box::pin(session))
     }
 
     /// When the [HdpServer] receives an outbound request, the request flows here. It returns where the packet must be sent to
@@ -410,7 +410,7 @@ impl HdpSessionManager {
             let ref sess = sess.1;
             let timestamp = sess.time_tracker.get_global_time_ns();
             let mut state_container = inner_mut!(sess.state_container);
-            sess.initiate_drill_update(timestamp, virtual_target, &mut wrap_inner_mut!(state_container), Some(ticket))
+            sess.initiate_drill_update(timestamp, virtual_target, &mut state_container, Some(ticket))
         } else {
             Err(NetworkError::Generic(format!("Unable to initiate drill update subroutine for {} (not an active session)", implicated_cid)))
         }
@@ -436,14 +436,17 @@ impl HdpSessionManager {
     /// Sends the command outbound. Returns true if sent, false otherwise
     /// In the case that this return false, further interaction should be avoided
     pub async fn dispatch_peer_command(&self, implicated_cid: u64, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
-        let this = inner!(self);
-        if let Some(sess) = this.sessions.get(&implicated_cid) {
-            let sess = sess.1.clone();
-            std::mem::drop(this);
-            sess.dispatch_peer_command(ticket, peer_command, security_level).await
-        } else {
-            Err(NetworkError::InternalError("Session not found in session manager"))
-        }
+        let sess = {
+            let this = inner!(self);
+            if let Some(sess) = this.sessions.get(&implicated_cid) {
+                let sess = sess.1.clone();
+                sess
+            } else {
+                return Err(NetworkError::InternalError("Session not found in session manager"))
+            }
+        };
+
+        sess.dispatch_peer_command(ticket, peer_command, security_level).await
     }
 
     /// Returns a list of active sessions
@@ -527,48 +530,53 @@ impl HdpSessionManager {
     #[allow(unused_results)]
     pub async fn fcm_post_register_to(&self, implicated_cid: u64, peer_cid: u64, is_response: bool, packet_crafter: impl FnOnce(&HyperRatchet) -> RawExternalPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
         let this_ref = self.clone();
-        let this = inner!(self);
 
         if implicated_cid != peer_cid {
-            let tickets = FcmPeerRegisterTicket::create_bidirectional(implicated_cid, peer_cid);
-            if !is_response {
-                if this.fcm_post_registrations.contains(&tickets.0) || this.fcm_post_registrations.contains(&tickets.1) {
-                    return Err(NetworkError::InvalidExternalRequest("A concurrent registration request between the two peers is already occurring"))
+            let (account_manager, tickets) = {
+                let this = inner!(self);
+                let tickets = FcmPeerRegisterTicket::create_bidirectional(implicated_cid, peer_cid);
+                if !is_response {
+                    if this.fcm_post_registrations.contains(&tickets.0) || this.fcm_post_registrations.contains(&tickets.1) {
+                        return Err(NetworkError::InvalidExternalRequest("A concurrent registration request between the two peers is already occurring"))
+                    }
                 }
-            }
 
-            let account_manager = this.account_manager.clone();
-            std::mem::drop(this);
+                let account_manager = this.account_manager.clone();
+                std::mem::drop(this);
+                (account_manager, tickets)
+            };
 
             let peer_cnac = account_manager.get_client_by_cid(peer_cid).await?.ok_or(NetworkError::InvalidExternalRequest("Peer CID does not exist"))?;
-            peer_cnac.visit(|inner| {
+            let (keys, static_aux_ratchet) = {
+                let inner = peer_cnac.read();
                 let keys = inner.crypt_container.fcm_keys.clone();
                 let static_aux_ratchet = inner.crypt_container.toolset.get_static_auxiliary_ratchet().clone();
 
-                std::mem::drop(inner);
+                (keys, static_aux_ratchet)
+            };
 
-                async move {
-                    let fcm_instance = FCMInstance::new(keys.ok_or(NetworkError::InvalidExternalRequest("Client cannot receive FCM messages at this time"))?, account_manager.fcm_client().clone());
-                    let packet = packet_crafter(&static_aux_ratchet);
+            let fcm_instance = FCMInstance::new(keys.ok_or(NetworkError::InvalidExternalRequest("Client cannot receive FCM messages at this time"))?, account_manager.fcm_client().clone());
+            let packet = packet_crafter(&static_aux_ratchet);
 
-                    let mut this = inner_mut!(this_ref);
+            {
+                let mut this = inner_mut!(this_ref);
 
-                    if is_response {
-                        // remove the tickets
-                        this.fcm_post_registrations.remove(&tickets.0);
-                        this.fcm_post_registrations.remove(&tickets.1);
-                    } else {
-                        // add the tickets
-                        this.fcm_post_registrations.insert(tickets.0);
-                        this.fcm_post_registrations.insert(tickets.1);
-                    }
-
-                    std::mem::drop(this);
-
-                    on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()));
-                    Ok(())
+                if is_response {
+                    // remove the tickets
+                    this.fcm_post_registrations.remove(&tickets.0);
+                    this.fcm_post_registrations.remove(&tickets.1);
+                } else {
+                    // add the tickets
+                    this.fcm_post_registrations.insert(tickets.0);
+                    this.fcm_post_registrations.insert(tickets.1);
                 }
-            }).await
+
+                std::mem::drop(this);
+            }
+
+
+            on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()));
+            Ok(())
         } else {
             Err(NetworkError::InvalidExternalRequest("implicated cid == peer_cid"))
         }
@@ -823,14 +831,17 @@ impl HdpSessionManager {
 /// After `timeout`, the closure `on_timeout` is executed
     #[inline]
     pub async fn route_signal_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
-        let this = inner!(self);
+        let account_manager = {
+            let this = inner!(self);
 
-        if implicated_cid == target_cid {
-            return Err("Target CID cannot be equal to the implicated CID".to_string());
-        }
+            if implicated_cid == target_cid {
+                return Err("Target CID cannot be equal to the implicated CID".to_string());
+            }
 
-        let account_manager = this.account_manager.clone();
-        std::mem::drop(this);
+            let account_manager = this.account_manager.clone();
+            std::mem::drop(this);
+            account_manager
+        };
 
         if account_manager.hyperlan_cid_is_registered(target_cid).await.map_err(|err| err.into_string())? {
             let this = inner!(self);

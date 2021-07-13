@@ -10,7 +10,10 @@ use crate::hyper_ratchet::{Ratchet, HyperRatchet};
 #[cfg(debug_assertions)]
 pub const MAX_HYPER_RATCHETS_IN_MEMORY: usize = 6;
 #[cfg(not(debug_assertions))]
-pub const MAX_HYPER_RATCHETS_IN_MEMORY: usize = 100;
+pub const MAX_HYPER_RATCHETS_IN_MEMORY: usize = 128;
+
+/// The reserved version for the static aux ratchet
+pub const STATIC_AUX_VERSION: u32 = 0;
 
 /// The [Toolset] is the layer of abstraction between a [ClientNetworkAccount] and the
 /// inner hyper ratchets.
@@ -44,6 +47,7 @@ pub enum UpdateStatus {
 
 impl<R: Ratchet> Toolset<R> {
     /// Creates a new [Toolset]. Designates the `hyper_ratchet` as the static auxiliary ratchet
+    /// hyper_ratchet should be version 0
     pub fn new(cid: u64, hyper_ratchet: R) -> Self {
         let mut map = VecDeque::with_capacity(MAX_HYPER_RATCHETS_IN_MEMORY);
         map.push_front(hyper_ratchet.clone());
@@ -82,6 +86,21 @@ impl<R: Ratchet> Toolset<R> {
         log::info!("[{}] Upgraded {} to {}. Adjusted index of current: {}. Adjusted index of (current - 1): {} || OLDEST: {} || LEN: {}", MAX_HYPER_RATCHETS_IN_MEMORY, prev_version, cur_version, self.get_adjusted_index(cur_version), self.get_adjusted_index(prev_version), self.get_oldest_hyper_ratchet_version(), self.map.len());
         Some(update_status)
     }
+
+    /*
+    // on wrap-around, will hit zero (which is reserved), thus will return 1
+    fn get_next_version(base: u32) -> u32 {
+        std::cmp::max(1, base.wrapping_add(1))
+    }
+
+    const fn get_previous_version(base: u32) -> u32 {
+        let vers = base.wrapping_sub(1);
+        if vers != STATIC_AUX_VERSION {
+            vers
+        } else {
+            u32::MAX
+        }
+    }*/
 
 
     #[allow(unused_results)]
@@ -207,17 +226,8 @@ impl<R: Ratchet> Toolset<R> {
     }
 
     /// Resets the internal state to the default, if necessary. At the beginning of each session, this should be called
-    pub fn verify_init_state(&mut self) -> Option<()> {
-        /*
-        if self.static_auxiliary_hyper_ratchet.has_verified_packets() {
-            log::info!("Resetting toolset ...");
-            let cid = self.cid;
-            let serialized_static = bincode2::serialize(&self.static_auxiliary_hyper_ratchet).ok()?;
-            let static_aux = bincode2::deserialize(&serialized_static[..]).ok()?;
-            *self = Toolset::new(cid, static_aux);
-        }*/
+    pub fn verify_init_state(&self) -> Option<()> {
         self.static_auxiliary_hyper_ratchet.reset_ara();
-
         Some(())
     }
 }

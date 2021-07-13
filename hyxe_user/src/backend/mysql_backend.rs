@@ -15,11 +15,11 @@ use crate::account_loader::load_node_nac;
 use std::collections::hash_map::RandomState;
 use std::sync::Arc;
 use std::collections::HashMap;
-use crossbeam_utils::sync::ShardedLock;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
+use parking_lot::RwLock;
 
 /// A container for handling db conns
 pub struct SqlBackend<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
@@ -631,7 +631,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         true
     }
 
-    fn get_local_map(&self) -> Option<Arc<ShardedLock<HashMap<u64, ClientNetworkAccount<R, Fcm>, RandomState>>>> {
+    fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>, RandomState>>>> {
         None
     }
 

@@ -5,7 +5,6 @@ use crate::misc::{AccountError, CNACMetadata};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use hyxe_fs::system_file_manager::write_bytes_to;
 use std::path::PathBuf;
-use crossbeam_utils::sync::{ShardedLock, ShardedLockReadGuard, ShardedLockWriteGuard};
 use std::collections::HashMap;
 use hyxe_fs::env::DirectoryStore;
 use crate::prelude::NetworkAccount;
@@ -15,10 +14,11 @@ use std::collections::hash_map::RandomState;
 use crate::hypernode_account::HyperNodeAccountInformation;
 use std::sync::Arc;
 use hyxe_crypt::fcm::keys::FcmKeys;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// For handling I/O with the local filesystem
 pub struct FilesystemBackend<R: Ratchet, Fcm: Ratchet> {
-    clients_map: Option<Arc<ShardedLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>>,
+    clients_map: Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>>,
     directory_store: DirectoryStore,
     local_nac: Option<NetworkAccount<R, Fcm>>
 }
@@ -31,7 +31,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         sync_cnacs_and_nac_filesystem(&local_nac, &mut map)?;
         // NOTE: since we don't have access to the persistence handler yet, we will need to load it later
         self.local_nac = Some(local_nac);
-        self.clients_map = Some(Arc::new(ShardedLock::new(map)));
+        self.clients_map = Some(Arc::new(RwLock::new(map)));
 
         Ok(())
     }
@@ -287,7 +287,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         false
     }
 
-    fn get_local_map(&self) -> Option<Arc<ShardedLock<HashMap<u64, ClientNetworkAccount<R, Fcm>, RandomState>>>> {
+    fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>, RandomState>>>> {
         self.clients_map.clone()
     }
 
@@ -298,16 +298,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
 impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
     #[allow(dead_code)]
-    fn clients_map(&self) -> Result<&Arc<ShardedLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>, AccountError<&'static str>> {
+    fn clients_map(&self) -> Result<&Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>, AccountError<&'static str>> {
         self.clients_map.as_ref().ok_or(AccountError::Generic("Clients Map not loaded"))
     }
 
-    fn read_map(&self) -> ShardedLockReadGuard<HashMap<u64, ClientNetworkAccount<R, Fcm>, RandomState>> {
-        self.clients_map.as_ref().unwrap().read().unwrap()
+    fn read_map(&self) -> RwLockReadGuard<HashMap<u64, ClientNetworkAccount<R, Fcm>, RandomState>> {
+        self.clients_map.as_ref().unwrap().read()
     }
 
-    fn write_map(&self) -> ShardedLockWriteGuard<HashMap<u64, ClientNetworkAccount<R ,Fcm>, RandomState>> {
-        self.clients_map.as_ref().unwrap().write().unwrap()
+    fn write_map(&self) -> RwLockWriteGuard<HashMap<u64, ClientNetworkAccount<R ,Fcm>, RandomState>> {
+        self.clients_map.as_ref().unwrap().write()
     }
 
     fn get_cnac(&self, ref implicated_cid: u64) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
@@ -317,7 +317,7 @@ impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
 
     // Called AFTER being removed from the hashmap
     #[allow(unused_results)]
-    fn delete_removed_cnac(&self, removed_client: ClientNetworkAccount<R, Fcm>, write: ShardedLockWriteGuard<HashMap<u64, ClientNetworkAccount<R, Fcm>>>) -> Result<(), AccountError<String>> {
+    fn delete_removed_cnac(&self, removed_client: ClientNetworkAccount<R, Fcm>, write: RwLockWriteGuard<HashMap<u64, ClientNetworkAccount<R, Fcm>>>) -> Result<(), AccountError<String>> {
         let cid = removed_client.get_cid();
         // Now, find any mutuals inside the removed client and clean them
         removed_client.view_hyperlan_peers(|peers| {
