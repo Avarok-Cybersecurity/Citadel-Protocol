@@ -1,5 +1,5 @@
 use hyxe_nat::nat_identification::NatType;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::io::{AsyncWriteExt, AsyncReadExt, BufReader, AsyncBufReadExt};
 use serde::{Serialize, Deserialize};
 use hyxe_nat::time_tracker::TimeTracker;
 use std::time::Duration;
@@ -54,8 +54,30 @@ async fn main() {
         log::info!("Executing serverside hole-punching subroutine");
 
         let mut hole_puncher = LinearUDPHolePuncher::new_receiver(nat_type.clone(), Default::default(), client_transfer.nat_type);
-        let hole_punched_socket = hole_puncher.try_method(&mut sockets, &endpoints, NatTraversalMethod::Method3).await.unwrap();
+        let ref hole_punched_socket = hole_puncher.try_method(&mut sockets, &endpoints, NatTraversalMethod::Method3).await.unwrap();
 
         log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
+
+        let writer = async move {
+            let mut stdin = BufReader::new(tokio::io::stdin()).lines();
+            while let Ok(Some(input)) = stdin.next_line().await {
+                log::info!("About to send: {}", &input);
+                hole_punched_socket.socket.send_to(input.as_bytes(), hole_punched_socket.addr.natted).await.unwrap();
+            }
+        };
+
+        let reader = async move {
+            let input = &mut [0u8; 4096];
+            let len = hole_punched_socket.socket.recv(input).await.unwrap();
+            let string = String::from_utf8(Vec::from(&input[..len])).unwrap();
+            log::info!("[Message]: {}", string);
+        };
+
+        tokio::select! {
+            res0 = writer => res0,
+            res1 = reader => res1
+        }
+
+        log::info!("Quitting program serverside");
     }
 }
