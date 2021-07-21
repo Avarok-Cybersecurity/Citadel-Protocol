@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{Ordering, AtomicU64};
 use std::task::{Context, Poll};
 
-use futures::{Sink, StreamExt};
+use futures::{Sink, StreamExt, SinkExt};
 use log::info;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -37,14 +37,16 @@ use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream, TlsListener, FirstPacket};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::outbound_sender::{UnboundedSender, BoundedSender, BoundedReceiver, unbounded};
-use crate::hdp::peer::channel::PeerChannel;
-use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal};
+use crate::hdp::peer::channel::{PeerChannel, UdpChannel};
+use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal, UdpMode};
 use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
 use crate::kernel::RuntimeFuture;
 use tokio::io::AsyncReadExt;
 use hyxe_fs::io::SyncIO;
 use hyxe_user::external_services::PostLoginObject;
 use futures::channel::mpsc::TrySendError;
+use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
+use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -84,7 +86,7 @@ pub struct HdpServerInner {
 
 impl HdpServer {
     /// Creates a new [HdpServer]
-    pub fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, underlying_proto: UnderlyingProtocol) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)> {
+    pub fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, underlying_proto: UnderlyingProtocol) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>, KernelAsyncCallbackHandler)> {
         let (primary_socket, local_bind_addr) = if local_node_type == HyperNodeType::GloballyReachable {
             Self::create_tcp_listen_socket(underlying_proto.clone(), &bind_addr)?.map_left(|r| Some(r))
         } else {
@@ -119,7 +121,7 @@ impl HdpServer {
     ///
     /// Returns a handle to communicate with the [HdpServer].
     #[allow(unused_results, unused_must_use)]
-    fn load(this: HdpServer, shutdown: tokio::sync::oneshot::Sender<()>) -> (HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>) {
+    fn load(this: HdpServer, shutdown: tokio::sync::oneshot::Sender<()>) -> (HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>, KernelAsyncCallbackHandler) {
         // Allow the listeners to read data without instantly returning
         // Load the readers
         let read = inner!(this);
@@ -132,7 +134,8 @@ impl HdpServer {
         let session_spawner = HdpSession::session_future_receiver(session_spawner_rx);
 
         let (outbound_send_request_tx, outbound_send_request_rx) = BoundedSender::new(MAX_OUTGOING_UNPROCESSED_REQUESTS); // for the Hdp remote
-        let remote = HdpServerRemote::new(outbound_send_request_tx);
+        let kernel_async_callback_handler = KernelAsyncCallbackHandler::new();
+        let remote = HdpServerRemote::new(outbound_send_request_tx, kernel_async_callback_handler.clone());
         let tt = read.session_manager.load_server_remote_get_tt(remote.clone());
         let session_manager = read.session_manager.clone();
 
@@ -198,7 +201,7 @@ impl HdpServer {
 
         //handle.load_server_future(server_future);
 
-        (remote, Box::pin(server_future), localset_opt)
+        (remote, Box::pin(server_future), localset_opt, kernel_async_callback_handler)
     }
 
     fn open_tcp_port(port: u16) {
@@ -313,17 +316,18 @@ impl HdpServer {
         //let mut stream = tokio::net::TcpStream::connect(remote).await?;
         //stream.set_linger(Some(DEFAULT_SO_LINGER_TIME))?;
 
+        let local_addr = stream.local_addr()?;
         let buf = &mut [0u8; 4096];
         let amt = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), stream.read(buf as &mut [u8])).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::TimedOut, err.to_string()))??;
         let first_packet: FirstPacket = FirstPacket::deserialize_from_vector(&buf[..amt]).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
 
         match first_packet {
-            FirstPacket::Tcp => {
+            FirstPacket::Tcp(nat_addr) => {
                 log::info!("Host claims TCP DEFAULT CONNECTION");
-                Ok(GenericNetworkStream::Tcp(stream))
+                Ok(GenericNetworkStream::Tcp(stream, Some(HolePunchedSocketAddr::new(local_addr, nat_addr))))
             }
 
-            FirstPacket::Tls(domain) => {
+            FirstPacket::Tls(domain, nat_addr) => {
                 log::info!("Host claims TLS CONNECTION (domain: {:?})", &domain);
                 // for debug builds, allow invalid certs to make testing TLS easier
                 //#[cfg(debug_assertions)]
@@ -334,7 +338,7 @@ impl HdpServer {
                 let connector = tokio_native_tls::TlsConnector::from(connector);
                 let stream = connector.connect(domain.as_ref().map(|r| r.as_str()).unwrap_or(""), stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
                 //let stream = connector.connect("", stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
-                Ok(GenericNetworkStream::Tls(stream))
+                Ok(GenericNetworkStream::Tls(stream, Some(HolePunchedSocketAddr::new(local_addr, nat_addr))))
             }
         }
 
@@ -372,48 +376,19 @@ impl HdpServer {
             let session_manager = this.session_manager.clone();
             std::mem::drop(this);
             let primary_port_future = Self::primary_session_creator_loop(to_kernel, session_manager, socket, session_spawner);
-            //let tt_updater_future = spawn_handle!(Self::time_tracker_updater(tt));
-            // If the timer detects that the server is shutdown, it will return an error, thus causing the try_join to end the future
             primary_port_future
         };
-
-        /*
-        let res = tokio::select! {
-            res = primary_port_future => res,
-            res1 = tt_updater_future => res1
-        };*/
 
         primary_port_future.await.map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    /*
-    #[allow(unused_results)]
-    async fn time_tracker_updater(tt: TimeTracker) -> Result<(), NetworkError> {
-        let mut iter = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval_at(Instant::now() + NTP_RESYNC_FREQUENCY, NTP_RESYNC_FREQUENCY));
-        while let Some(_) = iter.next().await {
-            if !tt.resync().await {
-                log::warn!("Unable to resynchronize NTP time (non-fatal; clock may diverge from synchronicity)");
-            }
-        }
-
-        Ok(())
-    }*/
-
-
     async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, mut socket: GenericNetworkListener, session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>) -> Result<(), NetworkError> {
         loop {
-            //let _ = tokio::task::spawn_local(async move{ log::info!("HELLO 2 THE WORLD!") });
             match socket.next().await {
                 Some(Ok((stream, peer_addr))) => {
                     log::trace!("Received stream from {:?}", peer_addr);
                     let local_bind_addr = stream.local_addr().unwrap();
 
-                    //let res = tokio::task::spawn_local(async move{ log::info!("AAA HELLO 2 THE WORLD!") });
-                    //log::info!("RES: {:?}", res);
-
-                    //stream.set_linger(Some(tokio::time::Duration::from_secs(0))).unwrap();
-                    // stream.set_keepalive(None).unwrap();
-                    //stream.set_nodelay(true).unwrap();
                     match session_manager.process_new_inbound_connection(local_bind_addr, peer_addr, stream) {
                         Ok(session) => {
                             session_spawner.unbounded_send(session).map_err(|err| NetworkError::Generic(err.to_string()))?;
@@ -482,7 +457,7 @@ impl HdpServer {
                 }
 
                 HdpServerRequest::RegisterToHypernode(peer_addr, credentials, fcm_keys,  security_settings) => {
-                    match session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Register(peer_addr),ticket_id, credentials, None, listener_underlying_proto.clone(), fcm_keys, None, None, security_settings).await {
+                    match session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Register(peer_addr),ticket_id, credentials, None, listener_underlying_proto.clone(), fcm_keys, None,None, security_settings).await {
                         Ok(session) => {
                             session_spawner.unbounded_send(session).map_err(|err| NetworkError::Generic(err.to_string()))?;
                         }
@@ -493,8 +468,8 @@ impl HdpServer {
                     }
                 }
 
-                HdpServerRequest::ConnectToHypernode(implicated_cid, credentials, connect_mode, fcm_keys, tcp_only, keep_alive_timeout,  security_settings) => {
-                    match session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Connect(implicated_cid), ticket_id, credentials, Some(connect_mode), listener_underlying_proto.clone(), fcm_keys, tcp_only, keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000), security_settings).await {
+                HdpServerRequest::ConnectToHypernode(implicated_cid, credentials, connect_mode, fcm_keys, udp_mode, keep_alive_timeout,  security_settings) => {
+                    match session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Connect(implicated_cid), ticket_id, credentials, Some(connect_mode), listener_underlying_proto.clone(), fcm_keys, Some(udp_mode), keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000), security_settings).await {
                         Ok(session) => {
                             session_spawner.unbounded_send(session).map_err(|err| NetworkError::Generic(err.to_string()))?;
                         }
@@ -557,6 +532,7 @@ impl HdpServer {
 pub struct HdpServerRemote {
     outbound_send_request_tx: BoundedSender<(HdpServerRequest, Ticket)>,
     ticket_counter: Arc<AtomicU64>,
+    callback_handler: KernelAsyncCallbackHandler
 }
 
 impl Debug for HdpServerRemote {
@@ -567,32 +543,14 @@ impl Debug for HdpServerRemote {
 
 impl HdpServerRemote {
     /// Creates a new [HdpServerRemote]
-    pub fn new(outbound_send_request_tx: BoundedSender<(HdpServerRequest, Ticket)>) -> Self {
+    pub fn new(outbound_send_request_tx: BoundedSender<(HdpServerRequest, Ticket)>, callback_handler: KernelAsyncCallbackHandler) -> Self {
         // starts at 1. Ticket 0 is for reserved
-        Self { ticket_counter: Arc::new(AtomicU64::new(1)), outbound_send_request_tx }
+        Self { ticket_counter: Arc::new(AtomicU64::new(1)), outbound_send_request_tx, callback_handler }
     }
 
     /// Especially used to keep track of a conversation (b/c a certain ticket number may be expected)
     pub async fn send_with_custom_ticket(&mut self, ticket: Ticket, request: HdpServerRequest) -> Result<(), NetworkError> {
-        struct Send<T> {
-            inner: Option<T>
-        }
-
-        let mut item = Send {
-            inner: Some((request, ticket))
-        };
-
-        futures::future::poll_fn(|cx| {
-            let mut this = &mut self.outbound_send_request_tx;
-            let mut this = Pin::new(&mut this);
-            futures::ready!(this.as_mut().poll_ready(cx))?;
-
-            if let Some(item) = item.inner.take() {
-                this.as_mut().start_send(item)?;
-            }
-
-            this.poll_flush(cx).map_err(|err| NetworkError::Generic(err.to_string()))
-        }).await
+        self.outbound_send_request_tx.send((request, ticket)).await
     }
 
     /// Sends a request to the HDP server. This should always be used to communicate with the server
@@ -602,14 +560,38 @@ impl HdpServerRemote {
         self.send_with_custom_ticket(ticket, request).await.map(|_| ticket)
     }
 
+    /// Returns an error if the ticket is already registered for a callback
+    pub async fn send_callback_custom_ticket(&mut self, request: HdpServerRequest, ticket: Ticket) -> Result<HdpServerResult, NetworkError> {
+        let rx = self.callback_handler.register_future(ticket)?;
+        match self.send_with_custom_ticket(ticket, request).await {
+            Ok(_) => {
+                rx.await.map_err(|err| NetworkError::Generic(err.to_string()))
+            }
+
+            Err(err) => {
+                self.callback_handler.remove_listener(ticket);
+                Err(err)
+            }
+        }
+    }
+
+    /// Convenience method for sending and awaiting for a response for the related ticket
+    pub async fn send_callback(&mut self, request: HdpServerRequest) -> Result<HdpServerResult, NetworkError> {
+        let ticket = self.get_next_ticket();
+        self.send_callback_custom_ticket(request, ticket).await
+    }
+
+    /// Convenience method for sending and awaiting for a response for the related ticket (with a timeout)
+    pub async fn send_callback_timeout(&mut self, request: HdpServerRequest, timeout: Duration) -> Result<HdpServerResult, NetworkError> {
+        tokio::time::timeout(timeout, self.send_callback(request)).await.map_err(|_| NetworkError::Timeout(0))?
+    }
+
     /// Safely shutsdown the internal server
     pub async fn shutdown(&mut self) -> Result<(), NetworkError> {
         let _ = self.send(HdpServerRequest::Shutdown).await?;
 
         futures::future::poll_fn(|cx| {
-            let this = &mut self.outbound_send_request_tx;
-            let this = Pin::new(this);
-            this.poll_close(cx).map_err(|err| NetworkError::Generic(err.to_string()))
+            Pin::new(&mut self.outbound_send_request_tx).poll_close(cx).map_err(|err| NetworkError::Generic(err.to_string()))
         }).await
     }
 
@@ -683,7 +665,7 @@ pub enum HdpServerRequest {
     /// For submitting a de-register request
     DeregisterFromHypernode(u64, VirtualConnectionType),
     /// Implicated CID, creds, connect mode, fcm keys, TCP/TLS only, keep alive timeout, security settings
-    ConnectToHypernode(u64, ProposedCredentials, ConnectMode, Option<FcmKeys>, Option<bool>, Option<u32>, SessionSecuritySettings),
+    ConnectToHypernode(u64, ProposedCredentials, ConnectMode, Option<FcmKeys>, UdpMode, Option<u32>, SessionSecuritySettings),
     /// Updates the drill for the given CID
     UpdateDrill(VirtualTargetType),
     /// Send data to an already existent connection
@@ -724,7 +706,7 @@ pub enum HdpServerResult {
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(VirtualConnectionType, Option<Ticket>, bool, bool),
     /// Connection succeeded for the cid self.0. bool is "is personal"
-    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, Option<RawFcmPacketStore>, PostLoginObject, String, PeerChannel),
+    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, Option<RawFcmPacketStore>, PostLoginObject, String, PeerChannel, Option<tokio::sync::oneshot::Receiver<UdpChannel>>),
     /// The connection was a failure
     ConnectFail(Ticket, Option<u64>, String),
     /// The outbound request was rejected
@@ -747,7 +729,7 @@ pub enum HdpServerResult {
     /// An internal error occured
     InternalServerError(Option<Ticket>, String),
     /// A channel was created, with channel_id = ticket (same as post-connect ticket received)
-    PeerChannelCreated(Ticket, PeerChannel),
+    PeerChannelCreated(Ticket, PeerChannel, Option<tokio::sync::oneshot::Receiver<UdpChannel>>),
     /// A list of running sessions
     SessionList(Ticket, Vec<u64>),
     /// For shutdowns
@@ -759,6 +741,28 @@ impl HdpServerResult {
         match self {
             HdpServerResult::ConnectSuccess(..) => true,
             _ => false
+        }
+    }
+
+    pub fn ticket(&self) -> Option<Ticket> {
+        match self {
+            HdpServerResult::RegisterOkay(t, _, _) => {Some(*t)}
+            HdpServerResult::RegisterFailure(t, _) => {Some(*t)}
+            HdpServerResult::DeRegistration(_, t, _, _) => {t.clone()}
+            HdpServerResult::ConnectSuccess(t,..) => {Some(*t)}
+            HdpServerResult::ConnectFail(t, _, _) => {Some(*t)}
+            HdpServerResult::OutboundRequestRejected(t, _) => {Some(*t)}
+            HdpServerResult::FileTransferStatus(_, _, t, _) => {Some(*t)}
+            HdpServerResult::MessageDelivery(t, _, _) => {Some(*t)}
+            HdpServerResult::MessageDelivered(t) => {Some(*t)}
+            HdpServerResult::MailboxDelivery(_, t, _) => {t.clone()}
+            HdpServerResult::PeerEvent(_, t) => {Some(*t)}
+            HdpServerResult::GroupEvent(_, t, _) => {Some(*t)}
+            HdpServerResult::Disconnect(t, _, _, _, _) => {Some(*t)}
+            HdpServerResult::InternalServerError(t, _) => {t.clone()}
+            HdpServerResult::PeerChannelCreated(t, ..) => {Some(*t)}
+            HdpServerResult::SessionList(t, _) => {Some(*t)}
+            HdpServerResult::Shutdown => {None}
         }
     }
 }

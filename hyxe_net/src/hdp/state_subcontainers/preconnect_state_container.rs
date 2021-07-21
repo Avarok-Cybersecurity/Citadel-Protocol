@@ -7,6 +7,8 @@ use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
+use tokio::sync::oneshot::{Sender, Receiver, channel};
+use crate::hdp::peer::channel::UdpChannel;
 
 /// For keeping track of the pre-connect state
 pub struct PreConnectState {
@@ -22,6 +24,7 @@ pub struct PreConnectState {
     pub(crate) ticket: Option<Ticket>,
     pub(crate) last_packet_time: Option<Instant>,
     pub(crate) hole_puncher: Option<LinearUDPHolePuncher>,
+    pub(crate) udp_channel_oneshot_tx: UdpChannelSender,
     pub(crate) nat_traversal_attempts: usize,
     pub(crate) success: bool
 }
@@ -47,6 +50,24 @@ impl PreConnectState {
 
 impl Default for PreConnectState {
     fn default() -> Self {
-        Self { constructor: None, hole_punched: None, hole_puncher: None, last_packet_time: None, reserved_sockets: None, adjacent_unnated_ports: None, last_stage: 0, adjacent_node_type: None, success: false, nat_traversal_attempts: 0, current_nat_traversal_method: None, ticket: None }
+        Self { udp_channel_oneshot_tx: UdpChannelSender::empty(), constructor: None, hole_punched: None, hole_puncher: None, last_packet_time: None, reserved_sockets: None, adjacent_unnated_ports: None, last_stage: 0, adjacent_node_type: None, success: false, nat_traversal_attempts: 0, current_nat_traversal_method: None, ticket: None }
+    }
+}
+
+pub struct UdpChannelSender {
+    pub tx: Option<Sender<UdpChannel>>,
+    pub rx: Option<Receiver<UdpChannel>>
+}
+
+impl UdpChannelSender {
+    pub(crate) fn empty() -> Self {
+        Self { tx: None, rx: None }
+    }
+}
+
+impl Default for UdpChannelSender {
+    fn default() -> Self {
+        let (tx, rx) = channel();
+        Self { tx: Some(tx), rx: Some(rx) }
     }
 }

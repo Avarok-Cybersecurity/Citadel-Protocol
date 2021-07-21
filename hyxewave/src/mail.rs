@@ -1,4 +1,4 @@
-use hyxe_net::hdp::peer::peer_layer::{PeerSignal, PeerResponse, PeerConnectionType, Username};
+use hyxe_net::hdp::peer::peer_layer::{PeerSignal, PeerResponse, PeerConnectionType, Username, UdpMode};
 use std::collections::HashMap;
 use hyxe_net::hdp::hdp_server::Ticket;
 use std::fmt::{Display, Formatter};
@@ -87,7 +87,7 @@ pub struct IncomingGroupRequest {
 
 #[derive(Debug, Clone)]
 pub enum IncomingPeerRequest {
-    Connection(Ticket, PeerConnectionType, Instant, SessionSecuritySettings),
+    Connection(Ticket, PeerConnectionType, Instant, SessionSecuritySettings, UdpMode),
     Register(Ticket, Username, PeerConnectionType, Instant, FcmPostRegister)
 }
 
@@ -182,14 +182,14 @@ impl IncomingPeerRequest {
     /// This FLIPS the ordering, as required
     pub fn prepare_response_assert_connection(self, response: PeerResponse) -> Option<PeerSignal> {
         match self {
-            IncomingPeerRequest::Connection(ticket, peer_conn_type, _, endpoint_security_level) => {
+            IncomingPeerRequest::Connection(ticket, peer_conn_type, _, endpoint_security_level, udp_mode) => {
                 match peer_conn_type {
                     PeerConnectionType::HyperLANPeerToHyperLANPeer(original_cid, original_target) => {
-                        Some(PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(original_target, original_cid), Some(ticket), Some(response), endpoint_security_level))
+                        Some(PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(original_target, original_cid), Some(ticket), Some(response), endpoint_security_level, udp_mode))
                     }
 
                     PeerConnectionType::HyperLANPeerToHyperWANPeer(original_cid, icid, original_target) => {
-                        Some(PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperWANPeer(original_target, icid, original_cid), Some(ticket), Some(response), endpoint_security_level))
+                        Some(PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperWANPeer(original_target, icid, original_cid), Some(ticket), Some(response), endpoint_security_level, udp_mode))
                     }
                 }
             }

@@ -14,6 +14,7 @@ use crate::hdp::hdp_server::SecrecyMode;
 use crate::functional::IfTrueConditional;
 use std::ops::Deref;
 use crate::inner_arg::ExpectedInnerTarget;
+use crate::hdp::peer::peer_layer::UdpMode;
 
 /// This will handle an inbound primary group packet
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
@@ -28,7 +29,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
 
     let HdpSessionInner {
         time_tracker,
-        tcp_only,
+        udp_mode,
         cnac,
         state_container,
         to_primary_stream,
@@ -45,12 +46,11 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
     // Group payloads are not validated in the same way the primary packets are (with the exception of FAST_MSG's in GROUP_HEADERS)
     // While group payloads are typically processed by the wave ports, it is possible
     // that TCP_ONLY mode is engaged, in which case, the packets are funneled through here
-    if cmd_aux != packet_flags::cmd::aux::group::GROUP_PAYLOAD {
         let (header, payload, _, _) = packet.decompose();
         let ref cnac_sess = return_if_none!(cnac.get(), "Unable to load CNAC [PGP]");
 
         let timestamp = time_tracker.get_global_time_ns();
-        let tcp_only = tcp_only.get();
+        let udp_mode = udp_mode.get();
 
         let mut state_container = inner_mut!(state_container);
         // get the proper pqc
@@ -146,12 +146,12 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     let transfer = return_if_none!(attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut state_container.active_virtual_connections, cnac_sess, &hyper_ratchet), "Unable to attempt_kem_as_bob [PGP]");
 
                                     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
-                                        if !state_container.forward_data_to_channel(original_implicated_cid, header.group.get(), plaintext) {
+                                        if !state_container.forward_data_to_ordered_channel(original_implicated_cid, header.group.get(), plaintext) {
                                             log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
                                             return PrimaryProcessorResult::Void;
                                         }
                                     } else {
-                                        if !state_container.forward_data_to_channel(0, header.group.get(), plaintext) {
+                                        if !state_container.forward_data_to_ordered_channel(0, header.group.get(), plaintext) {
                                             log::error!("Unable to forward data to c2s channel");
                                             return PrimaryProcessorResult::Void;
                                         }
@@ -173,7 +173,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                             Some(GroupHeaderAck::ReadyToReceive { initial_window, transfer, fast_msg }) => {
                                 // we need to begin sending the data
                                 // valid and ready to accept!
-                                let initial_wave_window = if tcp_only {
+                                let initial_wave_window = if udp_mode == UdpMode::Disabled {
                                     None
                                 } else {
                                     initial_window
@@ -222,7 +222,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     PrimaryProcessorResult::Void
 
                                 } else {
-                                    if tcp_only {
+                                    if udp_mode == UdpMode::Disabled {
                                         PrimaryProcessorResult::EndSession("TCP sockets disconnected")
                                     } else {
                                         PrimaryProcessorResult::EndSession("UDP sockets disconnected")
@@ -321,8 +321,8 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                 }
 
                                 // the window is done. Since this node is the transmitter, we then make a call to begin sending the next wave
-                                if !state_container.on_wave_ack_received(hyper_ratchet.get_cid(), &header, tcp_only, range) {
-                                    if tcp_only {
+                                if !state_container.on_wave_ack_received(hyper_ratchet.get_cid(), &header, udp_mode == UdpMode::Disabled, range) {
+                                    if udp_mode == UdpMode::Disabled {
                                         log::error!("There was an error sending the TCP window; Cancelling connection");
                                     } else {
                                         log::error!("There was an error sending the UDP window; Cancelling connection");
@@ -354,46 +354,6 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                 PrimaryProcessorResult::Void
             }
         }
-    } else {
-        //log::info!("RECV [TCP] GROUP PAYLOAD");
-        let (header, payload) = return_if_none!(packet.parse(), "Unable to load packet");
-        if payload.len() < 2 {
-            log::error!("sub-2-length wave packet payload; dropping");
-            return PrimaryProcessorResult::Void;
-        }
-        //log::info!("[TCP-WAVE] Packet received has {} bytes", payload.len());
-        let v_src_port = payload[0] as u16;
-        let v_recv_port = payload[1] as u16;
-        let payload = &payload[2..];
-
-        let state_container_owned = session.state_container.clone();
-
-        match super::wave_group_packet::process(session, v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
-            GroupProcessorResult::SendToKernel(_ticket, reconstructed_packet) => {
-                if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
-                    // send to channel
-
-                    if !inner_mut!(state_container_owned).forward_data_to_channel(original_implicated_cid, header.group.get(), reconstructed_packet) {
-                        log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
-                    }
-
-                    PrimaryProcessorResult::Void
-                } else {
-                    // send to kernel
-                    //let implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
-                    // session.send_to_kernel(HdpServerResult::MessageDelivery(ticket, implicated_cid, reconstructed_packet))?;
-
-                    if !inner_mut!(state_container_owned).forward_data_to_channel(0, header.group.get(), reconstructed_packet) {
-                        log::error!("Unable to forward data to c2s channel");
-                    }
-
-                    PrimaryProcessorResult::Void
-                }
-            }
-
-            res => res.into()
-        }
-    }
 }
 
 #[inline]

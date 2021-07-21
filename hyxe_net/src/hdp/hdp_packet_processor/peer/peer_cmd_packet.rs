@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer, BobToAliceTransferType, HyperRatchetConstructor};
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
@@ -9,11 +7,11 @@ use hyxe_fs::prelude::SyncIO;
 use crate::hdp::hdp_packet_processor::includes::*;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast;
 use crate::hdp::hdp_packet_processor::preconnect_packet::calculate_sync_time;
-use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_ratchet;
+use crate::hdp::hdp_packet_processor::primary_group_packet::{get_proper_hyper_ratchet, get_resp_target_cid};
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::peer::p2p_conn_handler::attempt_tcp_simultaneous_hole_punch;
 use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
-use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal};
+use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal, UdpMode};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use bytes::BytesMut;
@@ -106,6 +104,12 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
                         session.send_to_kernel(HdpServerResult::PeerEvent(signal, ticket))?;
                         return PrimaryProcessorResult::Void;
+                    }
+
+                    PeerSignal::DisconnectUDP(vconn) => {
+                        let target_cid = get_resp_target_cid(vconn)?;
+                        state_container.remove_udp_channel(target_cid);
+                        return PrimaryProcessorResult::Void
                     }
 
                     PeerSignal::DeregistrationSuccess(peer_cid, used_fcm) => {
@@ -210,7 +214,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                         return PrimaryProcessorResult::Void;
                     }
 
-                    PeerSignal::PostConnect(conn, _, resp, endpoint_security_settings) => {
+                    PeerSignal::PostConnect(conn, _, resp, endpoint_security_settings, udp_enabled) => {
                         if let Some(resp) = resp {
                             // the connection was mutually accepted. Now, we must begin the KEM subroutine
                             match resp {
@@ -224,7 +228,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                             // unique to the session.
                                             //let mut state_container = inner_mut!(session.state_container);
                                             //let peer_cid = conn.get_original_implicated_cid();
-                                            let mut peer_kem_state_container = PeerKemStateContainer::new(*endpoint_security_settings);
+                                            let mut peer_kem_state_container = PeerKemStateContainer::new(*endpoint_security_settings, *udp_enabled == UdpMode::Enabled);
 
                                             let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(endpoint_security_settings.crypto_params), (endpoint_security_settings.security_level.value() + 1) as usize), conn.get_original_target_cid(), 0, Some(endpoint_security_settings.security_level));
                                             let transfer = alice_constructor.stage0_alice();
@@ -234,7 +238,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                             state_container.peer_kem_states.insert(*original_implicated_cid, peer_kem_state_container);
                                             // finally, prepare the signal and send outbound
                                             // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &Drill, ticket: Ticket, timestamp: i64
-                                            let signal = PeerSignal::Kem(PeerConnectionType::HyperLANPeerToHyperLANPeer(*original_target_cid, *original_implicated_cid), KeyExchangeProcess::Stage0(msg_bytes, *endpoint_security_settings));
+                                            let signal = PeerSignal::Kem(PeerConnectionType::HyperLANPeerToHyperLANPeer(*original_target_cid, *original_implicated_cid), KeyExchangeProcess::Stage0(msg_bytes, *endpoint_security_settings, *udp_enabled));
                                             std::mem::drop(state_container);
 
                                             // use the pqc of the session to keep the data protected from here to the central
@@ -261,7 +265,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
                     PeerSignal::Kem(conn, kep) => {
                         return match kep {
-                            KeyExchangeProcess::Stage0(transfer, session_security_settings) => {
+                            KeyExchangeProcess::Stage0(transfer, session_security_settings, udp_enabled) => {
                                 log::info!("RECV STAGE 0 PEER KEM");
                                 // We generate bob's pqc, as well as a nonce
                                 //let mut state_container = inner_mut!(session.state_container);
@@ -275,7 +279,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
                                 let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage1(bob_transfer, None));
 
-                                let mut state_container_kem = PeerKemStateContainer::new(*session_security_settings);
+                                let mut state_container_kem = PeerKemStateContainer::new(*session_security_settings, *udp_enabled == UdpMode::Enabled);
                                 state_container_kem.constructor = Some(bob_constructor);
                                 state_container.peer_kem_states.insert(peer_cid, state_container_kem);
                                 // send signal
@@ -314,8 +318,10 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // now, register the loaded PQC + toolset into the virtual conn
                                 let peer_crypto = PeerSessionCrypto::new(toolset, true);
                                 let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
-                                let bob_socket_addr = SocketAddr::from_str(bob_public_addr.as_str()).ok()?;
+                                let bob_socket_addr = *bob_public_addr;
                                 log::info!("[STUN] Peer public addr: {:?}", &bob_socket_addr);
+                                let udp_rx_opt = kem_state.udp_channel_sender.rx.take();
+
                                 let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(&mut *inner_mut!(session.updates_in_progress), bob_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto);
                                 // load the channel now that the keys have been exchanged
 
@@ -327,6 +333,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 let (sync_instant, sync_time_ns) = calculate_sync_time(timestamp, header_time);
                                 // now that the virtual connection is created on this end, we need to do the same to the other end
                                 let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage2(sync_time_ns, None));
+
                                 std::mem::drop(state_container);
                                 // we need to use the session pqc since this signal needs to get processed by the center node
                                 let ref sess_hyper_ratchet = session.cnac.get()?.get_hyper_ratchet(None)?;
@@ -337,7 +344,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
                                 session.send_to_primary_stream(None, stage2_kem_packet)?;
-                                session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
+                                session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
 
                                 let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_socket_addr, implicated_cid, kernel_tx, sync_instant, session.state_container.clone(), endpoint_security_level);
                                 //let _ = spawn!(hole_punch_future);
@@ -359,6 +366,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // since the AES-GCM was a success, we can now entrust that the toolset is perfectly symmetric to the
                                 // other side's toolset
                                 let bob_constructor = kem.constructor.take()?;
+                                let udp_rx_opt = kem.udp_channel_sender.rx.take();
                                 let hyper_ratchet = bob_constructor.finish_with_custom_cid(this_cid)?;
                                 //let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();
                                 let endpoint_security_level = session_security_settings.security_level;
@@ -367,14 +375,14 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
                                 // create an endpoint vconn
                                 let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
-                                let alice_socket_addr = SocketAddr::from_str(alice_public_addr.as_str()).ok()?;
+                                let alice_socket_addr = *alice_public_addr;
                                 log::info!("[STUN] Peer public addr: {:?}", &alice_socket_addr);
                                 let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(&mut *inner_mut!(session.updates_in_progress),alice_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto);
 
                                 log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
                                 // We can now send the channel to the kernel, where TURN traversal is immediantly available.
                                 // however, STUN-like traversal will proceed in the background
-                                state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel)).ok()?;
+                                state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
 
                                 let diff = Duration::from_nanos(i64::abs(timestamp - *sync_time_ns) as u64);
                                 let sync_instant = Instant::now() + diff;
@@ -521,7 +529,8 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             // before just routing the signals, we also need to add socket information into intercepted stage1 and stage2 signals
             // to allow for STUN-like NAT traversal
             // this gives peer A the socket of peer B and vice versa
-            let socket_addr = session.remote_peer.to_string();
+
+            let socket_addr = session.remote_peer; // TODO: Get proper socket addr going to peer's local sockets
             match &mut kep {
                 KeyExchangeProcess::Stage1(_, val) | KeyExchangeProcess::Stage2(_, val) => {
                     *val = Some(socket_addr);
@@ -692,13 +701,13 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             }
         }
 
-        PeerSignal::PostConnect(peer_conn_type, _ticket_opt, peer_response, endpoint_security_level) => {
+        PeerSignal::PostConnect(peer_conn_type, _ticket_opt, peer_response, endpoint_security_level, udp_enabled) => {
             match peer_conn_type {
                 PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                     const TIMEOUT: Duration = Duration::from_secs(60 * 60);
                     if let Some(peer_response) = peer_response {
                         // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
-                        route_signal_response(PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(peer_response), endpoint_security_level), implicated_cid, target_cid, timestamp, ticket, session.clone(), &sess_hyper_ratchet,
+                        route_signal_response(PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(peer_response), endpoint_security_level, udp_enabled), implicated_cid, target_cid, timestamp, ticket, session.clone(), &sess_hyper_ratchet,
                                               |this_sess, peer_sess, _original_tracked_posting| {
                                                   // when the route finishes, we need to update both sessions to allow high-level message-passing
                                                   // In other words, forge a virtual connection
@@ -710,13 +719,13 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                                                           let mut peer_sess_state_container = inner_mut!(peer_sess.state_container);
 
                                                           // The UDP senders may not exist (e.g., TCP only mode)
-                                                          let this_udp_sender = this_sess_state_container.udp_sender.clone();
-                                                          let peer_udp_sender = peer_sess_state_container.udp_sender.clone();
+                                                          let this_udp_sender = this_sess_state_container.udp_primary_outbound_tx.clone();
+                                                          let peer_udp_sender = peer_sess_state_container.udp_primary_outbound_tx.clone();
                                                           // rel to this local sess, the key = target_cid, then (implicated_cid, target_cid)
                                                           let virtual_conn_relative_to_this = VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid);
                                                           let virtual_conn_relative_to_peer = VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
-                                                          this_sess_state_container.insert_new_virtual_connection(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender);
-                                                          peer_sess_state_container.insert_new_virtual_connection(implicated_cid, virtual_conn_relative_to_peer, this_udp_sender, this_tcp_sender);
+                                                          this_sess_state_container.insert_new_virtual_connection_as_server(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender);
+                                                          peer_sess_state_container.insert_new_virtual_connection_as_server(implicated_cid, virtual_conn_relative_to_peer, this_udp_sender, this_tcp_sender);
                                                           log::info!("Virtual connection between {} <-> {} forged", implicated_cid, target_cid);
                                                           // TODO: Ensure that, upon disconnect, the the corresponding entry gets dropped in the connection table of not the dropped peer
                                                       }
@@ -727,7 +736,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         let to_primary_stream = session.to_primary_stream.clone()?;
                         let sess_mgr = session.session_manager.clone();
 
-                        route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr,  &sess_hyper_ratchet, security_level).await
+                        route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level, udp_enabled), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr,  &sess_hyper_ratchet, security_level).await
                     }
                 }
 
@@ -885,6 +894,12 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
         }
 
         PeerSignal::DeregistrationSuccess(..) => {
+            PrimaryProcessorResult::Void
+        }
+
+        PeerSignal::DisconnectUDP(v_conn) => {
+            // close this UDP channel
+            inner_mut!(session.state_container).remove_udp_channel(v_conn.get_target_cid());
             PrimaryProcessorResult::Void
         }
 

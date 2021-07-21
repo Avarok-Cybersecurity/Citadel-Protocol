@@ -9,6 +9,8 @@ use byteorder::{WriteBytesExt, BigEndian};
 use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_nat::local_firewall_handler::{open_local_firewall_port, FirewallProtocol, remove_firewall_rule, check_permissions};
 use hyxe_nat::hypernode_type::HyperNodeType;
+use hyxe_nat::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use hyxe_nat::nat_identification::NatType;
 
 fn get_reuse_udp_socket(addr: &str, port: u16) -> UdpSocket {
     let mut build = net2::UdpBuilder::new_v4().unwrap();
@@ -54,6 +56,9 @@ async fn main() {
     setup_log();
     check_permissions();
 
+    let local_nat_type = NatType::identify().await.unwrap();
+    log::info!("Nat Type: {:?}", local_nat_type);
+
     let target_addr = IpAddr::from_str("178.128.128.105").unwrap();
     let mut endpoints = (START_PORT..END_PORT).into_iter().map(|expected_remote_port| SocketAddr::new(target_addr, expected_remote_port)).collect::<Vec<SocketAddr>>();
 
@@ -81,7 +86,7 @@ async fn main() {
     // wait 200ms
     tokio::time::delay_for(Duration::from_millis(1000)).await;
     println!("Beginning hole-punching process ...");
-    let mut hole_puncher = LinearUDPHolePuncher::new_initiator(HyperNodeType::BehindResidentialNAT);
+    let mut hole_puncher = LinearUDPHolePuncher::new_initiator(HyperNodeType::BehindResidentialNAT, EncryptedConfigContainer::default(), NatType::Unknown);
     let hole_punched_sockets = hole_puncher.try_method(&mut sockets, &endpoints, NatTraversalMethod::Method3).await.unwrap();
     println!("Hole punching complete!");
     for hole_punched_addr in hole_punched_sockets {

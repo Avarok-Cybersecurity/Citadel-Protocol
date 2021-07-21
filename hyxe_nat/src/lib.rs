@@ -12,6 +12,8 @@ pub mod error;
 
 pub mod udp_traversal;
 
+pub mod nat_identification;
+
 pub mod time_tracker;
 
 pub mod local_firewall_handler;

@@ -11,6 +11,8 @@ use crate::function_pointers::{ALICE_FP, BOB_FP};
 use crate::encryption::AeadModule;
 use sha3::Digest;
 use crate::constructor_opts::{ConstructorOpts, RecursiveChain};
+use generic_array::GenericArray;
+use crate::export::generic_array_to_key;
 
 #[cfg(not(feature = "unordered"))]
 pub type AntiReplayAttackContainer = crate::replay_attack_container::ordered::AntiReplayAttackContainer;
@@ -69,14 +71,13 @@ pub const fn get_approx_bytes_per_container() -> usize {
 //pub const FIRESABER_PK_SIZE: usize = pqcrypto_saber::firesaber_public_key_bytes();
 
 /// Contains the public keys for Alice and Bob
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct PostQuantumContainer {
     pub params: CryptoParameters,
     pub(crate) data: Box<dyn PostQuantumType>,
     // the first pqc won't have a chain
     pub(crate) chain: Option<RecursiveChain>,
     pub(crate) anti_replay_attack: AntiReplayAttackContainer,
-    #[serde(skip)]
     pub(crate) shared_secret: Option<KeyStore>,
     pub(crate) node: PQNode
 }
@@ -96,7 +97,10 @@ pub enum PQNode {
 
 pub(crate) struct KeyStore {
     alice_symmetric_key: Box<dyn AeadModule>,
-    bob_symmetric_key: Box<dyn AeadModule>
+    bob_symmetric_key: Box<dyn AeadModule>,
+    alice_key: GenericArray<u8, generic_array::typenum::U32>,
+    bob_key: GenericArray<u8, generic_array::typenum::U32>,
+    encryption_algorithm: EncryptionAlgorithm
 }
 
 impl PostQuantumContainer {
@@ -131,7 +135,7 @@ impl PostQuantumContainer {
     }
 
     fn get_symmetric_key(encryption_algorithm: EncryptionAlgorithm, ss: &[u8], previous_chain: Option<&RecursiveChain>) -> Result<(RecursiveChain, KeyStore), Error> {
-        let (chain, ref alice_key, ref bob_key) = if let Some(ref prev) = previous_chain {
+        let (chain, alice_key, bob_key) = if let Some(ref prev) = previous_chain {
             // prev = C_n
             // If a previous key, S_n, existed, we calculate S_(n+1)' = KDF(C_n || S_(n+1))
             let mut hasher_temp = sha3::Sha3_512::new();
@@ -156,7 +160,7 @@ impl PostQuantumContainer {
             hasher.update(&alice_key.into_iter().zip(bob_key.into_iter()).map(|(r1, r2)| r1 ^ r2).collect::<Vec<u8>>()[..]);
             let chain = hasher.finalize();
 
-            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key).ok_or_else(|| pqcrypto_traits::Error::BadLength {
+            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, false).ok_or_else(|| pqcrypto_traits::Error::BadLength {
                 name: "Bad Chain length",
                 actual: chain.as_slice().len(),
                 expected: 32
@@ -187,7 +191,7 @@ impl PostQuantumContainer {
             let mut hasher = sha3::Sha3_256::new();
             hasher.update(&alice_key.into_iter().zip(bob_key.into_iter()).map(|(r1, r2)| *r1 ^ *r2).collect::<Vec<u8>>()[..]);
             let chain = hasher.finalize();
-            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key).ok_or_else(|| pqcrypto_traits::Error::BadLength {
+            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, true).ok_or_else(|| pqcrypto_traits::Error::BadLength {
                 name: "Bad Chain length",
                 actual: chain.as_slice().len(),
                 expected: 32
@@ -208,22 +212,15 @@ impl PostQuantumContainer {
             (chain, alice_key, bob_key)
         };
 
-        match encryption_algorithm {
-            EncryptionAlgorithm::AES_GCM_256_SIV => {
-                use aes_gcm_siv::aead::NewAead;
-                //let key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_slice(ss);
+        let (alice_symmetric_key, bob_symmetric_key) = generic_array_to_key(&alice_key, &bob_key, encryption_algorithm);
 
-                
-                Ok((chain, KeyStore { alice_symmetric_key: Box::new(aes_gcm_siv::Aes256GcmSiv::new(alice_key)), bob_symmetric_key: Box::new(aes_gcm_siv::Aes256GcmSiv::new(bob_key)) }))
-            }
-
-            EncryptionAlgorithm::Xchacha20Poly_1305 => {
-                use chacha20poly1305::aead::NewAead;
-                //let key = chacha20poly1305::aead::generic_array::GenericArray::<u8, _>::from_slice(ss);
-
-                Ok((chain, KeyStore { alice_symmetric_key: Box::new(chacha20poly1305::XChaCha20Poly1305::new(alice_key)), bob_symmetric_key: Box::new(chacha20poly1305::XChaCha20Poly1305::new(bob_key)) }))
-            }
-        }
+        Ok((chain, KeyStore {
+            alice_symmetric_key,
+            bob_symmetric_key,
+            alice_key,
+            bob_key,
+            encryption_algorithm
+        }))
     }
 
     fn get_encryption_key(&self) -> Option<&Box<dyn AeadModule>> {
@@ -275,9 +272,9 @@ impl PostQuantumContainer {
     }
 
     /// Returns the previous symmetric chain key. If this is the first in the series, then returns the shared
-    pub fn get_chain(&self) -> Result<RecursiveChain, Error> {
+    pub fn get_chain(&self) -> Result<&RecursiveChain, Error> {
         if let Some(ref chain) = self.chain {
-            Ok(chain.clone())
+            Ok(chain)
         } else {
             // chain won't be loaded for alice until she builds hers
             Err(pqcrypto_traits::Error::BadLength {

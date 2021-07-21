@@ -74,7 +74,7 @@ impl Ratchet for FcmRatchet {
     }
 
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts> {
-        vec![ConstructorOpts::new_from_previous(Some(self.inner.pqc.params), self.inner.pqc.get_chain().unwrap())]
+        vec![ConstructorOpts::new_from_previous(Some(self.inner.pqc.params), self.inner.pqc.get_chain().unwrap().clone())]
     }
 
     fn protect_message_packet<T: EzBuffer>(&self, _security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {

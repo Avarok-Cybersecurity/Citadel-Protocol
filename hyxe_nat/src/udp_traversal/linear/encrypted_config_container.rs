@@ -24,3 +24,12 @@ impl EncryptedConfigContainer {
         (self.decrypt_packet)(ciphertext)
     }
 }
+
+impl Default for EncryptedConfigContainer {
+    fn default() -> Self {
+        Self {
+            generate_packet: Box::new(|_| BytesMut::from("SYN")),
+            decrypt_packet: Box::new(|input| Some(BytesMut::from(input)))
+        }
+    }
+}

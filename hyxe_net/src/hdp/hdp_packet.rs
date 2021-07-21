@@ -1,16 +1,11 @@
 use std::io;
 
 use byteorder::{NetworkEndian, WriteBytesExt};
-use bytes::{BufMut, Bytes, BytesMut, Buf};
+use bytes::{BufMut, Bytes, BytesMut};
 use zerocopy::{AsBytes, FromBytes, I64, LayoutVerified, U32, U64, Unaligned};
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use std::net::SocketAddr;
-use rand::prelude::ThreadRng;
-use rand::{RngCore, Rng};
-use crate::functional::PairMap;
-use std::io::Write;
-use crate::hdp::misc::dual_cell::DualCell;
 
 pub(crate) mod packet_flags {
     pub(crate) mod cmd {
@@ -27,6 +22,7 @@ pub(crate) mod packet_flags {
             pub(crate) const DO_PRE_CONNECT: u8 = 7;
             pub(crate) const PEER_CMD: u8 = 8;
             pub(crate) const FILE: u8 = 9;
+            pub(crate) const UDP: u8 = 10;
         }
 
         pub(crate) mod aux {
@@ -121,6 +117,11 @@ pub(crate) mod packet_flags {
             pub(crate) mod file {
                 pub(crate) const FILE_HEADER: u8 = 0;
                 pub(crate) const FILE_HEADER_ACK: u8 = 1;
+            }
+
+            pub(crate) mod udp {
+                pub(crate) const STREAM: u8 = 0;
+                pub(crate) const KEEP_ALIVE: u8 = 1;
             }
         }
     }
@@ -344,6 +345,7 @@ impl<B: HdpBuffer> HdpPacket<B> {
     }
 }
 
+/*
 #[derive(Clone)]
 pub struct HeaderObfuscator {
     inner: DualCell<Option<u128>>
@@ -471,11 +473,13 @@ fn cipher_inner(a: u8, b: u8, c: &mut u8, inverse: bool) {
     }
 }
 
+
 impl From<Option<u128>> for HeaderObfuscator {
     fn from(inner: Option<u128>) -> Self {
         Self { inner: DualCell::from(inner) }
     }
 }
+*/
 
 pub trait HdpBuffer: BufMut + AsRef<[u8]> + AsMut<[u8]> {
     type Immutable;

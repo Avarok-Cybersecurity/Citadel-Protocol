@@ -24,10 +24,11 @@ pub mod state_subcontainers;
 pub mod outbound_sender;
 /// For handling file-transfer
 pub mod file_transfer;
-
+///
 pub mod nat_handler;
 ///
 pub mod peer;
-
+///
+pub(crate) mod peer_session_crypto_accessor;
 pub(crate) mod session_queue_handler;
 pub mod misc;

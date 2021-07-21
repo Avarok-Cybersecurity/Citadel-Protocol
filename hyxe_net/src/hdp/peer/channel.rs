@@ -4,13 +4,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::error::NetworkError;
 use crate::hdp::state_container::VirtualConnectionType;
-use crate::hdp::outbound_sender::UnboundedReceiver;
+use crate::hdp::outbound_sender::{UnboundedReceiver, OutboundUdpSender};
 use futures::{Sink, Stream};
 use futures::task::{Context, Poll};
 use tokio::macros::support::Pin;
 use std::fmt::Debug;
 use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use hyxe_crypt::sec_bytes::SecBuffer;
+use crate::hdp::hdp_packet_processor::raw_primary_packet::ReceivePortType;
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.
 // This thus bypasses the kernel.
@@ -23,6 +24,7 @@ pub struct PeerChannel {
 impl PeerChannel {
     pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>) -> Self {
         let implicated_cid = vconn_type.get_implicated_cid();
+        let recv_type = ReceivePortType::TCP;
 
         let send_half = PeerChannelSendHalf {
             server_remote: server_remote.clone(),
@@ -40,7 +42,8 @@ impl PeerChannel {
             target_cid,
             vconn_type,
             channel_id,
-            is_alive
+            is_alive,
+            recv_type
         };
 
         PeerChannel { send_half, recv_half }
@@ -120,13 +123,13 @@ impl Sink<SecBuffer> for PeerChannelSendHalf {
         Pin::new(&mut self.server_remote).start_send((channel_id, item))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        futures::Sink::<HdpServerRequest>::poll_flush(Pin::new(&mut self.server_remote), cx)
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.close();
-        Poll::Ready(Ok(()))
+        futures::Sink::<HdpServerRequest>::poll_close(Pin::new(&mut self.server_remote), cx)
     }
 }
 
@@ -136,11 +139,12 @@ impl Unpin for PeerChannelRecvHalf {}
 pub struct PeerChannelRecvHalf {
     // when the state container removes the vconn, this will get closed
     receiver: UnboundedReceiver<SecBuffer>,
-    target_cid: u64,
-    vconn_type: VirtualConnectionType,
+    pub target_cid: u64,
+    pub vconn_type: VirtualConnectionType,
     channel_id: Ticket,
     is_alive: Arc<AtomicBool>,
-    server_remote: HdpServerRemote
+    server_remote: HdpServerRemote,
+    recv_type: ReceivePortType
 }
 
 impl Stream for PeerChannelRecvHalf {
@@ -167,16 +171,118 @@ impl Drop for PeerChannelRecvHalf {
     fn drop(&mut self) {
         match self.vconn_type {
             VirtualConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid) => {
-                log::info!("[PeerChannelRecvHalf] Dropping. Will set is_alive to false since this is a p2p connection");
-                self.is_alive.store(false, Ordering::SeqCst);
+                log::info!("[PeerChannelRecvHalf] Dropping. Will maybe set is_alive to false if this is a tcp p2p connection");
 
-                if let Err(err) = self.server_remote.try_send(HdpServerRequest::PeerCommand(local_cid, PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), None))) {
+                let command = match self.recv_type {
+                    ReceivePortType::TCP => {
+                        self.is_alive.store(false, Ordering::SeqCst);
+                        HdpServerRequest::PeerCommand(local_cid, PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), None))
+                    }
+
+                    ReceivePortType::UDP => {
+                        HdpServerRequest::PeerCommand(local_cid, PeerSignal::DisconnectUDP(self.vconn_type))
+                    }
+                };
+
+                // TODO: Determine local shutdown of udp/tcp futures at the session level
+
+                if let Err(err) = self.server_remote.try_send(command) {
                     log::warn!("[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
                 }
-
             }
 
             _ => {}
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct UdpChannel {
+    send_half: OutboundUdpSender,
+    recv_half: PeerChannelRecvHalf
+}
+
+impl UdpChannel {
+    pub fn new(send_half: OutboundUdpSender, receiver: UnboundedReceiver<SecBuffer>, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, is_alive: Arc<AtomicBool>, server_remote: HdpServerRemote) -> Self {
+        Self {
+            send_half,
+            recv_half: PeerChannelRecvHalf {
+                receiver,
+                target_cid,
+                vconn_type,
+                channel_id,
+                is_alive,
+                server_remote,
+                recv_type: ReceivePortType::UDP
+            }
+        }
+    }
+
+    pub fn split(self) -> (OutboundUdpSender, PeerChannelRecvHalf) {
+        (self.send_half, self.recv_half)
+    }
+
+    pub fn into_webrtc_compat(self) -> WebRTCCompatChannel {
+        self.into()
+    }
+}
+
+pub struct WebRTCCompatChannel {
+    send_half: OutboundUdpSender,
+    recv_half: tokio::sync::Mutex<PeerChannelRecvHalf>
+}
+
+impl From<UdpChannel> for WebRTCCompatChannel {
+    fn from(this: UdpChannel) -> Self {
+        Self { send_half: this.send_half, recv_half: tokio::sync::Mutex::new(this.recv_half) }
+    }
+}
+
+use async_trait::async_trait;
+use crate::hdp::hdp_packet_processor::includes::SocketAddr;
+use bytes::BytesMut;
+
+#[async_trait]
+impl webrtc_util::Conn for WebRTCCompatChannel {
+    async fn connect(&self, _addr: SocketAddr) -> Result<(), anyhow::Error> {
+        // we assume we are already connected to the target addr by the time we get the UdpChannel
+        Ok(())
+    }
+
+    async fn recv(&self, buf: &mut [u8]) -> Result<usize, anyhow::Error> {
+        match self.recv_half.lock().await.receiver.recv().await {
+            Some(input) => {
+                buf.copy_from_slice(input.as_ref());
+                Ok(input.len())
+            }
+
+            None => {
+                Err(NetworkError::InternalError("Stream ended").into())
+            }
+        }
+    }
+
+    async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), anyhow::Error> {
+        let remote = self.send_half.remote_addr();
+        let len = self.recv(buf).await?;
+        Ok((len, remote))
+    }
+
+    async fn send(&self, buf: &[u8]) -> Result<usize, anyhow::Error> {
+        self.send_half.unbounded_send(BytesMut::from(buf)).map_err(|err| NetworkError::Generic(err.into_string()))?;
+        Ok(buf.len())
+    }
+
+    async fn send_to(&self, buf: &[u8], _target: SocketAddr) -> Result<usize, anyhow::Error> {
+        self.send(buf).await
+    }
+
+    async fn local_addr(&self) -> Result<SocketAddr, anyhow::Error> {
+        Ok(self.send_half.local_addr())
+    }
+
+    async fn close(&self) -> Result<(), anyhow::Error> {
+        // the conn will automatically get closed on drop of recv half
+        Ok(())
     }
 }

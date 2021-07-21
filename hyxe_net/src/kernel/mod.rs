@@ -8,6 +8,8 @@ use crate::macros::ContextRequirements;
 pub mod kernel_executor;
 /// The entity which interfaces the lower-level [HdpServer] and the higher-level API
 pub mod kernel;
+/// for handling easy asynchronous callbacks
+pub mod kernel_communicator;
 
 pub trait RuntimeFuture: Future<Output=Result<(), NetworkError>> + ContextRequirements {}
 impl<T: Future<Output=Result<(), NetworkError>> + ContextRequirements> RuntimeFuture for T {}

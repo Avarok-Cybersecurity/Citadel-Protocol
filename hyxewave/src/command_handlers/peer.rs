@@ -7,6 +7,7 @@ use crate::constants::{FCM_POST_REGISTER_TIMEOUT, FCM_FETCH_TIMEOUT};
 use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::command_handlers::connect::{parse_kem, parse_enx, get_crypto_params};
 use hyxe_user::external_services::ExternalService;
+use hyxe_net::hdp::peer::peer_layer::UdpMode;
 
 #[derive(Debug, Serialize)]
 pub struct PeerList {
@@ -107,7 +108,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
                         log::info!("visiting mail element {}", mail_id);
                         count += 1;
                         match request {
-                            IncomingPeerRequest::Connection(_ticket, conn, recv_time, _endpoint_security_level) => {
+                            IncomingPeerRequest::Connection(_ticket, conn, recv_time, _endpoint_security_level, _udp_mode) => {
                                 match conn {
                                     PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => {
                                         requests.add_row(prettytable::row![c => mail_id, "Connection", *implicated_cid, "", "hLAN", recv_time.elapsed().as_secs()]);
@@ -164,21 +165,36 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
             let target_cid = get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?;
 
             let message: String = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
-            let buf = SecBuffer::from(message);
 
             return if use_fcm || use_rtdb {
                 // TODO: Consider logic of using below for generating unique IDs ... this may not be good for android/ios
                 let ticket = server_remote.get_next_ticket().0;
                 let method = if use_fcm { ExternalService::Fcm } else { ExternalService::Rtdb };
 
-                let res = cnac.send_message_to_external(method,target_cid, buf, ticket).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
+                let res = cnac.send_message_to_external(method,target_cid, SecBuffer::from(message), ticket).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
                 Ok(Some(KernelResponse::from(res)))
             } else {
                 // now, use the console context to send the message
-                let _ticket = ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, buf).await?;
+                ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, message, false).await?;
                 printf_ln!(colour::white!("Message sent through peer channel w/ {:?} security\n", security_level));
                 Ok(None)
             };
+        }
+
+        if let Some(matches) = matches.subcommand_matches("send-udp") {
+            let target_cid = matches.value_of("target_cid").unwrap();
+            let security_level = parse_security_level(matches)?;
+
+            let _cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC missing"))?;
+
+            let target_cid = get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?;
+
+            let message: String = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
+
+            // now, use the console context to send the message
+            ctx.send_message_to_peer_channel(ctx_user, target_cid, security_level, message, true).await?;
+            printf_ln!(colour::white!("Message sent through peer channel w/ {:?} security\n", security_level));
+            return Ok(None)
         }
 
         if let Some(matches) = matches.subcommand_matches("disconnect") {
@@ -594,6 +610,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
         if let Some(matches) = matches.subcommand_matches("post-connect") {
 
             let target = matches.value_of("target_cid").unwrap();
+            let udp = if matches.is_present("udp") { UdpMode::Enabled } else { UdpMode::Disabled };
             let security_level = parse_security_level(matches)?;
             let kem = parse_kem(matches)?;
             let enx = parse_enx(matches)?;
@@ -610,7 +627,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
 
             let params = get_crypto_params(None, kem, enx, security_level);
 
-            let post_connect_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), None, None, params));
+            let post_connect_request = HdpServerRequest::PeerCommand(ctx_user, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(ctx_user, target_cid), None, None, params, udp));
             let ticket = server_remote.send(post_connect_request).await?;
 
             ctx.register_ticket(ticket, POST_REGISTER_TIMEOUT, ctx_user, move |_ctx, ticket, response| {
