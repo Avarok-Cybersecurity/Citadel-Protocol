@@ -144,19 +144,19 @@ impl Method3 {
 
                 NatPacket::SynAck => {
                     log::info!("RECV SYN_ACK");
-                    //if let Some(required_addr_in_conv) = recv_from_required {
-                        //if required_addr_in_conv == nat_addr {
+                    if let Some(required_addr_in_conv) = recv_from_required {
+                        if required_addr_in_conv == nat_addr {
                             // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
                             let initial_socket = endpoint;
                             let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr);
                             log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
                             return Ok((idx, hole_punched_addr));
-                        //} else {
-                        //    log::warn!("Received SynAck, but the addrs did not match!");
-                        //}
-                    //} else {
-                    //    log::warn!("Received SynAck, but have not yet received Syn")
-                    //}
+                        } else {
+                            log::warn!("Received SynAck, but the addrs did not match!");
+                        }
+                    } else {
+                        log::warn!("Received SynAck, but have not yet received Syn")
+                    }
                 }
             }
         }
