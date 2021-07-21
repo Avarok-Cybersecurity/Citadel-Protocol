@@ -18,7 +18,7 @@ pub struct Method3 {
     this_node_type: RelativeNodeType,
     encrypted_config: EncryptedConfigContainer,
     #[allow(dead_code)]
-    adjacent_peer_nat: NatType
+    adjacent_peer_nat: NatType,
 }
 
 
@@ -32,7 +32,7 @@ impl Method3 {
     ///
     /// Note! The endpoints should be the port-predicted addrs
     async fn execute_either(&self, sockets_init: &mut Vec<UdpSocket>, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedUdpSocket, FirewallError> {
-        let ref sockets = sockets_init.iter().map(|r|r).collect::<Vec<&UdpSocket>>();
+        let ref sockets = sockets_init.iter().map(|r| r).collect::<Vec<&UdpSocket>>();
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
         // 400ms window
         let ref encryptor = self.encrypted_config;
@@ -49,7 +49,6 @@ impl Method3 {
             } else {
                 Err(FirewallError::HolePunch("No UDP penetration detected".to_string()))
             }
-
         };
 
         let sender_task = async move {
@@ -106,7 +105,7 @@ impl Method3 {
 
         while let Ok((len, nat_addr)) = socket.recv_from(buf).await {
             log::info!("[Hole-punch] RECV packet from {:?}", &nat_addr);
-            let packet = match encryptor.decrypt_packet(&buf[..len]) {
+            let _packet = match encryptor.decrypt_packet(&buf[..len]) {
                 Some(plaintext) => plaintext,
                 _ => {
                     log::warn!("BAD Hole-punch packet: decryption failed!");
@@ -114,14 +113,11 @@ impl Method3 {
                 }
             };
 
-            let len = packet.len();
-            if len == 2 {
-                //let _private_remote_port = packet.reader().read_u16()?;
-                let initial_socket = endpoint;
-                let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr);
-                log::info!("RECV Dat: {}", &hole_punched_addr);
-                return Ok((idx, hole_punched_addr));
-            }
+            //let _private_remote_port = packet.reader().read_u16()?;
+            let initial_socket = endpoint;
+            let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr);
+            log::info!("RECV Dat: {}", &hole_punched_addr);
+            return Ok((idx, hole_punched_addr));
         }
 
         Err(FirewallError::HolePunch("Socket recv error".to_string()))
