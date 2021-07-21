@@ -137,7 +137,7 @@ impl Method3 {
                         // we received a packet, but, need to verify
                         let syn_ack = encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck).unwrap());
                         for _ in 0..3 {
-                            socket.send_to(&syn_ack, nat_addr).await?;
+                            socket.send_to(&syn_ack, *endpoint).await?;
                         }
                     }
                 }
