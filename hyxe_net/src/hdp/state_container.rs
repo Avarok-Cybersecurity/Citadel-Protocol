@@ -537,18 +537,12 @@ impl StateContainerInner {
     /// (thus bypassing the unordered kernel)
     pub fn forward_data_to_unordered_channel(&self, target_cid: u64, data: SecBuffer) -> bool {
         if target_cid == 0 {
-            log::warn!("ZZZ");
             if let Some(c2s_container) = self.c2s_channel_container.as_ref() {
                 if let Some(unordered_channel) = c2s_container.to_unordered_channel.as_ref() {
                     return unordered_channel.to_channel.unbounded_send(data).is_ok()
-                } else {
-                    log::warn!("B2334");
                 }
-            } else {
-                log::warn!("A2334");
             }
         } else {
-            log::warn!("C488");
             if let Some(vconn) = self.active_virtual_connections.get(&target_cid) {
                 if let Some(channel) = vconn.endpoint_container.as_ref() {
                     if let Some(unordered_channel) = channel.to_unordered_channel.as_ref() {

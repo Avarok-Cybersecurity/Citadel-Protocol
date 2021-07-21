@@ -5,7 +5,7 @@ use crate::hdp::hdp_packet_processor::includes::Instant;
 use crate::constants::DO_CONNECT_EXPIRE_TIME_MS;
 use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
 use hyxe_nat::hypernode_type::HyperNodeType;
-use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
+use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedUdpSocket;
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 use tokio::sync::oneshot::{Sender, Receiver, channel};
 use crate::hdp::peer::channel::UdpChannel;
@@ -19,7 +19,7 @@ pub struct PreConnectState {
     // This drill should be turned .into() the next toolset once the other side updated
     pub(crate) constructor: Option<HyperRatchetConstructor>,
     pub(crate) reserved_sockets: Option<Vec<UdpSocket>>,
-    pub(crate) hole_punched: Option<Vec<(UdpSocket, HolePunchedSocketAddr)>>,
+    pub(crate) hole_punched: Option<HolePunchedUdpSocket>,
     pub(crate) current_nat_traversal_method: Option<NatTraversalMethod>,
     pub(crate) ticket: Option<Ticket>,
     pub(crate) last_packet_time: Option<Instant>,

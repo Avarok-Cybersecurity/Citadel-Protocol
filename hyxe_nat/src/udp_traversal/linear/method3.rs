@@ -11,6 +11,7 @@ use crate::udp_traversal::linear::{LinearUdpHolePunchImpl, RelativeNodeType};
 use futures::StreamExt;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::nat_identification::NatType;
+use serde::{Serialize, Deserialize};
 
 /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL
 // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf
@@ -19,6 +20,12 @@ pub struct Method3 {
     encrypted_config: EncryptedConfigContainer,
     #[allow(dead_code)]
     adjacent_peer_nat: NatType,
+}
+
+#[derive(Serialize, Deserialize)]
+enum NatPacket {
+    Syn(u32),
+    SynAck,
 }
 
 
@@ -38,7 +45,7 @@ impl Method3 {
         let ref encryptor = self.encrypted_config;
 
         let receiver_task = async move {
-            let futures_iter = sockets.into_iter().enumerate().zip(endpoints.into_iter()).map(|((idx, socket), endpoint)| tokio::time::timeout(Duration::from_millis(1000), Self::recv_until(idx, socket, endpoint, encryptor)))
+            let futures_iter = sockets.into_iter().enumerate().zip(endpoints.into_iter()).map(|((idx, socket), endpoint)| tokio::time::timeout(Duration::from_millis(2000), Self::recv_until(idx, socket, endpoint, encryptor)))
                 .collect::<Vec<_>>();
 
             let mut futures_ordered_concurrent = futures::stream::FuturesUnordered::from_iter(futures_iter);
@@ -54,10 +61,12 @@ impl Method3 {
         let sender_task = async move {
             tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
             let mut messages_syn = Vec::with_capacity(sockets.len());
+            let ttl = 2;
+            let ref syn_packet = bincode2::serialize(&NatPacket::Syn(ttl)).unwrap();
             for sck in sockets {
                 // set TTL low
-                sck.set_ttl(2).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                messages_syn.push(encryptor.generate_packet(sck.local_addr().map_err(|err| FirewallError::HolePunch(err.to_string()))?.port()))
+                sck.set_ttl(ttl).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                messages_syn.push(encryptor.generate_packet(syn_packet))
             }
 
             let messages_syn = messages_syn.iter().map(|r| r.as_ref()).collect::<Vec<&[u8]>>();
@@ -72,17 +81,21 @@ impl Method3 {
                 }
             }
 
+            let mut messages_syn = Vec::with_capacity(sockets.len());
+            let ttl = 120;
+            let ref syn_packet = bincode2::serialize(&NatPacket::Syn(ttl)).unwrap();
             // set TTL long. 400ms window
             for sck in sockets {
-                sck.set_ttl(120).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                sck.set_ttl(ttl).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                messages_syn.push(encryptor.generate_packet(syn_packet))
             }
 
             let mut iter = tokio::time::interval(Duration::from_millis(20));
             for _ in 0..5 {
                 let _ = iter.tick().await;
                 for ((socket, endpoint), message) in sockets.iter().zip(endpoints.iter()).zip(messages_syn.iter()) {
-                    log::info!("Sending long TTL {:?} to {}", *message, endpoint);
-                    socket.send_to(*message, endpoint).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+                    log::info!("Sending long TTL {:?} to {}", &message, endpoint);
+                    socket.send_to(&message, endpoint).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
                 }
             }
 
@@ -98,14 +111,15 @@ impl Method3 {
         Ok(ret)
     }
 
-    // Receives until a pattern is found in the payload
+    // Handles the reception of packets, as well as sending/awaiting for a verification
     async fn recv_until(idx: usize, socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer) -> Result<(usize, HolePunchedSocketAddr), FirewallError> {
         let buf = &mut [0u8; 4096];
         log::info!("[Hole-punch] Listening on {:?}", socket.local_addr().unwrap());
 
+        let mut recv_from_required = None;
         while let Ok((len, nat_addr)) = socket.recv_from(buf).await {
             log::info!("[Hole-punch] RECV packet from {:?}", &nat_addr);
-            let _packet = match encryptor.decrypt_packet(&buf[..len]) {
+            let packet = match encryptor.decrypt_packet(&buf[..len]) {
                 Some(plaintext) => plaintext,
                 _ => {
                     log::warn!("BAD Hole-punch packet: decryption failed!");
@@ -113,11 +127,36 @@ impl Method3 {
                 }
             };
 
-            //let _private_remote_port = packet.reader().read_u16()?;
-            let initial_socket = endpoint;
-            let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr);
-            log::info!("RECV Dat: {}", &hole_punched_addr);
-            return Ok((idx, hole_punched_addr));
+            let packet: NatPacket = bincode2::deserialize(&packet).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            match packet {
+                NatPacket::Syn(ttl) => {
+                    if recv_from_required.is_none() {
+                        log::info!("Received TTL={} packet. Awaiting mutual recognition...", ttl);
+                        recv_from_required = Some(nat_addr);
+                        // we received a packet, but, need to verify
+                        let syn_ack = encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck).unwrap());
+                        for _ in 0..3 {
+                            socket.send_to(&syn_ack, nat_addr).await?;
+                        }
+                    }
+                }
+
+                NatPacket::SynAck => {
+                    if let Some(required_addr_in_conv) = recv_from_required {
+                        if required_addr_in_conv == nat_addr {
+                            // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
+                            let initial_socket = endpoint;
+                            let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr);
+                            log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
+                            return Ok((idx, hole_punched_addr));
+                        } else {
+                            log::warn!("Received SynAck, but the addrs did not match!");
+                        }
+                    } else {
+                        log::warn!("Received SynAck, but have not yet received Syn")
+                    }
+                }
+            }
         }
 
         Err(FirewallError::HolePunch("Socket recv error".to_string()))

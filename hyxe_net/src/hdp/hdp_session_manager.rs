@@ -37,6 +37,7 @@ use crate::macros::{ContextRequirements, SyncContextRequirements};
 use hyxe_user::prelude::ConnectProtocol;
 use crate::kernel::RuntimeFuture;
 use std::pin::Pin;
+use hyxe_nat::nat_identification::NatType;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -131,7 +132,7 @@ impl HdpSessionManager {
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_bind_addr_for_primary_stream: T, init_mode: HdpSessionInitMode, ticket: Ticket, proposed_credentials: ProposedCredentials, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, udp_mode: Option<UdpMode>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
+    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_nat_type: NatType, local_bind_addr_for_primary_stream: T, init_mode: HdpSessionInitMode, ticket: Ticket, proposed_credentials: ProposedCredentials, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, udp_mode: Option<UdpMode>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
@@ -188,7 +189,7 @@ impl HdpSessionManager {
 
             let peer_only_connect_mode = match listener_underlying_proto { UnderlyingProtocol::Tcp => ConnectProtocol::Tcp, UnderlyingProtocol::Tls(_, domain) => ConnectProtocol::Tls(domain) };
 
-            let (stopper, new_session) = HdpSession::new(init_mode.clone(), peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, udp_mode.unwrap_or(UDP_MODE), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings)?;
+            let (stopper, new_session) = HdpSession::new(init_mode.clone(), local_nat_type, peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, udp_mode.unwrap_or(UDP_MODE), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings)?;
 
             match init_mode {
                 HdpSessionInitMode::Connect(..) => {
@@ -322,7 +323,7 @@ impl HdpSessionManager {
 
     /// When the primary port listener receives a new connection, the stream gets sent here for handling
     #[allow(unused_results)]
-    pub fn process_new_inbound_connection(&self, local_bind_addr: SocketAddr, peer_addr: SocketAddr, primary_stream: GenericNetworkStream) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
+    pub fn process_new_inbound_connection(&self, local_bind_addr: SocketAddr, local_nat_type: NatType, peer_addr: SocketAddr, primary_stream: GenericNetworkStream) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
         let this_dc = self.clone();
         let mut this = inner_mut!(self);
         let on_drop = this.clean_shutdown_tracker_tx.clone();
@@ -342,7 +343,7 @@ impl HdpSessionManager {
         let provisional_ticket = Ticket(this.incoming_cxn_count as u64);
         this.incoming_cxn_count += 1;
 
-        let (stopper, new_session) = HdpSession::new_incoming(on_drop,remote, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket);
+        let (stopper, new_session) = HdpSession::new_incoming(on_drop, local_nat_type, remote, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket);
         this.provisional_connections.insert(peer_addr.clone(), (Instant::now(), stopper, new_session.clone()));
         std::mem::drop(this);
 

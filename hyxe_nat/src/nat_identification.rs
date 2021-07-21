@@ -55,7 +55,7 @@ impl NatType {
     }
 
     /// Returns the NAT traversal type required to access self and other, respectively
-    pub fn traversal_type_required_with(&self, other: NatType) -> (TraversalTypeRequired, TraversalTypeRequired) {
+    pub fn traversal_type_required_with(&self, other: &NatType) -> (TraversalTypeRequired, TraversalTypeRequired) {
         let this = self.traversal_type_required();
         let other = other.traversal_type_required();
         (this, other)
@@ -70,9 +70,8 @@ impl NatType {
         }
     }
 
-    /// If either of the method required to reach the endpoints don't require TURN, then the connection will work 100% of the time
-    /// since the location is predictable
-    pub fn needs_turn(&self, other: NatType) -> bool {
+    /// If either of the method required to reach the endpoints don't require TURN, then the connection will work since at least one of the addrs is predictable
+    pub fn stun_compatible(&self, other: &NatType) -> bool {
         let (this, other) = self.traversal_type_required_with(other);
         this != TraversalTypeRequired::TURN || other != TraversalTypeRequired::TURN
     }
