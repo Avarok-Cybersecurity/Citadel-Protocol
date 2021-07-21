@@ -1,4 +1,6 @@
-pub const BUILD_VERSION: usize = 6931;
+use crate::hdp::peer::peer_layer::UdpMode;
+
+pub const BUILD_VERSION: usize = 7059;
 /// Signal for closing the stream_wrapper
 pub const STREAM_SHUTDOWN: u8 = 0;
 /// Signal for restarting the stream_wrapper
@@ -8,7 +10,7 @@ pub const CONNECTION_HANDLER_POLL_INTERVAL: std::time::Duration = std::time::Dur
 /// If NoDelay is set, then wave packets are sent outbound immediately
 pub const HDP_NODELAY: bool = false;
 /// by default, TCP_ONLY is true since the MQ-UDP is experimental
-pub const TCP_ONLY: bool = true;
+pub const UDP_MODE: UdpMode = UdpMode::Disabled;
 /// Setting this option to zero will imply an RST gets sent once close() is called. This will lead to packets possibly being undelivered
 pub const DEFAULT_SO_LINGER_TIME: std::time::Duration = std::time::Duration::from_millis(1000);
 /// Id HDP_NODELAY is false, then the payload of a wave is sent after HDP_WAVE_PAYLOAD_DELAY time

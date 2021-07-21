@@ -249,13 +249,14 @@ pub(crate) mod pre_connect {
     use crate::hdp::hdp_session_manager::HdpSessionManager;
     use crate::error::NetworkError;
     use crate::hdp::hdp_server::ConnectMode;
+    use crate::hdp::peer::peer_layer::UdpMode;
 
     // +1 for node type, +2 for minimum 1 wave port inscribed
     const STAGE0_MIN_PAYLOAD_LEN: usize = 1 + 2;
     // +1 for node type, +1 for nat traversal type, +8 for sync_time, +2 for minimum 1 wave port inscribed
     const STAGE1_MIN_PAYLOAD_LEN: usize = 1 + 1 + 8 + 2;
 
-    pub fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol), NetworkError> {
+    pub fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64), NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
@@ -277,6 +278,8 @@ pub(crate) mod pre_connect {
 
         let session_security_settings = transfer.session_security_settings;
         let peer_only_connect_mode = transfer.peer_only_connect_protocol;
+        let udp_mode = transfer.udp_mode;
+        let kat = transfer.keep_alive_timeout;
         let _ = static_auxiliary_ratchet.verify_level(Some(transfer.session_security_settings.security_level)).map_err(|err| NetworkError::Generic(err.into_string()))?;
         let opts = static_auxiliary_ratchet.get_next_constructor_opts().into_iter().take((transfer.session_security_settings.security_level.value() + 1) as usize).collect();
         //let opts = ConstructorOpts::new_vec_init(Some(transfer.transfer.params), (transfer.transfer.security_level.value() + 1) as usize).into_i;
@@ -288,7 +291,7 @@ pub(crate) mod pre_connect {
         let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_hyper_ratchet));
 
         cnac.replace_toolset(toolset);
-        Ok((static_auxiliary_ratchet, transfer, session_security_settings, peer_only_connect_mode))
+        Ok((static_auxiliary_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat))
     }
 
     /// This returns an error if the packet is maliciously invalid (e.g., due to a false packet)

@@ -10,6 +10,7 @@ use std::convert::TryFrom;
 use hyxe_user::prelude::ConnectionInfo;
 use hyxe_user::external_services::{PostLoginObject, RtdbConfig};
 use crate::ticket_event::CustomPayload;
+use hyxe_net::hdp::peer::peer_layer::UdpMode;
 
 #[derive(Debug, Serialize)]
 pub enum ConnectResponse {
@@ -27,7 +28,7 @@ pub struct ConnectResponseReceived {
 #[allow(unused_results)]
 pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let username = matches.value_of("username").unwrap();
-    let tcp_only = !matches.is_present("qudp");
+    let udp = if matches.is_present("qudp") { UdpMode::Enabled } else { UdpMode::Disabled };
     let force_login = matches.is_present("force");
 
     let secrecy_mode = matches.is_present("pfs").then(|| SecrecyMode::Perfect);
@@ -60,7 +61,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
 
     let proposed_credentials = get_proposed_credentials(matches, ctx, username, &peer_cnac, conn_info, security_level, cid, full_name).await?;
 
-    let request = HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, connect_mode, fcm_keys, Some(tcp_only), kat, params);
+    let request = HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, connect_mode, fcm_keys, udp, kat, params);
     let ticket = server_remote.send(request).await?;
 
     let tx = parking_lot::Mutex::new(None);

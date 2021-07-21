@@ -23,6 +23,7 @@ pqcrypto-traits = { version = "0.3.3" }
 pqcrypto-saber = { version = "^0.1.7", features = ["serialization"] }
 pqcrypto-kyber = { version = "^0.7.1", features = ["serialization"] }
 pqcrypto-ntru = { version = "^0.5.4", features = ["serialization"] }
+generic-array = { version = "0.14.4", features = ["serde"]}
 enum_primitive = "0.1.1"
 serde = { version = "1.0.118", features = ["derive"] }
 #serde_traitobject = "0.2.7"
@@ -41,3 +42,4 @@ sha3 = "0.9.1"
 
 [dev-dependencies]
 rand = "0.7.3"
+rust-sike = "0.2.0"

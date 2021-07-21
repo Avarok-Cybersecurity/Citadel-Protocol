@@ -277,6 +277,45 @@ mod tests {
     }*/
 
     #[test]
+    fn sike() {
+        let params = rust_sike::sike_p751_params(None, None).unwrap();
+        let kem = rust_sike::KEM::setup(params.clone());
+
+        // Alice runs keygen, publishes pk3. Values s and sk3 are secret
+        let (s, sk3, pk3) = kem.keygen().unwrap();
+
+        // Bob uses pk3 to derive a key k and encapsulation c
+        let (c, k) = kem.encaps(&pk3).unwrap();
+
+        // Bob sends c to Alice
+        // Alice uses s, c, sk3 and pk3 to recover k
+        let k_recovered = kem.decaps(&s, &sk3, &pk3, c).unwrap();
+
+        assert_eq!(k, k_recovered);
+    }
+
+    #[test]
+    fn sike_pke() {
+        let params = rust_sike::sike_p434_params(None, None).unwrap();
+        let pke = rust_sike::PKE::setup(params.clone());
+
+        // Alice generates a keypair, she publishes her pk
+        let (sk, pk) = pke.gen().unwrap();
+
+        // Bob writes a message
+        let msg = rust_sike::pke::Message::from_bytes(vec![0; params.secparam / 8]);
+        // Bob encrypts the message using Alice's pk
+        let ciphertext = pke.enc(&pk, msg.clone()).unwrap();
+
+        // Bob sends the ciphertext to Alice
+        // Alice decrypts the message using her sk
+        let msg_recovered = pke.dec(&sk, ciphertext).unwrap();
+
+        // Alice should correctly recover Bob's plaintext message
+        assert_eq!(msg_recovered.bytes.as_slice(), msg.bytes.as_slice());
+    }
+
+    #[test]
     fn test_10() {
         setup_log();
         for algorithm in 0..ALGORITHM_COUNT {
@@ -304,6 +343,9 @@ mod tests {
 
         let enc = alice_container.encrypt(msg, &nonce).unwrap();
         let enc2 = bob_container.encrypt(msg, &nonce).unwrap();
+
+        let _ = bob_container.decrypt(&enc, &nonce).unwrap();
+        let _ = alice_container.decrypt(&enc2, &nonce).unwrap();
 
         let al_pub0 = alice_container.get_public_key();
         let al_ss0 = alice_container.get_shared_secret().unwrap();
@@ -339,6 +381,7 @@ mod tests {
         let _decr_alice = bob_container.decrypt(&enc, &nonce).unwrap();
         let _decr_bob = alice_container.decrypt(&enc2, &nonce).unwrap();
 
+        // now, try out the serialized versions
         let decr_alice = pqq_bob.decrypt(&enc, &nonce).unwrap();
         let decr_bob = pqq_alice.decrypt(&enc2, &nonce).unwrap();
 

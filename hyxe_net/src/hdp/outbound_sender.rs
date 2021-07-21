@@ -1,12 +1,13 @@
 //use futures::channel::mpsc::{UnboundedSender, SendError, UnboundedReceiver, TrySendError};
 pub use tokio::sync::mpsc::{UnboundedSender as UnboundedSenderInner, UnboundedReceiver, error::SendError, error::TrySendError, Sender, Receiver};
 use bytes::{Bytes, BytesMut};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use futures::Sink;
 use futures::task::{Context, Poll};
 use std::pin::Pin;
 use crate::error::NetworkError;
+use hyxe_user::re_imports::__private::Formatter;
+use crate::hdp::hdp_packet::packet_flags;
+use std::net::SocketAddr;
 
 
 pub struct UnboundedSender<T>(pub(crate) UnboundedSenderInner<T>);
@@ -58,73 +59,61 @@ impl From<UnboundedReceiver<bytes::BytesMut>> for OutboundTcpReceiver {
 }
 
 /// For keeping the firewall open
-pub static KEEP_ALIVE: Bytes = Bytes::from_static(b"KA");
+pub const KEEP_ALIVE: Bytes = Bytes::from_static(b"KA");
 
 #[derive(Clone)]
 pub struct OutboundUdpSender {
-    sender: UnboundedSender<(usize, BytesMut)>,
-    total_local_ports: usize,
-    rolling_idx: Arc<AtomicUsize>
+    sender: UnboundedSender<(u8, BytesMut)>,
+    local_addr: SocketAddr,
+    remote_addr: SocketAddr
 }
 
 impl OutboundUdpSender {
-    pub fn new(sender: UnboundedSender<(usize, BytesMut)>, total_local_ports: usize) -> Self {
-        let rolling_idx = Arc::new(AtomicUsize::new(0));
-        Self { sender, total_local_ports, rolling_idx}
+    pub fn new(sender: UnboundedSender<(u8, BytesMut)>, local_addr: SocketAddr, remote_addr: SocketAddr) -> Self {
+        Self { sender, local_addr, remote_addr }
     }
 
-    #[inline]
-    pub fn send_with_idx(&self, idx: usize, packet: BytesMut) -> bool {
-        self.sender.unbounded_send((idx, packet)).is_ok()
+    pub fn unbounded_send(&self, packet: BytesMut) -> Result<(), NetworkError> {
+        self.sender.unbounded_send((packet_flags::cmd::aux::udp::STREAM, packet)).map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    /// Automatically handles the port rotations
-    ///
-    /// returns false if the channel is closed, true is success
-    pub fn unbounded_send(&self, packet: BytesMut) -> bool {
-        let idx = self.get_and_increment_idx();
-        self.send_with_idx(idx, packet)
+    pub fn send_keep_alive(&self) -> bool {
+        self.sender.unbounded_send((packet_flags::cmd::aux::udp::KEEP_ALIVE, BytesMut::from(&KEEP_ALIVE[..]))).is_ok()
     }
 
-    pub fn send_keep_alive_through_all(&self) -> bool {
-        for idx in 0..self.total_local_ports {
-            if !self.send_with_idx(idx, BytesMut::from(&KEEP_ALIVE[..])) {
-                return false;
-            }
-        }
-
-        true
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 
-    // Get and increments value (mod total_local_ports)
-    fn get_and_increment_idx(&self) -> usize {
-        let total_local_ports = self.total_local_ports;
-        let prev = self.rolling_idx.load(Ordering::Relaxed);
-        let next = (prev + 1) % total_local_ports;
-        self.rolling_idx.store(next, Ordering::Relaxed);
-        prev
+    pub fn remote_addr(&self) -> SocketAddr {
+        self.remote_addr
     }
 }
 
 
 impl Sink<BytesMut> for OutboundUdpSender {
-    type Error = SendError<(usize, BytesMut)>;
+    type Error = NetworkError;
 
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Pin::new(&mut self.sender).poll_ready(cx).map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    fn start_send(self: Pin<&mut Self>, item: BytesMut) -> Result<(), Self::Error> {
-        let idx = self.get_and_increment_idx();
-        self.sender.unbounded_send((idx, item))
+    fn start_send(mut self: Pin<&mut Self>, item: BytesMut) -> Result<(), Self::Error> {
+        Pin::new(&mut self.sender).start_send((packet_flags::cmd::aux::udp::STREAM, item)).map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Pin::new(&mut self.sender).poll_flush(cx).map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Pin::new(&mut self.sender).poll_close(cx).map_err(|err| NetworkError::Generic(err.to_string()))
+    }
+}
+
+impl std::fmt::Debug for OutboundUdpSender {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UDP Sender")
     }
 }
 

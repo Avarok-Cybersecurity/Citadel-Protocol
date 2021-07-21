@@ -1,5 +1,7 @@
 use serde::{Serialize, Deserialize};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
+use crate::hdp::peer::peer_layer::UdpMode;
+use std::net::SocketAddr;
 
 
 pub const KEP_STAGE0: u8 = 0;
@@ -11,11 +13,11 @@ pub const KEP_ACCEPT_REKEY: u8 = 3;
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum KeyExchangeProcess {
     // alice sends public key
-    Stage0(Vec<u8>, SessionSecuritySettings),
+    Stage0(Vec<u8>, SessionSecuritySettings, UdpMode),
     // Bob sends ciphertext, addr
-    Stage1(Vec<u8>, Option<String>),
+    Stage1(Vec<u8>, Option<SocketAddr>),
     // Alice sends a sync time over. Server takes care of external addr
-    Stage2(i64, Option<String>),
+    Stage2(i64, Option<SocketAddr>),
     // Sends a signal to the other side validating that it established a connection
     // However, the other side must thereafter receiving prove that it's who they claim it is
     // to prevent MITM attacks

@@ -1,68 +1,61 @@
-use crate::{PostQuantumContainer, PQNode, AntiReplayAttackContainer, PostQuantumType, KeyStore};
-use serde::{Deserialize, Deserializer, Serialize};
-use crate::algorithm_dictionary::CryptoParameters;
-use crate::constructor_opts::RecursiveChain;
+use crate::KeyStore;
+use serde::{Deserialize, Serialize};
+use crate::algorithm_dictionary::EncryptionAlgorithm;
+use generic_array::GenericArray;
+use chacha20poly1305::aead::NewAead;
+use crate::encryption::AeadModule;
 
 #[derive(Serialize, Deserialize)]
-struct PostQuantumExport {
-    pub params: CryptoParameters,
-    pub(crate) data: Box<dyn PostQuantumType>,
-    pub(crate) previous_symmetric_key: Option<RecursiveChain>,
-    pub(crate) anti_replay_attack: AntiReplayAttackContainer,
-    #[serde(skip)]
-    pub(crate) shared_secret: Option<KeyStore>,
-    pub(crate) node: PQNode
+struct KeyStoreIntermediate {
+    alice_key: GenericArray<u8, generic_array::typenum::U32>,
+    bob_key: GenericArray<u8, generic_array::typenum::U32>,
+    enx: EncryptionAlgorithm
 }
 
-impl From<PostQuantumExport> for PostQuantumContainer {
-    fn from(this: PostQuantumExport) -> Self {
-        Self {
-            params: this.params,
-            data: this.data,
-            chain: this.previous_symmetric_key,
-            anti_replay_attack: this.anti_replay_attack,
-            shared_secret: this.shared_secret,
-            node: this.node
-        }
-    }
-}
 
-impl<'de> Deserialize<'de> for PostQuantumContainer {
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
-        D: Deserializer<'de> {
-
-        let mut intermediate = PostQuantumExport::deserialize(deserializer)?;
-
-        // shared secret may not be loaded yet
-        if let Ok(ss) = intermediate.data.get_shared_secret() {
-            let (chain, key) = PostQuantumContainer::get_symmetric_key(intermediate.params.encryption_algorithm, ss, intermediate.previous_symmetric_key.as_ref()).map_err(|err| serde::de::Error::custom(err.to_string()))?;
-            intermediate.shared_secret = Some(key);
-            intermediate.previous_symmetric_key = Some(chain);
-        }
-
-        Ok(PostQuantumContainer::from(intermediate))
-    }
-}
-
-/*
 pub(crate) mod custom_serde {
-    use crate::PostQuantumContainer;
+    use crate::KeyStore;
     use serde::{Serializer, Serialize, Deserializer, Deserialize};
-    use crate::export::PostQuantumExport;
-    use std::convert::TryFrom;
+    use crate::export::KeyStoreIntermediate;
 
-    impl Serialize for PostQuantumContainer {
+    impl Serialize for KeyStore {
         fn serialize<S>(&self, s: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
             S: Serializer {
-            let intermediate_form = PostQuantumExport::from(self);
-            PostQuantumExport::serialize(&intermediate_form, s)
+            let intermediate_form = KeyStoreIntermediate { alice_key: self.alice_key.clone(), bob_key: self.bob_key.clone(), enx: self.encryption_algorithm };
+            KeyStoreIntermediate::serialize(&intermediate_form, s)
         }
     }
 
-    impl<'de> Deserialize<'de> for PostQuantumContainer {
+    impl<'de> Deserialize<'de> for KeyStore {
         fn deserialize<D>(d: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
             D: Deserializer<'de> {
-            Ok(PostQuantumContainer::try_from(PostQuantumExport::deserialize(d).map_err(|_| serde::de::Error::custom("PQExport Deser err"))? as PostQuantumExport).map_err(|_| serde::de::Error::custom("PQC Deser err"))?)
+            Ok(KeyStore::from(KeyStoreIntermediate::deserialize(d).map_err(|_| serde::de::Error::custom("PQExport Deser err"))? as KeyStoreIntermediate))
         }
     }
-}*/
+}
+
+impl From<KeyStoreIntermediate> for KeyStore {
+    fn from(int: KeyStoreIntermediate) -> Self {
+        let (alice_symmetric_key, bob_symmetric_key) = generic_array_to_key(&int.alice_key, &int.bob_key, int.enx);
+
+        KeyStore {
+            alice_symmetric_key,
+            bob_symmetric_key,
+            alice_key: int.alice_key,
+            bob_key: int.bob_key,
+            encryption_algorithm: int.enx
+        }
+    }
+}
+
+pub(crate) fn generic_array_to_key(alice: &GenericArray<u8, generic_array::typenum::U32>, bob: &GenericArray<u8, generic_array::typenum::U32>, encryption_algorithm: EncryptionAlgorithm) -> (Box<dyn AeadModule>, Box<dyn AeadModule>) {
+    match encryption_algorithm {
+        EncryptionAlgorithm::AES_GCM_256_SIV => {
+            (Box::new(aes_gcm_siv::Aes256GcmSiv::new(alice)), Box::new(aes_gcm_siv::Aes256GcmSiv::new(bob)))
+        }
+
+        EncryptionAlgorithm::Xchacha20Poly_1305 => {
+            (Box::new(chacha20poly1305::XChaCha20Poly1305::new(alice)), Box::new(chacha20poly1305::XChaCha20Poly1305::new(bob)))
+        }
+    }
+}

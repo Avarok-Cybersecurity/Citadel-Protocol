@@ -2,23 +2,20 @@ use async_trait::async_trait;
 use std::net::{SocketAddr, IpAddr};
 use crate::error::FirewallError;
 use crate::udp_traversal::linear::method3::Method3;
-use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
+use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedSocketAddr, HolePunchedUdpSocket};
 use tokio::net::UdpSocket;
 use crate::udp_traversal::NatTraversalMethod;
 use crate::upnp_handler::UPnPHandler;
 use tokio::time::Duration;
 use igd::PortMappingProtocol;
 use crate::local_firewall_handler::{open_local_firewall_port, FirewallProtocol};
-use crate::hypernode_type::HyperNodeType;
-use crate::udp_traversal::linear::method3_encrypted::Method3Encrypted;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
-use std::sync::Arc;
+use crate::nat_identification::NatType;
 
 pub mod encrypted_config_container;
 
 pub mod method1;
 pub mod method3;
-pub mod method3_encrypted;
 
 /// Whereas UDP hole punching usually entails the connection between two peers (p2p),
 /// linear UDP hole punching is the process of punching a hole through the firewall to allow
@@ -34,10 +31,9 @@ pub mod method3_encrypted;
 /// cellular NAT, is connecting to a globally-routable server
 pub struct LinearUDPHolePuncher {
     method3: (bool, Method3),
-    #[allow(dead_code)]
-    encrypted_method3: (bool, Option<Method3Encrypted>),
     upnp_handler: (bool, Option<UPnPHandler>),
-    local_hypernode_type: HyperNodeType
+    #[allow(dead_code)]
+    local_nat_type: NatType
 }
 
 impl LinearUDPHolePuncher {
@@ -46,23 +42,18 @@ impl LinearUDPHolePuncher {
     /// proxies information anyways, the holes will only need to be punched when the central server needs
     /// to communicate with the client through UDP. Client to server UDP works almost guaranteed, but not
     /// the other way around in the case with carrier grade or symmetric NATs.
-    pub fn new_initiator(local_hypernode_type: HyperNodeType, encrypted_config_container: Option<EncryptedConfigContainer>) -> Self {
-        Self::new(RelativeNodeType::Initiator, local_hypernode_type, encrypted_config_container)
+    pub fn new_initiator(local_nat_type: NatType, encrypted_config_container: EncryptedConfigContainer, adjacent_peer_nat: NatType) -> Self {
+        Self::new(RelativeNodeType::Initiator, local_nat_type, encrypted_config_container, adjacent_peer_nat)
     }
 
-    pub fn new_receiver(local_hypernode_type: HyperNodeType, encrypted_config_container: Option<EncryptedConfigContainer>) -> Self {
-        Self::new(RelativeNodeType::Receiver, local_hypernode_type, encrypted_config_container)
+    pub fn new_receiver(local_nat_type: NatType, encrypted_config_container: EncryptedConfigContainer, adjacent_peer_nat: NatType) -> Self {
+        Self::new(RelativeNodeType::Receiver, local_nat_type, encrypted_config_container, adjacent_peer_nat)
     }
 
-    fn new(relative_node_type: RelativeNodeType, local_hypernode_type: HyperNodeType, encrypted_config_container: Option<EncryptedConfigContainer>) -> Self {
-        let method3= Method3::new(relative_node_type);
-        let mut method3_encrypted = None;
-        if let Some(encrypted_config_container) = encrypted_config_container {
-            let encrypted_config_container = Arc::new(encrypted_config_container);
-            method3_encrypted = Some(Method3Encrypted::new(relative_node_type, encrypted_config_container));
-        }
+    fn new(relative_node_type: RelativeNodeType, local_nat_type: NatType, encrypted_config_container: EncryptedConfigContainer, adjacent_peer_nat: NatType) -> Self {
+        let method3= Method3::new(relative_node_type, encrypted_config_container, adjacent_peer_nat);
 
-        Self { method3: (false, method3), encrypted_method3: (false, method3_encrypted), upnp_handler: (false, None), local_hypernode_type }
+        Self { method3: (false, method3), upnp_handler: (false, None), local_nat_type }
     }
 
 
@@ -94,16 +85,12 @@ impl LinearUDPHolePuncher {
     }
 
     //
-    pub async fn try_method(&mut self, sockets: &mut Vec<UdpSocket>, endpoints: &Vec<SocketAddr>, method: NatTraversalMethod) -> Result<Vec<HolePunchedSocketAddr>, FirewallError> {
+    pub async fn try_method(&mut self, sockets: &mut Vec<UdpSocket>, endpoints: &Vec<SocketAddr>, method: NatTraversalMethod) -> Result<HolePunchedUdpSocket, FirewallError> {
         debug_assert_eq!(sockets.len(), endpoints.len());
 
         match method {
             NatTraversalMethod::UPnP => {
                 self.upnp_handler.0 = true;
-
-                if self.local_hypernode_type != HyperNodeType::BehindResidentialNAT {
-                    return Err(FirewallError::NotApplicable)
-                }
 
                 if self.upnp_handler.1.is_none() {
                     self.upnp_handler.1 = Some(UPnPHandler::new(Some(Duration::from_millis(2000))).await?);
@@ -113,6 +100,7 @@ impl LinearUDPHolePuncher {
                 let mut ret = Vec::with_capacity(endpoints.len());
                 for (local_socket, adjacent_endpoint) in sockets.into_iter().zip(endpoints.iter()) {
                     let reserved_port = handler.open_any_firewall_port(PortMappingProtocol::UDP, None, "SatoriNET", None, local_socket.local_addr()?.port()).await?;
+                    //let reserved_port = handler.open_any_firewall_port(PortMappingProtocol::TCP, None, "SatoriNET", None, local_socket.local_addr()?.port()).await?;
                     let initial_socket = adjacent_endpoint.clone();
                     // The return address will appear as the natted socket below because the adjacent endpoint must send through the reserve port
                     let natted_socket = SocketAddr::new(adjacent_endpoint.ip(), reserved_port);
@@ -122,7 +110,7 @@ impl LinearUDPHolePuncher {
                     ret.push(hole_punched_socket);
                 }
 
-                Ok(ret)
+                Ok(HolePunchedUdpSocket { addr: ret.remove(0), socket: sockets.remove(0) })
             },
 
             NatTraversalMethod::Method3 => {
@@ -133,14 +121,12 @@ impl LinearUDPHolePuncher {
             NatTraversalMethod::None => {
                 // assume the endpoint is exactly as expected. This is not recommended unless server to server communication occurs
                 // 1-1 mapping
-                Ok(endpoints.into_iter().map(|remote_addr| {
-                    HolePunchedSocketAddr::new(remote_addr.clone(), *remote_addr)
-                }).collect::<Vec<HolePunchedSocketAddr>>())
+                Ok(HolePunchedUdpSocket { socket: sockets.remove(0), addr: HolePunchedSocketAddr { initial: endpoints[0].clone(), natted: endpoints[0].clone() } })
             }
         }
     }
 
-    pub async fn try_next(&mut self, sockets: &mut Vec<UdpSocket>, endpoints: &Vec<SocketAddr>) -> Result<Vec<HolePunchedSocketAddr>, FirewallError> {
+    pub async fn try_next(&mut self, sockets: &mut Vec<UdpSocket>, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedUdpSocket, FirewallError> {
         if !self.method3.0 {
             return self.try_method(sockets, endpoints, NatTraversalMethod::Method3).await
         }
@@ -227,7 +213,7 @@ pub trait LinearUdpHolePunchImpl {
     ///
     /// `endpoint`: is the initial send location
     /// `sockets`: Must be the same length as the base_local_ports
-    async fn execute(&self, sockets: &mut Vec<UdpSocket>, endpoints: &Vec<SocketAddr>) -> Result<Vec<HolePunchedSocketAddr>, FirewallError>;
+    async fn execute(&self, sockets: &mut Vec<UdpSocket>, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedUdpSocket, FirewallError>;
 }
 
 pub mod nat_payloads {

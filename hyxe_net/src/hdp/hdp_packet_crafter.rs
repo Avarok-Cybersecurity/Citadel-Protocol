@@ -190,11 +190,7 @@ impl GroupTransmitter {
             // for debugging purposes (the >= 0 part), can easily check WAVE_DO_RETRANSMISSIONS by setting the value to > 0
             if packet.vector.true_sequence >= 0 {
                 log::info!("[Q-UDP] Sending packet {}", packet.vector.true_sequence);
-                if !udp_sender.unbounded_send(packet.packet) {
-                    Err(())
-                } else {
-                    Ok(())
-                }
+                udp_sender.unbounded_send(packet.packet).map_err(|_| ())
             } else {
                 Ok(())
             }
@@ -451,6 +447,7 @@ pub(crate) mod group {
     }
 
     // NOTE: context infos contain the object ID in most of the GROUP packets
+    #[allow(dead_code)]
     pub(crate) fn craft_wave_ack(hyper_ratchet: &HyperRatchet, object_id: u32, target_cid: u64, group_id: u64, wave_id: u32, timestamp: i64, range: Option<RangeInclusive<u32>>, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
@@ -1031,6 +1028,7 @@ pub(crate) mod pre_connect {
     use hyxe_fs::io::SyncIO;
     use hyxe_user::prelude::ConnectProtocol;
     use crate::hdp::hdp_server::ConnectMode;
+    use crate::hdp::peer::peer_layer::UdpMode;
 
     #[derive(Serialize, Deserialize)]
     pub struct SynPacket<'a> {
@@ -1038,42 +1036,35 @@ pub(crate) mod pre_connect {
         pub transfer: AliceToBobTransfer<'a>,
         pub session_security_settings: SessionSecuritySettings,
         pub peer_only_connect_protocol: ConnectProtocol,
-        pub connect_mode: ConnectMode
+        pub connect_mode: ConnectMode,
+        pub udp_mode: UdpMode,
+        pub keep_alive_timeout: i64
     }
 
-    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, tcp_only: bool, timestamp: i64, keep_alive_timeout_ns: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol, connect_mode: ConnectMode) -> BytesMut {
-        let tcp_only = if tcp_only {
-            1
-        } else {
-            0
-        };
-
+    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, udp_mode: UdpMode, timestamp: i64, keep_alive_timeout: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol, connect_mode: ConnectMode) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(tcp_only),
+            context_info: U64::new(0),
             group: U64::new(crate::constants::BUILD_VERSION as u64),
             wave_id: U32::new(0),
             session_cid: U64::new(static_aux_hr.get_cid()),
             drill_version: U32::new(static_aux_hr.version()),
             timestamp: I64::new(timestamp),
-            target_cid: U64::new(keep_alive_timeout_ns as u64)
+            target_cid: U64::new(0)
         };
 
         let mut packet  = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        SynPacket { transfer, session_security_settings, peer_only_connect_protocol, connect_mode }.serialize_into_buf(&mut packet).unwrap();
+        SynPacket { transfer, session_security_settings, peer_only_connect_protocol, connect_mode, udp_mode, keep_alive_timeout }.serialize_into_buf(&mut packet).unwrap();
 
         static_aux_hr.protect_message_packet(Some(security_level),HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet
     }
 
-    /// Must synchronize drills using the static auxiliary drill (which supplies the nonce) and the pqc
-    /// TODO: Limit the use of this to a certain frequency. An attacker could flood the node with false
-    /// PRE_CONNECT packets. Could limit the number of recoveries by IP, or, node-wide
     pub(crate) fn craft_syn_ack(static_aux_hr: &StaticAuxRatchet, transfer: BobToAliceTransfer, timestamp: i64, peer_external_addr: SocketAddr, security_level: SecurityLevel) -> BytesMut {
         let external_addr_bytes = peer_external_addr.to_string();
         let external_addr_bytes = external_addr_bytes.as_bytes();
@@ -1519,6 +1510,39 @@ pub(crate) mod file {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + serialized_vt.len() + AES_GCM_GHASH_OVERHEAD);
         header.inscribe_into(&mut packet);
         packet.put(serialized_vt.as_slice());
+
+        hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
+
+        packet
+    }
+}
+
+pub(crate) mod udp {
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use bytes::BytesMut;
+    use hyxe_crypt::drill::SecurityLevel;
+    use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
+    use zerocopy::{U64, U32};
+    use crate::constants::HDP_HEADER_BYTE_LEN;
+
+    pub(crate) fn craft_udp_packet(hyper_ratchet: &HyperRatchet, cmd_aux: u8, payload: BytesMut, target_cid: u64, security_level: SecurityLevel) -> BytesMut {
+        let header = HdpHeader {
+            cmd_primary: packet_flags::cmd::primary::UDP,
+            cmd_aux,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: Default::default(),
+            group: Default::default(),
+            wave_id: Default::default(),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: Default::default(),
+            target_cid: U64::new(target_cid)
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + payload.len());
+        header.inscribe_into(&mut packet);
+        packet.extend_from_slice(&payload[..]);
 
         hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 

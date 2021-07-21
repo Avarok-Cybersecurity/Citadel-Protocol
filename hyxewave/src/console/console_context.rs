@@ -14,7 +14,7 @@ use std::time::Duration;
 use hyxe_net::hdp::peer::peer_layer::PeerResponse;
 use crate::mail::ConsoleSessionMail;
 use crate::console_error::ConsoleError;
-use hyxe_net::hdp::peer::channel::{PeerChannel, PeerChannelRecvHalf};
+use hyxe_net::hdp::peer::channel::{PeerChannel, PeerChannelRecvHalf, UdpChannel};
 use futures_util::{StreamExt, SinkExt};
 use hyxe_net::hdp::hdp_packet_processor::includes::SecurityLevel;
 use tokio::time::Instant;
@@ -25,6 +25,7 @@ use crate::command_handlers::group::MessageGroupContainer;
 use crate::console::virtual_terminal::INPUT_ROUTER;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_user::misc::CNACMetadata;
+use bytes::BytesMut;
 
 #[derive(Clone)]
 pub struct ConsoleContext {
@@ -84,9 +85,14 @@ impl ConsoleContext {
         }
     }
 
-    pub async fn load_kernel_session(&self, kernel_session: KernelSession, channel_rx: PeerChannelRecvHalf) {
+    pub async fn load_kernel_session(&self, kernel_session: KernelSession, channel_rx: PeerChannelRecvHalf, udp_channel_rx_opt: Option<PeerChannelRecvHalf>) {
         self.set_active_cid(kernel_session.cid);
-        Self::startup_channel_listener(channel_rx, kernel_session.username.clone(), self.clone());
+        Self::startup_channel_listener(channel_rx, kernel_session.username.clone(), self.clone(), false);
+
+        if let Some(udp_channel_rx) = udp_channel_rx_opt {
+            Self::startup_channel_listener(udp_channel_rx, kernel_session.username.clone(), self.clone(), true)
+        }
+
         let mut write = self.sessions.write().await;
         write.insert(kernel_session.cid, kernel_session);
     }
@@ -142,7 +148,7 @@ impl ConsoleContext {
     }
 
     #[allow(unused_results)]
-    pub async fn load_peer_channel_into_kernel(&self, peer_channel: PeerChannel) -> Result<(), ConsoleError> {
+    pub async fn load_peer_channel_into_kernel(&self, peer_channel: PeerChannel, udp_channel_opt: Option<UdpChannel>) -> Result<(), ConsoleError> {
         let ctx = self.clone();
         let cxn_type = peer_channel.get_peer_conn_type().ok_or(ConsoleError::Default("Invalid cxn type"))?;
         let cid = cxn_type.get_original_implicated_cid();
@@ -152,16 +158,23 @@ impl ConsoleContext {
         let peer_username = peer_username.map(|r| r.username).flatten().unwrap_or(String::from("INVALID"));
 
         let (peer_channel_tx, peer_channel_rx) = peer_channel.split();
+        let mut udp_channel_tx_opt = None;
         // loads a recv task to allow reception of data
 
-        Self::startup_channel_listener(peer_channel_rx, peer_username, ctx);
+        Self::startup_channel_listener(peer_channel_rx, peer_username.clone(), ctx.clone(), false);
+
+        if let Some(udp_channel) = udp_channel_opt {
+            let (sink, stream) = udp_channel.split();
+            udp_channel_tx_opt = Some(sink);
+            Self::startup_channel_listener(stream, peer_username, ctx, true)
+        }
 
         let peer_info = self.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(cid, peer_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.ok_or(ConsoleError::Default("Mutual peer not found"))?;
 
         let mut write = self.sessions.write().await;
         if let Some(sess) = write.get_mut(&cid) {
             let init_time = Instant::now();
-            let peer_sess = PeerSession {cxn_type, peer_info, peer_channel_tx, init_time};
+            let peer_sess = PeerSession { cxn_type, peer_info, peer_channel_tx, udp_channel_tx_opt, init_time };
             let _ = sess.concurrent_peers.insert(peer_cid, peer_sess);
             Ok(())
         } else {
@@ -170,12 +183,17 @@ impl ConsoleContext {
     }
 
     // TODO: For ffi, route events
-    fn startup_channel_listener(mut peer_channel_rx: PeerChannelRecvHalf, peer_username: String, ctx: ConsoleContext) {
+    fn startup_channel_listener(mut peer_channel_rx: PeerChannelRecvHalf, peer_username: String, ctx: ConsoleContext, udp_stream: bool) {
         tokio::task::spawn(async move {
             // this task will automatically be dropped once the underlying virtual-conn in the state container gets dropped
             // it receives an empty vec upon drop
             while let Some(message) = peer_channel_rx.next().await {
-                printf_ln!(colour::yellow!("[{}]: {}\n", peer_username.as_str(), std::str::from_utf8(message.as_ref()).unwrap_or("INVALID UTF-8 MESSAGE")));
+                if udp_stream {
+                    printf_ln!(colour::yellow!("[UDP/{}]: {}\n", peer_username.as_str(), std::str::from_utf8(message.as_ref()).unwrap_or("INVALID UTF-8 MESSAGE")));
+                } else {
+                    printf_ln!(colour::yellow!("[{}]: {}\n", peer_username.as_str(), std::str::from_utf8(message.as_ref()).unwrap_or("INVALID UTF-8 MESSAGE")));
+                }
+
                 INPUT_ROUTER.print_prompt(false, &ctx)
             }
 
@@ -183,15 +201,21 @@ impl ConsoleContext {
         });
     }
 
-    pub async fn send_message_to_peer_channel(&self, cid: u64, peer_cid: u64, security_level: SecurityLevel, message: SecBuffer) -> Result<Ticket, ConsoleError> {
+    pub async fn send_message_to_peer_channel(&self, cid: u64, peer_cid: u64, security_level: SecurityLevel, message: String, use_udp: bool) -> Result<(), ConsoleError> {
         let mut write = self.sessions.write().await;
         if let Some(sess) = write.get_mut(&cid) {
             if let Some(peer_sess) = sess.concurrent_peers.get_mut(&peer_cid) {
-                let ticket = peer_sess.peer_channel_tx.channel_id();
-                peer_sess.peer_channel_tx.set_security_level(security_level);
-                peer_sess.peer_channel_tx.send(message).await
-                    .map_err(|err| ConsoleError::Generic(err.to_string()))
-                    .map(|_| ticket)
+                if use_udp {
+                    if let Some(udp_tx) = peer_sess.udp_channel_tx_opt.as_ref() {
+                        udp_tx.unbounded_send(BytesMut::from(message.as_bytes())).map_err(|err| ConsoleError::Generic(err.into_string()))
+                    } else {
+                        Err(ConsoleError::Default("UDP is not configured for this peer session"))
+                    }
+                } else {
+                    peer_sess.peer_channel_tx.set_security_level(security_level);
+                    peer_sess.peer_channel_tx.send(SecBuffer::from(message)).await
+                        .map_err(|err| ConsoleError::Generic(err.to_string()))
+                }
             } else {
                 Err(ConsoleError::Generic(format!("Peer {} is not in an active channel with {}", peer_cid, cid)))
             }

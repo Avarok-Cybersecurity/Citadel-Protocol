@@ -15,12 +15,14 @@ use crate::kernel::kernel::NetKernel;
 use crate::kernel::RuntimeFuture;
 use futures::TryStreamExt;
 use crate::hdp::misc::panic_future::ExplicitPanicFuture;
+use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
     server_remote: Option<HdpServerRemote>,
     server_to_kernel_rx: Option<UnboundedReceiver<HdpServerResult>>,
-    shutdown_aleter_rx: Option<tokio::sync::oneshot::Receiver<()>>,
+    shutdown_alerter_rx: Option<tokio::sync::oneshot::Receiver<()>>,
+    callback_handler: Option<KernelAsyncCallbackHandler>,
     context: Option<(Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)>,
     kernel: K,
 }
@@ -31,9 +33,9 @@ impl<K: NetKernel> KernelExecutor<K> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) = tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt) = HdpServer::init(hypernode_type, server_to_kernel_tx, bind_addr, account_manager, server_shutdown_alerter_tx, underlying_proto).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let (remote, future, localset_opt, callback_handler) = HdpServer::init(hypernode_type, server_to_kernel_tx, bind_addr, account_manager, server_shutdown_alerter_tx, underlying_proto).map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-        Ok(Self { shutdown_aleter_rx: Some(server_shutdown_alerter_rx), server_remote: Some(remote), server_to_kernel_rx: Some(server_to_kernel_rx), kernel, context: Some((rt, future, localset_opt)) })
+        Ok(Self { shutdown_alerter_rx: Some(server_shutdown_alerter_rx), callback_handler: Some(callback_handler), server_remote: Some(remote), server_to_kernel_rx: Some(server_to_kernel_rx), kernel, context: Some((rt, future, localset_opt)) })
     }
 
     /// This function is expected to be asynchronously executed from the context of the tokio runtime
@@ -42,11 +44,12 @@ impl<K: NetKernel> KernelExecutor<K> {
 
         let server_to_kernel_rx = self.server_to_kernel_rx.take().unwrap();
         let server_remote = self.server_remote.take().unwrap();
-        let shutdown_alerter_rx = self.shutdown_aleter_rx.take().unwrap();
+        let shutdown_alerter_rx = self.shutdown_alerter_rx.take().unwrap();
+        let callback_handler = self.callback_handler.take().unwrap();
 
         let (rt, hdp_server, _localset_opt) = self.context.take().unwrap();
 
-        let kernel_future = ExplicitPanicFuture::new(rt.spawn(Self::multithreaded_kernel_inner_loop(kernel, server_to_kernel_rx, server_remote ,shutdown_alerter_rx)));
+        let kernel_future = ExplicitPanicFuture::new(rt.spawn(Self::multithreaded_kernel_inner_loop(kernel, server_to_kernel_rx, server_remote ,shutdown_alerter_rx, callback_handler)));
 
         log::info!("KernelExecutor::execute is now executing ...");
 
@@ -77,7 +80,7 @@ impl<K: NetKernel> KernelExecutor<K> {
     }
 
     #[allow(unused_must_use)]
-    async fn multithreaded_kernel_inner_loop(mut kernel: K, mut server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, hdp_server_remote: HdpServerRemote, shutdown: tokio::sync::oneshot::Receiver<()>) -> Result<(), NetworkError> {
+    async fn multithreaded_kernel_inner_loop(mut kernel: K, mut server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, ref hdp_server_remote: HdpServerRemote, shutdown: tokio::sync::oneshot::Receiver<()>, ref callback_handler: KernelAsyncCallbackHandler) -> Result<(), NetworkError> {
         log::info!("Kernel multithreaded environment executed ...");
         // Load the remote into the kernel
         kernel.on_start(hdp_server_remote.clone()).await?;
@@ -90,27 +93,27 @@ impl<K: NetKernel> KernelExecutor<K> {
             }
         };
 
-        let ref remote = hdp_server_remote;
-        let _ = reader.try_for_each_concurrent(None, |message: HdpServerResult| async move {
+        let res = reader.try_for_each_concurrent(None, |message: HdpServerResult| async move {
             match message {
                 HdpServerResult::Shutdown => {
                     log::info!("Kernel received safe shutdown signal");
-                    Err(NetworkError::ProperShutdown)
+                    Ok(())
                 }
 
                 message => {
                     if !kernel.can_run() {
-                        Err(NetworkError::ProperShutdown)
+                        Ok(())
                     } else {
-                        // Ensure that we don't block further calls to next().await, and offload the task to the tokio runtime
-                        if let Err(err) = kernel.on_server_message_received(message).await {
-                            log::error!("Kernel threw an error: {:?}. Will end", &err);
-                            // calling this will cause server_to_kernel_rx to receive a shutdown message
-                            remote.clone().shutdown().await?;
-                            Err(err)
-                        } else {
-                            Ok(())
-                        }
+                        callback_handler.on_message_received(message, |message| async move {
+                            if let Err(err) = kernel.on_server_message_received(message).await {
+                                log::error!("Kernel threw an error: {:?}. Will end", &err);
+                                // calling this will cause server_to_kernel_rx to receive a shutdown message
+                                hdp_server_remote.clone().shutdown().await?;
+                                Err(err)
+                            } else {
+                                Ok(())
+                            }
+                        }).await
                     }
                 }
             }
@@ -119,6 +122,6 @@ impl<K: NetKernel> KernelExecutor<K> {
         log::info!("Calling kernel on_stop, but first awaiting HdpServer for clean shutdown ...");
         tokio::time::timeout(Duration::from_millis(300), shutdown).await;
         log::info!("Kernel confirmed HdpServer has been shut down");
-        kernel.on_stop().await
+        kernel.on_stop().await.and(res)
     }
 }

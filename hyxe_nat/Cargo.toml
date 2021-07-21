@@ -21,9 +21,13 @@ rsntp = { version = "2.0.0", features = ["async"] }
 whoami = "0.9.0"
 arc-swap = "0.4.7"
 parking_lot = "0.11.1"
-
-log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_info"] }
+stun = "0.3.0"
+net2 = "0.2.37"
+anyhow = "1.0.42"
+serde = { version = "1.0.126", features = ["derive"]}
+log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
 
 [dev-dependencies]
 net2 = "0.2.34"
 env_logger = "0.7.1"
+bincode2 = "2.0.1"
