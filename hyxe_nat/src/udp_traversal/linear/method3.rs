@@ -130,6 +130,7 @@ impl Method3 {
             let packet: NatPacket = bincode2::deserialize(&packet).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
             match packet {
                 NatPacket::Syn(ttl) => {
+                    log::info!("RECV SYN");
                     if recv_from_required.is_none() {
                         log::info!("Received TTL={} packet. Awaiting mutual recognition...", ttl);
                         recv_from_required = Some(nat_addr);
@@ -142,6 +143,7 @@ impl Method3 {
                 }
 
                 NatPacket::SynAck => {
+                    log::info!("RECV SYN_ACK");
                     if let Some(required_addr_in_conv) = recv_from_required {
                         if required_addr_in_conv == nat_addr {
                             // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
