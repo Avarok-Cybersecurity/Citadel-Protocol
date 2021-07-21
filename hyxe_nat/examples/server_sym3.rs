@@ -64,13 +64,18 @@ async fn main() {
                 log::info!("About to send: {}", &input);
                 hole_punched_socket.socket.send_to(input.as_bytes(), hole_punched_socket.addr.natted).await.unwrap();
             }
+
+            log::info!("writer ending");
         };
 
         let reader = async move {
             let input = &mut [0u8; 4096];
-            let len = hole_punched_socket.socket.recv(input).await.unwrap();
-            let string = String::from_utf8(Vec::from(&input[..len])).unwrap();
-            log::info!("[Message]: {}", string);
+            loop {
+                let len = hole_punched_socket.socket.recv(input).await.unwrap();
+                if let Ok(string) = String::from_utf8(Vec::from(&input[..len])) {
+                    log::info!("[Message]: {}", string);
+                }
+            }
         };
 
         tokio::select! {
