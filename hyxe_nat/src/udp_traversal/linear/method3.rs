@@ -131,7 +131,7 @@ impl Method3 {
             match packet {
                 NatPacket::Syn(ttl) => {
                     log::info!("RECV SYN");
-                    if recv_from_required.is_none() {
+                    //if recv_from_required.is_none() {
                         log::info!("Received TTL={} packet. Awaiting mutual recognition...", ttl);
                         recv_from_required = Some(nat_addr);
                         // we received a packet, but, need to verify
@@ -139,24 +139,24 @@ impl Method3 {
                         for _ in 0..3 {
                             socket.send_to(&syn_ack, *endpoint).await?;
                         }
-                    }
+                    //}
                 }
 
                 NatPacket::SynAck => {
                     log::info!("RECV SYN_ACK");
-                    if let Some(required_addr_in_conv) = recv_from_required {
-                        if required_addr_in_conv == nat_addr {
+                    //if let Some(required_addr_in_conv) = recv_from_required {
+                        //if required_addr_in_conv == nat_addr {
                             // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
                             let initial_socket = endpoint;
                             let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr);
                             log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
                             return Ok((idx, hole_punched_addr));
-                        } else {
-                            log::warn!("Received SynAck, but the addrs did not match!");
-                        }
-                    } else {
-                        log::warn!("Received SynAck, but have not yet received Syn")
-                    }
+                        //} else {
+                        //    log::warn!("Received SynAck, but the addrs did not match!");
+                        //}
+                    //} else {
+                    //    log::warn!("Received SynAck, but have not yet received Syn")
+                    //}
                 }
             }
         }
