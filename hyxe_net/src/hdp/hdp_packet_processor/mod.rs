@@ -57,7 +57,7 @@ pub mod keep_alive_packet;
 ///
 pub mod primary_group_packet;
 ///
-pub mod wave_group_packet;
+pub mod udp_packet;
 ///
 pub mod deregister_packet;
 ///

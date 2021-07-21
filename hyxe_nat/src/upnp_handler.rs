@@ -18,7 +18,7 @@ impl UPnPHandler {
     /// `timeout`: If None, uses the default (10 seconds)
     pub async fn new(timeout: Option<Duration>) -> Result<Self, FirewallError> {
         let options = SearchOptions {
-            timeout: Some(timeout.unwrap_or(Duration::from_secs(10))),
+            timeout,
             ..Default::default()
         };
 

@@ -5,7 +5,6 @@ use hyxe_crypt::drill::SecurityLevel;
 
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
-use crate::hdp::hdp_packet::HeaderObfuscator;
 use crate::hdp::hdp_packet_processor::includes::{Duration, hdp_packet_crafter, Instant, SocketAddr};
 use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket};
 use crate::hdp::hdp_session::{HdpSession, SessionState};
@@ -97,12 +96,12 @@ fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<
     let (p2p_primary_stream_tx, p2p_primary_stream_rx) = unbounded();
     let p2p_primary_stream_tx = OutboundTcpSender::from(p2p_primary_stream_tx);
     let p2p_primary_stream_rx = OutboundTcpReceiver::from(p2p_primary_stream_rx);
-    let (header_obfuscator, packet_opt) = HeaderObfuscator::new(from_listener);
+    //let (header_obfuscator, packet_opt) = HeaderObfuscator::new(from_listener);
 
     let (stopper_tx, stopper_rx) = channel();
     let p2p_handle = P2PInboundHandle::new(remote_peer, local_bind_addr.port(), implicated_cid.clone(), kernel_tx.clone(), p2p_primary_stream_tx.clone());
-    let writer_future = HdpSession::outbound_stream(p2p_primary_stream_rx, sink, header_obfuscator.clone());
-    let reader_future = HdpSession::execute_inbound_stream(stream, session.clone(), Some(p2p_handle), header_obfuscator);
+    let writer_future = HdpSession::outbound_stream(p2p_primary_stream_rx, sink);
+    let reader_future = HdpSession::execute_inbound_stream(stream, session.clone(), Some(p2p_handle));
     let stopper_future = p2p_stopper(stopper_rx);
 
     let direct_p2p_remote = DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx.clone(), from_listener);
@@ -161,9 +160,10 @@ fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<
     //let _ = spawn!(future);
 
     // send the packet, if necessary
+    /*
     if let Some(zero) = packet_opt {
         p2p_primary_stream_tx.unbounded_send(zero).map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))?;
-    }
+    }*/
 
     Ok(p2p_primary_stream_tx)
 }

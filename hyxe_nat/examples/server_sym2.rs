@@ -9,6 +9,7 @@ use hyxe_nat::time_tracker::TimeTracker;
 use tokio::time::Duration;
 use hyxe_nat::local_firewall_handler::{open_local_firewall_port, FirewallProtocol, remove_firewall_rule, check_permissions};
 use hyxe_nat::hypernode_type::HyperNodeType;
+use hyxe_nat::nat_identification::NatType;
 
 fn get_reuse_udp_socket(addr: &str, port: u16) -> UdpSocket {
     let mut build = net2::UdpBuilder::new_v4().unwrap();
@@ -54,15 +55,18 @@ async fn main() {
     setup_log();
     check_permissions();
 
+    let local_nat_type = NatType::identify().await.unwrap();
+    log::info!("Nat Type: {:?}", local_nat_type);
+
     let tt = TimeTracker::new().await.unwrap();
     let mut tmp_socket = get_reuse_udp_socket("0.0.0.0", PORT_START as u16);
     let buf = &mut [0u8; 256];
     let (cnt, remote_socket) = tmp_socket.recv_from(buf).await.unwrap();
-    println!("Received packet from {:?}", &remote_socket);
+    log::info!("Received packet from {:?}", &remote_socket);
     let remote_ports = ports_from_bytes(&buf[..cnt-8]);
     let sync_time = BigEndian::read_i64(&buf[cnt-8..]);
-    println!("Sync time: {}", sync_time);
-    println!("Remote ports: {:?}", &remote_ports);
+    log::info!("Sync time: {}", sync_time);
+    log::info!("Remote ports: {:?}", &remote_ports);
 
     std::mem::drop(tmp_socket);
 
@@ -81,16 +85,13 @@ async fn main() {
     }
 
     let delta = i64::abs(tt.get_global_time_ns() - sync_time);
-    println!("Will wait for {} nanos", delta);
+    log::info!("Will wait for {} nanos", delta);
     tokio::task::spawn(tokio::time::delay_for(Duration::from_nanos(delta as u64))).await.unwrap();
 
     // We start right-away
-    let mut hole_puncher = LinearUDPHolePuncher::new_receiver(HyperNodeType::GloballyReachable);
-    let hole_punched_sockets = tokio::task::spawn((async move || { hole_puncher.try_method(&mut local_sockets_mirrored, &endpoints, NatTraversalMethod::Method3).await })()).await.unwrap().unwrap();
-    println!("Server received hole-punched addrs");
-    for hole_punched in hole_punched_sockets {
-        println!("{}", hole_punched);
-    }
+    let mut hole_puncher = LinearUDPHolePuncher::new_receiver(HyperNodeType::GloballyReachable, Default::default(), NatType::Unknown);
+    let hole_punched_socket = tokio::task::spawn((async move || { hole_puncher.try_method(&mut local_sockets_mirrored, &endpoints, NatTraversalMethod::Method3).await })()).await.unwrap().unwrap();
+    log::info!("Server received hole-punched addr {:?}", hole_punched_socket.addr);
 
     for fw_port in fw_ports {
         let output = remove_firewall_rule(fw_port).unwrap();

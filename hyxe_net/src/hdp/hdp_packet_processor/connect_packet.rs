@@ -53,6 +53,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                         state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::SUCCESS;
                         state_container.connect_state.fail_time = None;
                         state_container.connect_state.on_connect_packet_received();
+                        let udp_channel_rx = state_container.pre_connect_state.udp_channel_oneshot_tx.rx.take();
                         let channel = state_container.init_new_c2s_virtual_connection(&cnac, &mut *inner_mut!(session.updates_in_progress), security_level, kernel_ticket, header.session_cid.get());
 
                         std::mem::drop(state_container);
@@ -82,7 +83,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                             session.state.set(SessionState::Connected);
 
                             let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                            session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel))?;
+                            session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel, udp_channel_rx))?;
 
                             PrimaryProcessorResult::ReplyToSender(success_packet)
                         }
@@ -149,6 +150,8 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                         let use_ka = state_container.keep_alive_timeout_ns != 0;
                         let connect_mode = return_if_none!(state_container.connect_state.connect_mode.clone(), "Unable to load connect mode");
+                        let udp_channel_rx = state_container.pre_connect_state.udp_channel_oneshot_tx.rx.take();
+
                         let channel = state_container.init_new_c2s_virtual_connection(&cnac,&mut *inner_mut!(session.updates_in_progress), security_level, kernel_ticket, header.session_cid.get());
                         std::mem::drop(state_container);
 
@@ -167,7 +170,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                         //session.post_quantum = pqc;
                         let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
                         let peers = payload.peers;
-                        session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), payload.post_login_object, message, channel))?;
+                        session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), payload.post_login_object, message, channel, udp_channel_rx))?;
 
                         // Now, send keep alives!
                         let timestamp = session.time_tracker.get_global_time_ns();

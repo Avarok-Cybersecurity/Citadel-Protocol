@@ -26,9 +26,9 @@ pub struct Toolset<R: Ratchet> {
     #[serde(bound="")]
     map: VecDeque<R>,
     /// The static auxiliary drill was made to cover a unique situation that is consequence of dropping-off the back of the VecDeque upon upgrade:
-    /// As the back gets dropped, any data drilled using that version now becomes undecipherable forever. The solution to this is having a static drill, but this
-    /// does indeed compromise safety. This is thus marked as unsafe for use. This should NEVER be used for network data transmission, and should only
-    /// really be used when drilling data which is stored under the local filesystem via HyxeFiles. Since a HyxeFile, for example, hides revealing data
+    /// As the back gets dropped, any data encrypted using that version now becomes undecipherable forever. The solution to this is having a static drill, but this
+    /// does indeed compromise safety. This should NEVER be used for network data transmission (except for first packets), and should only
+    /// really be used when encrypting data which is stored under the local filesystem via HyxeFiles. Since a HyxeFile, for example, hides revealing data
     /// with a complex file path, any possible hacker wouldn't necessarily be able to correlate the HyxeFile with the correct CID unless additional work was done.
     /// Local filesystems should be encrypted anyways (otherwise voids warranty), but, having the HyxeFile layer is really just a "weak" layer of protection
     /// designed to derail any currently existing or historical viruses that may look for conventional means of breaking-through data

@@ -194,6 +194,7 @@ pub mod clap_commands {
         subcommands.push(setup_algorithms_command());
         subcommands.push(setup_ls_command());
         subcommands.push(setup_send_command());
+        subcommands.push(setup_send_udp_command());
         subcommands.push(setup_waitfor_command());
         subcommands.push(setup_switch_command());
         subcommands.push(setup_list_command());
@@ -247,6 +248,12 @@ pub mod clap_commands {
 
     fn setup_send_command() -> App<'static, 'static> {
         SubCommand::with_name("send")
+            .arg(Arg::with_name("security").display_order(1).long("security").short("sl").required(false).takes_value(true).default_value("0").help("Sets the security level for the transmission. 0 is low, 255 is highest"))
+            .arg(Arg::with_name("message").required(true).takes_value(true).display_order(2).multiple(true))
+    }
+
+    fn setup_send_udp_command() -> App<'static, 'static> {
+        SubCommand::with_name("send-udp")
             .arg(Arg::with_name("security").display_order(1).long("security").short("sl").required(false).takes_value(true).default_value("0").help("Sets the security level for the transmission. 0 is low, 255 is highest"))
             .arg(Arg::with_name("message").required(true).takes_value(true).display_order(2).multiple(true))
     }
@@ -319,6 +326,7 @@ pub mod clap_commands {
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true).help("The target CID"))
                 .arg(Arg::with_name("fcm").long("fcm").required(false).takes_value(false).help("Enables the use of FCM with this peer for this session")))
             .subcommand(SubCommand::with_name("post-connect").about("Post a connect request to a target CID/Username")
+                .arg(Arg::with_name("udp").required(false).takes_value(false))
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true))
                 .arg(Arg::with_name("kem")
                     .long("kem")
@@ -350,6 +358,10 @@ pub mod clap_commands {
                 .arg(Arg::with_name("security").long("security").short("s").required(false).takes_value(true).default_value("0").help("Sets the security level for the transmission. 0 is low, 4 is highest"))
                 .arg(Arg::with_name("rtdb").required(false).takes_value(false).long("rtdb").help("Sends to the target using RTDB"))
                 .arg(Arg::with_name("fcm").required(false).takes_value(false).long("fcm").help("Sends to the target using FCM at the HyperLAN Server")))
+            .subcommand(SubCommand::with_name("send-udp").about("[Experimental/Testing only] Sends a message to a target peer using UDP")
+                .arg(Arg::with_name("target_cid").required(true).takes_value(true))
+                .arg(Arg::with_name("message").required(true).takes_value(true).multiple(true))
+                .arg(Arg::with_name("security").long("security").short("s").required(false).takes_value(true).default_value("0").help("Sets the security level for the transmission. 0 is low, 4 is highest")))
             .subcommand(SubCommand::with_name("transfer").about("Send a target file to a target peer")
                 .arg(Arg::with_name("target_cid").required(true).takes_value(true))
                 .arg(Arg::with_name("file_path").required(true).takes_value(true).multiple(true))
@@ -556,6 +568,10 @@ pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, App
 
     if let Some(matches) = matches.subcommand_matches("send") {
         return crate::command_handlers::send::handle(matches, server_remote, ctx).await;
+    }
+
+    if let Some(matches) = matches.subcommand_matches("send-udp") {
+        return crate::command_handlers::send_udp::handle(matches, server_remote, ctx).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("waitfor") {

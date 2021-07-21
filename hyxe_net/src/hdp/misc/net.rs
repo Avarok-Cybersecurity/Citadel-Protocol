@@ -19,6 +19,7 @@ use crate::error::NetworkError;
 use crate::hdp::hdp_server::TlsDomain;
 use serde::{Serialize, Deserialize};
 use hyxe_fs::io::SyncIO;
+use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 
 /// Wraps a stream into a split interface for I/O that safely shuts-down the interface
 /// upon drop
@@ -36,22 +37,31 @@ pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements
 }
 
 pub enum GenericNetworkStream {
-    Tcp(TcpStream),
-    Tls(TlsStream<TcpStream>)
+    Tcp(TcpStream, Option<HolePunchedSocketAddr>),
+    Tls(TlsStream<TcpStream>, Option<HolePunchedSocketAddr>)
 }
 
 impl GenericNetworkStream {
     pub(crate) fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
-            Self::Tcp(stream) => stream.peer_addr(),
-            Self::Tls(stream) => stream.get_ref().get_ref().get_ref().peer_addr()
+            Self::Tcp(stream, _) => stream.peer_addr(),
+            Self::Tls(stream, _) => stream.get_ref().get_ref().get_ref().peer_addr()
         }
     }
 
     pub(crate) fn local_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
-            Self::Tcp(stream) => stream.local_addr(),
-            Self::Tls(stream) => stream.get_ref().get_ref().get_ref().local_addr()
+            Self::Tcp(stream,_) => stream.local_addr(),
+            Self::Tls(stream, _) => stream.get_ref().get_ref().get_ref().local_addr()
+        }
+    }
+
+    #[allow(dead_code)]
+    /// Only an initiating client gets this
+    pub(crate) fn hole_punched_addr(&self) -> Option<HolePunchedSocketAddr> {
+        match self {
+            Self::Tcp(_, addr) => *addr,
+            Self::Tls(_, addr) => *addr
         }
     }
 }
@@ -59,8 +69,8 @@ impl GenericNetworkStream {
 impl AsyncRead for GenericNetworkStream {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
         match self.deref_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_read(cx, buf),
-            Self::Tls(stream) => Pin::new(stream).poll_read(cx, buf)
+            Self::Tcp(stream, _) => Pin::new(stream).poll_read(cx, buf),
+            Self::Tls(stream, _) => Pin::new(stream).poll_read(cx, buf)
         }
     }
 }
@@ -68,22 +78,22 @@ impl AsyncRead for GenericNetworkStream {
 impl AsyncWrite for GenericNetworkStream {
     fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
         match self.deref_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_write(cx, buf),
-            Self::Tls(stream) => Pin::new(stream).poll_write(cx, buf)
+            Self::Tcp(stream, _) => Pin::new(stream).poll_write(cx, buf),
+            Self::Tls(stream, _) => Pin::new(stream).poll_write(cx, buf)
         }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         match self.deref_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_flush(cx),
-            Self::Tls(stream) => Pin::new(stream).poll_flush(cx)
+            Self::Tcp(stream,_) => Pin::new(stream).poll_flush(cx),
+            Self::Tls(stream,_) => Pin::new(stream).poll_flush(cx)
         }
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         match self.deref_mut() {
-            Self::Tcp(stream) => Pin::new(stream).poll_shutdown(cx),
-            Self::Tls(stream) => Pin::new(stream).poll_shutdown(cx)
+            Self::Tcp(stream, _) => Pin::new(stream).poll_shutdown(cx),
+            Self::Tls(stream, _) => Pin::new(stream).poll_shutdown(cx)
         }
     }
 }
@@ -113,10 +123,10 @@ impl Stream for GenericNetworkListener {
                     Ok((stream, addr)) => {
                         let mut stream = stream.into_std()?;
                         stream.set_nonblocking(false)?;
-                        let _ = stream.write(&FirstPacket::Tcp.serialize_to_vector().unwrap())?;
+                        let _ = stream.write(&FirstPacket::Tcp(addr).serialize_to_vector().unwrap())?;
                         stream.set_nonblocking(true)?;
 
-                        Poll::Ready(Some(Ok((GenericNetworkStream::Tcp(tokio::net::TcpStream::from_std(stream)?), addr))))
+                        Poll::Ready(Some(Ok((GenericNetworkStream::Tcp(tokio::net::TcpStream::from_std(stream)?, None), addr))))
                     }
 
                     Err(err) => {
@@ -127,7 +137,7 @@ impl Stream for GenericNetworkListener {
 
             Self::Tls(ref mut listener) => {
                 // tls already sends the first packet. Nothing to do here
-                Pin::new(listener).poll_next(cx).map(|r| r.map(|res: std::io::Result<(TlsStream<TcpStream>, SocketAddr)>| res.map(|(stream, peer_addr)| (GenericNetworkStream::Tls(stream), peer_addr))))
+                Pin::new(listener).poll_next(cx).map(|r| r.map(|res: std::io::Result<(TlsStream<TcpStream>, SocketAddr)>| res.map(|(stream, peer_addr)| (GenericNetworkStream::Tls(stream, None), peer_addr))))
             }
         }
     }
@@ -212,14 +222,14 @@ impl Stream for TlsListener {
         }
 
         match futures::ready!(Pin::new(inner).poll_accept(cx)) {
-            Ok((mut stream, _peer_addr)) => {
+            Ok((mut stream, peer_addr)) => {
 
                 let tls_acceptor = tls_acceptor.clone();
                 let domain = domain.clone();
 
                 let future = async move {
                     //let _ = stream.write(&[TLS_CONN_TYPE] as &[u8]).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-                    let serialized_first_packet = FirstPacket::Tls(domain).serialize_to_vector().unwrap();
+                    let serialized_first_packet = FirstPacket::Tls(domain, peer_addr).serialize_to_vector().unwrap();
                     let _ = stream.write(serialized_first_packet.as_slice()).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
                     // Upgrade TCP stream to TLS stream
                     tls_acceptor.accept(stream).await.map_err(|err| NetworkError::Generic(err.to_string()))
@@ -242,6 +252,6 @@ impl Stream for TlsListener {
 
 #[derive(Serialize, Deserialize)]
 pub enum FirstPacket {
-    Tcp,
-    Tls(TlsDomain)
+    Tcp(SocketAddr),
+    Tls(TlsDomain, SocketAddr)
 }

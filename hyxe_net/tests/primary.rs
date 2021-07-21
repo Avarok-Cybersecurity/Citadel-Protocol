@@ -28,7 +28,7 @@ pub mod tests {
     use hyxe_net::hdp::misc::session_security_settings::{SessionSecuritySettings, SessionSecuritySettingsBuilder};
     use hyxe_net::hdp::peer::channel::{PeerChannel, PeerChannelSendHalf};
     use hyxe_net::hdp::peer::message_group::MessageGroupKey;
-    use hyxe_net::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
+    use hyxe_net::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
     use hyxe_net::kernel::kernel_executor::KernelExecutor;
     use hyxe_user::account_manager::AccountManager;
     use hyxe_user::backend::BackendType;
@@ -161,6 +161,7 @@ pub mod tests {
             .arg(clap::Arg::with_name("secrecy_mode").long("secrecy").required(false).takes_value(true).possible_values(&["pfs", "bem"]))
             .arg(clap::Arg::with_name("encryption_algorithm").long("enx").required(false).takes_value(true).possible_values(&["aes", "chacha"]))
             .arg(clap::Arg::with_name("key_exchange_mechanism").long("kem").required(false).takes_value(true).possible_values(kems.as_slice()))
+            .arg(clap::Arg::with_name("udp").long("udp").required(false).takes_value(false))
             .arg(clap::Arg::with_name("tcp").long("tcp").required(false).takes_value(false).conflicts_with("tls"));
 
         let matches = app.get_matches_from(std::env::args().skip_while(|v| v != "--clap").collect::<Vec<String>>());
@@ -168,6 +169,12 @@ pub mod tests {
             COUNT.set(usize::from_str(matches).unwrap()).unwrap();
         } else {
             COUNT.set(DEFAULT_COUNT).unwrap();
+        }
+
+        if matches.is_present("udp") {
+            UDP_MODE.set(UdpMode::Enabled).unwrap();
+        } else {
+            UDP_MODE.set(DEFAULT_UDP_MODE).unwrap();
         }
 
         if let Some(matches) = matches.value_of("secrecy_mode") {
@@ -232,6 +239,7 @@ pub mod tests {
     fn rand_message_len() -> usize { *RAND_MESSAGE_LEN.get().unwrap() }
     fn encryption_algorithm() -> EncryptionAlgorithm { *ENCRYPTION_ALGORITHM.get().unwrap() }
     fn kem_algorithm() -> KemAlgorithm { *KEM_ALGORITHM.get().unwrap() }
+    fn udp_mode() -> UdpMode { *UDP_MODE.get().unwrap() }
 
     pub static SECRECY_MODE: OnceCell<SecrecyMode> = OnceCell::new();
     pub static SESSION_SECURITY_LEVEL: OnceCell<SecurityLevel> = OnceCell::new();
@@ -241,6 +249,7 @@ pub mod tests {
     pub static TIMEOUT_CNT_MS: OnceCell<usize> = OnceCell::new();
     pub static ENCRYPTION_ALGORITHM: OnceCell<EncryptionAlgorithm> = OnceCell::new();
     pub static KEM_ALGORITHM: OnceCell<KemAlgorithm> = OnceCell::new();
+    pub static UDP_MODE: OnceCell<UdpMode> = OnceCell::new();
 
     pub const DEFAULT_SESSION_SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
     pub const DEFAULT_P2P_SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
@@ -251,6 +260,7 @@ pub mod tests {
     pub const DEFAULT_RAND_MESSAGE_LEN: usize = 2000;
     pub const DEFAULT_ENCRYPTION_ALGORITHM: EncryptionAlgorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
     pub const DEFAULT_KEM_ALGORITHM: KemAlgorithm = KemAlgorithm::Firesaber;
+    pub const DEFAULT_UDP_MODE: UdpMode = UdpMode::Disabled;
 
     // misc statics
     pub static P2P_SENDING_START_TIME: Mutex<Option<Instant>> = const_mutex(None);
@@ -772,7 +782,7 @@ pub mod tests {
                             self.on_valid_ticket_received(ticket);
                         }
 
-                        HdpServerResult::ConnectSuccess(ticket, _, _, _, _, _, _, _, channel) => {
+                        HdpServerResult::ConnectSuccess(ticket, _, _, _, _, _, _, _, channel, _udp) => {
                             log::info!("SUCCESS connecting ticket {} for {:?}", ticket, self.node_type);
                             self.on_valid_ticket_received(ticket);
 
@@ -800,7 +810,7 @@ pub mod tests {
                             }
                         }
 
-                        HdpServerResult::PeerChannelCreated(ticket, channel) => {
+                        HdpServerResult::PeerChannelCreated(ticket, channel, _udp) => {
                             self.on_valid_ticket_received(ticket);
                             assert(self.node_type == NodeType::Server || self.node_type == NodeType::Client0 || self.node_type == NodeType::Client1, "ZSQ");
                             // pull out the c2s channel loaded earlier
@@ -855,7 +865,7 @@ pub mod tests {
                                     }
                                 }
 
-                                PeerSignal::PostConnect(vconn, _, resp_opt, p2p_sec_lvl) => {
+                                PeerSignal::PostConnect(vconn, _, resp_opt, p2p_sec_lvl, udp_mode) => {
                                     if let Some(_resp) = resp_opt {
                                         // TODO
                                     } else {
@@ -868,7 +878,7 @@ pub mod tests {
                                             let this_cnac = read.cnac_client1.as_ref().unwrap();
 
                                             let this_cid = this_cnac.get_cid();
-                                            let accept_post_connect = HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostConnect(vconn.reverse(), Some(ticket), Some(PeerResponse::Accept(None)), p2p_sec_lvl));
+                                            let accept_post_connect = HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostConnect(vconn.reverse(), Some(ticket), Some(PeerResponse::Accept(None)), p2p_sec_lvl, udp_mode));
                                             // we will expect a PeerChannel
                                             self.queued_requests.lock().insert(ticket);
                                             accept_post_connect
@@ -1130,7 +1140,7 @@ pub mod tests {
         let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard {force_login: false},  None, Some(true), None, security_settings)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard {force_login: false},  None, udp_mode(), None, security_settings)))
     }
 
     async fn client1_action1(item_container: Arc<RwLock<TestContainer>>, password: &'static str, security_settings: SessionSecuritySettings) -> Option<ActionType> {
@@ -1143,7 +1153,7 @@ pub mod tests {
         let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard {force_login: false},  None, Some(true), None, security_settings)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard {force_login: false},  None, udp_mode(), None, security_settings)))
     }
 
     async fn client2_action1(item_container: Arc<RwLock<TestContainer>>, password: &'static str, security_settings: SessionSecuritySettings) -> Option<ActionType> {
@@ -1156,7 +1166,7 @@ pub mod tests {
         let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
-        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard {force_login: false},  None, Some(true), None, security_settings)))
+        Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard { force_login: false },  None, udp_mode(), None, security_settings)))
     }
 
     // client 2 will initiate the p2p *registration* to client1
@@ -1281,7 +1291,7 @@ pub mod tests {
             let target_cid = cnac.get_cid();
             let requests = read.queued_requests_client0.clone().unwrap();
             let settings = SessionSecuritySettingsBuilder::default().with_security_level(p2p_security_level).with_secrecy_mode(secrecy_mode()).build();
-            let post_connect_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), None, None, settings));
+            let post_connect_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), None, None, settings, udp_mode()));
 
             let mut remote_client0 = read.remote_client0.clone().unwrap();
             std::mem::drop(read);

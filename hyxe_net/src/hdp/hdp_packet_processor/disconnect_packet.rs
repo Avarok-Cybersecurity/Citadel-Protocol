@@ -21,7 +21,8 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResul
             packet_flags::cmd::aux::do_disconnect::STAGE0 => {
                 log::info!("STAGE 0 DISCONNECT PACKET RECEIVED");
                 let packet = hdp_packet_crafter::do_disconnect::craft_final(&hyper_ratchet, ticket, timestamp, security_level);
-                PrimaryProcessorResult::ReplyToSender(packet)
+                session.to_primary_stream.as_ref()?.unbounded_send(packet)?;
+                PrimaryProcessorResult::EndSession("Successfully disconnected")
             }
 
             packet_flags::cmd::aux::do_disconnect::FINAL => {

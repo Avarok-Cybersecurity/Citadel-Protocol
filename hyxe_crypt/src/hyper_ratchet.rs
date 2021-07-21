@@ -11,7 +11,8 @@ use std::alloc::Global;
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::fcm::fcm_ratchet::FcmRatchet;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
-use ez_pqcrypto::constructor_opts::ConstructorOpts;
+use ez_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
+use sha3::Digest;
 
 /// A container meant to establish perfect forward secrecy AND scrambling w/ an independent key
 /// This is meant for messages, not file transfer. File transfers should use a single key throughout
@@ -145,7 +146,18 @@ impl Ratchet for HyperRatchet {
 
     // This may panic if any of the ratchets are in an incomplete state
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts> {
-        self.inner.message.inner.iter().map(|r| ConstructorOpts::new_from_previous(Some(r.pqc.params), r.pqc.get_chain().unwrap())).collect()
+        let mut meta_chain_hasher = sha3::Sha3_256::default();
+        for chain in self.inner.message.inner.iter().map(|r| r.pqc.get_chain().unwrap()) {
+            meta_chain_hasher.update(&chain.chain[..]);
+        }
+
+        let meta_chain = meta_chain_hasher.finalize();
+        //self.inner.message.inner.iter().map(|r| ConstructorOpts::new_from_previous(Some(r.pqc.params), r.pqc.get_chain().unwrap().clone())).collect()
+        self.inner.message.inner.iter().map(|r| {
+            let prev_chain = r.pqc.get_chain().unwrap();
+            let next_chain = RecursiveChain::new(&meta_chain[..], &prev_chain.alice, &prev_chain.bob, false).unwrap();
+            ConstructorOpts::new_from_previous(Some(r.pqc.params), next_chain)
+        }).collect()
     }
 
     fn protect_message_packet<T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {

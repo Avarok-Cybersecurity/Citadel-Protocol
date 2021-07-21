@@ -1,7 +1,8 @@
 use std::net::{SocketAddr, IpAddr};
 use std::fmt::{Display, Formatter};
+use tokio::net::UdpSocket;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct HolePunchedSocketAddr {
     // Outbound packets should get sent here
     pub initial: SocketAddr,
@@ -36,4 +37,10 @@ impl Display for HolePunchedSocketAddr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "(Original, Natted): {:?} -> {:?}", &self.initial, &self.natted)
     }
+}
+
+#[derive(Debug)]
+pub struct HolePunchedUdpSocket {
+    pub socket: UdpSocket,
+    pub addr: HolePunchedSocketAddr
 }

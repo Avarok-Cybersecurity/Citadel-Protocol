@@ -23,6 +23,7 @@ use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use hyxe_user::external_services::fcm::data_structures::{RawExternalPacket, FcmTicket};
 use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
+use crate::hdp::state_container::VirtualConnectionType;
 
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
 impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
@@ -418,10 +419,11 @@ pub enum PeerSignal {
     PostRegister(PeerConnectionType, Username, Option<Ticket>, Option<PeerResponse>, FcmPostRegister),
     // implicated_cid, icid, target_cid, use_fcm
     Deregister(PeerConnectionType, bool),
-    // implicated_cid, icid, target_cid
-    PostConnect(PeerConnectionType, Option<Ticket>, Option<PeerResponse>, SessionSecuritySettings),
+    // implicated_cid, icid, target_cid, udp enabled
+    PostConnect(PeerConnectionType, Option<Ticket>, Option<PeerResponse>, SessionSecuritySettings, UdpMode),
     // implicated_cid, icid, target cid
     Disconnect(PeerConnectionType, Option<PeerResponse>),
+    DisconnectUDP(VirtualConnectionType),
     // implicated_cid, icid
     BroadcastConnected(GroupBroadcast),
     // implicated_cid, icid, target cid
@@ -446,6 +448,11 @@ pub enum PeerSignal {
     FcmFetch(Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>),
     // For denoting that reg info changed
     FcmTokenUpdate(FcmKeys)
+}
+
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]
+pub enum UdpMode {
+    Enabled, Disabled
 }
 
 // Channel packets don't get decrypted/encrypted at the central node; only at the endpoints
