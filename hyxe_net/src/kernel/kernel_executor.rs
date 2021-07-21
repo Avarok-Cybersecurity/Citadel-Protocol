@@ -29,11 +29,11 @@ pub struct KernelExecutor<K: NetKernel> {
 
 impl<K: NetKernel> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
-    pub fn new<T: ToSocketAddrs + std::net::ToSocketAddrs + Send + 'static>(rt: Handle, hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
+    pub async fn new<T: ToSocketAddrs + std::net::ToSocketAddrs + Send + 'static>(rt: Handle, hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, bind_addr: T, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) = tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt, callback_handler) = HdpServer::init(hypernode_type, server_to_kernel_tx, bind_addr, account_manager, server_shutdown_alerter_tx, underlying_proto).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let (remote, future, localset_opt, callback_handler) = HdpServer::init(hypernode_type, server_to_kernel_tx, bind_addr, account_manager, server_shutdown_alerter_tx, underlying_proto).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
 
         Ok(Self { shutdown_alerter_rx: Some(server_shutdown_alerter_rx), callback_handler: Some(callback_handler), server_remote: Some(remote), server_to_kernel_rx: Some(server_to_kernel_rx), kernel, context: Some((rt, future, localset_opt)) })
     }

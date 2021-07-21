@@ -1029,6 +1029,7 @@ pub(crate) mod pre_connect {
     use hyxe_user::prelude::ConnectProtocol;
     use crate::hdp::hdp_server::ConnectMode;
     use crate::hdp::peer::peer_layer::UdpMode;
+    use hyxe_nat::nat_identification::NatType;
 
     #[derive(Serialize, Deserialize)]
     pub struct SynPacket<'a> {
@@ -1037,11 +1038,13 @@ pub(crate) mod pre_connect {
         pub session_security_settings: SessionSecuritySettings,
         pub peer_only_connect_protocol: ConnectProtocol,
         pub connect_mode: ConnectMode,
+        pub nat_type: NatType,
         pub udp_mode: UdpMode,
+        pub peer_listener_port: u16,
         pub keep_alive_timeout: i64
     }
 
-    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, udp_mode: UdpMode, timestamp: i64, keep_alive_timeout: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol, connect_mode: ConnectMode) -> BytesMut {
+    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, nat_type: NatType, udp_mode: UdpMode, peer_listener_port: u16, timestamp: i64, keep_alive_timeout: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol, connect_mode: ConnectMode) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN,
@@ -1059,22 +1062,25 @@ pub(crate) mod pre_connect {
         let mut packet  = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        SynPacket { transfer, session_security_settings, peer_only_connect_protocol, connect_mode, udp_mode, keep_alive_timeout }.serialize_into_buf(&mut packet).unwrap();
+        SynPacket { transfer, session_security_settings, peer_only_connect_protocol, connect_mode, udp_mode, keep_alive_timeout, nat_type, peer_listener_port }.serialize_into_buf(&mut packet).unwrap();
 
         static_aux_hr.protect_message_packet(Some(security_level),HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet
     }
 
-    pub(crate) fn craft_syn_ack(static_aux_hr: &StaticAuxRatchet, transfer: BobToAliceTransfer, timestamp: i64, peer_external_addr: SocketAddr, security_level: SecurityLevel) -> BytesMut {
-        let external_addr_bytes = peer_external_addr.to_string();
-        let external_addr_bytes = external_addr_bytes.as_bytes();
+    #[derive(Serialize, Deserialize)]
+    pub struct SynAckPacket {
+        pub transfer: BobToAliceTransfer,
+        pub nat_type: NatType
+    }
 
+    pub(crate) fn craft_syn_ack(static_aux_hr: &StaticAuxRatchet, transfer: BobToAliceTransfer, nat_type: NatType, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN_ACK,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(external_addr_bytes.len() as u64),
+            context_info: U64::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(static_aux_hr.get_cid()),
@@ -1083,10 +1089,10 @@ pub(crate) mod pre_connect {
             target_cid: U64::new(0)
         };
 
-        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + external_addr_bytes.len());
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
-        packet.put(external_addr_bytes);
-        transfer.serialize_into(&mut packet).unwrap();
+
+        SynAckPacket { transfer, nat_type }.serialize_into_buf(&mut packet).unwrap();
 
         static_aux_hr.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
@@ -1552,7 +1558,6 @@ pub(crate) mod udp {
 
 pub(crate) mod hole_punch {
     use bytes::{BytesMut, BufMut};
-    use std::iter::FromIterator;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
 
@@ -1565,7 +1570,7 @@ pub(crate) mod hole_punch {
     }
 
     pub fn decrypt_packet(hyper_ratchet: &HyperRatchet, packet: &[u8], security_level: SecurityLevel) -> Option<BytesMut> {
-        let mut packet = BytesMut::from_iter(packet);
+        let mut packet = BytesMut::from(packet);
         hyper_ratchet.validate_message_packet_in_place_split(Some(security_level), &[], &mut packet).ok()?;
         Some(packet)
     }

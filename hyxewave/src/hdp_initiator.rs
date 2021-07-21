@@ -18,7 +18,7 @@ pub fn execute(mut config: AppConfig) -> Result<(), NetworkError> {
     rt.block_on(async move {
         let account_manager = get_account_manager(&config).await?;
         let kernel = CLIKernel::new(config, account_manager.clone()).await;
-        match KernelExecutor::new(handle, hypernode_type, account_manager, kernel, bind_addr, underlying_proto) {
+        match KernelExecutor::new(handle, hypernode_type, account_manager, kernel, bind_addr, underlying_proto).await {
             Ok(server) => {
                 server.execute().await
             },

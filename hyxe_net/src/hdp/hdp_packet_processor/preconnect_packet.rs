@@ -1,7 +1,7 @@
 use tokio::net::UdpSocket;
 
 use hyxe_nat::error::FirewallError;
-use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
+use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedSocketAddr, HolePunchedUdpSocket};
 use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
 use hyxe_nat::udp_traversal::NatTraversalMethod;
 
@@ -15,6 +15,7 @@ use crate::hdp::hdp_packet::packet_flags::payload_identifiers;
 use crate::hdp::state_container::VirtualTargetType;
 use crate::hdp::peer::peer_layer::UdpMode;
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
+use hyxe_nat::nat_identification::NatType;
 
 /// Handles preconnect packets. Handles the NAT traversal
 /// TODO: Note to future programmers. This source file is not the cleanest, and in my opinion the dirtiest file in the entire codebase.
@@ -44,7 +45,9 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                 let header_if_err_occurs = header_main.clone();
 
                 match validation::pre_connect::validate_syn(&cnac, packet, &session.session_manager) {
-                    Ok((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat)) => {
+                    Ok((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type, peer_listener_port)) => {
+                        session.adjacent_nat_type.set_once(Some(nat_type));
+                        session.p2p_listener_bind_port.set_once(Some(peer_listener_port));
                         // since the SYN's been validated, the CNACs toolset has been updated
                         let new_session_sec_lvl = transfer.security_level;
 
@@ -59,7 +62,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
 
                         // here, we also send the peer's external address to itself
                         // Also, we use the security level that was created on init b/c the other side still uses the static aux ratchet
-                        let syn_ack = hdp_packet_crafter::pre_connect::craft_syn_ack(&static_aux_ratchet, transfer, timestamp, peer_addr, security_level);
+                        let syn_ack = hdp_packet_crafter::pre_connect::craft_syn_ack(&static_aux_ratchet, transfer, session.local_nat_type.clone(), timestamp, security_level);
 
                         state_container.pre_connect_state.on_packet_received();
 
@@ -104,10 +107,11 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                 let ref cnac = session.cnac.get()?;
                 let alice_constructor = state_container.pre_connect_state.constructor.take()?;
 
-                if let Some((new_hyper_ratchet, external_ip)) = validation::pre_connect::validate_syn_ack(cnac, alice_constructor, packet) {
+                if let Some((new_hyper_ratchet, nat_type)) = validation::pre_connect::validate_syn_ack(cnac, alice_constructor, packet) {
                     // The toolset, at this point, has already been updated. The CNAC can be used to
                     //let ref drill = cnac.get_drill_blocking(None)?;
-                    session.external_addr.set(Some(external_ip));
+                    session.adjacent_nat_type.set_once(Some(nat_type));
+
                     let local_node_type = session.local_node_type;
                     let timestamp = session.time_tracker.get_global_time_ns();
                     let ticket = session.kernel_ticket.get();
@@ -154,22 +158,28 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
 
             // At this point, the user's static-key identity has been verified. We can now check the online status to ensure no double-logins
 
-
             let udp_mode = session.udp_mode.get();
+            let endpoint_ip = session.remote_peer.ip();
             let timestamp_header = header.timestamp.get();
             let ref cnac = session.cnac.get()?;
             let hyper_ratchet = cnac.get_hyper_ratchet(Some(header.drill_version.get()))?;
             let mut state_container = inner_mut!(session.state_container);
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
-                if let Some((adjacent_node_type, adjacent_unnated_ports, external_ip)) = validation::pre_connect::validate_stage0(&hyper_ratchet, packet) {
-                    // the server now has its external IP
-                    session.external_addr.set(Some(external_ip));
+                if let Some((adjacent_node_type, adjacent_unnated_ports, _external_ip)) = validation::pre_connect::validate_stage0(&hyper_ratchet, packet) {
+
                     let timestamp = session.time_tracker.get_global_time_ns();
                     let local_bind_ip = session.local_bind_addr.ip();
-                    let remote_ip = session.remote_peer.ip();
+                    //let remote_ip = session.remote_peer.ip();
                     let wave_port_count = adjacent_unnated_ports.len();
 
-                    if udp_mode == UdpMode::Disabled {
+                    let peer_nat_type = session.adjacent_nat_type.clone()?;
+                    let peer_accessible = peer_nat_type.predict_external_addr_from_local_bind_port(0).is_some();
+
+                    if udp_mode == UdpMode::Disabled || !peer_accessible {
+                        if !peer_accessible && udp_mode == UdpMode::Enabled {
+                            log::warn!("UDP NAT Traversal is not possible. Will use default TCP connection")
+                        }
+
                         // since this node is the server, send a BEGIN CONNECT signal to alice
                         // We have to modify the state to ensure that this node can receive a DO_CONNECT packet
                         state_container.pre_connect_state.success = true;
@@ -177,8 +187,8 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                         return PrimaryProcessorResult::ReplyToSender(packet);
                     } // .. otherwise, continue logic below to punch a hole through the firewall
 
-                    // since self is the receiver, the ports on these endpoints dont matter since only the IP is checked. Play the game anyways
-                    let endpoints = adjacent_unnated_ports.iter().map(|port| SocketAddr::new(remote_ip, *port)).collect::<Vec<SocketAddr>>();
+                    // We can unwrap here in the mapping closure since peer_accessible is true
+                    let predicted_endpoints = adjacent_unnated_ports.iter().map(|port| peer_nat_type.predict_external_addr_from_local_bind_port(*port).map(|r| SocketAddr::new(endpoint_ip, r.port())).unwrap()).collect::<Vec<SocketAddr>>();
 
                     let local_node_type = session.local_node_type;
                     let initial_traversal_method = determine_initial_nat_method(local_node_type, adjacent_node_type);
@@ -203,7 +213,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                                 std::mem::drop(state_container);
 
                                 // this runs the task. The receiver will wait til the sync_time, and will then automatically begin the hole-punching process
-                                handle_nat_traversal_as_receiver(session_orig.clone(), hyper_ratchet, initial_traversal_method, sync_time_instant, endpoints, reserved_sockets, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()));
+                                handle_nat_traversal_as_receiver(session_orig.clone(), hyper_ratchet, initial_traversal_method, sync_time_instant, predicted_endpoints, reserved_sockets, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), peer_nat_type);
                             }
 
                             PrimaryProcessorResult::ReplyToSender(stage1_packet)
@@ -232,11 +242,13 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
             let cnac = session.cnac.get()?;
             let endpoint_ip = session.remote_peer.ip();
             let hyper_ratchet = cnac.get_hyper_ratchet(Some(header.drill_version.get()))?;
+            let peer_nat_type = session.adjacent_nat_type.clone()?;
+
             let mut state_container = inner_mut!(session.state_container);
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::STAGE1 {
                 if let Some((adjacent_node_type, proposed_traversal_method, sync_time, base_wave_ports)) = validation::pre_connect::validate_stage1(&hyper_ratchet, packet) {
-                    // it is expected that these base_wave_ports are reachable from this node
-                    let endpoints = base_wave_ports.iter().map(|adjacent_port| SocketAddr::new(endpoint_ip, *adjacent_port)).collect::<Vec<SocketAddr>>();
+
+                    let predicted_endpoints = base_wave_ports.iter().map(|adjacent_port| peer_nat_type.predict_external_addr_from_local_bind_port(*adjacent_port).map(|r| SocketAddr::new(endpoint_ip, r.port())).unwrap_or_else(|| SocketAddr::new(endpoint_ip, *adjacent_port))).collect::<Vec<SocketAddr>>();
                     state_container.pre_connect_state.adjacent_node_type = Some(adjacent_node_type);
                     state_container.pre_connect_state.current_nat_traversal_method = Some(proposed_traversal_method);
                     state_container.pre_connect_state.adjacent_unnated_ports = Some(base_wave_ports);
@@ -259,7 +271,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                     // As the sync_time, the hole punching process will start
                     std::mem::drop(state_container);
 
-                    handle_nat_traversal_as_initiator(session_orig.clone(), hyper_ratchet, proposed_traversal_method, sync_time, endpoints, reserved_sockets, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()));
+                    handle_nat_traversal_as_initiator(session_orig.clone(), hyper_ratchet, proposed_traversal_method, sync_time, predicted_endpoints, reserved_sockets, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), peer_nat_type);
                     PrimaryProcessorResult::Void
                 } else {
                     log::error!("Unable to validate stage 1 preconnect packet");
@@ -348,16 +360,17 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                 if let Some((hyper_ratchet, next_traversal_method)) = validation::pre_connect::validate_try_next(cnac, packet) {
                     state_container.pre_connect_state.current_nat_traversal_method = Some(next_traversal_method);
                     // we must now start the receiver fn, using the data
+                    let peer_nat_type = session.adjacent_nat_type.clone()?;
                     let preserved_sockets = state_container.pre_connect_state.reserved_sockets.take()?;
                     let (sync_time_instant, sync_time_ns) = calculate_sync_time(timestamp, header_timestamp);
                     let adjacent_unnated_ports = state_container.pre_connect_state.adjacent_unnated_ports.clone()?;
-                    let endpoints = adjacent_unnated_ports.iter().map(|port| SocketAddr::new(remote_ip, *port)).collect::<Vec<SocketAddr>>();
+                    let endpoints = adjacent_unnated_ports.iter().map(|port| peer_nat_type.predict_external_addr_from_local_bind_port(*port).map(|sk| SocketAddr::new(remote_ip, sk.port())).unwrap_or_else(||SocketAddr::new(remote_ip, *port))).collect::<Vec<SocketAddr>>();
 
                     // send a TRY_NEXT_ACK now with the proper sync_time
                     let try_next_ack = hdp_packet_crafter::pre_connect::craft_stage_try_next_ack(&hyper_ratchet, timestamp, sync_time_ns, security_level);
                     std::mem::drop(state_container);
 
-                    handle_nat_traversal_as_receiver(session_orig.clone(), hyper_ratchet, next_traversal_method, sync_time_instant, endpoints, preserved_sockets, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()));
+                    handle_nat_traversal_as_receiver(session_orig.clone(), hyper_ratchet, next_traversal_method, sync_time_instant, endpoints, preserved_sockets, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), peer_nat_type);
                     PrimaryProcessorResult::ReplyToSender(try_next_ack)
                 } else {
                     log::error!("Unable to validate TRY_NEXT packet");
@@ -381,8 +394,9 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                 if let Some((hyper_ratchet, sync_time)) = validation::pre_connect::validate_try_next_ack(cnac, packet) {
                     // it is expected that these base_wave_ports are reachable from this node (when coupled with the remote IP)
                     let base_wave_ports = state_container.pre_connect_state.adjacent_unnated_ports.clone()?;
+                    let peer_nat_type = session.adjacent_nat_type.clone()?;
                     //let adjacent_node_type = state_container.pre_connect_state.adjacent_node_type.clone()?;
-                    let endpoints = base_wave_ports.iter().map(|adjacent_port| SocketAddr::new(endpoint_ip, *adjacent_port)).collect::<Vec<SocketAddr>>();
+                    let endpoints = base_wave_ports.iter().map(|adjacent_port| peer_nat_type.predict_external_addr_from_local_bind_port(*adjacent_port).map(|sk| SocketAddr::new(endpoint_ip, sk.port())).unwrap_or_else(||SocketAddr::new(endpoint_ip, *adjacent_port))).collect::<Vec<SocketAddr>>();
 
                     let proposed_traversal_method = state_container.pre_connect_state.current_nat_traversal_method.clone()?;
 
@@ -405,7 +419,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
                     // As the sync_time, the hole punching process will start
                     std::mem::drop(state_container);
 
-                    handle_nat_traversal_as_initiator(session_orig.clone(), hyper_ratchet, proposed_traversal_method, sync_time, endpoints, reserved_sockets, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()));
+                    handle_nat_traversal_as_initiator(session_orig.clone(), hyper_ratchet, proposed_traversal_method, sync_time, endpoints, reserved_sockets, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), peer_nat_type);
                     PrimaryProcessorResult::Void
                 } else {
                     log::error!("Unable to validate stage TRY_NEXT_ACK");
@@ -516,7 +530,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
             let mut state_container = inner_mut!(session.state_container);
             let ref cnac = session.cnac.get()?;
 
-            if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SUCCESS || state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::STAGE_TRY_NEXT {
+            if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SUCCESS || state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::STAGE_TRY_NEXT || state_container.pre_connect_state.success {
                 if let Some(hyper_ratchet) = validation::pre_connect::validate_begin_connect(cnac, packet) {
                     state_container.pre_connect_state.success = true;
                     std::mem::drop(state_container);
@@ -549,30 +563,29 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, peer_addr: So
 
 /// This must spawn an asynchronous task in b/c of the inherit blocking mechanisms
 #[allow(unused_results)]
-fn handle_nat_traversal_as_receiver(session: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Instant, endpoints: Vec<SocketAddr>, sockets: Vec<UdpSocket>, security_level: SecurityLevel, v_target: VirtualTargetType) {
-    spawn!(handle_nat_traversal_as_receiver_inner(session, hyper_ratchet, method, sync_time, endpoints, sockets, security_level, v_target));
+fn handle_nat_traversal_as_receiver(session: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Instant, endpoints: Vec<SocketAddr>, sockets: Vec<UdpSocket>, security_level: SecurityLevel, v_target: VirtualTargetType, peer_nat_type: NatType) {
+    spawn!(handle_nat_traversal_as_receiver_inner(session, hyper_ratchet, method, sync_time, endpoints, sockets, security_level, v_target, peer_nat_type));
 }
 
 #[allow(unused_results)]
-async fn handle_nat_traversal_as_receiver_inner(session_orig: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Instant, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>, security_level: SecurityLevel, v_target: VirtualTargetType) {
+async fn handle_nat_traversal_as_receiver_inner(session_orig: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Instant, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>, security_level: SecurityLevel, v_target: VirtualTargetType, peer_nat_type: NatType) {
     let mut hole_puncher = {
         tokio::time::sleep_until(sync_time).await;
         log::info!("Synchronize time reached. Executing hole punch subroutine ...");
         let ref session = session_orig;
         let crypt_container = generate_hole_punch_crypt_container(hyper_ratchet.clone(), security_level);
-        let local_node_type = session.local_node_type;
-        let hole_puncher = LinearUDPHolePuncher::new_receiver(local_node_type, crypt_container);
+        let local_nat_type = session.local_nat_type.clone();
+        let hole_puncher = LinearUDPHolePuncher::new_receiver(local_nat_type, crypt_container, peer_nat_type);
         //std::mem::drop(session);
         hole_puncher
     };
 
     match hole_puncher.try_method(&mut sockets, &endpoints, method).await {
-        Ok(set) => {
+        Ok(ret) => {
             let sess = session_orig;
             let timestamp = sess.time_tracker.get_global_time_ns();
 
-            let mut set = sockets.into_iter().zip(set.into_iter()).collect::<Vec<(UdpSocket, HolePunchedSocketAddr)>>();
-            let (socket, addr) = set.remove(0);
+            let HolePunchedUdpSocket { socket, addr } = ret;
 
             let mut state_container = inner_mut!(sess.state_container);
             let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp(v_target.get_target_cid());
@@ -624,12 +637,12 @@ async fn handle_nat_traversal_as_receiver_inner(session_orig: HdpSession, hyper_
 ///
 /// `sync_time`: If this is None, then the program won't delay and will work immediately
 #[allow(unused_results)]
-fn handle_nat_traversal_as_initiator(session: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Option<Instant>, endpoints: Vec<SocketAddr>, sockets: Vec<UdpSocket>, security_level: SecurityLevel, v_target: VirtualTargetType) {
-    spawn!(handle_nat_traversal_as_initiator_inner(session, hyper_ratchet, method, sync_time, endpoints, sockets, security_level, v_target));
+fn handle_nat_traversal_as_initiator(session: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Option<Instant>, endpoints: Vec<SocketAddr>, sockets: Vec<UdpSocket>, security_level: SecurityLevel, v_target: VirtualTargetType, peer_nat_type: NatType) {
+    spawn!(handle_nat_traversal_as_initiator_inner(session, hyper_ratchet, method, sync_time, endpoints, sockets, security_level, v_target, peer_nat_type));
 }
 
 #[allow(unused_results)]
-async fn handle_nat_traversal_as_initiator_inner(session_orig: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Option<Instant>, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>, security_level: SecurityLevel, v_target: VirtualTargetType) {
+async fn handle_nat_traversal_as_initiator_inner(session_orig: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Option<Instant>, endpoints: Vec<SocketAddr>, mut sockets: Vec<UdpSocket>, security_level: SecurityLevel, v_target: VirtualTargetType, peer_nat_type: NatType) {
     let mut hole_puncher = {
         if let Some(sync_time) = sync_time {
             tokio::time::sleep_until(sync_time).await;
@@ -639,26 +652,25 @@ async fn handle_nat_traversal_as_initiator_inner(session_orig: HdpSession, hyper
         let ref session = session_orig;
 
         let crypt_container = generate_hole_punch_crypt_container(hyper_ratchet.clone(), security_level);
-        let local_node_type = session.local_node_type;
-        let hole_puncher = LinearUDPHolePuncher::new_initiator(local_node_type, crypt_container);
+        let local_nat_type = session.local_nat_type.clone();
+        let hole_puncher = LinearUDPHolePuncher::new_initiator(local_nat_type, crypt_container, peer_nat_type);
         //std::mem::drop(session);
         hole_puncher
     };
 
     match hole_puncher.try_method(&mut sockets, &endpoints, method).await {
-        Ok(set) => {
+        Ok(ret) => {
             let sess = session_orig;
-            let set = sockets.into_iter().zip(set.into_iter()).collect::<Vec<(UdpSocket, HolePunchedSocketAddr)>>();
             // if we aren't using UPnP, we will need to wait for the receiver to send its finish packet before continuing
             if method != NatTraversalMethod::UPnP {
                 // Now, save the set
                 let mut state_container = inner_mut!(sess.state_container);
                 // set the last stage to SUCCESS to allow the reception of a SERVER_FINISHED_HOLE_PUNCH
                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                state_container.pre_connect_state.hole_punched = Some(set);
+                state_container.pre_connect_state.hole_punched = Some(ret);
             } else {
                 // if, however, we did use UPnP, then we are ready to send a SUCCESS packet
-                match send_success_as_initiator(set, method, &hyper_ratchet, &sess, security_level, v_target) {
+                match send_success_as_initiator(ret, method, &hyper_ratchet, &sess, security_level, v_target) {
                     PrimaryProcessorResult::ReplyToSender(packet) => {
                         if sess.send_to_primary_stream(None, packet).is_err() {
                             log::error!("Primary stream disconnected");
@@ -709,16 +721,16 @@ fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, sec
     PrimaryProcessorResult::ReplyToSender(stage0_connect_packet)
 }
 
-fn send_success_as_initiator(mut set: Vec<(UdpSocket, HolePunchedSocketAddr)>, method: NatTraversalMethod, hyper_ratchet: &HyperRatchet, session: &HdpSession, security_level: SecurityLevel, v_target: VirtualTargetType) -> PrimaryProcessorResult {
+fn send_success_as_initiator(hole_punched_socket: HolePunchedUdpSocket, method: NatTraversalMethod, hyper_ratchet: &HyperRatchet, session: &HdpSession, security_level: SecurityLevel, v_target: VirtualTargetType) -> PrimaryProcessorResult {
     let inscribe_ports = if method == NatTraversalMethod::UPnP {
         // collect the natted ports, since those are the reserved ports. The other end will then take the remote_ip (this node) and
         // couple it with these ports to know where to send packets to
-        Some(set.iter().map(|hole_punched_addr| hole_punched_addr.1.natted.port()).collect::<Vec<u16>>())
+        Some(vec![hole_punched_socket.addr.natted.port()])
     } else {
         None
     };
 
-    let (socket, addr) = set.remove(0);
+    let HolePunchedUdpSocket { socket, addr } = hole_punched_socket;
     let mut state_container = inner_mut!(session.state_container);
     let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp(v_target.get_target_cid());
     log::info!("UDP Hole punch success! Sending a SUCCESS packet to the receiver");

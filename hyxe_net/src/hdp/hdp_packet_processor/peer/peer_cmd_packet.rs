@@ -10,7 +10,7 @@ use crate::hdp::hdp_packet_processor::preconnect_packet::calculate_sync_time;
 use crate::hdp::hdp_packet_processor::primary_group_packet::{get_proper_hyper_ratchet, get_resp_target_cid};
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::peer::p2p_conn_handler::attempt_tcp_simultaneous_hole_punch;
-use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
+use crate::hdp::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal, UdpMode};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
@@ -292,7 +292,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 PrimaryProcessorResult::ReplyToSender(stage1_kem)
                             }
 
-                            KeyExchangeProcess::Stage1(transfer, Some(bob_public_addr)) => {
+                            KeyExchangeProcess::Stage1(transfer, Some(bob_nat_info)) => {
                                 // Here, we finalize the creation of the pqc for alice, and then, generate the new toolset
                                 // The toolset gets encrypted to ensure the central server doesn't see the toolset. This is
                                 // to combat a "chinese communist hijack" scenario wherein a rogue government takes over our
@@ -318,11 +318,11 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // now, register the loaded PQC + toolset into the virtual conn
                                 let peer_crypto = PeerSessionCrypto::new(toolset, true);
                                 let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
-                                let bob_socket_addr = *bob_public_addr;
-                                log::info!("[STUN] Peer public addr: {:?}", &bob_socket_addr);
+                                let (needs_turn, bob_predicted_socket_addr) = bob_nat_info.generate_proper_listener_connect_addr(&session.local_nat_type);
+                                log::info!("[STUN] Peer public addr: {:?} || needs TURN? {}", &bob_predicted_socket_addr, needs_turn);
                                 let udp_rx_opt = kem_state.udp_channel_sender.rx.take();
 
-                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(&mut *inner_mut!(session.updates_in_progress), bob_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto);
+                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(&mut *inner_mut!(session.updates_in_progress), bob_predicted_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto);
                                 // load the channel now that the keys have been exchanged
 
                                 kem_state.local_is_initiator = true;
@@ -344,16 +344,16 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
                                 session.send_to_primary_stream(None, stage2_kem_packet)?;
-                                session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
+                                //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
+                                let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
+                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_predicted_socket_addr, implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level);
+                                let _ = spawn!(hole_punch_future);
 
-                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_socket_addr, implicated_cid, kernel_tx, sync_instant, session.state_container.clone(), endpoint_security_level);
-                                //let _ = spawn!(hole_punch_future);
-
-                                let _ = hole_punch_future.await;
+                                //let _ = hole_punch_future.await;
                                 PrimaryProcessorResult::Void
                             }
 
-                            KeyExchangeProcess::Stage2(sync_time_ns, Some(alice_public_addr)) => {
+                            KeyExchangeProcess::Stage2(sync_time_ns, Some(alice_nat_info)) => {
                                 // NEW UPDATE: now that we know the other side successfully created its toolset,
                                 // calculate sync time then begin the hole punch subroutine
                                 log::info!("RECV STAGE 2 PEER KEM");
@@ -375,26 +375,26 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
                                 // create an endpoint vconn
                                 let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
-                                let alice_socket_addr = *alice_public_addr;
-                                log::info!("[STUN] Peer public addr: {:?}", &alice_socket_addr);
-                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(&mut *inner_mut!(session.updates_in_progress),alice_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto);
+                                let (needs_turn, alice_predicted_socket_addr) = alice_nat_info.generate_proper_listener_connect_addr(&session.local_nat_type);
+                                log::info!("[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
+                                let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(&mut *inner_mut!(session.updates_in_progress),alice_predicted_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto);
 
                                 log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
                                 // We can now send the channel to the kernel, where TURN traversal is immediantly available.
                                 // however, STUN-like traversal will proceed in the background
-                                state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
-
+                                //state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
+                                let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
                                 let diff = Duration::from_nanos(i64::abs(timestamp - *sync_time_ns) as u64);
                                 let sync_instant = Instant::now() + diff;
 
                                 // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
-                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_socket_addr, implicated_cid, kernel_tx, sync_instant, session.state_container.clone(), endpoint_security_level);
-                                //let _ = spawn!(hole_punch_future);
+                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_predicted_socket_addr, implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level);
                                 std::mem::drop(state_container);
+                                let _ = spawn!(hole_punch_future);
 
-                                let _ = hole_punch_future.await;
+                                //let _ = hole_punch_future.await;
                                 PrimaryProcessorResult::Void
                             }
 
@@ -530,10 +530,19 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             // to allow for STUN-like NAT traversal
             // this gives peer A the socket of peer B and vice versa
 
-            let socket_addr = session.remote_peer; // TODO: Get proper socket addr going to peer's local sockets
+            let peer_nat = session.adjacent_nat_type.clone()?;
+            let peer_unnated_listener_port = session.p2p_listener_bind_port.clone()?;
+            let peer_remote_ip = session.remote_peer.ip();
+
+            let peer_nat_info = PeerNatInfo {
+                peer_remote_ip,
+                peer_unnated_listener_port,
+                peer_nat
+            };
+
             match &mut kep {
                 KeyExchangeProcess::Stage1(_, val) | KeyExchangeProcess::Stage2(_, val) => {
-                    *val = Some(socket_addr);
+                    *val = Some(peer_nat_info);
                 }
 
                 _ => {}

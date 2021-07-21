@@ -71,6 +71,7 @@ use hyxe_crypt::prelude::ConstructorOpts;
 use crate::hdp::peer_session_crypto_accessor::PeerSessionCryptoAccessor;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
+use hyxe_nat::nat_identification::NatType;
 
 //use crate::define_struct;
 
@@ -157,8 +158,6 @@ impl Clone for HdpSession {
 #[allow(unused)]
 pub struct HdpSessionInner {
     pub(super) implicated_cid: DualCell<Option<u64>>,
-    // the external IP of the local node with respect to the outside world. May or may not be natted
-    pub(super) external_addr: DualCell<Option<SocketAddr>>,
     pub(super) kernel_ticket: DualCell<Ticket>,
     pub(super) remote_peer: SocketAddr,
     pub(super) cnac: DualRwLock<Option<ClientNetworkAccount>>,
@@ -170,6 +169,7 @@ pub struct HdpSessionInner {
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
     pub(super) session_manager: HdpSessionManager,
     pub(super) state: DualCell<SessionState>,
+    pub(super) p2p_listener_bind_port: DualLateInit<Option<u16>>,
     pub(super) state_container: StateContainer,
     pub(super) account_manager: AccountManager,
     pub(super) time_tracker: TimeTracker,
@@ -189,6 +189,8 @@ pub struct HdpSessionInner {
     pub(super) security_settings: DualCell<Option<SessionSecuritySettings>>,
     pub(super) updates_in_progress: DualRwLock<HashMap<u64, Arc<AtomicBool>>>,
     pub(super) peer_only_connect_protocol: DualRwLock<Option<ConnectProtocol>>,
+    pub(super) local_nat_type: NatType,
+    pub(super) adjacent_nat_type: DualLateInit<Option<NatType>>,
     on_drop: UnboundedSender<()>,
 }
 
@@ -222,7 +224,7 @@ pub enum HdpSessionInitMode {
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub fn new(init_mode: HdpSessionInitMode, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings) -> Result<(Sender<()>, Self), NetworkError> {
+    pub fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings) -> Result<(Sender<()>, Self), NetworkError> {
         let (cnac, state, implicated_cid) = match &init_mode {
             HdpSessionInitMode::Connect(implicated_cid) => {
                 let cnac = cnac.ok_or(NetworkError::InvalidExternalRequest("Client does not exist"))?;
@@ -240,6 +242,9 @@ impl HdpSession {
         let udp_mode = DualCell::new(udp_mode);
 
         let mut inner = HdpSessionInner {
+            p2p_listener_bind_port: DualLateInit::default(),
+            local_nat_type,
+            adjacent_nat_type: DualLateInit::default(),
             p2p_session_tx: DualLateInit::default(),
             do_static_hr_refresh_atexit: true.into(),
             dc_signal_sent_to_kernel: false.into(),
@@ -253,7 +258,6 @@ impl HdpSession {
             local_node_type,
             remote_node_type: None,
             kernel_tx: kernel_tx.clone(),
-            external_addr: DualCell::new(None),
             implicated_cid: DualCell::new(implicated_cid),
             time_tracker,
             kernel_ticket: kernel_ticket.into(),
@@ -282,13 +286,16 @@ impl HdpSession {
     ///
     /// When this is called, the connection is implied to be in impersonal mode. As such, the calling closure should have a way of incrementing
     /// the provisional ticket.
-    pub fn new_incoming(on_drop: UnboundedSender<()>, hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket) -> (Sender<()>, Self) {
+    pub fn new_incoming(on_drop: UnboundedSender<()>, local_nat_type: NatType, hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket) -> (Sender<()>, Self) {
         let timestamp = time_tracker.get_global_time_ns();
         let (stopper_tx, stopper_rx) = channel(1);
         let updates_in_progress = DualRwLock::from(HashMap::new());
         let state = DualCell::new(SessionState::SocketJustOpened);
 
         let inner = HdpSessionInner {
+            p2p_listener_bind_port: DualLateInit::default(),
+            local_nat_type,
+            adjacent_nat_type: DualLateInit::default(),
             p2p_session_tx: DualLateInit::default(),
             do_static_hr_refresh_atexit: true.into(),
             dc_signal_sent_to_kernel: false.into(),
@@ -302,7 +309,6 @@ impl HdpSession {
             local_node_type,
             remote_node_type: None,
             implicated_cid: DualCell::new(None),
-            external_addr: DualCell::new(None),
             time_tracker,
             kernel_ticket: provisional_ticket.into(),
             remote_peer,
@@ -346,6 +352,11 @@ impl HdpSession {
             let primary_outbound_rx = OutboundTcpReceiver::from(primary_outbound_rx);
 
             let (p2p_session_tx, p2p_session_rx) = unbounded();
+
+            if let Some(ref p2p_listener) = p2p_listener {
+                this.p2p_listener_bind_port.set_once(Some(p2p_listener.local_addr().map_err(|err| (NetworkError::Generic(err.to_string()), None))?.port()))
+            }
+
             let p2p_listener = p2p_listener.map(|r| (r, p2p_session_rx));
             this.p2p_session_tx.set_once(Some(p2p_session_tx));
 
@@ -503,6 +514,7 @@ impl HdpSession {
                 log::info!("Beginning pre-connect subroutine!");
                 let session_ref = session;
                 let udp_mode = session_ref.udp_mode.get();
+                let local_peer_listener_port = session_ref.p2p_listener_bind_port.clone().ok_or(NetworkError::InternalError("Local listener port not loaded"))?;
                 let timestamp = session_ref.time_tracker.get_global_time_ns();
                 let cnac = cnac.as_ref().unwrap();
                 let session_security_settings = session_ref.security_settings.get().unwrap();
@@ -517,7 +529,7 @@ impl HdpSession {
                 let alice_constructor = HyperRatchetConstructor::new_alice(opts, cnac.get_cid(), 0, Some(session_security_settings.security_level));
                 let transfer = alice_constructor.stage0_alice();
                 let max_usable_level = static_aux_hr.get_default_security_level();
-
+                let nat_type = session_ref.local_nat_type.clone();
 
                 let mut state_container = inner_mut!(session_ref.state_container);
 
@@ -526,7 +538,7 @@ impl HdpSession {
                 }
 
                 // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
-                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, udp_mode, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode, connect_mode.unwrap_or_default());
+                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, nat_type, udp_mode, local_peer_listener_port, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode, connect_mode.unwrap_or_default());
 
                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                 state_container.pre_connect_state.constructor = Some(alice_constructor);
