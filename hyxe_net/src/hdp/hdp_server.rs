@@ -47,6 +47,7 @@ use hyxe_user::external_services::PostLoginObject;
 use futures::channel::mpsc::TrySendError;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
+use hyxe_nat::nat_identification::NatType;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -81,12 +82,13 @@ pub struct HdpServerInner {
     to_kernel: UnboundedSender<HdpServerResult>,
     local_node_type: HyperNodeType,
     // Applies only to listeners, not outgoing connections
-    underlying_proto: UnderlyingProtocol
+    underlying_proto: UnderlyingProtocol,
+    nat_type: NatType
 }
 
 impl HdpServer {
     /// Creates a new [HdpServer]
-    pub fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, underlying_proto: UnderlyingProtocol) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>, KernelAsyncCallbackHandler)> {
+    pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, underlying_proto: UnderlyingProtocol) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>, KernelAsyncCallbackHandler)> {
         let (primary_socket, local_bind_addr) = if local_node_type == HyperNodeType::GloballyReachable {
             Self::create_tcp_listen_socket(underlying_proto.clone(), &bind_addr)?.map_left(|r| Some(r))
         } else {
@@ -101,6 +103,8 @@ impl HdpServer {
 
         let time_tracker = TimeTracker::new();
         let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone());
+
+        let nat_type = NatType::identify().await.map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
         let inner = HdpServerInner {
             underlying_proto,
             local_bind_addr,
@@ -108,6 +112,7 @@ impl HdpServer {
             primary_socket,
             to_kernel,
             session_manager,
+            nat_type
         };
 
         let this = Self::from(inner);
@@ -267,7 +272,7 @@ impl HdpServer {
     /// Returns a TcpStream to the remote addr, as well as a local TcpListener on the same bind addr going to remote
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
     pub(crate) async fn create_init_tcp_listener<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
-        let stream = Self::create_reuse_tcp_connect_socket(remote, None).await?;
+        let stream = Self::create_tcp_connect_socket(remote, None).await?;
 
         // We bind to the addr from the source socket_addr the stream has reserved for NAT traversal purposes
         // TODO: NOTE! We CANNOT bind to this address otherwise there will be overlapping TCP connections from the SO_REUSEADDR, causing stream CORRUPTION under high traffic loads. This was proven to exist from stress-testing this protocol
@@ -285,7 +290,7 @@ impl HdpServer {
         Ok((p2p_listener, stream))
     }
 
-    pub async fn create_reuse_tcp_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
+    pub async fn create_tcp_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
         let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
         Self::connect_defaults(timeout, remote).await
     }
@@ -374,22 +379,23 @@ impl HdpServer {
             let mut this = inner_mut!(server);
             let socket = this.primary_socket.take().unwrap();
             let session_manager = this.session_manager.clone();
+            let local_nat_type = this.nat_type.clone();
             std::mem::drop(this);
-            let primary_port_future = Self::primary_session_creator_loop(to_kernel, session_manager, socket, session_spawner);
+            let primary_port_future = Self::primary_session_creator_loop(to_kernel, local_nat_type, session_manager, socket, session_spawner);
             primary_port_future
         };
 
         primary_port_future.await.map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
-    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, mut socket: GenericNetworkListener, session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>) -> Result<(), NetworkError> {
+    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, local_nat_type: NatType, session_manager: HdpSessionManager, mut socket: GenericNetworkListener, session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>) -> Result<(), NetworkError> {
         loop {
             match socket.next().await {
                 Some(Ok((stream, peer_addr))) => {
                     log::trace!("Received stream from {:?}", peer_addr);
                     let local_bind_addr = stream.local_addr().unwrap();
 
-                    match session_manager.process_new_inbound_connection(local_bind_addr, peer_addr, stream) {
+                    match session_manager.process_new_inbound_connection(local_bind_addr, local_nat_type.clone(), peer_addr, stream) {
                         Ok(session) => {
                             session_spawner.unbounded_send(session).map_err(|err| NetworkError::Generic(err.to_string()))?;
                         }
@@ -417,7 +423,7 @@ impl HdpServer {
     }
 
     async fn outbound_kernel_request_handler(this: HdpServer, ref to_kernel_tx: UnboundedSender<HdpServerResult>, mut outbound_send_request_rx: BoundedReceiver<(HdpServerRequest, Ticket)>, session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>) -> Result<(), NetworkError> {
-        let (primary_port, local_bind_addr, local_node_type, session_manager, listener_underlying_proto) = {
+        let (primary_port, local_bind_addr, local_node_type, session_manager, listener_underlying_proto, local_nat_type) = {
             let read = inner!(this);
             let primary_port = read.local_bind_addr.port();
             //let port_start = read.multiport_range.start;
@@ -427,9 +433,10 @@ impl HdpServer {
 
             // We need only the underlying [HdpSessionManager]
             let session_manager = read.session_manager.clone();
+            let local_nat_type = read.nat_type.clone();
             // Drop the read handle; we are done with it
             //std::mem::drop(read);
-            (primary_port, local_bind_addr, local_node_type, session_manager, listener_underlying_proto)
+            (primary_port, local_bind_addr, local_node_type, session_manager, listener_underlying_proto ,local_nat_type)
         };
 
         let send_error = |ticket_id: Ticket, err: NetworkError| {
@@ -457,7 +464,7 @@ impl HdpServer {
                 }
 
                 HdpServerRequest::RegisterToHypernode(peer_addr, credentials, fcm_keys,  security_settings) => {
-                    match session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Register(peer_addr),ticket_id, credentials, None, listener_underlying_proto.clone(), fcm_keys, None,None, security_settings).await {
+                    match session_manager.initiate_connection(local_node_type, local_nat_type.clone(), (local_bind_addr, primary_port), HdpSessionInitMode::Register(peer_addr),ticket_id, credentials, None, listener_underlying_proto.clone(), fcm_keys, None,None, security_settings).await {
                         Ok(session) => {
                             session_spawner.unbounded_send(session).map_err(|err| NetworkError::Generic(err.to_string()))?;
                         }
@@ -469,7 +476,7 @@ impl HdpServer {
                 }
 
                 HdpServerRequest::ConnectToHypernode(implicated_cid, credentials, connect_mode, fcm_keys, udp_mode, keep_alive_timeout,  security_settings) => {
-                    match session_manager.initiate_connection(local_node_type, (local_bind_addr, primary_port), HdpSessionInitMode::Connect(implicated_cid), ticket_id, credentials, Some(connect_mode), listener_underlying_proto.clone(), fcm_keys, Some(udp_mode), keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000), security_settings).await {
+                    match session_manager.initiate_connection(local_node_type, local_nat_type.clone(), (local_bind_addr, primary_port), HdpSessionInitMode::Connect(implicated_cid), ticket_id, credentials, Some(connect_mode), listener_underlying_proto.clone(), fcm_keys, Some(udp_mode), keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000), security_settings).await {
                         Ok(session) => {
                             session_spawner.unbounded_send(session).map_err(|err| NetworkError::Generic(err.to_string()))?;
                         }

@@ -51,7 +51,7 @@ pub mod unordered {
     use serde::{Serialize, Deserialize};
 
     /// The past HISTORY_LEN packets arrived will be saved to allow out-of-order delivery of packets
-    pub const HISTORY_LEN: u64 = 50;
+    pub const HISTORY_LEN: u64 = 1024;
     /// Helps ensure that each packet protected is only used once
     ///
     /// packets that get "protected" get a unique packet ID (PID) that gets encrypted with the plaintext to ensure each packet that gets crafted

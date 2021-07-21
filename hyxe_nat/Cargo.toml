@@ -26,8 +26,8 @@ net2 = "0.2.37"
 anyhow = "1.0.42"
 serde = { version = "1.0.126", features = ["derive"]}
 log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
+bincode2 = "2.0.1"
 
 [dev-dependencies]
 net2 = "0.2.34"
 env_logger = "0.7.1"
-bincode2 = "2.0.1"
