@@ -270,7 +270,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: S
                     // Localhost testing problem: The hole puncher may not have finished by the time this gets called, and thus the state would not
                     // have updated (yet).
                     log::info!("RECV SUCCESS? {}", receiver_success);
-                    if receiver_success && this_node_last_state == packet_flags::cmd::aux::do_preconnect::SUCCESS {
+                    if receiver_success {
                         let method = state_container.pre_connect_state.current_nat_traversal_method?;
                         let set = state_container.pre_connect_state.hole_punched.take()?;
                         // If the method used was UPnP, we must tell the adjacent node which ports it must send to in order to reach the local node
