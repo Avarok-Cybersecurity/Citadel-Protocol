@@ -27,7 +27,7 @@ fn setup_log() {
 async fn main() {
     setup_log();
     let nat_type = NatType::identify().await.unwrap();
-    let internal_addr = SocketAddr::new(nat_type.internal_ip().unwrap(), 25025);
+
     log::info!("Local NAT type: {:?}", &nat_type);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:25025").await.unwrap();
     let tt = TimeTracker::new();
@@ -42,6 +42,7 @@ async fn main() {
         log::info!("Client NAT type: {:?}", &client_transfer.nat_type);
         // To connect to their UDP socket, first determine location
         let connect_addr = client_transfer.nat_type.predict_external_addr_from_local_bind_port(25025).unwrap();
+        let internal_addr = SocketAddr::new(client_transfer.nat_type.internal_ip().unwrap(), 25025);
         log::info!("Predicted peer port: {:?}", connect_addr);
 
 
