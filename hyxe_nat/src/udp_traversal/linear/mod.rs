@@ -62,7 +62,11 @@ impl LinearUDPHolePuncher {
         //let external_predicted_addr = peer_external_addr;
         //let internal_addr = adjacent_peer_nat.internal_ip().ok_or_else(|| anyhow::Error::msg("Peer does not have a valid internal IP"))?;
 
-        let possible_endpoints = vec![peer_external_addr, peer_internal_addr];
+        let possible_endpoints = if peer_internal_addr == peer_external_addr {
+            vec![peer_external_addr]
+        } else {
+            vec![peer_external_addr, peer_internal_addr]
+        };
 
         Ok(Self { method3: (false, method3), upnp_handler: (false, None), local_nat_type, adjacent_peer_nat, socket: Some(socket), possible_endpoints })
     }
@@ -142,8 +146,8 @@ impl LinearUDPHolePuncher {
     }
 
     #[allow(dead_code)]
-    fn peer_internal_addr(&self) -> SocketAddr {
-        self.possible_endpoints[1].clone()
+    fn peer_internal_addr(&self) -> Option<SocketAddr> {
+        self.possible_endpoints.get(0).cloned()
     }
 
     pub async fn try_next(&mut self) -> Result<HolePunchedUdpSocket, FirewallError> {
