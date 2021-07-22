@@ -5,7 +5,7 @@ pub mod linear;
 
 pub mod hole_punched_udp_socket_addr;
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum NatTraversalMethod {
     UPnP,
     Method3,
