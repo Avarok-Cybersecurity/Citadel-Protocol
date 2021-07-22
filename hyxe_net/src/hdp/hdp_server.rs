@@ -104,7 +104,7 @@ impl HdpServer {
         let time_tracker = TimeTracker::new();
         let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager, time_tracker.clone());
 
-        let nat_type = NatType::identify().await.map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))?;
+        let nat_type = NatType::identify().await.ok().unwrap_or_default();
         let inner = HdpServerInner {
             underlying_proto,
             local_bind_addr,

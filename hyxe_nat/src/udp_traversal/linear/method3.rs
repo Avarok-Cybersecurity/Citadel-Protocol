@@ -39,6 +39,7 @@ impl Method3 {
     ///
     /// Note! The endpoints should be the port-predicted addrs
     async fn execute_either(&self, sockets_init: &mut Vec<UdpSocket>, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedUdpSocket, FirewallError> {
+        let default_ttl = sockets_init[0].ttl().map_err(|err| FirewallError::HolePunch(err.to_string()))?;
         let ref sockets = sockets_init.iter().map(|r| r).collect::<Vec<&UdpSocket>>();
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
         // 400ms window
@@ -60,55 +61,45 @@ impl Method3 {
 
         let sender_task = async move {
             tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
-            let mut messages_syn = Vec::with_capacity(sockets.len());
-            let ttl = 2;
-            let ref syn_packet = bincode2::serialize(&NatPacket::Syn(ttl)).unwrap();
-            for sck in sockets {
-                // set TTL low
-                sck.set_ttl(ttl).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                messages_syn.push(encryptor.generate_packet(syn_packet))
-            }
-
-            let messages_syn = messages_syn.iter().map(|r| r.as_ref()).collect::<Vec<&[u8]>>();
-
-            let mut sleep = tokio::time::interval(Duration::from_millis(20));
-
-            for _ in 0..5 {
-                let _ = sleep.tick().await;
-                for ((socket, message), endpoint) in sockets.iter().zip(messages_syn.iter()).zip(endpoints.iter()) {
-                    log::info!("Sending short TTL {:?} to {}", *message, endpoint);
-                    socket.send_to(*message, endpoint).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                }
-            }
-
-            let mut messages_syn = Vec::with_capacity(sockets.len());
-            let ttl = 120;
-            let ref syn_packet = bincode2::serialize(&NatPacket::Syn(ttl)).unwrap();
-            // set TTL long. 400ms window
-            for sck in sockets {
-                sck.set_ttl(ttl).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                messages_syn.push(encryptor.generate_packet(syn_packet))
-            }
-
-            let mut iter = tokio::time::interval(Duration::from_millis(20));
-            for _ in 0..5 {
-                let _ = iter.tick().await;
-                for ((socket, endpoint), message) in sockets.iter().zip(endpoints.iter()).zip(messages_syn.iter()) {
-                    log::info!("Sending long TTL {:?} to {}", &message, endpoint);
-                    socket.send_to(&message, endpoint).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                }
-            }
+            Self::send_syn_barrage(2, sockets, endpoints, encryptor).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            Self::send_syn_barrage(120, sockets, endpoints, encryptor).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
 
             Ok(()) as Result<(), FirewallError>
         };
 
         let (res0, _) = tokio::join!(receiver_task, sender_task);
         let (idx, hole_punched_addr) = res0?;
-        let ret = HolePunchedUdpSocket { socket: sockets_init.remove(idx), addr: hole_punched_addr };
+        let socket = sockets_init.remove(idx);
+        socket.set_ttl(default_ttl).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+        let ret = HolePunchedUdpSocket { socket, addr: hole_punched_addr };
 
         log::info!("Completed hole-punch...");
 
         Ok(ret)
+    }
+
+    async fn send_syn_barrage(ttl: u32, sockets: &Vec<&UdpSocket>, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer) -> Result<(), anyhow::Error> {
+        let mut messages_syn = Vec::with_capacity(sockets.len());
+        let ref syn_packet = bincode2::serialize(&NatPacket::Syn(ttl)).unwrap();
+        for sck in sockets {
+            // set TTL low
+            sck.set_ttl(ttl)?;
+            messages_syn.push(encryptor.generate_packet(syn_packet))
+        }
+
+        let messages_syn = messages_syn.iter().map(|r| r.as_ref()).collect::<Vec<&[u8]>>();
+
+        let mut sleep = tokio::time::interval(Duration::from_millis(20));
+
+        for _ in 0..5 {
+            let _ = sleep.tick().await;
+            for ((socket, message), endpoint) in sockets.iter().zip(messages_syn.iter()).zip(endpoints.iter()) {
+                log::info!("Sending TTL={} to {}", ttl, endpoint);
+                socket.send_to(*message, endpoint).await?;
+            }
+        }
+
+        Ok(())
     }
 
     // Handles the reception of packets, as well as sending/awaiting for a verification
