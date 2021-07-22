@@ -169,7 +169,7 @@ pub struct HdpSessionInner {
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
     pub(super) session_manager: HdpSessionManager,
     pub(super) state: DualCell<SessionState>,
-    pub(super) p2p_listener_bind_port: DualLateInit<Option<u16>>,
+    pub(super) implicated_user_p2p_internal_listener_addr: DualLateInit<Option<SocketAddr>>,
     pub(super) state_container: StateContainer,
     pub(super) account_manager: AccountManager,
     pub(super) time_tracker: TimeTracker,
@@ -242,7 +242,7 @@ impl HdpSession {
         let udp_mode = DualCell::new(udp_mode);
 
         let mut inner = HdpSessionInner {
-            p2p_listener_bind_port: DualLateInit::default(),
+            implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
             local_nat_type,
             adjacent_nat_type: DualLateInit::default(),
             p2p_session_tx: DualLateInit::default(),
@@ -293,7 +293,7 @@ impl HdpSession {
         let state = DualCell::new(SessionState::SocketJustOpened);
 
         let inner = HdpSessionInner {
-            p2p_listener_bind_port: DualLateInit::default(),
+            implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
             local_nat_type,
             adjacent_nat_type: DualLateInit::default(),
             p2p_session_tx: DualLateInit::default(),
@@ -354,7 +354,7 @@ impl HdpSession {
             let (p2p_session_tx, p2p_session_rx) = unbounded();
 
             if let Some(ref p2p_listener) = p2p_listener {
-                this.p2p_listener_bind_port.set_once(Some(p2p_listener.local_addr().map_err(|err| (NetworkError::Generic(err.to_string()), None))?.port()))
+                this.implicated_user_p2p_internal_listener_addr.set_once(Some(p2p_listener.local_addr().map_err(|err| (NetworkError::Generic(err.to_string()), None))?))
             }
 
             let p2p_listener = p2p_listener.map(|r| (r, p2p_session_rx));
@@ -514,7 +514,7 @@ impl HdpSession {
                 log::info!("Beginning pre-connect subroutine!");
                 let session_ref = session;
                 let udp_mode = session_ref.udp_mode.get();
-                let local_peer_listener_port = session_ref.p2p_listener_bind_port.clone().ok_or(NetworkError::InternalError("Local listener port not loaded"))?;
+                let local_peer_listener_addr = session_ref.implicated_user_p2p_internal_listener_addr.clone().ok_or(NetworkError::InternalError("Local listener port not loaded"))?;
                 let timestamp = session_ref.time_tracker.get_global_time_ns();
                 let cnac = cnac.as_ref().unwrap();
                 let session_security_settings = session_ref.security_settings.get().unwrap();
@@ -538,7 +538,7 @@ impl HdpSession {
                 }
 
                 // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
-                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, nat_type, udp_mode, local_peer_listener_port, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode, connect_mode.unwrap_or_default());
+                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, nat_type, udp_mode, local_peer_listener_addr, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode, connect_mode.unwrap_or_default());
 
                 state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
                 state_container.pre_connect_state.constructor = Some(alice_constructor);

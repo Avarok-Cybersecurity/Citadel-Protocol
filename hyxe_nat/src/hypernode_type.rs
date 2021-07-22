@@ -18,7 +18,7 @@ impl HyperNodeType {
 }
 
 /// Used for determining the proper action when loading the server
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum HyperNodeType {
     /// A server with a static IP address will choose this option
     GloballyReachable,

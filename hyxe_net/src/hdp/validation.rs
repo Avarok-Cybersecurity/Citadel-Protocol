@@ -239,10 +239,9 @@ pub(crate) mod pre_connect {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{packet_sizes, HdpPacket};
     use crate::hdp::hdp_packet_processor::includes::SocketAddr;
-    use std::str::FromStr;
     use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
     use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
-    use crate::hdp::hdp_packet_crafter::pre_connect::SynPacket;
+    use crate::hdp::hdp_packet_crafter::pre_connect::{SynPacket, PreConnectStage0, PreConnectStage1};
     use hyxe_fs::io::SyncIO;
     use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
     use hyxe_user::prelude::ConnectProtocol;
@@ -253,12 +252,7 @@ pub(crate) mod pre_connect {
     use hyxe_nat::nat_identification::NatType;
     use crate::hdp::hdp_packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;
 
-    // +1 for node type, +2 for minimum 1 wave port inscribed
-    const STAGE0_MIN_PAYLOAD_LEN: usize = 1 + 2;
-    // +1 for node type, +1 for nat traversal type, +8 for sync_time, +2 for minimum 1 wave port inscribed
-    const STAGE1_MIN_PAYLOAD_LEN: usize = 1 + 1 + 8 + 2;
-
-    pub fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType, u16), NetworkError> {
+    pub fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType, SocketAddr), NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
@@ -280,7 +274,7 @@ pub(crate) mod pre_connect {
 
         let session_security_settings = transfer.session_security_settings;
         let peer_only_connect_mode = transfer.peer_only_connect_protocol;
-        let peer_listener_port = transfer.peer_listener_port;
+        let peer_listener_internal_addr = transfer.peer_listener_internal_addr;
         let nat_type = transfer.nat_type;
         let udp_mode = transfer.udp_mode;
         let kat = transfer.keep_alive_timeout;
@@ -295,7 +289,7 @@ pub(crate) mod pre_connect {
         let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_hyper_ratchet));
 
         cnac.replace_toolset(toolset);
-        Ok((static_auxiliary_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type, peer_listener_port))
+        Ok((static_auxiliary_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type, peer_listener_internal_addr))
     }
 
     /// This returns an error if the packet is maliciously invalid (e.g., due to a false packet)
@@ -319,58 +313,18 @@ pub(crate) mod pre_connect {
 
     // Returns the adjacent node type, wave ports, and external IP. Serverside, we do not update the CNAC's toolset until this point
     // because we want to make sure the client passes the challenge
-    pub fn validate_stage0<'a>(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<(HyperNodeType, Vec<u16>, SocketAddr)> {
+    pub fn validate_stage0(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<HyperNodeType> {
         let (header, payload, _, _) = packet.decompose();
-        let (header, payload) = super::aead::validate_custom(hyper_ratchet, &header, payload)?;
-        if payload.len() < STAGE0_MIN_PAYLOAD_LEN {
-            return None;
-        }
-
-        if header.drill_version.get() != hyper_ratchet.version() {
-            log::error!("Header drill version not equal to the new base drill");
-            None
-        } else {
-            let adjacent_node_type = HyperNodeType::from_byte(payload[0])?;
-            let external_ip_len = header.context_info.get() as usize;
-            let remaining_bytes = &payload[1..];
-            if remaining_bytes.len() < external_ip_len {
-                log::error!("External IP not encoded properly");
-                return None;
-            }
-
-            let external_ip_bytes = String::from_utf8((&remaining_bytes[..external_ip_len]).to_vec()).ok()?;
-            let external_ip = SocketAddr::from_str(&external_ip_bytes).ok()?;
-            log::info!("External IP: {:?}", &external_ip);
-            let port_bytes = &remaining_bytes[external_ip_len..];
-            if port_bytes.len() % 2 != 0 {
-                log::error!("Bad port bytes len");
-                return None;
-            }
-            // Remember: these wll be the UPnP ports if the other end already enabled UPnP. We figure that out later in the stage1 process that calls this closure
-            let ports = ports_from_bytes(port_bytes);
-            Some((adjacent_node_type, ports, external_ip))
-        }
+        let (_header, payload) = super::aead::validate_custom(hyper_ratchet, &header, payload)?;
+        let packet = PreConnectStage0::deserialize_from_vector(&payload).ok()?;
+        Some(packet.node_type)
     }
 
-    pub fn validate_stage1(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<(HyperNodeType, NatTraversalMethod, i64, Vec<u16>)> {
+    pub fn validate_stage1(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<(HyperNodeType, NatTraversalMethod, i64)> {
         let (header, payload, _, _) = packet.decompose();
         let (_header, payload) = super::aead::validate_custom(hyper_ratchet,&header, payload)?;
-        if payload.len() < STAGE1_MIN_PAYLOAD_LEN {
-            log::error!("Bad payload len");
-            return None;
-        }
-
-        let adjacent_node_type = HyperNodeType::from_byte(payload[0])?;
-        let nat_traversal_method = NatTraversalMethod::from_byte(payload[1])?;
-        let sync_time = NetworkEndian::read_i64(&payload[2..10]);
-        let port_bytes = &payload[10..];
-        if port_bytes.len() % 2 != 0 {
-            log::error!("Bad port bytes len");
-            return None;
-        }
-
-        let adjacent_ports = ports_from_bytes(port_bytes);
-        Some((adjacent_node_type, nat_traversal_method, sync_time, adjacent_ports))
+        let packet = PreConnectStage1::deserialize_from_vector(&payload).ok()?;
+        Some((packet.node_type, packet.initial_nat_traversal_method, packet.sync_time))
     }
 
     pub fn validate_try_next(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<(HyperRatchet, NatTraversalMethod)> {

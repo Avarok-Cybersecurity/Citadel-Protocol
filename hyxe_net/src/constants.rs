@@ -1,20 +1,10 @@
 use crate::hdp::peer::peer_layer::UdpMode;
 
-pub const BUILD_VERSION: usize = 7093;
-/// Signal for closing the stream_wrapper
-pub const STREAM_SHUTDOWN: u8 = 0;
-/// Signal for restarting the stream_wrapper
-pub const STREAM_RESTART: u8 = 1;
-/// Each [HdpSession] will be polled twice per second to ensure validity of connection
-pub const CONNECTION_HANDLER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1000);
-/// If NoDelay is set, then wave packets are sent outbound immediately
-pub const HDP_NODELAY: bool = false;
-/// by default, TCP_ONLY is true since the MQ-UDP is experimental
+pub const BUILD_VERSION: usize = 7114;
+/// by default, the UDP is not initialized
 pub const UDP_MODE: UdpMode = UdpMode::Disabled;
 /// Setting this option to zero will imply an RST gets sent once close() is called. This will lead to packets possibly being undelivered
 pub const DEFAULT_SO_LINGER_TIME: std::time::Duration = std::time::Duration::from_millis(1000);
-/// Id HDP_NODELAY is false, then the payload of a wave is sent after HDP_WAVE_PAYLOAD_DELAY time
-pub const HDP_WAVE_PAYLOAD_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 /// For calculating network latency
 pub const NANOSECONDS_PER_SECOND: i64 = 1_000_000_000;
 /// The length of an ethernet header. Source: `<https://app.netrounds.com/static/2.24/support/defs-notes/l2-eth-frame-sizes.html>`

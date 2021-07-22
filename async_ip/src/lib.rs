@@ -14,17 +14,19 @@ use std::net::{IpAddr, SocketAddr};
 use reqwest::Client;
 use std::str::FromStr;
 
-const URL: &str = "https://api64.ipify.org";
+const URL_V6: &str = "https://api64.ipify.org";
+const URL_V4: &str = "https://api.ipify.org";
 
 /// Asynchronously gets the IP address of this node. If `prefer_ipv6` is true, then the client will
 /// attempt to get the IP address; however, if the client is using an IPv4 address, that will be returned
 /// instead.
 ///
 /// If a reqwest client is supplied, this function will use that client to get the information. None by default.
-pub async fn get_ip(client: Option<Client>) -> Result<IpAddr, IpRetrieveError> {
+pub async fn get_ip(client: Option<Client>, ipv6: bool) -> Result<IpAddr, IpRetrieveError> {
     let client = client.unwrap_or_else(|| { Client::new() });
 
-    let resp = client.get(URL).send().await.map_err(|err| IpRetrieveError::Error(err.to_string()))?;
+    let addr = if ipv6 { URL_V6 } else { URL_V4 };
+    let resp = client.get(addr).send().await.map_err(|err| IpRetrieveError::Error(err.to_string()))?;
     let text = resp.text().await.map_err(|err| IpRetrieveError::Error(err.to_string()))?;
     IpAddr::from_str(text.as_str()).map_err(|err| IpRetrieveError::Error(err.to_string()))
 }
