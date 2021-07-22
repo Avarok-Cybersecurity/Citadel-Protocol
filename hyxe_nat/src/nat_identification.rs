@@ -43,6 +43,12 @@ pub enum TraversalTypeRequired {
     TURN,
 }
 
+impl Default for NatType {
+    fn default() -> Self {
+        NatType::Unknown
+    }
+}
+
 impl NatType {
     /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
     pub async fn identify() -> Result<Self, FirewallError> {
@@ -82,22 +88,28 @@ impl NatType {
     pub fn get_connect_data(&self, local_port: u16) -> Option<(SocketAddr, SocketAddr)> {
         match self {
             Self::EIM(addr) => Some((*addr, *addr)),
-            Self::EDM(ip_addr, delta) => Some((SocketAddr::new(IpAddr::from([0,0,0,0]), local_port), SocketAddr::new(*ip_addr, (local_port as i32 + *delta) as u16))),
+            Self::EDM(ip_addr, delta) => Some((SocketAddr::new(IpAddr::from([0, 0, 0, 0]), local_port), SocketAddr::new(*ip_addr, (local_port as i32 + *delta) as u16))),
             _ => None
         }
     }
 
     pub fn predict_external_addr_from_local_bind_port(&self, local_bind_port: u16) -> Option<SocketAddr> {
-        self.get_connect_data(local_bind_port).map(|r|r.1)
+        self.get_connect_data(local_bind_port).map(|r| r.1)
     }
 }
 
 async fn get_nat_type() -> Result<NatType, anyhow::Error> {
     let mut msg = Message::new();
+    //msg.add(ATTR_CHANGE_REQUEST, b"Hello to the world!!!!!!");
     msg.build(&[
         Box::new(TransactionId::default()),
-        Box::new(BINDING_REQUEST),
+        Box::new(BINDING_REQUEST)
     ])?;
+
+    //let init_socket = get_reuse_udp_socket::<(IpAddr, u16)>(None)?;
+    //let bind_addr = init_socket.local_addr()?;
+
+    //std::mem::drop(init_socket);
 
     let ref msg = msg;
 
@@ -106,6 +118,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
     for server in STUN_SERVERS.iter() {
         let task = async move {
             let udp_sck = UdpSocket::bind(V4_BIND_ADDR).await?;
+            //let udp_sck = get_reuse_udp_socket(Some(bind_addr))?;
             let new_bind_addr = udp_sck.local_addr()?;
             let conn = Arc::new(udp_sck);
             conn.connect(server).await?;
@@ -125,7 +138,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
 
                         log::info!("Hole-punched ADDR: {:?} | internal: {:?}", natted_addr, new_bind_addr);
 
-                        return Ok(Some((natted_addr, new_bind_addr)))
+                        return Ok(Some((natted_addr, new_bind_addr)));
                     }
                     Err(err) => log::info!("{:?}", err),
                 };
@@ -178,9 +191,38 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
     }
 }
 
+/*
+fn get_reuse_udp_socket<T: std::net::ToSocketAddrs>(addr: Option<T>) -> Result<UdpSocket, anyhow::Error> {
+    let addr: SocketAddr = if let Some(addr) = addr {
+        addr.to_socket_addrs()?.next().ok_or(anyhow::Error::msg("No sockets"))?
+    } else {
+        SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0)
+    };
+
+    #[cfg(all(unix, not(any(target_os = "solaris", target_os = "illumos"))))]
+        {
+            use net2::unix::UnixUdpBuilderExt;
+
+            let builder = net2::UdpBuilder::new_v4()?;
+            Ok(builder.reuse_address(true)?.reuse_port(true)?.bind(addr).and_then(|r| {
+                r.set_nonblocking(true)?;
+                tokio::net::UdpSocket::from_std(r)
+            })?)
+        }
+    #[cfg(not(all(unix, not(any(target_os = "solaris", target_os = "illumos")))))]
+        {
+            let builder = net2::UdpBuilder::new_v4()?;
+            Ok(builder.reuse_address(true)?.bind(addr).and_then(|r| {
+                r.set_nonblocking(true)?;
+                tokio::net::UdpSocket::from_std(r)
+            })?)
+        }
+}*/
+
 #[cfg(test)]
 mod tests {
-    use crate::nat_identification::NatType;
+    use crate::nat_identification::{NatType, get_routelen_to};
+    use std::time::Duration;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");

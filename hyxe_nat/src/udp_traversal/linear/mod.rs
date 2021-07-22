@@ -104,9 +104,9 @@ impl LinearUDPHolePuncher {
                     let initial_socket = adjacent_endpoint.clone();
                     // The return address will appear as the natted socket below because the adjacent endpoint must send through the reserve port
                     let natted_socket = SocketAddr::new(adjacent_endpoint.ip(), reserved_port);
-                    println!("[UPnP]: Opened port {}", reserved_port);
+                    log::info!("[UPnP]: Opened port {}", reserved_port);
                     let hole_punched_socket = HolePunchedSocketAddr::new(initial_socket, natted_socket);
-                    println!("[UPnP] {}", &hole_punched_socket);
+                    log::info!("[UPnP] {}", &hole_punched_socket);
                     ret.push(hole_punched_socket);
                 }
 
@@ -209,7 +209,7 @@ pub trait LinearUdpHolePunchImpl {
     /// Passes the outbound sender to the hole puncher. Supplied by hyxe_net.
     /// This should be ran on its own async task to not block
     ///
-    /// Returns the NAT ports which this node can send packets to. (nat_ip, nat_port[..])
+    /// Returns the first successful hole-punched UDP socket
     ///
     /// `endpoint`: is the initial send location
     /// `sockets`: Must be the same length as the base_local_ports
