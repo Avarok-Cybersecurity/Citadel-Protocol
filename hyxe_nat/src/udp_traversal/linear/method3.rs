@@ -68,7 +68,7 @@ impl Method3 {
     }
 
     async fn send_syn_barrage(ttl: u32, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64) -> Result<(), anyhow::Error> {
-        let ref syn_packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap());
+        //let ref syn_packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap());
         socket.set_ttl(ttl)?;
 
         let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
@@ -78,7 +78,7 @@ impl Method3 {
             let _ = sleep.tick().await;
             for endpoint in endpoints {
                 log::info!("Sending TTL={} to {}", ttl, endpoint);
-                socket.send_to(syn_packet, endpoint).await?;
+                socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap()), endpoint).await?;
             }
         }
 
