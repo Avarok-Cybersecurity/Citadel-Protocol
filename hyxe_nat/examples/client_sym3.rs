@@ -5,7 +5,6 @@ use hyxe_nat::time_tracker::TimeTracker;
 use std::time::Duration;
 use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
 use hyxe_nat::udp_traversal::NatTraversalMethod;
-use tokio::net::UdpSocket;
 use std::net::{IpAddr, SocketAddr};
 
 #[derive(Serialize, Deserialize)]
@@ -28,7 +27,7 @@ fn setup_log() {
 async fn main() {
     setup_log();
     let nat_type = NatType::identify().await.unwrap();
-    let internal_addr = SocketAddr::new(nat_type.internal_ip().unwrap(), 25025);
+
     let tt = TimeTracker::new();
     log::info!("Local NAT type: {:?}", &nat_type);
     let mut server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025").await.unwrap();
@@ -43,13 +42,14 @@ async fn main() {
     server_stream.write_all(&bincode2::serialize(&Transfer { nat_type: nat_type.clone(), sync_time: Some(sync_time) }).unwrap()).await.unwrap();
 
     let predicted_endpoint = server_transfer.nat_type.predict_external_addr_from_local_bind_port(25025).unwrap();
+    let internal_addr = SocketAddr::new(server_transfer.nat_type.internal_ip().unwrap(), 25025);
     log::info!("Predicted server endpoint: {:?}", predicted_endpoint);
 
     // wait for synchronization
     tokio::time::sleep(Duration::from_nanos(delay_ns as _)).await;
 
     // setup hole punching
-    let mut hole_puncher = LinearUDPHolePuncher::new_initiator(nat_type, Default::default(), server_transfer.nat_type, SocketAddr::new(IpAddr::from([0,0,0,0]), 25025), predicted_endpoint, internal_addr);
+    let mut hole_puncher = LinearUDPHolePuncher::new_initiator(nat_type, Default::default(), server_transfer.nat_type, SocketAddr::new(IpAddr::from([0,0,0,0]), 25025), predicted_endpoint, internal_addr).unwrap();
     let ref hole_punched_socket = hole_puncher.try_method(NatTraversalMethod::Method3).await.unwrap();
 
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
