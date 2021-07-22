@@ -233,17 +233,24 @@ impl HdpServer {
 
     pub fn create_tcp_listen_socket<T: ToSocketAddrs>(underlying_proto: UnderlyingProtocol, full_bind_addr: T) -> io::Result<(GenericNetworkListener, SocketAddr)> {
         let bind: SocketAddr = full_bind_addr.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-
-        if bind.is_ipv4() {
-            let ref builder = net2::TcpBuilder::new_v4()?;
-            Self::bind_defaults(underlying_proto, builder, bind, 1024)
-        } else {
-            let builder = net2::TcpBuilder::new_v6()?;
-            Self::bind_defaults(underlying_proto, builder.only_v6(false)?, bind, 1024)
-        }
+        Self::bind_defaults(underlying_proto, bind, 1024)
     }
 
-    fn bind_defaults(underlying_proto: UnderlyingProtocol, builder: &net2::TcpBuilder, bind: SocketAddr, backlog: i32) -> io::Result<(GenericNetworkListener, SocketAddr)> {
+    fn bind_defaults(underlying_proto: UnderlyingProtocol, bind: SocketAddr, backlog: i32) -> io::Result<(GenericNetworkListener, SocketAddr)> {
+        hyxe_nat::socket_helpers::get_reuse_tcp_listener(bind, backlog)
+            .and_then(|listener| {
+                match underlying_proto {
+                    UnderlyingProtocol::Tcp => {
+                        Ok((GenericNetworkListener::Tcp(listener), bind))
+                    }
+
+                    UnderlyingProtocol::Tls(identity, domain) => {
+                        let tls_listener = TlsListener::new(listener, identity, domain.unwrap_or_else(|| "".to_string()))?;
+                        Ok((GenericNetworkListener::Tls(tls_listener), bind))
+                    }
+                }
+            }).map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))
+            /*
         builder
             //.reuse_address(true)?
             .bind(bind)?
@@ -266,25 +273,26 @@ impl HdpServer {
                         Ok((GenericNetworkListener::Tls(tls_listener), bind))
                     }
                 }
-            })
+            })*/
     }
 
     /// Returns a TcpStream to the remote addr, as well as a local TcpListener on the same bind addr going to remote
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
+    ///
+    /// The remote is usually the central server. Then the P2P listener binds to it to allow NATs to keep the hole punched
     pub(crate) async fn create_init_tcp_listener<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
+        // We start by creating a client to server connection
         let stream = Self::create_tcp_connect_socket(remote, None).await?;
 
         // We bind to the addr from the source socket_addr the stream has reserved for NAT traversal purposes
         // TODO: NOTE! We CANNOT bind to this address otherwise there will be overlapping TCP connections from the SO_REUSEADDR, causing stream CORRUPTION under high traffic loads. This was proven to exist from stress-testing this protocol
+        // Wait ... maybe not? Jul 22 2021
+        // We obtain the bind addr of the client-to-server connection for NAT traversal purposes
         let stream_bind_addr = stream.local_addr()?;
 
-        let (p2p_listener, _stream_bind_addr) = if stream_bind_addr.is_ipv4() {
-            let ref builder = net2::TcpBuilder::new_v4()?;
-            Self::bind_defaults(listener_underlying_proto, builder, SocketAddr::new(stream_bind_addr.ip(), 0), 1024)?
-        } else {
-            let builder = net2::TcpBuilder::new_v6()?;
-            Self::bind_defaults(listener_underlying_proto,builder.only_v6(false)?, SocketAddr::new(stream_bind_addr.ip(), 0), 1024)?
-        };
+        // we then bind a listener to the same local addr as the connection to the central server. The central server just needs to share the external addr with each peer to know where to connect
+        let (p2p_listener, _) = Self::bind_defaults(listener_underlying_proto,SocketAddr::new(stream_bind_addr.ip(), stream_bind_addr.port()), 1024)?;
+
         Self::open_tcp_port(stream_bind_addr.port());
 
         Ok((p2p_listener, stream))
@@ -296,7 +304,7 @@ impl HdpServer {
     }
 
     pub async fn connect_defaults(timeout: Option<Duration>, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
-        let mut stream = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), tokio::task::spawn_blocking(move || {
+        /*let mut stream = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), tokio::task::spawn_blocking(move || {
             let std_stream = if remote.is_ipv4() {
                 net2::TcpBuilder::new_v4()?
                     //.reuse_address(true)?
@@ -311,13 +319,11 @@ impl HdpServer {
             std_stream.set_nonblocking(true)?;
 
             let stream = tokio::net::TcpStream::from_std(std_stream)?;
-            //stream.set_linger(Some(tokio::time::Duration::from_secs(0)))?;
-            //stream.set_linger(Some(DEFAULT_SO_LINGER_TIME))?;
-            //stream.set_nodelay(true)?;
-            //stream.set_keepalive(None)?;
 
             Ok(stream) as std::io::Result<tokio::net::TcpStream>
-        })).await???;
+        })).await???;*/
+
+        let mut stream = hyxe_nat::socket_helpers::get_reuse_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT)).await.map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
         //let mut stream = tokio::net::TcpStream::connect(remote).await?;
         //stream.set_linger(Some(DEFAULT_SO_LINGER_TIME))?;
 

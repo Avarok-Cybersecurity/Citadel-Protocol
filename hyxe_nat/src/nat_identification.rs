@@ -19,18 +19,23 @@ const STUN_SERVERS: [&str; 3] = ["global.stun.twilio.com:3478",
 const V4_BIND_ADDR: &str = "0.0.0.0:0";
 const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(5000);
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NatType {
     /// ip_int:port_in == ip_ext:port_ext
-    EIM(SocketAddr),
+    EIM(SocketAddr, InternalIP),
     /// Predictable Endpoint dependent Mapping NAT. Contains the detected delta.
-    EDM(IpAddr, i32),
+    EDM(IpAddr, InternalIP, i32),
     /// Unpredictable Endpoint dependent Mapping NAT. Contains the detected IPs.
-    EDMRandomIp(Vec<IpAddr>),
+    EDMRandomIp(Vec<IpAddr>, InternalIP),
     /// Unpredictable Endpoint dependent Mapping NAT. Contains the detected ports.
-    EDMRandomPort(IpAddr, Vec<u16>),
+    EDMRandomPort(IpAddr, InternalIP, Vec<u16>),
     /// Unknown or could not be determined
     Unknown,
+}
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+pub struct InternalIP {
+    pub inner: IpAddr
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
@@ -70,8 +75,8 @@ impl NatType {
     pub fn traversal_type_required(&self) -> TraversalTypeRequired {
         match self {
             NatType::EIM(..) => TraversalTypeRequired::Linear,
-            NatType::EDM(_, 0) => TraversalTypeRequired::Linear,
-            NatType::EDM(_, n) => TraversalTypeRequired::Delta(*n),
+            NatType::EDM(_,_, 0) => TraversalTypeRequired::Linear,
+            NatType::EDM(_, _, n) => TraversalTypeRequired::Delta(*n),
             _ => TraversalTypeRequired::TURN
         }
     }
@@ -87,8 +92,8 @@ impl NatType {
     /// When a peer A receives peer B's NatType, peer A should call this function to determine where to connect to
     pub fn get_connect_data(&self, local_port: u16) -> Option<(SocketAddr, SocketAddr)> {
         match self {
-            Self::EIM(addr) => Some((*addr, *addr)),
-            Self::EDM(ip_addr, delta) => Some((SocketAddr::new(IpAddr::from([0, 0, 0, 0]), local_port), SocketAddr::new(*ip_addr, (local_port as i32 + *delta) as u16))),
+            Self::EIM(addr, _) => Some((*addr, *addr)),
+            Self::EDM(ip_addr, _, delta) => Some((SocketAddr::new(IpAddr::from([0, 0, 0, 0]), local_port), SocketAddr::new(*ip_addr, (local_port as i32 + *delta) as u16))),
             _ => None
         }
     }
@@ -96,9 +101,17 @@ impl NatType {
     pub fn predict_external_addr_from_local_bind_port(&self, local_bind_port: u16) -> Option<SocketAddr> {
         self.get_connect_data(local_bind_port).map(|r| r.1)
     }
+
+    pub fn internal_ip(&self) -> Option<IpAddr> {
+        match self {
+            NatType::EIM(_, ip) | NatType::EDM(_, ip, ..) | NatType::EDMRandomIp(_, ip) | NatType::EDMRandomPort(_, ip, _) => Some(ip.inner),
+            _ => None
+        }
+    }
 }
 
 async fn get_nat_type() -> Result<NatType, anyhow::Error> {
+    let internal_ip = InternalIP { inner: async_ip::get_internal_ip(false).await.ok_or_else(|| anyhow::Error::msg("Unable to obtain internal IP"))? };
     let mut msg = Message::new();
     //msg.add(ATTR_CHANGE_REQUEST, b"Hello to the world!!!!!!");
     msg.build(&[
@@ -161,13 +174,13 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
             // if there is zero changes in the mapping, then we have EIM
             if addr_ext == addr_int && addr2_ext == addr2_int && addr3_ext == addr3_int {
                 // It doesn't matter where we connect; we always get the same socket addr
-                return Ok(NatType::EIM(addr_ext));
+                return Ok(NatType::EIM(addr_ext, internal_ip));
             }
 
             // if the external IPs translated during the process, this is bad news
             if (addr_ext.ip() != addr2_ext.ip()) || (addr2_ext.ip() != addr3_ext.ip()) {
                 // this is the worst nat type since ip's are unpredictable. Just use TURN
-                return Ok(NatType::EDMRandomIp(vec![addr_ext.ip(), addr2_ext.ip(), addr3_ext.ip()]));
+                return Ok(NatType::EDMRandomIp(vec![addr_ext.ip(), addr2_ext.ip(), addr3_ext.ip()], internal_ip));
             }
 
             // ips are equal, but ports are unequal (implied by first conditional)
@@ -178,10 +191,10 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
 
             return if (delta0 == delta1) && (delta1 == delta2) {
                 // This means the ports are predictable. Use TCP simultaneous connect on expected ports based on delta. It is expected this data be sent to the peer. The peer will then connect to the socket ip:(LOCAL_BIND_PORT+delta)
-                Ok(NatType::EDM(addr_ext.ip(), delta0))
+                Ok(NatType::EDM(addr_ext.ip(), internal_ip, delta0))
             } else {
                 // the IP's are equal, but, the ports are not predictable; use TURN
-                Ok(NatType::EDMRandomPort(addr_ext.ip(), vec![addr_ext.port(), addr2_ext.port(), addr3_ext.port()]))
+                Ok(NatType::EDMRandomPort(addr_ext.ip(), internal_ip, vec![addr_ext.port(), addr2_ext.port(), addr3_ext.port()]))
             };
         }
 
@@ -221,8 +234,7 @@ fn get_reuse_udp_socket<T: std::net::ToSocketAddrs>(addr: Option<T>) -> Result<U
 
 #[cfg(test)]
 mod tests {
-    use crate::nat_identification::{NatType, get_routelen_to};
-    use std::time::Duration;
+    use crate::nat_identification::NatType;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");

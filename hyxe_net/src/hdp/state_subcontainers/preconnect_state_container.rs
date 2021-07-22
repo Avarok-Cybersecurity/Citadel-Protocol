@@ -1,6 +1,5 @@
 use crate::hdp::hdp_server::Ticket;
 use hyxe_nat::udp_traversal::NatTraversalMethod;
-use tokio::net::UdpSocket;
 use crate::hdp::hdp_packet_processor::includes::Instant;
 use crate::constants::DO_CONNECT_EXPIRE_TIME_MS;
 use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
@@ -15,10 +14,8 @@ pub struct PreConnectState {
     pub(crate) last_stage: u8,
     #[allow(dead_code)]
     pub(crate) adjacent_node_type: Option<HyperNodeType>,
-    pub(crate) adjacent_unnated_ports: Option<Vec<u16>>,
     // This drill should be turned .into() the next toolset once the other side updated
     pub(crate) constructor: Option<HyperRatchetConstructor>,
-    pub(crate) reserved_sockets: Option<Vec<UdpSocket>>,
     pub(crate) hole_punched: Option<HolePunchedUdpSocket>,
     pub(crate) current_nat_traversal_method: Option<NatTraversalMethod>,
     pub(crate) ticket: Option<Ticket>,
@@ -50,7 +47,7 @@ impl PreConnectState {
 
 impl Default for PreConnectState {
     fn default() -> Self {
-        Self { udp_channel_oneshot_tx: UdpChannelSender::empty(), constructor: None, hole_punched: None, hole_puncher: None, last_packet_time: None, reserved_sockets: None, adjacent_unnated_ports: None, last_stage: 0, adjacent_node_type: None, success: false, nat_traversal_attempts: 0, current_nat_traversal_method: None, ticket: None }
+        Self { udp_channel_oneshot_tx: UdpChannelSender::empty(), constructor: None, hole_punched: None, hole_puncher: None, last_packet_time: None, last_stage: 0, adjacent_node_type: None, success: false, nat_traversal_attempts: 0, current_nat_traversal_method: None, ticket: None }
     }
 }
 

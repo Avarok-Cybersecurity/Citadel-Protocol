@@ -531,12 +531,12 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             // this gives peer A the socket of peer B and vice versa
 
             let peer_nat = session.adjacent_nat_type.clone()?;
-            let peer_unnated_listener_port = session.p2p_listener_bind_port.clone()?;
-            let peer_remote_ip = session.remote_peer.ip();
+            let peer_internal_listener_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
+            let peer_remote_addr_visible_from_server = session.remote_peer;
 
             let peer_nat_info = PeerNatInfo {
-                peer_remote_ip,
-                peer_unnated_listener_port,
+                peer_remote_addr_visible_from_server,
+                peer_internal_listener_addr,
                 peer_nat
             };
 

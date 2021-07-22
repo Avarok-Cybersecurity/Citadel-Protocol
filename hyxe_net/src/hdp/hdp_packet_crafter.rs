@@ -1018,7 +1018,6 @@ pub(crate) mod pre_connect {
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags, packet_sizes};
     use crate::hdp::hdp_packet::packet_flags::payload_identifiers;
     use crate::hdp::hdp_packet_processor::includes::SocketAddr;
-    use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use hyxe_crypt::toolset::StaticAuxRatchet;
     use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
@@ -1040,11 +1039,11 @@ pub(crate) mod pre_connect {
         pub connect_mode: ConnectMode,
         pub nat_type: NatType,
         pub udp_mode: UdpMode,
-        pub peer_listener_port: u16,
+        pub peer_listener_internal_addr: SocketAddr,
         pub keep_alive_timeout: i64
     }
 
-    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, nat_type: NatType, udp_mode: UdpMode, peer_listener_port: u16, timestamp: i64, keep_alive_timeout: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol, connect_mode: ConnectMode) -> BytesMut {
+    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, nat_type: NatType, udp_mode: UdpMode, peer_listener_internal_addr: SocketAddr, timestamp: i64, keep_alive_timeout: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol, connect_mode: ConnectMode) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN,
@@ -1062,7 +1061,7 @@ pub(crate) mod pre_connect {
         let mut packet  = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        SynPacket { transfer, session_security_settings, peer_only_connect_protocol, connect_mode, udp_mode, keep_alive_timeout, nat_type, peer_listener_port }.serialize_into_buf(&mut packet).unwrap();
+        SynPacket { transfer, session_security_settings, peer_only_connect_protocol, connect_mode, udp_mode, keep_alive_timeout, nat_type, peer_listener_internal_addr }.serialize_into_buf(&mut packet).unwrap();
 
         static_aux_hr.protect_message_packet(Some(security_level),HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet
@@ -1099,17 +1098,19 @@ pub(crate) mod pre_connect {
         packet
     }
 
-    // This gets sent from Alice to Bob
-    pub(crate) fn craft_stage0(hyper_ratchet: &HyperRatchet, local_node_type: HyperNodeType, local_wave_ports: &Vec<u16>, timestamp: i64, peer_external_ip: SocketAddr, security_level: SecurityLevel) -> BytesMut {
-        let external_ip_bytes = peer_external_ip.to_string();
-        let external_ip_bytes = external_ip_bytes.as_bytes();
+    #[derive(Serialize, Deserialize)]
+    pub struct PreConnectStage0 {
+        pub node_type: HyperNodeType
+    }
 
+    // This gets sent from Alice to Bob
+    pub(crate) fn craft_stage0(hyper_ratchet: &HyperRatchet, timestamp: i64, node_type: HyperNodeType, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::STAGE0,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(external_ip_bytes.len() as u64),
+            context_info: U64::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1118,22 +1119,24 @@ pub(crate) mod pre_connect {
             target_cid: U64::new(0)
         };
 
-        let wave_ports_inscribe_len = local_wave_ports.len() * 2; //2bytes/u16
-        let packet_len = HDP_HEADER_BYTE_LEN + 1 + external_ip_bytes.len() + wave_ports_inscribe_len;
-        let mut packet = BytesMut::with_capacity(packet_len);
+        let mut packet = BytesMut::new();
         header.inscribe_into(&mut packet);
-        packet.put_u8(local_node_type.into_byte());
-        packet.put(external_ip_bytes);
-        for wave_port in local_wave_ports {
-            packet.put_u16(*wave_port);
-        }
+
+        PreConnectStage0 { node_type }.serialize_into_buf(&mut packet).unwrap();
 
         hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
         packet
     }
 
-    pub(crate) fn craft_stage1(hyper_ratchet: &HyperRatchet, local_node_type: HyperNodeType, local_wave_ports: &Vec<u16>, initial_nat_traversal_method: NatTraversalMethod, timestamp: i64, sync_time: i64, security_level: SecurityLevel) -> BytesMut {
+    #[derive(Serialize, Deserialize)]
+    pub struct PreConnectStage1 {
+        pub node_type: HyperNodeType,
+        pub initial_nat_traversal_method: NatTraversalMethod,
+        pub sync_time: i64
+    }
+
+    pub(crate) fn craft_stage1(hyper_ratchet: &HyperRatchet, node_type: HyperNodeType, initial_nat_traversal_method: NatTraversalMethod, timestamp: i64, sync_time: i64, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::STAGE1,
@@ -1148,18 +1151,9 @@ pub(crate) mod pre_connect {
             target_cid: U64::new(0)
         };
 
-        let wave_ports_inscribe_len = local_wave_ports.len() * 2; //2bytes/u16
-        // +1 for local node type, +1 for nat traversal method
-        let packet_len = HDP_HEADER_BYTE_LEN + 1 + 1 + 8 + wave_ports_inscribe_len + AES_GCM_GHASH_OVERHEAD;
-        let mut packet = BytesMut::with_capacity(packet_len);
+        let mut packet = BytesMut::new();
         header.inscribe_into(&mut packet);
-        packet.put_u8(local_node_type.into_byte());
-        packet.put_u8(initial_nat_traversal_method.into_byte());
-        packet.put_i64(sync_time);
-
-        for wave_port in local_wave_ports {
-            packet.put_u16(*wave_port);
-        }
+        PreConnectStage1 { node_type, initial_nat_traversal_method, sync_time }.serialize_into_buf(&mut packet).unwrap();
 
         hyper_ratchet.protect_message_packet(Some(security_level),HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
@@ -1561,9 +1555,9 @@ pub(crate) mod hole_punch {
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
 
-    pub fn generate_packet(hyper_ratchet: &HyperRatchet, local_port: u16, security_level: SecurityLevel) -> BytesMut {
+    pub fn generate_packet(hyper_ratchet: &HyperRatchet, plaintext: &[u8], security_level: SecurityLevel) -> BytesMut {
         let mut packet = BytesMut::new();
-        packet.put_u16(local_port);
+        packet.put(plaintext);
         hyper_ratchet.protect_message_packet(Some(security_level), 0, &mut packet).unwrap();
 
         packet
