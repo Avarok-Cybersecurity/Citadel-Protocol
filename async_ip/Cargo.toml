@@ -13,3 +13,4 @@ license-file = "LICENSE"
 [dependencies]
 reqwest = "0.11.4"
 tokio = { version = "^1.9.0", features = ["net", "macros"] }
+serde = { version = "1.0.126", features = ["derive"] }
