@@ -4,7 +4,6 @@ use crate::hdp::hdp_packet_processor::includes::Instant;
 use crate::constants::DO_CONNECT_EXPIRE_TIME_MS;
 use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
 use hyxe_nat::hypernode_type::HyperNodeType;
-use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedUdpSocket;
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 use tokio::sync::oneshot::{Sender, Receiver, channel};
 use crate::hdp::peer::channel::UdpChannel;
@@ -16,7 +15,6 @@ pub struct PreConnectState {
     pub(crate) adjacent_node_type: Option<HyperNodeType>,
     // This drill should be turned .into() the next toolset once the other side updated
     pub(crate) constructor: Option<HyperRatchetConstructor>,
-    pub(crate) hole_punched: Option<HolePunchedUdpSocket>,
     pub(crate) current_nat_traversal_method: Option<NatTraversalMethod>,
     pub(crate) ticket: Option<Ticket>,
     pub(crate) last_packet_time: Option<Instant>,
@@ -47,7 +45,7 @@ impl PreConnectState {
 
 impl Default for PreConnectState {
     fn default() -> Self {
-        Self { udp_channel_oneshot_tx: UdpChannelSender::empty(), constructor: None, hole_punched: None, hole_puncher: None, last_packet_time: None, last_stage: 0, adjacent_node_type: None, success: false, nat_traversal_attempts: 0, current_nat_traversal_method: None, ticket: None }
+        Self { udp_channel_oneshot_tx: UdpChannelSender::empty(), constructor: None, hole_puncher: None, last_packet_time: None, last_stage: 0, adjacent_node_type: None, success: false, nat_traversal_attempts: 0, current_nat_traversal_method: None, ticket: None }
     }
 }
 

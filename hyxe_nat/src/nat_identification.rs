@@ -10,6 +10,7 @@ use futures::StreamExt;
 use serde::{Serialize, Deserialize};
 use crate::error::FirewallError;
 use std::time::Duration;
+use async_ip::IpAddressInfo;
 
 const STUN_SERVERS: [&str; 3] = ["global.stun.twilio.com:3478",
     "stun1.l.google.com:19302",
@@ -22,20 +23,15 @@ const IDENTIFY_TIMEOUT: Duration = Duration::from_millis(5000);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NatType {
     /// ip_int:port_in == ip_ext:port_ext
-    EIM(SocketAddr, InternalIP),
+    EIM(SocketAddr, Option<IpAddressInfo>),
     /// Predictable Endpoint dependent Mapping NAT. Contains the detected delta.
-    EDM(IpAddr, InternalIP, i32),
+    EDM(IpAddr, Option<IpAddressInfo>, i32),
     /// Unpredictable Endpoint dependent Mapping NAT. Contains the detected IPs.
-    EDMRandomIp(Vec<IpAddr>, InternalIP),
+    EDMRandomIp(Vec<IpAddr>, Option<IpAddressInfo>),
     /// Unpredictable Endpoint dependent Mapping NAT. Contains the detected ports.
-    EDMRandomPort(IpAddr, InternalIP, Vec<u16>),
+    EDMRandomPort(IpAddr, Option<IpAddressInfo>, Vec<u16>),
     /// Unknown or could not be determined
     Unknown,
-}
-
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
-pub struct InternalIP {
-    pub inner: IpAddr
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd, Serialize, Deserialize)]
@@ -102,106 +98,125 @@ impl NatType {
         self.get_connect_data(local_bind_port).map(|r| r.1)
     }
 
-    pub fn internal_ip(&self) -> Option<IpAddr> {
+    pub fn ip_addr_info(&self) -> Option<&IpAddressInfo> {
         match self {
-            NatType::EIM(_, ip) | NatType::EDM(_, ip, ..) | NatType::EDMRandomIp(_, ip) | NatType::EDMRandomPort(_, ip, _) => Some(ip.inner),
+            NatType::EIM(_, ip) | NatType::EDM(_, ip, ..) | NatType::EDMRandomIp(_, ip) | NatType::EDMRandomPort(_, ip, _) => ip.as_ref(),
             _ => None
+        }
+    }
+
+    fn store_ip_info(&mut self, info: IpAddressInfo) {
+        match self {
+            NatType::EIM(_, ip) | NatType::EDM(_, ip, ..) | NatType::EDMRandomIp(_, ip) | NatType::EDMRandomPort(_, ip, _) => {
+                *ip = Some(info)
+            },
+            _ => {}
         }
     }
 }
 
 async fn get_nat_type() -> Result<NatType, anyhow::Error> {
-    let internal_ip = InternalIP { inner: async_ip::get_internal_ip(false).await.ok_or_else(|| anyhow::Error::msg("Unable to obtain internal IP"))? };
-    let mut msg = Message::new();
-    //msg.add(ATTR_CHANGE_REQUEST, b"Hello to the world!!!!!!");
-    msg.build(&[
-        Box::new(TransactionId::default()),
-        Box::new(BINDING_REQUEST)
-    ])?;
+    let nat_type = async move {
+        let mut msg = Message::new();
+        //msg.add(ATTR_CHANGE_REQUEST, b"Hello to the world!!!!!!");
+        msg.build(&[
+            Box::new(TransactionId::default()),
+            Box::new(BINDING_REQUEST)
+        ])?;
 
-    //let init_socket = get_reuse_udp_socket::<(IpAddr, u16)>(None)?;
-    //let bind_addr = init_socket.local_addr()?;
+        //let init_socket = get_reuse_udp_socket::<(IpAddr, u16)>(None)?;
+        //let bind_addr = init_socket.local_addr()?;
 
-    //std::mem::drop(init_socket);
+        //std::mem::drop(init_socket);
 
-    let ref msg = msg;
+        let ref msg = msg;
 
-    let futures_unordered = FuturesUnordered::new();
+        let futures_unordered = FuturesUnordered::new();
 
-    for server in STUN_SERVERS.iter() {
-        let task = async move {
-            let udp_sck = UdpSocket::bind(V4_BIND_ADDR).await?;
-            //let udp_sck = get_reuse_udp_socket(Some(bind_addr))?;
-            let new_bind_addr = udp_sck.local_addr()?;
-            let conn = Arc::new(udp_sck);
-            conn.connect(server).await?;
-            let (handler_tx, mut handler_rx) = tokio::sync::mpsc::unbounded_channel();
-            log::info!("Connected to STUN server {:?}", server);
+        for server in STUN_SERVERS.iter() {
+            let task = async move {
+                let udp_sck = UdpSocket::bind(V4_BIND_ADDR).await?;
+                //let udp_sck = get_reuse_udp_socket(Some(bind_addr))?;
+                let new_bind_addr = udp_sck.local_addr()?;
+                let conn = Arc::new(udp_sck);
+                conn.connect(server).await?;
+                let (handler_tx, mut handler_rx) = tokio::sync::mpsc::unbounded_channel();
+                log::info!("Connected to STUN server {:?}", server);
 
-            let mut client = ClientBuilder::new().with_conn(conn.clone()).build()?;
+                let mut client = ClientBuilder::new().with_conn(conn.clone()).build()?;
 
-            client.send(&msg, Some(Arc::new(handler_tx))).await?;
+                client.send(&msg, Some(Arc::new(handler_tx))).await?;
 
-            if let Some(event) = handler_rx.recv().await {
-                match event.event_body {
-                    Ok(msg) => {
-                        let mut xor_addr = XorMappedAddress::default();
-                        xor_addr.get_from(&msg)?;
-                        let natted_addr = SocketAddr::new(xor_addr.ip, xor_addr.port);
+                if let Some(event) = handler_rx.recv().await {
+                    match event.event_body {
+                        Ok(msg) => {
+                            let mut xor_addr = XorMappedAddress::default();
+                            xor_addr.get_from(&msg)?;
+                            let natted_addr = SocketAddr::new(xor_addr.ip, xor_addr.port);
 
-                        log::info!("Hole-punched ADDR: {:?} | internal: {:?}", natted_addr, new_bind_addr);
+                            log::info!("Hole-punched ADDR: {:?} | internal: {:?}", natted_addr, new_bind_addr);
 
-                        return Ok(Some((natted_addr, new_bind_addr)));
-                    }
-                    Err(err) => log::info!("{:?}", err),
+                            return Ok(Some((natted_addr, new_bind_addr)));
+                        }
+                        Err(err) => log::info!("{:?}", err),
+                    };
+                }
+
+                Ok(None)
+            };
+
+            futures_unordered.push(Box::pin(task));
+        }
+
+        let mut results = futures_unordered.collect::<Vec<Result<Option<(SocketAddr, SocketAddr)>, anyhow::Error>>>().await;
+        let first_natted_addr = results.pop().ok_or(anyhow::Error::msg("First result not present"))??;
+        let second_natted_addr = results.pop().ok_or(anyhow::Error::msg("Second result not present"))??;
+        let third_natted_addr = results.pop().ok_or(anyhow::Error::msg("Third result not present"))??;
+
+        // now, we determine what the nat does when mapping internal socket addrs to external socket addrs
+        match (first_natted_addr, second_natted_addr, third_natted_addr) {
+            (Some((addr_ext, addr_int)), Some((addr2_ext, addr2_int)), Some((addr3_ext, addr3_int))) => {
+                // if there is zero changes in the mapping, then we have EIM
+                if addr_ext == addr_int && addr2_ext == addr2_int && addr3_ext == addr3_int {
+                    // It doesn't matter where we connect; we always get the same socket addr
+                    return Ok(NatType::EIM(addr_ext, None));
+                }
+
+                // if the external IPs translated during the process, this is bad news
+                if (addr_ext.ip() != addr2_ext.ip()) || (addr2_ext.ip() != addr3_ext.ip()) {
+                    // this is the worst nat type since ip's are unpredictable. Just use TURN
+                    return Ok(NatType::EDMRandomIp(vec![addr_ext.ip(), addr2_ext.ip(), addr3_ext.ip()], None));
+                }
+
+                // ips are equal, but ports are unequal (implied by first conditional)
+                let delta0 = i32::abs(addr_ext.port() as i32 - addr_int.port() as i32);
+                let delta1 = i32::abs(addr2_ext.port() as i32 - addr2_int.port() as i32);
+                let delta2 = i32::abs(addr3_ext.port() as i32 - addr3_int.port() as i32);
+                log::info!("Delta0: {} | Delta1: {} | Delta2: {}", delta0, delta1, delta2);
+
+                return if (delta0 == delta1) && (delta1 == delta2) {
+                    // This means the ports are predictable. Use TCP simultaneous connect on expected ports based on delta. It is expected this data be sent to the peer. The peer will then connect to the socket ip:(LOCAL_BIND_PORT+delta)
+                    Ok(NatType::EDM(addr_ext.ip(), None, delta0))
+                } else {
+                    // the IP's are equal, but, the ports are not predictable; use TURN
+                    Ok(NatType::EDMRandomPort(addr_ext.ip(), None, vec![addr_ext.port(), addr2_ext.port(), addr3_ext.port()]))
                 };
             }
 
-            Ok(None)
-        };
-
-        futures_unordered.push(Box::pin(task));
-    }
-
-    let mut results = futures_unordered.collect::<Vec<Result<Option<(SocketAddr, SocketAddr)>, anyhow::Error>>>().await;
-    let first_natted_addr = results.pop().ok_or(anyhow::Error::msg("First result not present"))??;
-    let second_natted_addr = results.pop().ok_or(anyhow::Error::msg("Second result not present"))??;
-    let third_natted_addr = results.pop().ok_or(anyhow::Error::msg("Third result not present"))??;
-
-    // now, we determine what the nat does when mapping internal socket addrs to external socket addrs
-    match (first_natted_addr, second_natted_addr, third_natted_addr) {
-        (Some((addr_ext, addr_int)), Some((addr2_ext, addr2_int)), Some((addr3_ext, addr3_int))) => {
-            // if there is zero changes in the mapping, then we have EIM
-            if addr_ext == addr_int && addr2_ext == addr2_int && addr3_ext == addr3_int {
-                // It doesn't matter where we connect; we always get the same socket addr
-                return Ok(NatType::EIM(addr_ext, internal_ip));
+            _ => {
+                Err(anyhow::Error::msg("Unable to get both STUN addrs"))
             }
-
-            // if the external IPs translated during the process, this is bad news
-            if (addr_ext.ip() != addr2_ext.ip()) || (addr2_ext.ip() != addr3_ext.ip()) {
-                // this is the worst nat type since ip's are unpredictable. Just use TURN
-                return Ok(NatType::EDMRandomIp(vec![addr_ext.ip(), addr2_ext.ip(), addr3_ext.ip()], internal_ip));
-            }
-
-            // ips are equal, but ports are unequal (implied by first conditional)
-            let delta0 = i32::abs(addr_ext.port() as i32 - addr_int.port() as i32);
-            let delta1 = i32::abs(addr2_ext.port() as i32 - addr2_int.port() as i32);
-            let delta2 = i32::abs(addr3_ext.port() as i32 - addr3_int.port() as i32);
-            log::info!("Delta0: {} | Delta1: {} | Delta2: {}", delta0, delta1, delta2);
-
-            return if (delta0 == delta1) && (delta1 == delta2) {
-                // This means the ports are predictable. Use TCP simultaneous connect on expected ports based on delta. It is expected this data be sent to the peer. The peer will then connect to the socket ip:(LOCAL_BIND_PORT+delta)
-                Ok(NatType::EDM(addr_ext.ip(), internal_ip, delta0))
-            } else {
-                // the IP's are equal, but, the ports are not predictable; use TURN
-                Ok(NatType::EDMRandomPort(addr_ext.ip(), internal_ip, vec![addr_ext.port(), addr2_ext.port(), addr3_ext.port()]))
-            };
         }
+    };
 
-        _ => {
-            Err(anyhow::Error::msg("Unable to get both STUN addrs"))
-        }
-    }
+    let ip_info = async_ip::get_all(None);
+
+    let (nat_type, ip_info) = tokio::join!(nat_type, ip_info);
+    let mut nat_type = nat_type?;
+    let ip_info = ip_info.map_err(|err| anyhow::Error::msg(err.to_string()))?;
+
+    nat_type.store_ip_info(ip_info);
+    Ok(nat_type)
 }
 
 /*

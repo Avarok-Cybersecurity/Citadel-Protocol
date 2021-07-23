@@ -4,7 +4,7 @@ use std::time::Duration;
 
 pub fn get_reuse_udp_socket<T: std::net::ToSocketAddrs>(addr: T) -> Result<UdpSocket, anyhow::Error> {
     let addr: SocketAddr = addr.to_socket_addrs()?.next().ok_or(anyhow::Error::msg("No sockets"))?;
-
+    log::info!("Getting UDP reuse socket @ {:?} ...", &addr);
     #[cfg(all(unix, not(any(target_os = "solaris", target_os = "illumos"))))]
         {
             use net2::unix::UnixUdpBuilderExt;
