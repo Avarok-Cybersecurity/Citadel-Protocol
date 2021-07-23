@@ -123,10 +123,10 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: S
                     }
 
                     // We use peer_external_addr.port() = peer_internal_addr.port() since the server is assumed to be globally-reachable, and no port-translation is expected to occur from within the server's NAT (e.g., EDM mapping)
-                    let server_internal_addr = SocketAddr::new(nat_type.internal_ip()?, server_external_addr.port());
+                    let server_internal_addr = SocketAddr::new(nat_type.ip_addr_info()?.internal_ipv4, server_external_addr.port());
 
                     let hole_puncher = LinearUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
-
+                    log::info!("Initiator created");
                     let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
 
                     state_container.pre_connect_state.ticket = Some(ticket);
@@ -262,7 +262,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: S
             let mut state_container = inner_mut!(session.state_container);
             let hyper_ratchet = session.cnac.get()?.get_hyper_ratchet(Some(header.drill_version.get()))?;
             let this_node_last_state = state_container.pre_connect_state.last_stage;
-            let session_cid = header.session_cid.get();
+            //let session_cid = header.session_cid.get();
             // the initiator will set this as SUCCESS
             if this_node_last_state == packet_flags::cmd::aux::do_preconnect::SUCCESS || this_node_last_state == packet_flags::cmd::aux::do_preconnect::STAGE_TRY_NEXT {
                 let receiver_success = header.algorithm == 1;
@@ -271,11 +271,12 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: S
                     // have updated (yet).
                     log::info!("RECV SUCCESS? {}", receiver_success);
                     if receiver_success {
-                        let method = state_container.pre_connect_state.current_nat_traversal_method?;
-                        let set = state_container.pre_connect_state.hole_punched.take()?;
+                        /*let method = return_if_none!(state_container.pre_connect_state.current_nat_traversal_method, "NAT traversal method not set");
+                        let socket = return_if_none!(state_container.pre_connect_state.hole_punched.take(), "Hole-punched socket not set");
                         // If the method used was UPnP, we must tell the adjacent node which ports it must send to in order to reach the local node
                         std::mem::drop(state_container);
-                        send_success_as_initiator(set, method, &hyper_ratchet, &session, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(session_cid))
+                        send_success_as_initiator(socket, method, &hyper_ratchet, &session, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(session_cid))*/
+                        PrimaryProcessorResult::Void
                     } else {
                         log::warn!("Initiator/Receiver did not succeed. Must send a TRY_NEXT");
                         let timestamp = session.time_tracker.get_global_time_ns();
@@ -595,9 +596,24 @@ async fn handle_nat_traversal_as_initiator_inner(session_orig: HdpSession, hyper
 
     match hole_puncher.try_method(method).await {
         Ok(ret) => {
+            log::info!("Initiator finished NAT traversal ...");
             let sess = session_orig;
+            match send_success_as_initiator(ret, method, &hyper_ratchet, &sess, security_level, v_target) {
+                PrimaryProcessorResult::ReplyToSender(packet) => {
+                    if sess.send_to_primary_stream(None, packet).is_err() {
+                        log::error!("Primary stream disconnected");
+                        sess.shutdown();
+                    }
+                }
+                PrimaryProcessorResult::EndSession(reason) => {
+                    log::error!("{}", reason);
+                    sess.shutdown();
+                }
+
+                _ => log::error!("Please don't let this happen")
+            }
             // if we aren't using UPnP, we will need to wait for the receiver to send its finish packet before continuing
-            if method != NatTraversalMethod::UPnP {
+            /*if method != NatTraversalMethod::UPnP {
                 // Now, save the set
                 let mut state_container = inner_mut!(sess.state_container);
                 // set the last stage to SUCCESS to allow the reception of a SERVER_FINISHED_HOLE_PUNCH
@@ -605,6 +621,7 @@ async fn handle_nat_traversal_as_initiator_inner(session_orig: HdpSession, hyper
                 state_container.pre_connect_state.hole_punched = Some(ret);
             } else {
                 // if, however, we did use UPnP, then we are ready to send a SUCCESS packet
+
                 match send_success_as_initiator(ret, method, &hyper_ratchet, &sess, security_level, v_target) {
                     PrimaryProcessorResult::ReplyToSender(packet) => {
                         if sess.send_to_primary_stream(None, packet).is_err() {
@@ -619,7 +636,7 @@ async fn handle_nat_traversal_as_initiator_inner(session_orig: HdpSession, hyper
 
                     _ => log::error!("Please don't let this happen")
                 }
-            }
+            }*/
         }
 
         Err(err) => {

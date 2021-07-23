@@ -346,7 +346,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 session.send_to_primary_stream(None, stage2_kem_packet)?;
                                 //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
                                 let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
-                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_predicted_socket_addr, implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level);
+                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level);
                                 let _ = spawn!(hole_punch_future);
 
                                 //let _ = hole_punch_future.await;
@@ -390,7 +390,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
-                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_predicted_socket_addr, implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level);
+                                let hole_punch_future = attempt_tcp_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level);
                                 std::mem::drop(state_container);
                                 let _ = spawn!(hole_punch_future);
 

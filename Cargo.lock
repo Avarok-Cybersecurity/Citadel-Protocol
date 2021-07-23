@@ -232,6 +232,7 @@ name = "async_ip"
 version = "0.1.0"
 dependencies = [
  "reqwest",
+ "serde 1.0.126",
  "tokio 1.9.0",
 ]
 
