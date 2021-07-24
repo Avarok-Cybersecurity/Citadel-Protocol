@@ -402,6 +402,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: S
             let mut state_container = inner_mut!(session.state_container);
             let ref cnac = session.cnac.get()?;
             let tcp_only = header.algorithm == payload_identifiers::do_preconnect::TCP_ONLY;
+            // it is possible that the server is not yet done hole-punching, in which case, this fails
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SUCCESS {
                 if let Some((hyper_ratchet, upnp_ports_opt)) = validation::pre_connect::validate_final(cnac, packet, tcp_only) {
                     // if we are using tcp_only, skip the rest and go straight to sending the packet
