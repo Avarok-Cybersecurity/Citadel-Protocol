@@ -1,6 +1,6 @@
 use hyxe_nat::error::FirewallError;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedSocketAddr, HolePunchedUdpSocket};
-use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
+use hyxe_nat::udp_traversal::linear::SingleUDPHolePuncher;
 use hyxe_nat::udp_traversal::NatTraversalMethod;
 
 use crate::constants::HOLE_PUNCH_SYNC_TIME_MULTIPLIER;
@@ -125,7 +125,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: S
                     // We use peer_external_addr.port() = peer_internal_addr.port() since the server is assumed to be globally-reachable, and no port-translation is expected to occur from within the server's NAT (e.g., EDM mapping)
                     let server_internal_addr = SocketAddr::new(nat_type.ip_addr_info()?.internal_ipv4, server_external_addr.port());
 
-                    let hole_puncher = LinearUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
+                    let hole_puncher = SingleUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
                     log::info!("Initiator created");
                     let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
 
@@ -186,7 +186,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: S
 
                     let (sync_time_instant, sync_time_ns) = calculate_sync_time(timestamp, timestamp_header);
 
-                    let hole_puncher = LinearUDPHolePuncher::new_receiver(session.local_nat_type.clone(), generate_hole_punch_crypt_container(hyper_ratchet.clone(), SecurityLevel::LOW), peer_nat_type, local_bind_addr, peer_addr, peer_internal_addr).ok()?;
+                    let hole_puncher = SingleUDPHolePuncher::new_receiver(session.local_nat_type.clone(), generate_hole_punch_crypt_container(hyper_ratchet.clone(), SecurityLevel::LOW), peer_nat_type, local_bind_addr, peer_addr, peer_internal_addr).ok()?;
 
                     let stage1_packet = hdp_packet_crafter::pre_connect::craft_stage1(&hyper_ratchet, local_node_type,initial_traversal_method, timestamp, sync_time_ns, security_level);
                     state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::STAGE1;
@@ -521,12 +521,12 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: S
 
 /// This must spawn an asynchronous task in b/c of the inherit blocking mechanisms
 #[allow(unused_results)]
-fn handle_nat_traversal_as_receiver(session: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Instant, security_level: SecurityLevel, v_target: VirtualTargetType, hole_puncher: LinearUDPHolePuncher) {
+fn handle_nat_traversal_as_receiver(session: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Instant, security_level: SecurityLevel, v_target: VirtualTargetType, hole_puncher: SingleUDPHolePuncher) {
     spawn!(handle_nat_traversal_as_receiver_inner(session, hyper_ratchet, method, sync_time, security_level, v_target, hole_puncher));
 }
 
 #[allow(unused_results)]
-async fn handle_nat_traversal_as_receiver_inner(session_orig: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Instant, security_level: SecurityLevel, v_target: VirtualTargetType, mut hole_puncher: LinearUDPHolePuncher) {
+async fn handle_nat_traversal_as_receiver_inner(session_orig: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Instant, security_level: SecurityLevel, v_target: VirtualTargetType, mut hole_puncher: SingleUDPHolePuncher) {
     tokio::time::sleep_until(sync_time).await;
 
     match hole_puncher.try_method(method).await {
@@ -585,12 +585,12 @@ async fn handle_nat_traversal_as_receiver_inner(session_orig: HdpSession, hyper_
 ///
 /// `sync_time`: If this is None, then the program won't delay and will work immediately
 #[allow(unused_results)]
-fn handle_nat_traversal_as_initiator(session: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Option<Instant>, security_level: SecurityLevel, v_target: VirtualTargetType, hole_puncher: LinearUDPHolePuncher) {
+fn handle_nat_traversal_as_initiator(session: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Option<Instant>, security_level: SecurityLevel, v_target: VirtualTargetType, hole_puncher: SingleUDPHolePuncher) {
     spawn!(handle_nat_traversal_as_initiator_inner(session, hyper_ratchet, method, sync_time, security_level, v_target, hole_puncher));
 }
 
 #[allow(unused_results)]
-async fn handle_nat_traversal_as_initiator_inner(session_orig: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Option<Instant>, security_level: SecurityLevel, v_target: VirtualTargetType, mut hole_puncher: LinearUDPHolePuncher) {
+async fn handle_nat_traversal_as_initiator_inner(session_orig: HdpSession, hyper_ratchet: HyperRatchet, method: NatTraversalMethod, sync_time: Option<Instant>, security_level: SecurityLevel, v_target: VirtualTargetType, mut hole_puncher: SingleUDPHolePuncher) {
     if let Some(sync_time) = sync_time {
         tokio::time::sleep_until(sync_time).await;
     }

@@ -8,12 +8,13 @@ pub struct HolePunchedSocketAddr {
     // Outbound packets should get sent here
     pub initial: SocketAddr,
     // Inbound packets coming from 'initial" will read as this address
-    pub natted: SocketAddr
+    pub natted: SocketAddr,
+    pub remote_internal_bind_addr: SocketAddr
 }
 
 impl HolePunchedSocketAddr {
-    pub fn new(initial: SocketAddr, natted: SocketAddr) -> Self {
-        Self { initial, natted }
+    pub fn new(initial: SocketAddr, natted: SocketAddr, remote_internal_bind_addr: SocketAddr) -> Self {
+        Self { initial, natted, remote_internal_bind_addr }
     }
 
     pub fn ip_translated(&self) -> bool {

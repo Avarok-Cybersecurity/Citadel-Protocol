@@ -1,7 +1,7 @@
 use tokio::net::UdpSocket;
 use std::net::{SocketAddr, IpAddr};
 use std::str::FromStr;
-use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
+use hyxe_nat::udp_traversal::linear::SingleUDPHolePuncher;
 use hyxe_nat::udp_traversal::NatTraversalMethod;
 use tokio::time::Duration;
 use bytes::buf::BufMutExt;
@@ -86,7 +86,7 @@ async fn main() {
     // wait 200ms
     tokio::time::delay_for(Duration::from_millis(1000)).await;
     println!("Beginning hole-punching process ...");
-    let mut hole_puncher = LinearUDPHolePuncher::new_initiator(HyperNodeType::BehindResidentialNAT, EncryptedConfigContainer::default(), NatType::Unknown);
+    let mut hole_puncher = SingleUDPHolePuncher::new_initiator(HyperNodeType::BehindResidentialNAT, EncryptedConfigContainer::default(), NatType::Unknown);
     let hole_punched_sockets = hole_puncher.try_method(&mut sockets, &endpoints, NatTraversalMethod::Method3).await.unwrap();
     println!("Hole punching complete!");
     for hole_punched_addr in hole_punched_sockets {

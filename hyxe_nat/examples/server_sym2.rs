@@ -1,7 +1,7 @@
 #![feature(async_closure)]
 
 use tokio::net::UdpSocket;
-use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
+use hyxe_nat::udp_traversal::linear::SingleUDPHolePuncher;
 use std::net::SocketAddr;
 use hyxe_nat::udp_traversal::NatTraversalMethod;
 use byteorder::{NetworkEndian, ByteOrder, BigEndian};
@@ -89,7 +89,7 @@ async fn main() {
     tokio::task::spawn(tokio::time::delay_for(Duration::from_nanos(delta as u64))).await.unwrap();
 
     // We start right-away
-    let mut hole_puncher = LinearUDPHolePuncher::new_receiver(HyperNodeType::GloballyReachable, Default::default(), NatType::Unknown);
+    let mut hole_puncher = SingleUDPHolePuncher::new_receiver(HyperNodeType::GloballyReachable, Default::default(), NatType::Unknown);
     let hole_punched_socket = tokio::task::spawn((async move || { hole_puncher.try_method(&mut local_sockets_mirrored, &endpoints, NatTraversalMethod::Method3).await })()).await.unwrap().unwrap();
     log::info!("Server received hole-punched addr {:?}", hole_punched_socket.addr);
 
