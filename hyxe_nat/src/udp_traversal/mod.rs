@@ -7,6 +7,8 @@ pub mod hole_punched_udp_socket_addr;
 
 pub mod synchronization_phase;
 
+pub mod multi;
+
 #[derive(Copy, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum NatTraversalMethod {
     UPnP,

@@ -2,7 +2,7 @@ use crate::hdp::hdp_server::Ticket;
 use hyxe_nat::udp_traversal::NatTraversalMethod;
 use crate::hdp::hdp_packet_processor::includes::Instant;
 use crate::constants::DO_CONNECT_EXPIRE_TIME_MS;
-use hyxe_nat::udp_traversal::linear::LinearUDPHolePuncher;
+use hyxe_nat::udp_traversal::linear::SingleUDPHolePuncher;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 use tokio::sync::oneshot::{Sender, Receiver, channel};
@@ -18,7 +18,7 @@ pub struct PreConnectState {
     pub(crate) current_nat_traversal_method: Option<NatTraversalMethod>,
     pub(crate) ticket: Option<Ticket>,
     pub(crate) last_packet_time: Option<Instant>,
-    pub(crate) hole_puncher: Option<LinearUDPHolePuncher>,
+    pub(crate) hole_puncher: Option<SingleUDPHolePuncher>,
     pub(crate) udp_channel_oneshot_tx: UdpChannelSender,
     pub(crate) nat_traversal_attempts: usize,
     pub(crate) success: bool
