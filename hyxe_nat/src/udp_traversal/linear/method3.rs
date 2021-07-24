@@ -20,7 +20,8 @@ pub struct Method3 {
 #[derive(Serialize, Deserialize)]
 enum NatPacket {
     Syn(u32),
-    SynAck,
+    // contains the local bind addr of candidate for socket identification
+    SynAck(SocketAddr),
 }
 
 
@@ -34,9 +35,7 @@ impl Method3 {
     ///
     /// Note! The endpoints should be the port-predicted addrs
     async fn execute_either(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedSocketAddr, FirewallError> {
-        log::info!("AXC");
         let default_ttl = socket.ttl().ok();
-        log::info!("AXC2");
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
         // 400ms window
         let ref encryptor = self.encrypted_config;
@@ -115,19 +114,19 @@ impl Method3 {
                         recv_from_required = Some(nat_addr);
                         // we received a packet, but, need to verify
                         for _ in 0..3 {
-                            socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck).unwrap()), nat_addr).await?;
+                            socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(socket.local_addr().unwrap())).unwrap()), nat_addr).await?;
                         }
                     //}
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
-                NatPacket::SynAck => {
+                NatPacket::SynAck(bind_addr) => {
                     log::info!("RECV SYN_ACK");
                     if let Some(required_addr_in_conv) = recv_from_required {
                         if required_addr_in_conv == nat_addr {
                             // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
                             let initial_socket = endpoint;
-                            let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr);
+                            let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr, bind_addr);
                             log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
                             return Ok(hole_punched_addr);
                         } else {
