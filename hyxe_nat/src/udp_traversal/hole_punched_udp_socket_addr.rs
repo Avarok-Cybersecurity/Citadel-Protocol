@@ -1,8 +1,9 @@
 use std::net::{SocketAddr, IpAddr};
 use std::fmt::{Display, Formatter};
 use tokio::net::UdpSocket;
+use serde::{Serialize, Deserialize};
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct HolePunchedSocketAddr {
     // Outbound packets should get sent here
     pub initial: SocketAddr,
