@@ -19,15 +19,44 @@ pub trait ReliableOrderedConnectionToTarget: Send {
 #[async_trait]
 impl ReliableOrderedConnectionToTarget for TcpStream {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
-        self.writable().await?;
-        self.try_write(input).map(|_| ())
+        loop {
+            self.writable().await?;
+
+            match self.try_write(input) {
+                Ok(_) => {
+                    return Ok(())
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    continue;
+                }
+                Err(e) => {
+                    return Err(e.into());
+                }
+            }
+        }
     }
 
     async fn recv(&self) -> std::io::Result<Bytes> {
-        self.readable().await?;
         let mut buf = BytesMut::with_capacity(4096);
-        let len = self.try_read_buf(&mut buf)?;
-        Ok(buf.split_to(len).freeze())
+        loop {
+            self.readable().await?;
+
+            match self.try_read_buf(&mut buf) {
+                Ok(0) => {
+                    return Ok(Bytes::new())
+                },
+
+                Ok(len) => {
+                    return Ok(buf.split_to(len).freeze())
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    continue;
+                }
+                Err(e) => {
+                    return Err(e.into());
+                }
+            }
+        }
     }
 
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
