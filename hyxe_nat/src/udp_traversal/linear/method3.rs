@@ -34,7 +34,9 @@ impl Method3 {
     ///
     /// Note! The endpoints should be the port-predicted addrs
     async fn execute_either(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedSocketAddr, FirewallError> {
-        let default_ttl = socket.ttl().map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+        log::info!("AXC");
+        let default_ttl = socket.ttl().ok();
+        log::info!("AXC2");
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
         // 400ms window
         let ref encryptor = self.encrypted_config;
@@ -60,7 +62,9 @@ impl Method3 {
         let (res0, _) = tokio::join!(receiver_task, sender_task);
         let hole_punched_addr = res0?;
 
-        socket.set_ttl(default_ttl).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+        if let Some(default_ttl) = default_ttl {
+            socket.set_ttl(default_ttl).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+        }
 
         log::info!("Completed hole-punch...");
 
@@ -69,8 +73,9 @@ impl Method3 {
 
     async fn send_syn_barrage(ttl: u32, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64) -> Result<(), anyhow::Error> {
         //let ref syn_packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap());
-        socket.set_ttl(ttl)?;
-
+        log::info!("AVB");
+        let _ = socket.set_ttl(ttl);
+        log::info!("AVB2");
         let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
 
         // fan-out of packets from a singular source to multiple consumers
@@ -109,13 +114,13 @@ impl Method3 {
                         log::info!("Received TTL={} packet. Awaiting mutual recognition...", ttl);
                         recv_from_required = Some(nat_addr);
                         // we received a packet, but, need to verify
-                        let syn_ack = encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck).unwrap());
                         for _ in 0..3 {
-                            socket.send_to(&syn_ack, nat_addr).await?;
+                            socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck).unwrap()), nat_addr).await?;
                         }
                     //}
                 }
 
+                // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
                 NatPacket::SynAck => {
                     log::info!("RECV SYN_ACK");
                     if let Some(required_addr_in_conv) = recv_from_required {

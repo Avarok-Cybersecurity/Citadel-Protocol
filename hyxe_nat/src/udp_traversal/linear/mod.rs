@@ -37,7 +37,9 @@ pub struct LinearUDPHolePuncher {
     #[allow(dead_code)]
     adjacent_peer_nat: NatType,
     socket: Option<UdpSocket>,
-    possible_endpoints: Vec<SocketAddr>
+    possible_endpoints: Vec<SocketAddr>,
+    #[allow(dead_code)]
+    relative_node_type: RelativeNodeType
 }
 
 impl LinearUDPHolePuncher {
@@ -68,7 +70,7 @@ impl LinearUDPHolePuncher {
             vec![peer_external_addr, peer_internal_addr]
         };
 
-        Ok(Self { method3: (false, method3), upnp_handler: (false, None), local_nat_type, adjacent_peer_nat, socket: Some(socket), possible_endpoints })
+        Ok(Self { method3: (false, method3), upnp_handler: (false, None), local_nat_type, adjacent_peer_nat, socket: Some(socket), possible_endpoints, relative_node_type })
     }
 
     pub fn take_socket(&mut self) -> Option<UdpSocket> {
@@ -129,7 +131,9 @@ impl LinearUDPHolePuncher {
 
             NatTraversalMethod::Method3 => {
                 self.method3.0 = true;
+                log::info!("ABX");
                 let addr = self.method3.1.execute(self.socket.as_ref().ok_or_else(|| FirewallError::HolePunch("UDP socket not loaded".to_string()))?, &self.possible_endpoints).await?;
+                log::info!("ABX2");
                 Ok(HolePunchedUdpSocket { socket: self.socket.take().unwrap(), addr })
             },
 
