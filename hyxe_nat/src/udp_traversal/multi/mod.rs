@@ -34,9 +34,15 @@ enum DualStackCandidate {
 impl<'a> DualStackUdpHolePuncher<'a> {
     #[allow(unused_results)]
     /// `peer_internal_port`: Required for determining the internal socket addr
-    pub fn new<T: ReliableOrderedConnectionToTarget + 'a>(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn: &'a T, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16) -> Result<Self, anyhow::Error> {
+    pub fn new<T: ReliableOrderedConnectionToTarget + 'a>(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn: &'a T, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, breadth: u16) -> Result<Self, anyhow::Error> {
         let mut hole_punchers = Vec::new();
         Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn, local_nat, peer_nat, peer_internal_port, 0)?;
+
+        if breadth > 1 {
+            for delta in 1..breadth {
+                Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn, local_nat, peer_nat, peer_internal_port, delta)?;
+            }
+        }
 
         Ok(Self { future: Box::pin(drive(hole_punchers, conn)) })
     }

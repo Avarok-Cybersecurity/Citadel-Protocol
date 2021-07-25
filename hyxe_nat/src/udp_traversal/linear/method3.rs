@@ -9,6 +9,7 @@ use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use crate::udp_traversal::linear::{LinearUdpHolePunchImpl, RelativeNodeType};
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use serde::{Serialize, Deserialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL
 // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf
@@ -39,11 +40,12 @@ impl Method3 {
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
         // 400ms window
         let ref encryptor = self.encrypted_config;
+        let ref is_done = AtomicBool::new(false);
 
         let receiver_task = async move {
 
             // we are only interested in the first receiver to receive a value
-            if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), Self::recv_until(socket, &endpoints[0], encryptor)).await.map_err(|err| FirewallError::HolePunch(err.to_string()))? {
+            if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), Self::recv_until(socket, &endpoints[0], encryptor, is_done)).await.map_err(|err| FirewallError::HolePunch(err.to_string()))? {
                 Ok(res)
             } else {
                 Err(FirewallError::HolePunch("No UDP penetration detected".to_string()))
@@ -52,8 +54,8 @@ impl Method3 {
 
         let sender_task = async move {
             tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
-            Self::send_syn_barrage(2, socket, endpoints, encryptor, 20).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-            Self::send_syn_barrage(120, socket, endpoints, encryptor, 20).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            Self::send_syn_barrage(2, socket, endpoints, encryptor, 20, is_done).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            Self::send_syn_barrage(120, socket, endpoints, encryptor, 20, is_done).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
 
             Ok(()) as Result<(), FirewallError>
         };
@@ -70,17 +72,21 @@ impl Method3 {
         Ok(hole_punched_addr)
     }
 
-    async fn send_syn_barrage(ttl: u32, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64) -> Result<(), anyhow::Error> {
+    async fn send_syn_barrage(ttl: u32, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64, is_done: &AtomicBool) -> Result<(), anyhow::Error> {
         //let ref syn_packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap());
         let _ = socket.set_ttl(ttl);
         let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
 
         // fan-out of packets from a singular source to multiple consumers
         for _ in 0..5 {
-            let _ = sleep.tick().await;
-            for endpoint in endpoints {
-                log::info!("Sending TTL={} to {}", ttl, endpoint);
-                socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap()), endpoint).await?;
+            if !is_done.load(Ordering::Relaxed) {
+                let _ = sleep.tick().await;
+                for endpoint in endpoints {
+                    log::info!("Sending TTL={} to {}", ttl, endpoint);
+                    socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap()), endpoint).await?;
+                }
+            } else {
+                break;
             }
         }
 
@@ -88,7 +94,7 @@ impl Method3 {
     }
 
     // Handles the reception of packets, as well as sending/awaiting for a verification
-    async fn recv_until(socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer) -> Result<HolePunchedSocketAddr, FirewallError> {
+    async fn recv_until(socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer, is_done: &AtomicBool) -> Result<HolePunchedSocketAddr, FirewallError> {
         let buf = &mut [0u8; 4096];
         log::info!("[Hole-punch] Listening on {:?}", socket.local_addr().unwrap());
 
@@ -126,6 +132,7 @@ impl Method3 {
                             let initial_socket = endpoint;
                             let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr, bind_addr);
                             log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
+                            is_done.store(true, Ordering::Relaxed);
                             return Ok(hole_punched_addr);
                         } else {
                             log::warn!("Received SynAck, but the addrs did not match!");
