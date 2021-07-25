@@ -13,7 +13,7 @@ use futures::stream::FuturesUnordered;
 use crate::udp_traversal::NatTraversalMethod;
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeSet};
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
@@ -25,8 +25,8 @@ pub(crate) struct DualStackUdpHolePuncher<'a> {
 
 #[derive(Serialize, Deserialize)]
 enum DualStackCandidate {
-    SingleHolePunchSuccess(Vec<SocketAddr>),
-    ResolveUseAnyOf(Vec<SocketAddr>),
+    SingleHolePunchSuccess(BTreeSet<SocketAddr>),
+    ResolveUseAnyOf(BTreeSet<SocketAddr>),
     // Maybe contains an addr that both sides have
     Resolved(Option<SocketAddr>)
 }
@@ -44,7 +44,7 @@ impl<'a> DualStackUdpHolePuncher<'a> {
             }
         }
 
-        Ok(Self { future: Box::pin(drive(hole_punchers, conn)) })
+        Ok(Self { future: Box::pin(drive(hole_punchers, conn, relative_node_type)) })
     }
 
     fn generate_dual_stack_hole_punchers_with_delta<T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: &mut Vec<SingleUDPHolePuncher>, relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn: &'a T, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, delta: u16) -> Result<(), anyhow::Error> {
@@ -82,7 +82,7 @@ impl Future for DualStackUdpHolePuncher<'_> {
     }
 }
 
-async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T, node_type: RelativeNodeType) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let mut futures = FuturesUnordered::new();
     for mut hole_puncher in hole_punchers {
         futures.push(async move {
@@ -92,9 +92,9 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     }
 
     let mut map: HashMap<SocketAddr, HolePunchedUdpSocket> = HashMap::new();
-    let mut adjacent_completion_id: Option<Vec<SocketAddr>> = None;
+    let mut adjacent_completion_id: Option<BTreeSet<SocketAddr>> = None;
 
-    let mut local_successes = Vec::new();
+    let mut local_successes = BTreeSet::new();
 
     // if both sides hole-punch identified by each other's local_bind_addr finish first, then this will finish under "if hole_puncher.get_bind_addr() == adjacent_candidate.bind_addr"
     // However, what happens if multiple finish out of order on one side? Assuming both sides for each other's unique hole-punch id finish, then this will eventually finish near "Returning the socket which the adjacent node previously signalled as a success"
@@ -107,12 +107,12 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                     for adjacent_candidate in adjacent_candidates {
                         if hole_puncher.get_bind_addr() == *adjacent_candidate {
                             log::info!("Returning the socket which the adjacent node previously signalled as a success");
-                            return Ok(socket)
+                            return handle_return_sequence(*adjacent_candidate, socket, conn, node_type, &mut map).await;
                         }
                     }
                 }
 
-                local_successes.push(socket.addr.remote_internal_bind_addr);
+                local_successes.insert(socket.addr.remote_internal_bind_addr);
 
                 // Send the candidate, then wait for the opposite side to respond
                 let adjacent_candidate: DualStackCandidate = send_then_receive(DualStackCandidate::SingleHolePunchSuccess(local_successes.clone()), conn).await?;
@@ -123,12 +123,12 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                         for bind_addr in &bind_addrs {
                             if hole_puncher.get_bind_addr() == *bind_addr {
                                 log::info!("The completed hole-punch subroutine locally was what the adjacent node expected");
-                                return Ok(socket);
+                                return handle_return_sequence(*bind_addr, socket, conn, node_type, &mut map).await;
                             } else {
                                 // check the history
                                 if let Some(prev) = map.remove(bind_addr) {
-                                    log::info!("Found socket {:?} in the history", prev.addr);
-                                    return Ok(prev);
+                                    log::info!("Found socket {:?} in the history", bind_addr);
+                                    return handle_return_sequence(*bind_addr, prev, conn, node_type, &mut map).await;
                                 }
                             }
                         }
@@ -156,9 +156,15 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     // it was skipped.
 
     log::info!("Unable to resolve addrs in main loop. Will have to negotiate ...");
-    let working_set = map.keys().cloned().collect::<Vec<SocketAddr>>();
+    let working_set = map.keys().cloned().collect::<BTreeSet<SocketAddr>>();
     let candidate: DualStackCandidate = send_then_receive(DualStackCandidate::ResolveUseAnyOf(working_set), conn).await?;
     match_resolve(candidate, conn, &mut map).await
+}
+
+/// This gets called when the drive function finds a candidate to return locally. We can't just return results locally since
+#[allow(unused_variables)]
+async fn handle_return_sequence<V: ReliableOrderedConnectionToTarget>(matched_bind_addr: SocketAddr, candidate: HolePunchedUdpSocket, conn: &V, node_type: RelativeNodeType, map: &mut HashMap<SocketAddr, HolePunchedUdpSocket>) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+    Ok(candidate)
 }
 
 async fn match_resolve<V: ReliableOrderedConnectionToTarget>(candidate: DualStackCandidate, conn: &V, map: &mut HashMap<SocketAddr, HolePunchedUdpSocket>) -> Result<HolePunchedUdpSocket, anyhow::Error> {
