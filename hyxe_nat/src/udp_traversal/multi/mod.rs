@@ -25,7 +25,7 @@ pub(crate) struct DualStackUdpHolePuncher<'a> {
 
 #[derive(Serialize, Deserialize)]
 enum DualStackCandidate {
-    SingleHolePunchSuccess(SocketAddr),
+    SingleHolePunchSuccess(Vec<SocketAddr>),
     ResolveUseAnyOf(Vec<SocketAddr>),
     // Maybe contains an addr that both sides have
     Resolved(Option<SocketAddr>)
@@ -94,6 +94,8 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     let mut map: HashMap<SocketAddr, HolePunchedUdpSocket> = HashMap::new();
     let mut adjacent_completion_id = None;
 
+    let mut local_successes = Vec::new();
+
     // if both sides hole-punch identified by each other's local_bind_addr finish first, then this will finish under "if hole_puncher.get_bind_addr() == adjacent_candidate.bind_addr"
     // However, what happens if multiple finish out of order on one side? Assuming both sides for each other's unique hole-punch id finish, then this will eventually finish near "Returning the socket which the adjacent node previously signalled as a success"
     // Finally, what happens if one side registers a success, but for whatever reason, this other side claims to have failed for the same one? Since we won't know for this to be true until after one of the sides exhausts all possibilities,
@@ -108,25 +110,30 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                     }
                 }
 
+                local_successes.push(socket.addr.remote_internal_bind_addr);
+
                 // Send the candidate, then wait for the opposite side to respond
-                let adjacent_candidate: DualStackCandidate = send_then_receive(DualStackCandidate::SingleHolePunchSuccess(socket.addr.remote_internal_bind_addr), conn).await?;
+                let adjacent_candidate: DualStackCandidate = send_then_receive(DualStackCandidate::SingleHolePunchSuccess(local_successes.clone()), conn).await?;
 
                 match adjacent_candidate {
-                    DualStackCandidate::SingleHolePunchSuccess(bind_addr) => {
-                        log::info!("Adjacent node signalled completion of hole-punch process w/ {:?}", bind_addr);
-                        if hole_puncher.get_bind_addr() == bind_addr {
-                            log::info!("The completed hole-punch subroutine locally was what the adjacent node expected");
-                            return Ok(socket);
-                        } else {
-                            // check the history
-                            if let Some(prev) = map.remove(&bind_addr) {
-                                log::info!("Found socket {:?} in the history", prev.addr);
-                                return Ok(prev);
+                    DualStackCandidate::SingleHolePunchSuccess(bind_addrs) => {
+                        log::info!("Adjacent node signalled completion of hole-punch process w/ {:?}", bind_addrs);
+                        'inner: for bind_addr in bind_addrs {
+                            if hole_puncher.get_bind_addr() == bind_addr {
+                                log::info!("The completed hole-punch subroutine locally was what the adjacent node expected");
+                                return Ok(socket);
                             } else {
-                                log::info!("The locally-completed hole-punched socket is not what the adjacent node signalled. Nor is it done locally. Will discard and keep looping");
-                                // this means the local candidate has yet to confirm what the adjacent node has selected. Keep looping, and discard this hole-punch success
-                                adjacent_completion_id = Some(bind_addr); // we will wait for the local endpoint to confirm
-                                map.insert(hole_puncher.get_bind_addr(), socket);
+                                // check the history
+                                if let Some(prev) = map.remove(&bind_addr) {
+                                    log::info!("Found socket {:?} in the history", prev.addr);
+                                    return Ok(prev);
+                                } else {
+                                    log::info!("The locally-completed hole-punched socket is not what the adjacent node signalled. Nor is it done locally. Will discard and keep looping");
+                                    // this means the local candidate has yet to confirm what the adjacent node has selected. Keep looping, and discard this hole-punch success
+                                    adjacent_completion_id = Some(bind_addr); // we will wait for the local endpoint to confirm
+                                    map.insert(hole_puncher.get_bind_addr(), socket);
+                                    break 'inner;
+                                }
                             }
                         }
                     }
