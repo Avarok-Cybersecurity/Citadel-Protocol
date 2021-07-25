@@ -91,7 +91,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         });
     }
 
-    let mut map = HashMap::new();
+    let mut map: HashMap<SocketAddr, HolePunchedUdpSocket> = HashMap::new();
     let mut adjacent_completion_id = None;
 
     // if both sides hole-punch identified by each other's local_bind_addr finish first, then this will finish under "if hole_puncher.get_bind_addr() == adjacent_candidate.bind_addr"
@@ -118,10 +118,16 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                             log::info!("The completed hole-punch subroutine locally was what the adjacent node expected");
                             return Ok(socket);
                         } else {
-                            log::info!("The locally-completed hole-punched socket is not what the adjacent node signalled. Will discard and keep looping");
-                            // this means the local candidate has yet to confirm what the adjacent node has selected. Keep looping, and discard this hole-punch success
-                            adjacent_completion_id = Some(bind_addr); // we will wait for the local endpoint to confirm
-                            map.insert(hole_puncher.get_bind_addr(), socket);
+                            // check the history
+                            if let Some(prev) = map.remove(&bind_addr) {
+                                log::info!("Found socket {:?} in the history", prev.addr);
+                                return Ok(prev);
+                            } else {
+                                log::info!("The locally-completed hole-punched socket is not what the adjacent node signalled. Nor is it done locally. Will discard and keep looping");
+                                // this means the local candidate has yet to confirm what the adjacent node has selected. Keep looping, and discard this hole-punch success
+                                adjacent_completion_id = Some(bind_addr); // we will wait for the local endpoint to confirm
+                                map.insert(hole_puncher.get_bind_addr(), socket);
+                            }
                         }
                     }
 
