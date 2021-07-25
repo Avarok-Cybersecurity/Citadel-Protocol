@@ -55,6 +55,13 @@ pub async fn get_ip(client: Option<Client>, ipv6: bool) -> Result<IpAddr, IpRetr
     let resp = client.get(addr).send().await.map_err(|err| IpRetrieveError::Error(err.to_string()))?;
     let text = resp.text().await.map_err(|err| IpRetrieveError::Error(err.to_string()))?;
     IpAddr::from_str(text.as_str()).map_err(|err| IpRetrieveError::Error(err.to_string()))
+        .and_then(|res| {
+            if ipv6 && res.is_ipv4() {
+                Err(IpRetrieveError::Error("This node does not have an ipv6 addr".to_string()))
+            } else {
+                Ok(res)
+            }
+        })
 }
 
 /// Gets the internal IP address using DNS

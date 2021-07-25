@@ -17,7 +17,7 @@ async fn main() {
     setup_log();
     let listener = tokio::net::TcpListener::bind("0.0.0.0:25025").await.unwrap();
 
-    let (client_stream, peer_addr) = listener.accept().await.unwrap();
+    let (ref client_stream, peer_addr) = listener.accept().await.unwrap();
     log::info!("Received client stream from {:?}", peer_addr);
 
     let ref hole_punched_socket = UdpHolePuncher::new(client_stream, RelativeNodeType::Receiver, Default::default()).await.unwrap();
