@@ -16,6 +16,8 @@ use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
+///
+/// allows the inclusion of a "breadth" variable to allow opening multiple ports for traversing across multiple ports
 pub(crate) struct DualStackUdpHolePuncher<'a> {
     // the key is the local bind addr
     future: Pin<Box<dyn Future<Output=Result<HolePunchedUdpSocket, anyhow::Error>> + 'a>>,
@@ -33,16 +35,23 @@ impl<'a> DualStackUdpHolePuncher<'a> {
     #[allow(unused_results)]
     /// `peer_internal_port`: Required for determining the internal socket addr
     pub fn new<T: ReliableOrderedConnectionToTarget + 'a>(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn: &'a T, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16) -> Result<Self, anyhow::Error> {
+        let mut hole_punchers = Vec::new();
+        Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn, local_nat, peer_nat, peer_internal_port, 0)?;
+
+        Ok(Self { future: Box::pin(drive(hole_punchers, conn)) })
+    }
+
+    fn generate_dual_stack_hole_punchers_with_delta<T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: &mut Vec<SingleUDPHolePuncher>, relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn: &'a T, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, delta: u16) -> Result<(), anyhow::Error> {
         let peer_ip_info = peer_nat.ip_addr_info().ok_or_else(|| anyhow::Error::msg("Peer IP info not loaded"))?;
         let local_ip_info = local_nat.ip_addr_info().ok_or_else(|| anyhow::Error::msg("Local IP info not loaded"))?;
-        let mut hole_punchers = Vec::new();
 
         let bind_addr_0 = conn.local_addr()?;
         let peer_external_addr_0 = conn.peer_addr()?;
-
         let peer_internal_addr_0 = SocketAddr::new(peer_ip_info.internal_ipv4, peer_internal_port);
 
         let (bind_addr_1, peer_external_addr_1, peer_internal_addr_1) = invert(bind_addr_0, peer_external_addr_0, peer_internal_addr_0, peer_ip_info)?;
+
+        let (bind_addr_0, peer_external_addr_0, peer_internal_addr_0, bind_addr_1, peer_external_addr_1, peer_internal_addr_1) = increment_ports(bind_addr_0, peer_external_addr_0, peer_internal_addr_0, bind_addr_1, peer_external_addr_1, peer_internal_addr_1, delta);
 
         // As long as there is translation, we will can attempt dual ipv4/6 hole-punching. This requires that the peer has an IPv6 address
         // also, if THIS node has an IPv6 address, then the adjacent node will attempt to connect to it, so in that case, we will need to bind regardless to ipv6 addrs IF the zeroth hole-puncher is not already ipv6
@@ -55,7 +64,7 @@ impl<'a> DualStackUdpHolePuncher<'a> {
 
         hole_punchers.push(hole_puncher0);
 
-        Ok(Self { future: Box::pin(drive(hole_punchers, conn)) })
+        Ok(())
     }
 }
 
@@ -176,6 +185,25 @@ async fn send<R: Serialize, V: ReliableOrderedConnectionToTarget>(ref input: R, 
 async fn send_then_receive<T: DeserializeOwned, R: Serialize, V: ReliableOrderedConnectionToTarget>(ref input: R, conn: &V) -> Result<T, anyhow::Error> {
     send(input, conn).await?;
     Ok(bincode2::deserialize(&conn.recv().await?)?)
+}
+
+fn increment_ports(bind_addr_0: SocketAddr, peer_external_addr_0: SocketAddr, peer_internal_addr_0: SocketAddr, bind_addr_1: SocketAddr, peer_external_addr_1: SocketAddr, peer_internal_addr_1: SocketAddr, delta: u16) -> (SocketAddr, SocketAddr, SocketAddr, SocketAddr, SocketAddr, SocketAddr) {
+    if delta != 0 {
+        (increment_port_inner(bind_addr_0, delta), increment_port_inner(peer_external_addr_0, delta), increment_port_inner(peer_internal_addr_0, delta), increment_port_inner(bind_addr_1, delta), increment_port_inner(peer_external_addr_1, delta), increment_port_inner(peer_internal_addr_1, delta))
+    } else {
+        (bind_addr_0, peer_external_addr_0, peer_internal_addr_0, bind_addr_1, peer_external_addr_1, peer_internal_addr_1)
+    }
+}
+
+// wraps around at 1024 as recommended by research articles, since [0, 1024) are reserved ports for operating systems usually
+fn increment_port_inner(addr: SocketAddr, delta: u16) -> SocketAddr {
+    let init_port = addr.port();
+    let new_port = init_port.wrapping_add(delta);
+    if new_port < 1024 {
+        SocketAddr::new(addr.ip(), 1024 + new_port)
+    } else {
+        SocketAddr::new(addr.ip(), new_port)
+    }
 }
 
 fn invert(bind_addr_0: SocketAddr, peer_external_addr_0: SocketAddr, peer_internal_addr_0: SocketAddr, peer_ip_info: &IpAddressInfo) -> Result<(SocketAddr, SocketAddr, SocketAddr), anyhow::Error> {

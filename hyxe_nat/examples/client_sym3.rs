@@ -16,7 +16,7 @@ fn setup_log() {
 async fn main() {
     setup_log();
 
-    let server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025").await.unwrap();
+    let ref server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025").await.unwrap();
     log::info!("Established TCP server connection");
 
     let ref hole_punched_socket = UdpHolePuncher::new(server_stream, RelativeNodeType::Initiator, Default::default()).await.unwrap();
@@ -44,8 +44,8 @@ async fn main() {
     };
 
     tokio::select! {
-            res0 = writer => res0,
-            res1 = reader => res1
+        res0 = writer => res0,
+        res1 = reader => res1
     }
 
     log::info!("Quitting program clientside");
