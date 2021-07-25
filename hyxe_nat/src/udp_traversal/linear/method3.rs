@@ -72,22 +72,22 @@ impl Method3 {
         Ok(hole_punched_addr)
     }
 
-    async fn send_syn_barrage(ttl: u32, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64, is_done: &AtomicBool) -> Result<(), anyhow::Error> {
+    async fn send_syn_barrage(ttl: u32, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64, _is_done: &AtomicBool) -> Result<(), anyhow::Error> {
         //let ref syn_packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap());
         let _ = socket.set_ttl(ttl);
         let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
 
         // fan-out of packets from a singular source to multiple consumers
         for _ in 0..5 {
-            if !is_done.load(Ordering::Relaxed) {
+            //if !is_done.load(Ordering::Relaxed) {
                 let _ = sleep.tick().await;
                 for endpoint in endpoints {
                     log::info!("Sending TTL={} to {}", ttl, endpoint);
                     socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap()), endpoint).await?;
                 }
-            } else {
-                break;
-            }
+            //} else {
+              //  break;
+            //}
         }
 
         Ok(())
