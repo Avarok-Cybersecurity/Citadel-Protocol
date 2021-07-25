@@ -72,9 +72,7 @@ impl Method3 {
 
     async fn send_syn_barrage(ttl: u32, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64) -> Result<(), anyhow::Error> {
         //let ref syn_packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap());
-        log::info!("AVB");
         let _ = socket.set_ttl(ttl);
-        log::info!("AVB2");
         let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
 
         // fan-out of packets from a singular source to multiple consumers
