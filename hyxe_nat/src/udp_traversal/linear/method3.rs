@@ -10,26 +10,28 @@ use crate::udp_traversal::linear::{LinearUdpHolePunchImpl, RelativeNodeType};
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use serde::{Serialize, Deserialize};
 use std::sync::atomic::{AtomicBool, Ordering};
+use crate::udp_traversal::HolePunchID;
 
 /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL
 // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf
 pub struct Method3 {
     this_node_type: RelativeNodeType,
-    encrypted_config: EncryptedConfigContainer
+    encrypted_config: EncryptedConfigContainer,
+    unique_id: HolePunchID
 }
 
 #[derive(Serialize, Deserialize)]
 enum NatPacket {
     Syn(u32),
     // contains the local bind addr of candidate for socket identification
-    SynAck(SocketAddr),
+    SynAck(HolePunchID),
 }
 
 
 impl Method3 {
     /// Make sure to complete the pre-process stage before calling this
-    pub fn new(this_node_type: RelativeNodeType, encrypted_config: EncryptedConfigContainer) -> Self {
-        Self { this_node_type, encrypted_config }
+    pub fn new(this_node_type: RelativeNodeType, encrypted_config: EncryptedConfigContainer, unique_id: HolePunchID) -> Self {
+        Self { this_node_type, encrypted_config, unique_id }
     }
 
     /// The initiator must pass a vector correlating to the target endpoints. Each provided socket will attempt to reach out to the target endpoint (1-1)
@@ -37,6 +39,7 @@ impl Method3 {
     /// Note! The endpoints should be the port-predicted addrs
     async fn execute_either(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedSocketAddr, FirewallError> {
         let default_ttl = socket.ttl().ok();
+        let ref unique_id = self.unique_id.clone();
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
         // 400ms window
         let ref encryptor = self.encrypted_config;
@@ -45,7 +48,7 @@ impl Method3 {
         let receiver_task = async move {
 
             // we are only interested in the first receiver to receive a value
-            if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), Self::recv_until(socket, &endpoints[0], encryptor, is_done)).await.map_err(|err| FirewallError::HolePunch(err.to_string()))? {
+            if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), Self::recv_until(socket, &endpoints[0], encryptor, is_done, unique_id)).await.map_err(|err| FirewallError::HolePunch(err.to_string()))? {
                 Ok(res)
             } else {
                 Err(FirewallError::HolePunch("No UDP penetration detected".to_string()))
@@ -94,7 +97,7 @@ impl Method3 {
     }
 
     // Handles the reception of packets, as well as sending/awaiting for a verification
-    async fn recv_until(socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer, is_done: &AtomicBool) -> Result<HolePunchedSocketAddr, FirewallError> {
+    async fn recv_until(socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer, is_done: &AtomicBool, unique_id: &HolePunchID) -> Result<HolePunchedSocketAddr, FirewallError> {
         let buf = &mut [0u8; 4096];
         log::info!("[Hole-punch] Listening on {:?}", socket.local_addr().unwrap());
 
@@ -118,19 +121,19 @@ impl Method3 {
                         recv_from_required = Some(nat_addr);
                         // we received a packet, but, need to verify
                         for _ in 0..3 {
-                            socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(socket.local_addr().unwrap())).unwrap()), nat_addr).await?;
+                            socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone())).unwrap()), nat_addr).await?;
                         }
                     //}
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
-                NatPacket::SynAck(bind_addr) => {
+                NatPacket::SynAck(adjacent_unique_id) => {
                     log::info!("RECV SYN_ACK");
                     if let Some(required_addr_in_conv) = recv_from_required {
                         if required_addr_in_conv == nat_addr {
                             // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
                             let initial_socket = endpoint;
-                            let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr, bind_addr);
+                            let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, nat_addr, adjacent_unique_id);
                             log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
                             is_done.store(true, Ordering::Relaxed);
                             return Ok(hole_punched_addr);
