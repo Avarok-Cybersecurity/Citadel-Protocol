@@ -113,7 +113,8 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                     }
                 }
 
-                local_successes.insert(socket.addr.unique_id);
+                //local_successes.insert(socket.addr.unique_id);
+                local_successes.insert(hole_puncher.get_unique_id());
 
                 // Send the candidate, then wait for the opposite side to respond
                 let adjacent_candidate: DualStackCandidate = send_then_receive(DualStackCandidate::SingleHolePunchSuccess(local_successes.clone()), conn).await?;
