@@ -113,8 +113,8 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                     }
                 }
 
-                //local_successes.insert(socket.addr.unique_id);
-                local_successes.insert(hole_puncher.get_unique_id());
+                local_successes.insert(socket.addr.unique_id);
+                //local_successes.insert(hole_puncher.get_unique_id());
 
                 // Send the candidate, then wait for the opposite side to respond
                 let adjacent_candidate: DualStackCandidate = send_then_receive(DualStackCandidate::SingleHolePunchSuccess(local_successes.clone()), conn).await?;
@@ -123,6 +123,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                     DualStackCandidate::SingleHolePunchSuccess(unique_ids) => {
                         log::info!("Adjacent node signalled completion of hole-punch process w/ {:?}", unique_ids);
                         for unique_id in &unique_ids {
+                            // here, we compare local unique id (1) to local unique id (2). (2) is local since above, we input the unique id of the remote addr
                             if hole_puncher.get_unique_id() == *unique_id {
                                 log::info!("The completed hole-punch subroutine locally was what the adjacent node expected");
                                 return handle_return_sequence(unique_id.clone(), socket, conn, node_type, &mut map).await;
