@@ -92,7 +92,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     }
 
     let mut map: HashMap<SocketAddr, HolePunchedUdpSocket> = HashMap::new();
-    let mut adjacent_completion_id = None;
+    let mut adjacent_completion_id: Option<Vec<SocketAddr>> = None;
 
     let mut local_successes = Vec::new();
 
@@ -103,10 +103,12 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         match res {
             Ok(socket) => {
                 // the candidate that just finished locally may be what we're waiting for
-                if let Some(ref adjacent_candidate) = adjacent_completion_id {
-                    if hole_puncher.get_bind_addr() == *adjacent_candidate {
-                        log::info!("Returning the socket which the adjacent node previously signalled as a success");
-                        return Ok(socket)
+                if let Some(ref adjacent_candidates) = adjacent_completion_id {
+                    for adjacent_candidate in adjacent_candidates {
+                        if hole_puncher.get_bind_addr() == *adjacent_candidate {
+                            log::info!("Returning the socket which the adjacent node previously signalled as a success");
+                            return Ok(socket)
+                        }
                     }
                 }
 
@@ -118,24 +120,23 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                 match adjacent_candidate {
                     DualStackCandidate::SingleHolePunchSuccess(bind_addrs) => {
                         log::info!("Adjacent node signalled completion of hole-punch process w/ {:?}", bind_addrs);
-                        'inner: for bind_addr in bind_addrs {
-                            if hole_puncher.get_bind_addr() == bind_addr {
+                        for bind_addr in &bind_addrs {
+                            if hole_puncher.get_bind_addr() == *bind_addr {
                                 log::info!("The completed hole-punch subroutine locally was what the adjacent node expected");
                                 return Ok(socket);
                             } else {
                                 // check the history
-                                if let Some(prev) = map.remove(&bind_addr) {
+                                if let Some(prev) = map.remove(bind_addr) {
                                     log::info!("Found socket {:?} in the history", prev.addr);
                                     return Ok(prev);
-                                } else {
-                                    log::info!("The locally-completed hole-punched socket is not what the adjacent node signalled. Nor is it done locally. Will discard and keep looping");
-                                    // this means the local candidate has yet to confirm what the adjacent node has selected. Keep looping, and discard this hole-punch success
-                                    adjacent_completion_id = Some(bind_addr); // we will wait for the local endpoint to confirm
-                                    map.insert(hole_puncher.get_bind_addr(), socket);
-                                    break 'inner;
                                 }
                             }
                         }
+
+                        log::info!("The locally-completed hole-punched socket is not what the adjacent node signalled. Nor is it done locally. Will discard and keep looping");
+                        // this means the local candidate has yet to confirm what the adjacent node has selected. Keep looping, and discard this hole-punch success
+                        adjacent_completion_id = Some(bind_addrs); // we will wait for the local endpoint to confirm
+                        map.insert(hole_puncher.get_bind_addr(), socket);
                     }
 
                     candidate => {
