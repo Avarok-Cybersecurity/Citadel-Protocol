@@ -12,7 +12,7 @@ pub trait ReliableOrderedConnectionToTarget: Send {
     async fn recv(&self) -> std::io::Result<Bytes>;
     /// Returns the bind addr. Used for establishing a local UDP socket
     fn local_addr(&self) -> std::io::Result<SocketAddr>;
-    /// Returns the peer addr
+    /// Returns the peer addr. If relaying is used to get the packet to the peer, then the peer addr should be used, not the relay addr
     fn peer_addr(&self) -> std::io::Result<SocketAddr>;
 }
 
