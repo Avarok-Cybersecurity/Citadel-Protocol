@@ -83,7 +83,7 @@ async fn driver<'a, T: ReliableOrderedConnectionToTarget + 'a>(conn: &'a T, node
 
             tokio::time::sleep(Duration::from_nanos(rtt as _)).await;
 
-            DualStackUdpHolePuncher::new(RelativeNodeType::Receiver, encrypted_config_container, conn, &nat_type, &nat_syn_ack.nat_type, nat_syn_ack.internal_bind_port)?.await
+            DualStackUdpHolePuncher::new(RelativeNodeType::Receiver, encrypted_config_container, conn, &nat_type, &nat_syn_ack.nat_type, nat_syn_ack.internal_bind_port, 0)?.await
             //handle_post_synchronization_phase(conn, hole_puncher).await
         }
 
@@ -99,7 +99,7 @@ async fn driver<'a, T: ReliableOrderedConnectionToTarget + 'a>(conn: &'a T, node
             let delta = i64::abs(nat_ack.sync_time - tt.get_global_time_ns());
             tokio::time::sleep(Duration::from_nanos(delta as _)).await;
 
-             DualStackUdpHolePuncher::new(RelativeNodeType::Initiator, encrypted_config_container, conn, &nat_type, &nat_syn.nat_type, nat_syn.internal_bind_port)?.await
+             DualStackUdpHolePuncher::new(RelativeNodeType::Initiator, encrypted_config_container, conn, &nat_type, &nat_syn.nat_type, nat_syn.internal_bind_port, 0)?.await
 
             // now, begin the hole-punch
             //handle_post_synchronization_phase(conn, hole_puncher).await
