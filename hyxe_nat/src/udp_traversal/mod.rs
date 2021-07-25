@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use serde::{Serialize, Deserialize};
 
 /// Linear hole-punching
 pub mod linear;
@@ -9,7 +10,7 @@ pub mod synchronization_phase;
 
 pub mod multi;
 
-#[derive(Copy, Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum NatTraversalMethod {
     UPnP,
     Method3,
@@ -39,5 +40,15 @@ impl NatTraversalMethod {
             7 => Some(NatTraversalMethod::None),
             _ => None
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Copy, Clone)]
+pub struct HolePunchID(u64);
+
+impl HolePunchID {
+    pub(crate) fn next(&mut self) -> HolePunchID {
+        *self = Self(self.0 + 1);
+        Self(self.0)
     }
 }

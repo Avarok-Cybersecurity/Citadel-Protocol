@@ -2,6 +2,7 @@ use std::net::{SocketAddr, IpAddr};
 use std::fmt::{Display, Formatter};
 use tokio::net::UdpSocket;
 use serde::{Serialize, Deserialize};
+use crate::udp_traversal::HolePunchID;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub struct HolePunchedSocketAddr {
@@ -9,12 +10,12 @@ pub struct HolePunchedSocketAddr {
     pub initial: SocketAddr,
     // Inbound packets coming from 'initial" will read as this address
     pub natted: SocketAddr,
-    pub remote_internal_bind_addr: SocketAddr
+    pub unique_id: HolePunchID
 }
 
 impl HolePunchedSocketAddr {
-    pub fn new(initial: SocketAddr, natted: SocketAddr, remote_internal_bind_addr: SocketAddr) -> Self {
-        Self { initial, natted, remote_internal_bind_addr }
+    pub fn new(initial: SocketAddr, natted: SocketAddr, unique_id: HolePunchID) -> Self {
+        Self { initial, natted, unique_id }
     }
 
     pub fn ip_translated(&self) -> bool {
