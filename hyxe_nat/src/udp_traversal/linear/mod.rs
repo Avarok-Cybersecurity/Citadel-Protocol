@@ -14,7 +14,6 @@ pub mod encrypted_config_container;
 
 pub mod method1;
 pub mod method3;
-pub mod multi_delta;
 
 /// Whereas UDP hole punching usually entails the connection between two peers (p2p),
 /// linear UDP hole punching is the process of punching a hole through the firewall to allow
