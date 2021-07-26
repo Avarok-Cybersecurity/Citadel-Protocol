@@ -44,11 +44,11 @@ impl NatTraversalMethod {
 }
 
 #[derive(Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Copy, Clone)]
-pub struct HolePunchID(u64);
+pub struct HolePunchID(u16);
 
 impl HolePunchID {
     pub(crate) fn next(&mut self) -> HolePunchID {
-        *self = Self(self.0 + 1);
+        *self = Self(self.0.wrapping_add(1));
         Self(self.0)
     }
 }
