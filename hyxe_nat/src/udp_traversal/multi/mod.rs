@@ -14,8 +14,8 @@ use crate::udp_traversal::{NatTraversalMethod, HolePunchID};
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use parking_lot::Mutex;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
@@ -104,7 +104,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     }
 
     // key = local
-    let ref local_completions: Arc<Mutex<HashMap<HolePunchID, (HolePunchedUdpSocket, SingleUDPHolePuncher)>>> = Arc::new(Mutex::new(HashMap::new()));
+    let ref local_completions: Arc<RwLock<HashMap<HolePunchID, (HolePunchedUdpSocket, SingleUDPHolePuncher)>>> = Arc::new(RwLock::new(HashMap::new()));
     let ref local_completions_sender = local_completions.clone();
     //let ref mut adjacent_completion_ids: BTreeSet<HolePunchID> = BTreeSet::new();
 
@@ -115,7 +115,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                 Ok(socket) => {
                     let peer_unique_id = socket.addr.unique_id;
                     // we insert the local unique id into the map
-                    local_completions.lock().insert(hole_puncher.get_unique_id(), (socket, hole_puncher));
+                    local_completions.write().await.insert(hole_puncher.get_unique_id(), (socket, hole_puncher));
                     // we send the per unique id to the adjacent node, they way they can use their map to access the value since the map corresponds to local only values
                     send(DualStackCandidate::SingleHolePunchSuccess(peer_unique_id), conn).await?;
                 }
@@ -145,13 +145,14 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                 DualStackCandidate::SingleHolePunchSuccess(ref local_unique_id) | DualStackCandidate::Pong(ref local_unique_id) => {
                     log::info!("AB0");
                     if !this_node_submitted {
+                        log::info!("AB1");
                         if locked_in_locally.clone() == Some(local_unique_id.clone()) {
                             log::info!("Previously locked-in locally identified. Will unconditionally accept if local has preference");
                             if has_precedence {
                                 // since both nodes are implied to have the hole-punched sockets for the locked-in ID,
                                 log::info!("Local has preference. Completing subroutine locally");
                                 // we can unwrap here since locked_in_locally existing implies the existence of the entry in the local hashmap
-                                let (hole_punched_socket, _hole_puncher) = local_completions_sender.lock().remove(local_unique_id).unwrap();
+                                let (hole_punched_socket, _hole_puncher) = local_completions_sender.write().await.remove(local_unique_id).unwrap();
                                 // send the adjacent id to remote per usual
                                 send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
                                 final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
@@ -160,11 +161,14 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                 log::info!("Local does NOT have preference. Will await for the adjacent endpoint to send confirmation")
                             }
                         } else {
-                            if let Some((local_candidate, local_hole_puncher)) = local_completions.lock().get(local_unique_id) {
+                            log::info!("AB2");
+                            let mut write = local_completions.write().await;
+                            log::info!("AB3");
+                            if let Some((local_candidate, local_hole_puncher)) = write.get(local_unique_id) {
                                 log::info!("Matched local id {:?} to remote id {:?} | has precedence? {}", local_hole_puncher.get_unique_id(), local_candidate.addr.unique_id, has_precedence);
                                 if has_precedence {
                                     // both sides have this, and this side has precedence, so finish early
-                                    let (hole_punched_socket, _hole_puncher) = local_completions.lock().remove(local_unique_id).unwrap();
+                                    let (hole_punched_socket, _hole_puncher) = write.remove(local_unique_id).unwrap();
                                     // send the adjacent id to remote per usual
                                     send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
                                     final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
@@ -177,7 +181,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                     // we send this, then keep looping until getting an appropriate response
                                 }
                             } else {
-                                log::info!("Pinging since local has no matches. Available: {:?}", local_completions.lock().keys());
+                                log::info!("Pinging since local has no matches. Available: {:?}", write.keys());
                                 // value does not exist in ANY of the local values. Keep waiting
                                 *locked_in_locally = Some(local_unique_id.clone());
                                 send(DualStackCandidate::Ping(local_unique_id.clone()), conn).await?;
@@ -195,7 +199,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                 DualStackCandidate::Resolved(ref local_unique_id) => {
                     // we unconditionally send local's value in the hashmap, which is implied to exist locally so we can unwrap
                     debug_assert!(!has_precedence);
-                    let (hole_punched_socket, _hole_puncher) = local_completions.lock().remove(local_unique_id).unwrap();
+                    let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
                     final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
                     return Ok(())
                 }
@@ -206,7 +210,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                     debug_assert!(has_precedence);
 
                     // we finish on local, then send a resolved
-                    let (hole_punched_socket, _hole_puncher) = local_completions.lock().remove(local_unique_id).unwrap();
+                    let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
                     // send the adjacent id to remote per usual
                     send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
                     final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
