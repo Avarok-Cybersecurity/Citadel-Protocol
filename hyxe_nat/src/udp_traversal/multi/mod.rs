@@ -13,8 +13,7 @@ use futures::stream::FuturesUnordered;
 use crate::udp_traversal::{NatTraversalMethod, HolePunchID};
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 use tokio::sync::RwLock;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
@@ -104,9 +103,10 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     }
 
     // key = local
-    let ref local_completions: Arc<RwLock<HashMap<HolePunchID, (HolePunchedUdpSocket, SingleUDPHolePuncher)>>> = Arc::new(RwLock::new(HashMap::new()));
-    let ref local_completions_sender = local_completions.clone();
-    //let ref mut adjacent_completion_ids: BTreeSet<HolePunchID> = BTreeSet::new();
+    let ref local_completions: RwLock<HashMap<HolePunchID, (HolePunchedUdpSocket, SingleUDPHolePuncher)>> = RwLock::new(HashMap::new());
+    let ref local_failures: RwLock<HashSet<HolePunchID>> = RwLock::new(HashSet::new());
+    //let ref local_completions_sender = local_completions.clone();
+    //let ref mut local_failures = HashSet::new();
 
     // the goal of the sender is just to send results as local finishes, nothing else
     let sender = async move {
@@ -124,6 +124,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
 
                 Err(err) => {
                     log::warn!("Hole-punch for local bind addr {:?} failed: {:?}", hole_puncher.get_unique_id(), err);
+                    local_failures.write().await.insert(hole_puncher.get_unique_id());
                 }
             }
         }
@@ -154,7 +155,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                 // since both nodes are implied to have the hole-punched sockets for the locked-in ID,
                                 log::info!("Local has preference. Completing subroutine locally");
                                 // we can unwrap here since locked_in_locally existing implies the existence of the entry in the local hashmap
-                                let (hole_punched_socket, _hole_puncher) = local_completions_sender.write().await.remove(local_unique_id).unwrap();
+                                let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
                                 // send the adjacent id to remote per usual
                                 let peer_id = hole_punched_socket.addr.unique_id;
                                 send(DualStackCandidate::Resolved(peer_id), conn).await?;
@@ -169,11 +170,13 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                             log::info!("AB3");
                             if let Some((local_candidate, local_hole_puncher)) = write.get(local_unique_id) {
                                 log::info!("Matched local id {:?} to remote id {:?} | has precedence? {}", local_hole_puncher.get_unique_id(), local_candidate.addr.unique_id, has_precedence);
+                                let peer_id = local_candidate.addr.unique_id;
                                 if has_precedence {
                                     // both sides have this, and this side has precedence, so finish early
                                     let (hole_punched_socket, _hole_puncher) = write.remove(local_unique_id).unwrap();
                                     // send the adjacent id to remote per usual
-                                    let peer_id = hole_punched_socket.addr.unique_id;
+
+                                    std::mem::drop(write);
                                     send(DualStackCandidate::Resolved(peer_id), conn).await?;
                                     final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
                                     *this_node_submitted = Some(peer_id);
@@ -182,14 +185,20 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                     // both sides have this, though, this node does not have the power to confirm first. It needs to send a ResolveLockedIn to the other side, where it will return with a Resolved if the adjacent side finished
                                     *locked_in_locally = Some(local_unique_id.clone());
                                     // sent the remote unique ID
-                                    send(DualStackCandidate::ResolveLockedIn(local_candidate.addr.unique_id), conn).await?;
+                                    std::mem::drop(write);
+                                    send(DualStackCandidate::ResolveLockedIn(peer_id), conn).await?;
                                     // we send this, then keep looping until getting an appropriate response
                                 }
                             } else {
-                                log::info!("Pinging since local has no matches. Available: {:?}", write.keys());
+                                log::info!("Maybe pinging since local has no matches. Available: {:?}", write.keys());
                                 // value does not exist in ANY of the local values. Keep waiting
-                                //*locked_in_locally = Some(local_unique_id.clone());
-                                send(DualStackCandidate::Ping(local_unique_id.clone()), conn).await?;
+                                // note: experimentally, it has been proven possible that what succeeds on one end may fail on another. This means when remote succeeds for id X, but local fails for X, we enter an infinite loop of pings until timeout occurs
+                                std::mem::drop(write);
+                                if local_failures.read().await.contains(local_unique_id) {
+                                    log::info!("Will not ping since local failed for {:?}", local_unique_id);
+                                } else {
+                                    send(DualStackCandidate::Ping(local_unique_id.clone()), conn).await?;
+                                }
                             }
                         }
                     } else {
