@@ -140,9 +140,10 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     let reader = async move {
         //let _reader_done_tx = reader_done_tx; // move into the closure, preventing the sender future from ending and causing this future to end pre-maturely
         while let Ok(candidate) = receive::<DualStackCandidate, _>(conn).await {
-            log::info!("RECV {:?}", &candidate);
+            log::info!("MAIN RECV {:?}", &candidate);
             match candidate {
                 DualStackCandidate::SingleHolePunchSuccess(ref local_unique_id) | DualStackCandidate::Pong(ref local_unique_id) => {
+                    log::info!("AB0");
                     if !this_node_submitted {
                         if locked_in_locally.clone() == Some(local_unique_id.clone()) {
                             log::info!("Previously locked-in locally identified. Will unconditionally accept if local has preference");
@@ -158,29 +159,32 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                             } else {
                                 log::info!("Local does NOT have preference. Will await for the adjacent endpoint to send confirmation")
                             }
-                        }
-
-                        if let Some((local_candidate, _local_hole_puncher)) = local_completions.lock().get(local_unique_id) {
-                            if has_precedence {
-                                // both sides have this, and this side has precedence, so finish early
-                                let (hole_punched_socket, _hole_puncher) = local_completions.lock().remove(local_unique_id).unwrap();
-                                // send the adjacent id to remote per usual
-                                send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
-                                final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
-                                this_node_submitted = true;
-                            } else {
-                                // both sides have this, though, this node does not have the power to confirm first. It needs to send a ResolveLockedIn to the other side, where it will return with a Resolved if the adjacent side finished
-                                *locked_in_locally = Some(local_unique_id.clone());
-                                // sent the remote unique ID
-                                send(DualStackCandidate::ResolveLockedIn(local_candidate.addr.unique_id), conn).await?;
-                                // we send this, then keep looping until getting an appropriate response
-                            }
                         } else {
-                            log::info!("Pinging since local has no matches. Available: {:?}", local_completions.lock().keys());
-                            // value does not exist in ANY of the local values. Keep waiting
-                            *locked_in_locally = Some(local_unique_id.clone());
-                            send(DualStackCandidate::Ping(local_unique_id.clone()), conn).await?;
+                            if let Some((local_candidate, local_hole_puncher)) = local_completions.lock().get(local_unique_id) {
+                                log::info!("Matched local id {:?} to remote id {:?} | has precedence? {}", local_hole_puncher.get_unique_id(), local_candidate.addr.unique_id, has_precedence);
+                                if has_precedence {
+                                    // both sides have this, and this side has precedence, so finish early
+                                    let (hole_punched_socket, _hole_puncher) = local_completions.lock().remove(local_unique_id).unwrap();
+                                    // send the adjacent id to remote per usual
+                                    send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
+                                    final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                                    this_node_submitted = true;
+                                } else {
+                                    // both sides have this, though, this node does not have the power to confirm first. It needs to send a ResolveLockedIn to the other side, where it will return with a Resolved if the adjacent side finished
+                                    *locked_in_locally = Some(local_unique_id.clone());
+                                    // sent the remote unique ID
+                                    send(DualStackCandidate::ResolveLockedIn(local_candidate.addr.unique_id), conn).await?;
+                                    // we send this, then keep looping until getting an appropriate response
+                                }
+                            } else {
+                                log::info!("Pinging since local has no matches. Available: {:?}", local_completions.lock().keys());
+                                // value does not exist in ANY of the local values. Keep waiting
+                                *locked_in_locally = Some(local_unique_id.clone());
+                                send(DualStackCandidate::Ping(local_unique_id.clone()), conn).await?;
+                            }
                         }
+                    } else {
+                        log::warn!("This node already submitted");
                     }
                 }
 
