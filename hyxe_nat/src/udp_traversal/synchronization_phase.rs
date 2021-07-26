@@ -39,7 +39,7 @@ pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output=Result<HolePunchedUdpSocket, anyhow::Error>> + 'a>>
 }
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_millis(2500);
+const DEFAULT_TIMEOUT: Duration = Duration::from_millis(3500);
 
 impl<'a> UdpHolePuncher<'a> {
     pub fn new<T: ReliableOrderedConnectionToTarget + 'a>(conn: &'a T, node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer) -> Self {
