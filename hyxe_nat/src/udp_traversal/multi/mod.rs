@@ -25,7 +25,7 @@ pub(crate) struct DualStackUdpHolePuncher<'a> {
     future: Pin<Box<dyn Future<Output=Result<HolePunchedUdpSocket, anyhow::Error>> + 'a>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 enum DualStackCandidate {
     SingleHolePunchSuccess(HolePunchID),
     // can be sent by either node
@@ -136,6 +136,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     let reader = async move {
         let _reader_done_tx = reader_done_tx; // move into the closure, preventing the sender future from ending and causing this future to end pre-maturely
         while let Ok(candidate) = receive::<DualStackCandidate, _>(conn).await {
+            log::info!("RECV {:?}", &candidate);
             match candidate {
                 DualStackCandidate::SingleHolePunchSuccess(ref local_unique_id) => {
                     if !this_node_submitted {
