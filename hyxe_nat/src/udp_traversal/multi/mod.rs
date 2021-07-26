@@ -177,6 +177,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                     send(DualStackCandidate::Resolved(peer_id), conn).await?;
                                     final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
                                     *this_node_submitted = Some(peer_id);
+                                    return Ok(())
                                 } else {
                                     // both sides have this, though, this node does not have the power to confirm first. It needs to send a ResolveLockedIn to the other side, where it will return with a Resolved if the adjacent side finished
                                     *locked_in_locally = Some(local_unique_id.clone());
@@ -187,7 +188,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                             } else {
                                 log::info!("Pinging since local has no matches. Available: {:?}", write.keys());
                                 // value does not exist in ANY of the local values. Keep waiting
-                                *locked_in_locally = Some(local_unique_id.clone());
+                                //*locked_in_locally = Some(local_unique_id.clone());
                                 send(DualStackCandidate::Ping(local_unique_id.clone()), conn).await?;
                             }
                         }
