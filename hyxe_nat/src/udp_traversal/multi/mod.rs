@@ -25,6 +25,7 @@ pub(crate) struct DualStackUdpHolePuncher<'a> {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[allow(variant_size_differences)]
 enum DualStackCandidate {
     SingleHolePunchSuccess(HolePunchID),
     // can be sent by either node
@@ -32,8 +33,7 @@ enum DualStackCandidate {
     // Can only be sent by the initiator/preferred side
     Resolved(HolePunchID),
     //
-    Ping(HolePunchID),
-    Pong(HolePunchID)
+    Ping(Vec<HolePunchID>, Vec<HolePunchID>)
 }
 
 impl<'a> DualStackUdpHolePuncher<'a> {
@@ -145,7 +145,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         while let Ok(candidate) = receive::<DualStackCandidate, _>(conn).await {
             log::info!("MAIN RECV {:?}", &candidate);
             match candidate {
-                DualStackCandidate::SingleHolePunchSuccess(ref local_unique_id) | DualStackCandidate::Pong(ref local_unique_id) => {
+                DualStackCandidate::SingleHolePunchSuccess(ref local_unique_id) => {
                     log::info!("AB0");
                     if this_node_submitted.is_none() {
                         log::info!("AB1");
@@ -193,12 +193,14 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                 log::info!("Maybe pinging since local has no matches. Available: {:?}", write.keys());
                                 // value does not exist in ANY of the local values. Keep waiting
                                 // note: experimentally, it has been proven possible that what succeeds on one end may fail on another. This means when remote succeeds for id X, but local fails for X, we enter an infinite loop of pings until timeout occurs
+                                // TODO: Ping/pong resolution process
                                 std::mem::drop(write);
-                                if local_failures.read().await.contains(local_unique_id) {
+                                /*if local_failures.read().await.contains(local_unique_id) {
                                     log::info!("Will not ping since local failed for {:?}", local_unique_id);
                                 } else {
                                     send(DualStackCandidate::Ping(local_unique_id.clone()), conn).await?;
-                                }
+                                }*/
+                                send(DualStackCandidate::Ping(local_completions.read().await.keys().cloned().collect(), local_failures.read().await.iter().cloned().collect()), conn).await?;
                             }
                         }
                     } else {
@@ -206,8 +208,37 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                     }
                 }
 
-                DualStackCandidate::Ping(id) => {
-                    send(DualStackCandidate::Pong(id), conn).await?;
+                // a ping can be sent from either receiver or initiator. If the local receiver is the initiator, and it discovers a potential candidate, only it is allowed to accept a version then send a resolved instead of a Pong
+                // if the local receiver is the receiver, then it must return a ping to the initiator of the local state so that it may resolve
+                DualStackCandidate::Ping(remote_successes, _remote_failures) => {
+                    match node_type {
+                        RelativeNodeType::Initiator => {
+                            // we must resolve
+                            let mut write = local_completions.write().await;
+                            for remote_success in remote_successes {
+                                if let Some((key, _)) = write.iter().find(|(_key,(socket, _puncher))| socket.addr.unique_id == remote_success) {
+                                    let ref key = key.clone();
+                                    log::info!("RESOLVED with {:?}", key);
+                                    let (hole_punched_socket, _) = write.remove(key).unwrap();
+                                    // this side is done
+                                    std::mem::drop(write);
+                                    send(DualStackCandidate::Resolved(remote_success), conn).await?;
+                                    final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                                    *this_node_submitted = Some(remote_success);
+                                    return Ok(())
+                                }
+                            }
+
+                            log::info!("No resolution obtained. Will keep looping");
+                            // no resolution. Send a
+                            send(DualStackCandidate::Ping(write.keys().cloned().collect(), local_failures.read().await.iter().cloned().collect()), conn).await?;
+                        }
+
+                        RelativeNodeType::Receiver => {
+                            // this side will only resolve once the ping resolves remotely on the initiator side
+                            send(DualStackCandidate::Ping(local_completions.read().await.keys().cloned().collect(), local_failures.read().await.iter().cloned().collect()), conn).await?;
+                        }
+                    }
                 }
 
                 DualStackCandidate::Resolved(ref local_unique_id) => {
