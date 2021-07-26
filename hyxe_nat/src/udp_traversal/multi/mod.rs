@@ -31,7 +31,10 @@ enum DualStackCandidate {
     // can be sent by either node
     ResolveLockedIn(HolePunchID),
     // Can only be sent by the initiator/preferred side
-    Resolved(HolePunchID)
+    Resolved(HolePunchID),
+    //
+    Ping(HolePunchID),
+    Pong(HolePunchID)
 }
 
 impl<'a> DualStackUdpHolePuncher<'a> {
@@ -138,7 +141,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         while let Ok(candidate) = receive::<DualStackCandidate, _>(conn).await {
             log::info!("RECV {:?}", &candidate);
             match candidate {
-                DualStackCandidate::SingleHolePunchSuccess(ref local_unique_id) => {
+                DualStackCandidate::SingleHolePunchSuccess(ref local_unique_id) | DualStackCandidate::Pong(ref local_unique_id) => {
                     if !this_node_submitted {
                         if locked_in_locally.clone() == Some(local_unique_id.clone()) {
                             log::info!("Previously locked-in locally identified. Will unconditionally accept if local has preference");
@@ -173,8 +176,14 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                             }
                         } else {
                             // value does not exist in ANY of the local values. Keep waiting
+                            *locked_in_locally = Some(local_unique_id.clone());
+                            send(DualStackCandidate::Ping(local_unique_id.clone()), conn).await?;
                         }
                     }
+                }
+
+                DualStackCandidate::Ping(id) => {
+                    send(DualStackCandidate::Pong(id), conn).await?;
                 }
 
                 DualStackCandidate::Resolved(ref local_unique_id) => {
