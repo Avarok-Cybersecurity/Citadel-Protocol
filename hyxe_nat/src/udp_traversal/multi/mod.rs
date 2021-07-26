@@ -92,7 +92,7 @@ impl Future for DualStackUdpHolePuncher<'_> {
 async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T, node_type: RelativeNodeType) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let mut futures = FuturesUnordered::new();
     let (final_candidate_tx, final_candidate_rx) = tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
-    let (reader_done_tx, reader_done_rx) = tokio::sync::oneshot::channel::<()>();
+    //let (reader_done_tx, reader_done_rx) = tokio::sync::oneshot::channel::<()>();
 
     let ref mut final_candidate_tx = Some(final_candidate_tx);
 
@@ -127,7 +127,8 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         }
 
         // if we get here before the reader finishes, we need to wait for the reader to finish
-        Ok(reader_done_rx.await?) as Result<(), anyhow::Error>
+        //Ok(reader_done_rx.await?) as Result<(), anyhow::Error>
+        Ok(()) as Result<(), anyhow::Error>
     };
 
     let has_precedence = node_type == RelativeNodeType::Initiator;
@@ -137,7 +138,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
 
     // the goal of the reader is to read inbound candidates, check the local hashmap for correspondence, then engage in negotiation if required
     let reader = async move {
-        let _reader_done_tx = reader_done_tx; // move into the closure, preventing the sender future from ending and causing this future to end pre-maturely
+        //let _reader_done_tx = reader_done_tx; // move into the closure, preventing the sender future from ending and causing this future to end pre-maturely
         while let Ok(candidate) = receive::<DualStackCandidate, _>(conn).await {
             log::info!("RECV {:?}", &candidate);
             match candidate {
@@ -175,6 +176,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                 // we send this, then keep looping until getting an appropriate response
                             }
                         } else {
+                            log::info!("Pinging since local has no matches. Available: {:?}", local_completions.lock().keys());
                             // value does not exist in ANY of the local values. Keep waiting
                             *locked_in_locally = Some(local_unique_id.clone());
                             send(DualStackCandidate::Ping(local_unique_id.clone()), conn).await?;
@@ -213,12 +215,18 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         Err(anyhow::Error::msg("The reliable ordered stream stopped producing values"))
     };
 
+    
+    let mut reader_finished = false;
     // this will end once the reader ends. The sender won't end until at least after the reader ends (unless there is a transmission error)
     tokio::select! {
-        res0 = sender => res0?,
-        res1 = reader => res1?
+        res0 = sender, if !reader_finished => res0?,
+        res1 = reader => {
+            reader_finished = true;
+            res1?
+        }
     };
 
+    log::info!("RDXXXXXXXXXX");
     Ok(final_candidate_rx.await?)
 }
 
