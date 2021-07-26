@@ -13,7 +13,9 @@ use futures::stream::FuturesUnordered;
 use crate::udp_traversal::{NatTraversalMethod, HolePunchID};
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
-use std::collections::{HashMap, BTreeSet};
+use std::collections::HashMap;
+use parking_lot::Mutex;
+use std::sync::Arc;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
@@ -25,10 +27,11 @@ pub(crate) struct DualStackUdpHolePuncher<'a> {
 
 #[derive(Serialize, Deserialize)]
 enum DualStackCandidate {
-    SingleHolePunchSuccess(BTreeSet<HolePunchID>),
-    ResolveUseAnyOf(BTreeSet<HolePunchID>),
-    // Maybe contains an addr that both sides have
-    Resolved(Option<HolePunchID>)
+    SingleHolePunchSuccess(HolePunchID),
+    // can be sent by either node
+    ResolveLockedIn(HolePunchID),
+    // Can only be sent by the initiator/preferred side
+    Resolved(HolePunchID)
 }
 
 impl<'a> DualStackUdpHolePuncher<'a> {
@@ -85,6 +88,11 @@ impl Future for DualStackUdpHolePuncher<'_> {
 
 async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T, node_type: RelativeNodeType) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let mut futures = FuturesUnordered::new();
+    let (final_candidate_tx, final_candidate_rx) = tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
+    let (reader_done_tx, reader_done_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let ref mut final_candidate_tx = Some(final_candidate_tx);
+
     for mut hole_puncher in hole_punchers {
         futures.push(async move {
             let res = hole_puncher.try_method(NatTraversalMethod::Method3).await;
@@ -92,128 +100,130 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         });
     }
 
-    let mut map: HashMap<HolePunchID, HolePunchedUdpSocket> = HashMap::new();
-    let mut adjacent_completion_id: Option<BTreeSet<HolePunchID>> = None;
+    // key = local
+    let ref local_completions: Arc<Mutex<HashMap<HolePunchID, (HolePunchedUdpSocket, SingleUDPHolePuncher)>>> = Arc::new(Mutex::new(HashMap::new()));
+    let ref local_completions_sender = local_completions.clone();
+    //let ref mut adjacent_completion_ids: BTreeSet<HolePunchID> = BTreeSet::new();
 
-    let mut local_successes = BTreeSet::new();
-
-    // if both sides hole-punch identified by each other's local_bind_addr finish first, then this will finish under "if hole_puncher.get_bind_addr() == adjacent_candidate.bind_addr"
-    // However, what happens if multiple finish out of order on one side? Assuming both sides for each other's unique hole-punch id finish, then this will eventually finish near "Returning the socket which the adjacent node previously signalled as a success"
-    // Finally, what happens if one side registers a success, but for whatever reason, this other side claims to have failed for the same one? Since we won't know for this to be true until after one of the sides exhausts all possibilities,
-    while let Some((res, hole_puncher)) = futures.next().await {
-        match res {
-            Ok(socket) => {
-                // the candidate that just finished locally may be what we're waiting for
-                if let Some(ref adjacent_candidates) = adjacent_completion_id {
-                    for adjacent_candidate in adjacent_candidates {
-                        if hole_puncher.get_unique_id() == *adjacent_candidate {
-                            log::info!("Returning the socket which the adjacent node previously signalled as a success");
-                            return handle_return_sequence(adjacent_candidate.clone(), socket, conn, node_type, &mut map).await;
-                        }
-                    }
+    // the goal of the sender is just to send results as local finishes, nothing else
+    let sender = async move {
+        while let Some((res, hole_puncher)) = futures.next().await {
+            match res {
+                Ok(socket) => {
+                    let peer_unique_id = socket.addr.unique_id;
+                    // we insert the local unique id into the map
+                    local_completions.lock().insert(hole_puncher.get_unique_id(), (socket, hole_puncher));
+                    // we send the per unique id to the adjacent node, they way they can use their map to access the value since the map corresponds to local only values
+                    send(DualStackCandidate::SingleHolePunchSuccess(peer_unique_id), conn).await?;
                 }
 
-                local_successes.insert(socket.addr.unique_id);
-                //local_successes.insert(hole_puncher.get_unique_id());
+                Err(err) => {
+                    log::warn!("Hole-punch for local bind addr {:?} failed: {:?}", hole_puncher.get_unique_id(), err);
+                }
+            }
+        }
 
-                // Send the candidate, then wait for the opposite side to respond
-                let adjacent_candidate: DualStackCandidate = send_then_receive(DualStackCandidate::SingleHolePunchSuccess(local_successes.clone()), conn).await?;
+        // if we get here before the reader finishes, we need to wait for the reader to finish
+        Ok(reader_done_rx.await?) as Result<(), anyhow::Error>
+    };
 
-                match adjacent_candidate {
-                    DualStackCandidate::SingleHolePunchSuccess(unique_ids) => {
-                        log::info!("Adjacent node signalled completion of hole-punch process w/ {:?}", unique_ids);
-                        for unique_id in &unique_ids {
-                            // here, we compare local unique id (1) to local unique id (2). (2) is local since above, we input the unique id of the remote addr
-                            if hole_puncher.get_unique_id() == *unique_id {
-                                log::info!("The completed hole-punch subroutine locally was what the adjacent node expected");
-                                return handle_return_sequence(unique_id.clone(), socket, conn, node_type, &mut map).await;
+    let has_precedence = node_type == RelativeNodeType::Initiator;
+    let ref mut locked_in_locally = None;
+
+    let mut this_node_submitted = false;
+
+    // the goal of the reader is to read inbound candidates, check the local hashmap for correspondence, then engage in negotiation if required
+    let reader = async move {
+        let _reader_done_tx = reader_done_tx; // move into the closure, preventing the sender future from ending and causing this future to end pre-maturely
+        while let Ok(candidate) = receive::<DualStackCandidate, _>(conn).await {
+            match candidate {
+                DualStackCandidate::SingleHolePunchSuccess(ref local_unique_id) => {
+                    if !this_node_submitted {
+                        if locked_in_locally.clone() == Some(local_unique_id.clone()) {
+                            log::info!("Previously locked-in locally identified. Will unconditionally accept if local has preference");
+                            if has_precedence {
+                                // since both nodes are implied to have the hole-punched sockets for the locked-in ID,
+                                log::info!("Local has preference. Completing subroutine locally");
+                                // we can unwrap here since locked_in_locally existing implies the existence of the entry in the local hashmap
+                                let (hole_punched_socket, _hole_puncher) = local_completions_sender.lock().remove(local_unique_id).unwrap();
+                                // send the adjacent id to remote per usual
+                                send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
+                                final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                                this_node_submitted = true;
                             } else {
-                                // check the history
-                                if let Some(prev) = map.remove(unique_id) {
-                                    log::info!("Found socket {:?} in the history", unique_id);
-                                    return handle_return_sequence(unique_id.clone(), prev, conn, node_type, &mut map).await;
-                                }
+                                log::info!("Local does NOT have preference. Will await for the adjacent endpoint to send confirmation")
                             }
                         }
 
-                        log::info!("The locally-completed hole-punched socket is not what the adjacent node signalled. Nor is it done locally. Will discard and keep looping");
-                        // this means the local candidate has yet to confirm what the adjacent node has selected. Keep looping, and discard this hole-punch success
-                        adjacent_completion_id = Some(unique_ids); // we will wait for the local endpoint to confirm
-                        map.insert(hole_puncher.get_unique_id(), socket);
-                    }
-
-                    candidate => {
-                        return match_resolve(candidate, conn, &mut map).await;
-                    }
-                }
-            }
-
-            Err(err) => {
-                log::warn!("Hole-punch for local bind addr {:?} failed: {:?}", hole_puncher.get_unique_id(), err);
-            }
-        }
-    }
-
-    // if we get here, it means one of two things. Either no methods worked locally, or, a method worked
-    // locally but because the adjacent node sent a candidate not equal to the candidate obtained locally,
-    // it was skipped.
-
-    log::info!("Unable to resolve addrs in main loop. Will have to negotiate ...");
-    let working_set = map.keys().cloned().collect::<BTreeSet<HolePunchID>>();
-    let candidate: DualStackCandidate = send_then_receive(DualStackCandidate::ResolveUseAnyOf(working_set), conn).await?;
-    match_resolve(candidate, conn, &mut map).await
-}
-
-/// This gets called when the drive function finds a candidate to return locally. We can't just return results locally since
-#[allow(unused_variables)]
-async fn handle_return_sequence<V: ReliableOrderedConnectionToTarget>(matched_bind_addr: HolePunchID, candidate: HolePunchedUdpSocket, conn: &V, node_type: RelativeNodeType, map: &mut HashMap<HolePunchID, HolePunchedUdpSocket>) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    Ok(candidate)
-}
-
-async fn match_resolve<V: ReliableOrderedConnectionToTarget>(candidate: DualStackCandidate, conn: &V, map: &mut HashMap<HolePunchID, HolePunchedUdpSocket>) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    match candidate {
-        DualStackCandidate::ResolveUseAnyOf(working_set) => {
-            // we get here if the other side drops out of this loop. There may or may not be any candidates present
-            return if working_set.is_empty() {
-                // send then exit
-                send(DualStackCandidate::Resolved(None), conn).await?;
-                Err(anyhow::Error::msg("Unable to resolve; adjacent node had zero successes"))
-            } else {
-                // we choose the first result that matches
-                for working in working_set {
-                    if let Some(socket) = map.remove(&working) {
-                        send(DualStackCandidate::Resolved(Some(socket.addr.unique_id)), conn).await?;
-                        return Ok(socket);
+                        if let Some((local_candidate, _local_hole_puncher)) = local_completions.lock().get(local_unique_id) {
+                            if has_precedence {
+                                // both sides have this, and this side has precedence, so finish early
+                                let (hole_punched_socket, _hole_puncher) = local_completions.lock().remove(local_unique_id).unwrap();
+                                // send the adjacent id to remote per usual
+                                send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
+                                final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                                this_node_submitted = true;
+                            } else {
+                                // both sides have this, though, this node does not have the power to confirm first. It needs to send a ResolveLockedIn to the other side, where it will return with a Resolved if the adjacent side finished
+                                *locked_in_locally = Some(local_unique_id.clone());
+                                // sent the remote unique ID
+                                send(DualStackCandidate::ResolveLockedIn(local_candidate.addr.unique_id), conn).await?;
+                                // we send this, then keep looping until getting an appropriate response
+                            }
+                        } else {
+                            // value does not exist in ANY of the local values. Keep waiting
+                        }
                     }
                 }
 
-                // no matches. return err
-                send(DualStackCandidate::Resolved(None), conn).await?;
-                Err(anyhow::Error::msg("Unable to resolve; adjacent node had zero successes compatible with this node"))
+                DualStackCandidate::Resolved(ref local_unique_id) => {
+                    // we unconditionally send local's value in the hashmap, which is implied to exist locally so we can unwrap
+                    debug_assert!(!has_precedence);
+                    let (hole_punched_socket, _hole_puncher) = local_completions.lock().remove(local_unique_id).unwrap();
+                    final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                    return Ok(())
+                }
+
+                DualStackCandidate::ResolveLockedIn(ref local_unique_id) => {
+                    // How did we get here? This side sends a SingleHolePunchSuccess, then, the adjacent side confirms that it also has finished connecting with local_unique_id. It then sends this packet to this node
+                    // Both sides have local_unique_id saved locally. The only side that RECEIVES the ResolveLockedIn is the precedence side; it must send an ack back
+                    debug_assert!(has_precedence);
+
+                    // we finish on local, then send a resolved
+                    let (hole_punched_socket, _hole_puncher) = local_completions.lock().remove(local_unique_id).unwrap();
+                    // send the adjacent id to remote per usual
+                    send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
+                    final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                    //this_node_submitted = true;
+                    return Ok(())
+                }
             }
         }
 
-        DualStackCandidate::Resolved(opt) => {
-            return if let Some(resolved) = opt {
-                map.remove(&resolved).ok_or_else(|| anyhow::Error::msg("Resolved addr does not correspond to any entry locally"))
-            } else {
-                Err(anyhow::Error::msg("The adjacent node resolved zero candidates compatible with the local node"))
-            }
-        }
+        Err(anyhow::Error::msg("The reliable ordered stream stopped producing values"))
+    };
 
-        _ => {
-            Err(anyhow::Error::msg("Expected a negotiation packet, but got a success instead ..."))
-        }
-    }
+    // this will end once the reader ends. The sender won't end until at least after the reader ends (unless there is a transmission error)
+    tokio::select! {
+        res0 = sender => res0?,
+        res1 = reader => res1?
+    };
+
+    Ok(final_candidate_rx.await?)
 }
 
 async fn send<R: Serialize, V: ReliableOrderedConnectionToTarget>(ref input: R, conn: &V) -> Result<(), anyhow::Error> {
     Ok(conn.send_to_peer(&bincode2::serialize(input).unwrap()).await?)
 }
 
+async fn receive<T: DeserializeOwned, V: ReliableOrderedConnectionToTarget>(conn: &V) -> Result<T, anyhow::Error> {
+    Ok(bincode2::deserialize(&conn.recv().await?)?)
+}
+
+#[allow(dead_code)]
 async fn send_then_receive<T: DeserializeOwned, R: Serialize, V: ReliableOrderedConnectionToTarget>(ref input: R, conn: &V) -> Result<T, anyhow::Error> {
     send(input, conn).await?;
-    Ok(bincode2::deserialize(&conn.recv().await?)?)
+    receive(conn).await
 }
 
 fn increment_ports(bind_addr_0: SocketAddr, peer_external_addr_0: SocketAddr, peer_internal_addr_0: SocketAddr, bind_addr_1: SocketAddr, peer_external_addr_1: SocketAddr, peer_internal_addr_1: SocketAddr, delta: u16) -> (SocketAddr, SocketAddr, SocketAddr, SocketAddr, SocketAddr, SocketAddr) {
