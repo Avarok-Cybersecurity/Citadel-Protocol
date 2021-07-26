@@ -135,8 +135,8 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
 
     let has_precedence = node_type == RelativeNodeType::Initiator;
     let ref mut locked_in_locally = None;
-
-    let mut this_node_submitted = false;
+    // stores the remote id that way it may be accessed during the Resolve stage if local already submitted
+    let ref mut this_node_submitted: Option<HolePunchID> = None;
 
     // the goal of the reader is to read inbound candidates, check the local hashmap for correspondence, then engage in negotiation if required
     let reader = async move {
@@ -146,7 +146,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
             match candidate {
                 DualStackCandidate::SingleHolePunchSuccess(ref local_unique_id) | DualStackCandidate::Pong(ref local_unique_id) => {
                     log::info!("AB0");
-                    if !this_node_submitted {
+                    if this_node_submitted.is_none() {
                         log::info!("AB1");
                         if locked_in_locally.clone() == Some(local_unique_id.clone()) {
                             log::info!("Previously locked-in locally identified. Will unconditionally accept if local has preference");
@@ -156,9 +156,10 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                 // we can unwrap here since locked_in_locally existing implies the existence of the entry in the local hashmap
                                 let (hole_punched_socket, _hole_puncher) = local_completions_sender.write().await.remove(local_unique_id).unwrap();
                                 // send the adjacent id to remote per usual
-                                send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
+                                let peer_id = hole_punched_socket.addr.unique_id;
+                                send(DualStackCandidate::Resolved(peer_id), conn).await?;
                                 final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
-                                this_node_submitted = true;
+                                *this_node_submitted = Some(peer_id);
                             } else {
                                 log::info!("Local does NOT have preference. Will await for the adjacent endpoint to send confirmation")
                             }
@@ -172,9 +173,10 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                     // both sides have this, and this side has precedence, so finish early
                                     let (hole_punched_socket, _hole_puncher) = write.remove(local_unique_id).unwrap();
                                     // send the adjacent id to remote per usual
-                                    send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
+                                    let peer_id = hole_punched_socket.addr.unique_id;
+                                    send(DualStackCandidate::Resolved(peer_id), conn).await?;
                                     final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
-                                    this_node_submitted = true;
+                                    *this_node_submitted = Some(peer_id);
                                 } else {
                                     // both sides have this, though, this node does not have the power to confirm first. It needs to send a ResolveLockedIn to the other side, where it will return with a Resolved if the adjacent side finished
                                     *locked_in_locally = Some(local_unique_id.clone());
@@ -211,20 +213,26 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                     // Both sides have local_unique_id saved locally. The only side that RECEIVES the ResolveLockedIn is the precedence side; it must send an ack back
                     debug_assert!(has_precedence);
 
-                    // we finish on local, then send a resolved
-                    let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
-                    // send the adjacent id to remote per usual
-                    send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
-                    final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
-                    //this_node_submitted = true;
-                    return Ok(())
+                    // it is possible that this side already resolved, in which case unwrapping below would yield a panic. Instead, just send an Resolved
+                    return if let Some(peer_id) = this_node_submitted.clone() {
+                        send(DualStackCandidate::Resolved(peer_id), conn).await?;
+                        Ok(())
+                    } else {
+                        // we finish on local, then send a resolved
+                        let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
+                        // send the adjacent id to remote per usual
+                        send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
+                        final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                        //this_node_submitted = true;
+                        Ok(())
+                    }
                 }
             }
         }
 
         Err(anyhow::Error::msg("The reliable ordered stream stopped producing values"))
     };
-    
+
     // this will end once the reader ends. The sender won't end until at least after the reader ends (unless there is a transmission error)
     tokio::select! {
         res0 = sender => res0?,
