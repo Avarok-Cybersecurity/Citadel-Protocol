@@ -215,7 +215,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         Err(anyhow::Error::msg("The reliable ordered stream stopped producing values"))
     };
 
-    
+
     let mut reader_finished = false;
     // this will end once the reader ends. The sender won't end until at least after the reader ends (unless there is a transmission error)
     tokio::select! {
