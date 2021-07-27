@@ -78,6 +78,7 @@ impl Method3 {
         Ok(hole_punched_addr)
     }
 
+    /// Some research papers explain that incrementing the TTL on the packet may be beneficial
     async fn send_syn_barrage(ttl_init: u32, delta_ttl: Option<u32>, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64, count: u32, unique_id: HolePunchID) -> Result<(), anyhow::Error> {
         //let ref syn_packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap());
         //let _ = socket.set_ttl(ttl_init);
@@ -122,6 +123,9 @@ impl Method3 {
                     for _ in 0..3 {
                         socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone())).unwrap()), peer_external_addr).await?;
                     }
+
+                    // The other side should get these packets. We will now return since only one side needs to complete
+                    return Err(FirewallError::HolePunch("The adjacent node will claim success for this node upon recv synack".to_string()))
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
