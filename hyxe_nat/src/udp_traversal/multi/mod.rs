@@ -236,8 +236,10 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                         return Ok(())
                                     }
                                 }
-                            } else {
-                                log::info!("[Recovery] Local has preference, but, only remote has at least one success. If local has a received ID corresponding to remote id, will conclude");
+                            }
+
+                            if remote_successes.len() > 0 {
+                                log::info!("[Recovery] Local has preference, and, remote has at least one success. If local has a received ID corresponding to a remote id, will conclude");
                                 let mut local_failures = local_failures.write().await;
                                 let local_received_ids = construct_received_ids(&*local_failures, &*write);
                                 for (ref remote_id, ref local_id) in local_received_ids {
