@@ -15,8 +15,9 @@ use reqwest::Client;
 use std::str::FromStr;
 use serde::{Serialize, Deserialize};
 
-const URL_V6: &str = "https://api64.ipify.org";
-const URL_V4: &str = "https://api.ipify.org";
+// use http since it's 2-3x faster
+const URL_V6: &str = "http://api64.ipify.org";
+const URL_V4: &str = "http://api.ipify.org";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 /// All the ip addr info for this node
@@ -31,7 +32,7 @@ pub struct IpAddressInfo {
 
 /// Returns all possible IPs for this node
 pub async fn get_all(client: Option<Client>) -> Result<IpAddressInfo, IpRetrieveError> {
-    let client = client.unwrap_or_else(|| Client::new());
+    let client = client.unwrap_or_else(|| Client::builder().tcp_nodelay(true).build().unwrap());
     let internal_ipv4_future = get_internal_ip(false);
     let external_ipv4_future = get_ip(Some(client.clone()), false);
     let external_ipv6_future = get_ip(Some(client), true);

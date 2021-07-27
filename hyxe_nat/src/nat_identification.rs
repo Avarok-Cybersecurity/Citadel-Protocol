@@ -154,7 +154,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
                             xor_addr.get_from(&msg)?;
                             let natted_addr = SocketAddr::new(xor_addr.ip, xor_addr.port);
 
-                            log::info!("Hole-punched ADDR: {:?} | internal: {:?}", natted_addr, new_bind_addr);
+                            log::info!("External ADDR: {:?} | internal: {:?}", natted_addr, new_bind_addr);
 
                             return Ok(Some((natted_addr, new_bind_addr)));
                         }

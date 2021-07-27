@@ -31,7 +31,8 @@ enum DualStackCandidate {
     // can be sent by either node
     ResolveLockedIn(HolePunchID),
     // Can only be sent by the initiator/preferred side
-    Resolved(HolePunchID),
+    // second is id used for recovery mode only
+    Resolved(HolePunchID, Option<HolePunchID>),
     //
     Ping(Vec<HolePunchID>, Vec<HolePunchID>)
 }
@@ -154,7 +155,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                 let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
                                 // send the adjacent id to remote per usual
                                 let peer_id = hole_punched_socket.addr.unique_id;
-                                send(DualStackCandidate::Resolved(peer_id), conn).await?;
+                                send(DualStackCandidate::Resolved(peer_id, None), conn).await?;
                                 final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
                                 *this_node_submitted = Some(peer_id);
                             } else {
@@ -171,7 +172,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                     // send the adjacent id to remote per usual
 
                                     std::mem::drop(write);
-                                    send(DualStackCandidate::Resolved(peer_id), conn).await?;
+                                    send(DualStackCandidate::Resolved(peer_id, None), conn).await?;
                                     final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
                                     *this_node_submitted = Some(peer_id);
                                     return Ok(())
@@ -189,11 +190,6 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                 // note: experimentally, it has been proven possible that what succeeds on one end may fail on another. This means when remote succeeds for id X, but local fails for X, we enter an infinite loop of pings until timeout occurs
                                 // TODO: Ping/pong resolution process
                                 std::mem::drop(write);
-                                /*if local_failures.read().await.contains(local_unique_id) {
-                                    log::info!("Will not ping since local failed for {:?}", local_unique_id);
-                                } else {
-                                    send(DualStackCandidate::Ping(local_unique_id.clone()), conn).await?;
-                                }*/
                                 send(DualStackCandidate::Ping(local_completions.read().await.keys().cloned().collect(), local_failures.read().await.keys().cloned().collect()), conn).await?;
                             }
                         }
@@ -204,42 +200,90 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
 
                 // a ping can be sent from either receiver or initiator. If the local receiver is the initiator, and it discovers a potential candidate, only it is allowed to accept a version then send a resolved instead of a Pong
                 // if the local receiver is the receiver, then it must return a ping to the initiator of the local state so that it may resolve
-                DualStackCandidate::Ping(remote_successes, _remote_failures) => {
+                DualStackCandidate::Ping(remote_successes, ref remote_received_ids) => {
                     if has_precedence {
                         // we must resolve
                         let mut write = local_completions.write().await;
-                        for remote_success in remote_successes {
-                            if let Some((key, _)) = write.iter().find(|(_key,(socket, _puncher))| socket.addr.unique_id == remote_success) {
+                        for remote_success in &remote_successes {
+                            if let Some((key, _)) = write.iter().find(|(_key,(socket, _puncher))| socket.addr.unique_id == *remote_success) {
                                 let ref key = key.clone();
                                 log::info!("RESOLVED with {:?}", key);
                                 let (hole_punched_socket, _) = write.remove(key).unwrap();
                                 // this side is done
                                 std::mem::drop(write);
-                                send(DualStackCandidate::Resolved(remote_success), conn).await?;
+                                send(DualStackCandidate::Resolved(*remote_success, None), conn).await?;
                                 final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
-                                *this_node_submitted = Some(remote_success);
+                                *this_node_submitted = Some(*remote_success);
                                 return Ok(())
                             }
                         }
 
                         // no matching resolutions. However, it is possible that there exists at least one success. One success existing implies a necessarily existent bidirectional communication, even if one side for whatever reason failed
-                        /*if remote_successes.len() > 0 || write.len() > 0 {
-                            // both sid
-                        }*/
+                        if remote_successes.len() > 0 || write.len() > 0 {
+                            log::info!("[Recovery] Will begin the recovery process since at least one bidirectional completion occurred ...");
+                            // at least one success occurred. Start by examining local (which has precedence) for a success
+                            if write.len() > 0 {
+                                log::info!("[Recovery] Local has preference and has at least one success. Will see if remote can recover ...");
+                                for local_id in remote_received_ids {
+                                    if let Some((hole_punched_socket, _)) = write.remove(local_id) {
+                                        log::info!("[Recovery] Found MATCH with local={:?}", local_id);
+                                        // send a Resolved
+                                        let remote_id = hole_punched_socket.addr.unique_id;
+                                        // remote will need to reconstruct
+                                        send(DualStackCandidate::Resolved(remote_id, Some(*local_id)), conn).await?;
+                                        final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                                        *this_node_submitted = Some(remote_id);
+                                        return Ok(())
+                                    }
+                                }
+                            } else {
+                                log::info!("[Recovery] Local has preference, but, only remote has at least one success. If local has a received ID corresponding to remote id, will conclude");
+                                let mut local_failures = local_failures.write().await;
+                                let local_received_ids = construct_received_ids(&*local_failures, &*write);
+                                for (ref remote_id, ref local_id) in local_received_ids {
+                                    if remote_successes.contains(remote_id) {
+                                        log::info!("[Recovery] Found MATCH with remote={:?}", remote_id);
+                                        let hole_punched_socket = local_failures.remove(local_id).unwrap().recovery_mode_generate_socket(*remote_id).unwrap();
+                                        // since this is recovery mode, yet, remote was the one with the success, we pass None
+                                        std::mem::drop(local_failures);
+                                        send(DualStackCandidate::Resolved(*remote_id, None), conn).await?;
+                                        final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                                        *this_node_submitted = Some(*remote_id);
+                                        return Ok(())
+                                    }
+                                }
+                            }
+                        }
 
                         log::info!("No resolution obtained. Will keep looping");
-                        // no resolution. Send a
-                        send(DualStackCandidate::Ping(write.keys().cloned().collect(), local_failures.read().await.keys().cloned().collect()), conn).await?;
+                        // no resolution. Send a ping. Note: the below is pointless since the adjacent node won't resolve it
+                        let local_received_ids = construct_received_ids(&*local_failures.read().await, &*write);
+                        send(DualStackCandidate::Ping(write.keys().cloned().collect(), local_received_ids.into_iter().map(|r| r.0).collect()), conn).await?;
                     } else {
-                        // this side will only resolve once the ping resolves remotely on the initiator side
-                        send(DualStackCandidate::Ping(local_completions.read().await.keys().cloned().collect(), local_failures.read().await.keys().cloned().collect()), conn).await?;
+                        // this side will only resolve once the ping resolves remotely on the initiator side. We send the information needed for recovery mode (if needed) that way the preferred side may resolve
+                        let read = local_completions.read().await;
+                        let received_ids = construct_received_ids(&*local_failures.read().await, &*read);
+                        send(DualStackCandidate::Ping(read.keys().cloned().collect(), received_ids.into_iter().map(|r| r.0).collect()), conn).await?;
                     }
                 }
 
-                DualStackCandidate::Resolved(ref local_unique_id) => {
+                DualStackCandidate::Resolved(ref local_unique_id, recovery_mode) => {
                     // we unconditionally send local's value in the hashmap, which is implied to exist locally so we can unwrap
                     debug_assert!(!has_precedence);
-                    let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
+                    let hole_punched_socket = if let Some(recovery_id) = recovery_mode {
+                        // we check both successes and failures. It MUST be one of the two
+                        if let Some((socket, _b)) = local_completions.write().await.remove(local_unique_id) {
+                            socket
+                        } else {
+                            // if it's not in the successes, it must be in the failures, thus we can unwrap all the way
+                            log::info!("Engaging recovery mode to rebuild socket that the adjacent node claimed functioned ...");
+                            local_failures.write().await.remove(local_unique_id).unwrap().recovery_mode_generate_socket(recovery_id).unwrap()
+                        }
+                    } else {
+                        let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
+                        hole_punched_socket
+                    };
+
                     final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
                     return Ok(())
                 }
@@ -251,13 +295,13 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
 
                     // it is possible that this side already resolved, in which case unwrapping below would yield a panic. Instead, just send an Resolved
                     return if let Some(peer_id) = this_node_submitted.clone() {
-                        send(DualStackCandidate::Resolved(peer_id), conn).await?;
+                        send(DualStackCandidate::Resolved(peer_id, None), conn).await?;
                         Ok(())
                     } else {
                         // we finish on local, then send a resolved
                         let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
                         // send the adjacent id to remote per usual
-                        send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id), conn).await?;
+                        send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id, None), conn).await?;
                         final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
                         //this_node_submitted = true;
                         Ok(())
@@ -276,6 +320,24 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     };
 
     Ok(final_candidate_rx.await?)
+}
+
+/// returns mapping of (remote_id, local_id)
+fn construct_received_ids(failures: &HashMap<HolePunchID, SingleUDPHolePuncher>, successes: &HashMap<HolePunchID, (HolePunchedUdpSocket, SingleUDPHolePuncher)>) -> Vec<(HolePunchID, HolePunchID)> {
+    let mut ret: Vec<(HolePunchID, HolePunchID)> = Vec::new();
+    for (_key, hole_puncher) in failures {
+        let local_id = hole_puncher.get_unique_id();
+        let ids: Vec<(HolePunchID, HolePunchID)> = hole_puncher.get_all_received_peer_hole_punched_ids().into_iter().map(|r| (r, local_id)).collect();
+        ret.extend(ids);
+    }
+
+    for (_key, (_, hole_puncher)) in successes {
+        let local_id = hole_puncher.get_unique_id();
+        let ids: Vec<(HolePunchID, HolePunchID)> = hole_puncher.get_all_received_peer_hole_punched_ids().into_iter().map(|r| (r, local_id)).collect();
+        ret.extend(ids);
+    }
+
+    ret
 }
 
 async fn send<R: Serialize, V: ReliableOrderedConnectionToTarget>(ref input: R, conn: &V) -> Result<(), anyhow::Error> {
