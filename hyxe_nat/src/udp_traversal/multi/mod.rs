@@ -185,12 +185,14 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                     // we send this, then keep looping until getting an appropriate response
                                 }
                             } else {
-                                log::info!("Maybe pinging since local has no matches. Available: {:?}", write.keys());
+                                log::info!("Pinging since local has no matches. Available: {:?}", write.keys());
                                 // value does not exist in ANY of the local values. Keep waiting
                                 // note: experimentally, it has been proven possible that what succeeds on one end may fail on another. This means when remote succeeds for id X, but local fails for X, we enter an infinite loop of pings until timeout occurs
                                 // TODO: Ping/pong resolution process
+                                let local_received_ids = construct_received_ids(&*local_failures.read().await, &*write);
+                                let local_completed = write.keys().cloned().collect();
                                 std::mem::drop(write);
-                                send(DualStackCandidate::Ping(local_completions.read().await.keys().cloned().collect(), local_failures.read().await.keys().cloned().collect()), conn).await?;
+                                send(DualStackCandidate::Ping(local_completed, local_received_ids.into_iter().map(|r| r.0).collect()), conn).await?;
                             }
                         }
                     } else {
