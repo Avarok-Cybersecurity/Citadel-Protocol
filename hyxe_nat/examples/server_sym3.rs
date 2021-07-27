@@ -26,7 +26,7 @@ async fn main() {
     let writer = async move {
         let mut stdin = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(input)) = stdin.next_line().await {
-            log::info!("About to send: {}", &input);
+            log::info!("About to send (bind:{:?}->{:?}): {}", hole_punched_socket.socket.local_addr().unwrap(), hole_punched_socket.addr.natted, &input);
             hole_punched_socket.socket.send_to(input.as_bytes(), hole_punched_socket.addr.natted).await.unwrap();
         }
 
