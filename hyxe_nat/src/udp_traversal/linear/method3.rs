@@ -20,7 +20,7 @@ pub struct Method3 {
     encrypted_config: EncryptedConfigContainer,
     unique_id: HolePunchID,
     // in the case the adjacent node for id=key succeeds, yet, this node fails, recovery mode can ensue
-    observed_addrs_on_syn: Mutex<HashMap<HolePunchID, HolePunchedSocketAddr>>
+    observed_addrs_on_syn: Mutex<HashMap<HolePunchID, HolePunchedSocketAddr>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -60,8 +60,8 @@ impl Method3 {
 
         let sender_task = async move {
             tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
-            Self::send_syn_barrage(2, socket, endpoints, encryptor, 20, unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-            Self::send_syn_barrage(120, socket, endpoints, encryptor, 20, unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            Self::send_syn_barrage(2, None, socket, endpoints, encryptor, 40, 5, unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            Self::send_syn_barrage(120, None, socket, endpoints, encryptor, 20, 5,unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
 
             Ok(()) as Result<(), FirewallError>
         };
@@ -78,22 +78,20 @@ impl Method3 {
         Ok(hole_punched_addr)
     }
 
-    async fn send_syn_barrage(ttl: u32, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64, unique_id: HolePunchID) -> Result<(), anyhow::Error> {
+    async fn send_syn_barrage(ttl_init: u32, delta_ttl: Option<u32>, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64, count: u32, unique_id: HolePunchID) -> Result<(), anyhow::Error> {
         //let ref syn_packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap());
-        let _ = socket.set_ttl(ttl);
+        //let _ = socket.set_ttl(ttl_init);
         let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
-
+        let delta_ttl = delta_ttl.unwrap_or(0);
+        let ttls = (0..count).into_iter().map(|idx| ttl_init + (idx*delta_ttl)).collect::<Vec<u32>>();
         // fan-out of packets from a singular source to multiple consumers
-        for _ in 0..5 {
-            //if !is_done.load(Ordering::Relaxed) {
-                let _ = sleep.tick().await;
-                for endpoint in endpoints {
-                    log::info!("Sending TTL={} to {}", ttl, endpoint);
-                    socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(unique_id, ttl)).unwrap()), endpoint).await?;
-                }
-            //} else {
-              //  break;
-            //}
+        for ttl in ttls {
+            let _ = socket.set_ttl(ttl);
+            let _ = sleep.tick().await;
+            for endpoint in endpoints {
+                log::info!("Sending TTL={} to {}", ttl, endpoint);
+                socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(unique_id, ttl)).unwrap()), endpoint).await?;
+            }
         }
 
         Ok(())
@@ -120,33 +118,21 @@ impl Method3 {
                 NatPacket::Syn(peer_unique_id, ttl) => {
                     log::info!("RECV SYN");
                     observed_addrs_on_syn.lock().insert(peer_unique_id, HolePunchedSocketAddr::new(*endpoint, peer_external_addr, peer_unique_id));
-                    //if recv_from_required.is_none() {
-                        log::info!("Received TTL={} packet. Awaiting mutual recognition...", ttl);
-                        //recv_from_required = Some(nat_addr);
-                        // we received a packet, but, need to verify
-                        for _ in 0..3 {
-                            socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone())).unwrap()), peer_external_addr).await?;
-                        }
-                    //}
+                    log::info!("Received TTL={} packet. Awaiting mutual recognition...", ttl);
+                    for _ in 0..3 {
+                        socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone())).unwrap()), peer_external_addr).await?;
+                    }
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
                 NatPacket::SynAck(adjacent_unique_id) => {
                     log::info!("RECV SYN_ACK");
-                    //if let Some(required_addr_in_conv) = recv_from_required {
-                   //     if required_addr_in_conv == nat_addr {
-                            // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
-                            let initial_socket = endpoint;
-                            let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, peer_external_addr, adjacent_unique_id);
-                            log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
+                    // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
+                    let initial_socket = endpoint;
+                    let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, peer_external_addr, adjacent_unique_id);
+                    log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
 
-                            return Ok(hole_punched_addr);
-                    //    } else {
-                    //        log::warn!("Received SynAck, but the addrs did not match!");
-                   //     }
-                   // } else {
-                   //     log::warn!("Received SynAck, but have not yet received Syn")
-                   // }
+                    return Ok(hole_punched_addr);
                 }
             }
         }
