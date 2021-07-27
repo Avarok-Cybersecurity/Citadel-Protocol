@@ -182,6 +182,21 @@ impl SingleUDPHolePuncher {
         self.unique_id
     }
 
+    /// used during recovery mode by higher-level implementations
+    pub fn get_peer_external_addr_from_peer_hole_punch_id(&self, id: HolePunchID) -> Option<HolePunchedSocketAddr> {
+        self.method3.1.get_peer_external_addr_from_peer_hole_punch_id(id)
+    }
+
+    pub fn get_all_received_peer_hole_punched_ids(&self) -> Vec<HolePunchID> {
+        self.method3.1.get_all_received_peer_hole_punched_ids()
+    }
+
+    /// this should only be called when the adjacent node verified that the connection occured
+    pub fn recovery_mode_generate_socket(&mut self, remote_id: HolePunchID) -> Option<HolePunchedUdpSocket> {
+        let addr = self.get_peer_external_addr_from_peer_hole_punch_id(remote_id)?;
+        let socket = self.socket.take()?;
+        Some(HolePunchedUdpSocket { addr, socket })
+    }
 }
 
 /// Methods described in https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf
@@ -245,6 +260,9 @@ pub trait LinearUdpHolePunchImpl {
     /// `endpoint`: is the initial send location
     /// `sockets`: Must be the same length as the base_local_ports
     async fn execute(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedSocketAddr, FirewallError>;
+    /// used during "recovery mode" (when one side completes, but the other does not
+    fn get_peer_external_addr_from_peer_hole_punch_id(&self, id: HolePunchID) -> Option<HolePunchedSocketAddr>;
+    fn get_all_received_peer_hole_punched_ids(&self) -> Vec<HolePunchID>;
 }
 
 pub mod nat_payloads {
