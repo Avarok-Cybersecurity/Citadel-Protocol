@@ -121,11 +121,9 @@ impl Method3 {
                     observed_addrs_on_syn.lock().insert(peer_unique_id, HolePunchedSocketAddr::new(*endpoint, peer_external_addr, peer_unique_id));
                     log::info!("Received TTL={} packet. Awaiting mutual recognition...", ttl);
                     for _ in 0..3 {
+                        let _ = socket.set_ttl(120);
                         socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone())).unwrap()), peer_external_addr).await?;
                     }
-
-                    // The other side should get these packets. We will now return since only one side needs to complete
-                    return Err(FirewallError::HolePunch("The adjacent node will claim success for this node upon recv synack".to_string()))
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
