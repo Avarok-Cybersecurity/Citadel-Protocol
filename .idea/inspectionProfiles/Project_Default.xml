@@ -35,6 +35,10 @@
           <option value="http://tiles.apache.org/" />
           <option value="http://api64.ipify.org" />
           <option value="http://api.ipify.org" />
+          <option value="http://ident.me" />
+          <option value="http://v4.ident.me" />
+          <option value="http://v4v6.ipv6-test.com" />
+          <option value="http://v4.ipv6-test.com" />
         </list>
       </option>
     </inspection_tool>
