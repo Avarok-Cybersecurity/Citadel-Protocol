@@ -49,7 +49,6 @@ impl Method3 {
         let ref observed_addrs_on_syn = self.observed_addrs_on_syn;
 
         let receiver_task = async move {
-
             // we are only interested in the first receiver to receive a value
             if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), Self::recv_until(socket, &endpoints[0], encryptor, unique_id, observed_addrs_on_syn)).await.map_err(|err| FirewallError::HolePunch(err.to_string()))? {
                 Ok(res)
@@ -62,7 +61,6 @@ impl Method3 {
             tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
             Self::send_syn_barrage(2, None, socket, endpoints, encryptor, 40, 5, unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
             Self::send_syn_barrage(120, None, socket, endpoints, encryptor, 20, 5,unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-
             Ok(()) as Result<(), FirewallError>
         };
 
@@ -80,12 +78,11 @@ impl Method3 {
 
     /// Some research papers explain that incrementing the TTL on the packet may be beneficial
     async fn send_syn_barrage(ttl_init: u32, delta_ttl: Option<u32>, socket: &UdpSocket, endpoints: &Vec<SocketAddr>, encryptor: &EncryptedConfigContainer, millis_delta: u64, count: u32, unique_id: HolePunchID) -> Result<(), anyhow::Error> {
-        //let ref syn_packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(ttl)).unwrap());
-        //let _ = socket.set_ttl(ttl_init);
         let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
         let delta_ttl = delta_ttl.unwrap_or(0);
         let ttls = (0..count).into_iter().map(|idx| ttl_init + (idx*delta_ttl)).collect::<Vec<u32>>();
-        // fan-out of packets from a singular source to multiple consumers
+
+        // fan-out of packets from a singular source to multiple consumers using the ttls specified
         for ttl in ttls {
             let _ = socket.set_ttl(ttl);
             let _ = sleep.tick().await;
