@@ -22,16 +22,26 @@ impl QuicContainer {
         let std_socket = socket.into_std()?;
 
         if is_server {
+            log::info!("RD0");
             let (endpoint, mut listener, _server_cert) = make_server_endpoint(std_socket)?;
+            log::info!("RD1");
             let connecting = listener.next().await.ok_or_else(|| anyhow::Error::msg("No QUIC connections available"))?;
+            log::info!("RD2");
             let mut conn = connecting.await?;
+            log::info!("RD3");
             let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
+            log::info!("RD4");
             Ok(QuicContainer { endpoint, first_conn: Some((sink, stream)), listener: Some(listener) })
         } else {
+            log::info!("RD0");
             let endpoint = make_client_endpoint(std_socket, None)?;
+            log::info!("RD1");
             let connecting = endpoint.connect(&addr.natted, tls_domain)?;
+            log::info!("RD2");
             let mut conn = connecting.await?;
+            log::info!("RD3");
             let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
+            log::info!("RD4");
             Ok(QuicContainer { endpoint, first_conn: Some((sink, stream)), listener: None })
         }
     }
