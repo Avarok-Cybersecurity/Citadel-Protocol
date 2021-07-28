@@ -23,6 +23,7 @@ async fn main() {
 
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
     let (mut sink, mut stream) = hyxe_nat::quic::QuicContainer::new(hole_punched_socket, false, "localhost").await.unwrap().first_conn.take().unwrap();
+    log::info!("Successfully obtained QUIC connection ...");
 
     let writer = async move {
         let mut stdin = BufReader::new(tokio::io::stdin()).lines();
