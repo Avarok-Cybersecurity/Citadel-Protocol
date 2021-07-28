@@ -22,7 +22,7 @@ async fn main() {
     let hole_punched_socket = UdpHolePuncher::new(server_stream, RelativeNodeType::Initiator, Default::default()).await.unwrap();
 
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
-    let (mut sink, mut stream) = hyxe_nat::quic::QuicContainer::new(hole_punched_socket, false, "").await.unwrap().first_conn.take().unwrap();
+    let (mut sink, mut stream) = hyxe_nat::quic::QuicContainer::new(hole_punched_socket, false, "localhost").await.unwrap().first_conn.take().unwrap();
 
     let writer = async move {
         let mut stdin = BufReader::new(tokio::io::stdin()).lines();

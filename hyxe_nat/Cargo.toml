@@ -28,7 +28,9 @@ serde = { version = "1.0.126", features = ["derive"]}
 log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
 bincode2 = "2.0.1"
 async_ip = { path = "../async_ip", version = "0.1.0" }
-quinn = "0.7.2"
+quinn = { version = "0.7.2", features = ["rustls"] }
+webpki = "0.21.0"
+rustls = { version = "0.19.1", features = ["quic", "dangerous_configuration"] }
 rcgen = "0.8.11"
 
 [dev-dependencies]
