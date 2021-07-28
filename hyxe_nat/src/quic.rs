@@ -1,13 +1,11 @@
 use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedUdpSocket;
-use quinn::{Endpoint, SendStream, RecvStream};
-use quinn::Incoming;
+use quinn::{Endpoint, SendStream, RecvStream, Incoming, ClientConfig, ServerConfig, ClientConfigBuilder, ServerConfigBuilder};
 use futures::StreamExt;
 
-use quinn::{
-    Certificate, CertificateChain, ClientConfig, ClientConfigBuilder,
-    PrivateKey, ServerConfig, ServerConfigBuilder, TransportConfig,
-};
+use quinn::{Certificate, CertificateChain, PrivateKey, TransportConfig};
 use std::sync::Arc;
+use rustls::{ServerCertVerifier, ServerCertVerified, RootCertStore};
+use quinn::crypto::rustls::TLSError;
 
 /// Used in the protocol mostly for obtaining a first bidirectional connection to the hole-punched endpoint. Supplies the QUIC endpoint and optional listener devices in case
 /// the protocol requires further interaction
@@ -18,7 +16,7 @@ pub struct QuicContainer {
 }
 
 impl QuicContainer {
-    pub async fn new(socket: HolePunchedUdpSocket, is_server: bool, tls_domain: &str) -> Result<Self, anyhow::Error> {
+    pub async fn new(socket: HolePunchedUdpSocket, is_server: bool, tls_domain: &str) -> Result<QuicContainer, anyhow::Error> {
         //socket.socket.connect(socket.addr.natted).await?;
         let HolePunchedUdpSocket { addr, socket } = socket;
         let std_socket = socket.into_std()?;
@@ -30,7 +28,7 @@ impl QuicContainer {
             let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
             Ok(QuicContainer { endpoint, first_conn: Some((sink, stream)), listener: Some(listener) })
         } else {
-            let endpoint = make_client_endpoint(std_socket, &[])?;
+            let endpoint = make_client_endpoint(std_socket, None)?;
             let connecting = endpoint.connect(&addr.natted, tls_domain)?;
             let mut conn = connecting.await?;
             let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
@@ -47,9 +45,14 @@ impl QuicContainer {
 #[allow(unused)]
 pub fn make_client_endpoint(
     socket: std::net::UdpSocket,
-    server_certs: &[&[u8]],
+    server_certs: Option<&[&[u8]]>,
 ) -> Result<Endpoint, anyhow::Error> {
-    let client_cfg = configure_client(server_certs)?;
+    let client_cfg = if let Some(server_certs) = server_certs {
+        configure_client_secure(server_certs)?
+    } else {
+        configure_client_insecure()
+    };
+
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.default_client_config(client_cfg);
     let (endpoint, incoming) = endpoint_builder.with_socket(socket)?;
@@ -77,12 +80,22 @@ pub fn make_server_endpoint(socket: std::net::UdpSocket) -> Result<(Endpoint, In
 /// ## Args
 ///
 /// - server_certs: a list of trusted certificates in DER format.
-fn configure_client(server_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
+fn configure_client_secure(server_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
     let mut cfg_builder = ClientConfigBuilder::default();
     for cert in server_certs {
         cfg_builder.add_certificate_authority(Certificate::from_der(&cert)?)?;
     }
     Ok(cfg_builder.build())
+}
+
+fn configure_client_insecure() -> ClientConfig {
+    let mut cfg = ClientConfigBuilder::default().build();
+    let tls_cfg: &mut rustls::ClientConfig = Arc::get_mut(&mut cfg.crypto).unwrap();
+    // this is only available when compiled with "dangerous_configuration" feature
+    tls_cfg
+        .dangerous()
+        .set_certificate_verifier(SkipServerVerification::new());
+    cfg
 }
 
 /// Returns default server configuration along with its certificate.
@@ -101,4 +114,18 @@ fn configure_server_crypto() -> Result<(ServerConfig, Vec<u8>), anyhow::Error> {
     cfg_builder.certificate(CertificateChain::from_certs(vec![cert]), priv_key)?;
 
     Ok((cfg_builder.build(), cert_der))
+}
+
+struct SkipServerVerification;
+
+impl SkipServerVerification {
+    fn new() -> Arc<Self> {
+        Arc::new(Self)
+    }
+}
+
+impl ServerCertVerifier for SkipServerVerification {
+    fn verify_server_cert(&self, _roots: &RootCertStore, _presented_certs: &[rustls::Certificate], _dns_name: webpki::DNSNameRef<'_>, _ocsp_response: &[u8]) -> Result<ServerCertVerified, TLSError> {
+        Ok(ServerCertVerified::assertion())
+    }
 }
