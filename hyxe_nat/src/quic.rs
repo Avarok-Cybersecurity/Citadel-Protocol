@@ -6,6 +6,7 @@ use quinn::{Certificate, CertificateChain, PrivateKey, TransportConfig};
 use std::sync::Arc;
 use rustls::{ServerCertVerifier, ServerCertVerified, RootCertStore};
 use quinn::crypto::rustls::TLSError;
+use std::time::Duration;
 
 /// Used in the protocol mostly for obtaining a first bidirectional connection to the hole-punched endpoint. Supplies the QUIC endpoint and optional listener devices in case
 /// the protocol requires further interaction
@@ -38,9 +39,11 @@ impl QuicContainer {
             log::info!("RD1");
             let connecting = endpoint.connect(&addr.natted, tls_domain)?;
             log::info!("RD2");
-            let mut conn = connecting.await?;
+            let conn = connecting.await?;
             log::info!("RD3");
-            let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
+            let (mut sink, stream) = conn.connection.open_bi().await?;
+            // must send some data before the adjacent node can receive a bidirectional connection
+            sink.write(b"Hello, world!").await?;
             log::info!("RD4");
             Ok(QuicContainer { endpoint, first_conn: Some((sink, stream)), listener: None })
         }
@@ -95,17 +98,29 @@ fn configure_client_secure(server_certs: &[&[u8]]) -> Result<ClientConfig, anyho
     for cert in server_certs {
         cfg_builder.add_certificate_authority(Certificate::from_der(&cert)?)?;
     }
-    Ok(cfg_builder.build())
+
+    let mut cfg = cfg_builder.build();
+
+    load_hole_punch_friendly_quic_transport_config(&mut cfg);
+
+    Ok(cfg)
 }
 
 fn configure_client_insecure() -> ClientConfig {
     let mut cfg = ClientConfigBuilder::default().build();
+    load_hole_punch_friendly_quic_transport_config(&mut cfg);
     let tls_cfg: &mut rustls::ClientConfig = Arc::get_mut(&mut cfg.crypto).unwrap();
     // this is only available when compiled with "dangerous_configuration" feature
     tls_cfg
         .dangerous()
         .set_certificate_verifier(SkipServerVerification::new());
     cfg
+}
+
+fn load_hole_punch_friendly_quic_transport_config(cfg: &mut ClientConfig) {
+    let mut transport_cfg = TransportConfig::default();
+    transport_cfg.keep_alive_interval(Some(Duration::from_millis(2000)));
+    cfg.transport = Arc::new(transport_cfg);
 }
 
 /// Returns default server configuration along with its certificate.

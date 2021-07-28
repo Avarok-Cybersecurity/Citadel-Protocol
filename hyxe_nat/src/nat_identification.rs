@@ -209,7 +209,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
         }
     };
 
-    let ip_info = async_ip::get_all(None);
+    let ip_info = async_ip::get_all_multi_concurrent(None);
 
     let (nat_type, ip_info) = tokio::join!(nat_type, ip_info);
     let mut nat_type = nat_type?;
