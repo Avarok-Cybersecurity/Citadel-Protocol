@@ -47,7 +47,7 @@ pub async fn get_all_multi_concurrent_from(client: Option<Client>, v4_addrs: &[&
     let ref client = client.unwrap_or_else(|| get_default_client());
     let internal_ipv4_future = get_internal_ip(false);
     let external_ipv4_future = futures::future::select_ok(v4_addrs.into_iter().map(|addr| Box::pin(get_ip_from(Some(client.clone()), false, addr, ""))).collect::<Vec<_>>());
-    let external_ipv6_future = futures::future::select_ok(v6_addrs.into_iter().map(|addr| Box::pin(get_ip_from(Some(client.clone()), false, "", addr))).collect::<Vec<_>>());
+    let external_ipv6_future = futures::future::select_ok(v6_addrs.into_iter().map(|addr| Box::pin(get_ip_from(Some(client.clone()), true, "", addr))).collect::<Vec<_>>());
 
     let (res0, res1, res2) = tokio::join!(internal_ipv4_future, external_ipv4_future, external_ipv6_future);
     let internal_ipv4 = res0.ok_or_else(||IpRetrieveError::Error("Could not obtain internal IPv4".to_string()))?;
