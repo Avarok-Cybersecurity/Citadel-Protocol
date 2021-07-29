@@ -1613,6 +1613,7 @@ dependencies = [
  "igd",
  "log",
  "net2",
+ "openssl",
  "parking_lot 0.11.1",
  "quinn",
  "rcgen",
