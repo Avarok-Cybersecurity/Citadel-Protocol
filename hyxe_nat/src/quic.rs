@@ -7,6 +7,7 @@ use std::sync::Arc;
 use rustls::{ServerCertVerifier, ServerCertVerified, RootCertStore};
 use quinn::crypto::rustls::TLSError;
 use std::time::Duration;
+use std::path::Path;
 
 /// Used in the protocol mostly for obtaining a first bidirectional connection to the hole-punched endpoint. Supplies the QUIC endpoint and optional listener devices in case
 /// the protocol requires further interaction
@@ -16,36 +17,65 @@ pub struct QuicContainer {
     pub listener: Option<Incoming>
 }
 
+pub enum QuicEndpointType<'a> {
+    Listener { crypt: Option<(CertificateChain, PrivateKey)> },
+    Client { trusted_certs: Option<&'a [&'a [u8]]>, tls_domain: &'a str }
+}
+
+impl<'a> QuicEndpointType<'a> {
+    pub fn listener_from_pkcs_12_der_path<P: AsRef<Path>>(path: P, password: &str) -> Result<Self, anyhow::Error> {
+        let (chain, pkey) = crate::misc::read_pkcs_12_der_to_quinn_keys(path, password)?;
+        Ok(QuicEndpointType::Listener { crypt: Some((chain, pkey)) })
+    }
+
+    pub fn listener_dangerous_self_signed() -> Self {
+        QuicEndpointType::Listener { crypt: None }
+    }
+
+    pub fn client_from_trusted_certs(certs: &'a [&'a [u8]], tls_domain: &'a str) -> Result<Self, anyhow::Error> {
+        Ok(QuicEndpointType::Client { trusted_certs: Some(certs), tls_domain })
+    }
+
+    /// Required if using self-signed certs (for now)
+    pub fn client_dangerous_no_verify(tls_domain: &'a str) -> Self {
+        QuicEndpointType::Client { trusted_certs: None, tls_domain }
+    }
+}
+
 impl QuicContainer {
-    pub async fn new(socket: HolePunchedUdpSocket, is_server: bool, tls_domain: &str) -> Result<QuicContainer, anyhow::Error> {
+    pub async fn new(socket: HolePunchedUdpSocket, quic_endpoint_type: QuicEndpointType<'_>) -> Result<QuicContainer, anyhow::Error> {
         //socket.socket.connect(socket.addr.natted).await?;
         let HolePunchedUdpSocket { addr, socket } = socket;
         let std_socket = socket.into_std()?;
 
-        if is_server {
-            log::info!("RD0");
-            let (endpoint, mut listener, _server_cert) = make_server_endpoint(std_socket)?;
-            log::info!("RD1");
-            let connecting = listener.next().await.ok_or_else(|| anyhow::Error::msg("No QUIC connections available"))?;
-            log::info!("RD2");
-            let mut conn = connecting.await?;
-            log::info!("RD3");
-            let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
-            log::info!("RD4");
-            Ok(QuicContainer { endpoint, first_conn: Some((sink, stream)), listener: Some(listener) })
-        } else {
-            log::info!("RD0");
-            let endpoint = make_client_endpoint(std_socket, None)?;
-            log::info!("RD1");
-            let connecting = endpoint.connect(&addr.natted, tls_domain)?;
-            log::info!("RD2");
-            let conn = connecting.await?;
-            log::info!("RD3");
-            let (mut sink, stream) = conn.connection.open_bi().await?;
-            // must send some data before the adjacent node can receive a bidirectional connection
-            sink.write(b"Hello, world!").await?;
-            log::info!("RD4");
-            Ok(QuicContainer { endpoint, first_conn: Some((sink, stream)), listener: None })
+        match quic_endpoint_type {
+            QuicEndpointType::Listener { crypt } => {
+                log::info!("RD0");
+                let (endpoint, mut listener) = make_server_endpoint(std_socket, crypt)?;
+                log::info!("RD1");
+                let connecting = listener.next().await.ok_or_else(|| anyhow::Error::msg("No QUIC connections available"))?;
+                log::info!("RD2");
+                let mut conn = connecting.await?;
+                log::info!("RD3");
+                let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
+                log::info!("RD4");
+                Ok(QuicContainer { endpoint, first_conn: Some((sink, stream)), listener: Some(listener) })
+            }
+
+            QuicEndpointType::Client { trusted_certs, tls_domain } => {
+                log::info!("RD0");
+                let endpoint = make_client_endpoint(std_socket, trusted_certs)?;
+                log::info!("RD1");
+                let connecting = endpoint.connect(&addr.natted, tls_domain)?;
+                log::info!("RD2");
+                let conn = connecting.await?;
+                log::info!("RD3");
+                let (mut sink, stream) = conn.connection.open_bi().await?;
+                // must send some data before the adjacent node can receive a bidirectional connection
+                sink.write(&[]).await?;
+                log::info!("RD4");
+                Ok(QuicContainer { endpoint, first_conn: Some((sink, stream)), listener: None })
+            }
         }
     }
 }
@@ -80,12 +110,13 @@ pub fn make_client_endpoint(
 /// - a stream of incoming QUIC connections
 /// - server certificate serialized into DER format
 #[allow(unused)]
-pub fn make_server_endpoint(socket: std::net::UdpSocket) -> Result<(Endpoint, Incoming, Vec<u8>), anyhow::Error> {
-    let (server_config, server_cert) = configure_server_crypto()?;
+pub fn make_server_endpoint(socket: std::net::UdpSocket, crypt: Option<(CertificateChain, PrivateKey)>) -> Result<(Endpoint, Incoming), anyhow::Error> {
+    let server_config = configure_server_crypto(crypt)?;
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.listen(server_config);
+
     let (endpoint, incoming) = endpoint_builder.with_socket(socket)?;
-    Ok((endpoint, incoming, server_cert))
+    Ok((endpoint, incoming))
 }
 
 /// Builds default quinn client config and trusts given certificates.
@@ -117,6 +148,7 @@ fn configure_client_insecure() -> ClientConfig {
     cfg
 }
 
+/// only one side needs to set this transport config
 fn load_hole_punch_friendly_quic_transport_config(cfg: &mut ClientConfig) {
     let mut transport_cfg = TransportConfig::default();
     transport_cfg.keep_alive_interval(Some(Duration::from_millis(2000)));
@@ -124,21 +156,27 @@ fn load_hole_punch_friendly_quic_transport_config(cfg: &mut ClientConfig) {
 }
 
 /// Returns default server configuration along with its certificate.
-fn configure_server_crypto() -> Result<(ServerConfig, Vec<u8>), anyhow::Error> {
-    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-    let cert_der = cert.serialize_der().unwrap();
-    let priv_key = cert.serialize_private_key_der();
-    let priv_key = PrivateKey::from_der(&priv_key)?;
-
+fn configure_server_crypto(crypt: Option<(CertificateChain, PrivateKey)>) -> Result<ServerConfig, anyhow::Error> {
     let mut transport_config = TransportConfig::default();
     transport_config.max_concurrent_uni_streams(0).unwrap();
     let mut server_config = ServerConfig::default();
     server_config.transport = Arc::new(transport_config);
     let mut cfg_builder = ServerConfigBuilder::new(server_config);
-    let cert = Certificate::from_der(&cert_der)?;
-    cfg_builder.certificate(CertificateChain::from_certs(vec![cert]), priv_key)?;
 
-    Ok((cfg_builder.build(), cert_der))
+    if let Some((chain, pkey)) = crypt {
+        cfg_builder.certificate(chain, pkey)?;
+    } else {
+        log::info!("Generating self-signed cert [requires endpoint dangerous configuration]");
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let cert_der = cert.serialize_der().unwrap();
+        let priv_key = cert.serialize_private_key_der();
+        let priv_key = PrivateKey::from_der(&priv_key)?;
+
+        let cert = Certificate::from_der(&cert_der)?;
+        cfg_builder.certificate(CertificateChain::from_certs(vec![cert]), priv_key)?;
+    }
+
+    Ok(cfg_builder.build())
 }
 
 struct SkipServerVerification;

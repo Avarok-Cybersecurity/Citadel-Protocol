@@ -34,7 +34,16 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change beforePath="$PROJECT_DIR$/async_ip/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/async_ip/src/lib.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/hyxe_nat/src/misc.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/keys/testing.crt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/keys/testing.key" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/examples/client_sym3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/examples/client_sym3.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/examples/server_sym3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/examples/server_sym3.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/quic.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/quic.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -169,7 +178,7 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test tests::get_multi">
+  <component name="RunManager" selected="Cargo.Run server_sym3">
     <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
@@ -250,8 +259,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test nat_identification::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_nat --lib nat_identification::tests" />
+    <configuration name="Test misc::tests::main" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_nat --lib misc::tests::main -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="NIGHTLY" />
       <option name="requiredFeatures" value="true" />
@@ -266,8 +275,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test nat_identification::tests::main" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_nat --lib nat_identification::tests::main -- --exact" />
+    <configuration name="Test nat_identification::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_nat --lib nat_identification::tests" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="NIGHTLY" />
       <option name="requiredFeatures" value="true" />
@@ -351,19 +360,19 @@
       <item itemvalue="Cargo.Run hyxewave 127.0.0.2" />
       <item itemvalue="Cargo.Test tests::delete_all_users" />
       <item itemvalue="Cargo.Test tests::main (RELEASE)" />
-      <item itemvalue="Cargo.Test nat_identification::tests::main" />
-      <item itemvalue="Cargo.Run client_sym3" />
-      <item itemvalue="Cargo.Run server_sym3" />
       <item itemvalue="Cargo.Test tests::get_multi" />
       <item itemvalue="Cargo.Test nat_identification::tests" />
+      <item itemvalue="Cargo.Test misc::tests::main" />
+      <item itemvalue="Cargo.Run client_sym3" />
+      <item itemvalue="Cargo.Run server_sym3" />
     </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Cargo.Test tests::get_multi" />
-        <item itemvalue="Cargo.Test nat_identification::tests" />
-        <item itemvalue="Cargo.Test nat_identification::tests::main" />
         <item itemvalue="Cargo.Run server_sym3" />
         <item itemvalue="Cargo.Run client_sym3" />
+        <item itemvalue="Cargo.Test misc::tests::main" />
+        <item itemvalue="Cargo.Test tests::get_multi" />
+        <item itemvalue="Cargo.Test nat_identification::tests" />
       </list>
     </recent_temporary>
   </component>
@@ -613,7 +622,7 @@
       <workItem from="1625513363450" duration="66866000" />
       <workItem from="1625921030458" duration="4775000" />
       <workItem from="1626267394896" duration="214607000" />
-      <workItem from="1627153632177" duration="93378000" />
+      <workItem from="1627153632177" duration="98452000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

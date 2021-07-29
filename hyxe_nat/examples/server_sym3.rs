@@ -1,6 +1,7 @@
 use tokio::io::{BufReader, AsyncBufReadExt};
 use hyxe_nat::udp_traversal::linear::RelativeNodeType;
 use hyxe_nat::udp_traversal::synchronization_phase::UdpHolePuncher;
+use hyxe_nat::quic::QuicEndpointType;
 
 fn setup_log() {
     std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -23,7 +24,7 @@ async fn main() {
     let hole_punched_socket = UdpHolePuncher::new(client_stream, RelativeNodeType::Receiver, Default::default()).await.unwrap();
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
 
-    let (mut sink, mut stream) = hyxe_nat::quic::QuicContainer::new(hole_punched_socket, true, "").await.unwrap().first_conn.take().unwrap();
+    let (mut sink, mut stream) = hyxe_nat::quic::QuicContainer::new(hole_punched_socket, QuicEndpointType::listener_from_pkcs_12_der_path("/home/ubuntu/satori/keys/testing.p12", "mrmoney10").unwrap()).await.unwrap().first_conn.take().unwrap();
     log::info!("Successfully obtained QUIC connection ...");
 
     let writer = async move {
