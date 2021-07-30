@@ -5,7 +5,7 @@ use crate::reliable_conn::ReliableOrderedConnectionToTarget;
 use crate::nat_identification::NatType;
 use std::str::FromStr;
 use async_ip::IpAddressInfo;
-use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedUdpSocket;
+use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedUdpSocket, HolePunchedSocketAddr};
 use std::pin::Pin;
 use futures::{Future, StreamExt};
 use std::task::{Context, Poll};
@@ -13,8 +13,9 @@ use futures::stream::FuturesUnordered;
 use crate::udp_traversal::{NatTraversalMethod, HolePunchID};
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tokio::sync::RwLock;
+use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
@@ -41,20 +42,21 @@ impl<'a> DualStackUdpHolePuncher<'a> {
     #[allow(unused_results)]
     /// `peer_internal_port`: Required for determining the internal socket addr
     pub fn new<T: ReliableOrderedConnectionToTarget + 'a>(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn: &'a T, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, breadth: u16) -> Result<Self, anyhow::Error> {
+        let (syn_observer_tx, syn_observer_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut hole_punchers = Vec::new();
         let ref mut init_unique_id = HolePunchID(0);
-        Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn, local_nat, peer_nat, peer_internal_port, 0, init_unique_id)?;
+        Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn, local_nat, peer_nat, peer_internal_port, 0, init_unique_id, syn_observer_tx.clone())?;
 
         if breadth > 1 {
             for delta in 1..breadth {
-                Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn, local_nat, peer_nat, peer_internal_port, delta, init_unique_id)?;
+                Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn, local_nat, peer_nat, peer_internal_port, delta, init_unique_id, syn_observer_tx.clone())?;
             }
         }
 
-        Ok(Self { future: Box::pin(drive(hole_punchers, conn, relative_node_type)) })
+        Ok(Self { future: Box::pin(drive(hole_punchers, conn, relative_node_type, syn_observer_rx)) })
     }
 
-    fn generate_dual_stack_hole_punchers_with_delta<T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: &mut Vec<SingleUDPHolePuncher>, relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn: &'a T, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, delta: u16, unique_id: &mut HolePunchID) -> Result<(), anyhow::Error> {
+    fn generate_dual_stack_hole_punchers_with_delta<T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: &mut Vec<SingleUDPHolePuncher>, relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn: &'a T, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, delta: u16, unique_id: &mut HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<(), anyhow::Error> {
         let peer_ip_info = peer_nat.ip_addr_info().ok_or_else(|| anyhow::Error::msg("Peer IP info not loaded"))?;
         let local_ip_info = local_nat.ip_addr_info().ok_or_else(|| anyhow::Error::msg("Local IP info not loaded"))?;
 
@@ -69,11 +71,11 @@ impl<'a> DualStackUdpHolePuncher<'a> {
         // As long as there is translation, we will can attempt dual ipv4/6 hole-punching. This requires that the peer has an IPv6 address
         // also, if THIS node has an IPv6 address, then the adjacent node will attempt to connect to it, so in that case, we will need to bind regardless to ipv6 addrs IF the zeroth hole-puncher is not already ipv6
         if (peer_external_addr_1 != peer_external_addr_0 && peer_internal_addr_1 != peer_external_addr_0 && bind_addr_0 != bind_addr_1) || (bind_addr_0.is_ipv4() && local_ip_info.external_ipv6.is_some()) {
-            let hole_puncher1 = SingleUDPHolePuncher::new(relative_node_type, encrypted_config_container.clone(), bind_addr_1, peer_external_addr_1, peer_internal_addr_1, unique_id.next())?;
+            let hole_puncher1 = SingleUDPHolePuncher::new(relative_node_type, encrypted_config_container.clone(), bind_addr_1, peer_external_addr_1, peer_internal_addr_1, unique_id.next(), syn_observer.clone())?;
             hole_punchers.push(hole_puncher1);
         }
 
-        let hole_puncher0 = SingleUDPHolePuncher::new(relative_node_type, encrypted_config_container, bind_addr_0, peer_external_addr_0, peer_internal_addr_0, unique_id.next())?;
+        let hole_puncher0 = SingleUDPHolePuncher::new(relative_node_type, encrypted_config_container, bind_addr_0, peer_external_addr_0, peer_internal_addr_0, unique_id.next(), syn_observer)?;
 
         hole_punchers.push(hole_puncher0);
 
@@ -89,16 +91,30 @@ impl Future for DualStackUdpHolePuncher<'_> {
     }
 }
 
-async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T, node_type: RelativeNodeType) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    let mut futures = FuturesUnordered::new();
+async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T, node_type: RelativeNodeType, mut syn_observer_rx: UnboundedReceiver<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let (final_candidate_tx, final_candidate_rx) = tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
-    let (reader_done_tx, reader_done_rx) = tokio::sync::oneshot::channel::<()>();
+    let (reader_done_tx, mut reader_done_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let mut reader_done_rx_2 = reader_done_tx.subscribe();
+
+    let (ref kill_signal_tx, _kill_signal_rx) = tokio::sync::broadcast::channel(hole_punchers.len());
+    let (ref post_rebuild_tx, mut post_rebuild_rx) = tokio::sync::mpsc::unbounded_channel();
+    //let ref post_rebuild_tx = post_rebuild_tx;
+
+    let assert_rebuild_ready = |local_id: HolePunchID, peer_id: HolePunchID| async move {
+        let _receivers = kill_signal_tx.send((local_id, peer_id))?;
+        if let Some(Some(val)) = post_rebuild_rx.recv().await {
+            Ok(val)
+        } else {
+            Err(anyhow::Error::msg("Failed to rebuild socket"))
+        }
+    };
 
     let ref mut final_candidate_tx = Some(final_candidate_tx);
 
-    for mut hole_puncher in hole_punchers {
+    let mut futures = FuturesUnordered::new();
+    for (kill_switch_rx, mut hole_puncher) in hole_punchers.into_iter().map(|r| (kill_signal_tx.subscribe(), r)) {
         futures.push(async move {
-            let res = hole_puncher.try_method(NatTraversalMethod::Method3).await;
+            let res = hole_puncher.try_method(NatTraversalMethod::Method3, kill_switch_rx, post_rebuild_tx.clone()).await;
             (res, hole_puncher)
         });
     }
@@ -106,6 +122,15 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     // key = local
     let ref local_completions: RwLock<HashMap<HolePunchID, (HolePunchedUdpSocket, SingleUDPHolePuncher)>> = RwLock::new(HashMap::new());
     let ref local_failures: RwLock<HashMap<HolePunchID, SingleUDPHolePuncher>> = RwLock::new(HashMap::new());
+    let ref syns_observed_map: RwLock<HashSet<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>> = RwLock::new(HashSet::new());
+
+    let syns_observed = async move {
+        while let Some((local_id, peer_id, addr)) = syn_observer_rx.recv().await {
+            let _ = syns_observed_map.write().await.insert((local_id, peer_id, addr));
+        }
+
+        Ok(reader_done_rx_2.recv().await?) as Result<(), anyhow::Error>
+    };
 
     // the goal of the sender is just to send results as local finishes, nothing else
     let sender = async move {
@@ -129,7 +154,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         }
 
         // if we get here before the reader finishes, we need to wait for the reader to finish
-        Ok(reader_done_rx.await?) as Result<(), anyhow::Error>
+        Ok(reader_done_rx.recv().await?) as Result<(), anyhow::Error>
         //Ok(()) as Result<(), anyhow::Error>
     };
 
@@ -189,10 +214,11 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                 // value does not exist in ANY of the local values. Keep waiting
                                 // note: experimentally, it has been proven possible that what succeeds on one end may fail on another. This means when remote succeeds for id X, but local fails for X, we enter an infinite loop of pings until timeout occurs
 
-                                let local_received_ids = construct_received_ids(&*local_failures.read().await, &*write);
+                                //let local_received_ids = construct_received_ids(&*local_failures.read().await, &*write);
+                                let local_received_syns = construct_received_ids(&*syns_observed_map.read().await);
                                 let local_completed = write.keys().cloned().collect();
                                 std::mem::drop(write);
-                                send(DualStackCandidate::Ping(local_completed, local_received_ids.into_iter().map(|r| r.0).collect()), conn).await?;
+                                send(DualStackCandidate::Ping(local_completed, local_received_syns.into_iter().map(|r| r.0).collect()), conn).await?;
                             }
                         }
                     } else {
@@ -242,14 +268,16 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
 
                             if remote_successes.len() > 0 {
                                 log::info!("[Recovery] Local has preference, and, remote has at least one success. If local has a received ID corresponding to a remote id, will conclude");
-                                let mut local_failures = local_failures.write().await;
-                                let local_received_ids = construct_received_ids(&*local_failures, &*write);
-                                for (ref remote_id, ref local_id) in local_received_ids {
+                                //let mut local_failures = local_failures.write().await;
+                                //let local_received_ids = construct_received_ids(&*local_failures, &*write);
+                                let local_received_syns = construct_received_ids(&*syns_observed_map.read().await);
+                                for (ref remote_id, ref local_id) in local_received_syns {
                                     if remote_successes.contains(remote_id) {
                                         log::info!("[Recovery] Found MATCH with remote={:?}", remote_id);
-                                        let hole_punched_socket = local_failures.remove(local_id).unwrap().recovery_mode_generate_socket(*remote_id).unwrap();
+                                        //let hole_punched_socket = local_failures.remove(local_id).unwrap().recovery_mode_generate_socket(*remote_id).unwrap();
+                                        let hole_punched_socket = assert_rebuild_ready(*local_id, *remote_id).await?;
                                         // since this is recovery mode, yet, remote was the one with the success, we pass None
-                                        std::mem::drop(local_failures);
+                                        //std::mem::drop(local_failures);
                                         send(DualStackCandidate::Resolved(*remote_id, None), conn).await?;
                                         final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
                                         *this_node_submitted = Some(*remote_id);
@@ -261,13 +289,15 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
 
                         log::info!("No resolution obtained. Will keep looping");
                         // no resolution. Send a ping. Note: the below is pointless since the adjacent node won't resolve it
-                        let local_received_ids = construct_received_ids(&*local_failures.read().await, &*write);
-                        send(DualStackCandidate::Ping(write.keys().cloned().collect(), local_received_ids.into_iter().map(|r| r.0).collect()), conn).await?;
+                        //let local_received_ids = construct_received_ids(&*local_failures.read().await, &*write);
+                        let local_received_syns = construct_received_ids(&*syns_observed_map.read().await);
+                        send(DualStackCandidate::Ping(write.keys().cloned().collect(), local_received_syns.into_iter().map(|r| r.0).collect()), conn).await?;
                     } else {
                         // this side will only resolve once the ping resolves remotely on the initiator side. We send the information needed for recovery mode (if needed) that way the preferred side may resolve
                         let read = local_completions.read().await;
-                        let received_ids = construct_received_ids(&*local_failures.read().await, &*read);
-                        send(DualStackCandidate::Ping(read.keys().cloned().collect(), received_ids.into_iter().map(|r| r.0).collect()), conn).await?;
+                        //let received_ids = construct_received_ids(&*local_failures.read().await, &*read);
+                        let local_received_syns = construct_received_ids(&*syns_observed_map.read().await);
+                        send(DualStackCandidate::Ping(read.keys().cloned().collect(), local_received_syns.into_iter().map(|r| r.0).collect()), conn).await?;
                     }
                 }
 
@@ -320,15 +350,17 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     // this will end once the reader ends. The sender won't end until at least after the reader ends (unless there is a transmission error)
     tokio::select! {
         res0 = sender => res0?,
-        res1 = reader => res1?
+        res1 = reader => res1?,
+        res2 = syns_observed => res2?,
     };
 
     Ok(final_candidate_rx.await?)
 }
 
 /// returns mapping of (remote_id, local_id)
-fn construct_received_ids(failures: &HashMap<HolePunchID, SingleUDPHolePuncher>, successes: &HashMap<HolePunchID, (HolePunchedUdpSocket, SingleUDPHolePuncher)>) -> Vec<(HolePunchID, HolePunchID)> {
+fn construct_received_ids(received_syns: &HashSet<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Vec<(HolePunchID, HolePunchID)> {
     let mut ret: Vec<(HolePunchID, HolePunchID)> = Vec::new();
+    /*
     for (_key, hole_puncher) in failures {
         let local_id = hole_puncher.get_unique_id();
         let ids: Vec<(HolePunchID, HolePunchID)> = hole_puncher.get_all_received_peer_hole_punched_ids().into_iter().map(|r| (r, local_id)).collect();
@@ -339,6 +371,10 @@ fn construct_received_ids(failures: &HashMap<HolePunchID, SingleUDPHolePuncher>,
         let local_id = hole_puncher.get_unique_id();
         let ids: Vec<(HolePunchID, HolePunchID)> = hole_puncher.get_all_received_peer_hole_punched_ids().into_iter().map(|r| (r, local_id)).collect();
         ret.extend(ids);
+    }*/
+
+    for (local_id, remote_id, _addr) in received_syns.iter() {
+        ret.push((*local_id, *remote_id));
     }
 
     ret

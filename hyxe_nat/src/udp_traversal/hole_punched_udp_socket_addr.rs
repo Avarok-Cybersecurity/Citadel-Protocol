@@ -4,7 +4,7 @@ use tokio::net::UdpSocket;
 use serde::{Serialize, Deserialize};
 use crate::udp_traversal::HolePunchID;
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct HolePunchedSocketAddr {
     // Outbound packets should get sent here
     pub initial: SocketAddr,
