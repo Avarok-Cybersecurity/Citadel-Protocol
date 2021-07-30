@@ -100,8 +100,8 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
     let (ref post_rebuild_tx, mut post_rebuild_rx) = tokio::sync::mpsc::unbounded_channel();
     //let ref post_rebuild_tx = post_rebuild_tx;
 
-    let assert_rebuild_ready = |local_id: HolePunchID, peer_id: HolePunchID| async move {
-        let _receivers = kill_signal_tx.send((local_id, peer_id))?;
+    let assert_rebuild_ready = |local_id: HolePunchID, peer_id: HolePunchID, addr: HolePunchedSocketAddr| async move {
+        let _receivers = kill_signal_tx.send((local_id, peer_id, addr))?;
         if let Some(Some(val)) = post_rebuild_rx.recv().await {
             Ok(val)
         } else {
@@ -271,16 +271,16 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                                 //let mut local_failures = local_failures.write().await;
                                 //let local_received_ids = construct_received_ids(&*local_failures, &*write);
                                 let local_received_syns = construct_received_ids(&*syns_observed_map.read().await);
-                                for (ref remote_id, ref local_id) in local_received_syns {
-                                    if remote_successes.contains(remote_id) {
+                                for (remote_id, local_id, addr) in local_received_syns {
+                                    if remote_successes.contains(&remote_id) {
                                         log::info!("[Recovery] Found MATCH with remote={:?}", remote_id);
                                         //let hole_punched_socket = local_failures.remove(local_id).unwrap().recovery_mode_generate_socket(*remote_id).unwrap();
-                                        let hole_punched_socket = assert_rebuild_ready(*local_id, *remote_id).await?;
+                                        let hole_punched_socket = assert_rebuild_ready(local_id, remote_id, addr).await?;
                                         // since this is recovery mode, yet, remote was the one with the success, we pass None
                                         //std::mem::drop(local_failures);
-                                        send(DualStackCandidate::Resolved(*remote_id, None), conn).await?;
+                                        send(DualStackCandidate::Resolved(remote_id, None), conn).await?;
                                         final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
-                                        *this_node_submitted = Some(*remote_id);
+                                        *this_node_submitted = Some(remote_id);
                                         return Ok(())
                                     }
                                 }
@@ -311,7 +311,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                         } else {
                             // if it's not in the successes, it must be in the failures, thus we can unwrap all the way
                             log::info!("Engaging recovery mode to rebuild socket that the adjacent node claimed functioned ...");
-                            local_failures.write().await.remove(local_unique_id).unwrap().recovery_mode_generate_socket(recovery_id).unwrap()
+                            local_failures.write().await.remove(local_unique_id).unwrap().recovery_mode_generate_socket_by_remote_id(recovery_id).unwrap()
                         }
                     } else {
                         let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
@@ -358,23 +358,11 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
 }
 
 /// returns mapping of (remote_id, local_id)
-fn construct_received_ids(received_syns: &HashSet<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Vec<(HolePunchID, HolePunchID)> {
-    let mut ret: Vec<(HolePunchID, HolePunchID)> = Vec::new();
-    /*
-    for (_key, hole_puncher) in failures {
-        let local_id = hole_puncher.get_unique_id();
-        let ids: Vec<(HolePunchID, HolePunchID)> = hole_puncher.get_all_received_peer_hole_punched_ids().into_iter().map(|r| (r, local_id)).collect();
-        ret.extend(ids);
-    }
+fn construct_received_ids(received_syns: &HashSet<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Vec<(HolePunchID, HolePunchID, HolePunchedSocketAddr)> {
+    let mut ret: Vec<(HolePunchID, HolePunchID, HolePunchedSocketAddr)> = Vec::new();
 
-    for (_key, (_, hole_puncher)) in successes {
-        let local_id = hole_puncher.get_unique_id();
-        let ids: Vec<(HolePunchID, HolePunchID)> = hole_puncher.get_all_received_peer_hole_punched_ids().into_iter().map(|r| (r, local_id)).collect();
-        ret.extend(ids);
-    }*/
-
-    for (local_id, remote_id, _addr) in received_syns.iter() {
-        ret.push((*local_id, *remote_id));
+    for (local_id, remote_id, addr) in received_syns.iter() {
+        ret.push((*local_id, *remote_id, *addr));
     }
 
     ret

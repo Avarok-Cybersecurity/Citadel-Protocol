@@ -121,8 +121,10 @@ impl Method3 {
                 NatPacket::Syn(peer_unique_id, ttl) => {
                     log::info!("RECV SYN");
                     let hole_punched_addr = HolePunchedSocketAddr::new(*endpoint, peer_external_addr, peer_unique_id);
-                    observed_addrs_on_syn.lock().insert(peer_unique_id, hole_punched_addr);
+
                     let _ = syn_observer.send((*unique_id, peer_unique_id, hole_punched_addr));
+                    observed_addrs_on_syn.lock().insert(peer_unique_id, hole_punched_addr);
+
                     log::info!("Received TTL={} packet. Awaiting mutual recognition...", ttl);
                     for _ in 0..3 {
                         let _ = socket.set_ttl(120);
@@ -162,7 +164,9 @@ impl LinearUdpHolePunchImpl for Method3 {
     }
 
     fn get_peer_external_addr_from_peer_hole_punch_id(&self, id: HolePunchID) -> Option<HolePunchedSocketAddr> {
-        self.observed_addrs_on_syn.lock().get(&id).cloned()
+        let lock = self.observed_addrs_on_syn.lock();
+        log::info!("Recv'd SYNS: {:?}", &*lock);
+        lock.get(&id).cloned()
     }
 
     fn get_all_received_peer_hole_punched_ids(&self) -> Vec<HolePunchID> {
