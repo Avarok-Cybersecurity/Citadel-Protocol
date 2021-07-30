@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 use crate::reliable_conn::ReliableOrderedConnectionToTarget;
-use crate::udp_traversal::linear::{RelativeNodeType, SingleUDPHolePuncher};
+use crate::udp_traversal::linear::RelativeNodeType;
 use std::pin::Pin;
 use futures::Future;
 use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedUdpSocket, HolePunchedSocketAddr};
@@ -9,7 +9,6 @@ use crate::nat_identification::NatType;
 use crate::time_tracker::TimeTracker;
 use std::time::Duration;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
-use crate::udp_traversal::NatTraversalMethod;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
 
 #[derive(Serialize, Deserialize)]
@@ -107,6 +106,7 @@ async fn driver<'a, T: ReliableOrderedConnectionToTarget + 'a>(conn: &'a T, node
     }
 }
 
+/*
 /// Executed right after waiting for the synchronization time
 /// Using DualStack over unistack for increased likelihood of NAT traversal
 #[allow(dead_code)]
@@ -136,4 +136,4 @@ async fn handle_post_synchronization_phase_unistack<T: ReliableOrderedConnection
         // neither side succeeded. Hole punching failed
         Err(anyhow::Error::msg("Both sides failed to hole-punch"))
     }
-}
+}*/

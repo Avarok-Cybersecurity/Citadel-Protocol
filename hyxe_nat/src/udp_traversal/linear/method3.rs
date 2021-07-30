@@ -12,6 +12,7 @@ use serde::{Serialize, Deserialize};
 use crate::udp_traversal::HolePunchID;
 use std::collections::HashMap;
 use parking_lot::Mutex;
+use tokio::sync::mpsc::UnboundedSender;
 
 /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL
 // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf
@@ -21,6 +22,9 @@ pub struct Method3 {
     unique_id: HolePunchID,
     // in the case the adjacent node for id=key succeeds, yet, this node fails, recovery mode can ensue
     observed_addrs_on_syn: Mutex<HashMap<HolePunchID, HolePunchedSocketAddr>>,
+    // for sending SYNs to a receiver that allow for faster Hole-punch resolutions as mediated by the controller
+    // local_id, peer_id, addr
+    syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -33,8 +37,8 @@ enum NatPacket {
 
 impl Method3 {
     /// Make sure to complete the pre-process stage before calling this
-    pub fn new(this_node_type: RelativeNodeType, encrypted_config: EncryptedConfigContainer, unique_id: HolePunchID) -> Self {
-        Self { this_node_type, encrypted_config, unique_id, observed_addrs_on_syn: Mutex::new(HashMap::new()) }
+    pub fn new(this_node_type: RelativeNodeType, encrypted_config: EncryptedConfigContainer, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Self {
+        Self { this_node_type, encrypted_config, unique_id, observed_addrs_on_syn: Mutex::new(HashMap::new()), syn_observer }
     }
 
     /// The initiator must pass a vector correlating to the target endpoints. Each provided socket will attempt to reach out to the target endpoint (1-1)
@@ -47,10 +51,11 @@ impl Method3 {
         // 400ms window
         let ref encryptor = self.encrypted_config;
         let ref observed_addrs_on_syn = self.observed_addrs_on_syn;
+        let ref syn_observer = self.syn_observer;
 
         let receiver_task = async move {
             // we are only interested in the first receiver to receive a value
-            if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), Self::recv_until(socket, &endpoints[0], encryptor, unique_id, observed_addrs_on_syn)).await.map_err(|err| FirewallError::HolePunch(err.to_string()))? {
+            if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), Self::recv_until(socket, &endpoints[0], encryptor, unique_id, observed_addrs_on_syn, syn_observer)).await.map_err(|err| FirewallError::HolePunch(err.to_string()))? {
                 Ok(res)
             } else {
                 Err(FirewallError::HolePunch("No UDP penetration detected".to_string()))
@@ -96,7 +101,7 @@ impl Method3 {
     }
 
     // Handles the reception of packets, as well as sending/awaiting for a verification
-    async fn recv_until(socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer, unique_id: &HolePunchID, observed_addrs_on_syn: &Mutex<HashMap<HolePunchID, HolePunchedSocketAddr>>) -> Result<HolePunchedSocketAddr, FirewallError> {
+    async fn recv_until(socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer, unique_id: &HolePunchID, observed_addrs_on_syn: &Mutex<HashMap<HolePunchID, HolePunchedSocketAddr>>, syn_observer: &UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<HolePunchedSocketAddr, FirewallError> {
         let buf = &mut [0u8; 4096];
         log::info!("[Hole-punch] Listening on {:?}", socket.local_addr().unwrap());
 
@@ -115,7 +120,9 @@ impl Method3 {
             match packet {
                 NatPacket::Syn(peer_unique_id, ttl) => {
                     log::info!("RECV SYN");
-                    observed_addrs_on_syn.lock().insert(peer_unique_id, HolePunchedSocketAddr::new(*endpoint, peer_external_addr, peer_unique_id));
+                    let hole_punched_addr = HolePunchedSocketAddr::new(*endpoint, peer_external_addr, peer_unique_id);
+                    observed_addrs_on_syn.lock().insert(peer_unique_id, hole_punched_addr);
+                    let _ = syn_observer.send((*unique_id, peer_unique_id, hole_punched_addr));
                     log::info!("Received TTL={} packet. Awaiting mutual recognition...", ttl);
                     for _ in 0..3 {
                         let _ = socket.set_ttl(120);
