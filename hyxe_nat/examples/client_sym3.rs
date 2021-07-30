@@ -23,7 +23,7 @@ async fn main() {
     let hole_punched_socket = UdpHolePuncher::new(server_stream, RelativeNodeType::Initiator, Default::default()).await.unwrap();
 
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
-    let (mut sink, mut stream) = hyxe_nat::quic::QuicContainer::new(hole_punched_socket, QuicEndpointType::client_from_trusted_certs(&[], "mail.satorisocial.com").unwrap()).await.unwrap().first_conn.take().unwrap();
+    let (mut sink, mut stream) = hyxe_nat::quic::QuicContainer::new(hole_punched_socket, QuicEndpointType::client_dangerous_no_verify("mail.satorisocial.com")).await.unwrap().first_conn.take().unwrap();
     log::info!("Successfully obtained QUIC connection ...");
 
     let writer = async move {

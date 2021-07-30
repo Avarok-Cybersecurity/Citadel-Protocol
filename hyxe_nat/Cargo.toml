@@ -33,6 +33,7 @@ webpki = "0.21.0"
 rustls = { version = "0.19.1", features = ["quic", "dangerous_configuration"] }
 rcgen = "0.8.11"
 openssl = { version = "0.10.35", features = ["vendored"]}
+either = "1.6.1"
 
 [dev-dependencies]
 net2 = "0.2.34"
