@@ -34,10 +34,19 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
+      <change afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/hole_punch.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/hole_punch_compat_sink_stream.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/method3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/method3.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/examples/client_sym3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/examples/client_sym3.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/examples/server_sym3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/examples/server_sym3.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/multi/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/multi/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/synchronization_phase.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/synchronization_phase.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/raw_primary_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -616,7 +625,7 @@
       <workItem from="1625513363450" duration="66866000" />
       <workItem from="1625921030458" duration="4775000" />
       <workItem from="1626267394896" duration="214607000" />
-      <workItem from="1627153632177" duration="108716000" />
+      <workItem from="1627153632177" duration="117244000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

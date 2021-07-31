@@ -66,6 +66,8 @@ pub mod preconnect_packet;
 pub mod file_packet;
 ///
 pub mod peer;
+//
+pub mod hole_punch;
 
 /// Allows the [HdpSession] to read results from the packet processor herein
 #[derive(PartialEq)]

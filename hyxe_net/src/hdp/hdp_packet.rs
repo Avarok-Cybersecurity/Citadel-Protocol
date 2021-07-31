@@ -23,6 +23,7 @@ pub(crate) mod packet_flags {
             pub(crate) const PEER_CMD: u8 = 8;
             pub(crate) const FILE: u8 = 9;
             pub(crate) const UDP: u8 = 10;
+            pub(crate) const HOLE_PUNCH: u8 = 11;
         }
 
         pub(crate) mod aux {

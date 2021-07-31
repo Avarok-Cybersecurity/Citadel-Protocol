@@ -62,6 +62,10 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
                     super::file_packet::process(session, packet, endpoint_cid_info)
                 }
 
+                packet_flags::cmd::primary::HOLE_PUNCH => {
+                    super::hole_punch::process(session, packet, header_drill_vers, endpoint_cid_info)
+                }
+
                 _ => {
                     warn!("The primary port received an invalid packet command. Dropping");
                     PrimaryProcessorResult::Void
