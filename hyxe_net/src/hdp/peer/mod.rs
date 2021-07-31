@@ -8,3 +8,5 @@ pub mod peer_crypt;
 pub mod message_group;
 
 pub mod p2p_conn_handler;
+
+pub(crate) mod hole_punch_compat_sink_stream;

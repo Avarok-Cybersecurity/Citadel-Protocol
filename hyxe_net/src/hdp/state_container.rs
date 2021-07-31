@@ -47,6 +47,7 @@ use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::misc::dual_cell::DualCell;
 use crate::hdp::hdp_session::SessionState;
 use crate::hdp::misc::ordered_channel::OrderedChannel;
+use bytes::Bytes;
 
 #[derive(Clone)]
 pub struct StateContainer {
@@ -82,6 +83,7 @@ pub struct StateContainerInner {
     pub(crate) state: DualCell<SessionState>,
     // whenever a c2s or p2p channel is loaded, this is fired to signal any UDP loaders that it is safe to store the UDP conn in the corresponding v_conn
     pub(super) tcp_loaded_status: HashMap<u64, tokio::sync::oneshot::Sender<()>>,
+    pub(super) hole_puncher_pipes: HashMap<u64, tokio::sync::mpsc::UnboundedSender<Bytes>>
 }
 
 /// This helps consolidate unique keys between vconns sending data to this node

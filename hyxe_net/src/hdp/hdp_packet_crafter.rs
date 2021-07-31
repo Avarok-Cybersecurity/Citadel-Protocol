@@ -1554,18 +1554,44 @@ pub(crate) mod hole_punch {
     use bytes::{BytesMut, BufMut};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
+    use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
+    use zerocopy::{U64, U32};
+    use crate::constants::HDP_HEADER_BYTE_LEN;
 
-    pub fn generate_packet(hyper_ratchet: &HyperRatchet, plaintext: &[u8], security_level: SecurityLevel) -> BytesMut {
+    pub fn generate_packet(hyper_ratchet: &HyperRatchet, plaintext: &[u8], security_level: SecurityLevel, target_cid: u64) -> BytesMut {
+        let header = HdpHeader {
+            cmd_primary: packet_flags::cmd::primary::HOLE_PUNCH,
+            cmd_aux: 0,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: Default::default(),
+            group: Default::default(),
+            wave_id: Default::default(),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: Default::default(),
+            target_cid: U64::new(target_cid)
+        };
+
         let mut packet = BytesMut::new();
+        header.inscribe_into(&mut packet);
         packet.put(plaintext);
-        hyper_ratchet.protect_message_packet(Some(security_level), 0, &mut packet).unwrap();
+        hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
         packet
     }
 
+    /// this is called assuming the CORRECT hyper ratchet is used (i.e., the same one used above)
+    /// This strips the header, since it's only relevant to the networking protocol and NOT the hole-puncher
     pub fn decrypt_packet(hyper_ratchet: &HyperRatchet, packet: &[u8], security_level: SecurityLevel) -> Option<BytesMut> {
+        if packet.len() < HDP_HEADER_BYTE_LEN {
+            log::warn!("Bad hole-punch packet size");
+            return None;
+        }
+
         let mut packet = BytesMut::from(packet);
-        hyper_ratchet.validate_message_packet_in_place_split(Some(security_level), &[], &mut packet).ok()?;
+        let header = packet.split_to(HDP_HEADER_BYTE_LEN);
+        hyper_ratchet.validate_message_packet_in_place_split(Some(security_level), &header, &mut packet).ok()?;
         Some(packet)
     }
 }
