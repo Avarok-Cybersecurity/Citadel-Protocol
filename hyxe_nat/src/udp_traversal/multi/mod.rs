@@ -159,7 +159,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         //Ok(()) as Result<(), anyhow::Error>
     };
 
-    let has_precedence = node_type == RelativeNodeType::Receiver;
+    let has_precedence = node_type == RelativeNodeType::Initiator;
     let ref mut locked_in_locally = None;
     // stores the remote id that way it may be accessed during the Resolve stage if local already submitted
     let ref mut this_node_submitted: Option<HolePunchID> = None;
