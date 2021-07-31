@@ -303,24 +303,31 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
                 }
 
                 DualStackCandidate::Resolved(ref local_unique_id, recovery_mode) => {
-                    // we unconditionally send local's value in the hashmap, which is implied to exist locally so we can unwrap
                     debug_assert!(!has_precedence);
-                    let hole_punched_socket = if let Some(recovery_id) = recovery_mode {
+                    if let Some(_recovery_id) = recovery_mode {
                         // we check both successes and failures. It MUST be one of the two
                         if let Some((socket, _b)) = local_completions.write().await.remove(local_unique_id) {
-                            socket
+                            final_candidate_tx.take().unwrap().send(socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                            return Ok(())
                         } else {
                             // if it's not in the successes, it must be in the failures, thus we can unwrap all the way
                             log::info!("Engaging recovery mode to rebuild socket that the adjacent node claimed functioned ...");
-                            local_failures.write().await.remove(local_unique_id).unwrap().recovery_mode_generate_socket_by_remote_id(recovery_id).unwrap()
+                            //local_failures.write().await.remove(local_unique_id).unwrap().recovery_mode_generate_socket_by_remote_id(recovery_id).unwrap()
+                            let local_received_syns = construct_received_ids(&*syns_observed_map.read().await);
+                            for (remote_id, local_id, addr) in local_received_syns {
+                                if local_id == *local_unique_id {
+                                    log::info!("[Recovery] Found MATCH with remote={:?}", remote_id);
+                                    //let hole_punched_socket = local_failures.remove(local_id).unwrap().recovery_mode_generate_socket(*remote_id).unwrap();
+                                    final_candidate_tx.take().unwrap().send(assert_rebuild_ready(local_id, remote_id, addr).await?).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                                    return Ok(())
+                                }
+                            }
                         }
                     } else {
                         let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
-                        hole_punched_socket
-                    };
-
-                    final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
-                    return Ok(())
+                        final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
+                        return Ok(())
+                    }
                 }
 
                 DualStackCandidate::ResolveLockedIn(ref local_unique_id) => {
