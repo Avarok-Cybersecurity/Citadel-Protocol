@@ -20,7 +20,7 @@ async fn main() {
     let ref server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025").await.unwrap();
     log::info!("Established TCP server connection");
 
-    let quic_config = QuicEndpointType::client_dangerous_no_verify("mail.satorisocial.com").unwrap();
+    let quic_config = QuicEndpointType::client_dangerous_no_verify("mail.satorisocial.com");
 
     let hole_punched_socket = UdpHolePuncher::new(server_stream, RelativeNodeType::Initiator, Default::default()).await.unwrap();
 
