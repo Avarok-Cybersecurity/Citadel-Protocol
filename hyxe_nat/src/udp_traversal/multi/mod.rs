@@ -70,6 +70,7 @@ impl<'a> DualStackUdpHolePuncher<'a> {
 
         // As long as there is translation, we will can attempt dual ipv4/6 hole-punching. This requires that the peer has an IPv6 address
         // also, if THIS node has an IPv6 address, then the adjacent node will attempt to connect to it, so in that case, we will need to bind regardless to ipv6 addrs IF the zeroth hole-puncher is not already ipv6
+        // in other words: if this side has ipv6, or if the other side has ipv6, bind to ipv6 ports
         if (peer_external_addr_1 != peer_external_addr_0 && peer_internal_addr_1 != peer_external_addr_0 && bind_addr_0 != bind_addr_1) || (bind_addr_0.is_ipv4() && local_ip_info.external_ipv6.is_some()) {
             let hole_puncher1 = SingleUDPHolePuncher::new(relative_node_type, encrypted_config_container.clone(), bind_addr_1, peer_external_addr_1, peer_internal_addr_1, unique_id.next(), syn_observer.clone())?;
             hole_punchers.push(hole_puncher1);
@@ -158,7 +159,7 @@ async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec
         //Ok(()) as Result<(), anyhow::Error>
     };
 
-    let has_precedence = node_type == RelativeNodeType::Initiator;
+    let has_precedence = node_type == RelativeNodeType::Receiver;
     let ref mut locked_in_locally = None;
     // stores the remote id that way it may be accessed during the Resolve stage if local already submitted
     let ref mut this_node_submitted: Option<HolePunchID> = None;

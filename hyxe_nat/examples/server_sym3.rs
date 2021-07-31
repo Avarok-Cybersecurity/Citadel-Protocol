@@ -17,14 +17,14 @@ fn setup_log() {
 async fn main() {
     setup_log();
     let listener = tokio::net::TcpListener::bind("0.0.0.0:25025").await.unwrap();
-
+    let quic_config = QuicEndpointType::listener_from_pkcs_12_der_path("/home/ubuntu/satori/keys/testing.p12", "mrmoney10").unwrap();
     let (ref client_stream, peer_addr) = listener.accept().await.unwrap();
     log::info!("Received client stream from {:?}", peer_addr);
 
     let hole_punched_socket = UdpHolePuncher::new(client_stream, RelativeNodeType::Receiver, Default::default()).await.unwrap();
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
 
-    let (mut sink, mut stream) = hyxe_nat::quic::QuicContainer::new(hole_punched_socket, QuicEndpointType::listener_from_pkcs_12_der_path("/home/ubuntu/satori/keys/testing.p12", "mrmoney10").unwrap()).await.unwrap().first_conn.take().unwrap();
+    let (mut sink, mut stream) = hyxe_nat::quic::QuicContainer::new(hole_punched_socket, quic_config).await.unwrap().first_conn.take().unwrap();
     log::info!("Successfully obtained QUIC connection ...");
 
     let writer = async move {
