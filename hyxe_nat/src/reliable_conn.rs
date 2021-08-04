@@ -17,7 +17,7 @@ pub trait ReliableOrderedConnectionToTarget: Send {
 }
 
 #[async_trait]
-impl ReliableOrderedConnectionToTarget for TcpStream {
+impl ReliableOrderedConnectionToTarget for &'_ TcpStream {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
         loop {
             self.writable().await?;
@@ -60,10 +60,10 @@ impl ReliableOrderedConnectionToTarget for TcpStream {
     }
 
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        self.local_addr()
+        TcpStream::local_addr(self)
     }
 
     fn peer_addr(&self) -> std::io::Result<SocketAddr> {
-        self.peer_addr()
+        TcpStream::peer_addr(self)
     }
 }
