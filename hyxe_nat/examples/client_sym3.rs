@@ -18,6 +18,7 @@ async fn main() {
     setup_log();
 
     let ref server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025").await.unwrap();
+
     log::info!("Established TCP server connection");
 
     let hole_punched_socket = UdpHolePuncher::new(server_stream, RelativeNodeType::Initiator, Default::default()).await.unwrap();

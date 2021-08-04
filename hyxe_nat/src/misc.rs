@@ -18,12 +18,11 @@ pub fn pkcs12_to_quinn_keys(pkcs12_der: &[u8], password: &str) -> Result<(Certif
     let mut certs = Vec::new();
     certs.push(cert);
 
-    /*
     if let Some(chain) = chain {
         for cert in chain {
             certs.push(quinn::Certificate::from_der(&cert.to_der()?)?);
         }
-    }*/
+    }
 
     Ok((quinn::CertificateChain::from_certs(certs), key))
 }
