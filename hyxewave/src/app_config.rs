@@ -2,7 +2,7 @@ use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
 use hyxe_net::re_imports::HyperNodeType;
 use crate::ffi::FFIIO;
 use hyxe_user::backend::BackendType;
-use hyxe_net::hdp::hdp_server::UnderlyingProtocol;
+use hyxe_net::hdp::misc::underlying_proto::UnderlyingProtocol;
 use serde::Deserialize;
 use crate::console_error::ConsoleError;
 use std::path::Path;
@@ -144,7 +144,7 @@ impl TomlConfig {
 
         let home_dir = node.override_home_dir.clone();
         let underlying_proto = if let Some(tls) = node.tls.as_ref() {
-            UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs(tls.pkcs12_path.as_str(), tls.password.as_ref().map(|r| r.as_str()).unwrap_or("")).map_err(|err| ConsoleError::Generic(format!("Unable to load PKCS-12: {:?}", err)))?, tls.domain.clone())
+            UnderlyingProtocol::load_tls(tls.pkcs12_path.as_str(), tls.password.as_ref().map(|r| r.as_str()).unwrap_or(""), tls.domain.clone()).map_err(|err| ConsoleError::Generic(format!("Unable to load PKCS-12: {:?}", err)))?
         } else {
             UnderlyingProtocol::Tcp
         };

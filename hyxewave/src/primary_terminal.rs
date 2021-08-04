@@ -169,7 +169,7 @@ pub mod parsers {
     use crate::console_error::ConsoleError;
     use hyxe_net::re_imports::HyperNodeType;
     use crate::primary_terminal::try_get_local_addr;
-    use hyxe_net::hdp::hdp_server::UnderlyingProtocol;
+    use hyxe_net::hdp::misc::underlying_proto::UnderlyingProtocol;
     use hyxe_net::hdp::misc::net::TlsListener;
     use std::fs::File;
     use std::io::Read;
@@ -210,7 +210,7 @@ pub mod parsers {
             }
 
             let tls_domain = matches.value_of("tls-domain").map(|r| r.to_string()).unwrap();
-            app_config.underlying_protocol = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs(path, buf.trim()).map_err(|err| ConsoleError::Generic(err.to_string()))?, Some(tls_domain)))
+            app_config.underlying_protocol = Some(UnderlyingProtocol::load_tls(path, buf.trim(), Some(tls_domain)).map_err(|err| ConsoleError::Generic(err.to_string()))?);
         } else {
             app_config.underlying_protocol = Some(UnderlyingProtocol::Tcp)
         }

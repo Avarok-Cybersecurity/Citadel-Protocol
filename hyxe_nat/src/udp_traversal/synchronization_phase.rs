@@ -41,11 +41,11 @@ pub struct UdpHolePuncher<'a> {
 const DEFAULT_TIMEOUT: Duration = Duration::from_millis(3500);
 
 impl<'a> UdpHolePuncher<'a> {
-    pub fn new<T: ReliableOrderedConnectionToTarget + 'a>(conn: &'a T, node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer) -> Self {
+    pub fn new<T: ReliableOrderedConnectionToTarget + 'a>(conn: T, node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer) -> Self {
         Self::new_timeout(conn, node_type, encrypted_config_container, DEFAULT_TIMEOUT)
     }
 
-    pub fn new_timeout<T: ReliableOrderedConnectionToTarget + 'a>(conn: &'a T, node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, timeout: Duration) -> Self {
+    pub fn new_timeout<T: ReliableOrderedConnectionToTarget + 'a>(conn: T, node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, timeout: Duration) -> Self {
         Self { driver: Box::pin(async move {
             tokio::time::timeout(timeout, driver(conn, node_type, encrypted_config_container)).await?
         }) }
@@ -60,7 +60,7 @@ impl Future for UdpHolePuncher<'_> {
     }
 }
 
-async fn driver<'a, T: ReliableOrderedConnectionToTarget + 'a>(conn: &'a T, node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+async fn driver<'a, T: ReliableOrderedConnectionToTarget + 'a>(ref conn: T, node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let nat_type = NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
     log::info!("Local NAT type: {:?}", &nat_type);
     let tt = TimeTracker::new();

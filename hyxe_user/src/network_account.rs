@@ -50,7 +50,20 @@ pub enum ConnectProtocol {
     /// Uses the transmission control protocol
     Tcp,
     /// The domain
-    Tls(Option<String>)
+    Tls(Option<String>),
+    /// Quic
+    Quic(Option<String>)
+}
+
+impl ConnectProtocol {
+    /// Gets domain
+    pub fn get_domain(&self) -> Option<String> {
+        match self {
+            Self::Tcp => None,
+            Self::Tls(t) => t.clone(),
+            Self::Quic(t) => t.clone()
+        }
+    }
 }
 
 /// Thread-safe handle

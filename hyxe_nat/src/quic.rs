@@ -1,5 +1,4 @@
-use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedUdpSocket;
-use quinn::{Endpoint, SendStream, RecvStream, Incoming, ClientConfig, ServerConfig, ClientConfigBuilder, ServerConfigBuilder};
+use quinn::{Endpoint, SendStream, RecvStream, Incoming, ClientConfig, ServerConfig, ClientConfigBuilder, ServerConfigBuilder, NewConnection};
 use futures::StreamExt;
 
 use quinn::{Certificate, CertificateChain, PrivateKey, TransportConfig};
@@ -8,75 +7,112 @@ use rustls::{ServerCertVerifier, ServerCertVerified, RootCertStore};
 use quinn::crypto::rustls::TLSError;
 use std::time::Duration;
 use std::path::Path;
+use tokio::net::UdpSocket;
+use std::net::SocketAddr;
+use async_trait::async_trait;
 
-/// Used in the protocol mostly for obtaining a first bidirectional connection to the hole-punched endpoint. Supplies the QUIC endpoint and optional listener devices in case
-/// the protocol requires further interaction
-pub struct QuicContainer {
+/// Used in the protocol especially to receive bidirectional connections
+pub struct QuicServer;
+
+/// Used in the protocol to facilitate bidirectional connections
+pub struct QuicClient;
+
+pub struct QuicNode {
     pub endpoint: Endpoint,
-    pub first_conn: Option<(SendStream, RecvStream)>,
-    pub listener: Option<Incoming>
+    pub listener: Incoming
 }
 
-pub enum QuicEndpointType<'a> {
-    Listener { crypt: Option<(CertificateChain, PrivateKey)> },
-    Client { trusted_certs: Option<&'a [&'a [u8]]>, tls_domain: &'a str }
+#[async_trait]
+pub trait QuicEndpointConnector {
+    fn endpoint(&self) -> &Endpoint;
+
+    async fn connect_biconn(&self, addr: SocketAddr, tls_domain: &str) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
+        where Self: Sized {
+        log::info!("RD0");
+        let connecting = self.endpoint().connect(&addr, tls_domain)?;
+        log::info!("RD1");
+        let conn = connecting.await?;
+        log::info!("RD2");
+        let (mut sink, stream) = conn.connection.open_bi().await?;
+        log::info!("RD3");
+        // must send some data before the adjacent node can receive a bidirectional connection
+        sink.write(&[]).await?;
+        log::info!("RD4");
+
+        Ok((conn, sink, stream))
+    }
 }
 
-impl<'a> QuicEndpointType<'a> {
-    pub fn listener_from_pkcs_12_der_path<P: AsRef<Path>>(path: P, password: &str) -> Result<Self, anyhow::Error> {
+#[async_trait]
+pub trait QuicEndpointListener {
+    fn listener(&mut self) -> &mut Incoming;
+    async fn next_connection(&mut self) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
+        where Self: Sized {
+        log::info!("NC0");
+        let connecting = self.listener().next().await.ok_or_else(|| anyhow::Error::msg("No QUIC connections available"))?;
+        log::info!("NC1");
+        let mut conn = connecting.await?;
+        log::info!("NC2");
+        let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
+        log::info!("NC3");
+        Ok((conn, sink, stream))
+    }
+}
+
+impl QuicEndpointConnector for QuicNode {
+    fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
+    }
+}
+
+impl QuicEndpointConnector for Endpoint {
+    fn endpoint(&self) -> &Endpoint {
+        self
+    }
+}
+
+impl QuicEndpointListener for QuicNode {
+    fn listener(&mut self) -> &mut Incoming {
+        &mut self.listener
+    }
+}
+
+impl QuicClient {
+    /// - trusted_certs: If None, won't verify certs
+    pub fn new(socket: UdpSocket, trusted_certs: Option<&[&[u8]]>) -> Result<QuicNode, anyhow::Error> {
+        let (endpoint, listener) = make_client_endpoint(socket.into_std()?, trusted_certs)?;
+        Ok(QuicNode { endpoint, listener })
+    }
+
+    /// This client will not verify the certificates of outgoing connection
+    pub fn new_no_verify(socket: UdpSocket) -> Result<QuicNode, anyhow::Error> {
+        Self::new(socket, None)
+    }
+
+    /// Creates a new client that verifies certificates
+    pub fn new_verify(socket: UdpSocket, trusted_certs: &[&[u8]]) -> Result<QuicNode, anyhow::Error> {
+        Self::new(socket, Some(trusted_certs))
+    }
+}
+
+impl QuicServer {
+    pub fn new(socket: UdpSocket, crypt: Option<(CertificateChain, PrivateKey)>) -> Result<QuicNode, anyhow::Error> {
+        let (endpoint, listener) = make_server_endpoint(socket.into_std()?, crypt)?;
+        Ok(QuicNode { endpoint, listener })
+    }
+
+    pub fn new_self_signed(socket: UdpSocket) -> Result<QuicNode, anyhow::Error> {
+        Self::new(socket, None)
+    }
+
+    pub fn new_from_pkcs_12_der_path<P: AsRef<Path>>(socket: UdpSocket, path: P, password: &str) -> Result<QuicNode, anyhow::Error> {
         let (chain, pkey) = crate::misc::read_pkcs_12_der_to_quinn_keys(path, password)?;
-        Ok(QuicEndpointType::Listener { crypt: Some((chain, pkey)) })
+        Self::new(socket, Some((chain, pkey)))
     }
 
-    pub fn listener_dangerous_self_signed() -> Self {
-        QuicEndpointType::Listener { crypt: None }
-    }
-
-    pub fn client_from_trusted_certs(certs: &'a [&'a [u8]], tls_domain: &'a str) -> Result<Self, anyhow::Error> {
-        Ok(QuicEndpointType::Client { trusted_certs: Some(certs), tls_domain })
-    }
-
-    /// Required if using self-signed certs (for now)
-    pub fn client_dangerous_no_verify(tls_domain: &'a str) -> Self {
-        QuicEndpointType::Client { trusted_certs: None, tls_domain }
-    }
-}
-
-impl QuicContainer {
-    pub async fn new(socket: HolePunchedUdpSocket, quic_endpoint_type: QuicEndpointType<'_>) -> Result<QuicContainer, anyhow::Error> {
-        //socket.socket.connect(socket.addr.natted).await?;
-        let HolePunchedUdpSocket { addr, socket } = socket;
-        let std_socket = socket.into_std()?;
-
-        match quic_endpoint_type {
-            QuicEndpointType::Listener { crypt } => {
-                log::info!("RD0");
-                let (endpoint, mut listener) = make_server_endpoint(std_socket, crypt)?;
-                log::info!("RD1");
-                let connecting = listener.next().await.ok_or_else(|| anyhow::Error::msg("No QUIC connections available"))?;
-                log::info!("RD2");
-                let mut conn = connecting.await?;
-                log::info!("RD3");
-                let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
-                log::info!("RD4");
-                Ok(QuicContainer { endpoint, first_conn: Some((sink, stream)), listener: Some(listener) })
-            }
-
-            QuicEndpointType::Client { trusted_certs, tls_domain } => {
-                log::info!("RD0");
-                let endpoint = make_client_endpoint(std_socket, trusted_certs)?;
-                log::info!("RD1");
-                let connecting = endpoint.connect(&addr.natted, tls_domain)?;
-                log::info!("RD2");
-                let conn = connecting.await?;
-                log::info!("RD3");
-                let (mut sink, stream) = conn.connection.open_bi().await?;
-                // must send some data before the adjacent node can receive a bidirectional connection
-                sink.write(&[]).await?;
-                log::info!("RD4");
-                Ok(QuicContainer { endpoint, first_conn: Some((sink, stream)), listener: None })
-            }
-        }
+    pub fn new_from_pkcs_12_der(socket: UdpSocket, der: &[u8], password: &str) -> Result<QuicNode, anyhow::Error> {
+        let (chain, pkey) = crate::misc::pkcs12_to_quinn_keys(der, password)?;
+        Self::new(socket, Some((chain, pkey)))
     }
 }
 
@@ -89,7 +125,7 @@ impl QuicContainer {
 pub fn make_client_endpoint(
     socket: std::net::UdpSocket,
     server_certs: Option<&[&[u8]]>,
-) -> Result<Endpoint, anyhow::Error> {
+) -> Result<(Endpoint, Incoming), anyhow::Error> {
     let client_cfg = if let Some(server_certs) = server_certs {
         configure_client_secure(server_certs)?
     } else {
@@ -99,7 +135,8 @@ pub fn make_client_endpoint(
     let mut endpoint_builder = Endpoint::builder();
     endpoint_builder.default_client_config(client_cfg);
     let (endpoint, incoming) = endpoint_builder.with_socket(socket)?;
-    Ok(endpoint)
+
+    Ok((endpoint, incoming))
 }
 
 /// Constructs a QUIC endpoint configured to listen for incoming connections on a certain address

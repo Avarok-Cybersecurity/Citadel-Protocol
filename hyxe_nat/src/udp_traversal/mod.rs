@@ -43,7 +43,7 @@ impl NatTraversalMethod {
     }
 }
 
-#[derive(Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Copy, Clone, Default)]
 pub struct HolePunchID(u16);
 
 impl HolePunchID {

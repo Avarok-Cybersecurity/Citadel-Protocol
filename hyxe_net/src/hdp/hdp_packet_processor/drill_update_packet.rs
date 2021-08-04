@@ -1,6 +1,6 @@
 use super::includes::*;
 use crate::hdp::hdp_packet_processor::primary_group_packet::{ToolsetUpdate, get_proper_hyper_ratchet, get_resp_target_cid_from_header, attempt_kem_as_bob, attempt_kem_as_alice_finish};
-use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
+use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use hyxe_crypt::hyper_ratchet::RatchetType;
 use crate::hdp::hdp_server::SecrecyMode;
@@ -62,7 +62,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                     let target_cid = header.target_cid.get();
                     let resp_target_cid = get_resp_target_cid_from_header(header);
                     let needs_truncate = transfer.update_status.requires_truncation();
-                    let constructor = if target_cid != ENDPOINT_ENCRYPTION_OFF { state_container.drill_update_state.p2p_updates.remove(&peer_cid)? } else { state_container.drill_update_state.alice_hyper_ratchet.take()? };
+                    let constructor = if target_cid != C2S_ENCRYPTION_ONLY { state_container.drill_update_state.p2p_updates.remove(&peer_cid)? } else { state_container.drill_update_state.alice_hyper_ratchet.take()? };
                     log::info!("Obtained constructor for {}", resp_target_cid);
                     let secrecy_mode = security_settings.get().map(|r| r.secrecy_mode).clone()?;
 
@@ -84,7 +84,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             let truncate_packet = validation::do_drill_update::validate_truncate(payload)?;
             let resp_target_cid = get_resp_target_cid_from_header(header);
 
-            let (mut method, secrecy_mode) = if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
+            let (mut method, secrecy_mode) = if resp_target_cid != C2S_ENCRYPTION_ONLY {
                 let endpoint_container = state_container.active_virtual_connections.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?;
                 let crypt = &mut endpoint_container.endpoint_crypto;
                 let local_cid = header.target_cid.get();
@@ -139,7 +139,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
 
             let resp_target_cid = get_resp_target_cid_from_header(header);
 
-            let (mut method, secrecy_mode) = if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
+            let (mut method, secrecy_mode) = if resp_target_cid != C2S_ENCRYPTION_ONLY {
                 let endpoint_container = state_container.active_virtual_connections.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?;
                 let crypt = &mut endpoint_container.endpoint_crypto;
                 let local_cid = header.target_cid.get();

@@ -3,16 +3,16 @@ use crate::hdp::state_container::{StateContainer, StateContainerInner};
 use hyxe_user::prelude::ClientNetworkAccount;
 use crate::error::NetworkError;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
+use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::inner_arg::ExpectedInnerTarget;
 
 #[derive(Clone)]
-pub enum PeerSessionCryptoAccessor {
+pub enum EndpointCryptoAccessor {
     P2P(u64, StateContainer),
     C2S(ClientNetworkAccount, StateContainer)
 }
 
-impl PeerSessionCryptoAccessor {
+impl EndpointCryptoAccessor {
     // In P2P Mode, will return a state container
     pub fn borrow_hr<F, T>(&self, vers: Option<u32>, access: F) -> Result<T, NetworkError>
         where F: for<'a> FnOnce(&'a HyperRatchet, &dyn ExpectedInnerTarget<StateContainerInner>) -> T {
@@ -37,7 +37,7 @@ impl PeerSessionCryptoAccessor {
     pub fn get_target_cid(&self) -> u64 {
         match self {
             Self::P2P(target_cid, ..) => *target_cid,
-            Self::C2S(..) => ENDPOINT_ENCRYPTION_OFF
+            Self::C2S(..) => C2S_ENCRYPTION_ONLY
         }
     }
 }

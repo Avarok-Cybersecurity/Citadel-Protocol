@@ -1,9 +1,9 @@
 use super::includes::*;
-use crate::hdp::peer_session_crypto_accessor::PeerSessionCryptoAccessor;
+use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::hdp::hdp_packet_processor::primary_group_packet::get_resp_target_cid_from_header;
 
 /// This will handle an inbound group packet
-pub fn process(_session: &HdpSession, packet: HdpPacket, hr_version: u32, accessor: &PeerSessionCryptoAccessor) -> PrimaryProcessorResult {
+pub fn process(_session: &HdpSession, packet: HdpPacket, hr_version: u32, accessor: &EndpointCryptoAccessor) -> PrimaryProcessorResult {
     let (header, payload, _, _) = packet.decompose();
 
     accessor.borrow_hr(Some(hr_version), move |hr, state_container| -> PrimaryProcessorResult {

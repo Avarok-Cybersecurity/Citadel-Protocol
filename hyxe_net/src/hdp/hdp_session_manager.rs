@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
@@ -11,33 +12,33 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::SecurityLevel;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_nat::hypernode_type::HyperNodeType;
+use hyxe_nat::nat_identification::NatType;
 use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::external_services::fcm::data_structures::RawExternalPacket;
 use hyxe_user::external_services::fcm::fcm_instance::FCMInstance;
 use hyxe_user::misc::AccountError;
+use hyxe_user::prelude::ConnectProtocol;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 
 use crate::constants::{DO_CONNECT_EXPIRE_TIME_MS, KEEP_ALIVE_TIMEOUT_NS, UDP_MODE};
 use crate::error::NetworkError;
-use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
+use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, GroupMemberAlterMode, MemberState};
 use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
-use crate::hdp::hdp_server::{ConnectMode, HdpServer, HdpServerRemote, HdpServerResult, Ticket, UnderlyingProtocol};
+use crate::hdp::hdp_server::{ConnectMode, HdpServer, HdpServerRemote, HdpServerResult, Ticket};
 use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode};
 use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
+use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
 use crate::hdp::outbound_sender::{Sender, unbounded, UnboundedReceiver, UnboundedSender};
-use crate::hdp::outbound_sender::{OutboundTcpSender, OutboundUdpSender};
+use crate::hdp::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
 use crate::hdp::peer::message_group::MessageGroupKey;
 use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal, UdpMode};
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
-use crate::macros::{ContextRequirements, SyncContextRequirements};
-use hyxe_user::prelude::ConnectProtocol;
 use crate::kernel::RuntimeFuture;
-use std::pin::Pin;
-use hyxe_nat::nat_identification::NatType;
+use crate::macros::{ContextRequirements, SyncContextRequirements};
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -136,7 +137,7 @@ impl HdpSessionManager {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
-            let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac) = {
+            let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode) = {
                 let (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac) = {
                     let (peer_addr, cnac) = {
                         match init_mode.clone() {
@@ -164,10 +165,10 @@ impl HdpSessionManager {
                     let account_manager = this.account_manager.clone();
                     let tt = this.time_tracker.clone();
 
-                    // TODO: remove if timed-out. On android/ios, sleeping causes a provisional conn to linger
+
                     if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
                         // Localhost is already trying to connect. However, it's possible that the entry has expired,
-                        // especially on IOS where the background timer just stops completely
+                        // especially on IOS/droid where the background timer just stops completely
                         if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
                             // remove the entry, since it's expired anyways
                             this.provisional_connections.remove(&peer_addr);
@@ -179,15 +180,17 @@ impl HdpSessionManager {
                     (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac)
                 };
 
+                let peer_only_connect_mode = ConnectProtocol::Quic(listener_underlying_proto.maybe_get_identity());
 
                 // We must now create a TcpStream towards the peer
                 let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
-                let (p2p_listener, primary_stream) = HdpServer::create_init_tcp_listener(listener_underlying_proto.clone(), peer_addr).await
+                // NOTE! From now own, we are using QUIC for p2p streams for NAT traversal reasons. No more TCP hole punching
+                let (p2p_listener, primary_stream) = HdpServer::create_session_transport_init(listener_underlying_proto.into_quic(), peer_addr).await
                     .map_err(|err| NetworkError::SocketError(err.to_string()))?;
-                (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac)
+                (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode)
             };
 
-            let peer_only_connect_mode = match listener_underlying_proto { UnderlyingProtocol::Tcp => ConnectProtocol::Tcp, UnderlyingProtocol::Tls(_, domain) => ConnectProtocol::Tls(domain) };
+            //let peer_only_connect_mode = match listener_underlying_proto { UnderlyingProtocol::Tcp => ConnectProtocol::Tcp, UnderlyingProtocol::Tls(_, domain) => ConnectProtocol::Tls(domain) };
 
             let (stopper, new_session) = HdpSession::new(init_mode.clone(), local_nat_type, peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, udp_mode.unwrap_or(UDP_MODE), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings)?;
 
@@ -213,19 +216,7 @@ impl HdpSessionManager {
     async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, p2p_listener: Option<GenericNetworkListener>, tcp_stream: GenericNetworkStream, connect_mode: Option<ConnectMode>) -> Result<(), NetworkError> {
         log::info!("Beginning pre-execution of session");
         match new_session.execute(p2p_listener, tcp_stream, peer_addr, connect_mode).await {
-            Ok(cid_opt) => {
-                if let Some(cid) = cid_opt {
-                    //log::info!("[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
-                    // TODO: Fix this. UGLY code!
-                    session_manager.clear_session(cid);
-                    session_manager.clear_provisional_session(&peer_addr);
-                } else {
-                    //log::info!("[safe] deleting provisional connection to {}", &peer_addr);
-                    session_manager.clear_provisional_session(&peer_addr);
-                }
-            }
-
-            Err((_err, cid_opt)) => {
+            Ok(cid_opt) | Err((_, cid_opt)) => {
                 if let Some(cid) = cid_opt {
                     //log::info!("[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
                     session_manager.clear_session(cid);
@@ -602,7 +593,7 @@ impl HdpSessionManager {
         for peer_cid in peers_to_notify {
             if let Err(err) = this.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
                 let signal = GroupBroadcast::Invitation(key);
-                super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
+                super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
             }) {
                 log::warn!("Unable to send signal to peer {}: {}", peer_cid, err.to_string());
             }
@@ -619,7 +610,7 @@ impl HdpSessionManager {
                 if *peer_cid != cid_host {
                     if let Err(err) = this.send_signal_to_peer_direct(*peer_cid, |peer_hyper_ratchet| {
                         let signal = GroupBroadcast::Disconnected(key);
-                        super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
+                        super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
                     }) {
                         log::warn!("Unable to send d/c signal to peer {}: {}", peer_cid, err.to_string());
                     }
@@ -743,7 +734,7 @@ impl HdpSessionManager {
     }
 
     /// Returns a sink that allows sending data outbound
-    pub fn get_handle_to_tcp_sender(&self, cid: u64) -> Option<OutboundTcpSender> {
+    pub fn get_handle_to_tcp_sender(&self, cid: u64) -> Option<OutboundPrimaryStreamSender> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
             let ref sess = sess.1;
@@ -755,7 +746,7 @@ impl HdpSessionManager {
 
     // Returns both UDP and TCP handles (useful for when the server detects that, during the POST_CONNECT response phase,
     // that client B consented to client A.
-    pub fn get_tcp_udp_senders(&self, cid: u64) -> Option<(OutboundTcpSender, OutboundUdpSender)> {
+    pub fn get_tcp_udp_senders(&self, cid: u64) -> Option<(OutboundPrimaryStreamSender, OutboundUdpSender)> {
         let this = inner!(self);
         if let Some(sess) = this.sessions.get(&cid) {
             let ref sess = sess.1;
@@ -954,7 +945,7 @@ impl HdpSessionManagerInner {
     ///
     pub fn send_group_broadcast_signal_to(&self, timestamp: i64, ticket: Ticket, peer_cid: u64, mail_if_offline: bool, signal: GroupBroadcast, security_level: SecurityLevel) -> Result<(), String> {
         if self.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
-            super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
+            super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
         }).is_err() {
             if mail_if_offline {
                 // TODO: Fcm send

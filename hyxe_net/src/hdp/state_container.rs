@@ -20,7 +20,7 @@ use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::GroupTransmitter;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr, HdpSession};
 use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, SecrecyMode};
-use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
+use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;
 use crate::hdp::state_subcontainers::drill_update_container::DrillUpdateState;
@@ -146,7 +146,7 @@ pub struct VirtualConnection<R: Ratchet = HyperRatchet> {
     pub last_delivered_message_timestamp: DualCell<Option<Instant>>,
     pub is_active: Arc<AtomicBool>,
     // this is Some for server, None for endpoints
-    pub sender: Option<(Option<OutboundUdpSender>, OutboundTcpSender)>,
+    pub sender: Option<(Option<OutboundUdpSender>, OutboundPrimaryStreamSender)>,
     // this is None for server, Some for endpoints
     pub endpoint_container: Option<EndpointChannelContainer<R>>
 }
@@ -185,7 +185,7 @@ pub(crate) struct UnorderedChannelContainer {
 }
 
 impl EndpointChannelContainer {
-    pub fn get_direct_p2p_primary_stream(&self) -> Option<&OutboundTcpSender> {
+    pub fn get_direct_p2p_primary_stream(&self) -> Option<&OutboundPrimaryStreamSender> {
         Some(&self.direct_p2p_remote.as_ref()?.p2p_primary_stream)
     }
 }
@@ -513,7 +513,7 @@ impl GroupReceiverContainer {
 impl StateContainerInner {
     /// Creates a new container
     pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote, keep_alive_timeout_ns: i64, state: DualCell<SessionState>) -> StateContainer {
-        let inner = Self { tcp_loaded_status: HashMap::new(), enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
+        let inner = Self { hole_puncher_pipes: HashMap::new(), tcp_loaded_status: HashMap::new(), enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
         StateContainer { inner: DualRwLock::from(inner) }
     }
 
@@ -725,7 +725,7 @@ impl StateContainerInner {
 
     /// Note: the `endpoint_crypto` container needs to be Some in order for transfer to occur between peers w/o encryption/decryption at the center point
     /// GROUP packets and PEER_CMD::CHANNEL packets bypass the central node's encryption/decryption phase
-    pub fn insert_new_virtual_connection_as_server(&mut self, target_cid: u64, connection_type: VirtualConnectionType, target_udp_sender: Option<OutboundUdpSender>, target_tcp_sender: OutboundTcpSender) {
+    pub fn insert_new_virtual_connection_as_server(&mut self, target_cid: u64, connection_type: VirtualConnectionType, target_udp_sender: Option<OutboundUdpSender>, target_tcp_sender: OutboundPrimaryStreamSender) {
         let val = VirtualConnection { last_delivered_message_timestamp: DualCell::new(None), endpoint_container: None, sender: Some((target_udp_sender, target_tcp_sender)), connection_type, is_active: Arc::new(AtomicBool::new(true)) };
         if self.active_virtual_connections.insert(target_cid, val).is_some() {
             log::warn!("Inserted a virtual connection. but overwrote one in the process. Report to developers");
@@ -747,7 +747,7 @@ impl StateContainerInner {
     }
 
     /// Determines whether to use the default primary stream or the direct p2p primary stream
-    pub fn get_direct_p2p_primary_stream(active_virtual_connections: &HashMap<u64, VirtualConnection>, target_cid: u64) -> Option<&OutboundTcpSender> {
+    pub fn get_direct_p2p_primary_stream(active_virtual_connections: &HashMap<u64, VirtualConnection>, target_cid: u64) -> Option<&OutboundPrimaryStreamSender> {
         if target_cid != 0 {
             let endpoint_container = active_virtual_connections.get(&target_cid)?;
             let container = endpoint_container.endpoint_container.as_ref()?;
@@ -1026,7 +1026,7 @@ impl StateContainerInner {
     /// Returns true if the sending process was a success, false otherwise
     ///
     /// safety: DO NOT borrow_mut the state container unless inside the spawn_local, otherwise a BorrowMutError will occur
-    pub fn on_window_tail_received(&mut self, hyper_ratchet: &HyperRatchet, session_ref: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, waves: RangeInclusive<u32>, time_tracker: &TimeTracker, to_primary_stream_orig: &OutboundTcpSender) -> bool {
+    pub fn on_window_tail_received(&mut self, hyper_ratchet: &HyperRatchet, session_ref: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, waves: RangeInclusive<u32>, time_tracker: &TimeTracker, to_primary_stream_orig: &OutboundPrimaryStreamSender) -> bool {
         let group = header.group.get();
         let object_id = header.context_info.get() as u32;
         let security_level = header.security_level.into();

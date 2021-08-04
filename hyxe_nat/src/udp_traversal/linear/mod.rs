@@ -76,34 +76,6 @@ impl SingleUDPHolePuncher {
         self.socket.take()
     }
 
-    /// During pre-connect stage 0 (initiator) AND stage 1 (receiver), this should be called to share the socket information
-    /// with the other side. This is preferred, as it also configures the local firewall to allow all inbound/outbound traffic
-    /// on these ports
-    /*
-    fn reserve_new_udp_sockets<T: Into<IpAddr>>(count: usize, bind_addr: T) -> Result<Vec<UdpSocket>, FirewallError> {
-        let bind_addr = bind_addr.into();
-        let result = (0..count).into_iter().map(|_| -> Result<UdpSocket, std::io::Error> {
-            let socket = std::net::UdpSocket::bind(SocketAddr::new(bind_addr, 0))?;
-            // on android, the below will fail since sudo access is not permissible
-            if let Err(err) = open_local_firewall_port(FirewallProtocol::UDP(socket.local_addr()?.port())) {
-                log::warn!("Unable to ensure UDP ports were opened. Packets may not traverse ({})", err.to_string());
-            }
-
-            socket.set_nonblocking(true)?;
-
-            log::info!("Reserved UDP socket on local socket {:?}", &socket);
-            UdpSocket::from_std(socket)
-        }).filter_map(|res| {
-            res.ok()
-        }).collect::<Vec<UdpSocket>>();
-
-        if result.len() != count {
-            Err(FirewallError::HolePunch("We were unable to setup the UDP sockets. Ensure you have valid permissions and try again".to_string()))
-        } else {
-            Ok(result)
-        }
-    }*/
-
     /// kill_switch: Item sent is (local_id, peer_id)
     pub async fn try_method(&mut self, method: NatTraversalMethod, mut kill_switch: tokio::sync::broadcast::Receiver<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>, post_kill_rebuild: tokio::sync::mpsc::UnboundedSender<Option<HolePunchedUdpSocket>>) -> Result<HolePunchedUdpSocket, FirewallError> {
         match method {

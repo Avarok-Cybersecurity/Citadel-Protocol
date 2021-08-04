@@ -7,7 +7,7 @@ use hyxe_nat::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::hdp::hdp_server::Ticket;
-use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundTcpSender};
+use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use std::ops::RangeInclusive;
 use crate::hdp::state_container::{VirtualTargetType, GroupSender};
 use hyxe_crypt::sec_bytes::SecBuffer;
@@ -17,7 +17,7 @@ use hyxe_fs::hyxe_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
 
 pub struct GroupTransmitter {
     pub hyper_ratchet_container: RatchetPacketCrafterContainer,
-    to_primary_stream: OutboundTcpSender,
+    to_primary_stream: OutboundPrimaryStreamSender,
     // Handles the encryption and scrambling asynchronously. Also manages missing packets
     group_transmitter: GroupSender,
     /// Contained within Self::group_transmitter, but is here for convenience
@@ -54,7 +54,7 @@ impl<R: Ratchet> RatchetPacketCrafterContainer<R> {
 }
 
 impl GroupTransmitter {
-    pub fn new_from_group_sender(to_primary_stream: OutboundTcpSender, group_sender: GroupSender, hyper_ratchet: RatchetPacketCrafterContainer, object_id: u32, target_cid: u64, ticket: Ticket, security_level: SecurityLevel, time_tracker: TimeTracker) -> Self {
+    pub fn new_from_group_sender(to_primary_stream: OutboundPrimaryStreamSender, group_sender: GroupSender, hyper_ratchet: RatchetPacketCrafterContainer, object_id: u32, target_cid: u64, ticket: Ticket, security_level: SecurityLevel, time_tracker: TimeTracker) -> Self {
         let cfg = inner!(group_sender).get_receiver_config();
         let group_id = cfg.group_id as u64;
         let bytes_encrypted = cfg.plaintext_length;
@@ -78,7 +78,7 @@ impl GroupTransmitter {
     }
 
     /// Creates a new stream for a request
-    pub fn new_message(to_primary_stream: OutboundTcpSender, object_id: u32, target_cid: u64, hyper_ratchet: RatchetPacketCrafterContainer, input_packet: SecBuffer, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
+    pub fn new_message(to_primary_stream: OutboundPrimaryStreamSender, object_id: u32, target_cid: u64, hyper_ratchet: RatchetPacketCrafterContainer, input_packet: SecBuffer, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
         // Gets the latest drill version by default for this operation
         log::trace!("Will use HyperRatchet v{} to encrypt group {}", hyper_ratchet.base.version(), group_id);
 
@@ -1012,10 +1012,9 @@ pub(crate) mod pre_connect {
     use zerocopy::{I64, U32, U64};
 
     use hyxe_nat::hypernode_type::HyperNodeType;
-    use hyxe_nat::udp_traversal::NatTraversalMethod;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::hdp::hdp_packet::{HdpHeader, packet_flags, packet_sizes};
+    use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
     use crate::hdp::hdp_packet::packet_flags::payload_identifiers;
     use crate::hdp::hdp_packet_processor::includes::SocketAddr;
     use hyxe_crypt::toolset::StaticAuxRatchet;
@@ -1129,85 +1128,8 @@ pub(crate) mod pre_connect {
         packet
     }
 
-    #[derive(Serialize, Deserialize)]
-    pub struct PreConnectStage1 {
-        pub node_type: HyperNodeType,
-        pub initial_nat_traversal_method: NatTraversalMethod,
-        pub sync_time: i64
-    }
-
-    pub(crate) fn craft_stage1(hyper_ratchet: &HyperRatchet, node_type: HyperNodeType, initial_nat_traversal_method: NatTraversalMethod, timestamp: i64, sync_time: i64, security_level: SecurityLevel) -> BytesMut {
-        let header = HdpHeader {
-            cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
-            cmd_aux: packet_flags::cmd::aux::do_preconnect::STAGE1,
-            algorithm: 0,
-            security_level: security_level.value(),
-            context_info: U64::new(0),
-            group: U64::new(0),
-            wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
-            timestamp: I64::new(timestamp),
-            target_cid: U64::new(0)
-        };
-
-        let mut packet = BytesMut::new();
-        header.inscribe_into(&mut packet);
-        PreConnectStage1 { node_type, initial_nat_traversal_method, sync_time }.serialize_into_buf(&mut packet).unwrap();
-
-        hyper_ratchet.protect_message_packet(Some(security_level),HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-
-        packet
-    }
-
-    pub(crate) fn craft_stage_try_next(hyper_ratchet: &HyperRatchet, next_nat_traversal_method: NatTraversalMethod, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
-        let header = HdpHeader {
-            cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
-            cmd_aux: packet_flags::cmd::aux::do_preconnect::STAGE_TRY_NEXT,
-            algorithm: 0,
-            security_level: security_level.value(),
-            context_info: U64::new(0),
-            group: U64::new(0),
-            wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
-            timestamp: I64::new(timestamp),
-            target_cid: U64::new(0)
-        };
-
-        let mut packet = BytesMut::with_capacity(packet_sizes::do_preconnect::STAGE_TRY_NEXT);
-        header.inscribe_into(&mut packet);
-        packet.put_u8(next_nat_traversal_method.into_byte());
-        hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-
-        packet
-    }
-
-    pub(crate) fn craft_stage_try_next_ack(hyper_ratchet: &HyperRatchet, timestamp: i64, sync_time: i64, security_level: SecurityLevel) -> BytesMut {
-        let header = HdpHeader {
-            cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
-            cmd_aux: packet_flags::cmd::aux::do_preconnect::STAGE_TRY_NEXT_ACK,
-            algorithm: 0,
-            security_level: security_level.value(),
-            context_info: U64::new(0),
-            group: U64::new(0),
-            wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
-            timestamp: I64::new(timestamp),
-            target_cid: U64::new(0)
-        };
-
-        let mut packet = BytesMut::with_capacity(packet_sizes::do_preconnect::STAGE_TRY_NEXT_ACK);
-        header.inscribe_into(&mut packet);
-        packet.put_i64(sync_time);
-
-        hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet
-    }
-
     /// If `tcp_only` is set to true, then the primary stream will be used for sharing information instead of the wave ports
-    pub(crate) fn craft_stage_final(hyper_ratchet: &HyperRatchet, success: bool, tcp_only: bool, timestamp: i64, upnp_ports: Option<Vec<u16>>, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_stage_final(hyper_ratchet: &HyperRatchet, success: bool, tcp_only: bool, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
         let cmd_aux = if success {
             packet_flags::cmd::aux::do_preconnect::SUCCESS
         } else {
@@ -1234,17 +1156,7 @@ pub(crate) mod pre_connect {
             target_cid: U64::new(0)
         };
 
-        let mut packet = if let Some(upnp_ports) = upnp_ports {
-            let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + (2 * upnp_ports.len()));
-            header.inscribe_into(&mut packet);
-            for upnp_port in upnp_ports {
-                packet.put_u16(upnp_port);
-            }
-
-            packet
-        } else {
-            header.into_packet()
-        };
+        let mut packet = header.into_packet();
 
         hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet
@@ -1269,33 +1181,6 @@ pub(crate) mod pre_connect {
         hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet
     }
-
-    pub(crate) fn craft_server_finished_hole_punch(hyper_ratchet: &HyperRatchet, success: bool, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
-        let algorithm = if success {
-            1
-        } else {
-            0
-        };
-
-        let header = HdpHeader {
-            cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
-            cmd_aux: packet_flags::cmd::aux::do_preconnect::RECEIVER_FINISHED_HOLE_PUNCH,
-            algorithm,
-            security_level: security_level.value(),
-            context_info: U64::new(0),
-            group: U64::new(0),
-            wave_id: U32::new(0),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
-            timestamp: I64::new(timestamp),
-            target_cid: U64::new(0)
-        };
-
-        let mut packet = header.into_packet();
-        hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet
-    }
-
 
     pub fn craft_halt<T: AsRef<[u8]>>(prev_header: &HdpHeader, fail_reason: T) -> BytesMut {
         let header = HdpHeader {
@@ -1335,7 +1220,7 @@ pub(crate) mod peer_cmd {
     use hyxe_fs::io::SyncIO;
     use serde::Serialize;
 
-    pub(crate) const ENDPOINT_ENCRYPTION_OFF: u64 = 0;
+    pub(crate) const C2S_ENCRYPTION_ONLY: u64 = 0;
     /*
 
      */
@@ -1353,7 +1238,7 @@ pub(crate) mod peer_cmd {
             session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(hyper_ratchet.version()),
             timestamp: I64::new(timestamp),
-            target_cid: U64::new(ENDPOINT_ENCRYPTION_OFF)
+            target_cid: U64::new(C2S_ENCRYPTION_ONLY)
         };
 
         let peer_cmd_serialized_len = peer_command.serialized_size().unwrap();

@@ -6,7 +6,7 @@ use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet, RatchetType};
 use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus, EndpointRatchetConstructor};
-use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
+use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::error::NetworkError;
 use std::collections::HashMap;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
@@ -191,7 +191,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                 let transfer_occured = transfer.has_some();
                                 let secrecy_mode = return_if_none!(security_settings.get().map(|r| r.secrecy_mode).clone(), "Unable to get secrecy mode [PGP]");
 
-                                if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
+                                if resp_target_cid != C2S_ENCRYPTION_ONLY {
                                     // If there is a pending disconnect, we need to make sure the session gets dropped until after all packets get processed
                                     let vconn = return_if_none!(state_container.active_virtual_connections.get(&resp_target_cid), "Vconn not loaded");
                                     vconn.last_delivered_message_timestamp.set(Some(Instant::now()));
@@ -205,7 +205,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     // now, we need to do one last thing. We need to send a truncate packet to atleast allow bob to begin sending packets using the latest HR
                                     // we need to send a truncate packet. BUT, only if the package was SOME. Just b/c it is some does not mean a truncation is necessary
                                     if transfer_occured {
-                                        let target_cid = if target_cid != ENDPOINT_ENCRYPTION_OFF { peer_cid } else { ENDPOINT_ENCRYPTION_OFF };
+                                        let target_cid = if target_cid != C2S_ENCRYPTION_ONLY { peer_cid } else { C2S_ENCRYPTION_ONLY };
                                         let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&hyper_ratchet, needs_truncate, target_cid, timestamp, security_level);
                                         log::info!("About to send TRUNCATE packet to MAYBE remove v {:?} | HR v {} | HR CID {}", needs_truncate, hyper_ratchet.version(), hyper_ratchet.get_cid());
                                         session.send_to_primary_stream(None, truncate_packet)?;
@@ -402,10 +402,10 @@ pub fn get_resp_target_cid(virtual_target: &VirtualConnectionType) -> Option<u64
 }
 
 pub fn get_resp_target_cid_from_header(header: &LayoutVerified<&[u8], HdpHeader>) -> u64 {
-    if header.target_cid.get() != ENDPOINT_ENCRYPTION_OFF {
+    if header.target_cid.get() != C2S_ENCRYPTION_ONLY {
         header.session_cid.get()
     } else {
-        ENDPOINT_ENCRYPTION_OFF
+        C2S_ENCRYPTION_ONLY
     }
 }
 
@@ -527,7 +527,7 @@ impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
 ///
 /// Returns: Ok(latest_hyper_ratchet)
 pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session_secrecy_mode: SecrecyMode, peer_cid: u64, target_cid: u64, transfer: KemTransferStatus, vconns: &mut HashMap<u64, VirtualConnection<R>>, constructor: Option<ConstructorType<R, Fcm>>, cnac_sess: &ClientNetworkAccount<R, Fcm>) -> Result<Option<RatchetType<R, Fcm>>, ()> {
-    let (mut toolset_update_method, secrecy_mode) = if target_cid != ENDPOINT_ENCRYPTION_OFF {
+    let (mut toolset_update_method, secrecy_mode) = if target_cid != C2S_ENCRYPTION_ONLY {
         let endpoint_container = vconns.get_mut(&peer_cid).ok_or(())?.endpoint_container.as_mut().ok_or(())?;
         let crypt = &mut endpoint_container.endpoint_crypto;
         (ToolsetUpdate::E2E { crypt, local_cid: target_cid }, endpoint_container.default_security_settings.secrecy_mode)
@@ -614,7 +614,7 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
 /// NOTE! Assumes the `hr` passed is the latest version IF the transfer is some
 pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: Option<AliceToBobTransferType<'_>>, vconns: &mut HashMap<u64, VirtualConnection>, cnac_sess: &ClientNetworkAccount, hr: &HyperRatchet) -> Option<KemTransferStatus> {
     if let Some(transfer) = transfer {
-        if resp_target_cid != ENDPOINT_ENCRYPTION_OFF {
+        if resp_target_cid != C2S_ENCRYPTION_ONLY {
             let crypt = &mut vconns.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
             let method = ToolsetUpdate::E2E { crypt, local_cid: header.target_cid.get() };
             update_toolset_as_bob(method, transfer, hr)
