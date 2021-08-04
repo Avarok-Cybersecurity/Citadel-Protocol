@@ -302,7 +302,6 @@ pub mod tests {
 
         let rt = Builder::new_multi_thread().enable_time().enable_io().build().unwrap();
 
-
         let server_bind_addr = SocketAddr::from_str("127.0.0.1:33332").unwrap();
         let client0_bind_addr = SocketAddr::from_str("127.0.0.1:33333").unwrap();
         let client1_bind_addr = SocketAddr::from_str("127.0.0.1:33334").unwrap();
