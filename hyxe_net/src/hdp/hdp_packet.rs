@@ -85,16 +85,10 @@ pub(crate) mod packet_flags {
                 pub(crate) const SYN_ACK: u8 = 1;
                 // Alice sends this to Bob
                 pub(crate) const STAGE0: u8 = 2;
-                // bob sends this to alice
-                pub(crate) const STAGE1: u8 = 3;
-                pub(crate) const STAGE_TRY_NEXT: u8 = 4;
-                pub(crate) const STAGE_TRY_NEXT_ACK: u8 = 5;
                 // alice sends this to bob when the firewall is successfully configured
                 pub(crate) const SUCCESS: u8 = 6;
                 pub(crate) const FAILURE: u8 = 7;
                 pub(crate) const BEGIN_CONNECT: u8 = 8;
-                // Bob sends this to Alice when he's finished the hole-punching process
-                pub(crate) const RECEIVER_FINISHED_HOLE_PUNCH: u8 = 9;
                 pub(crate) const HALT: u8 = 10;
             }
 
@@ -152,9 +146,6 @@ pub(crate) mod packet_sizes {
     pub(crate) mod do_preconnect {
         use crate::constants::HDP_HEADER_BYTE_LEN;
 
-        pub(crate) const STAGE_TRY_NEXT: usize = HDP_HEADER_BYTE_LEN + 1;
-        // +8 for the i64 sync_time
-        pub(crate) const STAGE_TRY_NEXT_ACK: usize = HDP_HEADER_BYTE_LEN + 8;
         pub(crate) const STAGE_SUCCESS_ACK: usize = HDP_HEADER_BYTE_LEN;
     }
 }

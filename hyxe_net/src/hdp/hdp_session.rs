@@ -37,7 +37,7 @@ use crate::error::NetworkError;
 use crate::hdp::file_transfer::VirtualFileMetadata;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
 use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
-use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
+use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 //use futures_codec::Framed;
 use crate::hdp::hdp_packet_processor::{self, PrimaryProcessorResult};
 use crate::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
@@ -51,7 +51,7 @@ use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use crate::hdp::outbound_sender::{channel, Receiver, Sender, SendError, unbounded, UnboundedReceiver, UnboundedSender};
-use crate::hdp::outbound_sender::{OutboundTcpReceiver, OutboundTcpSender, OutboundUdpSender};
+use crate::hdp::outbound_sender::{OutboundPrimaryStreamReceiver, OutboundPrimaryStreamSender, OutboundUdpSender};
 use crate::hdp::peer::p2p_conn_handler::P2PInboundHandle;
 use crate::hdp::peer::peer_layer::{PeerResponse, PeerSignal, UdpMode};
 use crate::hdp::session_queue_handler::{DRILL_REKEY_WORKER, FIREWALL_KEEP_ALIVE, KEEP_ALIVE_CHECKER, PROVISIONAL_CHECKER, QueueWorkerResult, QueueWorkerTicket, RESERVED_CID_IDX, SessionQueueWorker};
@@ -68,10 +68,11 @@ use crate::macros::OwnedWriteGuard;
 use crate::kernel::RuntimeFuture;
 use std::pin::Pin;
 use hyxe_crypt::prelude::ConstructorOpts;
-use crate::hdp::peer_session_crypto_accessor::PeerSessionCryptoAccessor;
+use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use hyxe_nat::nat_identification::NatType;
+use hyxe_nat::exports::Endpoint;
 
 //use crate::define_struct;
 
@@ -163,13 +164,14 @@ pub struct HdpSessionInner {
     pub(super) cnac: DualRwLock<Option<ClientNetworkAccount>>,
     // Sends results directly to the kernel
     pub(super) kernel_tx: UnboundedSender<HdpServerResult>,
-    pub(super) to_primary_stream: DualLateInit<Option<OutboundTcpSender>>,
+    pub(super) to_primary_stream: DualLateInit<Option<OutboundPrimaryStreamSender>>,
     pub(super) udp_primary_outbound_tx: DualLateInit<Option<OutboundUdpSender>>,
     pub(super) p2p_session_tx: DualLateInit<Option<UnboundedSender<Pin<Box<dyn RuntimeFuture>>>>>,
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
     pub(super) session_manager: HdpSessionManager,
     pub(super) state: DualCell<SessionState>,
     pub(super) implicated_user_p2p_internal_listener_addr: DualLateInit<Option<SocketAddr>>,
+    pub(super) client_only_quic_endpoint: DualLateInit<Option<Endpoint>>,
     pub(super) state_container: StateContainer,
     pub(super) account_manager: AccountManager,
     pub(super) time_tracker: TimeTracker,
@@ -243,6 +245,7 @@ impl HdpSession {
 
         let mut inner = HdpSessionInner {
             implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
+            client_only_quic_endpoint: DualLateInit::default(),
             local_nat_type,
             adjacent_nat_type: DualLateInit::default(),
             p2p_session_tx: DualLateInit::default(),
@@ -294,6 +297,7 @@ impl HdpSession {
 
         let inner = HdpSessionInner {
             implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
+            client_only_quic_endpoint: DualLateInit::default(),
             local_nat_type,
             adjacent_nat_type: DualLateInit::default(),
             p2p_session_tx: DualLateInit::default(),
@@ -348,12 +352,13 @@ impl HdpSession {
             let (writer, reader) = misc::net::safe_split_stream(tcp_stream);
 
             let (primary_outbound_tx, primary_outbound_rx) = unbounded();
-            let primary_outbound_tx = OutboundTcpSender::from(primary_outbound_tx);
-            let primary_outbound_rx = OutboundTcpReceiver::from(primary_outbound_rx);
+            let primary_outbound_tx = OutboundPrimaryStreamSender::from(primary_outbound_tx);
+            let primary_outbound_rx = OutboundPrimaryStreamReceiver::from(primary_outbound_rx);
 
             let (p2p_session_tx, p2p_session_rx) = unbounded();
 
             if let Some(ref p2p_listener) = p2p_listener {
+                this.client_only_quic_endpoint.set_once(Some(p2p_listener.quic_endpoint().unwrap()));
                 this.implicated_user_p2p_internal_listener_addr.set_once(Some(p2p_listener.local_addr().map_err(|err| (NetworkError::Generic(err.to_string()), None))?))
             }
 
@@ -483,7 +488,7 @@ impl HdpSession {
     }
 
     /// Before going through the usual loopy business, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
-    async fn handle_zero_state(zero_packet: Option<BytesMut>, persistence_handler: PersistenceHandler, to_outbound: OutboundTcpSender, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>, connect_mode: Option<ConnectMode>) -> Result<(), NetworkError> {
+    async fn handle_zero_state(zero_packet: Option<BytesMut>, persistence_handler: PersistenceHandler, to_outbound: OutboundPrimaryStreamSender, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>, connect_mode: Option<ConnectMode>) -> Result<(), NetworkError> {
         if let Some(zero) = zero_packet {
             to_outbound.unbounded_send(zero).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
         }
@@ -598,11 +603,11 @@ impl HdpSession {
                         sess.udp_primary_outbound_tx.set_once(Some(udp_sender.clone()));
                         let mut state_container = inner_mut!(sess.state_container);
 
-                        if let Some(channel) = state_container.insert_udp_channel(ENDPOINT_ENCRYPTION_OFF, v_target, ticket, udp_sender, stopper_tx) {
+                        if let Some(channel) = state_container.insert_udp_channel(C2S_ENCRYPTION_ONLY, v_target, ticket, udp_sender, stopper_tx) {
                             let cnac = sess.cnac.get().ok_or(NetworkError::InternalError("CNAC not loaded (required for UDP socket_loader stage)"))?;
                             if let Some(sender) = state_container.pre_connect_state.udp_channel_oneshot_tx.tx.take() {
                                 sender.send(channel).map_err(|_| NetworkError::InternalError("Unable to send UdpChannel through"))?;
-                                PeerSessionCryptoAccessor::C2S(cnac, sess.state_container.clone())
+                                EndpointCryptoAccessor::C2S(cnac, sess.state_container.clone())
                             } else {
                                 log::error!("Tried loading UDP channel, but, the state container had no UDP sender");
                                 return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had no UDP sender"))
@@ -619,7 +624,7 @@ impl HdpSession {
                             if let Some(kem_state) = state_container.peer_kem_states.get_mut(&target_cid) {
                                 if let Some(sender) = kem_state.udp_channel_sender.tx.take() {
                                     sender.send(channel).map_err(|_| NetworkError::InternalError("Unable to send UdpChannel through"))?;
-                                    PeerSessionCryptoAccessor::P2P(target_cid, sess.state_container.clone())
+                                    EndpointCryptoAccessor::P2P(target_cid, sess.state_container.clone())
                                 } else {
                                     log::error!("Tried loading UDP channel, but, the state container had no UDP sender");
                                     return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had no UDP sender"))
@@ -671,7 +676,7 @@ impl HdpSession {
         let _ = spawn!(task);
     }
 
-    pub async fn outbound_stream(primary_outbound_rx: OutboundTcpReceiver, writer: CleanShutdownSink<GenericNetworkStream, LengthDelimitedCodec, Bytes>) -> Result<(), NetworkError> {
+    pub async fn outbound_stream(primary_outbound_rx: OutboundPrimaryStreamReceiver, writer: CleanShutdownSink<GenericNetworkStream, LengthDelimitedCodec, Bytes>) -> Result<(), NetworkError> {
         //use futures::TryFutureExt;
         //let count = AtomicUsize::new(0);
         primary_outbound_rx.0.map(|r| Ok(r.freeze())).forward(writer).map_err(|err| NetworkError::Generic(err.to_string())).await
@@ -762,7 +767,7 @@ impl HdpSession {
         })
     }
 
-    fn send_to_primary_stream_closure(to_primary_stream: &OutboundTcpSender, kernel_tx: &UnboundedSender<HdpServerResult>, msg: BytesMut, ticket: Option<Ticket>) -> Result<(), NetworkError> {
+    fn send_to_primary_stream_closure(to_primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<HdpServerResult>, msg: BytesMut, ticket: Option<Ticket>) -> Result<(), NetworkError> {
         if let Err(err) = to_primary_stream.unbounded_send(msg) {
             kernel_tx.unbounded_send(HdpServerResult::InternalServerError(ticket, err.to_string())).map_err(|err| NetworkError::Generic(err.to_string()))?;
             Err(NetworkError::InternalError("Primary stream closed"))
@@ -820,7 +825,7 @@ impl HdpSession {
                                     }
                                 }).collect::<Vec<VirtualTargetType>>();
 
-                                let virtual_target = VirtualTargetType::HyperLANPeerToHyperLANServer(ENDPOINT_ENCRYPTION_OFF);
+                                let virtual_target = VirtualTargetType::HyperLANPeerToHyperLANServer(C2S_ENCRYPTION_ONLY);
                                 if let Ok(_) = sess.initiate_drill_update(timestamp, virtual_target, &mut state_container, Some(ticket.get())) {
                                     // now, call for each p2p session
                                     for vconn in p2p_sessions {
@@ -1212,7 +1217,7 @@ impl HdpSession {
                 GroupBroadcast::Add(..) |
                 GroupBroadcast::AcceptMembership(_) |
                 GroupBroadcast::LeaveRoom(_) => {
-                    hdp_packet_crafter::peer_cmd::craft_group_message_packet(hyper_ratchet, &command, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp, security_level)
+                    hdp_packet_crafter::peer_cmd::craft_group_message_packet(hyper_ratchet, &command, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
                 }
 
                 n => {
@@ -1311,7 +1316,7 @@ impl HdpSession {
         Err(NetworkError::InternalError("Invalid session configuration"))
     }
 
-    async fn listen_wave_port<S: Stream<Item=Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin>(this: HdpSession, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: PeerSessionCryptoAccessor) -> Result<(), NetworkError> {
+    async fn listen_wave_port<S: Stream<Item=Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin>(this: HdpSession, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
         while let Some(res) = stream.next().await {
             match res {
                 Ok((packet, remote_peer)) => {
@@ -1337,7 +1342,7 @@ impl HdpSession {
     }
 
     // Accepts
-    async fn udp_outbound_sender<S: SinkExt<(Bytes, SocketAddr)> + Unpin>(local_is_server: bool, receiver: UnboundedReceiver<(u8, BytesMut)>, hole_punched_addr: HolePunchedSocketAddr, mut sink: S, peer_session_accessor: PeerSessionCryptoAccessor) -> Result<(), NetworkError> {
+    async fn udp_outbound_sender<S: SinkExt<(Bytes, SocketAddr)> + Unpin>(local_is_server: bool, receiver: UnboundedReceiver<(u8, BytesMut)>, hole_punched_addr: HolePunchedSocketAddr, mut sink: S, peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
         let mut receiver = tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
         let target_cid = peer_session_accessor.get_target_cid();
 
@@ -1362,7 +1367,7 @@ impl HdpSession {
         Ok(())
     }
 
-    pub fn process_inbound_packet_wave(&self, packet: HdpPacket, accessor: &PeerSessionCryptoAccessor) -> Result<(), NetworkError> {
+    pub fn process_inbound_packet_wave(&self, packet: HdpPacket, accessor: &EndpointCryptoAccessor) -> Result<(), NetworkError> {
         if packet.get_length() < HDP_HEADER_BYTE_LEN {
             return Ok(());
         }
@@ -1540,7 +1545,7 @@ impl HdpSessionInner {
 
                 match res {
                     Some(alice_constructor) => {
-                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(&ratchet, alice_constructor.stage0_alice(), timestamp, ENDPOINT_ENCRYPTION_OFF, security_level);
+                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(&ratchet, alice_constructor.stage0_alice(), timestamp, C2S_ENCRYPTION_ONLY, security_level);
                         state_container.drill_update_state.alice_hyper_ratchet = Some(alice_constructor);
                         let to_primary_stream = self.to_primary_stream.as_ref().unwrap();
                         let kernel_tx = &self.kernel_tx;
@@ -1611,7 +1616,7 @@ impl HdpSessionInner {
     }
 
     fn get_secrecy_mode(&self, target_cid: u64, state_container: &StateContainerInner) -> Option<SecrecyMode> {
-        if target_cid != ENDPOINT_ENCRYPTION_OFF {
+        if target_cid != C2S_ENCRYPTION_ONLY {
             Some(state_container.active_virtual_connections.get(&target_cid)?.endpoint_container.as_ref()?.default_security_settings.secrecy_mode)
         } else {
             self.security_settings.get().map(|r| r.secrecy_mode).clone()
@@ -1724,7 +1729,7 @@ impl HdpSessionInner {
                         match result {
                             Either::Left((alice_constructor, latest_hyper_ratchet, group_id, packet)) => {
                                 let to_primary_stream = this.to_primary_stream.clone().unwrap();
-                                (GroupTransmitter::new_message(to_primary_stream, OBJECT_SINGLETON, ENDPOINT_ENCRYPTION_OFF, RatchetPacketCrafterContainer::new(latest_hyper_ratchet, alice_constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid)
+                                (GroupTransmitter::new_message(to_primary_stream, OBJECT_SINGLETON, C2S_ENCRYPTION_ONLY, RatchetPacketCrafterContainer::new(latest_hyper_ratchet, alice_constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid)
                             }
 
                             Either::Right(packet) => {

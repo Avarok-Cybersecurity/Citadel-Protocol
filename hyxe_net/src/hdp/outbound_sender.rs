@@ -35,24 +35,24 @@ pub fn channel<T>(len: usize) -> (Sender<T>, Receiver<T>) {
 }
 
 #[derive(Clone)]
-pub struct OutboundTcpSender(UnboundedSender<bytes::BytesMut>);
+pub struct OutboundPrimaryStreamSender(UnboundedSender<bytes::BytesMut>);
 
-impl OutboundTcpSender {
+impl OutboundPrimaryStreamSender {
     #[inline]
     pub fn unbounded_send(&self, item: bytes::BytesMut) -> Result<(), SendError<BytesMut>> {
         self.0.unbounded_send(item)
     }
 }
 
-impl From<UnboundedSender<bytes::BytesMut>> for OutboundTcpSender {
+impl From<UnboundedSender<bytes::BytesMut>> for OutboundPrimaryStreamSender {
     fn from(inner: UnboundedSender<BytesMut>) -> Self {
         Self(inner)
     }
 }
 
-pub struct OutboundTcpReceiver(pub tokio_stream::wrappers::UnboundedReceiverStream<bytes::BytesMut>);
+pub struct OutboundPrimaryStreamReceiver(pub tokio_stream::wrappers::UnboundedReceiverStream<bytes::BytesMut>);
 
-impl From<UnboundedReceiver<bytes::BytesMut>> for OutboundTcpReceiver {
+impl From<UnboundedReceiver<bytes::BytesMut>> for OutboundPrimaryStreamReceiver {
     fn from(inner: UnboundedReceiver<BytesMut>) -> Self {
         Self(tokio_stream::wrappers::UnboundedReceiverStream::new(inner))
     }

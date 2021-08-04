@@ -29,6 +29,6 @@ pub mod nat_handler;
 ///
 pub mod peer;
 ///
-pub(crate) mod peer_session_crypto_accessor;
+pub(crate) mod endpoint_crypto_accessor;
 pub(crate) mod session_queue_handler;
 pub mod misc;

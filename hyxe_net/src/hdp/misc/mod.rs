@@ -7,3 +7,4 @@ pub mod dual_late_init;
 pub mod lock_holder;
 pub mod ordered_channel;
 pub mod session_security_settings;
+pub mod underlying_proto;

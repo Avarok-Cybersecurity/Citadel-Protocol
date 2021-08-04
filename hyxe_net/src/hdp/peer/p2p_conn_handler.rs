@@ -10,25 +10,26 @@ use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket};
 use crate::hdp::hdp_session::{HdpSession, SessionState};
 use crate::hdp::misc;
 use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
-use crate::hdp::outbound_sender::{OutboundTcpReceiver, unbounded, UnboundedSender, BoundedSender};
-use crate::hdp::outbound_sender::OutboundTcpSender;
+use crate::hdp::outbound_sender::{OutboundPrimaryStreamReceiver, unbounded, UnboundedSender};
+use crate::hdp::outbound_sender::OutboundPrimaryStreamSender;
 use crate::hdp::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::hdp::misc::dual_cell::DualCell;
 use crate::hdp::state_container::StateContainer;
 use crate::hdp::misc::panic_future::AssertSendSafeFuture;
-use futures::SinkExt;
+use hyxe_nat::udp_traversal::synchronization_phase::UdpHolePuncher;
+use hyxe_nat::exports::Endpoint;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
     stopper: Option<Sender<()>>,
-    pub p2p_primary_stream: OutboundTcpSender,
+    pub p2p_primary_stream: OutboundPrimaryStreamSender,
     pub from_listener: bool,
     pub fallback: Option<u64>
 }
 
 impl DirectP2PRemote {
-    fn new(stopper: Sender<()>, p2p_primary_stream: OutboundTcpSender, from_listener: bool) -> Self {
+    fn new(stopper: Sender<()>, p2p_primary_stream: OutboundPrimaryStreamSender, from_listener: bool) -> Self {
         Self { stopper: Some(stopper), p2p_primary_stream, from_listener, fallback: None }
     }
 }
@@ -82,7 +83,7 @@ pub async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session:
     }
 }
 
-fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<Option<u64>>, session: HdpSession, kernel_tx: UnboundedSender<HdpServerResult>, from_listener: bool) -> std::io::Result<OutboundTcpSender> {
+fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<Option<u64>>, session: HdpSession, kernel_tx: UnboundedSender<HdpServerResult>, from_listener: bool) -> std::io::Result<OutboundPrimaryStreamSender> {
     // SECURITY: Since this branch only occurs IF the primary session is connected, then the primary user is
     // logged-in. However, what if a malicious user decides to connect here?
     // They won't be able to register through here, since registration requires that the state is NeedsRegister
@@ -95,8 +96,8 @@ fn handle_p2p_stream(p2p_stream: GenericNetworkStream, implicated_cid: DualCell<
     log::info!("[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), &remote_peer);
     let (sink, stream) = misc::net::safe_split_stream(p2p_stream);
     let (p2p_primary_stream_tx, p2p_primary_stream_rx) = unbounded();
-    let p2p_primary_stream_tx = OutboundTcpSender::from(p2p_primary_stream_tx);
-    let p2p_primary_stream_rx = OutboundTcpReceiver::from(p2p_primary_stream_rx);
+    let p2p_primary_stream_tx = OutboundPrimaryStreamSender::from(p2p_primary_stream_tx);
+    let p2p_primary_stream_rx = OutboundPrimaryStreamReceiver::from(p2p_primary_stream_rx);
     //let (header_obfuscator, packet_opt) = HeaderObfuscator::new(from_listener);
 
     let (stopper_tx, stopper_rx) = channel();
@@ -176,11 +177,11 @@ pub struct P2PInboundHandle {
     // this has to be the CID of the local session, not the peer's CID
     pub implicated_cid: DualCell<Option<u64>>,
     pub kernel_tx: UnboundedSender<HdpServerResult>,
-    pub to_primary_stream: OutboundTcpSender
+    pub to_primary_stream: OutboundPrimaryStreamSender
 }
 
 impl P2PInboundHandle {
-    fn new(remote_peer: SocketAddr, local_bind_port: u16, implicated_cid: DualCell<Option<u64>>, kernel_tx: UnboundedSender<HdpServerResult>, to_primary_stream: OutboundTcpSender) -> Self {
+    fn new(remote_peer: SocketAddr, local_bind_port: u16, implicated_cid: DualCell<Option<u64>>, kernel_tx: UnboundedSender<HdpServerResult>, to_primary_stream: OutboundPrimaryStreamSender) -> Self {
         Self { remote_peer, local_bind_port, implicated_cid, kernel_tx, to_primary_stream }
     }
 }
@@ -192,42 +193,23 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 
 /// Both sides need to begin this process at `sync_time` to bypass the firewall
 #[allow(warnings)]
-pub async fn attempt_tcp_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, ref session: HdpSession, peer_nat_info: PeerNatInfo, implicated_cid: DualCell<Option<u64>>, kernel_tx: UnboundedSender<HdpServerResult>, channel_signal: HdpServerResult, sync_time: Instant,
-ref state_container: StateContainer, security_level: SecurityLevel) -> std::io::Result<()> {
-    let (_needs_turn, peer_external_addr) = peer_nat_info.generate_proper_listener_connect_addr(&session.local_nat_type);
-    let peer_internal_addr = peer_nat_info.peer_internal_listener_addr;
-
-    let expected_peer_cid = peer_connection_type.get_original_target_cid();
-
-    let addrs_to_connect_to = vec![peer_external_addr, peer_internal_addr];
-
-    let (first_only_tx, mut first_only_rx) = BoundedSender::new(1);
+pub async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, ref session: HdpSession, peer_nat_info: PeerNatInfo, implicated_cid: DualCell<Option<u64>>, kernel_tx: UnboundedSender<HdpServerResult>, channel_signal: HdpServerResult, sync_time: Instant,
+                                             ref state_container: StateContainer, security_level: SecurityLevel, hole_puncher: UdpHolePuncher<'static>, quic_endpoint: Endpoint) -> std::io::Result<()> {
 
     tokio::time::sleep_until(sync_time).await;
 
-    async fn tcp_hole_punch(peer_endpoint_addr: SocketAddr, expected_peer_cid: u64, mut sender: BoundedSender<std::io::Result<GenericNetworkStream>>) -> std::io::Result<()> {
-        log::info!("[P2P-stream] Attempting to hole-punch to {:?} ({})", &peer_endpoint_addr, expected_peer_cid);
-        let res = HdpServer::create_tcp_connect_socket(peer_endpoint_addr, None).await;
-        sender.send(res).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
-    }
-
-    for addr in addrs_to_connect_to {
-        let _ = spawn!(tcp_hole_punch(addr, expected_peer_cid, first_only_tx.clone()));
-    }
-
     let task = async move {
-        while let Some(res) = first_only_rx.next().await {
-            if res.is_ok() {
-                return res;
-            }
-        }
-
-        Err(generic_error("All senders dropped"))
+        let hole_punched_socket = hole_puncher.await.map_err(|err| generic_error(err))?;
+        let remote_connect_addr = hole_punched_socket.addr.natted;
+        std::mem::drop(hole_punched_socket);
+        log::info!("~!@ P2P UDP Hole-punch finished @!~");
+        HdpServer::create_p2p_quic_connect_socket(quic_endpoint, remote_connect_addr, peer_nat_info.tls_domain, None).await
     };
 
     // now, wait for the first successfull future
-    let res = tokio::time::timeout(Duration::from_millis(2000), task).await.map_err(|err| generic_error("Deadline for TCP hole punches elapsed"))?;
-
+    let res = tokio::time::timeout(Duration::from_millis(3000), task).await.map_err(|err| generic_error("Deadline for TCP hole puncher elapsed"))?;
+    log::info!("~!@ P2P UDP Hole-punch + QUIC finished. Res: {} @!~", res.is_ok());
+    let expected_peer_cid = peer_connection_type.get_original_target_cid();
     let res = match res {
         Ok(p2p_stream) => {
             log::info!("[P2P-stream] SUCCESS TCP Hole Punching. Setting up direct p2p session ...");
@@ -263,7 +245,7 @@ ref state_container: StateContainer, security_level: SecurityLevel) -> std::io::
     res
 }
 
-fn send_hole_punch_packet(session: &HdpSession, signal: PeerSignal, state_container: &StateContainer, ticket: Ticket, expected_peer_cid: u64, p2p_outbound_stream_opt: Option<&OutboundTcpSender>, security_level: SecurityLevel) -> std::io::Result<()> {
+fn send_hole_punch_packet(session: &HdpSession, signal: PeerSignal, state_container: &StateContainer, ticket: Ticket, expected_peer_cid: u64, p2p_outbound_stream_opt: Option<&OutboundPrimaryStreamSender>, security_level: SecurityLevel) -> std::io::Result<()> {
     let endpoint_hyper_ratchet = inner!(state_container).active_virtual_connections.get(&expected_peer_cid).ok_or_else(|| generic_error("Active Vconn not loaded"))?.endpoint_container.as_ref().ok_or_else(|| generic_error("Endpoint container not loaded"))?.endpoint_crypto.get_hyper_ratchet(None).ok_or_else(|| generic_error("Peer hyper ratchet does not exist"))?.clone();
     let sess = session;
     let p2p_outbound_stream = p2p_outbound_stream_opt.unwrap_or_else(|| sess.to_primary_stream.as_ref().unwrap());
@@ -274,6 +256,6 @@ fn send_hole_punch_packet(session: &HdpSession, signal: PeerSignal, state_contai
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
 }
 
-fn generic_error(err: &'static str) -> std::io::Error {
+pub(crate) fn generic_error<E: Into<Box<dyn std::error::Error + Send + Sync>>>(err: E) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Other, err)
 }

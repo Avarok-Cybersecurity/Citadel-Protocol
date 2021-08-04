@@ -2,6 +2,7 @@
 #![feature(async_closure, ip)]
 pub mod exports {
     pub use igd::PortMappingProtocol;
+    pub use quinn::{RecvStream, SendStream, Incoming, Endpoint, Connecting, Connection, NewConnection, CertificateChain, PrivateKey};
 }
 
 pub mod ip_addr;
