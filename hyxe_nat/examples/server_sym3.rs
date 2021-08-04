@@ -1,7 +1,7 @@
 use tokio::io::{BufReader, AsyncBufReadExt};
 use hyxe_nat::udp_traversal::linear::RelativeNodeType;
 use hyxe_nat::udp_traversal::synchronization_phase::UdpHolePuncher;
-use hyxe_nat::quic::{QuicEndpointType, QuicEndpointListener};
+use hyxe_nat::quic::QuicEndpointListener;
 
 fn setup_log() {
     std::env::set_var("RUST_LOG", "error,warn,info,trace");
