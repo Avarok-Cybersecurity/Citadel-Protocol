@@ -175,7 +175,7 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test tests::main">
+  <component name="RunManager" selected="Cargo.Run client_sym3">
     <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" PASS_PARENT_ENVS_2="true">
       <method v="2">
         <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
@@ -365,9 +365,9 @@
     </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Cargo.Test tests::main" />
-        <item itemvalue="Cargo.Run server_sym3" />
         <item itemvalue="Cargo.Run client_sym3" />
+        <item itemvalue="Cargo.Run server_sym3" />
+        <item itemvalue="Cargo.Test tests::main" />
         <item itemvalue="Cargo.Test misc::tests::main" />
         <item itemvalue="Cargo.Test tests::get_multi" />
       </list>
