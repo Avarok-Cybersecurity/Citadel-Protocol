@@ -8,10 +8,13 @@ pub mod tests {
     use std::pin::Pin;
     use std::str::FromStr;
     use std::sync::Arc;
+    use std::sync::atomic::Ordering;
     use std::time::Instant;
 
     use futures::{Future, SinkExt, StreamExt};
+    use once_cell::sync::OnceCell;
     use parking_lot::{const_mutex, Mutex, RwLock};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::runtime::{Builder, Handle};
 
     use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
@@ -20,12 +23,13 @@ pub mod tests {
     use hyxe_crypt::sec_bytes::SecBuffer;
     use hyxe_nat::hypernode_type::HyperNodeType;
     use hyxe_net::error::NetworkError;
-    use hyxe_net::functional::{TriMap, IfEqConditional};
+    use hyxe_net::functional::{IfEqConditional, TriMap};
     use hyxe_net::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
     use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-    use hyxe_net::hdp::hdp_server::{ConnectMode, HdpServerRemote, HdpServerRequest, SecrecyMode, Ticket, UnderlyingProtocol, HdpServer};
-    use hyxe_net::hdp::misc::net::TlsListener;
+    use hyxe_net::hdp::hdp_server::{ConnectMode, HdpServer, HdpServerRemote, HdpServerRequest, SecrecyMode, Ticket};
+    use hyxe_net::hdp::misc::panic_future::ExplicitPanicFuture;
     use hyxe_net::hdp::misc::session_security_settings::{SessionSecuritySettings, SessionSecuritySettingsBuilder};
+    use hyxe_net::hdp::misc::underlying_proto::UnderlyingProtocol;
     use hyxe_net::hdp::peer::channel::{PeerChannel, PeerChannelSendHalf};
     use hyxe_net::hdp::peer::message_group::MessageGroupKey;
     use hyxe_net::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
@@ -36,12 +40,8 @@ pub mod tests {
     use hyxe_user::network_account::ConnectProtocol;
     use hyxe_user::proposed_credentials::ProposedCredentials;
 
-    use crate::tests::kernel::{ActionType, TestContainer, TestKernel, MessageTransfer};
+    use crate::tests::kernel::{ActionType, MessageTransfer, TestContainer, TestKernel};
     use crate::utils::{assert, assert_eq, AssertSendSafeFuture};
-    use hyxe_net::hdp::misc::panic_future::ExplicitPanicFuture;
-    use std::sync::atomic::Ordering;
-    use once_cell::sync::OnceCell;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -67,13 +67,13 @@ pub mod tests {
         setup_log();
 
         let proto = if USE_TLS {
-            UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10").unwrap(), Some("mail.satorisocial.com".to_string()))
+            UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", Some("mail.satorisocial.com".to_string())).unwrap()
         } else {
             UnderlyingProtocol::Tcp
         };
 
         let server = async move {
-            let (mut listener, _bind_addr) = HdpServer::create_tcp_listen_socket(proto, "127.0.0.1:27000").unwrap();
+            let (mut listener, _bind_addr) = HdpServer::create_listen_socket(proto, "127.0.0.1:27000").unwrap();
 
             while let Some(val) = listener.next().await {
                 let (mut stream, peer_addr) = val.unwrap();
@@ -87,7 +87,7 @@ pub mod tests {
         };
 
         let client = async move {
-            let mut stream = HdpServer::connect_defaults(None, SocketAddr::from_str("127.0.0.1:27000").unwrap()).await.unwrap();
+            let mut stream = HdpServer::c2s_connect_defaults(None, SocketAddr::from_str("127.0.0.1:27000").unwrap()).await.unwrap();
             log::info!("Client connected");
             let buf = &mut [0u8; 4096];
             let _ = stream.write(&[0xff]).await.unwrap();
@@ -136,12 +136,20 @@ pub mod tests {
         let lock = PROTO.lock();
         let val = lock.as_ref().unwrap();
         match val {
-            UnderlyingProtocol::Tls(_, domain) => {
+            UnderlyingProtocol::Tls(_, _, _, domain) => {
                 ConnectProtocol::Tls(domain.clone())
             }
 
             UnderlyingProtocol::Tcp => {
                 ConnectProtocol::Tcp
+            }
+
+            UnderlyingProtocol::Quic(res) => {
+                if let Some(res) = res.as_ref() {
+                    ConnectProtocol::Quic(res.2.clone())
+                } else {
+                    ConnectProtocol::Quic(None)
+                }
             }
         }
     }
@@ -287,7 +295,7 @@ pub mod tests {
         println!("Timeout: {}ms", timeout_cnt_ms());
 
         if use_tls {
-            *PROTO.lock() = Some(UnderlyingProtocol::Tls(TlsListener::load_tls_pkcs("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10").unwrap(), Some("mail.satorisocial.com".to_string())));
+            *PROTO.lock() = Some(UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", Some("mail.satorisocial.com".to_string())).unwrap())
         } else {
             *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
         }
@@ -416,8 +424,13 @@ pub mod tests {
         use byteorder::ByteOrder;
         use futures::Future;
         use parking_lot::{Mutex, RwLock};
+        use rand::Rng;
+        use rand::rngs::ThreadRng;
+        use serde::{Deserialize, Serialize};
         use tokio::sync::broadcast;
 
+        use hyxe_crypt::prelude::SecBuffer;
+        use hyxe_fs::io::SyncIO;
         use hyxe_net::error::NetworkError;
         use hyxe_net::hdp::hdp_packet_processor::includes::Duration;
         use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
@@ -427,13 +440,8 @@ pub mod tests {
         use hyxe_net::kernel::kernel::NetKernel;
         use hyxe_user::client_account::ClientNetworkAccount;
 
-        use crate::tests::{client2_action4_fire_group, GROUP_TICKET_TEST, handle_c2s_peer_channel, handle_peer_channel, NodeType, count, rand_message_len};
+        use crate::tests::{client2_action4_fire_group, count, GROUP_TICKET_TEST, handle_c2s_peer_channel, handle_peer_channel, NodeType, rand_message_len};
         use crate::utils::{assert, assert_eq};
-        use serde::{Serialize, Deserialize};
-        use hyxe_crypt::prelude::SecBuffer;
-        use rand::rngs::ThreadRng;
-        use hyxe_fs::io::SyncIO;
-        use rand::Rng;
 
         #[derive(Serialize, Deserialize)]
         pub struct MessageTransfer {

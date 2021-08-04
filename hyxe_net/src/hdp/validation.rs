@@ -229,11 +229,8 @@ pub(crate) mod do_drill_update {
 }
 
 pub(crate) mod pre_connect {
-    use byteorder::{ByteOrder, NetworkEndian};
-
     use hyxe_crypt::toolset::{Toolset, StaticAuxRatchet};
     use hyxe_nat::hypernode_type::HyperNodeType;
-    use hyxe_nat::udp_traversal::NatTraversalMethod;
     use hyxe_user::client_account::ClientNetworkAccount;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -241,7 +238,7 @@ pub(crate) mod pre_connect {
     use crate::hdp::hdp_packet_processor::includes::SocketAddr;
     use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
     use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
-    use crate::hdp::hdp_packet_crafter::pre_connect::{SynPacket, PreConnectStage0, PreConnectStage1};
+    use crate::hdp::hdp_packet_crafter::pre_connect::{SynPacket, PreConnectStage0};
     use hyxe_fs::io::SyncIO;
     use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
     use hyxe_user::prelude::ConnectProtocol;
@@ -320,60 +317,13 @@ pub(crate) mod pre_connect {
         Some(packet.node_type)
     }
 
-    pub fn validate_stage1(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<(HyperNodeType, NatTraversalMethod, i64)> {
-        let (header, payload, _, _) = packet.decompose();
-        let (_header, payload) = super::aead::validate_custom(hyper_ratchet,&header, payload)?;
-        let packet = PreConnectStage1::deserialize_from_vector(&payload).ok()?;
-        Some((packet.node_type, packet.initial_nat_traversal_method, packet.sync_time))
-    }
-
-    pub fn validate_try_next(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<(HyperRatchet, NatTraversalMethod)> {
-        let (header, payload, _, _) = packet.decompose();
-        let (_, payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
-
-        if payload.len() != packet_sizes::do_preconnect::STAGE_TRY_NEXT - HDP_HEADER_BYTE_LEN {
-            log::error!("Bad payload len");
-            return None;
-        }
-
-        Some((hyper_ratchet, NatTraversalMethod::from_byte(payload[0])?))
-    }
-
-    /// Returns the drill and sync_time
-    pub fn validate_try_next_ack(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<(HyperRatchet, i64)> {
-        let (header, payload, _, _) = packet.decompose();
-        let (_, payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
-        if payload.len() != packet_sizes::do_preconnect::STAGE_TRY_NEXT_ACK - HDP_HEADER_BYTE_LEN {
-            log::error!("Bad payload len");
-            return None;
-        }
-        let sync_time = NetworkEndian::read_i64(&payload[..]);
-        Some((hyper_ratchet, sync_time))
-    }
-
     /// if the payload contains ports, it is expected that those ports are reflective of the ports reserved from the UPnP process.
     /// This returns the drill, the upnp ports, and TCP_ONLY mode
-    pub fn validate_final(cnac: &ClientNetworkAccount, packet: HdpPacket, tcp_only: bool) -> Option<(HyperRatchet, Option<Vec<u16>>)> {
+    pub fn validate_final(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<HyperRatchet> {
         let (header, payload, _, _) = packet.decompose();
-        let (_, payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
+        let (_, _payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
 
-        if payload.len() % 2 != 0 {
-            log::error!("Bad payload len");
-            return None;
-        }
-
-        let upnp_ports = if payload.len() != 0 {
-            Some(ports_from_bytes(payload))
-        } else {
-            None
-        };
-
-        if tcp_only && upnp_ports.is_some() {
-            log::error!("Improper packet configuration. TCP only and Some(upnp_ports) cannot both be true");
-            return None;
-        }
-
-        Some((hyper_ratchet, upnp_ports))
+        Some(hyper_ratchet)
     }
 
     pub fn validate_begin_connect(cnac: &ClientNetworkAccount, packet: HdpPacket) -> Option<HyperRatchet> {
@@ -386,28 +336,6 @@ pub(crate) mod pre_connect {
         }
 
         Some(hyper_ratchet)
-    }
-
-    pub fn validate_server_finished_hole_punch(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<()> {
-        let (header, payload, _, _) = packet.decompose();
-        let (_header, _payload) = super::aead::validate_custom(hyper_ratchet, &header, payload)?;
-        Some(())
-    }
-
-    #[inline]
-    fn ports_from_bytes<T: AsRef<[u8]>>(input: T) -> Vec<u16> {
-        let input = input.as_ref();
-        let port_count = input.len() / 2; // 2 bytes per u16
-        let mut ret = Vec::with_capacity(port_count);
-
-        for x in 0..port_count {
-            let start = x * 2;
-            let end = start + 1;
-            let port = NetworkEndian::read_u16(&input[start..=end]);
-            ret.push(port);
-        }
-
-        ret
     }
 }
 

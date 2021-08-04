@@ -3,6 +3,7 @@ use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::peer::peer_layer::UdpMode;
 use std::net::SocketAddr;
 use hyxe_nat::nat_identification::NatType;
+use crate::hdp::hdp_server::TlsDomain;
 
 
 pub const KEP_STAGE0: u8 = 0;
@@ -36,7 +37,8 @@ pub struct PeerNatInfo {
     // This is the location of the listener for the other peer as obtained by the central server
     pub peer_remote_addr_visible_from_server: SocketAddr,
     pub peer_internal_listener_addr: SocketAddr,
-    pub peer_nat: NatType
+    pub peer_nat: NatType,
+    pub tls_domain: TlsDomain
 }
 
 impl PeerNatInfo {

@@ -84,7 +84,7 @@ pub fn setup_shutdown_hook() {
         shutdown_sequence(-1);
     }).expect("We were unable to setup the system shutdown hooks. Please report this to the developers");
 
-    // finally, setup shutdown hooks
+    // finally, setup shutdown hooks inside the networking module
     if !shutdown_hooks::add_shutdown_hook(hyxe_net::hdp::hdp_server::atexit) {
         log::error!("Unable to set shutdown hook subroutine");
     }

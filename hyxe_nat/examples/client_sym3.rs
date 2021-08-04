@@ -1,7 +1,7 @@
 use tokio::io::{BufReader, AsyncBufReadExt};
 use hyxe_nat::udp_traversal::linear::RelativeNodeType;
 use hyxe_nat::udp_traversal::synchronization_phase::UdpHolePuncher;
-use hyxe_nat::quic::QuicEndpointType;
+use hyxe_nat::quic::{QuicEndpointType, QuicEndpoint};
 
 fn setup_log() {
     std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -20,12 +20,10 @@ async fn main() {
     let ref server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025").await.unwrap();
     log::info!("Established TCP server connection");
 
-    let quic_config = QuicEndpointType::client_dangerous_no_verify("mail.satorisocial.com");
-
     let hole_punched_socket = UdpHolePuncher::new(server_stream, RelativeNodeType::Initiator, Default::default()).await.unwrap();
 
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
-    let (mut sink, mut stream) = hyxe_nat::quic::QuicContainer::new(hole_punched_socket, quic_config).await.unwrap().first_conn.take().unwrap();
+    let (_conn, mut sink, mut stream) = hyxe_nat::quic::QuicClient::new_no_verify(hole_punched_socket.socket).unwrap().connect(hole_punched_socket.addr.natted, "mail.satorisocial.com").await.unwrap();
     log::info!("Successfully obtained QUIC connection ...");
 
     let writer = async move {

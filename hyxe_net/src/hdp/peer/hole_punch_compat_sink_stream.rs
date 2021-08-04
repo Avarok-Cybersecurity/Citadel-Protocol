@@ -1,51 +1,56 @@
-use crate::hdp::outbound_sender::{UnboundedSender, UnboundedReceiver};
-use bytes::{BytesMut, Bytes};
+use crate::hdp::outbound_sender::{UnboundedReceiver, OutboundPrimaryStreamSender};
+use bytes::Bytes;
 use std::net::SocketAddr;
 use hyxe_nat::reliable_conn::ReliableOrderedConnectionToTarget;
-use parking_lot::Mutex;
+use tokio::sync::Mutex;
 use crate::hdp::state_container::StateContainerInner;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::drill::SecurityLevel;
+use async_trait::async_trait;
+use crate::hdp::peer::p2p_conn_handler::generic_error;
 
 pub(crate) struct HolePunchCompatStream {
-    to_stream: Box<dyn for<'a> Fn(&'a [u8]) -> Result<(), anyhow::Error>>,
+    to_primary_stream: OutboundPrimaryStreamSender,
     from_stream: Mutex<UnboundedReceiver<Bytes>>,
     peer_external_addr: SocketAddr,
-    local_bind_addr: SocketAddr
+    local_bind_addr: SocketAddr,
+    hr: HyperRatchet,
+    security_level: SecurityLevel,
+    target_cid: u64
 }
 
 impl HolePunchCompatStream {
-    pub(crate) fn new(to_primary_stream: UnboundedSender<BytesMut>, state_container: &mut StateContainerInner, peer_external_addr: SocketAddr, local_bind_addr: SocketAddr, target_cid: u64, ref hyper_ratchet: HyperRatchet, security_level: SecurityLevel) -> Self {
+    /// For C2S, using this is straight forward (set target_cid to 0)
+    /// For P2P, using this is not as straight forward. This will use the central node for routing packets. As such, the target_cid must be set to the peers to enable routing. Additionally, this will need to use the p2p ratchet. This implies that
+    /// BOTH nodes must already have the ratchets loaded
+    pub(crate) fn new(to_primary_stream: OutboundPrimaryStreamSender, state_container: &mut StateContainerInner, peer_external_addr: SocketAddr, local_bind_addr: SocketAddr, target_cid: u64, hr: HyperRatchet, security_level: SecurityLevel) -> Self {
         let (from_stream_tx, from_stream_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        let to_stream = Box::new(move |packet| {
-            let packet = crate::hdp::hdp_packet_crafter::hole_punch::generate_packet(hyper_ratchet, packet, security_level, target_cid);
-            Ok(to_primary_stream.unbounded_send(packet)?)
-        });
 
         // insert from_stream_tx into state container so that the protocol can deliver packets to the hole puncher
         // NOTE: The protocol must strip the header when passing packets to the from_stream function!
         let _ = state_container.hole_puncher_pipes.insert(target_cid, from_stream_tx);
 
-        Self { to_stream, from_stream: Mutex::new(from_stream_rx), peer_external_addr, local_bind_addr }
+        Self { to_primary_stream, from_stream: Mutex::new(from_stream_rx), peer_external_addr, local_bind_addr, hr, security_level, target_cid }
     }
 }
 
+#[async_trait]
 impl ReliableOrderedConnectionToTarget for HolePunchCompatStream {
-    async fn send_to_peer(&self, input: &[u8]) -> Result<(), anyhow::Error> {
-        (self.to_stream)(input)
+    async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
+        let packet = crate::hdp::hdp_packet_crafter::hole_punch::generate_packet(&self.hr, input, self.security_level, self.target_cid);
+        self.to_primary_stream.unbounded_send(packet).map_err(|err| generic_error(err.to_string()))
     }
 
-    async fn recv(&self) -> Result<Bytes, anyhow::Error> {
+    async fn recv(&self) -> std::io::Result<Bytes> {
         // This assumes the payload is stripped from the header and the payload is decrypted
-        Ok(self.from_stream.lock().recv().await.ok_or_else(|| anyhow::Error::msg("Inbound ordered reliable stream died"))?)
+        self.from_stream.lock().await.recv().await.ok_or_else(|| generic_error("Inbound ordered reliable stream died"))
     }
 
-    fn local_addr(&self) -> Result<SocketAddr, anyhow::Error> {
+    fn local_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.local_bind_addr)
     }
 
-    fn peer_addr(&self) -> Result<SocketAddr, anyhow::Error> {
+    fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.peer_external_addr)
     }
 }

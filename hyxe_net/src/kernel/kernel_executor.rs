@@ -1,5 +1,6 @@
 use std::pin::Pin;
 
+use futures::TryStreamExt;
 use tokio::net::ToSocketAddrs;
 use tokio::runtime::Handle;
 use tokio::task::LocalSet;
@@ -9,13 +10,13 @@ use hyxe_user::account_manager::AccountManager;
 
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet_processor::includes::Duration;
-use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult, UnderlyingProtocol};
+use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult};
+use crate::hdp::misc::panic_future::ExplicitPanicFuture;
+use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::kernel::kernel::NetKernel;
-use crate::kernel::RuntimeFuture;
-use futures::TryStreamExt;
-use crate::hdp::misc::panic_future::ExplicitPanicFuture;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
+use crate::kernel::RuntimeFuture;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {

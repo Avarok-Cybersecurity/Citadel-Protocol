@@ -5,49 +5,52 @@ use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{Ordering, AtomicU64};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
-use futures::{Sink, StreamExt, SinkExt};
+use futures::{Sink, SinkExt, StreamExt};
+use futures::channel::mpsc::TrySendError;
 use log::info;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncReadExt, AsyncRead};
 use tokio::task::LocalSet;
-use tokio_native_tls::native_tls::Identity;
 
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_fs::io::SyncIO;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::local_firewall_handler::{FirewallProtocol, open_local_firewall_port, remove_firewall_rule};
+use hyxe_nat::nat_identification::NatType;
 use hyxe_nat::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::external_services::fcm::data_structures::RawFcmPacketStore;
+use hyxe_user::external_services::PostLoginObject;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 
-use crate::constants::{TCP_CONN_TIMEOUT, MAX_OUTGOING_UNPROCESSED_REQUESTS};
+use crate::constants::{MAX_OUTGOING_UNPROCESSED_REQUESTS, TCP_CONN_TIMEOUT};
 use crate::error::NetworkError;
 use crate::functional::PairMap;
 use crate::hdp::file_transfer::FileTransferStatus;
 use crate::hdp::hdp_packet_processor::includes::Duration;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::hdp::hdp_session::{HdpSessionInitMode, HdpSession};
+use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode};
 use crate::hdp::hdp_session_manager::HdpSessionManager;
-use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream, TlsListener, FirstPacket};
+use crate::hdp::misc::net::{FirstPacket, GenericNetworkListener, GenericNetworkStream, TlsListener, DualListener};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
-use crate::hdp::outbound_sender::{UnboundedSender, BoundedSender, BoundedReceiver, unbounded};
+use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
+use crate::hdp::outbound_sender::{BoundedReceiver, BoundedSender, unbounded, UnboundedSender};
 use crate::hdp::peer::channel::{PeerChannel, UdpChannel};
 use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal, UdpMode};
 use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
-use crate::kernel::RuntimeFuture;
-use tokio::io::AsyncReadExt;
-use hyxe_fs::io::SyncIO;
-use hyxe_user::external_services::PostLoginObject;
-use futures::channel::mpsc::TrySendError;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
-use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
-use hyxe_nat::nat_identification::NatType;
+use crate::kernel::RuntimeFuture;
+use hyxe_nat::quic::{QuicServer, QuicEndpointConnector};
+use either::Either;
+use crate::hdp::peer::p2p_conn_handler::generic_error;
+use hyxe_nat::exports::Endpoint;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -60,13 +63,6 @@ pub extern fn atexit() {
     }
 }
 
-#[derive(Clone)]
-#[allow(variant_size_differences)]
-pub enum UnderlyingProtocol {
-    Tcp,
-    Tls(Identity, TlsDomain)
-}
-
 pub type TlsDomain = Option<String>;
 
 // The outermost abstraction for the networking layer. We use Rc to allow ensure single-threaded performance
@@ -75,7 +71,7 @@ define_outer_struct_wrapper!(HdpServer, HdpServerInner);
 
 /// Inner device for the HdpServer
 pub struct HdpServerInner {
-    primary_socket: Option<GenericNetworkListener>,
+    primary_socket: Option<DualListener>,
     /// Key: cid (to account for multiple clients from the same node)
     session_manager: HdpSessionManager,
     local_bind_addr: SocketAddr,
@@ -90,7 +86,7 @@ impl HdpServer {
     /// Creates a new [HdpServer]
     pub async fn init<T: tokio::net::ToSocketAddrs + std::net::ToSocketAddrs>(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, bind_addr: T, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, underlying_proto: UnderlyingProtocol) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>, KernelAsyncCallbackHandler)> {
         let (primary_socket, local_bind_addr) = if local_node_type == HyperNodeType::GloballyReachable {
-            Self::create_tcp_listen_socket(underlying_proto.clone(), &bind_addr)?.map_left(|r| Some(r))
+            Self::server_create_primary_listen_socket(underlying_proto.clone(), &bind_addr)?.map_left(|r| Some(r))
         } else {
             (None, std::net::ToSocketAddrs::to_socket_addrs(&bind_addr)?.next().ok_or(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid bind address"))?)
         };
@@ -231,61 +227,74 @@ impl HdpServer {
         }
     }
 
-    pub fn create_tcp_listen_socket<T: ToSocketAddrs>(underlying_proto: UnderlyingProtocol, full_bind_addr: T) -> io::Result<(GenericNetworkListener, SocketAddr)> {
+    fn server_create_primary_listen_socket<T: ToSocketAddrs + Clone>(underlying_proto: UnderlyingProtocol, full_bind_addr: T) -> io::Result<(DualListener, SocketAddr)> {
+        match &underlying_proto {
+            UnderlyingProtocol::Tls(..) | UnderlyingProtocol::Tcp => {
+                Self::create_listen_socket(underlying_proto, full_bind_addr).map(|r| (DualListener { listener_0: r.0, quic: None }, r.1))
+            }
+
+            UnderlyingProtocol::Quic(..) => {
+                // we need two sockets: one for TCP connection to allow connecting peers to determine the protocol, then another for QUIC
+                let (tcp_listener, bind_addr) = Self::create_listen_socket(UnderlyingProtocol::Tcp, full_bind_addr.clone())?;
+                let (quic_listener, _bind_addr_quic) = Self::create_listen_socket(underlying_proto, full_bind_addr)?;
+                Ok((DualListener { listener_0: tcp_listener, quic: Some(quic_listener)}, bind_addr))
+            }
+        }
+    }
+
+    // TODO: Create dual quic/tcp, then, get rid of unreachable in the connect phase with a redirection
+    pub fn create_listen_socket<T: ToSocketAddrs>(underlying_proto: UnderlyingProtocol, full_bind_addr: T) -> io::Result<(GenericNetworkListener, SocketAddr)> {
         let bind: SocketAddr = full_bind_addr.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
         Self::bind_defaults(underlying_proto, bind, 1024)
     }
 
     fn bind_defaults(underlying_proto: UnderlyingProtocol, bind: SocketAddr, backlog: i32) -> io::Result<(GenericNetworkListener, SocketAddr)> {
-        hyxe_nat::socket_helpers::get_reuse_tcp_listener(bind, backlog)
-            .and_then(|listener| {
-                match underlying_proto {
-                    UnderlyingProtocol::Tcp => {
-                        Ok((GenericNetworkListener::Tcp(listener), bind))
-                    }
+        match underlying_proto {
+            UnderlyingProtocol::Tls(..) | UnderlyingProtocol::Tcp => {
+                hyxe_nat::socket_helpers::get_tcp_listener(bind, backlog)
+                    .and_then(|listener| {
+                        match underlying_proto {
+                            UnderlyingProtocol::Tcp => {
+                                // TODO: Consider returning bind addr from listener instead
+                                Ok((GenericNetworkListener::Tcp(listener), bind))
+                            }
 
-                    UnderlyingProtocol::Tls(identity, domain) => {
-                        let tls_listener = TlsListener::new(listener, identity, domain.unwrap_or_else(|| "".to_string()))?;
-                        Ok((GenericNetworkListener::Tls(tls_listener), bind))
-                    }
-                }
-            }).map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))
-            /*
-        builder
-            //.reuse_address(true)?
-            .bind(bind)?
-            .listen(backlog)
-            .and_then(|std_stream| {
-                std_stream.set_nonblocking(true)?;
-                //std_stream.set_linger(Some(Duration::from_millis(0)))?;
-                //std_stream.set_linger(Some(DEFAULT_SO_LINGER_TIME))?;
-                Ok(std_stream)
-            })
-            .map(tokio::net::TcpListener::from_std)?
-            .and_then(|listener| {
-                match underlying_proto {
-                    UnderlyingProtocol::Tcp => {
-                        Ok((GenericNetworkListener::Tcp(listener), bind))
-                    }
+                            UnderlyingProtocol::Tls(identity, _chain, _priv, domain) => {
+                                let tls_listener = TlsListener::new(listener, identity, domain.unwrap_or_else(|| "".to_string()))?;
+                                Ok((GenericNetworkListener::Tls(tls_listener), bind))
+                            }
 
-                    UnderlyingProtocol::Tls(identity, domain) => {
-                        let tls_listener = TlsListener::new(listener, identity, domain.unwrap_or_else(|| "".to_string()))?;
-                        Ok((GenericNetworkListener::Tls(tls_listener), bind))
-                    }
-                }
-            })*/
+                            UnderlyingProtocol::Quic(_) => {
+                                unreachable!("TCP listener called, but not a QUIC listener")
+                            }
+                        }
+                    }).map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))
+            }
+
+            UnderlyingProtocol::Quic(crypto) => {
+                log::info!("Setting up QUIC socket on {:?}", bind);
+                let udp_socket = hyxe_nat::socket_helpers::get_reuse_udp_socket(bind).map_err(generic_error)?;
+                let mut domain = None;
+                let quic = QuicServer::new(udp_socket, crypto.map(|(a,b,c)| {
+                    domain = c;
+                    (a, b)
+                })).map_err(generic_error)?;
+
+                Ok((GenericNetworkListener::from_quic_node(quic, domain), bind))
+            }
+        }
     }
 
     /// Returns a TcpStream to the remote addr, as well as a local TcpListener on the same bind addr going to remote
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
     ///
     /// The remote is usually the central server. Then the P2P listener binds to it to allow NATs to keep the hole punched
-    pub(crate) async fn create_init_tcp_listener<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
+    pub(crate) async fn create_session_transport_init<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
         // We start by creating a client to server connection
-        let stream = Self::create_tcp_connect_socket(remote, None).await?;
+        let stream = Self::create_c2s_connect_socket(remote, None).await?;
 
         // We bind to the addr from the source socket_addr the stream has reserved for NAT traversal purposes
-        // TODO: NOTE! We CANNOT bind to this address otherwise there will be overlapping TCP connections from the SO_REUSEADDR, causing stream CORRUPTION under high traffic loads. This was proven to exist from stress-testing this protocol
+        // NOTE! We CANNOT bind to this address otherwise there will be overlapping TCP connections from the SO_REUSEADDR, causing stream CORRUPTION under high traffic loads. This was proven to exist from stress-testing this protocol
         // Wait ... maybe not? Jul 22 2021
         // We obtain the bind addr of the client-to-server connection for NAT traversal purposes
         let stream_bind_addr = stream.local_addr()?;
@@ -298,48 +307,38 @@ impl HdpServer {
         Ok((p2p_listener, stream))
     }
 
-    pub async fn create_tcp_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
+    /// Important: Assumes UDP NAT traversal has concluded. This should ONLY be used for p2p
+    /// This takes the local socket AND QuicNode instance
+    pub async fn create_p2p_quic_connect_socket<R: ToSocketAddrs>(quic_endpoint: Endpoint, remote: R, tls_domain: TlsDomain, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
         let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::connect_defaults(timeout, remote).await
+        Self::quic_p2p_connect_defaults(quic_endpoint, timeout, tls_domain, remote).await
     }
 
-    pub async fn connect_defaults(timeout: Option<Duration>, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
-        /*let mut stream = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), tokio::task::spawn_blocking(move || {
-            let std_stream = if remote.is_ipv4() {
-                net2::TcpBuilder::new_v4()?
-                    //.reuse_address(true)?
-                    .connect(remote)?
-            } else {
-                net2::TcpBuilder::new_v6()?
-                    .only_v6(false)?
-                    //.reuse_address(true)?
-                    .connect(remote)?
-            };
+    pub async fn quic_p2p_connect_defaults(quic_endpoint: Endpoint, timeout: Option<Duration>, domain: TlsDomain, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
+        log::info!("Connecting to QUIC node {:?}", remote);
+        let (conn, sink, stream) = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), quic_endpoint.connect_biconn(remote, domain.as_ref().map(|r| r.as_str()).unwrap_or(""))).await?.map_err(generic_error)?;
+        Ok(GenericNetworkStream::Quic(sink, stream, quic_endpoint, conn, remote))
+    }
 
-            std_stream.set_nonblocking(true)?;
+    /// Only for client to server conns
+    pub async fn create_c2s_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
+        let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
+        Self::c2s_connect_defaults(timeout, remote).await
+    }
 
-            let stream = tokio::net::TcpStream::from_std(std_stream)?;
-
-            Ok(stream) as std::io::Result<tokio::net::TcpStream>
-        })).await???;*/
-
-        let mut stream = hyxe_nat::socket_helpers::get_reuse_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT)).await.map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
-        //let mut stream = tokio::net::TcpStream::connect(remote).await?;
-        //stream.set_linger(Some(DEFAULT_SO_LINGER_TIME))?;
-
-        let local_addr = stream.local_addr()?;
-        let buf = &mut [0u8; 4096];
-        let amt = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), stream.read(buf as &mut [u8])).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::TimedOut, err.to_string()))??;
-        let first_packet: FirstPacket = FirstPacket::deserialize_from_vector(&buf[..amt]).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))?;
+    pub async fn c2s_connect_defaults(timeout: Option<Duration>, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
+        let mut stream = hyxe_nat::socket_helpers::get_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT)).await.map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
+        let bind_addr = stream.local_addr()?;
+        let first_packet = Self::read_first_packet(&mut stream, timeout).await?;
 
         match first_packet {
-            FirstPacket::Tcp(nat_addr) => {
-                log::info!("Host claims TCP DEFAULT CONNECTION");
-                Ok(GenericNetworkStream::Tcp(stream, Some(HolePunchedSocketAddr::new(local_addr, nat_addr))))
+            FirstPacket::Tcp(external_addr) => {
+                log::info!("Host claims TCP DEFAULT CONNECTION. External ADDR: {:?}", external_addr);
+                Ok(GenericNetworkStream::Tcp(stream))
             }
 
-            FirstPacket::Tls(domain, nat_addr) => {
-                log::info!("Host claims TLS CONNECTION (domain: {:?})", &domain);
+            FirstPacket::Tls(domain, external_addr) => {
+                log::info!("Host claims TLS CONNECTION (domain: {:?}) | External ADDR: {:?}", &domain, external_addr);
                 // for debug builds, allow invalid certs to make testing TLS easier
                 //#[cfg(debug_assertions)]
                 let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
@@ -349,28 +348,22 @@ impl HdpServer {
                 let connector = tokio_native_tls::TlsConnector::from(connector);
                 let stream = connector.connect(domain.as_ref().map(|r| r.as_str()).unwrap_or(""), stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
                 //let stream = connector.connect("", stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
-                Ok(GenericNetworkStream::Tls(stream, Some(HolePunchedSocketAddr::new(local_addr, nat_addr))))
-            }
-        }
-
-
-        /*match connect_underlying_proto {
-            ConnectProtocol::Tcp => {
-                Ok(GenericNetworkStream::Tcp(stream))
-            }
-
-            ConnectProtocol::Tls(domain) => {
-                // for debug builds, allow invalid certs to make testing TLS easier
-                //#[cfg(debug_assertions)]
-                let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
-                //#[cfg(not(debug_assertions))]
-                //    let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
-
-                let connector = tokio_native_tls::TlsConnector::from(connector);
-                let stream = connector.connect(domain.as_ref().map(|r| r.as_str()).unwrap_or(""), stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
                 Ok(GenericNetworkStream::Tls(stream))
             }
-        }*/
+            FirstPacket::Quic(domain, external_addr) => {
+                log::info!("Host claims QUIC CONNECTION (domain: {:?}) | External ADDR: {:?}", &domain, external_addr);
+                let udp_socket = hyxe_nat::socket_helpers::get_udp_socket(bind_addr).map_err(generic_error)?;
+                let quic_endpoint = hyxe_nat::quic::QuicClient::new_no_verify(udp_socket).map_err(generic_error)?;
+                // What if you connect to the central node using QUIC, then try to bind again for a P2P listener? It wouldn't work since the listener disappeared TODO!
+                Self::create_p2p_quic_connect_socket(quic_endpoint.endpoint, remote, domain, timeout).await
+            }
+        }
+    }
+
+    async fn read_first_packet<R: AsyncRead + Unpin>(mut stream: R, timeout: Option<Duration>) -> std::io::Result<FirstPacket> {
+        let buf = &mut [0u8; 4096];
+        let amt = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), stream.read(buf as &mut [u8])).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::TimedOut, err.to_string()))??;
+        FirstPacket::deserialize_from_vector(&buf[..amt]).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))
     }
 
     /// In impersonal mode, each hypernode needs to check for incoming connections on the primary port.
@@ -383,23 +376,44 @@ impl HdpServer {
     async fn listen_primary(server: HdpServer, _tt: TimeTracker, to_kernel: UnboundedSender<HdpServerResult>, session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>) -> Result<(), NetworkError> {
         let primary_port_future= {
             let mut this = inner_mut!(server);
-            let socket = this.primary_socket.take().unwrap();
+            let listener = this.primary_socket.take().unwrap();
             let session_manager = this.session_manager.clone();
             let local_nat_type = this.nat_type.clone();
             std::mem::drop(this);
-            let primary_port_future = Self::primary_session_creator_loop(to_kernel, local_nat_type, session_manager, socket, session_spawner);
-            primary_port_future
+            if let Some(second_listener) = listener.quic {
+                let primary_port_future_0 = Self::primary_session_creator_loop(to_kernel.clone(), local_nat_type.clone(), session_manager.clone(), listener.listener_0, session_spawner.clone(), true);
+                let primary_port_future_1 = Self::primary_session_creator_loop(to_kernel, local_nat_type, session_manager, second_listener, session_spawner, false);
+                Either::Left((primary_port_future_0, primary_port_future_1))
+            } else {
+                let primary_port_future = Self::primary_session_creator_loop(to_kernel, local_nat_type, session_manager, listener.listener_0, session_spawner, false);
+                Either::Right(primary_port_future)
+            }
         };
 
-        primary_port_future.await.map_err(|err| NetworkError::Generic(err.to_string()))
+        match primary_port_future {
+            Either::Left((f0, f1)) => {
+                tokio::select! {
+                    res0 = f0 => res0,
+                    res1 = f1 => res1
+                }
+            }
+
+            Either::Right(future) => {
+                future.await
+            }
+        }
     }
 
-    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, local_nat_type: NatType, session_manager: HdpSessionManager, mut socket: GenericNetworkListener, session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>) -> Result<(), NetworkError> {
-        loop {
+    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, local_nat_type: NatType, session_manager: HdpSessionManager, mut socket: GenericNetworkListener, session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>, early_exit: bool) -> Result<(), NetworkError> {
+        'outer: loop {
             match socket.next().await {
                 Some(Ok((stream, peer_addr))) => {
                     log::trace!("Received stream from {:?}", peer_addr);
                     let local_bind_addr = stream.local_addr().unwrap();
+
+                    if early_exit {
+                        continue 'outer;
+                    }
 
                     match session_manager.process_new_inbound_connection(local_bind_addr, local_nat_type.clone(), peer_addr, stream) {
                         Ok(session) => {
