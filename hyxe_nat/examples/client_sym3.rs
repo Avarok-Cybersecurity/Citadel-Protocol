@@ -1,6 +1,6 @@
 use tokio::io::{BufReader, AsyncBufReadExt};
 use hyxe_nat::udp_traversal::linear::RelativeNodeType;
-use hyxe_nat::udp_traversal::synchronization_phase::UdpHolePuncher;
+use hyxe_nat::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use hyxe_nat::quic::QuicEndpointConnector;
 
 fn setup_log() {
@@ -24,7 +24,7 @@ async fn main() {
     let hole_punched_socket = UdpHolePuncher::new(server_stream, RelativeNodeType::Initiator, Default::default()).await.unwrap();
 
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
-    let (_conn, mut sink, mut stream) = hyxe_nat::quic::QuicClient::new_no_verify(hole_punched_socket.socket).unwrap().connect_biconn(hole_punched_socket.addr.natted, "mail.satorisocial.com").await.unwrap();
+    let (_conn, mut sink, mut stream) = hyxe_nat::quic::QuicClient::new_verify(hole_punched_socket.socket, &[]).unwrap().connect_biconn(hole_punched_socket.addr.natted, "mail.satorisocial.com").await.unwrap();
     log::info!("Successfully obtained QUIC connection ...");
 
     let writer = async move {

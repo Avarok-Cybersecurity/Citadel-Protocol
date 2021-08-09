@@ -1,5 +1,5 @@
 use crate::primitives::accessor::{NetworkTransferable, OwnedGuard};
-use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tokio::sync::{RwLock, OwnedRwLockWriteGuard, OwnedRwLockReadGuard};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
@@ -31,7 +31,7 @@ impl<T: NetworkTransferable> NetRwLock<T> {
     }
 
     pub async fn read(&self) -> Option<RwLockReadAccessGuard<'_, T>> {
-        let lock = self.lock.read().await;
+        let lock = self.lock.clone().read_owned().await;
 
         // If there have been no reads, wait for the network to allow a read
         if self.local_read_locks_open.load(Ordering::SeqCst) == 0 {
@@ -39,7 +39,7 @@ impl<T: NetworkTransferable> NetRwLock<T> {
         }
 
         let guard = RwLockReadAccessGuard {
-            lock: Some(OwnedRwLockGuard::read(self.lock.clone(), lock)),
+            lock: Some(OwnedRwLockGuard::Read(lock)),
             reads_open: self.local_read_locks_open.clone(),
             notifier: self.updater_tx.clone(),
             _pd: Default::default()
@@ -51,12 +51,12 @@ impl<T: NetworkTransferable> NetRwLock<T> {
     }
 
     pub async fn write(&self) -> Option<RwLockWriteAccessGuard<'_, T>> {
-        let lock = self.lock.write().await;
+        let lock = self.lock.clone().write_owned().await;
 
         self.await?;
 
         let guard = RwLockWriteAccessGuard {
-            lock: Some(OwnedRwLockGuard::write(self.lock.clone(), lock)),
+            lock: Some(OwnedRwLockGuard::Write(lock)),
             notifier: self.updater_tx.clone(),
             _pd: Default::default(),
             mutated: false
@@ -84,24 +84,8 @@ impl<T: NetworkTransferable> Future for &'_ NetRwLock<T> {
 }
 
 pub enum OwnedRwLockGuard<T: NetworkTransferable> {
-    Read(Arc<RwLock<T>>, RwLockReadGuard<'static, T>),
-    Write(Arc<RwLock<T>>, RwLockWriteGuard<'static, T>)
-}
-
-impl<T: NetworkTransferable> OwnedRwLockGuard<T> {
-    pub fn write(ptr: Arc<RwLock<T>>, guard: RwLockWriteGuard<T>) -> Self {
-        // we can safely upgrade to the static lifetime because the ptr stays alive as long as
-        // the wrapper does
-        let lock = unsafe { std::mem::transmute(guard) };
-        OwnedRwLockGuard::Write(ptr, lock)
-    }
-
-    pub fn read(ptr: Arc<RwLock<T>>, guard: RwLockReadGuard<T>) -> Self {
-        // we can safely upgrade to the static lifetime because the ptr stays alive as long as
-        // the wrapper does
-        let lock = unsafe { std::mem::transmute(guard) };
-        OwnedRwLockGuard::Read(ptr, lock)
-    }
+    Read(OwnedRwLockReadGuard<T>),
+    Write(OwnedRwLockWriteGuard<T>)
 }
 
 pub struct RwLockReadAccessGuard<'a, T: NetworkTransferable> {
@@ -117,7 +101,7 @@ impl<T: NetworkTransferable> Deref for RwLockReadAccessGuard<'_, T> {
 
     fn deref(&self) -> &Self::Target {
         match self.lock.as_ref().unwrap() {
-            OwnedRwLockGuard::Read(_, guard) => guard.deref(),
+            OwnedRwLockGuard::Read(guard) => guard.deref(),
             _ => unreachable!("Write guard does not apply to RwLockReadAccessGuard")
         }
     }
@@ -147,7 +131,7 @@ impl<T: NetworkTransferable> Deref for RwLockWriteAccessGuard<'_, T> {
 
     fn deref(&self) -> &Self::Target {
         match self.lock.as_ref().unwrap() {
-            OwnedRwLockGuard::Write(_, guard) => guard.deref(),
+            OwnedRwLockGuard::Write(guard) => guard.deref(),
             _ => unreachable!("Read guard does not apply to RwLockWriteAccessGuard")
         }
     }
@@ -157,7 +141,7 @@ impl<T: NetworkTransferable> DerefMut for RwLockWriteAccessGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.mutated = true;
         match self.lock.as_mut().unwrap() {
-            OwnedRwLockGuard::Write(_, guard) => guard.deref_mut(),
+            OwnedRwLockGuard::Write(guard) => guard.deref_mut(),
             _ => unreachable!("Read guard does not apply to RwLockWriteAccessGuard")
         }
     }

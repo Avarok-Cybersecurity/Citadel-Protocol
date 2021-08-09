@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub enum Error {
     Default(String),
     Internal(&'static str)

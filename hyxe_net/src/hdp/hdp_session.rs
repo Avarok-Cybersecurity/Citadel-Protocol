@@ -8,10 +8,8 @@ use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
 use bytes::{Bytes, BytesMut};
 use either::Either;
 use futures::{SinkExt, Stream, StreamExt, TryStreamExt, TryFutureExt};
-use tokio::net::UdpSocket;
 use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
-use tokio_util::udp::UdpFramed;
 
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
@@ -32,7 +30,7 @@ use hyxe_user::network_account::ConnectProtocol;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 use hyxe_user::re_imports::scramble_encrypt_file;
 
-use crate::constants::{CODEC_BUFFER_CAPACITY, DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME};
+use crate::constants::{DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME};
 use crate::error::NetworkError;
 use crate::hdp::file_transfer::VirtualFileMetadata;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
@@ -72,7 +70,8 @@ use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use hyxe_nat::nat_identification::NatType;
-use hyxe_nat::exports::Endpoint;
+use hyxe_nat::exports::{Endpoint, NewConnection};
+use crate::hdp::misc::udp_internal_interface::UdpSplittableTypes;
 
 //use crate::define_struct;
 
@@ -191,6 +190,7 @@ pub struct HdpSessionInner {
     pub(super) security_settings: DualCell<Option<SessionSecuritySettings>>,
     pub(super) updates_in_progress: DualRwLock<HashMap<u64, Arc<AtomicBool>>>,
     pub(super) peer_only_connect_protocol: DualRwLock<Option<ConnectProtocol>>,
+    pub(super) this_quic_conn: DualRwLock<Option<NewConnection>>,
     pub(super) local_nat_type: NatType,
     pub(super) adjacent_nat_type: DualLateInit<Option<NatType>>,
     on_drop: UnboundedSender<()>,
@@ -244,6 +244,7 @@ impl HdpSession {
         let udp_mode = DualCell::new(udp_mode);
 
         let mut inner = HdpSessionInner {
+            this_quic_conn: DualRwLock::from(None),
             implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
             client_only_quic_endpoint: DualLateInit::default(),
             local_nat_type,
@@ -296,6 +297,7 @@ impl HdpSession {
         let state = DualCell::new(SessionState::SocketJustOpened);
 
         let inner = HdpSessionInner {
+            this_quic_conn: DualRwLock::from(None),
             implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
             client_only_quic_endpoint: DualLateInit::default(),
             local_nat_type,
@@ -419,11 +421,6 @@ impl HdpSession {
             // separate task, we solve the issue of re-entrancing of mutex
             //#[cfg(feature = "multi-threaded")]
             let _ = spawn!(queue_worker_future);
-            /*
-            if let Some(p2p_listener) = p2p_listener {
-                // NOTE: this currently implies that once an error occurs for the session, the p2p listener is down for the remaining of the session
-                let _ = spawn!(crate::hdp::peer::p2p_conn_handler::p2p_conn_handler(p2p_listener, this_p2p_listener));
-            }*/
 
             (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message)
         };
@@ -572,8 +569,8 @@ impl HdpSession {
         Ok(())
     }
 
-    // tcp_conn_awaiter must be provided in order to know when the begin loading the UDP conn for the user. The TCP connection must first be loaded
-    pub(crate) fn udp_socket_loader(this: HdpSession, v_target: VirtualTargetType, socket: UdpSocket, addr: HolePunchedSocketAddr, ticket: Ticket, tcp_conn_awaiter: tokio::sync::oneshot::Receiver<()>) {
+    // tcp_conn_awaiter must be provided in order to know when the begin loading the UDP conn for the user. The TCP connection must first be loaded in order to place the udp conn inside the virtual_conn hashmap
+    pub(crate) fn udp_socket_loader(this: HdpSession, v_target: VirtualTargetType, udp_conn: UdpSplittableTypes, addr: HolePunchedSocketAddr, ticket: Ticket, tcp_conn_awaiter: Option<tokio::sync::oneshot::Receiver<()>>) {
         let this_weak = this.as_weak();
         std::mem::drop(this);
         let task = async move {
@@ -588,14 +585,17 @@ impl HdpSession {
                 let hole_punched_socket = addr.natted;
                 let hole_punched_addr_ip = hole_punched_socket.ip();
 
-                let local_bind_addr = socket.local_addr().unwrap();
+                let local_bind_addr = udp_conn.local_addr().unwrap();
 
                 let (outbound_sender_tx, outbound_sender_rx) = unbounded();
                 let udp_sender = OutboundUdpSender::new(outbound_sender_tx, local_bind_addr, hole_punched_socket);
                 let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
 
                 std::mem::drop(sess);
-                tcp_conn_awaiter.await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+                if let Some(tcp_conn_awaiter) = tcp_conn_awaiter {
+                    tcp_conn_awaiter.await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+                }
+
                 let sess = HdpSession::upgrade_weak(&this_weak).ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
 
                 let accessor = match v_target {
@@ -646,10 +646,7 @@ impl HdpSession {
 
                 // unlike TCP, we will not use [LengthDelimitedCodec] because there is no guarantee that packets
                 // will arrive in order
-                let codec = super::codec::BytesCodec::new(CODEC_BUFFER_CAPACITY);
-
-                let framed = UdpFramed::new(socket, codec);
-                let (writer, reader) = framed.split();
+                let (writer, reader) = udp_conn.split();
 
                 let listener = Self::listen_wave_port(sess.clone(), hole_punched_addr_ip, local_bind_addr.port(), reader, accessor.clone());
 
@@ -1342,7 +1339,7 @@ impl HdpSession {
     }
 
     // Accepts
-    async fn udp_outbound_sender<S: SinkExt<(Bytes, SocketAddr)> + Unpin>(local_is_server: bool, receiver: UnboundedReceiver<(u8, BytesMut)>, hole_punched_addr: HolePunchedSocketAddr, mut sink: S, peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
+    async fn udp_outbound_sender<S: SinkExt<Bytes> + Unpin>(local_is_server: bool, receiver: UnboundedReceiver<(u8, BytesMut)>, hole_punched_addr: HolePunchedSocketAddr, mut sink: S, peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
         let mut receiver = tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
         let target_cid = peer_session_accessor.get_target_cid();
 
@@ -1358,8 +1355,7 @@ impl HdpSession {
             let packet = peer_session_accessor.borrow_hr(None, |hr, _| hdp_packet_crafter::udp::craft_udp_packet(hr, cmd_aux,packet, target_cid, SecurityLevel::LOW))?;
 
             log::trace!("About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);
-            // TODO: UDP header obfuscation
-            sink.send((packet.freeze(), send_addr)).await.map_err(|_| NetworkError::InternalError("UDP sink unable to receive outbound requests"))?;
+            sink.send(packet.freeze()).await.map_err(|_| NetworkError::InternalError("UDP sink unable to receive outbound requests"))?;
         }
 
         log::info!("Outbound wave sender ending");
@@ -1383,7 +1379,7 @@ impl HdpSession {
 
             let hr_version = header.drill_version.get();
             let mut endpoint_cid_info = None;
-            match check_proxy(self.implicated_cid.get(), header.cmd_primary, header.cmd_aux, header.session_cid.get(),header.target_cid.get(), self, &mut endpoint_cid_info, ReceivePortType::UDP, packet) {
+            match check_proxy(self.implicated_cid.get(), header.cmd_primary, header.cmd_aux, header.session_cid.get(), header.target_cid.get(), self, &mut endpoint_cid_info, ReceivePortType::UnorderedUnreliable, packet) {
                 Some(packet) => {
                     match hdp_packet_processor::udp_packet::process(self, packet, hr_version, accessor) {
                         PrimaryProcessorResult::Void => {

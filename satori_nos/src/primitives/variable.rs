@@ -50,12 +50,17 @@ impl NetworkVariableInner {
 #[derive(Clone)]
 pub struct NetworkVariable<T: NetworkTransferable> {
     ptr: NetworkVariableInner,
+    vid: u64,
     _pd: PhantomData<T>
 }
 
 impl<T: NetworkTransferable> NetworkVariable<T> {
-    pub fn new(ptr: NetworkVariableInner) -> Self {
-        Self { ptr, _pd: Default::default() }
+    pub fn new(ptr: NetworkVariableInner, vid: u64) -> Self {
+        Self { ptr, vid, _pd: Default::default() }
+    }
+
+    pub fn vid(&self) -> u64 {
+        self.vid
     }
 }
 

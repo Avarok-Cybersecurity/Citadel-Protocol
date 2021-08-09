@@ -7,6 +7,7 @@ use parking_lot::RwLock;
 use tokio::sync::mpsc::{channel, Sender};
 use serde::{Serialize, Deserialize};
 use crate::primitives::updater::VariableUpdater;
+use crate::primitives::error::Error;
 
 /// Each application that gets run spawns in its own task associated with a session
 #[derive(Clone)]
@@ -34,6 +35,16 @@ pub enum NetworkUpdateState {
     ValueModified { vid: u64, value: Vec<u8> }
 }
 
+impl NetworkUpdateState {
+    fn get_vid(&self) -> u64 {
+        match self {
+            Self::AllowRead { vid } => *vid,
+            Self::AllowWrite { vid } => *vid,
+            Self::ValueModified { vid, .. } => *vid
+        }
+    }
+}
+
 impl Application {
     pub fn new() -> Self {
         Self {
@@ -52,20 +63,33 @@ impl Application {
 
     #[allow(unused_variables, unused_results)]
     fn create_variable<T: NetworkTransferable>(&self, value: T, var_type: VariableType) -> NetworkVariable<T> {
+        let vid = self.get_next_vid();
         let (notifier_tx, notifier_rx) = channel::<()>(1);
         let (updater_tx, updater_rx) = channel::<OwnedGuard<T>>(1);
         let (state_update_tx, state_update_rx) = channel(3);
         let net_var_inner = NetworkVariableInner::new::<T>(value, var_type, notifier_rx, updater_tx);
-        let user_net_var = NetworkVariable::<T>::new(net_var_inner.clone());
+        let user_net_var = NetworkVariable::<T>::new(net_var_inner.clone(), vid);
 
         let variable_updater = VariableUpdater::<T>::new(state_update_rx, notifier_tx, net_var_inner.clone());
         // TODO: updater_rx handler
         let mut lock = self.variables.write();
-        lock.insert(self.get_next_vid(), (state_update_tx, net_var_inner));
+        lock.insert(vid, (state_update_tx, net_var_inner));
         // spawn the variable updater
         tokio::task::spawn(variable_updater);
         // register the variable with the internal local mapping
         user_net_var
+    }
+
+    pub async fn update(&self, state: NetworkUpdateState) -> Result<(), Error> {
+        let sender = {
+            let ref vid = state.get_vid();
+            let read = self.variables.read();
+            let (sender, _internal) = read.get(&vid).ok_or_else(|| Error::Internal("VID does not map to a variable"))?;
+            sender.clone()
+        };
+
+        sender.send(state).await.map_err(|err| Error::Default(err.to_string()))?;
+        Ok(())
     }
 
     fn get_next_vid(&self) -> u64 {

@@ -117,27 +117,6 @@ impl std::fmt::Debug for OutboundUdpSender {
     }
 }
 
-/*
-impl<T> Sink<T> for UnboundedSender<T> {
-    type Error = NetworkError;
-
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.0).poll_ready(cx)
-    }
-
-    fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
-        Pin::new(&mut self.0).start_send(item)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.0).poll_flush(cx)
-    }
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.0).poll_close(cx)
-    }
-}*/
-
 /// As asynchronous channel meant to rate-limit input
 pub struct BoundedSender<T>(futures::channel::mpsc::Sender<T>);
 

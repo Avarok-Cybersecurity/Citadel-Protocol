@@ -47,10 +47,11 @@ use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal, UdpMode};
 use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::RuntimeFuture;
-use hyxe_nat::quic::{QuicServer, QuicEndpointConnector};
+use hyxe_nat::quic::{QuicServer, QuicEndpointConnector, SELF_SIGNED_DOMAIN, QuicNode};
 use either::Either;
 use crate::hdp::peer::p2p_conn_handler::generic_error;
 use hyxe_nat::exports::Endpoint;
+use hyxe_nat::exports::tokio_rustls::webpki::DNSNameRef;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -227,60 +228,68 @@ impl HdpServer {
         }
     }
 
-    fn server_create_primary_listen_socket<T: ToSocketAddrs + Clone>(underlying_proto: UnderlyingProtocol, full_bind_addr: T) -> io::Result<(DualListener, SocketAddr)> {
+    pub fn server_create_primary_listen_socket<T: ToSocketAddrs + Clone>(underlying_proto: UnderlyingProtocol, full_bind_addr: T) -> io::Result<(DualListener, SocketAddr)> {
         match &underlying_proto {
             UnderlyingProtocol::Tls(..) | UnderlyingProtocol::Tcp => {
-                Self::create_listen_socket(underlying_proto, full_bind_addr).map(|r| (DualListener { listener_0: r.0, quic: None }, r.1))
+                Self::create_listen_socket(underlying_proto, None, None, full_bind_addr).map(|r| (DualListener { listener_0: r.0, quic: None }, r.1))
             }
 
-            UnderlyingProtocol::Quic(..) => {
+            UnderlyingProtocol::Quic(_, domain, is_self_signed) => {
+
                 // we need two sockets: one for TCP connection to allow connecting peers to determine the protocol, then another for QUIC
-                let (tcp_listener, bind_addr) = Self::create_listen_socket(UnderlyingProtocol::Tcp, full_bind_addr.clone())?;
-                let (quic_listener, _bind_addr_quic) = Self::create_listen_socket(underlying_proto, full_bind_addr)?;
+                let (tcp_listener, bind_addr) = Self::create_listen_socket(UnderlyingProtocol::Tcp, Some((domain.clone(), *is_self_signed)), None,full_bind_addr.clone())?;
+                let (quic_listener, _bind_addr_quic) = Self::create_listen_socket(underlying_proto, None, None, full_bind_addr)?;
                 Ok((DualListener { listener_0: tcp_listener, quic: Some(quic_listener)}, bind_addr))
             }
         }
     }
 
-    // TODO: Create dual quic/tcp, then, get rid of unreachable in the connect phase with a redirection
-    pub fn create_listen_socket<T: ToSocketAddrs>(underlying_proto: UnderlyingProtocol, full_bind_addr: T) -> io::Result<(GenericNetworkListener, SocketAddr)> {
+    pub fn create_listen_socket<T: ToSocketAddrs>(underlying_proto: UnderlyingProtocol, redirect_to_quic: Option<(TlsDomain, bool)>, quic_endpoint_opt: Option<QuicNode>, full_bind_addr: T) -> io::Result<(GenericNetworkListener, SocketAddr)> {
         let bind: SocketAddr = full_bind_addr.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::bind_defaults(underlying_proto, bind, 1024)
+        Self::bind_defaults(underlying_proto, redirect_to_quic, quic_endpoint_opt, bind, 1024)
     }
 
-    fn bind_defaults(underlying_proto: UnderlyingProtocol, bind: SocketAddr, backlog: i32) -> io::Result<(GenericNetworkListener, SocketAddr)> {
+    /// redirect_to_quic is only applicable when using TCP
+    /// - quic_endpoint_opt is only relevant (yet optional) when the underlying proto specified is quic
+    fn bind_defaults(underlying_proto: UnderlyingProtocol, redirect_to_quic: Option<(TlsDomain, bool)>, quic_endpoint_opt: Option<QuicNode>,  bind: SocketAddr, backlog: i32) -> io::Result<(GenericNetworkListener, SocketAddr)> {
         match underlying_proto {
             UnderlyingProtocol::Tls(..) | UnderlyingProtocol::Tcp => {
                 hyxe_nat::socket_helpers::get_tcp_listener(bind, backlog)
                     .and_then(|listener| {
+                        let bind = listener.local_addr()?;
                         match underlying_proto {
                             UnderlyingProtocol::Tcp => {
-                                // TODO: Consider returning bind addr from listener instead
-                                Ok((GenericNetworkListener::Tcp(listener), bind))
+                                Ok((GenericNetworkListener::Tcp(listener, redirect_to_quic), bind))
                             }
 
-                            UnderlyingProtocol::Tls(identity, _chain, _priv, domain) => {
-                                let tls_listener = TlsListener::new(listener, identity, domain.unwrap_or_else(|| "".to_string()))?;
+                            UnderlyingProtocol::Tls(interop, domain, is_self_signed) => {
+                                let tls_listener = TlsListener::new(listener, interop.tls_acceptor, domain, is_self_signed)?;
                                 Ok((GenericNetworkListener::Tls(tls_listener), bind))
                             }
 
-                            UnderlyingProtocol::Quic(_) => {
+                            UnderlyingProtocol::Quic(..) => {
                                 unreachable!("TCP listener called, but not a QUIC listener")
                             }
                         }
                     }).map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))
             }
 
-            UnderlyingProtocol::Quic(crypto) => {
-                log::info!("Setting up QUIC socket on {:?}", bind);
-                let udp_socket = hyxe_nat::socket_helpers::get_reuse_udp_socket(bind).map_err(generic_error)?;
-                let mut domain = None;
-                let quic = QuicServer::new(udp_socket, crypto.map(|(a,b,c)| {
-                    domain = c;
-                    (a, b)
-                })).map_err(generic_error)?;
+            UnderlyingProtocol::Quic(crypto, domain, is_self_signed) => {
+                log::info!("Setting up QUIC socket on {:?} | Self-signed? {}", bind, is_self_signed);
 
-                Ok((GenericNetworkListener::from_quic_node(quic, domain), bind))
+                let mut quic = if let Some(quic) = quic_endpoint_opt {
+                    quic
+                } else {
+                    let udp_socket = hyxe_nat::socket_helpers::get_udp_socket(bind).map_err(generic_error)?;
+
+                    QuicServer::new(udp_socket, crypto).map_err(generic_error)?
+                };
+
+                let bind = quic.endpoint.local_addr()?;
+
+                quic.tls_domain_opt = domain;
+
+                Ok((GenericNetworkListener::from_quic_node(quic, is_self_signed), bind))
             }
         }
     }
@@ -289,10 +298,11 @@ impl HdpServer {
     /// to allow for TCP hole-punching (we need the same port to cover port-restricted NATS, worst-case scenario)
     ///
     /// The remote is usually the central server. Then the P2P listener binds to it to allow NATs to keep the hole punched
+    ///
+    /// It is expected that the listener_underlying_proto is QUIC here since this is called for p2p connections!
     pub(crate) async fn create_session_transport_init<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
         // We start by creating a client to server connection
-        let stream = Self::create_c2s_connect_socket(remote, None).await?;
-
+        let (stream, quic_endpoint_generated_during_connect) = Self::create_c2s_connect_socket(remote, None).await?;
         // We bind to the addr from the source socket_addr the stream has reserved for NAT traversal purposes
         // NOTE! We CANNOT bind to this address otherwise there will be overlapping TCP connections from the SO_REUSEADDR, causing stream CORRUPTION under high traffic loads. This was proven to exist from stress-testing this protocol
         // Wait ... maybe not? Jul 22 2021
@@ -300,10 +310,11 @@ impl HdpServer {
         let stream_bind_addr = stream.local_addr()?;
 
         // we then bind a listener to the same local addr as the connection to the central server. The central server just needs to share the external addr with each peer to know where to connect
-        let (p2p_listener, _) = Self::bind_defaults(listener_underlying_proto,SocketAddr::new(stream_bind_addr.ip(), stream_bind_addr.port()), 1024)?;
+        let (p2p_listener, _bind_addr) = Self::bind_defaults(listener_underlying_proto, None,quic_endpoint_generated_during_connect, SocketAddr::new(stream_bind_addr.ip(), stream_bind_addr.port()), 1024)?;
 
         Self::open_tcp_port(stream_bind_addr.port());
 
+        log::info!("[Client] Finished connecting to server {} w/ proto {:?}", stream.peer_addr()?, &stream);
         Ok((p2p_listener, stream))
     }
 
@@ -311,51 +322,72 @@ impl HdpServer {
     /// This takes the local socket AND QuicNode instance
     pub async fn create_p2p_quic_connect_socket<R: ToSocketAddrs>(quic_endpoint: Endpoint, remote: R, tls_domain: TlsDomain, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
         let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::quic_p2p_connect_defaults(quic_endpoint, timeout, tls_domain, remote).await
+        Self::quic_p2p_connect_defaults(quic_endpoint, timeout, tls_domain, remote, false).await
     }
 
-    pub async fn quic_p2p_connect_defaults(quic_endpoint: Endpoint, timeout: Option<Duration>, domain: TlsDomain, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
+    /// - force_use_default_config: if trie, this will unconditionally use the default client config already present inside the quic_endpoint parameter
+    pub async fn quic_p2p_connect_defaults(quic_endpoint: Endpoint, timeout: Option<Duration>, domain: TlsDomain, remote: SocketAddr, force_use_default_config: bool) -> io::Result<GenericNetworkStream> {
         log::info!("Connecting to QUIC node {:?}", remote);
-        let (conn, sink, stream) = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), quic_endpoint.connect_biconn(remote, domain.as_ref().map(|r| r.as_str()).unwrap_or(""))).await?.map_err(generic_error)?;
-        Ok(GenericNetworkStream::Quic(sink, stream, quic_endpoint, conn, remote))
+        // when using p2p quic, if domain is some, then we will use the default cfg
+        let cfg = if domain.is_some() {
+            None
+        } else {
+            if !force_use_default_config {
+                Some(hyxe_nat::quic::configure_client_insecure())
+            } else {
+                None
+            }
+        };
+
+        // we MUST use the connect_biconn_WITH below since we are using the server quic instance to make this outgoing connection
+        let (conn, sink, stream) = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), quic_endpoint.connect_biconn_with(remote, domain.as_ref().map(|r| r.as_str()).unwrap_or(SELF_SIGNED_DOMAIN), cfg)).await?.map_err(generic_error)?;
+        Ok(GenericNetworkStream::Quic(sink, stream, quic_endpoint, Some(conn), remote))
     }
 
     /// Only for client to server conns
-    pub async fn create_c2s_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
+    pub async fn create_c2s_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
         let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
         Self::c2s_connect_defaults(timeout, remote).await
     }
 
-    pub async fn c2s_connect_defaults(timeout: Option<Duration>, remote: SocketAddr) -> io::Result<GenericNetworkStream> {
+    pub async fn c2s_connect_defaults(timeout: Option<Duration>, remote: SocketAddr) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
         let mut stream = hyxe_nat::socket_helpers::get_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT)).await.map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
         let bind_addr = stream.local_addr()?;
         let first_packet = Self::read_first_packet(&mut stream, timeout).await?;
 
         match first_packet {
-            FirstPacket::Tcp(external_addr) => {
+            FirstPacket::Tcp { external_addr } => {
                 log::info!("Host claims TCP DEFAULT CONNECTION. External ADDR: {:?}", external_addr);
-                Ok(GenericNetworkStream::Tcp(stream))
+                Ok((GenericNetworkStream::Tcp(stream), None))
             }
 
-            FirstPacket::Tls(domain, external_addr) => {
-                log::info!("Host claims TLS CONNECTION (domain: {:?}) | External ADDR: {:?}", &domain, external_addr);
-                // for debug builds, allow invalid certs to make testing TLS easier
-                //#[cfg(debug_assertions)]
-                let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).danger_accept_invalid_certs(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
-                //#[cfg(not(debug_assertions))]
-                //    let connector = tokio_native_tls::native_tls::TlsConnector::builder().use_sni(true).build().map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+            FirstPacket::Tls { domain, external_addr, is_self_signed } => {
+                log::info!("Host claims TLS CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", &domain, external_addr, is_self_signed);
 
-                let connector = tokio_native_tls::TlsConnector::from(connector);
-                let stream = connector.connect(domain.as_ref().map(|r| r.as_str()).unwrap_or(""), stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
-                //let stream = connector.connect("", stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
-                Ok(GenericNetworkStream::Tls(stream))
+                let connector = if is_self_signed {
+                    hyxe_nat::tls::create_client_dangerous_config()
+                } else {
+                    //hyxe_nat::tls::create_client_config()
+                    // TODO: Resolve issue of unknown issuer when using valid cert
+                    hyxe_nat::tls::create_client_dangerous_config()
+                };
+
+                let stream = connector.connect(DNSNameRef::try_from_ascii_str(domain.as_ref().map(|r| r.as_str()).unwrap_or(SELF_SIGNED_DOMAIN)).map_err(|err| generic_error(err.to_string()))?, stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                Ok((GenericNetworkStream::Tls(stream.into()), None))
             }
-            FirstPacket::Quic(domain, external_addr) => {
-                log::info!("Host claims QUIC CONNECTION (domain: {:?}) | External ADDR: {:?}", &domain, external_addr);
+            FirstPacket::Quic { domain, external_addr, is_self_signed } => {
+                log::info!("Host claims QUIC CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed: {}", &domain, external_addr, is_self_signed);
                 let udp_socket = hyxe_nat::socket_helpers::get_udp_socket(bind_addr).map_err(generic_error)?;
-                let quic_endpoint = hyxe_nat::quic::QuicClient::new_no_verify(udp_socket).map_err(generic_error)?;
-                // What if you connect to the central node using QUIC, then try to bind again for a P2P listener? It wouldn't work since the listener disappeared TODO!
-                Self::create_p2p_quic_connect_socket(quic_endpoint.endpoint, remote, domain, timeout).await
+                let mut quic_endpoint = if is_self_signed {
+                    hyxe_nat::quic::QuicClient::new_no_verify(udp_socket).map_err(generic_error)?
+                } else {
+                    hyxe_nat::quic::QuicClient::new_verify(udp_socket, &[]).map_err(generic_error)?
+                };
+
+                quic_endpoint.tls_domain_opt = domain.clone();
+
+                Self::quic_p2p_connect_defaults(quic_endpoint.endpoint.clone(), timeout, domain, remote,true).await
+                    .map(|r| (r, Some(quic_endpoint)))
             }
         }
     }
@@ -380,9 +412,9 @@ impl HdpServer {
             let session_manager = this.session_manager.clone();
             let local_nat_type = this.nat_type.clone();
             std::mem::drop(this);
-            if let Some(second_listener) = listener.quic {
+            if let Some(quic_listener) = listener.quic {
                 let primary_port_future_0 = Self::primary_session_creator_loop(to_kernel.clone(), local_nat_type.clone(), session_manager.clone(), listener.listener_0, session_spawner.clone(), true);
-                let primary_port_future_1 = Self::primary_session_creator_loop(to_kernel, local_nat_type, session_manager, second_listener, session_spawner, false);
+                let primary_port_future_1 = Self::primary_session_creator_loop(to_kernel, local_nat_type, session_manager, quic_listener, session_spawner, false);
                 Either::Left((primary_port_future_0, primary_port_future_1))
             } else {
                 let primary_port_future = Self::primary_session_creator_loop(to_kernel, local_nat_type, session_manager, listener.listener_0, session_spawner, false);
@@ -412,8 +444,18 @@ impl HdpServer {
                     let local_bind_addr = stream.local_addr().unwrap();
 
                     if early_exit {
+                        // give time for the futures on the adjacent side to finish
+                        let delayed_drop = async move {
+                            let stream = stream;
+                            tokio::time::sleep(Duration::from_millis(1000)).await;
+                            std::mem::drop(stream);
+                        };
+
+                        let _  = spawn!(delayed_drop);
                         continue 'outer;
                     }
+
+                    log::info!("[Server] Starting connection with remote={} w/ proto={:?}", peer_addr, &stream);
 
                     match session_manager.process_new_inbound_connection(local_bind_addr, local_nat_type.clone(), peer_addr, stream) {
                         Ok(session) => {
@@ -616,10 +658,7 @@ impl HdpServerRemote {
     /// Safely shutsdown the internal server
     pub async fn shutdown(&mut self) -> Result<(), NetworkError> {
         let _ = self.send(HdpServerRequest::Shutdown).await?;
-
-        futures::future::poll_fn(|cx| {
-            Pin::new(&mut self.outbound_send_request_tx).poll_close(cx).map_err(|err| NetworkError::Generic(err.to_string()))
-        }).await
+        self.outbound_send_request_tx.close().await
     }
 
     pub fn get_next_ticket(&self) -> Ticket {

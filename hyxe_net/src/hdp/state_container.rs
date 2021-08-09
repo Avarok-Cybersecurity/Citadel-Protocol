@@ -48,6 +48,8 @@ use crate::hdp::misc::dual_cell::DualCell;
 use crate::hdp::hdp_session::SessionState;
 use crate::hdp::misc::ordered_channel::OrderedChannel;
 use bytes::Bytes;
+use crate::hdp::misc::udp_internal_interface::QuicUdpSocketConnector;
+use crate::error::NetworkError;
 
 #[derive(Clone)]
 pub struct StateContainer {
@@ -82,7 +84,7 @@ pub struct StateContainerInner {
     pub(crate) keep_alive_timeout_ns: i64,
     pub(crate) state: DualCell<SessionState>,
     // whenever a c2s or p2p channel is loaded, this is fired to signal any UDP loaders that it is safe to store the UDP conn in the corresponding v_conn
-    pub(super) tcp_loaded_status: HashMap<u64, tokio::sync::oneshot::Sender<()>>,
+    pub(super) tcp_loaded_status: Option<tokio::sync::oneshot::Sender<()>>,
     pub(super) hole_puncher_pipes: HashMap<u64, tokio::sync::mpsc::UnboundedSender<Bytes>>
 }
 
@@ -513,7 +515,7 @@ impl GroupReceiverContainer {
 impl StateContainerInner {
     /// Creates a new container
     pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote, keep_alive_timeout_ns: i64, state: DualCell<SessionState>) -> StateContainer {
-        let inner = Self { hole_puncher_pipes: HashMap::new(), tcp_loaded_status: HashMap::new(), enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
+        let inner = Self { hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
         StateContainer { inner: DualRwLock::from(inner) }
     }
 
@@ -632,28 +634,36 @@ impl StateContainerInner {
 
     /// In order for the upgrade to work, the peer_addr must be reflective of the peer_addr present when
     /// receiving the packet. As such, the direct p2p-stream MUST have sent the packet
-    pub fn upgrade_provisional_direct_p2p_connection(&mut self, peer_addr: SocketAddr, peer_cid: u64, possible_verified_conn: Option<SocketAddr>) -> bool {
-        if let Some(provisional) = self.provisional_direct_p2p_conns.remove(&peer_addr) {
+    pub(crate) fn upgrade_provisional_direct_p2p_connection(&mut self, peer_addr: SocketAddr, peer_cid: u64, possible_verified_conn: Option<SocketAddr>) -> Result<Option<QuicUdpSocketConnector>, NetworkError> {
+        if let Some(mut provisional) = self.provisional_direct_p2p_conns.remove(&peer_addr) {
             if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
                 if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
                     log::info!("UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
+                    let on_connection_upgraded = provisional.on_connection_upgraded.take();
+                    let quic_connector = provisional.quic_connector.take();
+
                     if let Some(_) = endpoint_container.direct_p2p_remote.replace(provisional) {
                         log::warn!("Dropped previous p2p remote during upgrade process");
                     }
 
+                    // now, we need to check to see if we need to drop an older conn
                     if let Some(previous_conn) = possible_verified_conn {
                         if let Some(_) = self.provisional_direct_p2p_conns.remove(&previous_conn) {
                             log::info!("Dropped previous conn due to initiator preference");
                         }
                     }
-                    // now, we need to check to see if we need to drop an older conn
 
-                    return true;
+                    if let Some(post_conn_upgrade) = on_connection_upgraded {
+                        // This will allow the P2P channel to finish loading the UDP subsystem
+                        let _ = post_conn_upgrade.send(());
+                    }
+
+                    return Ok(quic_connector);
                 }
             }
         }
 
-        false
+        Err(NetworkError::InternalError("Unable to upgrade"))
     }
 
     #[allow(unused_results)]
@@ -685,10 +695,6 @@ impl StateContainerInner {
         };
 
         self.active_virtual_connections.insert(target_cid, vconn);
-        // now, alert any udp listeners if needed
-        if let Some(udp_alerter) = self.tcp_loaded_status.remove(&target_cid) {
-            let _ = udp_alerter.send(());
-        }
 
         peer_channel
     }
@@ -710,16 +716,16 @@ impl StateContainerInner {
 
         map.insert(0, cnac.visit(|r| r.crypt_container.update_in_progress.clone()));
 
-        if let Some(udp_alerter) = self.tcp_loaded_status.remove(&0) {
+        if let Some(udp_alerter) = self.tcp_loaded_status.take() {
             let _ = udp_alerter.send(());
         }
 
         peer_channel
     }
 
-    pub fn setup_tcp_alert_if_udp(&mut self, target_cid: u64) -> tokio::sync::oneshot::Receiver<()> {
+    pub fn setup_tcp_alert_if_udp_c2s(&mut self) -> tokio::sync::oneshot::Receiver<()> {
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let _ = self.tcp_loaded_status.insert(target_cid, tx);
+        self.tcp_loaded_status = Some(tx);
         rx
     }
 

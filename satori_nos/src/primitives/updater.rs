@@ -1,5 +1,4 @@
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::stream::Stream;
 use futures::task::Context;
 use tokio::macros::support::{Pin, Poll};
 use crate::primitives::variable::NetworkVariableInner;
@@ -8,6 +7,7 @@ use std::future::Future;
 use crate::primitives::accessor::NetworkTransferable;
 use pin_project::*;
 use std::marker::PhantomData;
+use futures::Stream;
 
 #[pin_project]
 pub struct VariableUpdater<T: NetworkTransferable> {
@@ -33,15 +33,17 @@ impl<T: NetworkTransferable> Stream for VariableUpdater<T> {
                 match item {
                     NetworkUpdateState::ValueModified { value, .. } => {
                         let ptr = self.as_ref().ptr.clone();
+                        log::info!("Updating value ...");
                         let _ = tokio::task::spawn(async move { ptr.update_value::<T>(value).await });
-                        return Poll::Pending
+                        Poll::Ready(Some(()))
                     }
 
                     _ => {
                         if let Err(err) = self.as_mut().notifier_tx.try_send(()) {
                             log::error!("Unable to send notification ({:?})", err);
+                            Poll::Ready(None)
                         } else {
-                            return Poll::Pending
+                            Poll::Ready(Some(()))
                         }
                     }
                 }
@@ -49,10 +51,9 @@ impl<T: NetworkTransferable> Stream for VariableUpdater<T> {
 
             _ => {
                 log::error!("Receiver died [x01]");
+                Poll::Ready(None)
             }
         }
-
-        Poll::Ready(None)
     }
 }
 
