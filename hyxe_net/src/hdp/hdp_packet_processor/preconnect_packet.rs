@@ -10,14 +10,16 @@ use crate::hdp::hdp_packet::packet_flags::payload_identifiers;
 use crate::hdp::state_container::VirtualTargetType;
 use crate::hdp::peer::peer_layer::UdpMode;
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
-use hyxe_nat::udp_traversal::synchronization_phase::UdpHolePuncher;
+use hyxe_nat::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use crate::hdp::peer::hole_punch_compat_sink_stream::HolePunchCompatStream;
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use tokio::net::UdpSocket;
+use crate::hdp::misc::udp_internal_interface::{RawUdpSocketConnector, QuicUdpSocketConnector, UdpSplittableTypes};
 
 /// Handles preconnect packets. Handles the NAT traversal
 /// TODO: Note to future programmers. This source file is not the cleanest, and in my opinion the dirtiest file in the entire codebase.
 /// This will NEED to be refactored. It's also buggy in some cases. For 99% of cases (100% for TCP ONLY, which is now the default), it does the job though
-pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: SocketAddr) -> PrimaryProcessorResult {
+pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResult {
     let session = session_orig;
 
     if !session.is_provisional() {
@@ -202,7 +204,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: S
                             let HolePunchedUdpSocket { socket, addr } = ret;
 
                             let mut state_container = inner_mut!(sess.state_container);
-                            let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp(C2S_ENCRYPTION_ONLY);
+                            let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp_c2s();
 
                             log::info!("UDP hole-punch SUCCESS! Sending a RECEIVER_FINISHED_HOLE_PUNCH");
 
@@ -211,7 +213,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket, _peer_addr: S
                             std::mem::drop(state_container);
 
                             // the UDP subsystem will automatically engage at this point
-                            HdpSession::udp_socket_loader(sess.clone(), VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), socket, addr, sess.kernel_ticket.get(), tcp_loaded_alerter_rx);
+                            HdpSession::udp_socket_loader(sess.clone(), VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), determine_udp_interface(session, socket, addr.natted), addr, sess.kernel_ticket.get(), Some(tcp_loaded_alerter_rx));
                             // the server will await for the client to send an initiation packeet
                             PrimaryProcessorResult::Void
                         }
@@ -340,7 +342,7 @@ fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, sec
 fn send_success_as_initiator(hole_punched_socket: HolePunchedUdpSocket, hyper_ratchet: &HyperRatchet, session: &HdpSession, security_level: SecurityLevel, v_target: VirtualTargetType) -> PrimaryProcessorResult {
     let HolePunchedUdpSocket { socket, addr } = hole_punched_socket;
     let mut state_container = inner_mut!(session.state_container);
-    let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp(v_target.get_target_cid());
+    let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp_c2s();
     log::info!("UDP Hole punch success! Sending a SUCCESS packet to the receiver");
     let timestamp = session.time_tracker.get_global_time_ns();
 
@@ -349,7 +351,7 @@ fn send_success_as_initiator(hole_punched_socket: HolePunchedUdpSocket, hyper_ra
     let success_packet = hdp_packet_crafter::pre_connect::craft_stage_final(hyper_ratchet, true, false, timestamp,  security_level);
     std::mem::drop(state_container);
 
-    HdpSession::udp_socket_loader(session.clone(), v_target, socket, addr, session.kernel_ticket.get(), tcp_loaded_alerter_rx);
+    HdpSession::udp_socket_loader(session.clone(), v_target, determine_udp_interface(session, socket, addr.natted), addr, session.kernel_ticket.get(), Some(tcp_loaded_alerter_rx));
     PrimaryProcessorResult::ReplyToSender(success_packet)
 }
 
@@ -376,4 +378,14 @@ pub fn calculate_sync_time(current: i64, header: i64) -> (Instant, i64) {
 
 fn proto_version_out_of_sync(adjacent_proto_version: u64) -> bool {
     adjacent_proto_version as usize != crate::constants::BUILD_VERSION
+}
+
+fn determine_udp_interface(session: &HdpSession, socket: UdpSocket, peer_addr: SocketAddr) -> UdpSplittableTypes {
+    if let Some(quic_conn) = session.this_quic_conn.take() {
+        log::info!("Will use QUIC UDP datagrams for UDP transmission");
+        UdpSplittableTypes::QUIC(QuicUdpSocketConnector::new(quic_conn, session.local_bind_addr))
+    } else {
+        log::info!("Will use Raw UDP for UDP transmission");
+        UdpSplittableTypes::Raw(RawUdpSocketConnector::new(socket, peer_addr))
+    }
 }

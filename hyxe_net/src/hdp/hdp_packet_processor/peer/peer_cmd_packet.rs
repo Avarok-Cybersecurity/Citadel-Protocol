@@ -20,8 +20,10 @@ use crate::hdp::hdp_session_manager::HdpSessionManager;
 use std::sync::atomic::Ordering;
 use hyxe_crypt::prelude::ConstructorOpts;
 use crate::hdp::peer::hole_punch_compat_sink_stream::HolePunchCompatStream;
-use hyxe_nat::udp_traversal::synchronization_phase::UdpHolePuncher;
+use hyxe_nat::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use hyxe_nat::udp_traversal::linear::RelativeNodeType;
+use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
+use crate::hdp::misc::udp_internal_interface::UdpSplittableTypes;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
@@ -410,7 +412,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
                             KeyExchangeProcess::HolePunchEstablished => {
                                 log::info!("RECV HolePunchEstablished packet");
-                                // The other side is telling us it made a connection. It still is waiting on this node to verify
+                                // The other side (client) is telling us it made a connection. It still is waiting on this node to verify
                                 // that the connection is valid. What we do here is set p2p_conn as established.
                                 // We only upgrade IF local is NOT the initiator. Because if the opposite end IS the initiator,
                                 // then it gets to keep its connection no matter the result of this end's attempt to connect.
@@ -425,8 +427,14 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 let mut upgraded_connection = false;
                                 if !local_is_initiator {
                                     // We upgrade the connection
-                                    if state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
+                                    if let Ok(udp_conn) = state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
                                         log::info!("Successfully upgraded direct p2p connection for {}@{:?}", peer_cid, peer_addr);
+
+                                        if let Some(udp_conn) = udp_conn {
+                                            let hole_punched_addr = HolePunchedSocketAddr::new(peer_addr, peer_addr, Default::default());
+                                            HdpSession::udp_socket_loader(session.clone(), conn.reverse().as_virtual_connection(), UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, None);
+                                        }
+
                                         upgraded_connection = true;
                                     } else {
                                         log::warn!("Unable to upgrade direct P2P connection for {:?}. Missing items?", peer_addr);
@@ -459,9 +467,12 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                     // upgrade the connection no matter what
                                     debug_assert!(local_is_initiator);
                                     log::info!("This exact connection has been upgraded by the adjacent node, Doing the same locally ...");
-                                    if state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
+                                    if let Ok(udp_conn) = state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
                                         log::info!("Successfully upgraded direct p2p connection for {}@{:?}. Process complete!", peer_cid, peer_addr);
-                                        // Great. Now, tell the other end to upgrade their connection
+                                        if let Some(udp_conn) = udp_conn {
+                                            let hole_punched_addr = HolePunchedSocketAddr::new(peer_addr, peer_addr, Default::default());
+                                            HdpSession::udp_socket_loader(session.clone(), conn.reverse().as_virtual_connection(), UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, None);
+                                        }
                                     } else {
                                         log::warn!("Unable to upgrade direct P2P connection for {:?}. Missing items?", peer_addr);
                                     }
@@ -482,9 +493,13 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                         // we will upgrade the connection for now
                                         kem_state_container.verified_socket_addr = Some(peer_addr);
                                         log::info!("Connection established, but is a non-initiator stream. Will upgrade, but may be overwritten in the interim");
-                                        if state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
+                                        if let Ok(udp_conn) = state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
                                             log::info!("Successfully upgraded direct p2p connection for {}@{:?}. May be overwritten though ...", peer_cid, peer_addr);
-                                            // Great. Now, tell the other end to upgrade their connection
+
+                                            if let Some(udp_conn) = udp_conn {
+                                                let hole_punched_addr = HolePunchedSocketAddr::new(peer_addr, peer_addr, Default::default());
+                                                HdpSession::udp_socket_loader(session.clone(), conn.reverse().as_virtual_connection(), UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, None);
+                                            }
                                         } else {
                                             log::warn!("Unable to upgrade direct P2P connection for {:?}. Missing items? (provisional)", peer_addr);
                                         }

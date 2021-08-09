@@ -3,6 +3,7 @@
 pub mod exports {
     pub use igd::PortMappingProtocol;
     pub use quinn::{RecvStream, SendStream, Incoming, Endpoint, Connecting, Connection, NewConnection, CertificateChain, PrivateKey};
+    pub use tokio_rustls;
 }
 
 pub mod ip_addr;
@@ -27,4 +28,8 @@ pub mod reliable_conn;
 
 pub mod quic;
 
+pub mod tls;
+
 pub mod misc;
+
+pub mod sync;

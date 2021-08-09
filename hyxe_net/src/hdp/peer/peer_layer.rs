@@ -491,6 +491,13 @@ impl PeerConnectionType {
             PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => PeerConnectionType::HyperLANPeerToHyperWANPeer(*target_cid, *icid, *implicated_cid)
         }
     }
+
+    pub fn as_virtual_connection(self) -> VirtualConnectionType {
+        match self {
+            PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid),
+            PeerConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid) => VirtualConnectionType::HyperLANPeerToHyperWANPeer(implicated_cid, icid, target_cid)
+        }
+    }
 }
 
 impl Display for PeerConnectionType {

@@ -24,7 +24,7 @@ pub struct PeerChannel {
 impl PeerChannel {
     pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>) -> Self {
         let implicated_cid = vconn_type.get_implicated_cid();
-        let recv_type = ReceivePortType::TCP;
+        let recv_type = ReceivePortType::OrderedReliable;
 
         let send_half = PeerChannelSendHalf {
             server_remote: server_remote.clone(),
@@ -112,7 +112,7 @@ impl Sink<SecBuffer> for PeerChannelSendHalf {
         if self.is_alive.load(Ordering::SeqCst) {
             futures::Sink::<HdpServerRequest>::poll_ready(Pin::new(&mut self.server_remote), cx)
         } else {
-            Poll::Ready(Err(NetworkError::InternalError("Server closed")))
+            Poll::Ready(Err(NetworkError::InternalError("Session closed")))
         }
     }
 
@@ -174,12 +174,12 @@ impl Drop for PeerChannelRecvHalf {
                 log::info!("[PeerChannelRecvHalf] Dropping. Will maybe set is_alive to false if this is a tcp p2p connection");
 
                 let command = match self.recv_type {
-                    ReceivePortType::TCP => {
+                    ReceivePortType::OrderedReliable => {
                         self.is_alive.store(false, Ordering::SeqCst);
                         HdpServerRequest::PeerCommand(local_cid, PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), None))
                     }
 
-                    ReceivePortType::UDP => {
+                    ReceivePortType::UnorderedUnreliable => {
                         HdpServerRequest::PeerCommand(local_cid, PeerSignal::DisconnectUDP(self.vconn_type))
                     }
                 };
@@ -213,7 +213,7 @@ impl UdpChannel {
                 channel_id,
                 is_alive,
                 server_remote,
-                recv_type: ReceivePortType::UDP
+                recv_type: ReceivePortType::UnorderedUnreliable
             }
         }
     }

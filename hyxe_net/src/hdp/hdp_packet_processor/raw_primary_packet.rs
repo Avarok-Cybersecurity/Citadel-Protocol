@@ -19,7 +19,7 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
     let cmd_aux = header.cmd_aux;
     let header_drill_vers = header.drill_version.get();
 
-    match check_proxy(this_implicated_cid, header.cmd_primary, header.cmd_aux, header.session_cid.get(), target_cid, session, &mut endpoint_cid_info, ReceivePortType::TCP, packet) {
+    match check_proxy(this_implicated_cid, header.cmd_primary, header.cmd_aux, header.session_cid.get(), target_cid, session, &mut endpoint_cid_info, ReceivePortType::OrderedReliable, packet) {
         Some(packet) => {
             match cmd_primary {
                 packet_flags::cmd::primary::DO_REGISTER => {
@@ -51,7 +51,7 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
                 }
 
                 packet_flags::cmd::primary::DO_PRE_CONNECT => {
-                    super::preconnect_packet::process(session, packet, remote_peer).await
+                    super::preconnect_packet::process(session, packet).await
                 }
 
                 packet_flags::cmd::primary::PEER_CMD => {
@@ -81,7 +81,8 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
 
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum ReceivePortType {
-    TCP, UDP
+    OrderedReliable,
+    UnorderedUnreliable
 }
 
 // returns None if the packet should finish being processed. Inlined for slightly faster TURN proxying
@@ -109,13 +110,13 @@ pub(crate) fn check_proxy(this_implicated_cid: Option<u64>, cmd_primary: u8, cmd
                     peer_vconn.last_delivered_message_timestamp.set(Some(Instant::now()));
                     // into_packet is a cheap operation the freezes the internal packet; we attain zero-copy when proxying here
                     match recv_port_type {
-                        ReceivePortType::TCP => {
+                        ReceivePortType::OrderedReliable => {
                             if let Err(_err) = peer_vconn.sender.as_ref().unwrap().1.unbounded_send(packet.into_packet()) {
                                 log::error!("Proxy TrySendError to {}", target_cid);
                             }
                         }
 
-                        ReceivePortType::UDP => {
+                        ReceivePortType::UnorderedUnreliable => {
                             if let Some(udp_sender) = peer_vconn.sender.as_ref().unwrap().0.as_ref() {
                                 if let Err(_err) = udp_sender.unbounded_send(packet.into_packet()) {
                                     log::error!("Proxy TrySendError to {}", target_cid);

@@ -86,7 +86,7 @@ impl<T: NetworkTransferable> Drop for AccessGuard<'_, T> {
             // at which point, anybody trying to access the variable again locally will be able to lock it againm
             // BUT, because of the future await, won't be able to get R/W access again
             if let Err(err) = self.notifier.try_send(OwnedGuard::Mutex(self.lock.take().unwrap())) {
-                log::error!("AccessGuard send error: {:?}", err.to_string());
+                log::warn!("[drop] AccessGuard send error: {:?}", err.to_string());
             }
         }
     }

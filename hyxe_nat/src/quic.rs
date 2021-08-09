@@ -19,17 +19,23 @@ pub struct QuicClient;
 
 pub struct QuicNode {
     pub endpoint: Endpoint,
-    pub listener: Incoming
+    pub listener: Incoming,
+    pub tls_domain_opt: Option<String>
 }
 
 #[async_trait]
 pub trait QuicEndpointConnector {
     fn endpoint(&self) -> &Endpoint;
 
-    async fn connect_biconn(&self, addr: SocketAddr, tls_domain: &str) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
+    async fn connect_biconn_with(&self, addr: SocketAddr, tls_domain: &str, cfg: Option<ClientConfig>) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
         where Self: Sized {
-        log::info!("RD0");
-        let connecting = self.endpoint().connect(&addr, tls_domain)?;
+        log::info!("RD0. Connecting to {:?} | Custom Cfg? {}", tls_domain, cfg.is_some());
+        let connecting = if let Some(cfg) = cfg {
+            self.endpoint().connect_with(cfg, &addr, tls_domain)?
+        } else {
+            self.endpoint().connect(&addr, tls_domain)?
+        };
+
         log::info!("RD1");
         let conn = connecting.await?;
         log::info!("RD2");
@@ -41,6 +47,14 @@ pub trait QuicEndpointConnector {
 
         Ok((conn, sink, stream))
     }
+
+    /// Connects using the pre-stored ClientCfg
+    async fn connect_biconn(&self, addr: SocketAddr, tls_domain: &str) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
+        where Self: Sized {
+        self.connect_biconn_with(addr, tls_domain, None).await
+    }
+
+
 }
 
 #[async_trait]
@@ -56,6 +70,12 @@ pub trait QuicEndpointListener {
         let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
         log::info!("NC3");
         Ok((conn, sink, stream))
+    }
+}
+
+impl QuicEndpointListener for Incoming {
+    fn listener(&mut self) -> &mut Incoming {
+        self
     }
 }
 
@@ -81,7 +101,7 @@ impl QuicClient {
     /// - trusted_certs: If None, won't verify certs
     pub fn new(socket: UdpSocket, trusted_certs: Option<&[&[u8]]>) -> Result<QuicNode, anyhow::Error> {
         let (endpoint, listener) = make_client_endpoint(socket.into_std()?, trusted_certs)?;
-        Ok(QuicNode { endpoint, listener })
+        Ok(QuicNode { endpoint, listener, tls_domain_opt: None })
     }
 
     /// This client will not verify the certificates of outgoing connection
@@ -98,7 +118,7 @@ impl QuicClient {
 impl QuicServer {
     pub fn new(socket: UdpSocket, crypt: Option<(CertificateChain, PrivateKey)>) -> Result<QuicNode, anyhow::Error> {
         let (endpoint, listener) = make_server_endpoint(socket.into_std()?, crypt)?;
-        Ok(QuicNode { endpoint, listener })
+        Ok(QuicNode { endpoint, listener, tls_domain_opt: None })
     }
 
     pub fn new_self_signed(socket: UdpSocket) -> Result<QuicNode, anyhow::Error> {
@@ -161,7 +181,7 @@ pub fn make_server_endpoint(socket: std::net::UdpSocket, crypt: Option<(Certific
 /// ## Args
 ///
 /// - server_certs: a list of trusted certificates in DER format.
-fn configure_client_secure(server_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
+pub fn configure_client_secure(server_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
     let mut cfg_builder = ClientConfigBuilder::default();
     for cert in server_certs {
         cfg_builder.add_certificate_authority(Certificate::from_der(&cert)?)?;
@@ -174,7 +194,7 @@ fn configure_client_secure(server_certs: &[&[u8]]) -> Result<ClientConfig, anyho
     Ok(cfg)
 }
 
-fn configure_client_insecure() -> ClientConfig {
+pub fn configure_client_insecure() -> ClientConfig {
     let mut cfg = ClientConfigBuilder::default().build();
     load_hole_punch_friendly_quic_transport_config(&mut cfg);
     let tls_cfg: &mut rustls::ClientConfig = Arc::get_mut(&mut cfg.crypto).unwrap();
@@ -192,6 +212,8 @@ fn load_hole_punch_friendly_quic_transport_config(cfg: &mut ClientConfig) {
     cfg.transport = Arc::new(transport_cfg);
 }
 
+pub const SELF_SIGNED_DOMAIN: &'static str = "localhost";
+
 /// Returns default server configuration along with its certificate.
 fn configure_server_crypto(crypt: Option<(CertificateChain, PrivateKey)>) -> Result<ServerConfig, anyhow::Error> {
     let mut transport_config = TransportConfig::default();
@@ -204,22 +226,30 @@ fn configure_server_crypto(crypt: Option<(CertificateChain, PrivateKey)>) -> Res
         cfg_builder.certificate(chain, pkey)?;
     } else {
         log::info!("Generating self-signed cert [requires endpoint dangerous configuration]");
-        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        let cert_der = cert.serialize_der().unwrap();
-        let priv_key = cert.serialize_private_key_der();
+        let (cert_der, priv_key) = generate_self_signed_cert()?;
         let priv_key = PrivateKey::from_der(&priv_key)?;
-
         let cert = Certificate::from_der(&cert_der)?;
+
         cfg_builder.certificate(CertificateChain::from_certs(vec![cert]), priv_key)?;
     }
 
     Ok(cfg_builder.build())
 }
 
-struct SkipServerVerification;
+/// returns the (cert, priv_key) der bytes
+///
+/// domain is always SELF_SIGNED_DOMAIN (localhost)
+pub fn generate_self_signed_cert() -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> {
+    let cert = rcgen::generate_simple_self_signed(vec![SELF_SIGNED_DOMAIN.into()])?;
+    let cert_der = cert.serialize_der()?;
+    let priv_key_der = cert.serialize_private_key_der();
+    Ok((cert_der, priv_key_der))
+}
+
+pub(crate) struct SkipServerVerification;
 
 impl SkipServerVerification {
-    fn new() -> Arc<Self> {
+    pub(crate) fn new() -> Arc<Self> {
         Arc::new(Self)
     }
 }
