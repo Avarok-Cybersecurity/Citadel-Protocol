@@ -22,7 +22,7 @@ use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
 /// allows the inclusion of a "breadth" variable to allow opening multiple ports for traversing across multiple ports
 pub(crate) struct DualStackUdpHolePuncher<'a> {
     // the key is the local bind addr
-    future: Pin<Box<dyn Future<Output=Result<HolePunchedUdpSocket, anyhow::Error>> + 'a>>,
+    future: Pin<Box<dyn Future<Output=Result<HolePunchedUdpSocket, anyhow::Error>> + Send + 'a>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

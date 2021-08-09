@@ -6,7 +6,7 @@ pub mod linear;
 
 pub mod hole_punched_udp_socket_addr;
 
-pub mod synchronization_phase;
+pub mod udp_hole_puncher;
 
 pub mod multi;
 

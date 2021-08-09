@@ -37,7 +37,6 @@ pub mod tests {
     use hyxe_user::account_manager::AccountManager;
     use hyxe_user::backend::BackendType;
     use hyxe_user::external_services::fcm::kem::FcmPostRegister;
-    use hyxe_user::network_account::ConnectProtocol;
     use hyxe_user::proposed_credentials::ProposedCredentials;
 
     use crate::tests::kernel::{ActionType, MessageTransfer, TestContainer, TestKernel};
@@ -63,40 +62,40 @@ pub mod tests {
 
     #[tokio::test]
     async fn tcp_or_tls() {
-        const USE_TLS: bool = true;
         setup_log();
 
-        let proto = if USE_TLS {
-            UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", Some("mail.satorisocial.com".to_string())).unwrap()
-        } else {
-            UnderlyingProtocol::Tcp
-        };
+        let protos = vec![UnderlyingProtocol::Tcp, UnderlyingProtocol::new_tls_self_signed().unwrap(), UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap()];
 
-        let server = async move {
-            let (mut listener, _bind_addr) = HdpServer::create_listen_socket(proto, "127.0.0.1:27000").unwrap();
+        for proto in protos {
+            log::info!("Testing proto {:?}", &proto);
+            let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
 
-            while let Some(val) = listener.next().await {
-                let (mut stream, peer_addr) = val.unwrap();
-                log::info!("[Server] Received stream from {}", peer_addr);
+            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,addr).unwrap();
+            log::info!("Bind/connect addr: {:?}", addr);
+
+            let server = async move {
+                while let Some(val) = listener.next().await {
+                    let (mut stream, peer_addr) = val.unwrap();
+                    log::info!("[Server] Received stream from {}", peer_addr);
+                    let buf = &mut [0u8; 4096];
+                    let _ = stream.read(buf as &mut [u8]).await.unwrap();
+                    assert_eq(buf[0], 0xff, "Invalid read");
+                    let _ = stream.write(&[0xfa]).await.unwrap();
+                    return;
+                }
+            };
+
+            let client = async move {
+                let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr).await.unwrap();
+                log::info!("Client connected");
                 let buf = &mut [0u8; 4096];
+                let _ = stream.write(&[0xff]).await.unwrap();
                 let _ = stream.read(buf as &mut [u8]).await.unwrap();
-                assert_eq(buf[0], 0xff, "Invalid read");
-                let _ = stream.write(&[0xfa]).await.unwrap();
-                return;
-            }
-        };
+                assert_eq(buf[0], 0xfa, "Invalid read - client");
+            };
 
-        let client = async move {
-            let mut stream = HdpServer::c2s_connect_defaults(None, SocketAddr::from_str("127.0.0.1:27000").unwrap()).await.unwrap();
-            log::info!("Client connected");
-            let buf = &mut [0u8; 4096];
-            let _ = stream.write(&[0xff]).await.unwrap();
-            let _ = stream.read(buf as &mut [u8]).await.unwrap();
-            assert_eq(buf[0], 0xfa, "Invalid read - client");
-        };
-
-        tokio::join!(server, client);
-
+            tokio::join!(server, client);
+        }
     }
 
     fn pinbox<F: Future<Output=Option<ActionType>> + 'static>(f: F) -> Pin<Box<dyn Future<Output=Option<ActionType>> + Send + 'static>> {
@@ -131,38 +130,12 @@ pub mod tests {
         lock.as_ref().unwrap().clone()
     }
 
-    #[allow(dead_code)]
-    fn connect_proto() -> ConnectProtocol {
-        let lock = PROTO.lock();
-        let val = lock.as_ref().unwrap();
-        match val {
-            UnderlyingProtocol::Tls(_, _, _, domain) => {
-                ConnectProtocol::Tls(domain.clone())
-            }
-
-            UnderlyingProtocol::Tcp => {
-                ConnectProtocol::Tcp
-            }
-
-            UnderlyingProtocol::Quic(res) => {
-                if let Some(res) = res.as_ref() {
-                    ConnectProtocol::Quic(res.2.clone())
-                } else {
-                    ConnectProtocol::Quic(None)
-                }
-            }
-        }
-    }
-
-    #[derive(Eq, PartialEq)]
-    enum ProtoSelected { TCP, TLS }
-
-    fn setup_clap() -> Option<ProtoSelected> {
+    fn setup_clap() {
         let kems = KemAlgorithm::names();
         let kems = kems.iter().map(|r| r.as_str()).collect::<Vec<&str>>();
 
         let app = clap::App::new("stress-testing harness").arg(clap::Arg::with_name("count").long("count").takes_value(true).required(false))
-            .arg(clap::Arg::with_name("tls").long("tls").required(false).takes_value(false).conflicts_with("tcp"))
+            .arg(clap::Arg::with_name("tls").long("tls").required(false).takes_value(false).conflicts_with_all(&["tcp", "quic"]))
             .arg(clap::Arg::with_name("security_level").long("sec").required(false).takes_value(true))
             .arg(clap::Arg::with_name("timeout").long("timeout").required(false).takes_value(true))
             .arg(clap::Arg::with_name("message_length").long("len").required(false).takes_value(true))
@@ -170,7 +143,8 @@ pub mod tests {
             .arg(clap::Arg::with_name("encryption_algorithm").long("enx").required(false).takes_value(true).possible_values(&["aes", "chacha"]))
             .arg(clap::Arg::with_name("key_exchange_mechanism").long("kem").required(false).takes_value(true).possible_values(kems.as_slice()))
             .arg(clap::Arg::with_name("udp").long("udp").required(false).takes_value(false))
-            .arg(clap::Arg::with_name("tcp").long("tcp").required(false).takes_value(false).conflicts_with("tls"));
+            .arg(clap::Arg::with_name("tcp").long("tcp").required(false).takes_value(false).conflicts_with_all(&["tls", "quic"]))
+            .arg(clap::Arg::with_name("quic").long("quic").required(false).takes_value(false).conflicts_with_all(&["tcp", "tls"]));
 
         let matches = app.get_matches_from(std::env::args().skip_while(|v| v != "--clap").collect::<Vec<String>>());
         if let Some(matches) = matches.value_of("count") {
@@ -226,15 +200,19 @@ pub mod tests {
             RAND_MESSAGE_LEN.set(DEFAULT_RAND_MESSAGE_LEN).unwrap();
         }
 
-        if matches.is_present("tls") || matches.is_present("tcp") {
-            if matches.is_present("tls") {
-                Some(ProtoSelected::TLS)
-            } else {
-                Some(ProtoSelected::TCP)
-            }
+        /*
+        if matches.is_present("tls") {
+            *PROTO.lock() = Some(UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
+        } else if matches.is_present("quic") {
+            *PROTO.lock() = Some(UnderlyingProtocol::load_quic("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
+        } else if matches.is_present("tcp") {
+            *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
         } else {
-            None
-        }
+            *PROTO.lock() = Some(DEFAULT_UNDERLYING_PROTOCOL);
+        }*/
+
+        *PROTO.lock() = Some(UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
+        //*PROTO.lock() = Some(UnderlyingProtocol::Tcp);
     }
 
     fn count() -> usize {
@@ -262,13 +240,13 @@ pub mod tests {
     pub const DEFAULT_SESSION_SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
     pub const DEFAULT_P2P_SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
     pub const DEFAULT_SECRECY_MODE: SecrecyMode = SecrecyMode::BestEffort;
-    pub const DEFAULT_USE_TLS: bool = true;
+    pub const DEFAULT_UNDERLYING_PROTOCOL: UnderlyingProtocol = UnderlyingProtocol::Tcp;
     pub const DEFAULT_COUNT: usize = 4000;
     pub const DEFAULT_TIMEOUT_CNT_MS: usize = 60000 * 2;
     pub const DEFAULT_RAND_MESSAGE_LEN: usize = 2000;
     pub const DEFAULT_ENCRYPTION_ALGORITHM: EncryptionAlgorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
     pub const DEFAULT_KEM_ALGORITHM: KemAlgorithm = KemAlgorithm::Firesaber;
-    pub const DEFAULT_UDP_MODE: UdpMode = UdpMode::Disabled;
+    pub const DEFAULT_UDP_MODE: UdpMode = UdpMode::Enabled;
 
     // misc statics
     pub static P2P_SENDING_START_TIME: Mutex<Option<Instant>> = const_mutex(None);
@@ -280,25 +258,20 @@ pub mod tests {
         super::utils::deadlock_detector();
 
         setup_log();
-        let proto_selected = setup_clap();
-        let use_tls = proto_selected.map(|r| r == ProtoSelected::TLS).unwrap_or(DEFAULT_USE_TLS);
+        setup_clap();
+
         let total_p2p_messages = 2 * count();
         let total_messages = total_p2p_messages + (2 * count()) + (3 * count()); // p2p sending to each other simultaneously, c2s sending to each other simultaneously, then one group member using central server to broadcast to two others (3 encryptions)
 
-        println!("Using TLS: {}", use_tls);
+        println!("Using Underlying Protocol: {:?}", PROTO.lock());
         println!("Encryption algorithm: {:?}", encryption_algorithm());
         println!("Post-quantum key exchange algorithm: {:?}", kem_algorithm());
         println!("Message count per node per activity: {} (total: {})", count(), total_messages);
         println!("Message length: {} bytes", rand_message_len());
         println!("Using secrecy mode: {:?}", secrecy_mode());
+        println!("UDP mode: {:?}", udp_mode());
         println!("Session/P2P security level: {:?}/{:?}", session_security_level(), p2p_security_level());
         println!("Timeout: {}ms", timeout_cnt_ms());
-
-        if use_tls {
-            *PROTO.lock() = Some(UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", Some("mail.satorisocial.com".to_string())).unwrap())
-        } else {
-            *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
-        }
 
         let rt = Builder::new_multi_thread().enable_time().enable_io().build().unwrap();
 

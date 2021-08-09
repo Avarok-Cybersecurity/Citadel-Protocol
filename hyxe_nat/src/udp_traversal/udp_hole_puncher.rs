@@ -1,38 +1,14 @@
-use serde::{Serialize, Deserialize};
 use crate::reliable_conn::ReliableOrderedConnectionToTarget;
 use crate::udp_traversal::linear::RelativeNodeType;
 use std::pin::Pin;
 use futures::Future;
-use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedUdpSocket, HolePunchedSocketAddr};
+use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedUdpSocket;
 use std::task::{Context, Poll};
 use crate::nat_identification::NatType;
-use crate::time_tracker::TimeTracker;
 use std::time::Duration;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::multi::DualStackUdpHolePuncher;
-
-#[derive(Serialize, Deserialize)]
-pub(crate) struct NatSyn {
-    nat_type: NatType,
-    internal_bind_port: u16
-}
-
-#[derive(Serialize, Deserialize)]
-pub(crate) struct NatSynAck {
-    nat_type: NatType,
-    internal_bind_port: u16
-}
-
-#[derive(Serialize, Deserialize)]
-pub(crate) struct NatAck {
-    sync_time: i64
-}
-
-#[derive(Serialize, Deserialize)]
-pub(crate) struct PostHolePunch {
-    /// if is_some, then hole punch was a success
-    pub(crate) candidate: Option<HolePunchedSocketAddr>
-}
+use crate::sync::sync_start::NetSyncStart;
 
 pub struct UdpHolePuncher<'a> {
     driver: Pin<Box<dyn Future<Output=Result<HolePunchedUdpSocket, anyhow::Error>> + 'a>>
@@ -61,49 +37,15 @@ impl Future for UdpHolePuncher<'_> {
 }
 
 async fn driver<'a, T: ReliableOrderedConnectionToTarget + 'a>(ref conn: T, node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    let nat_type = NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
+    let ref nat_type = NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
     log::info!("Local NAT type: {:?}", &nat_type);
-    let tt = TimeTracker::new();
     let internal_bind_port = conn.local_addr()?.port();
 
-    match node_type {
-        RelativeNodeType::Receiver => {
-            // The receiver sends the information
-            let now = tt.get_global_time_ns();
-            conn.send_to_peer(&bincode2::serialize(&NatSyn { nat_type: nat_type.clone(), internal_bind_port }).unwrap()).await?;
-            // now, wait for a NatSynAck
-            let nat_syn_ack: NatSynAck = bincode2::deserialize(&conn.recv().await?)?;
-            let rtt = tt.get_global_time_ns() - now;
+    let future = |(peer_nat, peer_internal_port)| async move {
+        DualStackUdpHolePuncher::new(node_type, encrypted_config_container, conn, &nat_type, &peer_nat, peer_internal_port, 0)?.await
+    };
 
-            let sync_time = tt.get_global_time_ns() + rtt;
-
-            // we will wait rtt before starting the simultaneous hole-punch process
-            conn.send_to_peer(&bincode2::serialize(&NatAck { sync_time }).unwrap()).await?;
-
-            tokio::time::sleep(Duration::from_nanos(rtt as _)).await;
-
-            DualStackUdpHolePuncher::new(RelativeNodeType::Receiver, encrypted_config_container, conn, &nat_type, &nat_syn_ack.nat_type, nat_syn_ack.internal_bind_port, 0)?.await
-            //handle_post_synchronization_phase(conn, hole_puncher).await
-        }
-
-        RelativeNodeType::Initiator => {
-            // the initiator has to wait for the NatSyn
-            let nat_syn: NatSyn = bincode2::deserialize(&conn.recv().await?)?;
-
-            // now, send a syn ack
-            conn.send_to_peer(&bincode2::serialize(&NatSynAck {nat_type: nat_type.clone(), internal_bind_port}).unwrap()).await?;
-            // now, await for a nat ack
-            let nat_ack: NatAck = bincode2::deserialize(&conn.recv().await?)?;
-
-            let delta = i64::abs(nat_ack.sync_time - tt.get_global_time_ns());
-            tokio::time::sleep(Duration::from_nanos(delta as _)).await;
-
-            DualStackUdpHolePuncher::new(RelativeNodeType::Initiator, encrypted_config_container, conn, &nat_type, &nat_syn.nat_type, nat_syn.internal_bind_port, 0)?.await
-
-            // now, begin the hole-punch
-            //handle_post_synchronization_phase(conn, hole_puncher).await
-        }
-    }
+    NetSyncStart::new(conn, node_type, future, (nat_type.clone(), internal_bind_port)).await?
 }
 
 /*

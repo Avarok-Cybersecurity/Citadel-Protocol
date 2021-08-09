@@ -6,7 +6,7 @@ edition = "2018"
 workspace = "../"
 
 [features]
-default = ["single-threaded", "enterprise"]
+default = ["multi-threaded", "enterprise"]
 single-threaded = ["ez_pqcrypto/unordered", "hyxe_crypt/single-threaded", "hyxe_user/single-threaded"]
 multi-threaded = ["ez_pqcrypto/unordered", "hyxe_crypt/multi-threaded", "hyxe_user/multi-threaded"]
 enterprise = ["hyxe_user/enterprise"]
@@ -45,8 +45,8 @@ hyxe_user = { path = "../hyxe_user", version = "0.1.0", default-features=false }
 hyxe_nat = { path = "../hyxe_nat", version = "0.1.0" }
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
-tokio-native-tls = "0.3.0"
-native-tls = { version = "0.2.7", features = ["vendored"] }
+#tokio-native-tls = "0.3.0"
+#native-tls = { version = "0.2.7", features = ["vendored"] }
 num_cpus = "1.13.0"
 once_cell = "1.8.0"
 webrtc-util = "0.3.1"
