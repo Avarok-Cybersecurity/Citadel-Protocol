@@ -5,6 +5,7 @@ use std::pin::Pin;
 use crate::reliable_conn::ReliableOrderedConnectionToTarget;
 use std::task::{Context, Poll};
 use tokio::sync::{Mutex, MutexGuard};
+use crate::sync::network_endpoint::{NetworkEndpoint, PreActionSync};
 
 /// Two endpoints race to produce Ok(R). The first endpoint to produce Ok(R) wins. Includes conflict-resolution synchronization
 pub struct NetSelectOk<'a, R> {
@@ -12,9 +13,9 @@ pub struct NetSelectOk<'a, R> {
 }
 
 impl<'a, R: 'a> NetSelectOk<'a, R> {
-    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'a, F: 'a>(conn: Conn, local_node_type: RelativeNodeType, future: F) -> Self
+    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'static, F: 'a>(conn: &'a NetworkEndpoint<Conn>, local_node_type: RelativeNodeType, future: F) -> Self
         where F: Future<Output=Result<R, anyhow::Error>> {
-        Self { future: Box::pin(resolve(conn, local_node_type, future)) }
+        Self { future: Box::pin(resolve(conn.subscribe(), local_node_type, future)) }
     }
 }
 
@@ -31,7 +32,7 @@ enum State {
     Pending,
     ObtainedValidResult,
     ResolvedLocalWon,
-    ResolvedPointeeWins,
+    ResolvedAdjacentWins,
     ResolvedBothFail,
     NonPreferredFinished,
     Error,
@@ -73,8 +74,10 @@ impl<R> NetSelectOkResult<R> {
     }
 }
 
-async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, R>(ref conn: Conn, local_node_type: RelativeNodeType, future: F) -> Result<NetSelectOkResult<R>, anyhow::Error>
+async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, R>(conn: PreActionSync<'_, Conn>, local_node_type: RelativeNodeType, future: F) -> Result<NetSelectOkResult<R>, anyhow::Error>
     where F: Future<Output=Result<R, anyhow::Error>> {
+    let ref conn = conn.await?;
+    log::info!("NET_SELECT_OK started conv={:?} for {:?}", conn.id, local_node_type);
     let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
 
     struct LocalState<R> {
@@ -94,17 +97,18 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, R>(ref conn: Conn, 
         async fn return_sequence<Conn: ReliableOrderedConnectionToTarget, R>(conn: &Conn, new_state: State, mut state: MutexGuard<'_, LocalState<R>>, adjacent_success: bool) -> Result<(Option<Result<R, anyhow::Error>>, bool), anyhow::Error> {
             state.local_state = new_state.clone();
             conn.send_serialized(new_state.clone()).await?;
-
-            log::info!("INITIATOR RETURNING");
+            //conn.recv_until_serialized(|s: &State| *s == State::NonPreferredFinished).await?;
             Ok((state.ret_value.take(), adjacent_success))
         }
 
         loop {
+            log::info!("{:?} awaiting ...", local_node_type);
             let received_remote_state = conn.recv_serialized::<State>().await?;
             log::info!("{:?} RECV'd {:?}", local_node_type, &received_remote_state);
             let mut lock = local_state_ref.lock().await;
             let local_state_info = lock.ret_value.as_ref().map(|r| r.is_ok());
             let adjacent_success = received_remote_state.implies_remote_success();
+            log::info!("[conv={:?} Node {:?} recv {:?} || Local state: {:?}", conn.id, local_node_type, received_remote_state, lock.local_state);
 
             if has_preference {
                 // if local has preference, we have the permission to evaluate
@@ -119,7 +123,7 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, R>(ref conn: Conn, 
                         // if adjacent has a valid result, the adjacent side wins unconditionally
                         if received_remote_state.implies_remote_success() {
                             // adjacent node wins unconditionally
-                            return return_sequence(conn, State::ResolvedPointeeWins, lock, adjacent_success).await
+                            return return_sequence(conn, State::ResolvedAdjacentWins, lock, adjacent_success).await
                         } else {
 
                             // if local state is errored, and, remote is errored, then conclude
@@ -137,7 +141,7 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, R>(ref conn: Conn, 
                         // if remote won, finish unconditionally
                         if received_remote_state.implies_remote_success() {
                             // adjacent node wins unconditionally
-                            return return_sequence(conn, State::ResolvedPointeeWins, lock, adjacent_success).await
+                            return return_sequence(conn, State::ResolvedAdjacentWins, lock, adjacent_success).await
                         } else {
                             // local state is pending, yet, remote is either errored or not done
                             if received_remote_state.implies_remote_failure() {
@@ -152,41 +156,31 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, R>(ref conn: Conn, 
                 }
             } else {
                 // if not, we cannot evaluate UNLESS we are being told that we resolved
-                log::info!("RECV REMT: {:?}", received_remote_state);
+                //log::info!("RECV REMT: {:?}", received_remote_state);
                 match received_remote_state {
-                    State::ResolvedPointeeWins => {
+                    State::ResolvedAdjacentWins => {
                         // remote is telling us WE won
                         lock.local_state = State::ResolvedLocalWon;
                         //conn.send_serialized(State::NonPreferredFinished).await?;
-
                         return Ok((lock.ret_value.take(), false))
                     }
 
                     State::ResolvedLocalWon => {
                         // remote is telling us THEY won
-                        lock.local_state = State::ResolvedPointeeWins;
+                        lock.local_state = State::ResolvedAdjacentWins;
                         //conn.send_serialized(State::NonPreferredFinished).await?;
-
                         return Ok((None, true))
                     }
 
                     State::ResolvedBothFail => {
                         // both nodes failed
-                        log::info!("{:?} returning with both failed", local_node_type);
                         std::mem::drop(lock);
                         //conn.send_serialized(State::NonPreferredFinished).await?;
-
                         return Ok((None, false))
                     }
 
-                    State::ObtainedValidResult => {
-                        // if the opposite side sent this, it means it locally produced a valid result and is thus the winner
-                        return Ok((None, true))
-                    }
-
                     _ => {
-                        // even in the case of an error, we need to let remote determine what to do. Just ping
-                        log::info!("Sending ping");
+                        // even in the case of an error, OR obtained a valid result, we need to let remote determine what to do. Just ping back
                         //std::mem::drop(lock);
                         conn.send_serialized(State::Pinging(local_state_info)).await?;
                     }
@@ -204,7 +198,7 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, R>(ref conn: Conn, 
         let state = res.as_ref().map(|_| State::ObtainedValidResult).unwrap_or(State::Error);
 
         // we don't check the local state because the resolution would terminate this task anyways
-        log::info!("[NetRacer] {:?} Old state: {:?} | New state: {:?}", local_node_type, &local_state.local_state, &state);
+        //log::info!("[NetRacer] {:?} Old state: {:?} | New state: {:?}", local_node_type, &local_state.local_state, &state);
 
         local_state.local_state = state.clone();
         local_state.ret_value = Some(res);
@@ -212,7 +206,7 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, R>(ref conn: Conn, 
         // now, send a packet to the other side
         conn.send_serialized(state).await?;
         std::mem::drop(local_state);
-        log::info!("[NetRacer] {:?} completer done", local_node_type);
+        //log::info!("[NetRacer] {:?} completer done", local_node_type);
 
         stopper_rx.await?;
         Err(anyhow::Error::msg("Stopped before the resolver"))
@@ -220,9 +214,10 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, R>(ref conn: Conn, 
 
     tokio::select! {
         res0 = evaluator => {
+            log::info!("[conv={:?}] NET_SELECT_OK Ending for {:?}", conn.id, local_node_type);
             let (ret, remote_success) = res0?;
             let local_state = local_state_ref.lock().await;
-            log::info!("returning {:?} local state = {:?}", local_node_type, local_state.local_state);
+            //log::info!("returning {:?} local state = {:?}", local_node_type, local_state.local_state);
             Ok(wrap_return(ret, local_state.local_state == State::ResolvedLocalWon, remote_success))
         },
 
@@ -236,17 +231,14 @@ fn wrap_return<R>(result: Option<Result<R, anyhow::Error>>, did_win: bool, other
 
 #[cfg(test)]
 mod tests {
-    use tokio::net::{TcpListener, TcpStream};
-    use crate::udp_traversal::linear::RelativeNodeType;
     use std::pin::Pin;
     use std::future::Future;
     use std::task::{Context, Poll};
-    use crate::sync::ReliableOrderedConnSyncExt;
     use crate::reliable_conn::ReliableOrderedConnectionToTarget;
-    use std::sync::Arc;
     use std::fmt::Debug;
     use std::time::Duration;
-    use crate::reliable_conn::simulator::NetworkConnSimulator;
+    use crate::sync::network_endpoint::NetworkEndpoint;
+    use crate::sync::tests::{create_streams, deadlock_detector};
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -258,68 +250,48 @@ mod tests {
         log::error!("ERROR enabled");
     }
 
-    async fn create_streams() -> (Arc<NetworkConnSimulator<'static, TcpStream>>, Arc<NetworkConnSimulator<'static, TcpStream>>) {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let server = async move {
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            tx.send(listener.local_addr().unwrap()).unwrap();
-            listener.accept().await.unwrap().0
-        };
-
-        let client = async move {
-            let addr = rx.await.unwrap();
-            TcpStream::connect(addr).await.unwrap()
-        };
-
-        let (server_stream, client_stream) = tokio::join!(server, client);
-        (Arc::new(server_stream.into()), Arc::new(client_stream.into()))
-    }
-
     #[tokio::test]
     async fn racer() {
         setup_log();
+        deadlock_detector();
 
+        let (server_stream, client_stream) = create_streams().await;
 
-        //inner(server_stream.clone(), client_stream.clone(), dummy_function_err(), dummy_function()).await;
-        //flush_clean(&client_stream, &server_stream).await;
-        for idx in 0..10 {
-            log::info!("[Meta] ERR:ERR ({}/10)", idx);
-            let (server_stream, client_stream) = create_streams().await;
+        const COUNT: i32 = 100;
+
+        for idx in 0..COUNT {
+            log::info!("[Meta] ERR:ERR ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function_err(), dummy_function_err()).await;
         }
 
-
-        for idx in 0..10 {
-            log::info!("[Meta] OK:OK ({}/10)", idx);
-            let (server_stream, client_stream) = create_streams().await;
+        for idx in 0..COUNT {
+            log::info!("[Meta] OK:OK ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function(), dummy_function()).await;
         }
 
 
-        for idx in 0..10 {
-            log::info!("[Meta] ERR:OK ({}/10)", idx);
-            let (server_stream, client_stream) = create_streams().await;
+        for idx in 0..COUNT{
+            log::info!("[Meta] ERR:OK ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function_err(), dummy_function()).await;
         }
 
 
-        for idx in 0..10 {
-            log::info!("[Meta] OK:ERR ({}/10)", idx);
-            let (server_stream, client_stream) = create_streams().await;
+        for idx in 0..COUNT {
+            log::info!("[Meta] OK:ERR ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function(), dummy_function_err()).await;
         }
     }
 
 
-    async fn inner<R: Send + Debug + 'static, Conn0: ReliableOrderedConnectionToTarget + 'static, Conn1: ReliableOrderedConnectionToTarget + 'static, F: Future<Output=Result<R, anyhow::Error>> + 'static, Y: Future<Output=Result<R, anyhow::Error>> + 'static>(conn0: Conn0, conn1: Conn1, fx_1: F, fx_2: Y) {
+    async fn inner<R: Send + Debug + 'static, Conn0: ReliableOrderedConnectionToTarget + 'static, Conn1: ReliableOrderedConnectionToTarget + 'static, F: Future<Output=Result<R, anyhow::Error>> + 'static, Y: Future<Output=Result<R, anyhow::Error>> + 'static>(conn0: NetworkEndpoint<Conn0>, conn1: NetworkEndpoint<Conn1>, fx_1: F, fx_2: Y) {
         let server = AssertSendSafeFuture::new(async move {
-            let res = conn0.net_select_ok(RelativeNodeType::Receiver, fx_1).await.unwrap();
+            let res = conn0.net_select_ok(fx_1).await.unwrap();
             log::info!("Server res: {:?}", res);
             res
         });
 
         let client = AssertSendSafeFuture::new(async move {
-            let res = conn1.net_select_ok(RelativeNodeType::Initiator, fx_2).await.unwrap();
+            let res = conn1.net_select_ok(fx_2).await.unwrap();
             log::info!("Client res: {:?}", res);
             res
         });

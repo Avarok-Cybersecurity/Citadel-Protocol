@@ -19,7 +19,7 @@ use crate::hdp::outbound_sender::OutboundPrimaryStreamSender;
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use std::sync::atomic::Ordering;
 use hyxe_crypt::prelude::ConstructorOpts;
-use crate::hdp::peer::hole_punch_compat_sink_stream::HolePunchCompatStream;
+use crate::hdp::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use hyxe_nat::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use hyxe_nat::udp_traversal::linear::RelativeNodeType;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
@@ -339,8 +339,8 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // now that the virtual connection is created on this end, we need to do the same to the other end
                                 let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage2(sync_time_ns, None));
 
-                                let hole_punch_compat_stream = HolePunchCompatStream::new(session.to_primary_stream.clone()?, &mut *state_container, bob_nat_info.peer_remote_addr_visible_from_server, session.implicated_user_p2p_internal_listener_addr.clone()?, peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
-                                let hole_puncher = UdpHolePuncher::new(hole_punch_compat_stream, RelativeNodeType::Initiator, generate_hole_punch_crypt_container(endpoint_hyper_ratchet, SecurityLevel::LOW, peer_cid));
+                                let hole_punch_compat_stream = ReliableOrderedCompatStream::new(session.to_primary_stream.clone()?, &mut *state_container, bob_nat_info.peer_remote_addr_visible_from_server, session.implicated_user_p2p_internal_listener_addr.clone()?, peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
+                                let hole_puncher = UdpHolePuncher::new(hole_punch_compat_stream.clone(), RelativeNodeType::Initiator, generate_hole_punch_crypt_container(endpoint_hyper_ratchet.clone(), SecurityLevel::LOW, peer_cid));
 
                                 std::mem::drop(state_container);
                                 // we need to use the session pqc since this signal needs to get processed by the center node
@@ -355,7 +355,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
                                 let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
                                 let quic_endpoint = session.client_only_quic_endpoint.clone()?;
-                                let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, hole_puncher, quic_endpoint);
+                                let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, hole_puncher, quic_endpoint, hole_punch_compat_stream, RelativeNodeType::Initiator);
                                 let _ = spawn!(hole_punch_future);
 
                                 //let _ = hole_punch_future.await;
@@ -392,8 +392,8 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 // We can now send the channel to the kernel, where TURN traversal is immediantly available.
                                 // however, STUN-like traversal will proceed in the background
                                 //state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
-                                let hole_punch_compat_stream = HolePunchCompatStream::new(session.to_primary_stream.clone()?, &mut *state_container, alice_nat_info.peer_remote_addr_visible_from_server, session.implicated_user_p2p_internal_listener_addr.clone()?, peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
-                                let hole_puncher = UdpHolePuncher::new(hole_punch_compat_stream, RelativeNodeType::Receiver, generate_hole_punch_crypt_container(endpoint_hyper_ratchet, SecurityLevel::LOW, peer_cid));
+                                let hole_punch_compat_stream = ReliableOrderedCompatStream::new(session.to_primary_stream.clone()?, &mut *state_container, alice_nat_info.peer_remote_addr_visible_from_server, session.implicated_user_p2p_internal_listener_addr.clone()?, peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
+                                let hole_puncher = UdpHolePuncher::new(hole_punch_compat_stream.clone(), RelativeNodeType::Receiver, generate_hole_punch_crypt_container(endpoint_hyper_ratchet, SecurityLevel::LOW, peer_cid));
                                 let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
                                 let diff = Duration::from_nanos(i64::abs(timestamp - *sync_time_ns) as u64);
                                 let sync_instant = Instant::now() + diff;
@@ -402,7 +402,7 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                 let implicated_cid = session.implicated_cid.clone();
                                 let kernel_tx = session.kernel_tx.clone();
                                 let quic_endpoint = session.client_only_quic_endpoint.clone()?;
-                                let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, hole_puncher, quic_endpoint);
+                                let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, hole_puncher, quic_endpoint, hole_punch_compat_stream, RelativeNodeType::Receiver);
                                 std::mem::drop(state_container);
                                 let _ = spawn!(hole_punch_future);
 
@@ -423,9 +423,9 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
 
                                 let possible_verified_conn = kem_state_container.verified_socket_addr.clone();
                                 kem_state_container.p2p_conn_established = true;
-                                let local_is_initiator = kem_state_container.local_is_initiator;
-                                let mut upgraded_connection = false;
-                                if !local_is_initiator {
+                                //let local_is_initiator = kem_state_container.local_is_initiator;
+                                //let mut upgraded_connection = false;
+                                //if !local_is_initiator {
                                     // We upgrade the connection
                                     if let Ok(udp_conn) = state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
                                         log::info!("Successfully upgraded direct p2p connection for {}@{:?}", peer_cid, peer_addr);
@@ -435,20 +435,20 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                             HdpSession::udp_socket_loader(session.clone(), conn.reverse().as_virtual_connection(), UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, None);
                                         }
 
-                                        upgraded_connection = true;
+                                        //upgraded_connection = true;
                                     } else {
                                         log::warn!("Unable to upgrade direct P2P connection for {:?}. Missing items?", peer_addr);
                                         return PrimaryProcessorResult::Void;
                                     }
-                                } else {
+                                /*} else {
                                     // upgrade-on-drop option IF local doesn't have conn established
                                     state_container.provisional_direct_p2p_conns.get_mut(&peer_addr)?.fallback = Some(peer_cid);
                                     log::info!("[Fallback] Will use the stream w/ {:?} if the other does not succeed in valid time", peer_addr);
-                                }
+                                }*/
 
                                 // Now, tell the other side the connection was established. Here, we use just pqc and drill because this packet,
                                 // by requirement, was encrypted using the endpoint encryption
-                                let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::HolePunchEstablishedVerified(upgraded_connection));
+                                let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::HolePunchEstablishedVerified(true));
                                 let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal_endpoint(&sess_hyper_ratchet, signal, ticket, timestamp, peer_cid, security_level);
                                 PrimaryProcessorResult::ReplyToSender(packet)
                             }

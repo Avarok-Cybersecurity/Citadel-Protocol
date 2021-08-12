@@ -1446,7 +1446,7 @@ pub(crate) mod hole_punch {
     pub fn generate_packet(hyper_ratchet: &HyperRatchet, plaintext: &[u8], security_level: SecurityLevel, target_cid: u64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::HOLE_PUNCH,
-            cmd_aux: 0,
+            cmd_aux: packet_flags::cmd::aux::udp::HOLE_PUNCH,
             algorithm: 0,
             security_level: security_level.value(),
             context_info: Default::default(),

@@ -19,11 +19,30 @@ pub trait ReliableOrderedConnectionToTarget: Send + Sync {
     fn peer_addr(&self) -> std::io::Result<SocketAddr>;
 
     async fn recv_serialized<T: DeserializeOwned + Send + Sync>(&self) -> std::io::Result<T> {
-        Ok(bincode2::deserialize(&self.recv().await?).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?)
+        let packet = &self.recv().await?;
+        Ok(bincode2::deserialize(packet).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?)
+    }
+
+    /// Waits until a valid packet gets received, discarding any invalid packets packet
+    async fn recv_until_serialized<T: DeserializeOwned + Send + Sync, F: Fn(&T) -> bool + Send>(&self, f: F) -> std::io::Result<T> {
+        loop {
+            match self.recv_serialized().await {
+                Ok(packet) => {
+                    if (f)(&packet) {
+                        return Ok(packet)
+                    }
+                }
+
+                Err(err) => {
+                    log::warn!("Invalid packet type ... {:?})", err);
+                }
+            }
+        }
     }
 
     async fn send_serialized<T: Serialize + Send + Sync>(&self, t: T) -> std::io::Result<()> {
-        self.send_to_peer(&bincode2::serialize(&t).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?).await
+        let packet = &bincode2::serialize(&t).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+        self.send_to_peer(packet).await
     }
 }
 
@@ -121,29 +140,45 @@ impl<T: ReliableOrderedConnectionToTarget> ReliableOrderedConnectionToTarget for
 #[cfg(test)]
 pub(crate) mod simulator {
     use crate::reliable_conn::ReliableOrderedConnectionToTarget;
-    use std::marker::PhantomData;
     use bytes::Bytes;
     use std::net::SocketAddr;
     use async_trait::async_trait;
-    use std::time::Duration;
+    use rand::Rng;
+    use std::sync::Arc;
+    use tokio::sync::mpsc::UnboundedSender;
 
-    pub struct NetworkConnSimulator<'a, T: ReliableOrderedConnectionToTarget + 'a> {
-        inner: T,
-        _pd: PhantomData<&'a T>
+    pub struct NetworkConnSimulator<T: ReliableOrderedConnectionToTarget + 'static> {
+        inner: Arc<T>,
+        fwd: UnboundedSender<Vec<u8>>
     }
 
-    impl<T: ReliableOrderedConnectionToTarget> From<T> for NetworkConnSimulator<'_, T> {
+    impl<T: ReliableOrderedConnectionToTarget + 'static> From<T> for NetworkConnSimulator<T> {
         fn from(inner: T) -> Self {
-            Self { inner, _pd: Default::default() }
+            let inner = Arc::new(inner);
+            let inner_fwd = inner.clone();
+            let (fwd, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+
+            tokio::task::spawn(async move {
+                while let Some(packet) = rx.recv().await {
+                    let _rnd = {
+                        let mut rng = rand::thread_rng();
+                        rng.gen_range(50..150) // 50 -> 150ms ping
+                    };
+
+                    //tokio::time::sleep(std::time::Duration::from_millis(_rnd)).await;
+                    inner_fwd.send_to_peer(&packet).await.unwrap();
+                }
+            });
+
+            Self { inner, fwd }
         }
     }
 
     #[async_trait]
-    impl<T: ReliableOrderedConnectionToTarget> ReliableOrderedConnectionToTarget for NetworkConnSimulator<'_, T> {
+    impl<T: ReliableOrderedConnectionToTarget + 'static> ReliableOrderedConnectionToTarget for NetworkConnSimulator<T> {
         async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
-            self.inner.send_to_peer(input).await?;
-            tokio::time::sleep(Duration::from_millis(1)).await;
-            Ok(())
+            let heap = input.to_vec();
+            self.fwd.send(heap).map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))
         }
 
         async fn recv(&self) -> std::io::Result<Bytes> {

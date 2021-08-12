@@ -246,7 +246,7 @@ pub mod tests {
     pub const DEFAULT_RAND_MESSAGE_LEN: usize = 2000;
     pub const DEFAULT_ENCRYPTION_ALGORITHM: EncryptionAlgorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
     pub const DEFAULT_KEM_ALGORITHM: KemAlgorithm = KemAlgorithm::Firesaber;
-    pub const DEFAULT_UDP_MODE: UdpMode = UdpMode::Enabled;
+    pub const DEFAULT_UDP_MODE: UdpMode = UdpMode::Disabled;
 
     // misc statics
     pub static P2P_SENDING_START_TIME: Mutex<Option<Instant>> = const_mutex(None);
