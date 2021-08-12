@@ -8,10 +8,12 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::drill::SecurityLevel;
 use async_trait::async_trait;
 use crate::hdp::peer::p2p_conn_handler::generic_error;
+use std::sync::Arc;
 
-pub(crate) struct HolePunchCompatStream {
+#[derive(Clone)]
+pub(crate) struct ReliableOrderedCompatStream {
     to_primary_stream: OutboundPrimaryStreamSender,
-    from_stream: Mutex<UnboundedReceiver<Bytes>>,
+    from_stream: Arc<Mutex<UnboundedReceiver<Bytes>>>,
     peer_external_addr: SocketAddr,
     local_bind_addr: SocketAddr,
     hr: HyperRatchet,
@@ -19,7 +21,7 @@ pub(crate) struct HolePunchCompatStream {
     target_cid: u64
 }
 
-impl HolePunchCompatStream {
+impl ReliableOrderedCompatStream {
     /// For C2S, using this is straight forward (set target_cid to 0)
     /// For P2P, using this is not as straight forward. This will use the central node for routing packets. As such, the target_cid must be set to the peers to enable routing. Additionally, this will need to use the p2p ratchet. This implies that
     /// BOTH nodes must already have the ratchets loaded
@@ -30,12 +32,12 @@ impl HolePunchCompatStream {
         // NOTE: The protocol must strip the header when passing packets to the from_stream function!
         let _ = state_container.hole_puncher_pipes.insert(target_cid, from_stream_tx);
 
-        Self { to_primary_stream, from_stream: Mutex::new(from_stream_rx), peer_external_addr, local_bind_addr, hr, security_level, target_cid }
+        Self { to_primary_stream, from_stream: Arc::new(Mutex::new(from_stream_rx)), peer_external_addr, local_bind_addr, hr, security_level, target_cid }
     }
 }
 
 #[async_trait]
-impl ReliableOrderedConnectionToTarget for HolePunchCompatStream {
+impl ReliableOrderedConnectionToTarget for ReliableOrderedCompatStream {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
         let packet = crate::hdp::hdp_packet_crafter::hole_punch::generate_packet(&self.hr, input, self.security_level, self.target_cid);
         self.to_primary_stream.unbounded_send(packet).map_err(|err| generic_error(err.to_string()))

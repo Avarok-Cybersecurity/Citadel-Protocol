@@ -117,6 +117,7 @@ pub(crate) mod packet_flags {
             pub(crate) mod udp {
                 pub(crate) const STREAM: u8 = 0;
                 pub(crate) const KEEP_ALIVE: u8 = 1;
+                pub(crate) const HOLE_PUNCH: u8 = 2;
             }
         }
     }

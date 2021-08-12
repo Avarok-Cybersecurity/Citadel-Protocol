@@ -1,54 +1,110 @@
-use crate::udp_traversal::linear::RelativeNodeType;
-use std::future::Future;
-use crate::sync::net_select_ok::NetSelectOk;
-use crate::reliable_conn::ReliableOrderedConnectionToTarget;
-use crate::sync::sync_start::NetSyncStart;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
-use crate::udp_traversal::udp_hole_puncher::UdpHolePuncher;
-use crate::sync::net_select::NetSelect;
+use serde::{Serialize, Deserialize};
 
+pub mod network_endpoint;
+pub mod net_try_join;
+pub mod net_join;
 pub mod net_select_ok;
 pub mod net_select;
 pub mod sync_start;
 
-pub trait ReliableOrderedConnSyncExt: ReliableOrderedConnectionToTarget + Sized {
-    fn net_select<'a, F: 'a, R: 'a>(&'a self, relative_node_type: RelativeNodeType, future: F) -> NetSelect<'a, R>
-        where
-            F: Future<Output=R> {
-        NetSelect::new(self, relative_node_type, future)
-    }
+#[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Debug, Copy, Clone)]
+/// Used to keep track between two symmetric actions across two nodes
+pub struct SymmetricConvID(u64);
 
-    fn net_select_ok<'a, F: 'a, R: 'a>(&'a self, relative_node_type: RelativeNodeType, future: F) -> NetSelectOk<'a, R>
-        where
-            F: Future<Output=Result<R, anyhow::Error>> {
-        NetSelectOk::new(self, relative_node_type, future)
-    }
-
-    fn sync(&self, relative_node_type: RelativeNodeType) -> NetSyncStart<()> {
-        NetSyncStart::<()>::new_sync_only(self, relative_node_type)
-    }
-
-    /// Returns the payload to the adjacent node at about the same time
-    fn sync_exchange_payload<'a, R: 'a>(&'a self, relative_node_type: RelativeNodeType, payload: R) -> NetSyncStart<'a, R>
-        where
-            R: Serialize + DeserializeOwned + Send + Sync {
-        NetSyncStart::exchange_payload(self, relative_node_type, payload)
-    }
-
-    fn sync_execute<'a, F: 'a, Fx: 'a, P: 'a + Serialize + DeserializeOwned + Send + Sync, R: 'a>(&'a self, relative_node_type: RelativeNodeType, future: Fx, payload: P) -> NetSyncStart<'a, R>
-        where
-            F: Future<Output=R>,
-            F: Send,
-            Fx: FnOnce(P) -> F,
-            Fx: Send {
-        NetSyncStart::new(self, relative_node_type, future, payload)
-    }
-
-    fn begin_udp_hole_punch(&self, relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer) -> UdpHolePuncher {
-        UdpHolePuncher::new(self, relative_node_type, encrypted_config_container)
+impl From<u64> for SymmetricConvID {
+    fn from(item: u64) -> Self {
+        Self(item)
     }
 }
 
-impl<T: ReliableOrderedConnectionToTarget> ReliableOrderedConnSyncExt for T {}
+#[cfg(test)]
+pub(crate) mod tests {
+    use crate::sync::network_endpoint::NetworkEndpoint;
+    use tokio::net::{TcpStream, TcpListener};
+    use crate::reliable_conn::simulator::NetworkConnSimulator;
+    use crate::udp_traversal::linear::RelativeNodeType;
+    use tokio_util::codec::{Framed, LengthDelimitedCodec};
+    use crate::reliable_conn::ReliableOrderedConnectionToTarget;
+    use bytes::Bytes;
+    use std::net::SocketAddr;
+    use futures::{SinkExt, StreamExt};
+    use tokio::sync::Mutex;
+    use futures::stream::{SplitSink, SplitStream};
+    use async_trait::async_trait;
+
+    pub(crate) struct TcpCodecFramed {
+        sink: Mutex<SplitSink<Framed<TcpStream, LengthDelimitedCodec>, Bytes>>,
+        stream: Mutex<SplitStream<Framed<TcpStream, LengthDelimitedCodec>>>,
+        local_addr: SocketAddr,
+        remote_addr: SocketAddr
+    }
+
+    #[async_trait]
+    impl ReliableOrderedConnectionToTarget for TcpCodecFramed {
+        async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
+            self.sink.lock().await.send(Bytes::copy_from_slice(input)).await
+        }
+
+        async fn recv(&self) -> std::io::Result<Bytes> {
+            Ok(self.stream.lock().await.next().await.ok_or_else(|| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Stream died"))??.freeze())
+        }
+
+        fn local_addr(&self) -> std::io::Result<SocketAddr> {
+            Ok(self.local_addr)
+        }
+
+        fn peer_addr(&self) -> std::io::Result<SocketAddr> {
+            Ok(self.remote_addr)
+        }
+    }
+
+    fn codec(stream: TcpStream) -> TcpCodecFramed {
+        let local_addr = stream.local_addr().unwrap();
+        let remote_addr = stream.peer_addr().unwrap();
+        let (sink, stream) = LengthDelimitedCodec::builder().new_framed(stream).split();
+        TcpCodecFramed { sink: Mutex::new(sink), stream: Mutex::new(stream), local_addr, remote_addr }
+    }
+
+    pub(crate) async fn create_streams() -> (NetworkEndpoint<NetworkConnSimulator<TcpCodecFramed>>, NetworkEndpoint<NetworkConnSimulator<TcpCodecFramed>>) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let server = async move {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            tx.send(listener.local_addr().unwrap()).unwrap();
+            NetworkEndpoint::register(RelativeNodeType::Receiver, NetworkConnSimulator::from(codec(listener.accept().await.unwrap().0))).await.unwrap()
+        };
+
+        let client = async move {
+            let addr = rx.await.unwrap();
+            NetworkEndpoint::register(RelativeNodeType::Initiator, NetworkConnSimulator::from(codec(TcpStream::connect(addr).await.unwrap()))).await.unwrap()
+        };
+
+        tokio::join!(server, client)
+    }
+
+    pub fn deadlock_detector() {
+        log::info!("Deadlock function called ...");
+        use std::thread;
+        use std::time::Duration;
+        use parking_lot::deadlock;
+        // Create a background thread which checks for deadlocks every 10s
+        thread::spawn(move || {
+            log::info!("Deadlock detector spawned ...");
+            loop {
+                thread::sleep(Duration::from_secs(8));
+                let deadlocks = deadlock::check_deadlock();
+                if deadlocks.is_empty() {
+                    continue;
+                }
+
+                log::info!("{} deadlocks detected", deadlocks.len());
+                for (i, threads) in deadlocks.iter().enumerate() {
+                    log::info!("Deadlock #{}", i);
+                    for t in threads {
+                        //println!("Thread Id {:#?}", t.thread_id());
+                        log::info!("{:#?}", t.backtrace());
+                    }
+                }
+            }
+        });
+    }
+}

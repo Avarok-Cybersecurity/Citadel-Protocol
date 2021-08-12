@@ -1,6 +1,6 @@
 use crate::hdp::peer::peer_layer::UdpMode;
 
-pub const BUILD_VERSION: usize = 7390;
+pub const BUILD_VERSION: usize = 7450;
 /// by default, the UDP is not initialized
 pub const UDP_MODE: UdpMode = UdpMode::Disabled;
 /// Setting this option to zero will imply an RST gets sent once close() is called. This will lead to packets possibly being undelivered
