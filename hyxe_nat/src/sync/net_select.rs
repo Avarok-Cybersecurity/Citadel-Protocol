@@ -5,6 +5,7 @@ use crate::udp_traversal::linear::RelativeNodeType;
 use crate::sync::net_select_ok::NetSelectOk;
 use futures::TryFutureExt;
 use std::task::{Context, Poll};
+use crate::sync::network_endpoint::NetworkEndpoint;
 
 /// Two endpoints race to produce R. The first endpoint to produce R wins. Includes conflict-resolution synchronization
 pub struct NetSelect<'a, R> {
@@ -12,7 +13,7 @@ pub struct NetSelect<'a, R> {
 }
 
 impl<'a, R: 'a> NetSelect<'a, R> {
-    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'a, F: 'a>(conn: Conn, local_node_type: RelativeNodeType, future: F) -> Self
+    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'static, F: 'a>(conn: &'a NetworkEndpoint<Conn>, local_node_type: RelativeNodeType, future: F) -> Self
         where F: Future<Output=R> {
         Self { future: Box::pin(NetSelectOk::new(conn, local_node_type, async move { Ok(future.await) }).map_ok(|r| NetSelectResult { value: r.result })) }
     }

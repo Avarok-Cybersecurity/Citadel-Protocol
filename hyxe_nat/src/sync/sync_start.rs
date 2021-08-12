@@ -7,6 +7,7 @@ use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use crate::time_tracker::TimeTracker;
 use std::time::Duration;
+use crate::sync::network_endpoint::{NetworkEndpoint, PreActionSync};
 
 /// synchronizes the beginning of an operation between two nodes. Includes attaching an optional payload for transmission of information between two endpoints during the transmission-sync phase
 pub struct NetSyncStart<'a, R> {
@@ -14,30 +15,26 @@ pub struct NetSyncStart<'a, R> {
 }
 
 impl<'a, R: 'a> NetSyncStart<'a, R> {
-    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'a, F: 'a, Fx: 'a, P: 'a + Serialize + DeserializeOwned + Send + Sync>(conn: Conn, relative_node_type: RelativeNodeType, future: Fx, payload: P) -> Self
+    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'static, F: 'a, Fx: 'a, P: Serialize + DeserializeOwned + Send + Sync + 'a>(conn: &'a NetworkEndpoint<Conn>, relative_node_type: RelativeNodeType, future: Fx, payload: P) -> Self
         where
             F: Future<Output=R>,
             F: Send,
             Fx: FnOnce(P) -> F,
             Fx: Send {
 
-        Self { future: Box::pin(synchronize(conn, relative_node_type, future, payload)) }
+        Self { future: Box::pin(synchronize(conn.subscribe(), relative_node_type, future, payload)) }
     }
 
     /// Unlike `new`, this function will simply return the payload to the adjacent node synchronisticly with the adjacent node (i.e., both nodes receive each other's payloads at about the same time)
-    pub fn exchange_payload<Conn: ReliableOrderedConnectionToTarget + 'a>(conn: Conn, relative_node_type: RelativeNodeType, payload: R) -> Self
+    pub fn exchange_payload<Conn: ReliableOrderedConnectionToTarget + 'static>(conn: &'a NetworkEndpoint<Conn>, relative_node_type: RelativeNodeType, payload: R) -> Self
         where
             R: Serialize + DeserializeOwned + Send + Sync {
 
-        let future = |payload: R| {
-            futures::future::ready(payload)
-        };
-
-        Self { future: Box::pin(synchronize(conn, relative_node_type, future, payload)) }
+        Self { future: Box::pin(synchronize(conn.subscribe(), relative_node_type, futures::future::ready, payload)) }
     }
 
     /// This returned future will resolve once both sides terminate synchronisticly
-    pub fn new_sync_only<Conn: ReliableOrderedConnectionToTarget + 'a>(conn: Conn, relative_node_type: RelativeNodeType) -> NetSyncStart<'a, ()> {
+    pub fn new_sync_only<Conn: ReliableOrderedConnectionToTarget + 'static>(conn: &NetworkEndpoint<Conn>, relative_node_type: RelativeNodeType) -> NetSyncStart<()> {
         NetSyncStart::exchange_payload(conn, relative_node_type, ())
     }
 }
@@ -58,6 +55,29 @@ enum SyncPacket<P: Send + Sync> {
 }
 
 impl<P: Send + Sync> SyncPacket<P> {
+    fn is_syn(&self) -> bool {
+        match self {
+            Self::Syn(..) => true,
+            _ => false
+        }
+    }
+
+    fn is_syn_ack(&self) -> bool {
+        match self {
+            Self::SynAck(..) => true,
+            _ => false
+        }
+    }
+
+    fn is_ack(&self) -> bool {
+        match self {
+            Self::Ack(..) => true,
+            _ => false
+        }
+    }
+}
+
+impl<P: Send + Sync> SyncPacket<P> {
     fn payload(self) -> Result<P, anyhow::Error> {
         match self {
             Self::Syn(payload) | Self::SynAck(payload) => Ok(payload),
@@ -73,36 +93,47 @@ impl<P: Send + Sync> SyncPacket<P> {
     }
 }
 
-async fn synchronize<Conn: ReliableOrderedConnectionToTarget, F, Fx, P: Serialize + DeserializeOwned + Send + Sync, R>(ref conn: Conn, relative_node_type: RelativeNodeType, future: Fx, payload: P) -> Result<R, anyhow::Error>
+async fn synchronize<Conn: ReliableOrderedConnectionToTarget, F, Fx, P: Serialize + DeserializeOwned + Send + Sync, R>(conn: PreActionSync<'_, Conn>, relative_node_type: RelativeNodeType, future: Fx, payload: P) -> Result<R, anyhow::Error>
     where
         F: Future<Output=R>,
         F: Send,
         Fx: FnOnce(P) -> F,
         Fx: Send {
 
+    let ref conn = conn.await?;
     let tt = TimeTracker::new();
 
     match relative_node_type {
         RelativeNodeType::Receiver => {
+            log::info!("[Sync] Receiver sending SYN ...");
             let now = tt.get_global_time_ns();
-            send(conn, SyncPacket::Syn(payload)).await?;
-            let payload_recv: P = recv(conn).await?.payload()?;
+            conn.send_serialized::<SyncPacket<P>>(SyncPacket::Syn(payload)).await?;
+            log::info!("[Sync] Receiver awaiting SYN_ACK ...");
+            let payload_recv = conn.recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_syn_ack()).await?.payload()?;
             let rtt = tt.get_global_time_ns() - now;
             let sync_time = tt.get_global_time_ns() + rtt;
-            send::<_, P>(conn, SyncPacket::Ack(sync_time)).await?;
-            log::info!("[Sync] Executing provided subroutine for receiver ...");
+            log::info!("[Sync] Receiver sending ACK...");
+            conn.send_serialized::<SyncPacket<P>>(SyncPacket::<P>::Ack(sync_time)).await?;
 
             tokio::time::sleep(Duration::from_nanos(rtt as _)).await;
+            log::info!("[Sync] Executing provided subroutine for receiver ...");
             Ok((future)(payload_recv).await)
         }
 
         RelativeNodeType::Initiator => {
-            let payload_recv: P = recv(conn).await?.payload()?;
-            send(conn, SyncPacket::SynAck(payload)).await?;
-            let sync_time = recv::<_, P>(conn).await?.timestamp()?;
-            let delta = i64::abs(sync_time - tt.get_global_time_ns());
+            log::info!("[Sync] Initiator awaiting SYN ...");
+            let payload_recv = conn.recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_syn()).await?.payload()?;
+            log::info!("[Sync] Initiator sending SYN_ACK ...");
+            conn.send_serialized::<SyncPacket<P>>(SyncPacket::SynAck(payload)).await?;
+            log::info!("[Sync] Initiator awaiting ACK ...");
+            let sync_time = conn.recv_until_serialized::<SyncPacket<P>, _>(|p| p.is_ack()).await?.timestamp()?;
+            let now = tt.get_global_time_ns();
 
-            tokio::time::sleep(Duration::from_nanos(delta as _)).await;
+            if sync_time > now {
+                let delta = i64::abs(sync_time - tt.get_global_time_ns());
+                tokio::time::sleep(Duration::from_nanos(delta as _)).await;
+            }
+
             log::info!("[Sync] Executing provided subroutine for initiator ...");
 
             Ok((future)(payload_recv).await)
@@ -110,23 +141,11 @@ async fn synchronize<Conn: ReliableOrderedConnectionToTarget, F, Fx, P: Serializ
     }
 }
 
-async fn send<Conn: ReliableOrderedConnectionToTarget, P: Serialize + Send + Sync>(conn: &Conn, ref packet: SyncPacket<P>) -> Result<(), anyhow::Error> {
-    Ok(conn.send_to_peer(&bincode2::serialize(packet).unwrap()).await?)
-}
-
-async fn recv<Conn: ReliableOrderedConnectionToTarget, P: DeserializeOwned + Send + Sync>(conn: &Conn) -> Result<SyncPacket<P>, anyhow::Error> {
-    Ok(bincode2::deserialize(&conn.recv().await?)?)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
-    use tokio::net::{TcpListener, TcpStream};
-    use std::str::FromStr;
-    use crate::udp_traversal::linear::RelativeNodeType;
-    use std::time::Duration;
     use crate::time_tracker::TimeTracker;
-    use crate::sync::ReliableOrderedConnSyncExt;
+    use crate::sync::tests::create_streams;
+    use futures::{FutureExt, StreamExt};
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -139,58 +158,65 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn run() {
+    async fn run_parallel_many() {
         setup_log();
 
-        let addr = SocketAddr::from_str("127.0.0.1:27890").unwrap();
+        let (server, client) = &create_streams().await;
+        let (tx, rx) = futures::channel::mpsc::unbounded();
+        const COUNT: usize = 1000;
 
-        let server = async move {
-            let listener = TcpListener::bind(addr).await.unwrap();
-            let (ref stream, _addr) = listener.accept().await.unwrap();
+        for _ in 0..COUNT {
+            let (server, client) = (server.clone(), client.clone());
+            let tx = tx.clone();
 
-            let res = stream.sync_execute(RelativeNodeType::Receiver, dummy_function, 100).await.unwrap();
-            log::info!("Server res: {:?}", res);
-            res
-        };
+            let server = async move {
+                let res = server.clone().sync_execute(dummy_function, 100).await.unwrap();
+                log::info!("Server res: {:?}", res);
+                res
+            };
 
-        let client = async move {
-            tokio::time::sleep(Duration::from_millis(10)).await; // give time for server to startup
-            let stream = TcpStream::connect(addr).await.unwrap();
+            let client = async move {
+                let res = client.clone().sync_execute(dummy_function, 99).await.unwrap();
+                log::info!("Client res: {:?}", res);
+                res
+            };
 
-            let res = stream.sync_execute(RelativeNodeType::Initiator, dummy_function, 99).await.unwrap();
-            log::info!("Client res: {:?}", res);
-            res
-        };
+            let (server, client) = (tokio::task::spawn(server), tokio::task::spawn(client));
 
-        let server = tokio::spawn(server);
-        let client = tokio::spawn(client);
-        let (res0, res1) = tokio::join!(server, client);
-        let res0 = res0.unwrap();
-        let res1 = res1.unwrap();
+            let joined = futures::future::join(server, client).then(|(res0, res1)| async move {
+                let (res0, res1) = (res0.unwrap(), res1.unwrap());
+                log::info!("res0: {}\nres1: {}\nDelta: {}", res0, res1, res1 - res0);
+                tx.unbounded_send(()).unwrap();
+            });
 
-        log::info!("res0: {}\nres1: {}\nDelta: {}", res0, res1, res1 - res0);
+            tokio::task::spawn(joined);
+
+            /*let server = tokio::spawn(server);
+            let client = tokio::spawn(client);
+            let (res0, res1) = tokio::join!(server, client);
+            let res0 = res0.unwrap();
+            let res1 = res1.unwrap();
+
+            log::info!("res0: {}\nres1: {}\nDelta: {}", res0, res1, res1 - res0);*/
+        }
+
+        rx.take(COUNT).collect::<()>().await;
     }
 
     #[tokio::test]
     async fn run_getter() {
         setup_log();
 
-        let addr = SocketAddr::from_str("127.0.0.1:27890").unwrap();
+        let (server, client) = create_streams().await;
 
         let server = async move {
-            let listener = TcpListener::bind(addr).await.unwrap();
-            let (ref stream, _addr) = listener.accept().await.unwrap();
-
-            let res = stream.sync_exchange_payload(RelativeNodeType::Receiver, 100).await.unwrap();
+            let res = server.sync_exchange_payload(100).await.unwrap();
             log::info!("Server res: {:?}", res);
             res
         };
 
         let client = async move {
-            tokio::time::sleep(Duration::from_millis(10)).await; // give time for server to startup
-            let stream = TcpStream::connect(addr).await.unwrap();
-
-            let res = stream.sync_exchange_payload(RelativeNodeType::Initiator, 99).await.unwrap();
+            let res = client.sync_exchange_payload(99).await.unwrap();
             log::info!("Client res: {:?}", res);
             res
         };

@@ -11,7 +11,7 @@ use crate::hdp::state_container::VirtualTargetType;
 use crate::hdp::peer::peer_layer::UdpMode;
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use hyxe_nat::udp_traversal::udp_hole_puncher::UdpHolePuncher;
-use crate::hdp::peer::hole_punch_compat_sink_stream::HolePunchCompatStream;
+use crate::hdp::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use tokio::net::UdpSocket;
 use crate::hdp::misc::udp_internal_interface::{RawUdpSocketConnector, QuicUdpSocketConnector, UdpSplittableTypes};
@@ -129,7 +129,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                     to_primary_stream.unbounded_send(stage0_preconnect_packet)?;
 
                     //let hole_puncher = SingleUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
-                    let conn = HolePunchCompatStream::new(to_primary_stream, &mut *state_container, server_external_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, new_hyper_ratchet.clone(), security_level);
+                    let conn = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, server_external_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, new_hyper_ratchet.clone(), security_level);
                     let hole_puncher = UdpHolePuncher::new(conn, RelativeNodeType::Initiator, generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY));
                     log::info!("Initiator created");
                     std::mem::drop(state_container);
@@ -142,7 +142,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
 
                         Err(err) => {
                             log::warn!("Hole punch attempt failed. Will exit session: {:?}", err);
-                            // Note: this currently implies that if NAT traversal fails, the session does not open
+                            // Note: this currently implies that if NAT traversal fails, the session does not open (which should be the case for C2S connections anyways)
                             PrimaryProcessorResult::EndSession("UDP NAT traversal failed")
                         }
                     }
@@ -192,7 +192,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                     let _peer_internal_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
                     let to_primary_stream = session.to_primary_stream.clone()?;
 
-                    let conn = HolePunchCompatStream::new(to_primary_stream, &mut *state_container, peer_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
+                    let conn = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, peer_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
                     let hole_puncher = UdpHolePuncher::new(conn, RelativeNodeType::Receiver, generate_hole_punch_crypt_container(hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY));
                     log::info!("Receiver created");
                     std::mem::drop(state_container);
