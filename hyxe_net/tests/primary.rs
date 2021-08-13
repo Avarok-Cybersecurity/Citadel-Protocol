@@ -1271,7 +1271,7 @@ pub mod tests {
             let target_cid = cnac.get_cid();
             let requests = read.queued_requests_client0.clone().unwrap();
             let settings = SessionSecuritySettingsBuilder::default().with_security_level(p2p_security_level).with_secrecy_mode(secrecy_mode()).build();
-            let post_connect_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), None, None, settings, udp_mode()));
+            let post_connect_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostConnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), None, None, settings, UdpMode::Enabled));
 
             let mut remote_client0 = read.remote_client0.clone().unwrap();
             std::mem::drop(read);

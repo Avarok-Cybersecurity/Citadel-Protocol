@@ -1,4 +1,3 @@
-use crate::udp_traversal::linear::RelativeNodeType;
 use serde::{Serialize, Deserialize};
 use futures::Future;
 use std::pin::Pin;
@@ -6,16 +5,17 @@ use crate::reliable_conn::ReliableOrderedConnectionToTarget;
 use std::task::{Context, Poll};
 use tokio::sync::{Mutex, MutexGuard};
 use crate::sync::network_endpoint::{NetworkEndpoint, PreActionSync};
+use crate::sync::RelativeNodeType;
 
 /// Two endpoints race to produce Ok(R). The first endpoint to produce Ok(R) wins. Includes conflict-resolution synchronization
 pub struct NetSelectOk<'a, R> {
-    future: Pin<Box<dyn Future<Output=Result<NetSelectOkResult<R>, anyhow::Error>> + 'a>>,
+    future: Pin<Box<dyn Future<Output=Result<NetSelectOkResult<R>, anyhow::Error>> + Send + 'a>>,
 }
 
-impl<'a, R: 'a> NetSelectOk<'a, R> {
-    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'static, F: 'a>(conn: &'a NetworkEndpoint<Conn>, local_node_type: RelativeNodeType, future: F) -> Self
+impl<'a, R: Send + 'a> NetSelectOk<'a, R> {
+    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'static, F: Send + 'a>(conn: &'a NetworkEndpoint<Conn>, local_node_type: RelativeNodeType, future: F) -> Self
         where F: Future<Output=Result<R, anyhow::Error>> {
-        Self { future: Box::pin(resolve(conn.subscribe(), local_node_type, future)) }
+        Self { future: Box::pin(resolve(conn.subscribe_internal(), local_node_type, future)) }
     }
 }
 
@@ -231,14 +231,12 @@ fn wrap_return<R>(result: Option<Result<R, anyhow::Error>>, did_win: bool, other
 
 #[cfg(test)]
 mod tests {
-    use std::pin::Pin;
     use std::future::Future;
-    use std::task::{Context, Poll};
     use crate::reliable_conn::ReliableOrderedConnectionToTarget;
     use std::fmt::Debug;
     use std::time::Duration;
     use crate::sync::network_endpoint::NetworkEndpoint;
-    use crate::sync::tests::{create_streams, deadlock_detector};
+    use crate::sync::test_utils::{deadlock_detector, create_streams};
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -283,18 +281,18 @@ mod tests {
     }
 
 
-    async fn inner<R: Send + Debug + 'static, Conn0: ReliableOrderedConnectionToTarget + 'static, Conn1: ReliableOrderedConnectionToTarget + 'static, F: Future<Output=Result<R, anyhow::Error>> + 'static, Y: Future<Output=Result<R, anyhow::Error>> + 'static>(conn0: NetworkEndpoint<Conn0>, conn1: NetworkEndpoint<Conn1>, fx_1: F, fx_2: Y) {
-        let server = AssertSendSafeFuture::new(async move {
+    async fn inner<R: Send + Debug + 'static, Conn0: ReliableOrderedConnectionToTarget + 'static, Conn1: ReliableOrderedConnectionToTarget + 'static, F: Future<Output=Result<R, anyhow::Error>> + Send + 'static, Y: Future<Output=Result<R, anyhow::Error>> + Send + 'static>(conn0: NetworkEndpoint<Conn0>, conn1: NetworkEndpoint<Conn1>, fx_1: F, fx_2: Y) {
+        let server = async move {
             let res = conn0.net_select_ok(fx_1).await.unwrap();
             log::info!("Server res: {:?}", res);
             res
-        });
+        };
 
-        let client = AssertSendSafeFuture::new(async move {
+        let client = async move {
             let res = conn1.net_select_ok(fx_2).await.unwrap();
             log::info!("Client res: {:?}", res);
             res
-        });
+        };
 
         let server = tokio::spawn(server);
         let client = tokio::spawn(client);
@@ -329,24 +327,5 @@ mod tests {
 
     async fn dummy_function_err() -> Result<(), anyhow::Error> {
         Err(anyhow::Error::msg("Error!!"))
-    }
-
-    struct AssertSendSafeFuture<'a, Out: 'a>(Pin<Box<dyn Future<Output=Out> + 'a>>);
-
-    unsafe impl<'a, Out: 'a> Send for AssertSendSafeFuture<'a, Out> {}
-
-    impl<'a, Out: 'a> AssertSendSafeFuture<'a, Out> {
-        /// Wraps a future, asserting it is safe to use in a multithreaded context at the possible cost of race conditions, locks, etc
-        pub fn new(fx: impl Future<Output=Out> + 'a) -> Self {
-            Self(Box::pin(fx))
-        }
-    }
-
-    impl<'a, Out: 'a> Future for AssertSendSafeFuture<'a, Out> {
-        type Output = Out;
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            self.0.as_mut().poll(cx)
-        }
     }
 }

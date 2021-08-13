@@ -1,16 +1,20 @@
-use async_trait::async_trait;
 use std::net::SocketAddr;
-use crate::error::FirewallError;
-use crate::udp_traversal::linear::method3::Method3;
-use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedSocketAddr, HolePunchedUdpSocket};
-use tokio::net::UdpSocket;
-use crate::udp_traversal::{NatTraversalMethod, HolePunchID};
-use crate::upnp_handler::UPnPHandler;
-use tokio::time::Duration;
-use igd::PortMappingProtocol;
-use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
-use tokio::sync::mpsc::UnboundedSender;
+
+use async_trait::async_trait;
 use either::Either;
+use igd::PortMappingProtocol;
+use tokio::net::UdpSocket;
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::time::Duration;
+
+use net_sync::sync::RelativeNodeType;
+
+use crate::error::FirewallError;
+use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
+use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedSocketAddr, HolePunchedUdpSocket};
+use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use crate::udp_traversal::linear::method3::Method3;
+use crate::upnp_handler::UPnPHandler;
 
 pub mod encrypted_config_container;
 
@@ -195,28 +199,6 @@ impl SingleUDPHolePuncher {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MethodType {
     METHOD1, METHOD2, METHOD3, METHOD4, METHOD5
-}
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum RelativeNodeType {
-    Initiator,
-    Receiver
-}
-
-impl RelativeNodeType {
-    pub fn into_byte(self) -> u8 {
-        match self {
-            RelativeNodeType::Initiator => 10,
-            RelativeNodeType::Receiver => 20
-        }
-    }
-
-    pub fn from_byte(byte: u8) -> Option<Self> {
-        match byte {
-            10 => Some(RelativeNodeType::Initiator),
-            20 => Some(RelativeNodeType::Receiver),
-            _ => None
-        }
-    }
 }
 
 impl MethodType {

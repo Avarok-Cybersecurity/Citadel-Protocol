@@ -23,7 +23,7 @@ use hyxe_fs::io::SyncIO;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::local_firewall_handler::{FirewallProtocol, open_local_firewall_port, remove_firewall_rule};
 use hyxe_nat::nat_identification::NatType;
-use hyxe_nat::time_tracker::TimeTracker;
+use net_sync::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::external_services::fcm::data_structures::RawFcmPacketStore;
@@ -280,7 +280,7 @@ impl HdpServer {
                 let mut quic = if let Some(quic) = quic_endpoint_opt {
                     quic
                 } else {
-                    let udp_socket = hyxe_nat::socket_helpers::get_udp_socket(bind).map_err(generic_error)?;
+                    let udp_socket = hyxe_nat::socket_helpers::get_reuse_udp_socket(bind).map_err(generic_error)?;
 
                     QuicServer::new(udp_socket, crypto).map_err(generic_error)?
                 };

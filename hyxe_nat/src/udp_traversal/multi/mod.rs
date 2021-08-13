@@ -1,21 +1,25 @@
-use std::net::{SocketAddr, IpAddr};
-use crate::udp_traversal::linear::{SingleUDPHolePuncher, RelativeNodeType};
-use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
-use crate::reliable_conn::ReliableOrderedConnectionToTarget;
-use crate::nat_identification::NatType;
-use std::str::FromStr;
-use async_ip::IpAddressInfo;
-use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedUdpSocket, HolePunchedSocketAddr};
-use std::pin::Pin;
-use futures::{Future, StreamExt};
-use std::task::{Context, Poll};
-use futures::stream::FuturesUnordered;
-use crate::udp_traversal::{NatTraversalMethod, HolePunchID};
-use serde::{Serialize, Deserialize};
-use serde::de::DeserializeOwned;
 use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, SocketAddr};
+use std::pin::Pin;
+use std::str::FromStr;
+use std::task::{Context, Poll};
+
+use futures::{Future, StreamExt};
+use futures::stream::FuturesUnordered;
+use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
-use tokio::sync::mpsc::{UnboundedSender, UnboundedReceiver};
+
+use async_ip::IpAddressInfo;
+use net_sync::reliable_conn::ReliableOrderedConnectionToTarget;
+use net_sync::sync::RelativeNodeType;
+
+use crate::nat_identification::NatType;
+use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
+use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedSocketAddr, HolePunchedUdpSocket};
+use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use crate::udp_traversal::linear::SingleUDPHolePuncher;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///

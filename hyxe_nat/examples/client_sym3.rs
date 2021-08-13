@@ -1,5 +1,5 @@
 use tokio::io::{BufReader, AsyncBufReadExt};
-use hyxe_nat::udp_traversal::linear::RelativeNodeType;
+use net_sync::sync::RelativeNodeType;
 use hyxe_nat::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use hyxe_nat::quic::QuicEndpointConnector;
 

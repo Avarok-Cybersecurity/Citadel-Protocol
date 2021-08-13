@@ -3,7 +3,7 @@ use num::Integer;
 
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::net::crypt_splitter::GroupReceiverConfig;
-use hyxe_nat::time_tracker::TimeTracker;
+use net_sync::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::hdp::hdp_server::Ticket;
