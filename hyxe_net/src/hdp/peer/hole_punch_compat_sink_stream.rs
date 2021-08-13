@@ -1,19 +1,17 @@
 use crate::hdp::outbound_sender::{UnboundedReceiver, OutboundPrimaryStreamSender};
 use bytes::Bytes;
 use std::net::SocketAddr;
-use hyxe_nat::reliable_conn::ReliableOrderedConnectionToTarget;
+use net_sync::reliable_conn::ReliableOrderedConnectionToTarget;
 use tokio::sync::Mutex;
 use crate::hdp::state_container::StateContainerInner;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::drill::SecurityLevel;
 use async_trait::async_trait;
 use crate::hdp::peer::p2p_conn_handler::generic_error;
-use std::sync::Arc;
 
-#[derive(Clone)]
 pub(crate) struct ReliableOrderedCompatStream {
     to_primary_stream: OutboundPrimaryStreamSender,
-    from_stream: Arc<Mutex<UnboundedReceiver<Bytes>>>,
+    from_stream: Mutex<UnboundedReceiver<Bytes>>,
     peer_external_addr: SocketAddr,
     local_bind_addr: SocketAddr,
     hr: HyperRatchet,
@@ -32,7 +30,7 @@ impl ReliableOrderedCompatStream {
         // NOTE: The protocol must strip the header when passing packets to the from_stream function!
         let _ = state_container.hole_puncher_pipes.insert(target_cid, from_stream_tx);
 
-        Self { to_primary_stream, from_stream: Arc::new(Mutex::new(from_stream_rx)), peer_external_addr, local_bind_addr, hr, security_level, target_cid }
+        Self { to_primary_stream, from_stream: Mutex::new(from_stream_rx), peer_external_addr, local_bind_addr, hr, security_level, target_cid }
     }
 }
 

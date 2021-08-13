@@ -13,7 +13,7 @@ use hyxe_crypt::prelude::SecurityLevel;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::nat_identification::NatType;
-use hyxe_nat::time_tracker::TimeTracker;
+use net_sync::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::external_services::fcm::data_structures::RawExternalPacket;
 use hyxe_user::external_services::fcm::fcm_instance::FCMInstance;

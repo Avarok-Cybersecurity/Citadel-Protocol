@@ -45,6 +45,7 @@ hyxe_user = { path = "../hyxe_user", version = "0.1.0", default-features=false }
 hyxe_nat = { path = "../hyxe_nat", version = "0.1.0" }
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
+net_sync = { path = "../net_sync", version = "0.1.0" }
 #tokio-native-tls = "0.3.0"
 #native-tls = { version = "0.2.7", features = ["vendored"] }
 num_cpus = "1.13.0"

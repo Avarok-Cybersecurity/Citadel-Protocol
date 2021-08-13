@@ -9,7 +9,6 @@ use serde::{Serialize, Deserialize};
 use tokio::sync::Mutex;
 use async_trait::async_trait;
 
-use crate::udp_traversal::linear::RelativeNodeType;
 use std::future::Future;
 use crate::sync::net_select_ok::NetSelectOk;
 use crate::sync::sync_start::NetSyncStart;
@@ -17,9 +16,7 @@ use serde::de::DeserializeOwned;
 use crate::sync::net_select::NetSelect;
 use crate::sync::net_try_join::NetTryJoin;
 use crate::sync::net_join::NetJoin;
-use crate::udp_traversal::udp_hole_puncher::UdpHolePuncher;
-use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
-use crate::sync::SymmetricConvID;
+use crate::sync::{SymmetricConvID, RelativeNodeType};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -38,7 +35,7 @@ pub struct NetworkEndpointInner<T: ReliableOrderedConnectionToTarget> {
     relative_node_type: RelativeNodeType
 }
 
-pub(crate) struct Subscription<'a, T: ReliableOrderedConnectionToTarget + 'static> {
+pub struct Subscription<'a, T: ReliableOrderedConnectionToTarget + 'static> {
     ptr: &'a NetworkEndpoint<T>,
     receiver: Mutex<UnboundedReceiver<Vec<u8>>>,
     pub(crate) id: SymmetricConvID
@@ -142,7 +139,8 @@ impl<T: ReliableOrderedConnectionToTarget + 'static> NetworkEndpoint<T> {
     }
 
     /// Returns a future which, upon resolution, ensures the next action can be safely executed
-    pub(crate) fn subscribe(&self) -> PreActionSync<'_, T> {
+    /// This should only be called if you know what you're doing
+    pub fn subscribe_internal(&self) -> PreActionSync<'_, T> {
         PreActionSync::new(self)
     }
 
@@ -167,28 +165,28 @@ impl<T: ReliableOrderedConnectionToTarget + 'static> NetworkEndpoint<T> {
     }
 
     /// Both nodes execute a function, returning once one of the functions gets evaluated
-    pub fn net_select<'a, F: 'a, R: 'a>(&'a self, future: F) -> NetSelect<'a, R>
+    pub fn net_select<'a, F: Send + 'a, R: Send + 'a>(&'a self, future: F) -> NetSelect<'a, R>
         where
             F: Future<Output=R> {
         NetSelect::new(self, self.relative_node_type, future)
     }
 
     /// Both nodes execute a function, returning once one of the nodes achieves an Ok result
-    pub fn net_select_ok<'a, F: 'a, R: 'a>(&'a self, future: F) -> NetSelectOk<'a, R>
+    pub fn net_select_ok<'a, F: Send + 'a, R: Send + 'a>(&'a self, future: F) -> NetSelectOk<'a, R>
         where
             F: Future<Output=Result<R, anyhow::Error>> {
         NetSelectOk::new(self, self.relative_node_type, future)
     }
 
     /// Both nodes execute a function, returning the output once both nodes finish the operation
-    pub fn net_join<'a, F: 'a, R: 'a>(&'a self, future: F) -> NetJoin<'a, R>
+    pub fn net_join<'a, F: Send + 'a, R: Send + 'a>(&'a self, future: F) -> NetJoin<'a, R>
         where
             F: Future<Output=R> {
         NetJoin::new(self, self.relative_node_type, future)
     }
 
     /// Both nodes attempt to execute a fallible function. Returns once both functions return Ok, or, when one returns an error
-    pub fn net_try_join<'a, F: 'a, R: 'a, E: 'a>(&'a self, future: F) -> NetTryJoin<'a, R, E>
+    pub fn net_try_join<'a, F: Send + 'a, R: Send + 'a, E: Send + 'a>(&'a self, future: F) -> NetTryJoin<'a, R, E>
         where
             F: Future<Output=Result<R, E>> {
         NetTryJoin::new(self, self.relative_node_type, future)
@@ -215,10 +213,6 @@ impl<T: ReliableOrderedConnectionToTarget + 'static> NetworkEndpoint<T> {
             Fx: FnOnce(P) -> F,
             Fx: Send {
         NetSyncStart::new(self, self.relative_node_type, future, payload)
-    }
-
-    pub fn begin_udp_hole_punch(&self, encrypted_config_container: EncryptedConfigContainer) -> UdpHolePuncher {
-        UdpHolePuncher::new(self.clone(), encrypted_config_container)
     }
 }
 
@@ -288,7 +282,7 @@ impl<T: ReliableOrderedConnectionToTarget> Deref for NetworkEndpoint<T> {
 }
 
 /// Ensures that the symmetric conversation ID exists between both endpoints when starting
-pub(crate) struct PreActionSync<'a, T: ReliableOrderedConnectionToTarget + 'static> {
+pub struct PreActionSync<'a, T: ReliableOrderedConnectionToTarget + 'static> {
     future: Pin<Box<dyn Future<Output=Result<Subscription<'a, T>, anyhow::Error>> + Send + 'a>>
 }
 
