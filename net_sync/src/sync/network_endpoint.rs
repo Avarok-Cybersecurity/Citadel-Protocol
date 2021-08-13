@@ -253,8 +253,6 @@ impl<T: ReliableOrderedConnectionToTarget + 'static> Drop for Subscription<'_, T
             rt.spawn(async move {
                 if let Err(err) = PostActionSync::new(&ptr, id).await {
                     log::warn!("[MetaActionSync/close] error: {:?}", err.to_string())
-                } else {
-                    log::info!("QWERTY success");
                 }
 
                 close(id, &ptr)
@@ -301,41 +299,31 @@ impl<'a, T: ReliableOrderedConnectionToTarget + 'static> Future for PreActionSyn
 }
 
 async fn preaction_sync<T: ReliableOrderedConnectionToTarget + 'static>(ptr: &NetworkEndpoint<T>) -> Result<Subscription<'_, T>, anyhow::Error> {
-    log::info!("[Preaction] on {:?}", ptr.relative_node_type);
     let mut recv_lock = ptr.pre_action_channel.rx.lock().await;
     //let _post_lock = ptr.post_action_channel.rx.lock().await;
     match ptr.relative_node_type {
         RelativeNodeType::Receiver => {
 
-            log::info!("[PreAction] RD1");
             // generate the subscription to ensure local can begin receiving packet
             let next_id: SymmetricConvID = (1 + ptr.id_generator.fetch_add(1, Ordering::Relaxed)).into();
             let subscription = ptr.subscribe_inner(next_id);
             ptr.post_action_channel.setup_channel(next_id).await;
 
-            log::info!("[PreAction] RD2 sending {:?}", next_id);
             ptr.conn.send_serialized(Packet::PreActionVerify { expected_id: subscription.id }).await?;
-            log::info!("[PreAction] RD3");
             let recvd_id = recv_lock.recv().await.ok_or_else(|| anyhow::Error::msg("rx dead"))?;
+
             if recvd_id != next_id {
                 log::error!("Invalid sync ID received. {:?} != {:?}", recvd_id, next_id);
             }
-            log::info!("[PreAction] RD4");
-
 
             Ok(subscription)
         }
 
         RelativeNodeType::Initiator => {
-
-            log::info!("[PreAction] LD1");
             let next_id = recv_lock.recv().await.ok_or_else(|| anyhow::Error::msg("rx dead"))?;
-            log::info!("[PreAction] LD2");
             let subscription = ptr.subscribe_inner(next_id);
             ptr.post_action_channel.setup_channel(next_id).await;
-            log::info!("[PreAction] LD3");
             ptr.conn.send_serialized(Packet::PreActionVerify { expected_id: next_id }).await?;
-            log::info!("[PreAction] LD4");
             // we can safely return, knowing the adjacent node will still have the conv open to receive messages
             Ok(subscription)
         }
@@ -367,21 +355,15 @@ async fn postaction_sync<T: ReliableOrderedConnectionToTarget + 'static>(ptr: &N
     //let mut recv_lock = ptr.post_action_channel.rx.lock().await;
     match ptr.relative_node_type {
         RelativeNodeType::Receiver => {
-            log::info!("[PostAction] R0");
             ptr.conn.send_serialized(Packet::PostActionVerify { close_id }).await?;
-            log::info!("[PostAction] R1");
             ptr.post_action_channel.recv(close_id).await?;
-            log::info!("[PostAction] R2");
 
             Ok(())
         }
 
         RelativeNodeType::Initiator => {
-            log::info!("[PostAction] L0");
             ptr.post_action_channel.recv(close_id).await?;
-            log::info!("[PostAction] L1");
             ptr.conn.send_serialized(Packet::PostActionVerify { close_id }).await?;
-            log::info!("[PostAction] L2");
 
             Ok(())
         }
