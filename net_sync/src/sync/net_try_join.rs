@@ -161,8 +161,6 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, T, E>(conn: PreActi
         res0 = evaluator => {
             log::info!("NET_TRY_JOIN ending for {:?} (conv={:?})", local_node_type, conn.id);
             let ret = res0?;
-            //let local_state = local_state_ref.lock().await;
-            //log::info!("returning {:?} local state = {:?}", local_node_type, local_state.local_state);
             wrap_return(ret)
         },
 
