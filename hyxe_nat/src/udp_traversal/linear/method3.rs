@@ -1,18 +1,20 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use tokio::net::UdpSocket;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::Duration;
+
+use net_sync::sync::RelativeNodeType;
 
 use crate::error::FirewallError;
 use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
-use crate::udp_traversal::linear::{LinearUdpHolePunchImpl, RelativeNodeType};
-use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
-use serde::{Serialize, Deserialize};
 use crate::udp_traversal::HolePunchID;
-use std::collections::HashMap;
-use parking_lot::Mutex;
-use tokio::sync::mpsc::UnboundedSender;
+use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use crate::udp_traversal::linear::LinearUdpHolePunchImpl;
 
 /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL
 // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf

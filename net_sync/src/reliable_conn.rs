@@ -137,15 +137,14 @@ impl<T: ReliableOrderedConnectionToTarget> ReliableOrderedConnectionToTarget for
     }
 }
 
-#[cfg(test)]
-pub(crate) mod simulator {
-    use crate::reliable_conn::ReliableOrderedConnectionToTarget;
+pub mod simulator {
     use bytes::Bytes;
     use std::net::SocketAddr;
     use async_trait::async_trait;
     use rand::Rng;
     use std::sync::Arc;
     use tokio::sync::mpsc::UnboundedSender;
+    use crate::reliable_conn::ReliableOrderedConnectionToTarget;
 
     pub struct NetworkConnSimulator<T: ReliableOrderedConnectionToTarget + 'static> {
         inner: Arc<T>,

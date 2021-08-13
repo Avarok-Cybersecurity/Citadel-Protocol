@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 pub mod network_endpoint;
 pub mod net_try_join;
@@ -17,22 +17,24 @@ impl From<u64> for SymmetricConvID {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
-    use crate::sync::network_endpoint::NetworkEndpoint;
-    use tokio::net::{TcpStream, TcpListener};
-    use crate::reliable_conn::simulator::NetworkConnSimulator;
-    use crate::udp_traversal::linear::RelativeNodeType;
-    use tokio_util::codec::{Framed, LengthDelimitedCodec};
-    use crate::reliable_conn::ReliableOrderedConnectionToTarget;
-    use bytes::Bytes;
+pub mod test_utils {
     use std::net::SocketAddr;
-    use futures::{SinkExt, StreamExt};
-    use tokio::sync::Mutex;
-    use futures::stream::{SplitSink, SplitStream};
-    use async_trait::async_trait;
 
-    pub(crate) struct TcpCodecFramed {
+    use async_trait::async_trait;
+    use bytes::Bytes;
+    use futures::{SinkExt, StreamExt};
+    use futures::stream::{SplitSink, SplitStream};
+    use tokio::net::{TcpListener, TcpStream};
+    use tokio::sync::Mutex;
+
+    use tokio_util::codec::{Framed, LengthDelimitedCodec};
+
+    use crate::reliable_conn::ReliableOrderedConnectionToTarget;
+    use crate::sync::network_endpoint::NetworkEndpoint;
+    use crate::sync::RelativeNodeType;
+    use crate::reliable_conn::simulator::NetworkConnSimulator;
+
+    pub struct TcpCodecFramed {
         sink: Mutex<SplitSink<Framed<TcpStream, LengthDelimitedCodec>, Bytes>>,
         stream: Mutex<SplitStream<Framed<TcpStream, LengthDelimitedCodec>>>,
         local_addr: SocketAddr,
@@ -65,7 +67,7 @@ pub(crate) mod tests {
         TcpCodecFramed { sink: Mutex::new(sink), stream: Mutex::new(stream), local_addr, remote_addr }
     }
 
-    pub(crate) async fn create_streams() -> (NetworkEndpoint<NetworkConnSimulator<TcpCodecFramed>>, NetworkEndpoint<NetworkConnSimulator<TcpCodecFramed>>) {
+    pub async fn create_streams() -> (NetworkEndpoint<NetworkConnSimulator<TcpCodecFramed>>, NetworkEndpoint<NetworkConnSimulator<TcpCodecFramed>>) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let server = async move {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -106,5 +108,28 @@ pub(crate) mod tests {
                 }
             }
         });
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum RelativeNodeType {
+    Initiator,
+    Receiver
+}
+
+impl RelativeNodeType {
+    pub fn into_byte(self) -> u8 {
+        match self {
+            RelativeNodeType::Initiator => 10,
+            RelativeNodeType::Receiver => 20
+        }
+    }
+
+    pub fn from_byte(byte: u8) -> Option<Self> {
+        match byte {
+            10 => Some(RelativeNodeType::Initiator),
+            20 => Some(RelativeNodeType::Receiver),
+            _ => None
+        }
     }
 }

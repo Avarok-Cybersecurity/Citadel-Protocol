@@ -21,7 +21,7 @@ use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::io::SyncIO;
 use hyxe_nat::hypernode_type::HyperNodeType;
-use hyxe_nat::time_tracker::TimeTracker;
+use net_sync::time_tracker::TimeTracker;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
@@ -622,7 +622,9 @@ impl HdpSession {
                         let mut state_container = inner_mut!(sess.state_container);
                         if let Some(channel) = state_container.insert_udp_channel(target_cid, v_target, ticket, udp_sender, stopper_tx) {
                             if let Some(kem_state) = state_container.peer_kem_states.get_mut(&target_cid) {
+                                // Below will fail if UDP mode is off, as desired
                                 if let Some(sender) = kem_state.udp_channel_sender.tx.take() {
+                                    // below will fail if the user drops the receiver at the kernel-level
                                     sender.send(channel).map_err(|_| NetworkError::InternalError("Unable to send UdpChannel through"))?;
                                     EndpointCryptoAccessor::P2P(target_cid, sess.state_container.clone())
                                 } else {

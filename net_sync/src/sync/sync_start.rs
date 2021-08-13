@@ -1,13 +1,13 @@
 use std::pin::Pin;
 use futures::Future;
 use crate::reliable_conn::ReliableOrderedConnectionToTarget;
-use crate::udp_traversal::linear::RelativeNodeType;
 use std::task::{Context, Poll};
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use crate::time_tracker::TimeTracker;
 use std::time::Duration;
 use crate::sync::network_endpoint::{NetworkEndpoint, PreActionSync};
+use crate::sync::RelativeNodeType;
 
 /// synchronizes the beginning of an operation between two nodes. Includes attaching an optional payload for transmission of information between two endpoints during the transmission-sync phase
 pub struct NetSyncStart<'a, R> {
@@ -22,7 +22,7 @@ impl<'a, R: 'a> NetSyncStart<'a, R> {
             Fx: FnOnce(P) -> F,
             Fx: Send {
 
-        Self { future: Box::pin(synchronize(conn.subscribe(), relative_node_type, future, payload)) }
+        Self { future: Box::pin(synchronize(conn.subscribe_internal(), relative_node_type, future, payload)) }
     }
 
     /// Unlike `new`, this function will simply return the payload to the adjacent node synchronisticly with the adjacent node (i.e., both nodes receive each other's payloads at about the same time)
@@ -30,7 +30,7 @@ impl<'a, R: 'a> NetSyncStart<'a, R> {
         where
             R: Serialize + DeserializeOwned + Send + Sync {
 
-        Self { future: Box::pin(synchronize(conn.subscribe(), relative_node_type, futures::future::ready, payload)) }
+        Self { future: Box::pin(synchronize(conn.subscribe_internal(), relative_node_type, futures::future::ready, payload)) }
     }
 
     /// This returned future will resolve once both sides terminate synchronisticly
@@ -144,8 +144,8 @@ async fn synchronize<Conn: ReliableOrderedConnectionToTarget, F, Fx, P: Serializ
 #[cfg(test)]
 mod tests {
     use crate::time_tracker::TimeTracker;
-    use crate::sync::tests::create_streams;
     use futures::{FutureExt, StreamExt};
+    use crate::sync::test_utils::create_streams;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -190,14 +190,6 @@ mod tests {
             });
 
             tokio::task::spawn(joined);
-
-            /*let server = tokio::spawn(server);
-            let client = tokio::spawn(client);
-            let (res0, res1) = tokio::join!(server, client);
-            let res0 = res0.unwrap();
-            let res1 = res1.unwrap();
-
-            log::info!("res0: {}\nres1: {}\nDelta: {}", res0, res1, res1 - res0);*/
         }
 
         rx.take(COUNT).collect::<()>().await;

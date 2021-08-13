@@ -111,3 +111,9 @@ impl<T: Into<String>> From<AccountError<T>> for NetworkError {
         NetworkError::Generic(err.into_string())
     }
 }
+
+impl From<anyhow::Error> for NetworkError {
+    fn from(err: anyhow::Error) -> Self {
+        NetworkError::Generic(err.to_string())
+    }
+}

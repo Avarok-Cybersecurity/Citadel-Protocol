@@ -11,7 +11,7 @@ use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
 
 use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig, GroupSenderDevice};
-use hyxe_nat::time_tracker::TimeTracker;
+use net_sync::time_tracker::TimeTracker;
 use hyxe_user::client_account::ClientNetworkAccount;
 
 use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS};
@@ -195,11 +195,6 @@ impl EndpointChannelContainer {
 impl<R: Ratchet> Drop for VirtualConnection<R> {
     fn drop(&mut self) {
         self.is_active.store(false, Ordering::SeqCst);
-        /*if let Some(endpoint_container) = self.endpoint_container.take() {
-            // next, since the is_active field is false, send an empty vec through the channel
-            // in order to wake the receiving end, thus causing a poll, thus ending it
-            if let Err(_) = endpoint_container.to_channel.sen(SecBuffer::empty()) {}
-        }*/
     }
 }
 
@@ -561,7 +556,7 @@ impl StateContainerInner {
         false
     }
 
-    // Requirements: A TCP channel must already be setup in order for the connection to continue
+    // Requirements: A TCP/reliable ordered conn channel must already be setup in order for the connection to continue
     pub fn insert_udp_channel(&mut self, target_cid: u64, v_conn: VirtualConnectionType, ticket: Ticket, to_udp_stream: OutboundUdpSender, stopper_tx: tokio::sync::oneshot::Sender<()>) -> Option<UdpChannel> {
         if target_cid == 0 {
             if let Some(c2s_container) = self.c2s_channel_container.as_mut() {
@@ -585,12 +580,15 @@ impl StateContainerInner {
                         // data can now be forwarded
                         Some(udp_channel)
                     } else {
+                        log::info!("WE2");
                         None
                     }
                 } else {
+                    log::info!("WE1");
                     None
                 }
             } else {
+                log::info!("WE0");
                 None
             }
         }
@@ -624,9 +622,11 @@ impl StateContainerInner {
 
     /// Returns true if the remote was loaded, false if there's already a connection from the addr
     /// being loaded
-    pub fn load_provisional_direct_p2p_remote(&mut self, addr: SocketAddr, remote: DirectP2PRemote) -> bool {
-        if !self.provisional_direct_p2p_conns.contains_key(&addr) {
-            self.provisional_direct_p2p_conns.insert(addr, remote).is_none()
+    /// - force: should only be called if the provisional remote being loaded is ensured to be the conn that will be used
+    pub fn load_provisional_direct_p2p_remote(&mut self, addr: SocketAddr, remote: DirectP2PRemote, force: bool) -> bool {
+        if !self.provisional_direct_p2p_conns.contains_key(&addr) || force {
+            let _ = self.provisional_direct_p2p_conns.insert(addr, remote);
+            true
         } else {
             false
         }
@@ -641,6 +641,8 @@ impl StateContainerInner {
                     log::info!("UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
                     let on_connection_upgraded = provisional.on_connection_upgraded.take();
                     let quic_connector = provisional.quic_connector.take();
+
+                    vconn.sender = Some((None, provisional.p2p_primary_stream.clone())); // setting this will allow the UDP stream to be upgraded too
 
                     if let Some(_) = endpoint_container.direct_p2p_remote.replace(provisional) {
                         log::warn!("Dropped previous p2p remote during upgrade process");

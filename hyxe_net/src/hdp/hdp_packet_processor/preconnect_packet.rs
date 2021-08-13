@@ -1,20 +1,23 @@
+use tokio::net::UdpSocket;
+
+use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedUdpSocket;
-use hyxe_nat::udp_traversal::linear::RelativeNodeType;
+use hyxe_nat::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use net_sync::sync::RelativeNodeType;
 
 use crate::constants::HOLE_PUNCH_SYNC_TIME_MULTIPLIER;
+use crate::error::NetworkError;
+use crate::hdp::hdp_packet::packet_flags::payload_identifiers;
+use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use crate::hdp::misc::udp_internal_interface::{QuicUdpSocketConnector, RawUdpSocketConnector, UdpSplittableTypes};
+use crate::hdp::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
+use crate::hdp::peer::peer_layer::UdpMode;
+use crate::hdp::state_container::VirtualTargetType;
+use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
 
 use super::includes::*;
-use hyxe_nat::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use crate::hdp::hdp_packet::packet_flags::payload_identifiers;
-use crate::hdp::state_container::VirtualTargetType;
-use crate::hdp::peer::peer_layer::UdpMode;
-use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
-use hyxe_nat::udp_traversal::udp_hole_puncher::UdpHolePuncher;
-use crate::hdp::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
-use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use tokio::net::UdpSocket;
-use crate::hdp::misc::udp_internal_interface::{RawUdpSocketConnector, QuicUdpSocketConnector, UdpSplittableTypes};
+use net_sync::sync::network_endpoint::NetworkEndpoint;
+use hyxe_nat::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 
 /// Handles preconnect packets. Handles the NAT traversal
 /// TODO: Note to future programmers. This source file is not the cleanest, and in my opinion the dirtiest file in the entire codebase.
@@ -99,7 +102,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
         packet_flags::cmd::aux::do_preconnect::SYN_ACK => {
             log::info!("RECV STAGE SYN_ACK PRE_CONNECT PACKET");
             let udp_mode = session.udp_mode.get();
-            // we now shadow the security_level above, and ensure all further packets use the desired default
+
             let mut state_container = inner_mut!(session.state_container);
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
                 // cnac should already be loaded locally
@@ -129,19 +132,20 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                     to_primary_stream.unbounded_send(stage0_preconnect_packet)?;
 
                     //let hole_puncher = SingleUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
-                    let conn = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, server_external_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, new_hyper_ratchet.clone(), security_level);
-                    let hole_puncher = UdpHolePuncher::new(conn, RelativeNodeType::Initiator, generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY));
-                    log::info!("Initiator created");
+                    let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, server_external_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, new_hyper_ratchet.clone(), security_level);
                     std::mem::drop(state_container);
+                    let ref conn = NetworkEndpoint::register(RelativeNodeType::Initiator, stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    log::info!("Initiator created");
+                    let res = conn.begin_udp_hole_punch(generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY)).await;
 
-                    match hole_puncher.await {
+                    match res {
                         Ok(ret) => {
                             log::info!("Initiator finished NAT traversal ...");
                             send_success_as_initiator(ret, &new_hyper_ratchet, session, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()))
                         }
 
                         Err(err) => {
-                            log::warn!("Hole punch attempt failed. Will exit session: {:?}", err);
+                            log::warn!("Hole punch attempt failed. Will exit session: {:?}", err.to_string());
                             // Note: this currently implies that if NAT traversal fails, the session does not open (which should be the case for C2S connections anyways)
                             PrimaryProcessorResult::EndSession("UDP NAT traversal failed")
                         }
@@ -192,12 +196,14 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                     let _peer_internal_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
                     let to_primary_stream = session.to_primary_stream.clone()?;
 
-                    let conn = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, peer_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
-                    let hole_puncher = UdpHolePuncher::new(conn, RelativeNodeType::Receiver, generate_hole_punch_crypt_container(hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY));
-                    log::info!("Receiver created");
+                    let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, peer_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
                     std::mem::drop(state_container);
+                    let ref conn = NetworkEndpoint::register(RelativeNodeType::Receiver, stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    log::info!("Receiver created");
 
-                    match hole_puncher.await {
+                    let res = conn.begin_udp_hole_punch(generate_hole_punch_crypt_container(hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY)).await;
+
+                    match res {
                         Ok(ret) => {
                             let sess = session_orig;
 
@@ -209,7 +215,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                             log::info!("UDP hole-punch SUCCESS! Sending a RECEIVER_FINISHED_HOLE_PUNCH");
 
                             state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                            state_container.pre_connect_state.on_packet_received(); // this is hacky. Just to help prevent a timeout
+                            state_container.pre_connect_state.on_packet_received();
                             std::mem::drop(state_container);
 
                             // the UDP subsystem will automatically engage at this point
