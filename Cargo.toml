@@ -12,7 +12,7 @@ members = [
 	"hyxe_net",
     "rpassword",
     "firebase-rtdb",
-    "net_sync"
+    "netbeam"
 ]
 
 exclude = [

@@ -1,11 +1,12 @@
 use std::pin::Pin;
 use std::future::Future;
-use crate::reliable_conn::ReliableOrderedConnectionToTarget;
+use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use std::task::{Context, Poll};
 use tokio::sync::{Mutex, MutexGuard};
 use serde::{Serialize, Deserialize};
-use crate::sync::network_endpoint::{NetworkEndpoint, PreActionSync};
 use crate::sync::RelativeNodeType;
+use crate::sync::subscription::{SubscriptionBiStream, Subscribable};
+use crate::multiplex::MultiplexedConnKey;
 
 /// Two endpoints produce Ok(T). Returns when both endpoints produce Ok(T), or, when the first error occurs
 pub struct NetTryJoin<'a, T, E> {
@@ -13,9 +14,9 @@ pub struct NetTryJoin<'a, T, E> {
 }
 
 impl<'a, T: Send + 'a, E: Send + 'a> NetTryJoin<'a, T, E> {
-    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'static, F: Send + 'a>(conn: &'a NetworkEndpoint<Conn>, local_node_type: RelativeNodeType, future: F) -> NetTryJoin<'a, T, E>
+    pub fn new<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnKey + 'a, Conn: ReliableOrderedStreamToTarget + 'static, F: Send + 'a>(conn: &'a S, local_node_type: RelativeNodeType, future: F) -> NetTryJoin<'a, T, E>
         where F: Future<Output=Result<T, E>> {
-        Self { future: Box::pin(resolve(conn.subscribe_internal(), local_node_type, future)) }
+        Self { future: Box::pin(resolve(conn, local_node_type, future)) }
     }
 }
 
@@ -63,10 +64,11 @@ impl State {
     }
 }
 
-async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, T, E>(conn: PreActionSync<'_, Conn>, local_node_type: RelativeNodeType, future: F) -> Result<NetTryJoinResult<T, E>, anyhow::Error>
-    where F: Future<Output=Result<T, E>> {
-    let ref conn = conn.await?;
-    log::info!("NET_TRY_JOIN started conv={:?} for {:?}", conn.id, local_node_type);
+async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnKey, Conn: ReliableOrderedStreamToTarget + 'static, F, T, E>(conn: &S, local_node_type: RelativeNodeType, future: F) -> Result<NetTryJoinResult<T, E>, anyhow::Error>
+    where
+        F: Future<Output=Result<T, E>> {
+    let ref conn = conn.initiate_subscription().await?;
+    log::info!("NET_TRY_JOIN started conv={:?} for {:?}", conn.id(), local_node_type);
     let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
 
     struct LocalState<T, E> {
@@ -83,7 +85,7 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, T, E>(conn: PreActi
     let evaluator = async move {
         let _stopper_tx = stopper_tx;
 
-        async fn return_sequence<Conn: ReliableOrderedConnectionToTarget, T, E>(conn: &Conn, new_state: State, mut state: MutexGuard<'_, LocalState<T, E>>) -> Result<Option<Result<T, E>>, anyhow::Error> {
+        async fn return_sequence<Conn: ReliableOrderedStreamToTarget, T, E>(conn: &Conn, new_state: State, mut state: MutexGuard<'_, LocalState<T, E>>) -> Result<Option<Result<T, E>>, anyhow::Error> {
             state.local_state = new_state.clone();
             conn.send_serialized(new_state.clone()).await?;
             Ok(state.ret_value.take())
@@ -94,7 +96,7 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, T, E>(conn: PreActi
             //log::info!("{:?} RECV'd {:?}", local_node_type, &received_remote_state);
             let mut lock = local_state_ref.lock().await;
             let local_state_info = lock.ret_value.as_ref().map(|r| r.is_ok());
-            log::info!("[conv={:?} Node {:?} recv {:?} || Local state: {:?}", conn.id, local_node_type, received_remote_state, lock.local_state);
+            log::info!("[conv={:?} Node {:?} recv {:?} || Local state: {:?}", conn.id(), local_node_type, received_remote_state, lock.local_state);
             if has_preference {
                 // if local has preference, we have the permission to evaluate
                 // first, check to make sure local hasn't already obtained a value
@@ -159,7 +161,7 @@ async fn resolve<Conn: ReliableOrderedConnectionToTarget, F, T, E>(conn: PreActi
 
     tokio::select! {
         res0 = evaluator => {
-            log::info!("NET_TRY_JOIN ending for {:?} (conv={:?})", local_node_type, conn.id);
+            log::info!("NET_TRY_JOIN ending for {:?} (conv={:?})", local_node_type, conn.id());
             let ret = res0?;
             wrap_return(ret)
         },
@@ -175,10 +177,9 @@ fn wrap_return<T, E>(value: Option<Result<T, E>>) -> Result<NetTryJoinResult<T, 
 #[cfg(test)]
 mod tests {
     use std::future::Future;
-    use crate::reliable_conn::ReliableOrderedConnectionToTarget;
     use std::fmt::Debug;
     use std::time::Duration;
-    use crate::sync::network_endpoint::NetworkEndpoint;
+    use crate::sync::network_application::NetworkApplication;
     use crate::sync::test_utils::{deadlock_detector, create_streams};
 
     fn setup_log() {
@@ -222,7 +223,7 @@ mod tests {
     }
 
 
-    async fn inner<R: Send + Debug + 'static, Conn0: ReliableOrderedConnectionToTarget + 'static, Conn1: ReliableOrderedConnectionToTarget + 'static, F: Future<Output=Result<R, &'static str>> + Send + 'static, Y: Future<Output=Result<R, &'static str>> + Send + 'static>(conn0: NetworkEndpoint<Conn0>, conn1: NetworkEndpoint<Conn1>, fx_1: F, fx_2: Y, success: bool) {
+    async fn inner<R: Send + Debug + 'static, F: Future<Output=Result<R, &'static str>> + Send + 'static, Y: Future<Output=Result<R, &'static str>> + Send + 'static>(conn0: NetworkApplication, conn1: NetworkApplication, fx_1: F, fx_2: Y, success: bool) {
         let server = async move {
             let res = conn0.net_try_join(fx_1).await.unwrap();
             log::info!("Server res: {:?}", res.value);

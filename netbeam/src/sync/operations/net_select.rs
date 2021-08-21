@@ -1,11 +1,12 @@
 use std::pin::Pin;
 use std::future::Future;
-use crate::reliable_conn::ReliableOrderedConnectionToTarget;
-use crate::sync::net_select_ok::NetSelectOk;
-use futures::TryFutureExt;
+use crate::reliable_conn::ReliableOrderedStreamToTarget;
+use crate::sync::operations::net_select_ok::NetSelectOk;
+use futures::{TryFutureExt, FutureExt};
 use std::task::{Context, Poll};
-use crate::sync::network_endpoint::NetworkEndpoint;
 use crate::sync::RelativeNodeType;
+use crate::multiplex::MultiplexedConnKey;
+use crate::sync::subscription::Subscribable;
 
 /// Two endpoints race to produce R. The first endpoint to produce R wins. Includes conflict-resolution synchronization
 pub struct NetSelect<'a, R> {
@@ -13,9 +14,9 @@ pub struct NetSelect<'a, R> {
 }
 
 impl<'a, R: Send + 'a> NetSelect<'a, R> {
-    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'static, F: Send + 'a>(conn: &'a NetworkEndpoint<Conn>, local_node_type: RelativeNodeType, future: F) -> Self
+    pub fn new<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnKey + 'a, Conn: ReliableOrderedStreamToTarget + 'static, F: Send + 'a>(conn: &'a S, local_node_type: RelativeNodeType, future: F) -> Self
         where F: Future<Output=R> {
-        Self { future: Box::pin(NetSelectOk::new(conn, local_node_type, async move { Ok(future.await) }).map_ok(|r| NetSelectResult { value: r.result })) }
+        Self { future: Box::pin(NetSelectOk::new(conn, local_node_type, future.map(Ok)).map_ok(|r| NetSelectResult { value: r.result })) }
     }
 }
 

@@ -3,7 +3,7 @@ use tokio::net::UdpSocket;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedUdpSocket;
 use hyxe_nat::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
-use net_sync::sync::RelativeNodeType;
+use netbeam::sync::RelativeNodeType;
 
 use crate::constants::HOLE_PUNCH_SYNC_TIME_MULTIPLIER;
 use crate::error::NetworkError;
@@ -16,7 +16,7 @@ use crate::hdp::state_container::VirtualTargetType;
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
 
 use super::includes::*;
-use net_sync::sync::network_endpoint::NetworkEndpoint;
+use netbeam::sync::network_endpoint::NetworkEndpoint;
 use hyxe_nat::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 
 /// Handles preconnect packets. Handles the NAT traversal

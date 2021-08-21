@@ -127,12 +127,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "595d3cfa7a60d4555cb5067b99f07142a08ea778de5cf993f7b75c7d8fabc486"
 
 [[package]]
-name = "arc-swap"
-version = "0.4.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dabe5a181f83789739c194cbe5a897dde195078fac08568d09221fd6137a7ba8"
-
-[[package]]
 name = "argon2rs"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1602,7 +1596,6 @@ name = "hyxe_nat"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arc-swap",
  "async-trait",
  "async_ip",
  "bincode2",
@@ -1614,7 +1607,7 @@ dependencies = [
  "igd",
  "log",
  "net2",
- "net_sync",
+ "netbeam",
  "openssl",
  "parking_lot 0.11.1",
  "quinn",
@@ -1657,7 +1650,7 @@ dependencies = [
  "hyxe_user",
  "log",
  "net2",
- "net_sync",
+ "netbeam",
  "num 0.2.1",
  "num_cpus",
  "once_cell",
@@ -1667,7 +1660,7 @@ dependencies = [
  "tokio 1.10.0",
  "tokio-stream",
  "tokio-util",
- "webrtc-util",
+ "webrtc-util 0.3.1",
  "zerocopy 0.3.0",
 ]
 
@@ -2144,10 +2137,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "net_sync"
+name = "netbeam"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-recursion",
  "async-trait",
  "bincode2",
  "bytes 1.0.1",
@@ -3694,9 +3688,9 @@ dependencies = [
 
 [[package]]
 name = "stun"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bafa6810d7281507f95ef6dada597e9065b16a26774b1eeb69ab7b42b92bb99d"
+checksum = "1d602d63bb896ebf093a3b150f42a39cce9a6161d69226edb5288a617d04801f"
 dependencies = [
  "anyhow",
  "base64",
@@ -3709,7 +3703,7 @@ dependencies = [
  "thiserror",
  "tokio 1.10.0",
  "url",
- "webrtc-util",
+ "webrtc-util 0.4.1",
 ]
 
 [[package]]
@@ -4341,6 +4335,27 @@ name = "webrtc-util"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7490436172adc711b59325f75de699129483506faf4e451bc8b2a51ab052db2b"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitflags 1.2.1",
+ "bytes 1.0.1",
+ "ipnet",
+ "lazy_static",
+ "libc",
+ "log",
+ "nix 0.8.1",
+ "rand 0.8.4",
+ "thiserror",
+ "tokio 1.10.0",
+ "winapi 0.2.8",
+]
+
+[[package]]
+name = "webrtc-util"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d1f83b30c83a1698c6c00bb702ccdace471914cc9d8ad0ff10b24fe617fbdcf"
 dependencies = [
  "anyhow",
  "async-trait",

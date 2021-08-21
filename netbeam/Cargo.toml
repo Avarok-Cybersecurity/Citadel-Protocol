@@ -1,12 +1,15 @@
 [package]
-name = "net_sync"
+name = "netbeam"
 version = "0.1.0"
+description = "a pure-rust asynchronous network synchronization crate (using tokio) that recreates familiar asynchronous paradigms but in a network context"
+license = "GPL-2.0"
+repository = "https://github.com/tbraun96/net_sync"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "1.10.0", features = ["net", "macros", "rt", "time", "io-util"] }
+tokio = { version = "1.10.0", features = ["net", "macros", "rt", "time", "io-util", "parking_lot"] }
 futures = "0.3.16"
 bytes = "1.0.1"
 async-trait = "0.1.51"
@@ -22,3 +25,4 @@ log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_lev
 [dev-dependencies]
 env_logger = "0.7.1"
 parking_lot = { version = "0.11.1", features = ["deadlock_detection"] }
+async-recursion = "0.3.2"

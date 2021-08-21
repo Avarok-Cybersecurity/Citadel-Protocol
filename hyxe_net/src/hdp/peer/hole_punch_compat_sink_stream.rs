@@ -1,7 +1,7 @@
 use crate::hdp::outbound_sender::{UnboundedReceiver, OutboundPrimaryStreamSender};
 use bytes::Bytes;
 use std::net::SocketAddr;
-use net_sync::reliable_conn::ReliableOrderedConnectionToTarget;
+use netbeam::reliable_conn::{ReliableOrderedStreamToTarget, ConnAddr};
 use tokio::sync::Mutex;
 use crate::hdp::state_container::StateContainerInner;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
@@ -35,7 +35,7 @@ impl ReliableOrderedCompatStream {
 }
 
 #[async_trait]
-impl ReliableOrderedConnectionToTarget for ReliableOrderedCompatStream {
+impl ReliableOrderedStreamToTarget for ReliableOrderedCompatStream {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
         let packet = crate::hdp::hdp_packet_crafter::hole_punch::generate_packet(&self.hr, input, self.security_level, self.target_cid);
         self.to_primary_stream.unbounded_send(packet).map_err(|err| generic_error(err.to_string()))
@@ -45,7 +45,9 @@ impl ReliableOrderedConnectionToTarget for ReliableOrderedCompatStream {
         // This assumes the payload is stripped from the header and the payload is decrypted
         self.from_stream.lock().await.recv().await.ok_or_else(|| generic_error("Inbound ordered reliable stream died"))
     }
+}
 
+impl ConnAddr for ReliableOrderedCompatStream {
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.local_bind_addr)
     }

@@ -11,7 +11,7 @@ use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
 
 use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig, GroupSenderDevice};
-use net_sync::time_tracker::TimeTracker;
+use netbeam::time_tracker::TimeTracker;
 use hyxe_user::client_account::ClientNetworkAccount;
 
 use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS};
