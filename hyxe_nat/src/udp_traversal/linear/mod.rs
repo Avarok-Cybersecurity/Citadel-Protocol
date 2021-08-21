@@ -7,14 +7,13 @@ use tokio::net::UdpSocket;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::Duration;
 
-use net_sync::sync::RelativeNodeType;
-
 use crate::error::FirewallError;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedSocketAddr, HolePunchedUdpSocket};
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::linear::method3::Method3;
 use crate::upnp_handler::UPnPHandler;
+use netbeam::sync::RelativeNodeType;
 
 pub mod encrypted_config_container;
 

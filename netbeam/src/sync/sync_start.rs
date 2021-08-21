@@ -1,13 +1,14 @@
 use std::pin::Pin;
 use futures::Future;
-use crate::reliable_conn::ReliableOrderedConnectionToTarget;
+use crate::reliable_conn::{ReliableOrderedStreamToTarget, ReliableOrderedStreamToTargetExt};
 use std::task::{Context, Poll};
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use crate::time_tracker::TimeTracker;
 use std::time::Duration;
-use crate::sync::network_endpoint::{NetworkEndpoint, PreActionSync};
 use crate::sync::RelativeNodeType;
+use crate::sync::subscription::Subscribable;
+use crate::multiplex::MultiplexedConnKey;
 
 /// synchronizes the beginning of an operation between two nodes. Includes attaching an optional payload for transmission of information between two endpoints during the transmission-sync phase
 pub struct NetSyncStart<'a, R> {
@@ -15,26 +16,26 @@ pub struct NetSyncStart<'a, R> {
 }
 
 impl<'a, R: 'a> NetSyncStart<'a, R> {
-    pub fn new<Conn: ReliableOrderedConnectionToTarget + 'static, F: 'a, Fx: 'a, P: Serialize + DeserializeOwned + Send + Sync + 'a>(conn: &'a NetworkEndpoint<Conn>, relative_node_type: RelativeNodeType, future: Fx, payload: P) -> Self
+    pub fn new<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnKey + 'a, Conn: ReliableOrderedStreamToTarget + 'static, F: 'a, Fx: 'a, P: Serialize + DeserializeOwned + Send + Sync + 'a>(conn: &'a S, relative_node_type: RelativeNodeType, future: Fx, payload: P) -> Self
         where
             F: Future<Output=R>,
             F: Send,
             Fx: FnOnce(P) -> F,
             Fx: Send {
 
-        Self { future: Box::pin(synchronize(conn.subscribe_internal(), relative_node_type, future, payload)) }
+        Self { future: Box::pin(synchronize(conn, relative_node_type, future, payload)) }
     }
 
     /// Unlike `new`, this function will simply return the payload to the adjacent node synchronisticly with the adjacent node (i.e., both nodes receive each other's payloads at about the same time)
-    pub fn exchange_payload<Conn: ReliableOrderedConnectionToTarget + 'static>(conn: &'a NetworkEndpoint<Conn>, relative_node_type: RelativeNodeType, payload: R) -> Self
+    pub fn exchange_payload<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnKey + 'a, Conn: ReliableOrderedStreamToTarget + 'static>(conn: &'a S, relative_node_type: RelativeNodeType, payload: R) -> Self
         where
             R: Serialize + DeserializeOwned + Send + Sync {
 
-        Self { future: Box::pin(synchronize(conn.subscribe_internal(), relative_node_type, futures::future::ready, payload)) }
+        Self { future: Box::pin(synchronize(conn, relative_node_type, futures::future::ready, payload)) }
     }
 
     /// This returned future will resolve once both sides terminate synchronisticly
-    pub fn new_sync_only<Conn: ReliableOrderedConnectionToTarget + 'static>(conn: &NetworkEndpoint<Conn>, relative_node_type: RelativeNodeType) -> NetSyncStart<()> {
+    pub fn new_sync_only<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnKey + 'a, Conn: ReliableOrderedStreamToTarget + 'static>(conn: &'a S, relative_node_type: RelativeNodeType) -> NetSyncStart<()> {
         NetSyncStart::exchange_payload(conn, relative_node_type, ())
     }
 }
@@ -93,14 +94,14 @@ impl<P: Send + Sync> SyncPacket<P> {
     }
 }
 
-async fn synchronize<Conn: ReliableOrderedConnectionToTarget, F, Fx, P: Serialize + DeserializeOwned + Send + Sync, R>(conn: PreActionSync<'_, Conn>, relative_node_type: RelativeNodeType, future: Fx, payload: P) -> Result<R, anyhow::Error>
+async fn synchronize<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnKey, Conn: ReliableOrderedStreamToTarget + 'static, F, Fx, P: Serialize + DeserializeOwned + Send + Sync, R>(conn: &S, relative_node_type: RelativeNodeType, future: Fx, payload: P) -> Result<R, anyhow::Error>
     where
         F: Future<Output=R>,
         F: Send,
         Fx: FnOnce(P) -> F,
         Fx: Send {
 
-    let ref conn = conn.await?;
+    let ref conn = conn.initiate_subscription().await?;
     let tt = TimeTracker::new();
 
     match relative_node_type {

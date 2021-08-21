@@ -38,7 +38,7 @@ mod tests {
 
         let cfg = TomlConfig::load_default().unwrap().unwrap();
         assert_eq!(cfg.default_node, "MyApp");
-        assert_eq!(cfg.hypernodes.len(), 2);
+        assert_eq!(cfg.hypernodes.len(), 4);
 
         let app_config = cfg.parse_config(Some("MyApp2")).unwrap();
         log::info!("{:?}", cfg);

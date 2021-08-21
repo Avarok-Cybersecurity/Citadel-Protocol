@@ -19,9 +19,8 @@ byteorder = "1.3.4"
 #rsntp = { path = "../rsntp", features = ["async"], version = "2.0.0" }
 rsntp = { version = "2.0.0", features = ["async"] }
 whoami = "0.9.0"
-arc-swap = "0.4.7"
 parking_lot = "0.11.1"
-stun = "0.3.0"
+stun = "^0.3.1"
 net2 = "0.2.37"
 anyhow = "1.0.42"
 serde = { version = "1.0.126", features = ["derive"]}
@@ -36,7 +35,7 @@ openssl = { version = "0.10.35", features = ["vendored"]}
 either = "1.6.1"
 tokio-rustls = "0.22.0"
 
-net_sync = { path = "../net_sync", version = "0.1.0" }
+netbeam = { path = "../netbeam", version = "0.1.0" }
 
 [dev-dependencies]
 env_logger = "0.7.1"

@@ -175,6 +175,7 @@ impl Drop for PeerChannelRecvHalf {
 
                 let command = match self.recv_type {
                     ReceivePortType::OrderedReliable => {
+                        log::info!("OrderedReliable sd");
                         self.is_alive.store(false, Ordering::SeqCst);
                         HdpServerRequest::PeerCommand(local_cid, PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), None))
                     }

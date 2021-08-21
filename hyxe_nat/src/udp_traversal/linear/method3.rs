@@ -8,13 +8,13 @@ use tokio::net::UdpSocket;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::Duration;
 
-use net_sync::sync::RelativeNodeType;
 
 use crate::error::FirewallError;
 use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use crate::udp_traversal::HolePunchID;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::linear::LinearUdpHolePunchImpl;
+use netbeam::sync::RelativeNodeType;
 
 /// Method three: "Both sides send packets with short TTL values followed by packets with long TTL
 // values". Source: page 7 of https://thomaspbraun.com/pdfs/NAT_Traversal/NAT_Traversal.pdf

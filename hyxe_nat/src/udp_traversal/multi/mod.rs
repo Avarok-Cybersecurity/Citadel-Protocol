@@ -12,14 +12,14 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
 
 use async_ip::IpAddressInfo;
-use net_sync::reliable_conn::ReliableOrderedConnectionToTarget;
-use net_sync::sync::RelativeNodeType;
 
 use crate::nat_identification::NatType;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedSocketAddr, HolePunchedUdpSocket};
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
+use netbeam::reliable_conn::{ReliableOrderedConnectionToTarget, ReliableOrderedStreamToTarget};
+use netbeam::sync::RelativeNodeType;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
@@ -45,27 +45,27 @@ enum DualStackCandidate {
 impl<'a> DualStackUdpHolePuncher<'a> {
     #[allow(unused_results)]
     /// `peer_internal_port`: Required for determining the internal socket addr
-    pub fn new<T: ReliableOrderedConnectionToTarget + 'a>(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn: &'a T, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, breadth: u16) -> Result<Self, anyhow::Error> {
+    pub fn new<T: ReliableOrderedStreamToTarget + 'a>(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, stream: &'a T, conn_local_addr: SocketAddr, conn_peer_addr: SocketAddr, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, breadth: u16) -> Result<Self, anyhow::Error> {
         let (syn_observer_tx, syn_observer_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut hole_punchers = Vec::new();
         let ref mut init_unique_id = HolePunchID(0);
-        Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn, local_nat, peer_nat, peer_internal_port, 0, init_unique_id, syn_observer_tx.clone())?;
+        Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn_local_addr, conn_peer_addr, local_nat, peer_nat, peer_internal_port, 0, init_unique_id, syn_observer_tx.clone())?;
 
         if breadth > 1 {
             for delta in 1..breadth {
-                Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn, local_nat, peer_nat, peer_internal_port, delta, init_unique_id, syn_observer_tx.clone())?;
+                Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn_local_addr, conn_peer_addr, local_nat, peer_nat, peer_internal_port, delta, init_unique_id, syn_observer_tx.clone())?;
             }
         }
 
-        Ok(Self { future: Box::pin(drive(hole_punchers, conn, relative_node_type, syn_observer_rx)) })
+        Ok(Self { future: Box::pin(drive(hole_punchers, stream, relative_node_type, syn_observer_rx)) })
     }
 
-    fn generate_dual_stack_hole_punchers_with_delta<T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: &mut Vec<SingleUDPHolePuncher>, relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn: &'a T, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, delta: u16, unique_id: &mut HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<(), anyhow::Error> {
+    fn generate_dual_stack_hole_punchers_with_delta(hole_punchers: &mut Vec<SingleUDPHolePuncher>, relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn_local_addr: SocketAddr, conn_peer_addr: SocketAddr, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, delta: u16, unique_id: &mut HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<(), anyhow::Error> {
         let peer_ip_info = peer_nat.ip_addr_info().ok_or_else(|| anyhow::Error::msg("Peer IP info not loaded"))?;
         let local_ip_info = local_nat.ip_addr_info().ok_or_else(|| anyhow::Error::msg("Local IP info not loaded"))?;
 
-        let bind_addr_0 = conn.local_addr()?;
-        let peer_external_addr_0 = conn.peer_addr()?;
+        let bind_addr_0 = conn_local_addr;
+        let peer_external_addr_0 = conn_peer_addr;
         let peer_internal_addr_0 = SocketAddr::new(peer_ip_info.internal_ipv4, peer_internal_port);
 
         let (bind_addr_1, peer_external_addr_1, peer_internal_addr_1) = invert(bind_addr_0, peer_external_addr_0, peer_internal_addr_0, peer_ip_info)?;
@@ -96,7 +96,7 @@ impl Future for DualStackUdpHolePuncher<'_> {
     }
 }
 
-async fn drive<'a, T: ReliableOrderedConnectionToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T, node_type: RelativeNodeType, mut syn_observer_rx: UnboundedReceiver<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T, node_type: RelativeNodeType, mut syn_observer_rx: UnboundedReceiver<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let (final_candidate_tx, final_candidate_rx) = tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
     let (reader_done_tx, mut reader_done_rx) = tokio::sync::broadcast::channel::<()>(2);
     let mut reader_done_rx_2 = reader_done_tx.subscribe();
@@ -381,11 +381,11 @@ fn construct_received_ids(received_syns: &HashSet<(HolePunchID, HolePunchID, Hol
     ret
 }
 
-async fn send<R: Serialize, V: ReliableOrderedConnectionToTarget>(ref input: R, conn: &V) -> Result<(), anyhow::Error> {
+async fn send<R: Serialize, V: ReliableOrderedStreamToTarget>(ref input: R, conn: &V) -> Result<(), anyhow::Error> {
     Ok(conn.send_to_peer(&bincode2::serialize(input).unwrap()).await?)
 }
 
-async fn receive<T: DeserializeOwned, V: ReliableOrderedConnectionToTarget>(conn: &V) -> Result<T, anyhow::Error> {
+async fn receive<T: DeserializeOwned, V: ReliableOrderedStreamToTarget>(conn: &V) -> Result<T, anyhow::Error> {
     Ok(bincode2::deserialize(&conn.recv().await?)?)
 }
 
