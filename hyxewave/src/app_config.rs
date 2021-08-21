@@ -11,7 +11,6 @@ use hyxe_user::re_imports::get_default_config_dir;
 use std::str::FromStr;
 use crate::re_exports::PRIMARY_PORT;
 use std::net::IpAddr;
-use hyxe_net::hdp::misc::net::TlsListener;
 use hyxe_user::backend::mysql_backend::SqlConnectionOptions;
 use std::time::Duration;
 use hyxe_crypt::argon::argon_container::ArgonDefaultServerSettings;
@@ -144,7 +143,7 @@ impl TomlConfig {
 
         let home_dir = node.override_home_dir.clone();
         let underlying_proto = if let Some(tls) = node.tls.as_ref() {
-            UnderlyingProtocol::load_tls(tls.pkcs12_path.as_str(), tls.password.as_ref().map(|r| r.as_str()).unwrap_or(""), tls.domain.clone()).map_err(|err| ConsoleError::Generic(format!("Unable to load PKCS-12: {:?}", err)))?
+            UnderlyingProtocol::load_tls(tls.pkcs12_path.as_str(), tls.password.as_ref().map(|r| r.as_str()).unwrap_or(""), tls.domain.clone().unwrap_or_default()).map_err(|err| ConsoleError::Generic(format!("Unable to load PKCS-12: {:?}", err)))?
         } else {
             UnderlyingProtocol::Tcp
         };

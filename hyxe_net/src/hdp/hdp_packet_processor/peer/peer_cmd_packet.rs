@@ -10,7 +10,7 @@ use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::prelude::SyncIO;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
-use net_sync::sync::RelativeNodeType;
+use netbeam::sync::RelativeNodeType;
 
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet_processor::includes::*;
@@ -26,7 +26,7 @@ use crate::hdp::peer::p2p_conn_handler::attempt_simultaneous_hole_punch;
 use crate::hdp::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal, UdpMode};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
-use net_sync::sync::network_endpoint::NetworkEndpoint;
+use netbeam::sync::network_endpoint::NetworkEndpoint;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the

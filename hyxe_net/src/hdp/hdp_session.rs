@@ -21,7 +21,7 @@ use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::io::SyncIO;
 use hyxe_nat::hypernode_type::HyperNodeType;
-use net_sync::time_tracker::TimeTracker;
+use netbeam::time_tracker::TimeTracker;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;

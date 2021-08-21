@@ -1,5 +1,5 @@
 #![doc(html_no_source)]
-#![feature(async_closure, ip, bindings_after_at, result_flattening, arbitrary_self_types)]
+#![feature(async_closure, ip, result_flattening, arbitrary_self_types)]
 #![feature(test)]
 #![feature(associated_type_bounds)]
 #![feature(try_trait_v2)]

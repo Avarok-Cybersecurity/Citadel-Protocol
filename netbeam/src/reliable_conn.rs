@@ -5,19 +5,30 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
+use tokio::sync::Mutex;
 
 #[async_trait]
 /// This represents a direct client to server or client->server->peer connection (usually just TCP) for establishing the hole-punching process
-pub trait ReliableOrderedConnectionToTarget: Send + Sync {
+pub trait ReliableOrderedStreamToTarget: Send + Sync {
     /// Accepts plaintext from the NAT traversal driver. Encryption can be optionally applied
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()>;
     /// returns the plaintext
     async fn recv(&self) -> std::io::Result<Bytes>;
+}
+
+pub trait ConnAddr {
     /// Returns the bind addr. Used for establishing a local UDP socket
     fn local_addr(&self) -> std::io::Result<SocketAddr>;
     /// Returns the peer addr. If relaying is used to get the packet to the peer, then the peer addr should be used, not the relay addr
     fn peer_addr(&self) -> std::io::Result<SocketAddr>;
+}
 
+pub trait ReliableOrderedConnectionToTarget: ConnAddr + ReliableOrderedStreamToTarget {}
+impl<T: ConnAddr + ReliableOrderedStreamToTarget> ReliableOrderedConnectionToTarget for T {}
+
+#[async_trait]
+pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
     async fn recv_serialized<T: DeserializeOwned + Send + Sync>(&self) -> std::io::Result<T> {
         let packet = &self.recv().await?;
         Ok(bincode2::deserialize(packet).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?)
@@ -46,8 +57,10 @@ pub trait ReliableOrderedConnectionToTarget: Send + Sync {
     }
 }
 
+impl<T: ReliableOrderedStreamToTarget> ReliableOrderedStreamToTargetExt for T {}
+
 #[async_trait]
-impl ReliableOrderedConnectionToTarget for TcpStream {
+impl ReliableOrderedStreamToTarget for TcpStream {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
         loop {
             self.writable().await?;
@@ -88,7 +101,9 @@ impl ReliableOrderedConnectionToTarget for TcpStream {
             }
         }
     }
+}
 
+impl ConnAddr for TcpStream {
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
         TcpStream::local_addr(self)
     }
@@ -98,9 +113,8 @@ impl ReliableOrderedConnectionToTarget for TcpStream {
     }
 }
 
-
 #[async_trait]
-impl<T: ReliableOrderedConnectionToTarget> ReliableOrderedConnectionToTarget for &'_ T {
+impl<T: ReliableOrderedStreamToTarget + ?Sized> ReliableOrderedStreamToTarget for Arc<T> {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
         T::send_to_peer(self, input).await
     }
@@ -108,45 +122,40 @@ impl<T: ReliableOrderedConnectionToTarget> ReliableOrderedConnectionToTarget for
     async fn recv(&self) -> std::io::Result<Bytes> {
         T::recv(self).await
     }
+}
 
-    fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        T::local_addr(self)
-    }
+pub struct StreamWrapper<T> {
+    inner: Mutex<T>
+}
 
-    fn peer_addr(&self) -> std::io::Result<SocketAddr> {
-        T::peer_addr(self)
+impl<T: AsyncRead + AsyncWrite + Send + Unpin> From<T> for StreamWrapper<T> {
+    fn from(this: T) -> Self {
+        StreamWrapper { inner: Mutex::new(this) }
     }
 }
 
 #[async_trait]
-impl<T: ReliableOrderedConnectionToTarget> ReliableOrderedConnectionToTarget for Arc<T> {
+impl<T: AsyncRead + AsyncWrite + Send + Unpin> ReliableOrderedStreamToTarget for StreamWrapper<T> {
     async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
-        T::send_to_peer(self, input).await
+        self.inner.lock().await.write_all(input).await
     }
 
     async fn recv(&self) -> std::io::Result<Bytes> {
-        T::recv(self).await
-    }
-
-    fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        T::local_addr(self)
-    }
-
-    fn peer_addr(&self) -> std::io::Result<SocketAddr> {
-        T::peer_addr(self)
+        let mut buf = BytesMut::with_capacity(4096);
+        self.inner.lock().await.read_buf(&mut buf).await.map(|r| buf.split_to(r).freeze())
     }
 }
 
 pub mod simulator {
     use bytes::Bytes;
-    use std::net::SocketAddr;
     use async_trait::async_trait;
     use rand::Rng;
     use std::sync::Arc;
     use tokio::sync::mpsc::UnboundedSender;
-    use crate::reliable_conn::ReliableOrderedConnectionToTarget;
+    use crate::reliable_conn::{ReliableOrderedConnectionToTarget, ConnAddr, ReliableOrderedStreamToTarget};
+    use std::net::SocketAddr;
 
-    pub struct NetworkConnSimulator<T: ReliableOrderedConnectionToTarget + 'static> {
+    pub struct NetworkConnSimulator<T> {
         inner: Arc<T>,
         fwd: UnboundedSender<Vec<u8>>
     }
@@ -174,7 +183,7 @@ pub mod simulator {
     }
 
     #[async_trait]
-    impl<T: ReliableOrderedConnectionToTarget + 'static> ReliableOrderedConnectionToTarget for NetworkConnSimulator<T> {
+    impl<T: ReliableOrderedStreamToTarget + 'static> ReliableOrderedStreamToTarget for NetworkConnSimulator<T> {
         async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
             let heap = input.to_vec();
             self.fwd.send(heap).map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))
@@ -183,7 +192,9 @@ pub mod simulator {
         async fn recv(&self) -> std::io::Result<Bytes> {
             self.inner.recv().await
         }
+    }
 
+    impl<T: ReliableOrderedConnectionToTarget + 'static> ConnAddr for NetworkConnSimulator<T> {
         fn local_addr(&self) -> std::io::Result<SocketAddr> {
             self.inner.local_addr()
         }

@@ -19,15 +19,13 @@ use crate::hdp::state_container::StateContainer;
 use crate::hdp::misc::panic_future::AssertSendSafeFuture;
 use hyxe_nat::exports::Endpoint;
 use crate::hdp::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
-use crate::hdp::peer::hole_punch_compat_sink_stream::ReliableOrderedCompatStream;
 use futures::TryFutureExt;
-use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use hyxe_nat::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use std::fmt::Debug;
 use hyxe_user::re_imports::__private::Formatter;
-use net_sync::sync::network_endpoint::NetworkEndpoint;
+use netbeam::sync::network_endpoint::NetworkEndpoint;
 use hyxe_nat::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
-use net_sync::sync::net_select_ok::NetSelectOkResult;
+use netbeam::sync::operations::net_select_ok::NetSelectOkResult;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
@@ -225,7 +223,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 
 /// Both sides need to begin this process at `sync_time`
 pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, ref session: HdpSession, peer_nat_info: PeerNatInfo, implicated_cid: DualCell<Option<u64>>, ref kernel_tx: UnboundedSender<HdpServerResult>, channel_signal: HdpServerResult, sync_time: Instant,
-                                                    ref state_container: StateContainer, security_level: SecurityLevel, ref app: NetworkEndpoint<ReliableOrderedCompatStream>, quic_endpoint: Endpoint, encrypted_config_container: EncryptedConfigContainer) -> std::io::Result<()> {
+                                                    ref state_container: StateContainer, security_level: SecurityLevel, ref app: NetworkEndpoint, quic_endpoint: Endpoint, encrypted_config_container: EncryptedConfigContainer) -> std::io::Result<()> {
 
     let process = async move {
         tokio::time::sleep_until(sync_time).await;
@@ -236,15 +234,15 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
             let remote_connect_addr = hole_punched_socket.addr.natted;
             let addr = hole_punched_socket.addr;
             log::info!("~!@ P2P UDP Hole-punch finished @!~");
-            HdpServer::create_p2p_quic_connect_socket(quic_endpoint, remote_connect_addr, peer_nat_info.tls_domain, None).await
-                .map(|r| (r, addr)).map_err(anyhow::Error::new)
+            Ok(HdpServer::create_p2p_quic_connect_socket(quic_endpoint, remote_connect_addr, peer_nat_info.tls_domain, None)
+                .and_then(move |r| async move { Ok((r, addr)) }).map_err(anyhow::Error::new))
         };
 
 
         let task = app.net_select_ok(task_inner).map_err(|err| generic_error(err));
 
         // now, wait for the first successful future
-        let res: NetSelectOkResult<(GenericNetworkStream, HolePunchedSocketAddr)> = tokio::time::timeout(Duration::from_millis(3000), task).await.map_err(|_| generic_error("Deadline for TCP hole puncher elapsed"))??;
+        let res: NetSelectOkResult<_> = tokio::time::timeout(Duration::from_millis(3000), task).await.map_err(|_| generic_error("Deadline for TCP hole puncher elapsed"))??;
         log::info!("~!@ P2P UDP Hole-punch + QUIC finished. Res: {} @!~", res.result.is_some());
         // TODO: handle global failure (implies TURN routing already)
         let expected_peer_cid = peer_connection_type.get_original_target_cid();
@@ -252,7 +250,8 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
 
         // only ONE will setup the connection. Even if the adjacent side was Ok, it will get overwritten
         match res.result {
-            Some((mut p2p_stream, hole_punched_addr)) => {
+            Some(future) => {
+                let (mut p2p_stream, hole_punched_addr) = future.await.map_err(|err| generic_error(err.to_string()))?;
                 log::info!("[P2P-stream] SUCCESS Hole Punching. Setting up direct p2p session ...");
                 let peer_endpoint_addr = p2p_stream.peer_addr()?;
                 let local_addr = p2p_stream.local_addr()?;
