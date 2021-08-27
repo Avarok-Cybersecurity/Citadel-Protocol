@@ -80,7 +80,7 @@ pub struct RtdbConfig {
 
 impl ServicesConfig {
     /// Creates a [ServicesHandler] from the given internal configuration
-    pub async fn to_services_handler(self) -> Result<ServicesHandler, AccountError> {
+    pub async fn into_services_handler(self) -> Result<ServicesHandler, AccountError> {
         let fcm_client = Arc::new(Client::new());
 
         let (google_auth, rtdb_root_instance) = if let Some(path) = self.google_services_json_path {

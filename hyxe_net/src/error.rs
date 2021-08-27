@@ -106,8 +106,8 @@ impl<T> From<tokio::sync::mpsc::error::SendError<T>> for NetworkError {
     }
 }
 
-impl<T: Into<String>> From<AccountError<T>> for NetworkError {
-    fn from(err: AccountError<T>) -> Self {
+impl From<AccountError> for NetworkError {
+    fn from(err: AccountError) -> Self {
         NetworkError::Generic(err.into_string())
     }
 }

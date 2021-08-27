@@ -10,6 +10,8 @@ pub mod network_application;
 pub mod network_endpoint;
 pub mod sync_start;
 
+pub mod channel;
+
 pub mod callback_channel;
 
 #[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Debug, Copy, Clone)]
@@ -37,6 +39,17 @@ pub mod test_utils {
     use crate::sync::RelativeNodeType;
     use crate::sync::network_endpoint::NetworkEndpoint;
     use std::net::SocketAddr;
+
+    #[cfg(test)]
+    pub(crate) fn setup_log() {
+        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        //std::env::set_var("RUST_LOG", "error");
+        let _ = env_logger::try_init();
+        log::trace!("TRACE enabled");
+        log::info!("INFO enabled");
+        log::warn!("WARN enabled");
+        log::error!("ERROR enabled");
+    }
 
     pub struct TcpCodecFramed {
         sink: Mutex<SplitSink<Framed<TcpStream, LengthDelimitedCodec>, Bytes>>,

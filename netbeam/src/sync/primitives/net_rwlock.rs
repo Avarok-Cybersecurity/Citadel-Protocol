@@ -100,7 +100,7 @@ impl<T: NetObject, S: Subscribable + 'static> Future for NetRwLockLoader<'_, T, 
     }
 }
 
-mod read {
+pub(crate) mod read {
     use std::ops::Deref;
     use std::pin::Pin;
     use std::sync::Arc;
@@ -180,7 +180,7 @@ mod read {
     }
 }
 
-mod write {
+pub(crate) mod write {
     use std::ops::{Deref, DerefMut};
     use std::pin::Pin;
     use std::sync::Arc;

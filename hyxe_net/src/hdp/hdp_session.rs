@@ -725,12 +725,6 @@ impl HdpSession {
             }
         };
 
-        /*#[cfg(feature = "single-threaded")]
-            const AMT: Option<usize> = Some(1);
-
-        #[cfg(not(feature = "single-threaded"))]
-        const AMT: Option<usize> = None;*/
-
         reader.try_for_each_concurrent(None, move |packet| {
             async move {
                 //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);

@@ -104,7 +104,7 @@ pub async fn create_file<P: AsRef<Path>>(path: P) -> Result<(), FsError<String>>
 pub async fn create_file_with<P: AsRef<Path>>(path: P, data: &String) -> Result<(), FsError<String>> {
     let path_clone = path.as_ref().clone();
     tokio::fs::File::create(path.as_ref())
-        .and_then(async move |_| tokio::fs::write(path_clone, data).await)
+        .and_then(|_| tokio::fs::write(path_clone, data))
         .map_err(|err| FsError::IoError(err.to_string())).await
 }
 

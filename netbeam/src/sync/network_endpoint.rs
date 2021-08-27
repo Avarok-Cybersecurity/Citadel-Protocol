@@ -41,6 +41,7 @@ impl NetworkEndpoint {
 #[cfg(test)]
 mod tests {
     use crate::sync::test_utils::create_streams_with_addrs;
+    use crate::reliable_conn::ConnAddr;
 
     #[tokio::test]
     async fn main() {

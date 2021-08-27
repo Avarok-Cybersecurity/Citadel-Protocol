@@ -1,10 +1,8 @@
 /// Default Error type for this crate
 #[derive(Debug)]
-pub enum AccountError<T: Into<String> = String> {
+pub enum AccountError {
     /// Input/Output error. Used for possibly failed Serialization/Deserialization of underlying datatypes
-    IoError(T),
-    /// The [NetworkMap] does not have a valid configuration
-    NetworkMapLoad(T),
+    IoError(String),
     /// The client already exists
     ClientExists(u64),
     /// The client does not exist
@@ -20,10 +18,14 @@ pub enum AccountError<T: Into<String> = String> {
     /// The server is not engaged
     Disengaged(u64),
     /// Generic error
-    Generic(T),
+    Generic(String),
 }
 
-impl<T: Into<String>> AccountError<T> {
+impl AccountError {
+    pub(crate) fn msg<T: Into<String>>(msg: T) -> Self {
+        Self::Generic(msg.into())
+    }
+
     /// Consumes self and returns the underlying error message
     pub fn into_string(self) -> String {
         match self {
@@ -31,13 +33,30 @@ impl<T: Into<String>> AccountError<T> {
             AccountError::Generic(e) => e.into(),
             AccountError::InvalidUsername => "Invalid username".to_string(),
             AccountError::InvalidPassword => "Invalid password".to_string(),
-            AccountError::NetworkMapLoad(e) => e.into(),
             AccountError::ClientExists(cid) => format!("Client {} already exists", cid),
             AccountError::ClientNonExists(cid) => format!("Client {} does not exist", cid),
             AccountError::ServerExists(cid) => format!("Server {} already exists", cid),
             AccountError::ServerNonExists(cid) => format!("Server {} does not exist", cid),
             AccountError::Disengaged(cid) => format!("Server {} is not engaged", cid)
         }
+    }
+}
+
+/// Meant for easy mapping of an optional type into a result type
+pub trait EmptyOptional<T> {
+    /// Maps the empty value to an error type
+    fn map_empty_err(self) -> Result<T, AccountError>;
+    /// Maps the empty value to an error type with a custom message
+    fn map_empty_err_ctx<R: Into<String>>(self, msg: R) -> Result<T, AccountError>;
+}
+
+impl<T> EmptyOptional<T> for Option<T> {
+    fn map_empty_err(self) -> Result<T, AccountError> {
+        self.map_empty_err_ctx("empty error")
+    }
+
+    fn map_empty_err_ctx<R: Into<String>>(self, msg: R) -> Result<T, AccountError> {
+        self.ok_or_else(|| AccountError::msg(msg))
     }
 }
 
@@ -61,7 +80,7 @@ const ASCII_ONLY: bool = false;
 
 /// Used to determine if the desired credentials have a valid format, length, etc. This alone DOES NOT imply whether or not the
 /// credentials are available
-pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(username: &T, password: Option<&R>, full_name: &V) -> Result<(), AccountError<String>> {
+pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(username: &T, password: Option<&R>, full_name: &V) -> Result<(), AccountError> {
     let username = username.as_ref();
     let full_name = full_name.as_ref();
     

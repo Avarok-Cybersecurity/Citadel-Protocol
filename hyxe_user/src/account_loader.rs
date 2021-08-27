@@ -13,7 +13,7 @@ use hyxe_crypt::hyper_ratchet::Ratchet;
 /// exist locally.
 /// `cnacs_loaded` must also be present in order to validate that the local node's listed clients map to locally-existant CNACs. A "feed two birds with one scone" scenario
 #[allow(unused_results)]
-pub fn load_node_nac<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError<String>> {
+pub fn load_node_nac<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError> {
     log::info!("[NAC-loader] Detecting local NAC...");
     // First, set the NAC_NODE_DEFAULT_STORE_LOCATION
     let file_location = directory_store.inner.read().nac_node_default_store_location.clone();

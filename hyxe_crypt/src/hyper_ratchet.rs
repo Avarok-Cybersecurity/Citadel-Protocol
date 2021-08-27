@@ -7,7 +7,6 @@ use bytes::BytesMut;
 use crate::misc::CryptError;
 use serde::{Serialize, Deserialize};
 use crate::net::crypt_splitter::calculate_nonce_version;
-use std::alloc::Global;
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::fcm::fcm_ratchet::FcmRatchet;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
@@ -168,11 +167,11 @@ impl Ratchet for HyperRatchet {
         self.validate_message_packet(security_level, header, packet)
     }
 
-    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8, Global>, CryptError<String>> {
+    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
         self.decrypt(contents)
     }
 
-    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8, Global>, CryptError<String>> {
+    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
         self.encrypt(contents)
     }
 }
@@ -709,7 +708,7 @@ pub mod constructor {
             let keys: Vec<MessageRatchetConstructorInner> = transfer.pks.into_iter().zip(opts.into_iter()).filter_map(|(pk, opts)| Some(MessageRatchetConstructorInner { drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?), pqc: PostQuantumContainer::new_bob(opts, pk).ok()? })).collect();
 
             if keys.len() != count {
-                log::error!("[BOB] not all keys parsed correctly");
+                log::error!("[BOB] not all keys parsed correctly. {} != {}", keys.len(), count);
                 return None;
             }
 

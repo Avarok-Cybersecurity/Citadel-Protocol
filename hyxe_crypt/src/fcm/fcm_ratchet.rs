@@ -8,7 +8,6 @@ use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::hyper_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
 use crate::misc::CryptError;
 use crate::net::crypt_splitter::calculate_nonce_version;
-use std::alloc::Global;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
 use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
 use ez_pqcrypto::LARGEST_NONCE_LEN;
@@ -87,11 +86,11 @@ impl Ratchet for FcmRatchet {
         drill.validate_packet_in_place_split(pqc, header, packet)
     }
 
-    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8, Global>, CryptError<String>> {
+    fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
         self.decrypt_custom(0, 0, contents)
     }
 
-    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8, Global>, CryptError<String>> {
+    fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
         self.encrypt_custom(0, 0, contents)
     }
 }

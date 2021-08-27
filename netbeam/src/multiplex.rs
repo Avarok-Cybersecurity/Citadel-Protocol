@@ -153,7 +153,8 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
     type ID = K;
     type UnderlyingConn = Arc<dyn ReliableOrderedStreamToTarget + 'static>;
     type SubscriptionType = OwnedMultiplexedSubscription<K>;
-    type BorrowedSubscriptionType<'a> = MultiplexedSubscription<'a, K>;
+    //type BorrowedSubscriptionType<'a> = MultiplexedSubscription<'a, K>;
+    type BorrowedSubscriptionType = OwnedMultiplexedSubscription<K>;
 
     fn underlying_conn(&self) -> &Self::UnderlyingConn {
         &self.conn
@@ -187,12 +188,13 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
         self.node_type
     }
 
-    fn subscribe(&self, id: Self::ID) -> Self::BorrowedSubscriptionType<'_> {
+    fn subscribe(&self, id: Self::ID) -> Self::BorrowedSubscriptionType {
         let mut lock = self.subscribers.write();
         let (tx, receiver) = unbounded_channel();
         let sub = MultiplexedSubscription { ptr: self, receiver: Some(Mutex::new(receiver)), id };
         let _ = lock.insert(id, tx);
-        sub
+        // TODO: on GAT stabalization, remove into
+        sub.into()
     }
 
     fn owned_subscription(&self, id: Self::ID) -> Self::SubscriptionType {

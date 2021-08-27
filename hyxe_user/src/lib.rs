@@ -1,13 +1,6 @@
-#![feature(nll, async_closure)]
-#![feature(label_break_value)]
-#![feature(in_band_lifetimes)]
-#![feature(try_trait_v2)]
-#![feature(control_flow_enum)]
+//#![feature(try_trait_v2)]
 //! This crate is meant for containing the user-related libraries for HyperNode accounts. Both NetworkAccount and ClientAccount's are a subset of HyperNode accounts.
 //! Every node/device necessarily contains a singular NetworkAccount; for each connection leading into and out of the node, a ClientAccount exists.
-//!
-//! It is possible for multiple ClientAccounts to exists per node. For example, a user may be part of multiple HyperVPN's, in which case, for each HyperVPN, there exists
-//! a single ClientAccount
 
 
 #![deny(
@@ -57,16 +50,7 @@ pub mod network_account;
 /// only needed, but also the means for creating a CNAC. NAC -> CNAC. It terms of abstraction, we
 /// now ascend a level: Let the node at any point along the network, independent of central server,
 /// be called a NAC. A NAC is necessary to connect and create mutually-trusted connections within
-/// the WAN (Wide-area network). The NAC has three very central subroutines for interfacing with
-/// external central nodes:
-///
-/// [1] => listen
-/// [2] => pass_message
-/// [3] => ??? (TBD)
-///
-/// These three vital subroutines allow for connection within the WAN. In terms of abstraction, we
-/// now ascend another level for a parallel layer: let the WAN be called the HyperWAN. We do this to
-/// differentiate between nodes that act as HyperLAN central servers and old-school web 3.0 servers.
+/// the WAN (Wide-area network).
 ///
 /// evoc_null(web 3.0) => void && let void alloc finite && set network evoc_null(!HyperWAN)
 pub mod client_account;

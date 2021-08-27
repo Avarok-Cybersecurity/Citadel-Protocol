@@ -1,5 +1,3 @@
-#![feature(test, rustc_private, async_closure, const_fn_trait_bound)]
-
 #[macro_use]
 pub mod macros {
     macro_rules! printf {
