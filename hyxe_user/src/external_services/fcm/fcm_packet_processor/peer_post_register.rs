@@ -10,6 +10,7 @@ use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use multimap::MultiMap;
 use crate::client_account::{MutualPeer, HYPERLAN_IDX};
 use crate::backend::PersistenceHandler;
+use crate::misc::{AccountError, EmptyOptional};
 
 #[derive(Serialize, Deserialize)]
 pub enum InvitationType {
@@ -64,7 +65,7 @@ pub struct FcmPostRegisterResponse {
 }
 
 #[allow(unused_results)]
-pub async fn process(persistence_handler: &PersistenceHandler, post_register_store: &mut HashMap<u64, InvitationType>, kem_state_containers: &mut HashMap<u64, ConstructorType>, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>, local_cid: u64, source_cid: u64, ticket: u64, transfer: FcmPostRegister, username: String) -> FcmProcessorResult {
+pub async fn process(persistence_handler: &PersistenceHandler, post_register_store: &mut HashMap<u64, InvitationType>, kem_state_containers: &mut HashMap<u64, ConstructorType>, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>, local_cid: u64, source_cid: u64, ticket: u64, transfer: FcmPostRegister, username: String) -> Result<FcmProcessorResult, AccountError> {
     log::info!("FCM RECV PEER_POST_REGISTER");
     match &transfer {
         FcmPostRegister::AliceToBobTransfer(_transfer_bytes, _keys, source_cid) => {
@@ -77,16 +78,16 @@ pub async fn process(persistence_handler: &PersistenceHandler, post_register_sto
             log::info!("[FCM POST-REGISTER] Stored invitation from {} for {}", peer_cid, local_cid);
 
             // finally, return signal to caller
-            FcmProcessorResult::Value(FcmResult::PostRegisterInvitation { invite: PostRegisterInvitation { peer_cid, local_cid, username: username.into_bytes(), ticket } })
+            Ok(FcmProcessorResult::Value(FcmResult::PostRegisterInvitation { invite: PostRegisterInvitation { peer_cid, local_cid, username: username.into_bytes(), ticket } }))
         }
 
         FcmPostRegister::BobToAliceTransfer(fcm_bob_to_alice_transfer, fcm_keys, source_cid) => {
             // here, we need to finalize the construction on Alice's side
-            let mut fcm_constructor = kem_state_containers.remove(source_cid)?.assume_fcm()?;
+            let mut fcm_constructor = kem_state_containers.remove(source_cid).map_empty_err()?.assume_fcm().map_empty_err()?;
 
-            fcm_constructor.stage1_alice(fcm_bob_to_alice_transfer)?;
+            fcm_constructor.stage1_alice(fcm_bob_to_alice_transfer).map_empty_err()?;
 
-            let fcm_ratchet = fcm_constructor.finish_with_custom_cid(local_cid)?;
+            let fcm_ratchet = fcm_constructor.finish_with_custom_cid(local_cid).map_empty_err()?;
 
             let fcm_endpoint_container = PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), true, fcm_keys.clone());
 
@@ -101,30 +102,34 @@ pub async fn process(persistence_handler: &PersistenceHandler, post_register_sto
             persistence_handler.register_p2p_as_client(local_cid, *source_cid, username.clone()).await?;
 
             // upon return, saving will occur
-            FcmProcessorResult::Value(FcmResult::PostRegisterResponse { response: FcmPostRegisterResponse {
-                local_cid,
-                peer_cid: *source_cid,
-                ticket,
-                accept: true,
-                username
-            }})
+            Ok(FcmProcessorResult::Value(FcmResult::PostRegisterResponse {
+                response: FcmPostRegisterResponse {
+                    local_cid,
+                    peer_cid: *source_cid,
+                    ticket,
+                    accept: true,
+                    username,
+                }
+            }))
         }
 
         // Bob denied the request
         FcmPostRegister::Decline => {
             kem_state_containers.remove(&source_cid);
-            FcmProcessorResult::Value(FcmResult::PostRegisterResponse { response: FcmPostRegisterResponse {
-                local_cid,
-                peer_cid: source_cid,
-                ticket,
-                accept: false,
-                username
-            }})
+            Ok(FcmProcessorResult::Value(FcmResult::PostRegisterResponse {
+                response: FcmPostRegisterResponse {
+                    local_cid,
+                    peer_cid: source_cid,
+                    ticket,
+                    accept: false,
+                    username,
+                }
+            }))
         }
         s @ FcmPostRegister::Enable | s @ FcmPostRegister::Disable => {
             log::error!("Received unexpected signal: {:?}", s);
             // We should never reach here
-            FcmProcessorResult::Void
+            Ok(FcmProcessorResult::Void)
         }
     }
 }

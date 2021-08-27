@@ -111,7 +111,7 @@ mod tests {
             .map(|cid| {
                 let mut alice_hr = R::Constructor::new_alice(vec![ConstructorOpts::new_init(Some(algo))], 0, 0, None);
                 let transfer = alice_hr.stage0_alice();
-                let bob_hr = R::Constructor::new_bob(0, 0, transfer).unwrap();
+                let bob_hr = R::Constructor::new_bob(0, 0, vec![ConstructorOpts::new_init(Some(algo))], transfer).unwrap();
                 let transfer = bob_hr.stage0_bob().unwrap();
                 alice_hr.stage1_alice(&transfer).unwrap();
                 let toolset = Toolset::new(cid, alice_hr.finish().unwrap());
@@ -196,26 +196,35 @@ mod tests {
 
     #[test]
     fn hyper_ratchets() {
+        setup_log();
         for x in 0u8..ALGORITHM_COUNT {
-            hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(x.into()));
-            #[cfg(feature = "fcm")]
-                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(x.into()));
-
-            hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(x.into()));
-            #[cfg(feature = "fcm")]
-                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(x.into()));
+            for sec in 0..SecurityLevel::DIVINE.value() {
+                hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
+                hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), false);
+            }
         }
     }
 
-    fn hyper_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(algorithm: Z, security_level: Option<SecurityLevel>) {
-        let algorithm = algorithm.into();
-        println!("Using {:?} with {:?} @ {:?} security level", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level);
+    #[test]
+    fn hyper_ratchets_fcm() {
         setup_log();
+        for x in 0u8..ALGORITHM_COUNT {
+            for sec in 0..SecurityLevel::DIVINE.value() {
+                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), true);
+                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), true);
+            }
+        }
+    }
+
+    fn hyper_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(algorithm: Z, security_level: Option<SecurityLevel>, is_fcm: bool) {
+        let algorithm = algorithm.into();
+        log::info!("Using {:?} with {:?} @ {:?} security level | is FCM: {}", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level, is_fcm);
         let algorithm = Some(algorithm);
-        let mut alice_hyper_ratchet = R::Constructor::new_alice(vec![ConstructorOpts::new_init(algorithm)], 99, 0, security_level);
+        let count = (security_level.unwrap_or_default().value() + 1) as usize;
+        let mut alice_hyper_ratchet = R::Constructor::new_alice(ConstructorOpts::new_vec_init(algorithm, count), 99, 0, security_level);
         let transfer = alice_hyper_ratchet.stage0_alice();
 
-        let bob_hyper_ratchet = R::Constructor::new_bob(99, 0, transfer).unwrap();
+        let bob_hyper_ratchet = R::Constructor::new_bob(99, 0, ConstructorOpts::new_vec_init(algorithm, count), transfer).unwrap();
         let transfer = bob_hyper_ratchet.stage0_bob().unwrap();
 
         alice_hyper_ratchet.stage1_alice(&transfer).unwrap();
@@ -299,9 +308,10 @@ mod tests {
     }
 
     fn gen<R: Ratchet>(cid: u64, version: u32, sec: SecurityLevel) -> (R, R) {
+        let count = sec.value() as usize + 1;
         let algorithm = EncryptionAlgorithm::AES_GCM_256_SIV + KemAlgorithm::Firesaber;
-        let mut alice = R::Constructor::new_alice(Some(algorithm), cid, version, Some(sec));
-        let bob = R::Constructor::new_bob(cid, version, alice.stage0_alice()).unwrap();
+        let mut alice = R::Constructor::new_alice(ConstructorOpts::new_vec_init(Some(algorithm), count), cid, version, Some(sec));
+        let bob = R::Constructor::new_bob(cid, version, ConstructorOpts::new_vec_init(Some(algorithm), count), alice.stage0_alice()).unwrap();
         alice.stage1_alice(&bob.stage0_bob().unwrap()).unwrap();
         (alice.finish().unwrap(), bob.finish().unwrap())
     }

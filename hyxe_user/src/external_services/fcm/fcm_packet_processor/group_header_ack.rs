@@ -5,8 +5,9 @@ use crate::external_services::fcm::data_structures::{FcmHeader, FcmTicket};
 use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult, InstanceParameter};
 use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
+use crate::misc::{AccountError, EmptyOptional};
 
-pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter<'a>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, constructors: &mut HashMap<u64, ConstructorType<R, Fcm>>, header: LayoutVerified<&'a [u8], FcmHeader>, bob_to_alice_transfer: KemTransferStatus) -> FcmProcessorResult {
+pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter<'a>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, constructors: &mut HashMap<u64, ConstructorType<R, Fcm>>, header: LayoutVerified<&'a [u8], FcmHeader>, bob_to_alice_transfer: KemTransferStatus) -> Result<FcmProcessorResult, AccountError> {
     log::info!("FCM RECV GROUP_HEADER_ACK");
     let mut instance = svc_params.create_instance(endpoint_crypto)?;
     let peer_cid = header.session_cid.get();
@@ -19,22 +20,22 @@ pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter
         KemTransferStatus::Some(transfer, ..) => {
             if let Some(ConstructorType::Fcm(mut constructor)) = constructors.remove(&peer_cid) {
                 if let None = constructor.stage1_alice(&transfer) {
-                    return FcmProcessorResult::Err("Unable to construct hyper ratchet".to_string())
+                    return Err(AccountError::msg("Unable to construct hyper ratchet"))
                 }
 
                 if let Err(_) = endpoint_crypto.update_sync_safe(constructor, true, local_cid) {
-                    return FcmProcessorResult::Err("Unable to update container (X-01b)".to_string())
+                    return Err(AccountError::msg("Unable to update container (X-01b)"))
                 }
 
                 if let Some(version) = requires_truncation {
                     if let Err(err) = endpoint_crypto.deregister_oldest_hyper_ratchet(version) {
-                        return FcmProcessorResult::Err(format!("[Toolset Update/deregister] Unable to update Alice's toolset: {:?}", err))
+                        return Err(AccountError::msg(format!("[Toolset Update/deregister] Unable to update Alice's toolset: {:?}", err).as_str()))
                     }
                 }
 
                 endpoint_crypto.post_alice_stage1_or_post_stage1_bob();
                 // we unlock only upon getting the truncate ack. This helps prevent an unnecessary amount of packets from being sent outbound too early
-                Some(endpoint_crypto.get_hyper_ratchet(None)?)
+                Some(endpoint_crypto.get_hyper_ratchet(None).map_empty_err()?)
                 /*
                 if requires_truncation.is_some() {
                     // we unlock once we get the truncate ack
@@ -50,7 +51,7 @@ pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter
 
         KemTransferStatus::Omitted => {
             log::warn!("KEM was omitted (is adjacent node's hold not being released (unexpected), or tight concurrency (expected)?)");
-            Some(endpoint_crypto.maybe_unlock(true)?)
+            Some(endpoint_crypto.maybe_unlock(true).map_empty_err()?)
         }
 
         KemTransferStatus::StatusNoTransfer(_status) => {
@@ -75,5 +76,5 @@ pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter
     }
 
     log::info!("SUBROUTINE COMPLETE: PROCESS GROUP_HEADER_ACK");
-    FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) })
+    Ok(FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) }))
 }

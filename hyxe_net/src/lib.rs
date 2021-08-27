@@ -1,9 +1,5 @@
 #![doc(html_no_source)]
-#![feature(async_closure, ip, result_flattening, arbitrary_self_types)]
-#![feature(test)]
-#![feature(associated_type_bounds)]
 #![feature(try_trait_v2)]
-#![feature(control_flow_enum)]
 //! Core networking components for SatoriNET
 #![deny(
 trivial_numeric_casts,

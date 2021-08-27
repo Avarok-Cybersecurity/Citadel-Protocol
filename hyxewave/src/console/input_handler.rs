@@ -87,12 +87,12 @@ enum TargetDestination {
 
 impl InputRouter {
     #[cfg(target_os = "windows")]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self { daemon_mode: AtomicBool::new(false), inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: Some(SecString::new()), target_custom: None, custom_prompt: None, password_mode: false }) }
     }
 
     #[cfg(not(target_os = "windows"))]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self { daemon_mode: AtomicBool::new(false), inner: const_rwlock(InputRouterInner { to_clap: None, tab_command: None, inline_cursor_pos: 0, history: InputHistory::new(), destination: TargetDestination::Clap, buffer: Some(SecString::new()), target_custom: None, custom_prompt: None, raw_termion: None, password_mode: false }) }
     }
 

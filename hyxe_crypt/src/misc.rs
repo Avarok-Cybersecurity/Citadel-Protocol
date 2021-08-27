@@ -133,11 +133,19 @@ pub unsafe fn munlock(ptr: *const u8, len: usize) {
 /// General `memset`.
 #[inline(never)]
 unsafe fn memset(s: *mut u8, c: u8, n: usize) {
-    core::intrinsics::volatile_set_memory(s, c, n);
+    volatile_set(s, c, n)
 }
 
 /// General `memzero`.
 #[inline]
 pub unsafe fn zeroize(dest: *const u8, n: usize) {
     memset(dest as *mut u8, 0, n);
+}
+
+#[inline]
+unsafe fn volatile_set<T: Copy + Sized>(dst: *mut T, src: T, count: usize) {
+    for i in 0..count {
+        let ptr = dst.add(i);
+        std::ptr::write_volatile(ptr, src);
+    }
 }

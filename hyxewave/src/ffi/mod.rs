@@ -15,6 +15,7 @@ use hyxe_user::external_services::fcm::fcm_packet_processor::{FcmProcessorResult
 use hyxe_user::external_services::fcm::data_structures::FcmTicket;
 use hyxe_user::external_services::fcm::data_structures::base64_string;
 use hyxe_user::external_services::fcm::fcm_packet_processor::peer_post_register::FcmPostRegisterResponse;
+use hyxe_user::misc::AccountError;
 
 pub mod ffi_entry;
 
@@ -135,6 +136,20 @@ impl From<Result<Option<KernelResponse>, ConsoleError>> for KernelResponse {
     }
 }
 
+impl From<Result<FcmProcessorResult, AccountError>> for KernelResponse {
+    fn from(res: Result<FcmProcessorResult, AccountError>) -> Self {
+        match res {
+            Err(err) => {
+                KernelResponse::Error(0,err.into_string().into_bytes())
+            }
+
+            Ok(res) => {
+                KernelResponse::from(res)
+            }
+        }
+    }
+}
+
 impl From<FcmProcessorResult> for KernelResponse {
     fn from(res: FcmProcessorResult) -> Self {
         match res {
@@ -142,11 +157,7 @@ impl From<FcmProcessorResult> for KernelResponse {
                 KernelResponse::Confirmation
             }
 
-            FcmProcessorResult::Err(err) => {
-                KernelResponse::Error(0, err.into_bytes())
-            }
-
-            FcmProcessorResult::Value(fcm_res, ..) => {
+            FcmProcessorResult::Value(fcm_res) => {
                 match fcm_res {
                     FcmResult::GroupHeader { ticket, message } => {
                         KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessage(FcmMessage { fcm_ticket: ticket, message }))

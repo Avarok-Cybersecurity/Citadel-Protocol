@@ -37,7 +37,8 @@ pub trait Subscribable: Send + Sync + Sized {
     type ID: MultiplexedConnKey;
     type UnderlyingConn: ReliableOrderedStreamToTarget + 'static;
     type SubscriptionType: SubscriptionBiStream;
-    type BorrowedSubscriptionType<'a>: SubscriptionBiStream<ID=Self::ID, Conn=Self::UnderlyingConn> + Into<Self::SubscriptionType>;
+    type BorrowedSubscriptionType: SubscriptionBiStream<ID=Self::ID, Conn=Self::UnderlyingConn> + Into<Self::SubscriptionType>;
+    // TODO on stabalization of GATs: type BorrowedSubscriptionType<'a>: SubscriptionBiStream<ID=Self::ID, Conn=Self::UnderlyingConn> + Into<Self::SubscriptionType>;
 
     fn underlying_conn(&self) -> &Self::UnderlyingConn;
     fn subscriptions(&self) -> &RwLock<HashMap<Self::ID, UnboundedSender<Vec<u8>>>>;
@@ -54,7 +55,7 @@ pub trait Subscribable: Send + Sync + Sized {
         PreActionSync::new(self)
     }
 
-    fn subscribe(&self, id: Self::ID) -> Self::BorrowedSubscriptionType<'_>;
+    fn subscribe(&self, id: Self::ID) -> Self::BorrowedSubscriptionType;
     fn owned_subscription(&self, id: Self::ID) -> Self::SubscriptionType;
     fn get_next_id(&self) -> Self::ID;
 }

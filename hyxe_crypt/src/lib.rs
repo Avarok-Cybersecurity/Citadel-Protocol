@@ -1,7 +1,4 @@
-#![feature(asm, fundamental, generators, generator_trait, arbitrary_self_types, ptr_internals, allocator_api, alloc_layout_extra, stdsimd)]
-#![feature(in_band_lifetimes, core_intrinsics, exclusive_range_pattern, nll)]
 //! Hyxe Cryptography is a crypto crate designed to asynchronously obscure data, re-assemble, etc
-
 #![deny(
 trivial_numeric_casts,
 unused_extern_crates,

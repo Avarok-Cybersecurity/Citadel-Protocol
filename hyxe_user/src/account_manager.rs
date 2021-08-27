@@ -38,7 +38,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType, server_argon_settings: Option<ArgonDefaultServerSettings>, services_cfg: Option<ServicesConfig>) -> Result<Self, AccountError> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
         let directory_store = hyxe_fs::env::setup_directories(bind_addr, NAC_SERIALIZED_EXTENSION, home_dir)?;
-        let services_handler = services_cfg.unwrap_or_default().to_services_handler().await?;
+        let services_handler = services_cfg.unwrap_or_default().into_services_handler().await?;
 
         let persistence_handler = match &backend_type {
             BackendType::Filesystem => {
@@ -93,7 +93,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// to create the new CNAC. The generated CNAC will be assumed to be an impersonal hyperlan client
     ///
     /// This also generates the argon-2id password hash
-    pub async fn register_impersonal_hyperlan_client_network_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: NetworkAccount<R, Fcm>, username: T, password_hashed: SecBuffer, full_name: V, init_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError<String>> {
+    pub async fn register_impersonal_hyperlan_client_network_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: NetworkAccount<R, Fcm>, username: T, password_hashed: SecBuffer, full_name: V, init_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         //let settings = ArgonSettings::new_defaults(username.to_string().into_bytes());
         let settings = self.node_argon_settings.derive_new_with_custom_ad(username.to_string().into_bytes());
         match AsyncArgon::hash(password_hashed, settings.clone()).await.map_err(|err| AccountError::Generic(err.to_string()))? {
@@ -119,7 +119,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
     /// whereas the HyperLAN server (Bob) runs `register_impersonal_hyperlan_client_network_account`, the registering
     /// HyperLAN Client (Alice) runs this function below
-    pub async fn register_personal_hyperlan_server<'a, M: ToString + Display, V: ToString + Display>(&self, valid_cid: u64, hyper_ratchet: R, username: M, full_name: V, adjacent_nac: NetworkAccount<R, Fcm>, argon_container: ArgonContainerType, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError<String>> {
+    pub async fn register_personal_hyperlan_server<'a, M: ToString + Display, V: ToString + Display>(&self, valid_cid: u64, hyper_ratchet: R, username: M, full_name: V, adjacent_nac: NetworkAccount<R, Fcm>, argon_container: ArgonContainerType, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(valid_cid, hyper_ratchet, &username, &full_name, argon_container, adjacent_nac, self.persistence_handler.clone(), fcm_keys).await?;
 
         self.persistence_handler.register_cid_in_nac(cnac.get_id(), &username.to_string()).await?;
@@ -229,7 +229,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     }
 
     /// Saves all the CNACs safely. This should be called during the shutdowns sequence.
-    pub async fn save(&self) -> Result<(), AccountError<String>> {
+    pub async fn save(&self) -> Result<(), AccountError> {
         self.persistence_handler.save_all().await
     }
 

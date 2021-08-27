@@ -17,6 +17,7 @@ use tokio_stream::StreamExt;
 
 lazy_static! {
     pub static ref CLAP_APP: Mutex<AppThreadSafe> = Mutex::new(AppThreadSafe(setup_clap()));
+    pub static ref INPUT_ROUTER: InputRouter = InputRouter::new();
 }
 
 pub async fn terminal_future(mut server_remote: HdpServerRemote, ctx: ConsoleContext) -> Result<(), ConsoleError> {
@@ -43,8 +44,6 @@ pub async fn terminal_future(mut server_remote: HdpServerRemote, ctx: ConsoleCon
 
     Ok(())
 }
-
-pub static INPUT_ROUTER: InputRouter = InputRouter::new();
 
 #[allow(unused_results)]
 #[cfg(target_os = "windows")]
@@ -541,6 +540,7 @@ pub mod clap_commands {
 }
 
 use async_recursion::async_recursion;
+
 #[async_recursion(?Send)]
 pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, AppThreadSafe>, parts: A, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let matches = clap.0.get_matches_from_safe_borrow(parts.as_ref()).map_err(|err| ConsoleError::Generic(err.message))?;

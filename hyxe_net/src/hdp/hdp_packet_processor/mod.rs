@@ -167,8 +167,8 @@ impl From<Error> for PrimaryProcessorResult {
     }
 }
 
-impl<T: Into<String>> From<hyxe_user::misc::AccountError<T>> for PrimaryProcessorResult {
-    fn from(_: AccountError<T>) -> Self {
+impl From<hyxe_user::misc::AccountError> for PrimaryProcessorResult {
+    fn from(_: AccountError) -> Self {
         PrimaryProcessorResult::Void
     }
 }
