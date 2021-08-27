@@ -25,6 +25,7 @@ mod tests {
     use hyxe_fs::io::SyncIO;
     use serde::{Serialize, Deserialize};
     use hyxe_crypt::argon_container::ArgonContainerType;
+    use hyxe_crypt::argon::argon_container::{ArgonContainerType, ArgonSettings};
 
     #[derive(Serialize, Deserialize)]
     struct Test<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
@@ -91,20 +92,6 @@ mod tests {
         println!("Loaded NAC: {:?}", account_manager.get_local_nac());
     }
 
-    #[test]
-    fn serde() {
-        let mut map = BTreeMap::new();
-        map.insert(0u64, RawFcmPacket::from("Hello, world!"));
-        let mut map2 = HashMap::new();
-        map2.insert(1u64, map);
-        let val = RawFcmPacketStore::from(map2);
-        let serded = val.serialize();
-        println!("{:?}", &serded);
-        let deserded = RawFcmPacketStore::deserialize_from(serded.as_bytes()).unwrap();
-        println!("{:?}", deserded.inner.len());
-        deserded.inner.get(&1).unwrap().get(&0).unwrap();
-    }
-
     #[tokio::test]
     async fn fcm() {
 
@@ -166,7 +153,7 @@ mod tests {
                 }
 
                 let cnac = cnac.clone();
-                block_on_async(||cnac.save_by_value()).unwrap().unwrap();
+                cnac.save_by_value().await.unwrap();
             });
     }
 
@@ -283,7 +270,8 @@ mod tests {
 
         log::info!("Loaded NAC with NID {}", node_nac.get_id());
         // nac_other: Option<NetworkAccount>, username: T, password: SecVec<u8>, full_name: V, post_quantum_container: &PostQuantumContainer, toolset_bytes: Option<K>
-        let cnac = node_nac.create_client_account(possible_cid, None, username.clone(), password, "Thomas P Braun", password_hash,alice, None).await.unwrap();
+        let argon_container = ArgonContainerType::Client(ClientArgonContainer::from(ArgonSettings::new_defaults(vec![])));
+        let cnac = node_nac.create_client_account(possible_cid, None, username.clone(), "thomas braun", argon_container, ).await.unwrap();
         log::info!("CNAC successfully constructed | {:?}", &cnac);
         let (alice_1, _bob_1) = gen(possible_cid,1, None);
         cnac.register_new_hyper_ratchet(alice_1).unwrap();

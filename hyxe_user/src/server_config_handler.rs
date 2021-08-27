@@ -186,7 +186,7 @@ pub const ILLEGAL_USERNAME_SYMBOLS: [&'static str; 2] = ["->", "[|]"];
 /// Determines if a proposed username already exists or not. This will return true if the username
 /// exists, or false if it does not. This will return an error if the username contains illegal
 /// symbols
-pub fn username_has_invalid_symbols<T: AsRef<str>>(proposed_username: &T) -> Result<(), AccountError<String>> {
+pub fn username_has_invalid_symbols<T: AsRef<str>>(proposed_username: &T) -> Result<(), AccountError> {
     let proposed = proposed_username.as_ref();
     for illegal_symbol in ILLEGAL_USERNAME_SYMBOLS.iter() {
         if *illegal_symbol == proposed {
@@ -199,7 +199,7 @@ pub fn username_has_invalid_symbols<T: AsRef<str>>(proposed_username: &T) -> Res
 
 /// Ensures that essential CNAC data is loaded into the NAC for runtime. This only applies to CNACs that synchronize to the local FS (db is unnecessary)
 #[allow(unused_results)]
-pub fn sync_cnacs_and_nac_filesystem<R: Ratchet, Fcm: Ratchet>(nac: &NetworkAccount<R, Fcm>, cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount<R, Fcm>>) -> Result<(), AccountError<String>> {
+pub fn sync_cnacs_and_nac_filesystem<R: Ratchet, Fcm: Ratchet>(nac: &NetworkAccount<R, Fcm>, cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount<R, Fcm>>) -> Result<(), AccountError> {
     let mut write = nac.write();
     let cids_registered = &mut write.cids_registered;
 

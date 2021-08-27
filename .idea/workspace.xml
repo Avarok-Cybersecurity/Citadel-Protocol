@@ -34,57 +34,67 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change afterPath="$PROJECT_DIR$/netbeam/src/multiplex.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/callback_channel.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/collections/mod.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/collections/net_vec.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/network_application.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/network_endpoint.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/operations/mod.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/primitives/mod.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/primitives/net_mutex.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/primitives/net_rwlock.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/subscription.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/deny.toml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/channel/bi_channel.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/netbeam/src/sync/collections/net_abstract_collection.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/hyxe_wave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hyxe_wave.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/fcm/fcm_ratchet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/fcm/fcm_ratchet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/hyper_ratchet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/hyper_ratchet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/misc.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/misc.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_fs/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_fs/src/system_file_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/src/system_file_manager.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/method3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/method3.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/multi/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/multi/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/udp_hole_puncher.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/udp_hole_puncher.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/error.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/error.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/clean_shutdown.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/clean_shutdown.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/hole_punch_compat_sink_stream.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/hole_punch_compat_sink_stream.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/app_config.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/app_config.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/scylla-rust-driver" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/account_loader.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/account_loader.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/account_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/account_manager.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/backend/filesystem_backend.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/backend/filesystem_backend.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/backend/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/backend/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/backend/mysql_backend.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/backend/mysql_backend.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_instance.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_instance.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/deregister.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/deregister.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/group_header.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/group_header.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/group_header_ack.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/group_header_ack.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/peer_post_register.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/peer_post_register.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/truncate.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/truncate.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/truncate_ack.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/truncate_ack.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/service_interface.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/service_interface.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/misc.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/misc.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/network_account.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/network_account.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/server_config_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/server_config_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/ffi/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/lib.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/LICENSE" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/src/reliable_conn.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/reliable_conn.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/src/sync/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/src/sync/net_join.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/operations/net_join.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/src/sync/net_select.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/operations/net_select.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/src/sync/net_select_ok.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/operations/net_select_ok.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/src/sync/net_try_join.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/operations/net_try_join.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/src/sync/network_endpoint.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/src/sync/sync_start.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/sync_start.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/net_sync/src/time_tracker.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/time_tracker.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/src/multiplex.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/multiplex.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/src/sync/collections/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/collections/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/src/sync/collections/net_vec.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/channel/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/src/sync/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/src/sync/network_application.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/network_application.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/src/sync/network_endpoint.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/network_endpoint.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/src/sync/primitives/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/primitives/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/src/sync/primitives/net_rwlock.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/primitives/net_rwlock.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/netbeam/src/sync/subscription.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/subscription.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -124,6 +134,18 @@
   </component>
   <component name="GitToolBoxStore">
     <option name="projectConfigVersion" value="2" />
+  </component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/hyxe_net/tests/primary.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/netbeam/src/sync/network_endpoint.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/hyxewave/Cargo.toml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/netbeam/src/reliable_conn.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/hyxewave/src/app_config.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/netbeam/Cargo.toml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/netbeam/src/lib.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/hyxewave/tests/primary.rs" root0="FORCE_HIGHLIGHTING" />
   </component>
   <component name="KotlinMultiplatform">
     <allAvailableExecutables />
@@ -272,8 +294,24 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test sync::network_endpoint::tests::main" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package netbeam --lib sync::network_endpoint::tests::main -- --exact" />
+    <configuration name="Test primary::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_crypt --test primary tests" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="NIGHTLY" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="backtrace" value="FULL" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test sync::channel::bi_channel::tests::bi_channel" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package netbeam --lib sync::channel::bi_channel::tests::bi_channel -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="NIGHTLY" />
       <option name="requiredFeatures" value="true" />
@@ -320,6 +358,22 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
+    <configuration name="Test tests::hyperlan_peer_registration" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_user --test primary tests::hyperlan_peer_registration -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="NIGHTLY" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="backtrace" value="FULL" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="Test tests::main (RELEASE)" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="command" value="test --package hyxe_net --release --test primary tests::main -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
@@ -336,40 +390,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::main" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_net --test primary tests::main -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="NIGHTLY" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="withSudo" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test udp_traversal::udp_hole_puncher::tests::dual_hole_puncher_join" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_nat --lib udp_traversal::udp_hole_puncher::tests::dual_hole_puncher_join -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="NIGHTLY" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="withSudo" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test udp_traversal::udp_hole_puncher::tests::dual_hole_puncher_select_ok" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_nat --lib udp_traversal::udp_hole_puncher::tests::dual_hole_puncher_select_ok -- --exact" />
+    <configuration name="Test tests::scrambler_transmission_all" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_crypt --test primary tests::scrambler_transmission_all -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="NIGHTLY" />
       <option name="requiredFeatures" value="true" />
@@ -405,19 +427,19 @@
       <item itemvalue="Cargo.Run hyxewave 127.0.0.2" />
       <item itemvalue="Cargo.Test tests::delete_all_users" />
       <item itemvalue="Cargo.Test tests::main (RELEASE)" />
-      <item itemvalue="Cargo.Test tests::main" />
-      <item itemvalue="Cargo.Test sync::network_endpoint::tests::main" />
-      <item itemvalue="Cargo.Test udp_traversal::udp_hole_puncher::tests::dual_hole_puncher_join" />
-      <item itemvalue="Cargo.Test udp_traversal::udp_hole_puncher::tests::dual_hole_puncher_select_ok" />
+      <item itemvalue="Cargo.Test primary::tests" />
+      <item itemvalue="Cargo.Test tests::scrambler_transmission_all" />
+      <item itemvalue="Cargo.Test tests::hyperlan_peer_registration" />
       <item itemvalue="Cargo.Test tests::config" />
+      <item itemvalue="Cargo.Test sync::channel::bi_channel::tests::bi_channel" />
     </list>
     <recent_temporary>
       <list>
         <item itemvalue="Cargo.Test tests::config" />
-        <item itemvalue="Cargo.Test tests::main" />
-        <item itemvalue="Cargo.Test udp_traversal::udp_hole_puncher::tests::dual_hole_puncher_select_ok" />
-        <item itemvalue="Cargo.Test udp_traversal::udp_hole_puncher::tests::dual_hole_puncher_join" />
-        <item itemvalue="Cargo.Test sync::network_endpoint::tests::main" />
+        <item itemvalue="Cargo.Test primary::tests" />
+        <item itemvalue="Cargo.Test sync::channel::bi_channel::tests::bi_channel" />
+        <item itemvalue="Cargo.Test tests::hyperlan_peer_registration" />
+        <item itemvalue="Cargo.Test tests::scrambler_transmission_all" />
       </list>
     </recent_temporary>
   </component>
@@ -672,7 +694,8 @@
       <workItem from="1628601583761" duration="16790000" />
       <workItem from="1628687043190" duration="37210000" />
       <workItem from="1628768799864" duration="44011000" />
-      <workItem from="1628888799322" duration="175595000" />
+      <workItem from="1628888799322" duration="179748000" />
+      <workItem from="1629736269253" duration="53720000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

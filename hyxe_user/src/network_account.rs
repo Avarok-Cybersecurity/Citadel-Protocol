@@ -77,7 +77,7 @@ pub struct NetworkAccount<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> 
 impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     /// This should be called at runtime if the current node does not have a detected NAC. This is NOT for
     /// creating a NAC for new server connections; instead, use `new_from_recent_connection`.
-    pub fn new(directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError<String>> {
+    pub fn new(directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError> {
         let nid = random::<u64>() ^ random::<u64>();
         let local_path = get_pathbuf(directory_store.inner.read().nac_node_default_store_location.as_str());
         let cids_registered = HashMap::new();
@@ -141,7 +141,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
 
     /// This should be called after registration occurs
     #[allow(unused_results)]
-    pub fn register_cid_filesystem<T: Into<String>>(&self, cid: u64, username: T) -> Result<(), AccountError<String>>{
+    pub fn register_cid_filesystem<T: Into<String>>(&self, cid: u64, username: T) -> Result<(), AccountError>{
         let mut write = self.write();
         let cids_registered = &mut write.cids_registered;
         if cids_registered.contains_key(&cid) {
@@ -174,7 +174,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     ///
     /// Note: If the local node is the server node, then nac_other should be the client's NAC. This should always be made at a server anyways
     #[allow(unused_results)]
-    pub async fn create_client_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: Option<NetworkAccount<R, Fcm>>, username: T, full_name: V, argon_container: ArgonContainerType, base_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError<String>> {
+    pub async fn create_client_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: Option<NetworkAccount<R, Fcm>>, username: T, full_name: V, argon_container: ArgonContainerType, base_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         if nac_other.is_none() {
             info!("WARNING: You are using debug mode. The supplied NAC is none, and will receive THIS nac in its place (unit tests only)");
         }
@@ -227,7 +227,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     }
 
     /// blocking version of async_save_to_local_fs
-    pub fn save_to_local_fs(&self) -> Result<(), AccountError<String>> {
+    pub fn save_to_local_fs(&self) -> Result<(), AccountError> {
         let inner_nac = self.write();
         let path = get_pathbuf(inner_nac.persistence_handler.as_ref().unwrap().directory_store().inner.read().nac_node_default_store_location.as_str());
 

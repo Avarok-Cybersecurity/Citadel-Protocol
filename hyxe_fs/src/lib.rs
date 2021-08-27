@@ -1,4 +1,3 @@
-#![feature(async_closure,trivial_bounds)]
 #![allow(rustdoc::broken_intra_doc_links)]
 //! hyxe_fs (Hyxe::FileSystem) organizes the libraries responsible for handling I/O with the disk and notably the variably-centralized virtual-fs
 //! for home, business, enterprise, or government settings

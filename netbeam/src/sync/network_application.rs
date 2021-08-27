@@ -19,6 +19,7 @@ use crate::sync::primitives::NetObject;
 use crate::sync::subscription::Subscribable;
 use crate::sync::sync_start::NetSyncStart;
 use crate::sync::primitives::net_rwlock::{NetRwLockLoader, NetRwLock};
+use crate::sync::channel::bi_channel;
 
 pub type NetworkApplication = MultiplexedConn<SymmetricConvID>;
 
@@ -183,11 +184,16 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     pub fn rwlock<R: NetObject + 'static>(&self, value: Option<R>) -> NetRwLockLoader<R, Self> {
         NetRwLock::new(self, value)
     }
+
+    /// Creates a bidirectional channel between two endpoints
+    pub fn bi_channel<R: NetObject>(&self) -> bi_channel::ChannelLoader<R, Self> {
+        bi_channel::Channel::new(self)
+    }
 }
 
 /// Ensures that the symmetric conversation ID exists between both endpoints when starting
 pub struct PreActionSync<'a, S: Subscribable<UnderlyingConn=T>, T> {
-    future: Pin<Box<dyn Future<Output=Result<<S as Subscribable>::BorrowedSubscriptionType<'a>, anyhow::Error>> + Send + 'a>>
+    future: Pin<Box<dyn Future<Output=Result<<S as Subscribable>::BorrowedSubscriptionType, anyhow::Error>> + Send + 'a>>
 }
 
 impl<'a, S: Subscribable<UnderlyingConn=T> + 'a, T: ReliableOrderedStreamToTarget + 'static> PreActionSync<'a, S, T> {
@@ -197,14 +203,14 @@ impl<'a, S: Subscribable<UnderlyingConn=T> + 'a, T: ReliableOrderedStreamToTarge
 }
 
 impl<'a, S: Subscribable<UnderlyingConn=T> + 'a, T: ReliableOrderedStreamToTarget + 'static> Future for PreActionSync<'a, S, T> {
-    type Output = Result<<S as Subscribable>::BorrowedSubscriptionType<'a>, anyhow::Error>;
+    type Output = Result<<S as Subscribable>::BorrowedSubscriptionType, anyhow::Error>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.future.as_mut().poll(cx)
     }
 }
 
-async fn preaction_sync<'a, S: Subscribable<UnderlyingConn=T, ID = K> + 'a, T: ReliableOrderedStreamToTarget + 'static, K: MultiplexedConnKey>(ptr: &'a S) -> Result<<S as Subscribable>::BorrowedSubscriptionType<'a>, anyhow::Error> {
+async fn preaction_sync<'a, S: Subscribable<UnderlyingConn=T, ID = K> + 'a, T: ReliableOrderedStreamToTarget + 'static, K: MultiplexedConnKey>(ptr: &'a S) -> Result<<S as Subscribable>::BorrowedSubscriptionType, anyhow::Error> {
     let mut recv_lock = ptr.pre_action_container().rx.lock().await;
     //let _post_lock = ptr.post_action_channel.rx.lock().await;
     match ptr.node_type() {

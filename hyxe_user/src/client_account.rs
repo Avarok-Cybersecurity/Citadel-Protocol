@@ -146,7 +146,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     ///
     /// `client_nac`: This is required because it allows the server to keep track of the IP in the case [PINNED_IP_MODE] is engaged
     #[allow(unused_results)]
-    pub async fn new<T: ToString, V: ToString>(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount<R, Fcm>, username: T, full_name: V, argon_container: ArgonContainerType, base_hyper_ratchet: R, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError<String>> {
+    pub async fn new<T: ToString, V: ToString>(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount<R, Fcm>, username: T, full_name: V, argon_container: ArgonContainerType, base_hyper_ratchet: R, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
         info!("Creating CNAC w/valid cid: {:?}", valid_cid);
         let username = username.to_string();
         let full_name = full_name.to_string();
@@ -214,7 +214,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Towards the end of the registration phase, the [ClientNetworkAccountInner] gets transmitted to Alice.
-    pub async fn new_from_network_personal<X: ToString, K: ToString>(valid_cid: u64, hyper_ratchet: R, username: X, full_name: K, argon_container: ArgonContainerType, adjacent_nac: NetworkAccount<R, Fcm>, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError<String>> {
+    pub async fn new_from_network_personal<X: ToString, K: ToString>(valid_cid: u64, hyper_ratchet: R, username: X, full_name: K, argon_container: ArgonContainerType, adjacent_nac: NetworkAccount<R, Fcm>, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
         const IS_PERSONAL: bool = true;
 
         // We supply none to the valid cid
@@ -239,7 +239,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Checks the credentials for validity. Used for the login process.
-    pub async fn validate_credentials<T: AsRef<[u8]>>(&self, username: T, password_hashed: SecBuffer) -> Result<(), AccountError<String>> {
+    pub async fn validate_credentials<T: AsRef<[u8]>>(&self, username: T, password_hashed: SecBuffer) -> Result<(), AccountError> {
         let (argon_container, username_internal) = {
             let read = self.read();
             (read.argon_container.clone(), read.username.clone())
@@ -358,7 +358,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Purges this from the hard drive
-    pub(crate) fn purge_from_fs_blocking(&self) -> Result<(), AccountError<String>> {
+    pub(crate) fn purge_from_fs_blocking(&self) -> Result<(), AccountError> {
         let read = self.read();
         if let Some(ref path) = read.local_save_path {
             std::fs::remove_file(path).map_err(|err| err.into())
@@ -904,12 +904,12 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Saves, capturing by value
-    pub async fn save_by_value(self) -> Result<(), AccountError<String>> where ClientNetworkAccountInner<R, Fcm>: SyncIO, NetworkAccountInner<R, Fcm>: SyncIO {
+    pub async fn save_by_value(self) -> Result<(), AccountError> where ClientNetworkAccountInner<R, Fcm>: SyncIO, NetworkAccountInner<R, Fcm>: SyncIO {
         self.save().await
     }
 
     /// Blocking version of `async_save_to_local_fs`
-    pub async fn save(&self) -> Result<(), AccountError<String>> where ClientNetworkAccountInner<R, Fcm>: SyncIO, NetworkAccountInner<R, Fcm>: SyncIO {
+    pub async fn save(&self) -> Result<(), AccountError> where ClientNetworkAccountInner<R, Fcm>: SyncIO, NetworkAccountInner<R, Fcm>: SyncIO {
         let persistence_handler = {
             let ptr = self.write();
             ptr.persistence_handler.clone().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".to_string()))?

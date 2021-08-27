@@ -412,6 +412,34 @@
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/build" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/old/awesome_notifications/build" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/old/awesome_notifications/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/background_fetch/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/background_fetch/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_secure_storage/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_secure_storage/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_auth/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_auth/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/sqflite/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/sqflite/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_secure_storage/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_secure_storage/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/android_power_manager/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/android_power_manager/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_auth/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_auth/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_chat_bubble/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_chat_bubble/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/background_fetch/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/background_fetch/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/sqflite/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/sqflite/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_chat_bubble/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_chat_bubble/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/android_power_manager/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/android_power_manager/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/example/.pub" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

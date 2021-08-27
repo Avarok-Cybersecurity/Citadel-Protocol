@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::ops::{ControlFlow, FromResidual, Try};
+//use std::ops::{ControlFlow, FromResidual, Try};
 use std::sync::Arc;
 
 use fcm::Client;
@@ -11,7 +11,7 @@ use crate::account_manager::AccountManager;
 use crate::external_services::fcm::data_structures::{FcmHeader, FcmPacket, FCMPayloadType, FcmTicket, RawExternalPacket};
 use crate::external_services::fcm::fcm_instance::FCMInstance;
 use crate::external_services::fcm::fcm_packet_processor::peer_post_register::{FcmPostRegisterResponse, PostRegisterInvitation};
-use crate::misc::AccountError;
+use crate::misc::{AccountError, EmptyOptional};
 use crate::prelude::ClientNetworkAccountInner;
 use crate::external_services::ExternalService;
 use crate::external_services::service_interface::ExternalServiceChannel;
@@ -34,14 +34,14 @@ pub mod peer_post_register;
 /// NOTE: This implies that sending the re-key payloads is redundant over FCM. We can have notification packets that wake-up the device instead later-on
 ///
 /// Note: This should ONLY be called at the endpoints!!
-pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountManager, send_service_type: ExternalService) -> FcmProcessorResult {
+pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountManager, send_service_type: ExternalService) -> Result<FcmProcessorResult, AccountError> {
     //let account_manager = account_manager.clone();
     let base64_value = base64_value.into();
 
     log::info!("A0");
     let raw_packet = RawExternalPacket::from(base64_value);
     log::info!("A1");
-    let packet = FcmPacket::from_raw_fcm_packet(&raw_packet)?;
+    let packet = FcmPacket::from_raw_fcm_packet(&raw_packet).map_empty_err()?;
     log::info!("A2");
     let header = packet.header();
     let group_id = header.group_id.get();
@@ -60,7 +60,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
     // TODO: Run packet through can_process_packet. If false, then send a REQ packet to request retransmission of last packet in series, and store packet locally
 
     log::info!("Using {} ratchet (local CID: {} | ratchet vers: {})", use_client_server_ratchet.then(|| "client/server").unwrap_or("FCM endpoint"), local_cid, ratchet_version);
-    let cnac = account_manager.get_client_by_cid(local_cid).await?.ok_or(AccountError::<String>::ClientNonExists(local_cid))?;
+    let cnac = account_manager.get_client_by_cid(local_cid).await?.ok_or(AccountError::ClientNonExists(local_cid))?;
     let res = cnac.visit_mut(|mut inner| async move {
         // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other
         let ClientNetworkAccountInner {
@@ -76,7 +76,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
 
         log::info!("A3");
 
-        let res = if use_client_server_ratchet {
+        if use_client_server_ratchet {
             log::info!("A4-CS");
             let ratchet = crypt_container.toolset.get_static_auxiliary_ratchet();
             let persistence_handler = persistence_handler.as_ref().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".into()))?;
@@ -92,7 +92,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
                 FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(persistence_handler, fcm_invitations, kem_state_containers, fcm_crypt_container, mutuals, local_cid, source_cid, ticket, transfer, username).await,
                 _ => {
                     log::warn!("[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
-                    FcmProcessorResult::Err("Bad signal, report to developers (X-789)".to_string())
+                    Err(AccountError::msg("Bad signal, report to developers (X-789)"))
                 }
             }
         } else {
@@ -112,13 +112,11 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
                 FCMPayloadType::GroupHeaderAck { bob_to_alice_transfer } => group_header_ack::process(svc_params,crypt_container, kem_state_containers, FcmHeader::try_from(&header).unwrap(), bob_to_alice_transfer).await,
                 FCMPayloadType::Truncate { truncate_vers } => truncate::process(svc_params,crypt_container, truncate_vers, FcmHeader::try_from(&header).unwrap()).await,
                 FCMPayloadType::TruncateAck { truncate_vers } => truncate_ack::process(crypt_container, truncate_vers),
-                FCMPayloadType::PeerPostRegister { .. } => FcmProcessorResult::Err("Bad signal, report to developers (X-7890)".to_string()),
+                FCMPayloadType::PeerPostRegister { .. } => Err(AccountError::msg("Bad signal, report to developers (X-7890)")),
                 // below, the implicated cid is obtained from the session_cid, and as such, is the peer_cid
                 FCMPayloadType::PeerDeregistered => deregister::process(implicated_cid, local_cid, ticket, fcm_crypt_container, mutuals)
             }
-        };
-
-        Ok(res) as Result<FcmProcessorResult, AccountError>
+        }
     }).await?;
 
     log::info!("A7");
@@ -129,7 +127,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
 
     log::info!("FCM-processing complete");
 
-    res
+    Ok(res)
 }
 
 /// The goal of the function is to perform any and all internal updates/re-keys from a set of packets. Most have probably already been processed, and will fail the anti-replay attack stage for being an already received packet
@@ -164,7 +162,6 @@ pub fn blocking_process_packet_store(mut raw_fcm_packet_store: RawFcmPacketStore
 #[derive(Debug)]
 pub enum FcmProcessorResult {
     Void,
-    Err(String),
     RequiresSave,
     Value(FcmResult),
     Values(Vec<FcmResult>)
@@ -180,6 +177,7 @@ impl FcmProcessorResult {
     }
 }
 
+/*
 impl Try for FcmProcessorResult {
     type Output = Self;
     type Residual = Self;
@@ -221,13 +219,7 @@ impl<T> FromResidual<Result<T, AccountError>> for FcmProcessorResult {
             _ => FcmProcessorResult::Void
         }
     }
-}
-
-impl<T: Into<String>> From<AccountError<T>> for FcmProcessorResult {
-    fn from(err: AccountError<T>) -> Self {
-        FcmProcessorResult::Err(err.into_string())
-    }
-}
+}*/
 
 #[derive(Debug)]
 pub enum FcmResult {
@@ -258,7 +250,7 @@ impl InstanceParameter<'_> {
 
 #[allow(unused_results)]
 /// This constructs an independent single-threaded runtime to allow this to be called invariant to environmental tokio context
-pub fn block_on_async<F: Future + Send + 'static>(fx: impl FnOnce() -> F + Send + 'static) -> Result<F::Output, AccountError<String>> where <F as Future>::Output: Send + 'static {
+pub fn block_on_async<F: Future + Send + 'static>(fx: impl FnOnce() -> F + Send + 'static) -> Result<F::Output, AccountError> where <F as Future>::Output: Send + 'static {
     // call in a unique thread to not cause a panic when running block_on
     /*
     std::thread::spawn(move || {

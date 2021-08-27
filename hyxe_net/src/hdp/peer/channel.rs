@@ -14,7 +14,6 @@ use hyxe_crypt::sec_bytes::SecBuffer;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::ReceivePortType;
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.
-// This thus bypasses the kernel.
 #[derive(Debug)]
 pub struct PeerChannel {
     send_half: PeerChannelSendHalf,
@@ -175,7 +174,6 @@ impl Drop for PeerChannelRecvHalf {
 
                 let command = match self.recv_type {
                     ReceivePortType::OrderedReliable => {
-                        log::info!("OrderedReliable sd");
                         self.is_alive.store(false, Ordering::SeqCst);
                         HdpServerRequest::PeerCommand(local_cid, PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), None))
                     }

@@ -106,7 +106,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Deregisters two peers from each other
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError>;
     /// Deregisters two peers from each other
-    async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError<String>>;
+    async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError>;
     /// Gets the FCM keys for a peer
     async fn get_fcm_keys_for_as_server(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError>;
     /// Updates the FCM keys
@@ -148,11 +148,11 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>>;
     /// Returns the local nac
     fn local_nac(&self) -> &NetworkAccount<R, Fcm>;
-    #[allow(unused_results, unused_must_use)]
+    /*#[allow(unused_results, unused_must_use)]
     /// spawns to thread pool
     fn spawn_save_task_to_threadpool(self: Arc<Self>, cnac: ClientNetworkAccount<R, Fcm>) where Self: 'static {
         tokio::task::spawn(async move { self.save_cnac(cnac).await; });
-    }
+    }*/
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations
