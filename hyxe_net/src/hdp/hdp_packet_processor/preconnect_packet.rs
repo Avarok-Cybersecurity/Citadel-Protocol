@@ -20,17 +20,15 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
 use hyxe_nat::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 
 /// Handles preconnect packets. Handles the NAT traversal
-/// TODO: Note to future programmers. This source file is not the cleanest, and in my opinion the dirtiest file in the entire codebase.
-/// This will NEED to be refactored. It's also buggy in some cases. For 99% of cases (100% for TCP ONLY, which is now the default), it does the job though
-pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResult {
+pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_orig;
 
     if !session.is_provisional() {
         log::error!("Pre-Connect packet received, but the system is not in a provisional state. Dropping");
-        return PrimaryProcessorResult::Void;
+        return Ok(PrimaryProcessorResult::Void);
     }
 
-    let (header_main, payload) = packet.parse()?;
+    let (header_main, payload) = return_if_none!(packet.parse(), "Unable to parse packet");
     let header = &header_main;
     let security_level = header.security_level.into();
 
@@ -82,20 +80,20 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                         session.security_settings.set(Some(session_security_settings));
                         session.peer_only_connect_protocol.set(Some(peer_only_connect_mode));
 
-                        PrimaryProcessorResult::ReplyToSender(syn_ack)
+                        Ok(PrimaryProcessorResult::ReplyToSender(syn_ack))
                     }
 
                     Err(err) => {
                         log::error!("Invalid SYN packet received: {:?}", &err);
                         let packet = hdp_packet_crafter::pre_connect::craft_halt(&header_if_err_occurs, err.into_string());
-                        PrimaryProcessorResult::ReplyToSender(packet)
+                        Ok(PrimaryProcessorResult::ReplyToSender(packet))
                     }
                 }
             } else {
                 let bad_cid = header.session_cid.get();
                 let error = format!("CID {} is not registered to this node", bad_cid);
                 let packet = hdp_packet_crafter::pre_connect::craft_halt(header, &error);
-                return PrimaryProcessorResult::ReplyToSender(packet);
+                return Ok(PrimaryProcessorResult::ReplyToSender(packet));
             }
         }
 
@@ -106,8 +104,8 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
             let mut state_container = inner_mut!(session.state_container);
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
                 // cnac should already be loaded locally
-                let ref cnac = session.cnac.get()?;
-                let alice_constructor = state_container.pre_connect_state.constructor.take()?;
+                let ref cnac = return_if_none!(session.cnac.get(), "SESS Cnac not loaded");
+                let alice_constructor = return_if_none!(state_container.pre_connect_state.constructor.take(), "Alice constructor not loaded");
 
                 if let Some((new_hyper_ratchet, nat_type)) = validation::pre_connect::validate_syn_ack(cnac, alice_constructor, packet) {
                     // The toolset, at this point, has already been updated. The CNAC can be used to
@@ -124,11 +122,11 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                     if udp_mode == UdpMode::Disabled {
                         let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
                         state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                        return PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet);
+                        return Ok(PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet));
                     }
 
                     let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
-                    let to_primary_stream = session.to_primary_stream.clone()?;
+                    let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
                     to_primary_stream.unbounded_send(stage0_preconnect_packet)?;
 
                     //let hole_puncher = SingleUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
@@ -147,16 +145,16 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                         Err(err) => {
                             log::warn!("Hole punch attempt failed. Will exit session: {:?}", err.to_string());
                             // Note: this currently implies that if NAT traversal fails, the session does not open (which should be the case for C2S connections anyways)
-                            PrimaryProcessorResult::EndSession("UDP NAT traversal failed")
+                            Ok(PrimaryProcessorResult::EndSession("UDP NAT traversal failed"))
                         }
                     }
                 } else {
                     log::error!("Invalid SYN_ACK");
-                    PrimaryProcessorResult::Void
+                    Ok(PrimaryProcessorResult::Void)
                 }
             } else {
-                log::error!("Expected stage SYN_ACK, but local state was not");
-                PrimaryProcessorResult::Void
+                log::error!("Expected stage SYN_ACK, but local state was not valid");
+                Ok(PrimaryProcessorResult::Void)
             }
         }
 
@@ -166,8 +164,8 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
             // At this point, the user's static-key identity has been verified. We can now check the online status to ensure no double-logins
 
             let udp_mode = session.udp_mode.get();
-            let ref cnac = session.cnac.get()?;
-            let hyper_ratchet = cnac.get_hyper_ratchet(Some(header.drill_version.get()))?;
+            let ref cnac = return_if_none!(session.cnac.get(), "Sess CNAC not loaded");
+            let hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(Some(header.drill_version.get())), "HR version not found");
             let mut state_container = inner_mut!(session.state_container);
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
                 if let Some(_) = validation::pre_connect::validate_stage0(&hyper_ratchet, packet) {
@@ -176,7 +174,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                     // since this is the server, we use whatever our primary listener is bound to defined in HdpServer::init
                     let local_bind_addr = session.local_bind_addr;
 
-                    let peer_nat_type = session.adjacent_nat_type.clone()?;
+                    let peer_nat_type = return_if_none!(session.adjacent_nat_type.clone(), "adjacent NAT type not loaded");
                     let peer_accessible = peer_nat_type.predict_external_addr_from_local_bind_port(0).is_some();
 
                     if udp_mode == UdpMode::Disabled || !peer_accessible {
@@ -188,13 +186,13 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                         // We have to modify the state to ensure that this node can receive a DO_CONNECT packet
                         state_container.pre_connect_state.success = true;
                         let packet = hdp_packet_crafter::pre_connect::craft_begin_connect(&hyper_ratchet, timestamp, security_level);
-                        return PrimaryProcessorResult::ReplyToSender(packet);
+                        return Ok(PrimaryProcessorResult::ReplyToSender(packet));
                     } // .. otherwise, continue logic below to punch a hole through the firewall
 
                     let _local_node_type = session.local_node_type;
                     let peer_addr = session.remote_peer;
-                    let _peer_internal_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
-                    let to_primary_stream = session.to_primary_stream.clone()?;
+                    //let _peer_internal_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
+                    let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
 
                     let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, peer_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
                     std::mem::drop(state_container);
@@ -221,7 +219,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                             // the UDP subsystem will automatically engage at this point
                             HdpSession::udp_socket_loader(sess.clone(), VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), determine_udp_interface(session, socket, addr.natted), addr, sess.kernel_ticket.get(), Some(tcp_loaded_alerter_rx));
                             // the server will await for the client to send an initiation packeet
-                            PrimaryProcessorResult::Void
+                            Ok(PrimaryProcessorResult::Void)
                         }
 
                         Err(err) => {
@@ -231,16 +229,16 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                             session.udp_mode.set(UdpMode::Disabled);
                             let mut state_container = inner_mut!(session.state_container);
                             state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                            PrimaryProcessorResult::Void
+                            Ok(PrimaryProcessorResult::Void)
                         }
                     }
                 } else {
                     log::error!("Unable to validate stage 0 packet");
-                    PrimaryProcessorResult::Void
+                    Ok(PrimaryProcessorResult::Void)
                 }
             } else {
                 log::error!("Packet state 0, last stage not 0. Dropping");
-                PrimaryProcessorResult::Void
+                Ok(PrimaryProcessorResult::Void)
             }
         }
 
@@ -256,7 +254,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
 
             let timestamp = session.time_tracker.get_global_time_ns();
             let mut state_container = inner_mut!(session.state_container);
-            let ref cnac = session.cnac.get()?;
+            let ref cnac = return_if_none!(session.cnac.get(), "Sess CNAC not loaded");
             let tcp_only = header.algorithm == payload_identifiers::do_preconnect::TCP_ONLY;
                 if let Some(hyper_ratchet) = validation::pre_connect::validate_final(cnac, packet) {
                     state_container.pre_connect_state.success = true;
@@ -268,7 +266,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                     if tcp_only {
                         log::warn!("Received signal to fall-back to TCP only mode");
                         let begin_connect = hdp_packet_crafter::pre_connect::craft_begin_connect(&hyper_ratchet, timestamp, security_level);
-                        return PrimaryProcessorResult::ReplyToSender(begin_connect);
+                        return Ok(PrimaryProcessorResult::ReplyToSender(begin_connect));
                     }
 
                     // if we aren't using tcp only, and, failed, end the session
@@ -277,14 +275,14 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                         std::mem::drop(state_container);
                         session.needs_close_message.set(false);
                         session.send_to_kernel(HdpServerResult::ConnectFail(ticket, Some(cnac.get_cid()), "Preconnect stage failed".to_string()))?;
-                        PrimaryProcessorResult::EndSession("Failure packet received")
+                        Ok(PrimaryProcessorResult::EndSession("Failure packet received"))
                     } else {
                         let begin_connect = hdp_packet_crafter::pre_connect::craft_begin_connect(&hyper_ratchet, timestamp, security_level);
-                        PrimaryProcessorResult::ReplyToSender(begin_connect)
+                        Ok(PrimaryProcessorResult::ReplyToSender(begin_connect))
                     }
                 } else {
                     log::error!("Unable to validate success packet. Dropping");
-                    PrimaryProcessorResult::Void
+                    Ok(PrimaryProcessorResult::Void)
                 }
         }
 
@@ -292,7 +290,7 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
         packet_flags::cmd::aux::do_preconnect::BEGIN_CONNECT => {
             log::info!("RECV STAGE BEGIN_CONNECT PRE CONNECT PACKET");
             let mut state_container = inner_mut!(session.state_container);
-            let ref cnac = session.cnac.get()?;
+            let ref cnac = return_if_none!(session.cnac.get(), "Sess CNAC not loaded");
 
             if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SUCCESS {
                 if let Some(hyper_ratchet) = validation::pre_connect::validate_begin_connect(cnac, packet) {
@@ -302,11 +300,11 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
                     begin_connect_process(&session, &hyper_ratchet, security_level)
                 } else {
                     log::error!("Unable to validate success_ack packet. Dropping");
-                    PrimaryProcessorResult::Void
+                    Ok(PrimaryProcessorResult::Void)
                 }
             } else {
                 log::error!("Last stage is not SUCCESS, yet a BEGIN_CONNECT packet was received. Dropping");
-                PrimaryProcessorResult::Void
+                Ok(PrimaryProcessorResult::Void)
             }
         }
 
@@ -315,21 +313,21 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> PrimaryPro
             let ticket = session.kernel_ticket.get();
             session.send_to_kernel(HdpServerResult::ConnectFail(ticket, Some(header.session_cid.get()), message))?;
             session.needs_close_message.set(false);
-            PrimaryProcessorResult::EndSession("Preconnect signalled to halt")
+            Ok(PrimaryProcessorResult::EndSession("Preconnect signalled to halt"))
         }
 
         _ => {
             log::error!("Invalid auxiliary command");
-            PrimaryProcessorResult::Void
+            Ok(PrimaryProcessorResult::Void)
         }
     }
 }
 
-fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> PrimaryProcessorResult {
+fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     // at this point, the session keys have already been re-established. We just need to begin the login stage
     let mut state_container = inner_mut!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
-    let proposed_credentials = state_container.connect_state.proposed_credentials.take()?;
+    let proposed_credentials = return_if_none!(state_container.connect_state.proposed_credentials.take(), "Proposed creds not loaded");
     let fcm_keys = session.fcm_keys.clone();
 
     let stage0_connect_packet = crate::hdp::hdp_packet_crafter::do_connect::craft_stage0_packet(&hyper_ratchet, proposed_credentials, fcm_keys, timestamp, security_level);
@@ -342,10 +340,10 @@ fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, sec
     log::info!("Successfully sent stage0 connect packet outbound");
 
     // Keep the session open even though we transitioned from the pre-connect to connect stage
-    PrimaryProcessorResult::ReplyToSender(stage0_connect_packet)
+    Ok(PrimaryProcessorResult::ReplyToSender(stage0_connect_packet))
 }
 
-fn send_success_as_initiator(hole_punched_socket: HolePunchedUdpSocket, hyper_ratchet: &HyperRatchet, session: &HdpSession, security_level: SecurityLevel, v_target: VirtualTargetType) -> PrimaryProcessorResult {
+fn send_success_as_initiator(hole_punched_socket: HolePunchedUdpSocket, hyper_ratchet: &HyperRatchet, session: &HdpSession, security_level: SecurityLevel, v_target: VirtualTargetType) -> Result<PrimaryProcessorResult, NetworkError> {
     let HolePunchedUdpSocket { socket, addr } = hole_punched_socket;
     let mut state_container = inner_mut!(session.state_container);
     let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp_c2s();
@@ -358,7 +356,7 @@ fn send_success_as_initiator(hole_punched_socket: HolePunchedUdpSocket, hyper_ra
     std::mem::drop(state_container);
 
     HdpSession::udp_socket_loader(session.clone(), v_target, determine_udp_interface(session, socket, addr.natted), addr, session.kernel_ticket.get(), Some(tcp_loaded_alerter_rx));
-    PrimaryProcessorResult::ReplyToSender(success_packet)
+    Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
 }
 
 pub(crate) fn generate_hole_punch_crypt_container(hyper_ratchet: HyperRatchet, security_level: SecurityLevel, target_cid: u64) -> EncryptedConfigContainer {

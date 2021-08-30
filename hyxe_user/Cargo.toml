@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Thomas Braun <tbraun96@gmail.com>"]
 edition = "2018"
 workspace = "../"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -21,7 +22,7 @@ serde_millis = "0.1.1"
 #async-std = "1.6.0-beta.2"
 #tokio = "0.2.21"
 #tokio = {version = "^0.2.22", features=["rt-core"] }
-tokio = "^1.4.0"
+tokio = "1.10.1"
 async-trait = "^0.1.48"
 futures = "0.3.5"
 #future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
@@ -38,16 +39,16 @@ base64 = "0.13.0"
 bytes = "1.0.1"
 bstr = "0.2.15"
 serde_bytes = "0.11.5"
-zerocopy = "0.3.0"
+zerocopy = "0.5.0"
 byteorder = "1.4.2"
-sqlx = { version = "^0.5.5", features = ["all-databases", "tls", "runtime-tokio-native-tls"], optional=true }
+sqlx = { version = "0.5.7", features = ["all-databases", "tls", "runtime-tokio-native-tls"], optional = true }
 firebase-rtdb = { path = "../firebase-rtdb", version = "0.1.0" }
 jwt = { version = "0.14.0", features = ["openssl"] }
-openssl = { version = "^0.10.35", features = ["vendored"] }
+openssl = { version = "0.10.36", features = ["vendored"] }
 
 [dev-dependencies]
 #tokio = { version = "^0.2.22", features = ["full"] }
-tokio = { version = "^1.6.0", features = ["macros"] }
+tokio = { version = "1.10.1", features = ["macros"] }
 env_logger = "0.8.2"
 dirs2 = "3.0.1"
 

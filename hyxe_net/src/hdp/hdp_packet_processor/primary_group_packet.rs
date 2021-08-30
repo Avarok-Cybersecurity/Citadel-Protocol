@@ -24,7 +24,7 @@ use crate::hdp::peer::peer_layer::UdpMode;
 /// `proxy_cid_info`: is None if the packets were not proxied, and will thus use the session's pqcrypto to authenticate the data.
 /// If `proxy_cid_info` is Some, then a tuple of the original implicated cid (peer cid) and the original target cid (this cid)
 /// will be provided. In this case, we must use the virtual conn's crypto
-pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> PrimaryProcessorResult {
+pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
 
     let HdpSessionInner {
@@ -40,7 +40,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
 
     if state.get() != SessionState::Connected {
         log::error!("Group packet dropped; session not connected");
-        return PrimaryProcessorResult::Void;
+        return Ok(PrimaryProcessorResult::Void);
     }
 
     // Group payloads are not validated in the same way the primary packets are (with the exception of FAST_MSG's in GROUP_HEADERS)
@@ -129,7 +129,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     }
 
                                     let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, initial_wave_window, false, timestamp, KemTransferStatus::Empty, security_level);
-                                    PrimaryProcessorResult::ReplyToSender(group_header_ack)
+                                    Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
                                 }
 
                                 GroupHeader::FastMessage(plaintext, virtual_target, transfer) => {
@@ -148,22 +148,22 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
                                         if !state_container.forward_data_to_ordered_channel(original_implicated_cid, header.group.get(), plaintext) {
                                             log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
-                                            return PrimaryProcessorResult::Void;
+                                            return Ok(PrimaryProcessorResult::Void);
                                         }
                                     } else {
                                         if !state_container.forward_data_to_ordered_channel(0, header.group.get(), plaintext) {
                                             log::error!("Unable to forward data to c2s channel");
-                                            return PrimaryProcessorResult::Void;
+                                            return Ok(PrimaryProcessorResult::Void);
                                         }
                                     }
 
                                     let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer, security_level);
-                                    PrimaryProcessorResult::ReplyToSender(group_header_ack)
+                                    Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
                                 }
                             }
                         } else {
                             log::error!("Invalid GROUP_HEADER");
-                            PrimaryProcessorResult::Void
+                            Ok(PrimaryProcessorResult::Void)
                         }
                     }
 
@@ -219,13 +219,13 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                         let _ = session.poll_next_enqueued(resp_target_cid, state_container.into())?;
                                     }
 
-                                    PrimaryProcessorResult::Void
+                                    Ok(PrimaryProcessorResult::Void)
 
                                 } else {
                                     if udp_mode == UdpMode::Disabled {
-                                        PrimaryProcessorResult::EndSession("TCP sockets disconnected")
+                                        Ok(PrimaryProcessorResult::EndSession("TCP sockets disconnected"))
                                     } else {
-                                        PrimaryProcessorResult::EndSession("UDP sockets disconnected")
+                                        Ok(PrimaryProcessorResult::EndSession("UDP sockets disconnected"))
                                     }
                                 }
                             }
@@ -247,13 +247,13 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     session.send_to_kernel(HdpServerResult::OutboundRequestRejected(ticket.into(), Some(Vec::from("Adjacent node unable to accept request"))))?;
                                 }
 
-                                PrimaryProcessorResult::Void
+                                Ok(PrimaryProcessorResult::Void)
                             }
 
                             None => {
                                 // invalid packet
                                 log::error!("Invalid GROUP HEADER ACK");
-                                PrimaryProcessorResult::Void
+                                Ok(PrimaryProcessorResult::Void)
                             }
                         }
                     }
@@ -276,18 +276,18 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                 let to_primary_stream = return_if_none!(to_primary_stream.as_ref(), "Unable to get primary stream [PGP]");
                                 match state_container.on_window_tail_received(&hyper_ratchet, session_ref, &header, waves_in_window, &time_tracker, to_primary_stream) {
                                     true => {
-                                        PrimaryProcessorResult::Void
+                                        Ok(PrimaryProcessorResult::Void)
                                     }
 
                                     false => {
-                                        PrimaryProcessorResult::Void
+                                        Ok(PrimaryProcessorResult::Void)
                                     }
                                 }
                             }
 
                             None => {
                                 log::info!("Error validating WINDOW TAIL");
-                                PrimaryProcessorResult::Void
+                                Ok(PrimaryProcessorResult::Void)
                             }
                         }
                     }
@@ -300,12 +300,12 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                 // The internal session timer will handle the outbound dispatch of packets
                                 // once
                                 state_container.on_wave_do_retransmission_received(&hyper_ratchet, &header, &payload);
-                                PrimaryProcessorResult::Void
+                                Ok(PrimaryProcessorResult::Void)
                             }
 
                             Err(err) => {
                                 log::error!("Error validating WAVE_DO_RETRANSMISSION: {}", err.to_string());
-                                PrimaryProcessorResult::Void
+                                Ok(PrimaryProcessorResult::Void)
                             }
                         }
                     }
@@ -317,7 +317,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                             Some(WaveAck { range }) => {
 
                                 if range.is_some() {
-                                    log::info!("WAVE_ACK implies window completion!");
+                                    log::info!("WAVE_ACK implies window completion");
                                 }
 
                                 // the window is done. Since this node is the transmitter, we then make a call to begin sending the next wave
@@ -328,30 +328,30 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                         log::error!("There was an error sending the UDP window; Cancelling connection");
                                     }
 
-                                    PrimaryProcessorResult::EndSession("Sockets disconnected")
+                                    Ok(PrimaryProcessorResult::EndSession("Sockets disconnected"))
                                 } else {
                                     log::info!("Successfully sent next window in response to WAVE ACK");
-                                    PrimaryProcessorResult::Void
+                                    Ok(PrimaryProcessorResult::Void)
                                 }
                             }
 
                             None => {
                                 log::error!("Error validating WAVE_ACK");
-                                PrimaryProcessorResult::Void
+                                Ok(PrimaryProcessorResult::Void)
                             }
                         }
                     }
 
                     _ => {
                         log::trace!("Primary port GROUP packet has an invalid auxiliary command. Dropping");
-                        PrimaryProcessorResult::Void
+                        Ok(PrimaryProcessorResult::Void)
                     }
                 }
             }
 
             _ => {
-                log::error!("Packet failed AES-GCM validation stage (self node: {})", session.is_server.if_true("server").if_false("client"));
-                PrimaryProcessorResult::Void
+                log::warn!("Packet failed AES-GCM validation stage (self node: {})", session.is_server.if_true("server").if_false("client"));
+                Ok(PrimaryProcessorResult::Void)
             }
         }
 }

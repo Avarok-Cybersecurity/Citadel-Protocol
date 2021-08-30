@@ -1,13 +1,9 @@
 use bytes::BytesMut;
 
-use ez_pqcrypto::prelude::Error;
-use hyxe_user::misc::AccountError;
-
 use crate::hdp::hdp_packet_processor::includes::SecBuffer;
 use crate::hdp::hdp_server::Ticket;
-use crate::hdp::outbound_sender::{SendError, TrySendError};
-use crate::error::NetworkError;
-use std::ops::{FromResidual, Try, ControlFlow};
+//use crate::hdp::outbound_sender::{SendError, TrySendError};
+//use std::ops::{FromResidual, Try, ControlFlow};
 
 pub mod includes {
     pub use std::cell::RefMut;
@@ -37,7 +33,6 @@ pub mod includes {
     pub use crate::hdp::hdp_session::{HdpSession, HdpSessionInner, SessionState};
     pub use crate::inner_arg::{ExpectedInnerTargetMut, InnerParameterMut};
 
-    pub use super::GroupProcessorResult;
     pub use super::PrimaryProcessorResult;
     pub use super::super::state_container::VirtualConnectionType;
 }
@@ -74,10 +69,9 @@ pub mod hole_punch;
 pub enum PrimaryProcessorResult {
     /// Do nothing
     Void,
-    /// Returns some data to the sender
-    ReplyToSender(BytesMut),
-    /// Tells the system to shutdown
     EndSession(&'static str),
+    /// Returns some data to the sender
+    ReplyToSender(BytesMut)
 }
 
 /// This gives a set of possible responses/actions
@@ -95,6 +89,7 @@ pub enum GroupProcessorResult {
     SendToKernel(Ticket, SecBuffer)
 }
 
+/*
 impl Try for PrimaryProcessorResult {
     type Output = Self;
     type Residual = Self;
@@ -228,4 +223,4 @@ impl Into<PrimaryProcessorResult> for GroupProcessorResult {
             _ => PrimaryProcessorResult::Void
         }
     }
-}
+}*/

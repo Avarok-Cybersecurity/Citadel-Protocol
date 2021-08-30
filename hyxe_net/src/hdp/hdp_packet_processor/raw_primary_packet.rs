@@ -3,10 +3,11 @@ use bytes::BytesMut;
 use crate::hdp::hdp_packet_processor::peer::peer_cmd_packet;
 
 use super::includes::*;
+use crate::error::NetworkError;
 
 /// For primary-port packet types. NOT for wave ports
-pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut) -> PrimaryProcessorResult {
-    //return_if_none!(header_obfuscator.on_packet_received(&mut packet), "");
+pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut) -> Result<PrimaryProcessorResult, NetworkError> {
+    //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
 
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     let (header, _payload) = return_if_none!(packet.parse(), "Unable to parse packet");
@@ -68,13 +69,13 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
 
                 _ => {
                     warn!("The primary port received an invalid packet command. Dropping");
-                    PrimaryProcessorResult::Void
+                    Ok(PrimaryProcessorResult::Void)
                 }
             }
         }
 
         None => {
-            PrimaryProcessorResult::Void
+            Ok(PrimaryProcessorResult::Void)
         }
     }
 }
