@@ -1,5 +1,4 @@
 #![doc(html_no_source)]
-#![feature(try_trait_v2)]
 //! Core networking components for SatoriNET
 #![deny(
 trivial_numeric_casts,
@@ -131,13 +130,18 @@ pub mod macros {
     };
 }
 
+
     macro_rules! return_if_none {
+        ($opt:expr) => {
+            return_if_none!($opt, stringify!($opt))
+        };
+
         ($opt:expr, $err:expr) => {
             match $opt {
                 Some(val) => val,
                 _ => {
                     log::warn!("[X-03] NoneError: {}", $err);
-                    return PrimaryProcessorResult::Void;
+                    return Ok(PrimaryProcessorResult::Void);
                 }
             }
         }
@@ -260,13 +264,18 @@ pub mod macros {
     };
 }
 
+
     macro_rules! return_if_none {
+        ($opt:expr) => {
+            return_if_none!($opt, "NoneError Default")
+        };
+
         ($opt:expr, $err:expr) => {
             match $opt {
                 Some(val) => val,
                 _ => {
                     log::warn!("[X-03] NoneError: {}", $err);
-                    return PrimaryProcessorResult::Void;
+                    return Ok(PrimaryProcessorResult::Void);
                 }
             }
         }

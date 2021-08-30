@@ -9,18 +9,17 @@ use hyxe_user::external_services::rtdb::RtdbClientConfig;
 use hyxe_user::re_imports::FirebaseRTDB;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
-#[inline]
-pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResult {
+pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref;
 
     if !session.is_provisional() {
         log::error!("Connect packet received, but the system is not in a provisional state. Dropping");
-        return PrimaryProcessorResult::Void;
+        return Ok(PrimaryProcessorResult::Void);
     }
 
     if !inner!(session.state_container).pre_connect_state.success {
         log::error!("Connect packet received, but the system has not yet completed the pre-connect stage. Dropping");
-        return PrimaryProcessorResult::Void;
+        return Ok(PrimaryProcessorResult::Void);
     }
 
     // the preconnect stage loads the CNAC for us, as well as re-negotiating the keys
@@ -60,7 +59,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                         // Upgrade the connect BEFORE updating the CNAC
                         if !session.session_manager.upgrade_connection(addr, cid) {
-                            return PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection");
+                            return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection"));
                         }
 
                         //cnac.update_post_quantum_container(post_quantum).await?;
@@ -85,7 +84,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                             let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
                             session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel, udp_channel_rx))?;
 
-                            PrimaryProcessorResult::ReplyToSender(success_packet)
+                            Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
                         }
                     }
 
@@ -95,7 +94,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                         //session.state = SessionState::NeedsConnect;
                         let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, None, PostLoginObject::default(), err.to_string(), Vec::new(), fail_time, security_level);
-                        return PrimaryProcessorResult::ReplyToSender(packet)
+                        return Ok(PrimaryProcessorResult::ReplyToSender(packet))
                     }
                 }
             };
@@ -122,10 +121,10 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                 session.needs_close_message.set(false);
 
                 session.send_to_kernel(HdpServerResult::ConnectFail(kernel_ticket, Some(cid), message))?;
-                PrimaryProcessorResult::EndSession("Failed connecting. Retry again")
+                Ok(PrimaryProcessorResult::EndSession("Failed connecting. Retry again"))
             } else {
                 trace!("An invalid FAILURE packet was received; dropping due to invalid signature");
-                PrimaryProcessorResult::Void
+                Ok(PrimaryProcessorResult::Void)
             }
         }
 
@@ -144,7 +143,6 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                         let kernel_ticket = session.kernel_ticket.get();
                         let cid = hyper_ratchet.get_cid();
 
-                        log::info!("The login to the server was a success. Welcome Message: {}", &message);
                         state_container.connect_state.on_success();
                         state_container.connect_state.on_connect_packet_received();
 
@@ -163,8 +161,10 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                         // Upgrade the connect BEFORE updating the CNAC
                         if !session.session_manager.upgrade_connection(session.remote_peer.clone(), cid) {
-                            return PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection");
+                            return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection"));
                         }
+
+                        log::info!("The login to the server was a success. Welcome Message: {}", &message);
 
                         let post_login_object = payload.post_login_object.clone();
                         //session.post_quantum = pqc;
@@ -172,7 +172,6 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                         let peers = payload.peers;
                         session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), payload.post_login_object, message, channel, udp_channel_rx))?;
 
-                        // Now, send keep alives!
                         let timestamp = session.time_tracker.get_global_time_ns();
 
                         //session.needs_close_message = false;
@@ -194,7 +193,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                             match (post_login_object.rtdb, post_login_object.google_auth_jwt) {
                                 (Some(rtdb_cfg), Some(jwt)) => {
                                     log::info!("Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
-                                    let rtdb = FirebaseRTDB::new_from_jwt(&rtdb_cfg.url, jwt.clone(), rtdb_cfg.api_key.clone()).await.map_err(|_| PrimaryProcessorResult::Void)?;// login
+                                    let rtdb = FirebaseRTDB::new_from_jwt(&rtdb_cfg.url, jwt.clone(), rtdb_cfg.api_key.clone()).await.map_err(|err| NetworkError::Generic(err.inner))?;// login
 
                                     let FirebaseRTDB {
                                         base_url, auth, expire_time, api_key, jwt, ..
@@ -211,13 +210,14 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
                                 _ => {}
                             };
 
+                            // TODO: second save here ... just do one save
                             cnac.save().await?;
 
                             match connect_mode {
                                 ConnectMode::Fetch { .. } => {
                                     log::info!("[FETCH] complete ...");
                                     // we can end the session now. The fcm packets have already been sent alongside the connect signal above
-                                    return PrimaryProcessorResult::EndSession("Fetch succeeded")
+                                    return Ok(PrimaryProcessorResult::EndSession("Fetch succeeded"))
                                 }
 
                                 _ => {}
@@ -225,19 +225,19 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
                             if use_ka {
                                 let ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, timestamp, security_level);
-                                PrimaryProcessorResult::ReplyToSender(ka)
+                                Ok(PrimaryProcessorResult::ReplyToSender(ka))
                             } else {
                                 log::warn!("Keep-alive subsystem will not be used for this session as requested");
-                                PrimaryProcessorResult::Void
+                                Ok(PrimaryProcessorResult::Void)
                             }
                         }
                     } else {
                         log::error!("An invalid SUCCESS packet was received; dropping due to invalid signature");
-                        return PrimaryProcessorResult::Void
+                        return Ok(PrimaryProcessorResult::Void)
                     }
                 } else {
                     log::error!("An invalid SUCCESS packet was received; dropping since the last local stage was not stage 1");
-                    return PrimaryProcessorResult::Void
+                    return Ok(PrimaryProcessorResult::Void)
                 }
             };
 
@@ -246,7 +246,7 @@ pub async fn process(sess_ref: &HdpSession, packet: HdpPacket) -> PrimaryProcess
 
         n => {
             log::error!("Invalid auxiliary command: {}", n);
-            PrimaryProcessorResult::Void
+            Ok(PrimaryProcessorResult::Void)
         }
     }
 }

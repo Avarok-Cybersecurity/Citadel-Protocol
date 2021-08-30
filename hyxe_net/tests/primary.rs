@@ -1,6 +1,3 @@
-#![feature(decl_macro, result_flattening)]
-#![feature(panic_always_abort)]
-
 #[cfg(test)]
 pub mod tests {
     use std::collections::HashSet;
@@ -53,7 +50,7 @@ pub mod tests {
     }
 
     fn flatten_err<T, E: ToString>(err: Result<Result<T, NetworkError>, E>) -> Result<T, NetworkError> {
-        err.map_err(|err| NetworkError::Generic(err.to_string())).flatten()
+        err.map_err(|err| NetworkError::Generic(err.to_string()))?
     }
 
     fn function(f: Pin<Box<dyn Future<Output=Option<ActionType>> + Send + 'static>>) -> ActionType {

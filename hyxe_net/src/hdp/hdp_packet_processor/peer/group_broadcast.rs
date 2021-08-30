@@ -6,6 +6,7 @@ use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::functional::IfEqConditional;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_fs::io::SyncIO;
+use crate::error::NetworkError;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GroupBroadcast {
@@ -50,9 +51,9 @@ impl Into<HdpServerResult> for (u64, Ticket, GroupBroadcast) {
     }
 }
 
-pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], HdpHeader>, payload: &[u8], sess_hyper_ratchet: &HyperRatchet) -> PrimaryProcessorResult {
+pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], HdpHeader>, payload: &[u8], sess_hyper_ratchet: &HyperRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
-    let signal = GroupBroadcast::deserialize_from_vector(payload).ok()?;
+    let signal = return_if_none!(GroupBroadcast::deserialize_from_vector(payload).ok(), "invalid GroupBroadcast packet");
     let timestamp = session.time_tracker.get_global_time_ns();
     let ticket = header.context_info.get().into();
     let security_level = header.security_level.into();
@@ -63,7 +64,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
             let key = session.session_manager.create_message_group_and_notify(timestamp, ticket, implicated_cid, initial_peers, security_level);
             let signal = GroupBroadcast::CreateResponse(key);
             let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
-            PrimaryProcessorResult::ReplyToSender(return_packet)
+            Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
         }
 
         GroupBroadcast::MemberStateChanged(key, state) => {
@@ -71,11 +72,11 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         }
 
         GroupBroadcast::End(key) => {
-            permission_gate(implicated_cid, key)?;
+            return_if_none!(permission_gate(implicated_cid, key), "Permission denied");
             let success = session.session_manager.remove_message_group(implicated_cid, timestamp, ticket, key, security_level);
             let signal = GroupBroadcast::EndResponse(key, success);
             let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
-            PrimaryProcessorResult::ReplyToSender(return_packet)
+            Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
         }
 
         GroupBroadcast::EndResponse(key, success) => {
@@ -92,7 +93,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
                 let success = session.session_manager.broadcast_signal_to_group(implicated_cid, timestamp, ticket, key, GroupBroadcast::Message(username, key, message), security_level);
                 let resp = GroupBroadcast::MessageResponse(key, success);
                 let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &resp, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
-                PrimaryProcessorResult::ReplyToSender(packet)
+                Ok(PrimaryProcessorResult::ReplyToSender(packet))
             } else {
                 // send to kernel
                 send_to_kernel(&session, ticket, GroupBroadcast::Message(username, key, message))
@@ -122,7 +123,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
 
             let signal = GroupBroadcast::AcceptMembershipResponse(success);
             let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
-            PrimaryProcessorResult::ReplyToSender(packet)
+            Ok(PrimaryProcessorResult::ReplyToSender(packet))
         }
 
         GroupBroadcast::AcceptMembershipResponse(success) => {
@@ -134,7 +135,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
             let message = if success { format!("Successfully removed peer {} from room {}:{}", implicated_cid, key.cid, key.mgid) } else { format!("Unable to remove peer {} from room {}:{}", implicated_cid, key.cid, key.mgid) };
             let signal = GroupBroadcast::LeaveRoomResponse(key, success, message);
             let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
-            PrimaryProcessorResult::ReplyToSender(packet)
+            Ok(PrimaryProcessorResult::ReplyToSender(packet))
         }
 
         GroupBroadcast::LeaveRoomResponse(key, success, response) => {
@@ -142,7 +143,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         }
 
         GroupBroadcast::Add(key, peers) => {
-            permission_gate(implicated_cid, key)?;
+            return_if_none!(permission_gate(implicated_cid, key), "Permission denied");
             // the server receives this. It then sends an invitation
             // if peer is not online, leave some mail. If peer is online,
             // send invitation
@@ -177,12 +178,12 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
 
                 let signal = GroupBroadcast::AddResponse(key, peers_failed);
                 let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
-                PrimaryProcessorResult::ReplyToSender(packet)
+                Ok(PrimaryProcessorResult::ReplyToSender(packet))
             } else {
                 // Send error message
                 let signal = GroupBroadcast::GroupNonExists(key);
                 let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
-                PrimaryProcessorResult::ReplyToSender(packet)
+                Ok(PrimaryProcessorResult::ReplyToSender(packet))
             }
         }
 
@@ -191,11 +192,11 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         }
 
         GroupBroadcast::Kick(key, peers) => {
-            permission_gate(implicated_cid, key)?;
+            return_if_none!(permission_gate(implicated_cid, key), "Permission denied");
             let success = session.session_manager.kick_from_message_group(GroupMemberAlterMode::Kick, implicated_cid, timestamp, ticket, key, peers, security_level);
             let resp = GroupBroadcast::KickResponse(key, success);
             let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &resp, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
-            PrimaryProcessorResult::ReplyToSender(packet)
+            Ok(PrimaryProcessorResult::ReplyToSender(packet))
         }
 
         GroupBroadcast::KickResponse(key, success) => {
@@ -216,10 +217,10 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
     }
 }
 
-fn send_to_kernel(session: &HdpSession, ticket: Ticket, broadcast: GroupBroadcast) -> PrimaryProcessorResult {
-    let implicated_cid = session.implicated_cid.get()?;
+fn send_to_kernel(session: &HdpSession, ticket: Ticket, broadcast: GroupBroadcast) -> Result<PrimaryProcessorResult, NetworkError> {
+    let implicated_cid = return_if_none!(session.implicated_cid.get(), "Implicated CID not loaded");
     session.kernel_tx.unbounded_send((implicated_cid, ticket, broadcast).into())?;
-    PrimaryProcessorResult::Void
+    Ok(PrimaryProcessorResult::Void)
 }
 
 /// Returns None if the implicated_cid is NOT the key's cid.

@@ -6,19 +6,19 @@ use hyxe_crypt::prelude::ConstructorOpts;
 
 /// This will handle an HDP registration packet
 #[inline]
-pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr) -> PrimaryProcessorResult {
+pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let state = session.state.get();
 
     if state != SessionState::NeedsRegister {
         if state != SessionState::SocketJustOpened {
             log::error!("Register packet received, but the system's state is not NeedsRegister. Dropping packet");
-            return PrimaryProcessorResult::Void;
+            return Ok(PrimaryProcessorResult::Void);
         }
     }
 
     let (header, payload, _, _) = packet.decompose();
-    let ref header = return_if_none!(LayoutVerified::new(&header[..]), "Unable to parse header") as LayoutVerified<&[u8], HdpHeader>;
+    let ref header = return_if_none!(LayoutVerified::new(&header[..]),"Unable to parse header") as LayoutVerified<&[u8], HdpHeader>;
     debug_assert_eq!(packet_flags::cmd::primary::DO_REGISTER, header.cmd_primary);
     let security_level = header.security_level.into();
 
@@ -46,7 +46,6 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                                 let bob_constructor = HyperRatchetConstructor::new_bob(reserved_true_cid, 0, ConstructorOpts::new_vec_init(Some(transfer.params), (transfer.security_level.value() + 1) as usize), transfer).ok_or(NetworkError::InvalidExternalRequest("Bad bob transfer"))?;
                                 let transfer = return_if_none!(bob_constructor.stage0_bob(), "Unable to advance past stage0-bob");
 
-
                                 let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, local_nid, transfer, reserved_true_cid);
 
                                 let mut state_container = inner_mut!(session.state_container);
@@ -55,7 +54,7 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                                 state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE1;
                                 state_container.register_state.on_register_packet_received();
 
-                                PrimaryProcessorResult::ReplyToSender(stage1_packet)
+                                Ok(PrimaryProcessorResult::ReplyToSender(stage1_packet))
                             }
                         }
 
@@ -67,12 +66,12 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
 
                             session.state.set(SessionState::NeedsRegister);
 
-                            return PrimaryProcessorResult::Void
+                            return Ok(PrimaryProcessorResult::Void)
                         }
                     }
                 } else {
                     warn!("Inconsistency between the session's stage and the packet's state. Dropping");
-                    return PrimaryProcessorResult::Void
+                    return Ok(PrimaryProcessorResult::Void)
                 }
             };
 
@@ -110,14 +109,14 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                     state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE2;
                     state_container.register_state.on_register_packet_received();
 
-                    PrimaryProcessorResult::ReplyToSender(stage2_packet)
+                    Ok(PrimaryProcessorResult::ReplyToSender(stage2_packet))
                 } else {
                     log::error!("Register stage is one, yet, no PQC is present. Aborting.");
-                    PrimaryProcessorResult::Void
+                    Ok(PrimaryProcessorResult::Void)
                 }
             } else {
                 warn!("Inconsistency between the session's stage and the packet's state. Dropping");
-                PrimaryProcessorResult::Void
+                Ok(PrimaryProcessorResult::Void)
             }
         }
 
@@ -153,12 +152,7 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                                     // below was moved above
                                     //let _ = handle_client_fcm_keys(stage2_packet.fcm_keys, &peer_cnac);
 
-                                    PrimaryProcessorResult::ReplyToSender(packet)
-                                }
-
-                                Err(AccountError::ClientExists(taken_cid)) => {
-                                    log::error!("Attempted to register the new CNAC ({}) locally, but unfortunately the CID was taken", taken_cid);
-                                    PrimaryProcessorResult::EndSession("CID taken")
+                                    Ok(PrimaryProcessorResult::ReplyToSender(packet))
                                 }
 
                                 Err(err) => {
@@ -166,17 +160,17 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                                     log::error!("Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
                                     let packet = hdp_packet_crafter::do_register::craft_failure(algorithm, local_nid, timestamp, err);
 
-                                    PrimaryProcessorResult::ReplyToSender(packet)
+                                    Ok(PrimaryProcessorResult::ReplyToSender(packet))
                                 }
                             }
                         }
                     } else {
                         log::error!("Unable to validate stage2 packet. Aborting");
-                        return PrimaryProcessorResult::Void
+                        return Ok(PrimaryProcessorResult::Void)
                     }
                 } else {
                     warn!("Inconsistency between the session's stage and the packet's state. Dropping");
-                    return PrimaryProcessorResult::Void
+                    return Ok(PrimaryProcessorResult::Void)
                 }
             };
 
@@ -223,15 +217,15 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
 
                             needs_close_message.set(false);
 
-                            PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: Success)")
+                            Ok(PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: Success)"))
                         }
                     } else {
                         log::error!("Unable to validate SUCCESS packet");
-                        return PrimaryProcessorResult::Void
+                        return Ok(PrimaryProcessorResult::Void)
                     }
                 } else {
                     warn!("Inconsistency between the session's stage and the packet's state. Dropping");
-                    return PrimaryProcessorResult::Void
+                    return Ok(PrimaryProcessorResult::Void)
                 }
             };
 
@@ -249,19 +243,19 @@ pub async fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: S
                     session.shutdown();
                 } else {
                     log::error!("Error validating FAILURE packet");
-                    return PrimaryProcessorResult::Void;
+                    return Ok(PrimaryProcessorResult::Void);
                 }
 
-                PrimaryProcessorResult::EndSession("Registration subroutine ended (Status: FAIL)")
+                Ok(PrimaryProcessorResult::EndSession("Registration subroutine ended (Status: FAIL)"))
             } else {
                 log::warn!("A failure packet was received, but the program's registration did not advance past stage 0. Dropping");
-                PrimaryProcessorResult::Void
+                Ok(PrimaryProcessorResult::Void)
             }
         }
 
         _ => {
             warn!("Invalid auxiliary command. Dropping packet");
-            PrimaryProcessorResult::Void
+            Ok(PrimaryProcessorResult::Void)
         }
     }
 }
