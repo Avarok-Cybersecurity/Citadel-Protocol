@@ -4,18 +4,18 @@ use crate::error::NetworkError;
 /// This will handle a keep alive packet. It will automatically send a keep packet after it sleeps for a period of time
 #[inline]
 #[allow(unused_results, unused_must_use)]
-pub async fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcessorResult {
+pub async fn process(session: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
     if session.state.get() != SessionState::Connected {
         log::warn!("Keep alive received, but session not connected. Dropping packet");
-        return PrimaryProcessorResult::Void;
+        return Ok(PrimaryProcessorResult::Void);
     }
 
     let (header, payload, _, _) = packet.decompose();
-    let ref cnac = session.cnac.get()?;
+    let ref cnac = return_if_none!(session.cnac.get(), "Sess CNAC not loaded");
 
     if let Some((header,_payload, _hyper_ratchet)) = validation::keep_alive::validate_keep_alive(cnac, &header, payload) {
         let current_timestamp_ns = session.time_tracker.get_global_time_ns();
-        let to_primary_stream = session.to_primary_stream.clone()?;
+        let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
         let security_level = header.security_level.into();
 
         let task = {
@@ -38,12 +38,12 @@ pub async fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcesso
                         })
                     })?;
 
-                    PrimaryProcessorResult::Void
+                    Ok(PrimaryProcessorResult::Void)
                 }
             } else {
                 log::trace!("Invalid KEEP_ALIVE window; expired");
                 //session.session_manager.clear_session(session.implicated_cid.unwrap());
-                return PrimaryProcessorResult::EndSession("Keep alive arrived too late")
+                return Ok(PrimaryProcessorResult::EndSession("Keep alive arrived too late"))
             }
         };
 
@@ -51,6 +51,6 @@ pub async fn process(session: &HdpSession, packet: HdpPacket) -> PrimaryProcesso
     } else {
         // timeout
         log::error!("Keep alive invalid!");
-        PrimaryProcessorResult::Void
+        Ok(PrimaryProcessorResult::Void)
     }
 }

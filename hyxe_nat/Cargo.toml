@@ -4,14 +4,15 @@ version = "0.1.0"
 authors = ["Thomas Braun <tbraun96@gmail.com>"]
 edition = "2018"
 workspace = ".."
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 igd = { version = "^0.12.0", features = ["aio"] }
 #tokio = { version = "^0.2.22", features = ["macros", "rt-util", "time", "net"] }
-tokio = "^1.2.0"
-tokio-stream = "0.1.3"
+tokio = "1.10.1"
+tokio-stream = "0.1.7"
 futures = "0.3.16"
 async-trait = "0.1.36"
 bytes = "^1.0.1"
@@ -20,7 +21,7 @@ byteorder = "1.3.4"
 rsntp = { version = "2.0.0", features = ["async"] }
 whoami = "0.9.0"
 parking_lot = "0.11.1"
-stun = "^0.3.1"
+stun = "0.3.3"
 #socket2 = "0.4.1"
 net2 = "0.2.37"
 anyhow = "1.0.42"
@@ -32,7 +33,7 @@ quinn = { version = "0.7.2", features = ["rustls"] }
 webpki = "0.21.0"
 rustls = { version = "0.19.1", features = ["quic", "dangerous_configuration"] }
 rcgen = "0.8.11"
-openssl = { version = "0.10.35", features = ["vendored"]}
+openssl = { version = "0.10.36", features = ["vendored"] }
 either = "1.6.1"
 tokio-rustls = "0.22.0"
 

@@ -729,17 +729,22 @@ impl HdpSession {
             async move {
                 //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
                 match hdp_packet_processor::raw_primary_packet::process(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet).await {
-                    PrimaryProcessorResult::ReplyToSender(return_packet) => {
+                    Ok(PrimaryProcessorResult::ReplyToSender(return_packet)) => {
                         Self::send_to_primary_stream_closure(&primary_stream, &kernel_tx, return_packet, None)
                             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.into_string()))
                     }
 
-                    PrimaryProcessorResult::EndSession(reason) => {
+                    Err(reason) => {
+                        log::error!("[PrimaryProcessor] session ending: {:?}", reason);
+                        Err(std::io::Error::new(std::io::ErrorKind::Other, reason.into_string()))
+                    }
+
+                    Ok(PrimaryProcessorResult::EndSession(reason)) => {
                         log::warn!("[PrimaryProcessor] session ending: {}", reason);
                         Err(std::io::Error::new(std::io::ErrorKind::Other, reason))
                     }
 
-                    PrimaryProcessorResult::Void => {
+                    Ok(PrimaryProcessorResult::Void) => {
                         // this implies that the packet processor found no reason to return a message
                         Ok(())
                     }
@@ -1378,14 +1383,20 @@ impl HdpSession {
             match check_proxy(self.implicated_cid.get(), header.cmd_primary, header.cmd_aux, header.session_cid.get(), header.target_cid.get(), self, &mut endpoint_cid_info, ReceivePortType::UnorderedUnreliable, packet) {
                 Some(packet) => {
                     match hdp_packet_processor::udp_packet::process(self, packet, hr_version, accessor) {
-                        PrimaryProcessorResult::Void => {
+                        Ok(PrimaryProcessorResult::Void) => {
                             Ok(())
                         }
 
-                        PrimaryProcessorResult::EndSession(err) => {
+                        Ok(PrimaryProcessorResult::EndSession(err)) => {
                             // stop the UDP stream
                             log::warn!("UDP session ending: {:?}", err);
                             Err(NetworkError::Generic(err.to_string()))
+                        }
+
+                        Err(err) => {
+                            // stop the UDP stream
+                            log::warn!("UDP session ending: {:?}", err);
+                            Err(err)
                         }
 
                         _ => {

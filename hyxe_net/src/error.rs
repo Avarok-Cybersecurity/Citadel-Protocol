@@ -28,12 +28,12 @@ impl Error for NetworkError {}
 
 impl Debug for NetworkError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.msg())
+        write!(f, "{}", self.to_msg())
     }
 }
 
 impl NetworkError {
-    fn msg(&self) -> String {
+    fn to_msg(&self) -> String {
         match self {
             NetworkError::SocketError(err) => {
                 err.to_string()

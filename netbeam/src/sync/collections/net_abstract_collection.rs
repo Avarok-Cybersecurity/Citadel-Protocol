@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::sync::Arc;
 use crate::sync::primitives::NetObject;
 use crate::sync::subscription::Subscribable;

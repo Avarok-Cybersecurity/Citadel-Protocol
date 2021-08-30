@@ -276,6 +276,7 @@ mod tests {
         debug_assert_eq!(opened_message.as_slice(), message);
     }*/
 
+    /*
     #[test]
     fn sike() {
         let params = rust_sike::sike_p751_params(None, None).unwrap();
@@ -313,7 +314,7 @@ mod tests {
 
         // Alice should correctly recover Bob's plaintext message
         assert_eq!(msg_recovered.bytes.as_slice(), msg.bytes.as_slice());
-    }
+    }*/
 
     #[test]
     fn test_10() {

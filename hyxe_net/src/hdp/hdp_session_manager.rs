@@ -887,7 +887,7 @@ impl HdpSessionManagerInner {
     /// Also returns the [TrackedPosting] that was posted when the signal initially crossed through
     /// the HyperLAN Server
     #[inline]
-    pub fn route_signal_response_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, packet: impl FnOnce(&HyperRatchet) -> BytesMut, post_send: impl FnOnce(&HdpSession, PeerSignal) -> PrimaryProcessorResult) -> Result<PrimaryProcessorResult, String> {
+    pub fn route_signal_response_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, packet: impl FnOnce(&HyperRatchet) -> BytesMut, post_send: impl FnOnce(&HdpSession, PeerSignal) -> Result<PrimaryProcessorResult, NetworkError>) -> Result<Result<PrimaryProcessorResult, NetworkError>, String> {
         // Instead of checking for registration, check the `implicated_cid`'s timed queue for a ticket corresponding to Ticket.
         if let Some(tracked_posting) = self.hypernode_peer_layer.remove_tracked_posting(target_cid, ticket) {
             // since the posting was valid, we just need to forward the signal to `implicated_cid`

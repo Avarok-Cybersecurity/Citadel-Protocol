@@ -280,6 +280,10 @@ impl webrtc_util::Conn for WebRTCCompatChannel {
         Ok(self.send_half.local_addr())
     }
 
+    async fn remote_addr(&self) -> Option<SocketAddr> {
+        Some(self.send_half.remote_addr())
+    }
+
     async fn close(&self) -> Result<(), anyhow::Error> {
         // the conn will automatically get closed on drop of recv half
         Ok(())
