@@ -16,7 +16,6 @@ use crate::hdp::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::hdp::misc::dual_cell::DualCell;
 use crate::hdp::state_container::StateContainer;
-use crate::hdp::misc::panic_future::AssertSendSafeFuture;
 use hyxe_nat::exports::Endpoint;
 use crate::hdp::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
 use futures::TryFutureExt;
@@ -187,7 +186,7 @@ fn handle_p2p_stream(mut p2p_stream: GenericNetworkStream, implicated_cid: DualC
         Ok(())
     };
 
-    sess.p2p_session_tx.as_ref().unwrap().unbounded_send(Box::pin(AssertSendSafeFuture::new(future))).map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))?;
+    sess.p2p_session_tx.as_ref().unwrap().unbounded_send(Box::pin(future)).map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))?;
 
     //let _ = spawn!(future);
 

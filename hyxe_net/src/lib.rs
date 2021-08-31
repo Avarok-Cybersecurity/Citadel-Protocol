@@ -1,4 +1,5 @@
 #![doc(html_no_source)]
+#![forbid(unsafe_code)]
 //! Core networking components for SatoriNET
 #![deny(
 trivial_numeric_casts,
@@ -250,7 +251,7 @@ pub mod macros {
     macro_rules! spawn {
     ($future:expr) => {
         if tokio::runtime::Handle::try_current().is_ok() {
-            std::mem::drop(crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn(crate::hdp::misc::panic_future::AssertSendSafeFuture::new($future))));
+            std::mem::drop(crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future)));
         } else {
             log::warn!("Unable to spawn future: {:?}", stringify!($future));
         }
@@ -260,7 +261,7 @@ pub mod macros {
 
     macro_rules! spawn_handle {
     ($future:expr) => {
-        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn(crate::hdp::misc::panic_future::AssertSendSafeFuture::new($future)))
+        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future))
     };
 }
 

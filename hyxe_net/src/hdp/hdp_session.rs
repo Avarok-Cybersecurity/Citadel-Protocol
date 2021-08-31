@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
 //use async_std::prelude::*;
 use bytes::{Bytes, BytesMut};
 use either::Either;
-use futures::{SinkExt, Stream, StreamExt, TryStreamExt, TryFutureExt};
+use futures::{SinkExt, StreamExt, TryStreamExt, TryFutureExt};
 use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
 
@@ -71,7 +71,7 @@ use crate::hdp::hdp_packet_processor::raw_primary_packet::{check_proxy, ReceiveP
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use hyxe_nat::nat_identification::NatType;
 use hyxe_nat::exports::{Endpoint, NewConnection};
-use crate::hdp::misc::udp_internal_interface::UdpSplittableTypes;
+use crate::hdp::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 
 //use crate::define_struct;
 
@@ -1314,7 +1314,7 @@ impl HdpSession {
         Err(NetworkError::InternalError("Invalid session configuration"))
     }
 
-    async fn listen_wave_port<S: Stream<Item=Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin>(this: HdpSession, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
+    async fn listen_wave_port<S:  UdpStream>(this: HdpSession, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
         while let Some(res) = stream.next().await {
             match res {
                 Ok((packet, remote_peer)) => {

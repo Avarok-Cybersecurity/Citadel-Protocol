@@ -14,9 +14,15 @@ use futures::stream::{SplitSink, SplitStream};
 use crate::hdp::peer::p2p_conn_handler::generic_error;
 use crate::functional::PairMap;
 
+pub(crate) trait UdpSink: Sink<Bytes, Error=NetworkError> + Unpin + ContextRequirements {}
+impl<T: Sink<Bytes, Error=NetworkError> + Unpin + ContextRequirements> UdpSink for T {}
+
+pub(crate) trait UdpStream: Stream<Item=Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin + ContextRequirements {}
+impl<T: Stream<Item=Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin + ContextRequirements> UdpStream for T {}
+
 pub(crate) trait UdpSplittable: ContextRequirements {
-    type Sink: Sink<Bytes, Error=NetworkError> + Unpin;
-    type Stream: Stream<Item=Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin;
+    type Sink: UdpSink;
+    type Stream: UdpStream;
 
     fn split_sink_stream(self) -> (Self::Sink, Self::Stream);
     fn local_addr(&self) -> std::io::Result<SocketAddr>;
@@ -28,7 +34,7 @@ pub(crate) enum UdpSplittableTypes {
 }
 
 impl UdpSplittableTypes {
-    pub fn split(self) -> (Box<dyn Sink<Bytes, Error=NetworkError> + Unpin>, Box<dyn Stream<Item=Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin>) {
+    pub fn split(self) -> (Box<dyn UdpSink>, Box<dyn UdpStream>) {
         match self {
             Self::QUIC(quic) => quic.split_sink_stream().map_left(|r| Box::new(r) as _).map_right(|r| Box::new(r) as _),
             Self::Raw(raw) => raw.split_sink_stream().map_left(|r| Box::new(r) as _).map_right(|r| Box::new(r) as _)

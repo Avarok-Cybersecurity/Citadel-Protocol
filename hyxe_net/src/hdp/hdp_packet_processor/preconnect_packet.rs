@@ -100,61 +100,64 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> Result<Pri
         packet_flags::cmd::aux::do_preconnect::SYN_ACK => {
             log::info!("RECV STAGE SYN_ACK PRE_CONNECT PACKET");
             let udp_mode = session.udp_mode.get();
+            let ref cnac = return_if_none!(session.cnac.get(), "SESS Cnac not loaded");
 
-            let mut state_container = inner_mut!(session.state_container);
-            if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
-                // cnac should already be loaded locally
-                let ref cnac = return_if_none!(session.cnac.get(), "SESS Cnac not loaded");
-                let alice_constructor = return_if_none!(state_container.pre_connect_state.constructor.take(), "Alice constructor not loaded");
+            let (stream, new_hyper_ratchet) = {
+                let mut state_container = inner_mut!(session.state_container);
+                if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
+                    // cnac should already be loaded locally
+                    let alice_constructor = return_if_none!(state_container.pre_connect_state.constructor.take(), "Alice constructor not loaded");
 
-                if let Some((new_hyper_ratchet, nat_type)) = validation::pre_connect::validate_syn_ack(cnac, alice_constructor, packet) {
-                    // The toolset, at this point, has already been updated. The CNAC can be used to
-                    //let ref drill = cnac.get_drill_blocking(None)?;
-                    session.adjacent_nat_type.set_once(Some(nat_type.clone()));
+                    if let Some((new_hyper_ratchet, nat_type)) = validation::pre_connect::validate_syn_ack(cnac, alice_constructor, packet) {
+                        // The toolset, at this point, has already been updated. The CNAC can be used to
+                        //let ref drill = cnac.get_drill_blocking(None)?;
+                        session.adjacent_nat_type.set_once(Some(nat_type.clone()));
 
-                    let local_node_type = session.local_node_type;
-                    let timestamp = session.time_tracker.get_global_time_ns();
-                    //let local_bind_addr = session.local_bind_addr.ip();
-                    let local_bind_addr = session.local_bind_addr;
-                    //let local_bind_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
-                    let server_external_addr = session.remote_peer;
+                        let local_node_type = session.local_node_type;
+                        let timestamp = session.time_tracker.get_global_time_ns();
+                        //let local_bind_addr = session.local_bind_addr.ip();
+                        let local_bind_addr = session.local_bind_addr;
+                        //let local_bind_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
+                        let server_external_addr = session.remote_peer;
 
-                    if udp_mode == UdpMode::Disabled {
+                        if udp_mode == UdpMode::Disabled {
+                            let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
+                            state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
+                            return Ok(PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet));
+                        }
+
                         let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
-                        state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                        return Ok(PrimaryProcessorResult::ReplyToSender(stage0_preconnect_packet));
-                    }
+                        let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
+                        to_primary_stream.unbounded_send(stage0_preconnect_packet)?;
 
-                    let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
-                    let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
-                    to_primary_stream.unbounded_send(stage0_preconnect_packet)?;
-
-                    //let hole_puncher = SingleUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
-                    let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, server_external_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, new_hyper_ratchet.clone(), security_level);
-                    std::mem::drop(state_container);
-                    let ref conn = NetworkEndpoint::register(RelativeNodeType::Initiator, stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-                    log::info!("Initiator created");
-                    let res = conn.begin_udp_hole_punch(generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY)).await;
-
-                    match res {
-                        Ok(ret) => {
-                            log::info!("Initiator finished NAT traversal ...");
-                            send_success_as_initiator(ret, &new_hyper_ratchet, session, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()))
-                        }
-
-                        Err(err) => {
-                            log::warn!("Hole punch attempt failed. Will exit session: {:?}", err.to_string());
-                            // Note: this currently implies that if NAT traversal fails, the session does not open (which should be the case for C2S connections anyways)
-                            Ok(PrimaryProcessorResult::EndSession("UDP NAT traversal failed"))
-                        }
+                        //let hole_puncher = SingleUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
+                        let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, server_external_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, new_hyper_ratchet.clone(), security_level);
+                        (stream, new_hyper_ratchet)
+                    } else {
+                        log::error!("Invalid SYN_ACK");
+                        return Ok(PrimaryProcessorResult::Void)
                     }
                 } else {
-                    log::error!("Invalid SYN_ACK");
-                    Ok(PrimaryProcessorResult::Void)
+                    log::error!("Expected stage SYN_ACK, but local state was not valid");
+                    return Ok(PrimaryProcessorResult::Void)
                 }
-            } else {
-                log::error!("Expected stage SYN_ACK, but local state was not valid");
-                Ok(PrimaryProcessorResult::Void)
+            };
+
+            let ref conn = NetworkEndpoint::register(RelativeNodeType::Initiator, stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+            log::info!("Initiator created");
+            let res = conn.begin_udp_hole_punch(generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY)).await;
+
+            match res {
+                Ok(ret) => {
+                    log::info!("Initiator finished NAT traversal ...");
+                    send_success_as_initiator(ret, &new_hyper_ratchet, session, security_level, VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()))
+                }
+
+                Err(err) => {
+                    log::warn!("Hole punch attempt failed. Will exit session: {:?}", err.to_string());
+                    // Note: this currently implies that if NAT traversal fails, the session does not open (which should be the case for C2S connections anyways)
+                    Ok(PrimaryProcessorResult::EndSession("UDP NAT traversal failed"))
+                }
             }
         }
 
@@ -162,83 +165,86 @@ pub async fn process(session_orig: &HdpSession, packet: HdpPacket) -> Result<Pri
             log::info!("RECV STAGE 0 PRE_CONNECT PACKET");
 
             // At this point, the user's static-key identity has been verified. We can now check the online status to ensure no double-logins
-
-            let udp_mode = session.udp_mode.get();
             let ref cnac = return_if_none!(session.cnac.get(), "Sess CNAC not loaded");
             let hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(Some(header.drill_version.get())), "HR version not found");
-            let mut state_container = inner_mut!(session.state_container);
-            if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
-                if let Some(_) = validation::pre_connect::validate_stage0(&hyper_ratchet, packet) {
 
-                    let timestamp = session.time_tracker.get_global_time_ns();
-                    // since this is the server, we use whatever our primary listener is bound to defined in HdpServer::init
-                    let local_bind_addr = session.local_bind_addr;
+            let stream = {
+                let udp_mode = session.udp_mode.get();
+                let mut state_container = inner_mut!(session.state_container);
+                if state_container.pre_connect_state.last_stage == packet_flags::cmd::aux::do_preconnect::SYN_ACK {
+                    if let Some(_) = validation::pre_connect::validate_stage0(&hyper_ratchet, packet) {
 
-                    let peer_nat_type = return_if_none!(session.adjacent_nat_type.clone(), "adjacent NAT type not loaded");
-                    let peer_accessible = peer_nat_type.predict_external_addr_from_local_bind_port(0).is_some();
+                        let timestamp = session.time_tracker.get_global_time_ns();
+                        // since this is the server, we use whatever our primary listener is bound to defined in HdpServer::init
+                        let local_bind_addr = session.local_bind_addr;
 
-                    if udp_mode == UdpMode::Disabled || !peer_accessible {
-                        if !peer_accessible && udp_mode == UdpMode::Enabled {
-                            log::warn!("UDP NAT Traversal is not possible. Will use default TCP connection")
-                        }
+                        let peer_nat_type = return_if_none!(session.adjacent_nat_type.clone(), "adjacent NAT type not loaded");
+                        let peer_accessible = peer_nat_type.predict_external_addr_from_local_bind_port(0).is_some();
 
-                        // since this node is the server, send a BEGIN CONNECT signal to alice
-                        // We have to modify the state to ensure that this node can receive a DO_CONNECT packet
-                        state_container.pre_connect_state.success = true;
-                        let packet = hdp_packet_crafter::pre_connect::craft_begin_connect(&hyper_ratchet, timestamp, security_level);
-                        return Ok(PrimaryProcessorResult::ReplyToSender(packet));
-                    } // .. otherwise, continue logic below to punch a hole through the firewall
+                        if udp_mode == UdpMode::Disabled || !peer_accessible {
+                            if !peer_accessible && udp_mode == UdpMode::Enabled {
+                                log::warn!("UDP NAT Traversal is not possible. Will use default TCP connection")
+                            }
 
-                    let _local_node_type = session.local_node_type;
-                    let peer_addr = session.remote_peer;
-                    //let _peer_internal_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
-                    let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
+                            // since this node is the server, send a BEGIN CONNECT signal to alice
+                            // We have to modify the state to ensure that this node can receive a DO_CONNECT packet
+                            state_container.pre_connect_state.success = true;
+                            let packet = hdp_packet_crafter::pre_connect::craft_begin_connect(&hyper_ratchet, timestamp, security_level);
+                            return Ok(PrimaryProcessorResult::ReplyToSender(packet));
+                        } // .. otherwise, continue logic below to punch a hole through the firewall
 
-                    let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, peer_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
-                    std::mem::drop(state_container);
-                    let ref conn = NetworkEndpoint::register(RelativeNodeType::Receiver, stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-                    log::info!("Receiver created");
+                        let _local_node_type = session.local_node_type;
+                        let peer_addr = session.remote_peer;
+                        //let _peer_internal_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
+                        let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
 
-                    let res = conn.begin_udp_hole_punch(generate_hole_punch_crypt_container(hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY)).await;
-
-                    match res {
-                        Ok(ret) => {
-                            let sess = session_orig;
-
-                            let HolePunchedUdpSocket { socket, addr } = ret;
-
-                            let mut state_container = inner_mut!(sess.state_container);
-                            let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp_c2s();
-
-                            log::info!("UDP hole-punch SUCCESS! Sending a RECEIVER_FINISHED_HOLE_PUNCH");
-
-                            state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                            state_container.pre_connect_state.on_packet_received();
-                            std::mem::drop(state_container);
-
-                            // the UDP subsystem will automatically engage at this point
-                            HdpSession::udp_socket_loader(sess.clone(), VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), determine_udp_interface(session, socket, addr.natted), addr, sess.kernel_ticket.get(), Some(tcp_loaded_alerter_rx));
-                            // the server will await for the client to send an initiation packeet
-                            Ok(PrimaryProcessorResult::Void)
-                        }
-
-                        Err(err) => {
-                            log::info!("Hole punch attempt failed ({}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange", err.to_string());
-                            // We await the initiator to choose a method
-                            let session = session_orig;
-                            session.udp_mode.set(UdpMode::Disabled);
-                            let mut state_container = inner_mut!(session.state_container);
-                            state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
-                            Ok(PrimaryProcessorResult::Void)
-                        }
+                        let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, peer_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
+                        stream
+                    } else {
+                        log::error!("Unable to validate stage 0 packet");
+                        return Ok(PrimaryProcessorResult::Void)
                     }
                 } else {
-                    log::error!("Unable to validate stage 0 packet");
+                    log::error!("Packet state 0, last stage not 0. Dropping");
+                    return Ok(PrimaryProcessorResult::Void)
+                }
+            };
+
+            let ref conn = NetworkEndpoint::register(RelativeNodeType::Receiver, stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+            log::info!("Receiver created");
+
+            let res = conn.begin_udp_hole_punch(generate_hole_punch_crypt_container(hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY)).await;
+
+            match res {
+                Ok(ret) => {
+                    let sess = session_orig;
+
+                    let HolePunchedUdpSocket { socket, addr } = ret;
+
+                    let mut state_container = inner_mut!(sess.state_container);
+                    let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp_c2s();
+
+                    log::info!("UDP hole-punch SUCCESS! Sending a RECEIVER_FINISHED_HOLE_PUNCH");
+
+                    state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
+                    state_container.pre_connect_state.on_packet_received();
+                    std::mem::drop(state_container);
+
+                    // the UDP subsystem will automatically engage at this point
+                    HdpSession::udp_socket_loader(sess.clone(), VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), determine_udp_interface(session, socket, addr.natted), addr, sess.kernel_ticket.get(), Some(tcp_loaded_alerter_rx));
+                    // the server will await for the client to send an initiation packeet
                     Ok(PrimaryProcessorResult::Void)
                 }
-            } else {
-                log::error!("Packet state 0, last stage not 0. Dropping");
-                Ok(PrimaryProcessorResult::Void)
+
+                Err(err) => {
+                    log::info!("Hole punch attempt failed ({}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange", err.to_string());
+                    // We await the initiator to choose a method
+                    let session = session_orig;
+                    session.udp_mode.set(UdpMode::Disabled);
+                    let mut state_container = inner_mut!(session.state_container);
+                    state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
+                    Ok(PrimaryProcessorResult::Void)
+                }
             }
         }
 
