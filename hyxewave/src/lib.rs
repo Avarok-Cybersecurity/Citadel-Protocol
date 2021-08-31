@@ -31,7 +31,6 @@ pub mod re_exports {
     pub use hyxe_user::misc::AccountError;
     pub use hyxe_user::external_services::fcm::fcm_packet_processor;
     pub use hyxe_net::constants::PRIMARY_PORT;
-    pub use hyxe_net::hdp::misc::panic_future::AssertSendSafeFuture;
     pub use hyxe_user::external_services::ExternalService;
 
     pub use hyxe_net::hdp::hdp_server::Ticket;
@@ -59,6 +58,8 @@ pub mod command_handlers;
 pub mod mail;
 
 pub mod ffi;
+
+pub mod misc;
 
 pub fn shutdown_sequence(exit_status: i32) {
     println!("\n\rSatoriNET::Shutdown Hook initiated ...\n\r");

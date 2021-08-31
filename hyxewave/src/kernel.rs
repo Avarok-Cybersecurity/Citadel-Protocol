@@ -34,7 +34,7 @@ use crate::ticket_event::{TicketQueueHandler, CustomPayload, ResponseType};
 use hyxe_net::functional::IfEqConditional;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use crate::command_handlers::peer::PostRegisterRequest;
-use hyxe_net::hdp::misc::panic_future::AssertSendSafeFuture;
+use crate::misc::AssertSendSafeFuture;
 use hyxe_net::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::command_handlers::connect::ConnectResponseReceived;
 use hyxe_net::hdp::outbound_sender::OutboundUdpSender;
@@ -630,6 +630,7 @@ async fn terminal_ticket_and_loopback_future(ticket_queue_handler: TicketQueueHa
         (ffi_io)(Ok(Some(KernelResponse::KernelInitiated)));
     } else {
         if !daemon_mode {
+            // TODO: On CLAP 3.0 release, App will be Send + Sync, allowing us to remove the assertion below
             unordered.push(Box::pin(AssertSendSafeFuture::new(terminal_future(server_remote, ctx))));
         }
     }
@@ -647,9 +648,7 @@ async fn terminal_ticket_and_loopback_future(ticket_queue_handler: TicketQueueHa
 }
 
 async fn ticket_handler_future(mut ticket_queue_handler: TicketQueueHandler) -> Result<(), ConsoleError> {
-    while let Some(_) = ticket_queue_handler.next().await {
-
-    }
+    while let Some(_) = ticket_queue_handler.next().await {}
 
     Err(ConsoleError::Default("Ticket handler died"))
 }
