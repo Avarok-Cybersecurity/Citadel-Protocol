@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 //use async_std::prelude::*;
 use bytes::{Bytes, BytesMut};
@@ -17,7 +17,7 @@ use hyxe_crypt::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmRatchetConstructor}
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, HyperRatchetConstructor};
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
-use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_crypt::prelude::SecBuffer;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::io::SyncIO;
 use hyxe_nat::hypernode_type::HyperNodeType;
@@ -74,8 +74,6 @@ use hyxe_nat::exports::{Endpoint, NewConnection};
 use crate::hdp::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 
 //use crate::define_struct;
-
-pub static STATUS: AtomicUsize = AtomicUsize::new(0);
 
 // Defines the primary structure which wraps the inner device
 //define_outer_struct_wrapper!(HdpSession, HdpSessionInner);

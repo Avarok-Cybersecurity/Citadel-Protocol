@@ -4,6 +4,7 @@ use std::fmt::{Formatter, Error, Debug};
 use bytes::BytesMut;
 use bytes::BufMut;
 use serde::de::DeserializeOwned;
+use bincode2::BincodeRead;
 
 /// Default Error type for this crate
 pub enum FsError<T: ToString> {
@@ -76,6 +77,14 @@ pub trait SyncIO {
     fn deserialize_from_owned_vector(input: Vec<u8>) -> Result<Self, FsError<String>> where Self: DeserializeOwned {
         use bytes::Buf;
         bincode2::deserialize_from(input.reader()).map_err(|err| FsError::Generic(err.to_string()))
+    }
+
+    /// Deserializes in-place
+    fn deserialize_in_place<'a, R, T>(reader: R, place: &mut T) -> Result<(), FsError<String>>
+        where
+            T: serde::de::Deserialize<'a>,
+            R: BincodeRead<'a> {
+        bincode2::deserialize_in_place(reader, place).map_err(|err| FsError::Generic(err.to_string()))
     }
 
     /// Serializes self into a buffer

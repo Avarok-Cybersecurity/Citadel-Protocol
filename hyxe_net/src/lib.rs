@@ -121,7 +121,7 @@ pub mod macros {
 
     macro_rules! spawn {
     ($future:expr) => {
-        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local($future));
+        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local($future))
     };
     }
 

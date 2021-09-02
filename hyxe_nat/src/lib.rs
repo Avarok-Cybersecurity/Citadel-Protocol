@@ -1,4 +1,5 @@
 //! Tools for punching holes through the firewall. This enables functionality across residential NATs
+#![forbid(unsafe_code)]
 pub mod exports {
     pub use igd::PortMappingProtocol;
     pub use quinn::{CertificateChain, Connecting, Connection, Endpoint, Incoming, NewConnection, PrivateKey, RecvStream, SendStream};

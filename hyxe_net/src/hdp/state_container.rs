@@ -33,7 +33,7 @@ use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateConta
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
 use crate::hdp::file_transfer::{VirtualFileMetadata, FileTransferStatus};
 use tokio::io::{BufWriter, AsyncWriteExt};
-use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
 use crate::functional::IfEqConditional;
 use futures::StreamExt;

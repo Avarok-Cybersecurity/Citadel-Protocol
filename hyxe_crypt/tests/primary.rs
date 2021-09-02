@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use hyxe_crypt::sec_string::SecString;
-    use hyxe_crypt::sec_bytes::SecBuffer;
+    use hyxe_crypt::secure_buffer::sec_string::SecString;
+    use hyxe_crypt::secure_buffer::sec_bytes::SecBuffer;
     use hyxe_crypt::toolset::{Toolset, MAX_HYPER_RATCHETS_IN_MEMORY, UpdateStatus};
     use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, EndpointRatchetConstructor};
     use hyxe_crypt::relay_chain::CryptoRelayChain;

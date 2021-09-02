@@ -1,4 +1,5 @@
 #![allow(non_camel_case_types)]
+#![forbid(unsafe_code)]
 
 use pqcrypto_traits::Error;
 use crate::ez_error::EzError;

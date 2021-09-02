@@ -10,7 +10,7 @@ use futures::task::{Context, Poll};
 use tokio::macros::support::Pin;
 use std::fmt::Debug;
 use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
-use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::ReceivePortType;
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.

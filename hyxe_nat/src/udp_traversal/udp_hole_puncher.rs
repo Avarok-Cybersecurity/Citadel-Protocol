@@ -23,9 +23,9 @@ impl<'a> UdpHolePuncher<'a> {
 
     // TODO: once STUN developers make underlying ClientSettings Send, we can remove the unsafe wrapper below
     pub fn new_timeout(conn: &'a NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer, timeout: Duration) -> Self {
-        Self { driver: Box::pin(AssertSendSafeFuture::new(async move {
+        Self { driver: Box::pin(async move {
             tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
-        })) }
+        }) }
     }
 }
 
@@ -56,25 +56,6 @@ pub trait EndpointHolePunchExt {
 impl EndpointHolePunchExt for NetworkEndpoint {
     fn begin_udp_hole_punch(&self, encrypted_config_container: EncryptedConfigContainer) -> UdpHolePuncher {
         UdpHolePuncher::new(self, encrypted_config_container)
-    }
-}
-
-struct AssertSendSafeFuture<'a, Out: 'a>(Pin<Box<dyn Future<Output=Out> + 'a>>);
-
-unsafe impl<'a, Out: 'a> Send for AssertSendSafeFuture<'a, Out> {}
-
-impl<'a, Out: 'a> AssertSendSafeFuture<'a, Out> {
-    /// Wraps a future, asserting it is safe to use in a multithreaded context at the possible cost of race conditions, locks, etc
-    pub fn new(fx: impl Future<Output=Out> + 'a) -> Self {
-        Self(Box::pin(fx))
-    }
-}
-
-impl<'a, Out: 'a> Future for AssertSendSafeFuture<'a, Out> {
-    type Output = Out;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.0.as_mut().poll(cx)
     }
 }
 

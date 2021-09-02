@@ -8,8 +8,8 @@ use serde::Serialize;
 use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
 use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
 use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransferType;
-use hyxe_crypt::sec_bytes::SecBuffer;
 use crate::external_services::fcm::kem::FcmPostRegister;
+use hyxe_crypt::prelude::SecBuffer;
 
 pub fn craft_group_header<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u64, message: SecBuffer, alice_to_bob_transfer: Option<AliceToBobTransferType<'_>>) -> Option<RawExternalPacket> {
     let header = FcmHeader {
