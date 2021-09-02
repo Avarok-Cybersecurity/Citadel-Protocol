@@ -1450,12 +1450,12 @@ dependencies = [
  "rust-argon2",
  "serde 1.0.129",
  "serde-big-array",
+ "serde_bytes",
  "serde_derive",
  "sha3",
  "sysinfo",
  "tokio",
  "zerocopy",
- "zeroize",
 ]
 
 [[package]]

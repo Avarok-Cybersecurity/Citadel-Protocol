@@ -1,8 +1,8 @@
 use bstr::ByteSlice;
 use serde::{Serialize, Deserialize};
-use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_crypt::argon::argon_container::{AsyncArgon, ArgonSettings, ArgonStatus};
 use crate::misc::AccountError;
+use hyxe_crypt::prelude::SecBuffer;
 
 
 /// When creating credentials, this is required

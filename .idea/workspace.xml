@@ -34,17 +34,40 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change afterPath="$PROJECT_DIR$/hyxewave/src/misc.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/hyxe_crypt/src/secure_buffer/mod.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/hyxe_crypt/src/secure_buffer/partitioned_sec_buffer.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/hyxe_crypt/src/secure_buffer/sec_bytes.rs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/hyxe_crypt/src/secure_buffer/sec_packet.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ez_pqcrypto/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/ez_pqcrypto/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/argon/autotuner.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/argon/autotuner.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/sec_bytes.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/sec_string.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/secure_buffer/sec_string.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_fs/src/io.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/src/io.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_fs/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/local_firewall_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/local_firewall_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/udp_hole_puncher.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/udp_hole_puncher.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/hole_punch.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/hole_punch.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/panic_future.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/panic_future.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/udp_internal_interface.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/udp_internal_interface.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/kernel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/kernel.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxewave/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxewave/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_crafter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/proposed_credentials.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/proposed_credentials.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -165,11 +188,11 @@
       <recent name="C:\hyxe_wave\hyxe_net\backup" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/hyxe_crypt/src/secure_buffer" />
       <recent name="$PROJECT_DIR$/net_sync_tokio/src/sync/operations" />
       <recent name="$PROJECT_DIR$/net_sync/src" />
       <recent name="$PROJECT_DIR$" />
       <recent name="$PROJECT_DIR$/hyxe_crypt/src/argon" />
-      <recent name="$PROJECT_DIR$/hyxe_user/src/fcm" />
     </key>
   </component>
   <component name="RunAnythingCache">
@@ -194,7 +217,7 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test tests::config">
+  <component name="RunManager" selected="Cargo.Test tests::main">
     <configuration default="true" type="ArquillianTestNG" factoryName="" nameIsGenerated="true">
       <option name="arquillianRunConfiguration">
         <value>
@@ -245,8 +268,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test primary::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_crypt --test primary tests" />
+    <configuration name="Test partitioned_sec_buffer::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_crypt --lib partitioned_sec_buffer::tests" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="NIGHTLY" />
       <option name="requiredFeatures" value="true" />
@@ -261,8 +284,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test sync::channel::bi_channel::tests::bi_channel" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package netbeam --lib sync::channel::bi_channel::tests::bi_channel -- --exact" />
+    <configuration name="Test partitioned_sec_buffer::tests::partitioned_sec_buffer_3_proper" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_crypt --lib partitioned_sec_buffer::tests::partitioned_sec_buffer_3_proper -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="NIGHTLY" />
       <option name="requiredFeatures" value="true" />
@@ -277,8 +300,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::config" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxewave --test primary tests::config -- --exact" />
+    <configuration name="Test secure_buffer::sec_packet::tests::secure_packet" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_crypt --lib secure_buffer::sec_packet::tests::secure_packet -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="NIGHTLY" />
       <option name="requiredFeatures" value="true" />
@@ -378,19 +401,19 @@
       <item itemvalue="Cargo.Run hyxewave 127.0.0.2" />
       <item itemvalue="Cargo.Test tests::delete_all_users" />
       <item itemvalue="Cargo.Test tests::main (RELEASE)" />
-      <item itemvalue="Cargo.Test primary::tests" />
-      <item itemvalue="Cargo.Test tests::config" />
-      <item itemvalue="Cargo.Test sync::channel::bi_channel::tests::bi_channel" />
-      <item itemvalue="Cargo.Test tests::main" />
+      <item itemvalue="Cargo.Test partitioned_sec_buffer::tests::partitioned_sec_buffer_3_proper" />
+      <item itemvalue="Cargo.Test partitioned_sec_buffer::tests" />
+      <item itemvalue="Cargo.Test secure_buffer::sec_packet::tests::secure_packet" />
       <item itemvalue="Cargo.Test tests::tcp_or_tls" />
+      <item itemvalue="Cargo.Test tests::main" />
     </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Cargo.Test tests::config" />
         <item itemvalue="Cargo.Test tests::main" />
         <item itemvalue="Cargo.Test tests::tcp_or_tls" />
-        <item itemvalue="Cargo.Test primary::tests" />
-        <item itemvalue="Cargo.Test sync::channel::bi_channel::tests::bi_channel" />
+        <item itemvalue="Cargo.Test secure_buffer::sec_packet::tests::secure_packet" />
+        <item itemvalue="Cargo.Test partitioned_sec_buffer::tests" />
+        <item itemvalue="Cargo.Test partitioned_sec_buffer::tests::partitioned_sec_buffer_3_proper" />
       </list>
     </recent_temporary>
   </component>
@@ -646,7 +669,8 @@
       <workItem from="1628687043190" duration="37210000" />
       <workItem from="1628768799864" duration="44011000" />
       <workItem from="1628888799322" duration="179748000" />
-      <workItem from="1629736269253" duration="72005000" />
+      <workItem from="1629736269253" duration="96223000" />
+      <workItem from="1630587464425" duration="9390000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

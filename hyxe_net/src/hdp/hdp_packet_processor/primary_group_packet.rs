@@ -60,14 +60,14 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
         let security_level = header.security_level.into();
         log::info!("[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
         match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
-            Some((header, payload)) => {
+            Some((header, mut payload)) => {
                 state_container.meta_expiry_state.on_event_confirmation();
 
                 match cmd_aux {
                     packet_flags::cmd::aux::group::GROUP_HEADER => {
                         log::info!("RECV GROUP HEADER");
                         // keep in mind: The group header is a packet with a standard header containing the ticket in the context_info, but with a payload len in the 8-byte "payload"
-                        if let Some(group_header) = validation::group::validate_header(&payload[..]) {
+                        if let Some(group_header) = validation::group::validate_header(&mut payload) {
                             match group_header {
                                 GroupHeader::Standard(group_receiver_config, virtual_target) => {
                                     // First, check to make sure the virtual target can accept

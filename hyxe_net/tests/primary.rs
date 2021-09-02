@@ -5,7 +5,6 @@ pub mod tests {
     use std::pin::Pin;
     use std::str::FromStr;
     use std::sync::Arc;
-    use std::sync::atomic::Ordering;
     use std::time::Instant;
 
     use futures::{Future, SinkExt, StreamExt};
@@ -17,7 +16,7 @@ pub mod tests {
     use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::fcm::keys::FcmKeys;
-    use hyxe_crypt::sec_bytes::SecBuffer;
+    use hyxe_crypt::prelude::SecBuffer;
     use hyxe_nat::hypernode_type::HyperNodeType;
     use hyxe_net::error::NetworkError;
     use hyxe_net::functional::{IfEqConditional, TriMap};
@@ -111,7 +110,13 @@ pub mod tests {
         if USE_FILESYSYEM {
             BackendType::Filesystem
         } else {
-            BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+            #[cfg(feature = "enterprise")] {
+                BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+            }
+
+            #[cfg(not(feature = "enterprise"))] {
+                BackendType::Filesystem
+            }
         }
     }
 
@@ -197,7 +202,7 @@ pub mod tests {
             RAND_MESSAGE_LEN.set(DEFAULT_RAND_MESSAGE_LEN).unwrap();
         }
 
-        /*
+
         if matches.is_present("tls") {
             *PROTO.lock() = Some(UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
         } else if matches.is_present("quic") {
@@ -206,15 +211,16 @@ pub mod tests {
             *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
         } else {
             *PROTO.lock() = Some(DEFAULT_UNDERLYING_PROTOCOL);
-        }*/
+        }
 
-        *PROTO.lock() = Some(UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
+        //*PROTO.lock() = Some(UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
         //*PROTO.lock() = Some(UnderlyingProtocol::Tcp);
     }
 
     fn count() -> usize {
         *COUNT.get().unwrap()
     }
+
     fn secrecy_mode() -> SecrecyMode { *SECRECY_MODE.get().unwrap() }
     fn session_security_level() -> SecurityLevel { *SESSION_SECURITY_LEVEL.get().unwrap() }
     fn p2p_security_level() -> SecurityLevel { *P2P_SECURITY_LEVEL.get().unwrap() }
@@ -365,7 +371,10 @@ pub mod tests {
             let elapsed = init.elapsed();
             let p2p_elapsed = P2P_SENDING_END_TIME.lock().as_ref().unwrap().duration_since(*P2P_SENDING_START_TIME.lock().as_ref().unwrap());
             let messages_per_sec = total_p2p_messages as f32 / p2p_elapsed.as_secs_f32();
-            println!("Execution time: {}ms (p2p elapsed: {}ms. Approx min p2p rate: {} messages/sec)", elapsed.as_millis(), p2p_elapsed.as_millis() , messages_per_sec);
+            let total_p2p_bytes = 2 * count() * rand_message_len();
+            let bytes_per_second = (total_p2p_bytes as f64) / p2p_elapsed.as_secs_f64();
+            let mbps = bytes_per_second/(1_000_000f64);
+            println!("Execution time: {}ms (p2p elapsed: {}ms. Approx min p2p rate: {} messages/sec = {} MB/s)", elapsed.as_millis(), p2p_elapsed.as_millis() , messages_per_sec, mbps);
 
             Ok(()) as Result<(), Box<dyn Error>>
         })?;
@@ -960,8 +969,6 @@ pub mod tests {
                             //let client0_cid = lock.cnac_client0.as_ref().unwrap().get_cid();
                             let queued_requests = queued_requests.clone();
                             std::mem::drop(lock);
-                            // The server begins firing packets at the client once 1 packet is received. The client begins firing c2s packets once it finished the p2p peer channel subroutine
-                            hyxe_net::hdp::hdp_session::STATUS.store(999, Ordering::Relaxed);
                             tokio::task::spawn(start_client_server_stress_test(queued_requests, sink.clone(),  node_type));
                             continue;
                             // The signal supposedly gets sent to the primary_outbound_stream, but, they aren't all received there by the sink ... TCP, this does not occur, but with TLS, the error occurs

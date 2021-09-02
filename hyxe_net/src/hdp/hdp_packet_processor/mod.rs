@@ -19,7 +19,7 @@ pub mod includes {
     pub use ez_pqcrypto::PostQuantumContainer;
     pub use hyxe_crypt::drill::Drill;
     pub use hyxe_crypt::drill::SecurityLevel;
-    pub use hyxe_crypt::sec_bytes::SecBuffer;
+    pub use hyxe_crypt::prelude::SecBuffer;
     pub use hyxe_user::client_account::ClientNetworkAccount;
     pub use hyxe_user::hypernode_account::HyperNodeAccountInformation;
     pub use hyxe_user::misc::AccountError;
