@@ -18,7 +18,6 @@ use tokio::task::LocalSet;
 
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::fcm::keys::FcmKeys;
-use hyxe_crypt::sec_bytes::SecBuffer;
 use hyxe_fs::io::SyncIO;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::local_firewall_handler::{FirewallProtocol, open_local_firewall_port, remove_firewall_rule};
@@ -52,6 +51,7 @@ use either::Either;
 use crate::hdp::peer::p2p_conn_handler::generic_error;
 use hyxe_nat::exports::Endpoint;
 use hyxe_nat::exports::tokio_rustls::webpki::DNSNameRef;
+use hyxe_crypt::prelude::SecBuffer;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -514,7 +514,7 @@ impl HdpServer {
         while let Some((outbound_request, ticket_id)) = outbound_send_request_rx.next().await {
             match outbound_request {
                 HdpServerRequest::SendMessage(packet, implicated_cid, virtual_target, security_level) => {
-                    if let Err(err) = session_manager.process_outbound_packet(ticket_id, packet, implicated_cid, virtual_target, security_level) {
+                    if let Err(err) = session_manager.process_outbound_message(ticket_id, packet, implicated_cid, virtual_target, security_level) {
                         send_error(ticket_id, err)?;
                     }
                 }

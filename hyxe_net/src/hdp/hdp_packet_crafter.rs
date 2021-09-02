@@ -10,7 +10,7 @@ use crate::hdp::hdp_server::Ticket;
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use std::ops::RangeInclusive;
 use crate::hdp::state_container::{VirtualTargetType, GroupSender};
-use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_crypt::prelude::SecBuffer;
 use crate::error::NetworkError;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
 use hyxe_fs::hyxe_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
@@ -277,7 +277,6 @@ pub(crate) mod group {
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
 
     pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType) -> BytesMut {
-        // if FCM, we need a 0 ("ENDPOINT_ENCRYPTION_OFF") target cid since we don't want the server to proxy it
         let target_cid = virtual_target.get_target_cid();
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
@@ -301,24 +300,6 @@ pub(crate) mod group {
             let header = GroupHeader::FastMessage(message, virtual_target, processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice()));
             header.serialize_into_buf(&mut packet).unwrap();
         } else {
-            // first byte in the payload goes to the bool "fast_msg"
-            /*if let Some(mut fast_msg_payload) = processor.get_fast_message_payload() {
-                // set the algorithm to 1
-                //header.algorithm = DUAL_ENCRYPTION_ON;
-                header.inscribe_into(&mut packet);
-
-                //let fast_msg_payload = &fast_msg_payload[HDP_HEADER_BYTE_LEN + 1 + 1 ..];
-                let fast_msg_payload = fast_msg_payload.split_off(HDP_HEADER_BYTE_LEN + 1 + 1);
-                //let inner_encrypted = processor.hyper_ratchet_container.base.encrypt_custom_scrambler(header.wave_id.get(), header.group.get(), fast_msg_payload).unwrap();
-                let header = GroupHeader::FastMessage(fast_msg_payload, virtual_target, processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice()));
-
-                header.serialize_into_buf(&mut packet).unwrap();
-            } else {
-                header.inscribe_into(&mut packet);
-                let header = GroupHeader::Standard(processor.group_config.clone(), virtual_target);
-                header.serialize_into_buf(&mut packet).unwrap();
-            }*/
-
             let header = GroupHeader::Standard(processor.group_config.clone(), virtual_target);
             header.serialize_into_buf(&mut packet).unwrap();
         }

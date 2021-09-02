@@ -1,4 +1,4 @@
-//! Hyxe Cryptography is a crypto crate designed to asynchronously obscure data, re-assemble, etc
+//! Hyxe Cryptography is a crypto crate designed for use in the Lusna Protocol
 #![deny(
 trivial_numeric_casts,
 unused_extern_crates,
@@ -14,14 +14,14 @@ pub mod prelude {
     pub use zerocopy::{ByteSlice, ByteSliceMut};
 
     pub use ez_pqcrypto::{algorithm_dictionary, bytes_in_place::EzBuffer, PostQuantumContainer};
+    pub use ez_pqcrypto::constructor_opts::ConstructorOpts;
 
     pub use crate::drill::{Drill, SecurityLevel};
-    pub use crate::packet_vector::PacketVector;
     pub use crate::misc::CryptError;
-    pub use crate::sec_bytes::SecBuffer;
-    pub use crate::sec_string::SecString;
+    pub use crate::packet_vector::PacketVector;
+    pub use crate::secure_buffer::sec_bytes::SecBuffer;
+    pub use crate::secure_buffer::sec_string::SecString;
     pub use crate::toolset::Toolset;
-    pub use ez_pqcrypto::constructor_opts::ConstructorOpts;
 }
 
 /// This serves as a lock-free method of retrieving specific
@@ -44,10 +44,6 @@ pub mod aes_gcm;
 
 /// Error type
 pub mod misc;
-/// A secure mutable string type
-pub mod sec_string;
-///
-pub mod sec_bytes;
 /// Cryptographic container for handling routes
 pub mod relay_chain;
 /// An abstraction binding the drill and the PQC
@@ -58,3 +54,5 @@ pub mod hyper_ratchet;
 pub mod fcm;
 /// For argon-related functionality
 pub mod argon;
+/// For secure byte handling
+pub mod secure_buffer;

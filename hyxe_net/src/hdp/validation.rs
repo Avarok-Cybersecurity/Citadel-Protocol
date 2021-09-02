@@ -74,7 +74,7 @@ pub(crate) mod group {
         FastMessage(SecBuffer, VirtualTargetType, #[serde(borrow)] Option<AliceToBobTransfer<'a>>)
     }
 
-    pub(crate) fn validate_header(payload: &[u8]) -> Option<GroupHeader> {
+    pub(crate) fn validate_header(payload: &mut BytesMut) -> Option<GroupHeader> {
         let mut group_header = GroupHeader::deserialize_from_vector(payload).ok()?;
         match &mut group_header {
             GroupHeader::Standard(group_receiver_config, _) => {
@@ -390,7 +390,7 @@ pub(crate) mod aead {
     }
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
-    pub(crate) fn validate_custom<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(hyper_ratchet: &HyperRatchet, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes)> {
+    pub(crate) fn validate_custom<'a, 'b: 'a, H: AsRef<[u8]> + 'b>(hyper_ratchet: &HyperRatchet, header: &'b H, mut payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, BytesMut)> {
         let header_bytes = header.as_ref();
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
         if let Err(err) = hyper_ratchet.validate_message_packet_in_place_split(Some(header.security_level.into()), header_bytes, &mut payload) {
@@ -398,6 +398,6 @@ pub(crate) mod aead {
             return None;
         }
 
-        Some((header, payload.freeze()))
+        Some((header, payload))
     }
 }

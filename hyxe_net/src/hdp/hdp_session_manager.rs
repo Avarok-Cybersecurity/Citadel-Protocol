@@ -10,7 +10,7 @@ use bytes::BytesMut;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::SecurityLevel;
-use hyxe_crypt::sec_bytes::SecBuffer;
+use hyxe_crypt::prelude::SecBuffer;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
@@ -346,7 +346,7 @@ impl HdpSessionManager {
     }
 
     /// When the [HdpServer] receives an outbound request, the request flows here. It returns where the packet must be sent to
-    pub fn process_outbound_packet(&self, ticket: Ticket, packet: SecBuffer, implicated_cid: u64, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
+    pub fn process_outbound_message(&self, ticket: Ticket, packet: SecBuffer, implicated_cid: u64, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
             existing_session.1.process_outbound_message(ticket, packet, virtual_target, security_level)

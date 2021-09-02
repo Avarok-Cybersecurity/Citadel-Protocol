@@ -16,7 +16,7 @@ pub async fn calculate_optimal_params(millis_minimum: u16, hash_length: Option<u
     let lanes: u32 = num_cpus::get() as _;
 
     let mut iters = 0;
-    let fake_password = SecBuffer::from(&[0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as &[u8]);
+    let fake_password = SecBuffer::from(vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
 
     let mut mem_cost_tuned = false;
     // start with 1

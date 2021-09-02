@@ -239,7 +239,7 @@ pub fn check_permissions() {
                 .unwrap()
                 .stdout;
 
-            let buf = unsafe { String::from_utf8_unchecked(output) };
+            let buf = String::from_utf8(output).unwrap_or_else(|_|String::from("NULL"));
             println!("Output: {}", &buf);
 
             if buf.contains("password for") {
