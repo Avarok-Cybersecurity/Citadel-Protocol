@@ -280,7 +280,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// This should be called on the client before passing a connect request to the protocol
-    pub async fn hash_password_as_client(&self, input: SecBuffer) -> Result<ProposedCredentials, AccountError> {
+    pub async fn generate_connect_credentials(&self, input: SecBuffer) -> Result<ProposedCredentials, AccountError> {
         let (settings, full_name, username) = {
           let read = self.read();
             (read.argon_container.clone(), read.full_name.clone(), read.username.clone())
@@ -303,6 +303,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                 Err(AccountError::Generic("Local is not a client type".to_string()))
             }
         }
+    }
+
+    /// Returns the FCM keys for the c2s connection
+    pub fn get_fcm_keys(&self) -> Option<FcmKeys> {
+        self.read().crypt_container.fcm_keys.clone()
     }
 
     /// If no version is supplied, the latest drill will be retrieved
@@ -491,12 +496,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         // spawn save task on threadpool
         self.save().await?;
         other_orig.save().await
-    }
-
-    /// Gets the FCM send addr, if available
-    #[allow(dead_code)]
-    pub(crate) fn get_fcm_keys(&self) -> Option<FcmKeys> {
-        self.read().crypt_container.fcm_keys.clone()
     }
 
     /// Stores the FCM keys for a certain peer

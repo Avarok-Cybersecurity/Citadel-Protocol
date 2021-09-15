@@ -10,7 +10,6 @@ pub mod tests {
     use futures::{Future, SinkExt, StreamExt};
     use once_cell::sync::OnceCell;
     use parking_lot::{const_mutex, Mutex, RwLock};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::runtime::{Builder, Handle};
 
     use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
@@ -18,18 +17,9 @@ pub mod tests {
     use hyxe_crypt::fcm::keys::FcmKeys;
     use hyxe_crypt::prelude::SecBuffer;
     use hyxe_nat::hypernode_type::HyperNodeType;
-    use hyxe_net::error::NetworkError;
-    use hyxe_net::functional::{IfEqConditional, TriMap};
-    use hyxe_net::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
-    use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-    use hyxe_net::hdp::hdp_server::{ConnectMode, HdpServer, HdpServerRemote, HdpServerRequest, SecrecyMode, Ticket};
-    use hyxe_net::hdp::misc::panic_future::ExplicitPanicFuture;
-    use hyxe_net::hdp::misc::session_security_settings::{SessionSecuritySettings, SessionSecuritySettingsBuilder};
-    use hyxe_net::hdp::misc::underlying_proto::UnderlyingProtocol;
-    use hyxe_net::hdp::peer::channel::{PeerChannel, PeerChannelSendHalf};
-    use hyxe_net::hdp::peer::message_group::MessageGroupKey;
-    use hyxe_net::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
-    use hyxe_net::kernel::kernel_executor::KernelExecutor;
+    use std::time::Duration;
+    use std::net::SocketAddr;
+    use hyxe_net::prelude::*;
     use hyxe_user::account_manager::AccountManager;
     use hyxe_user::backend::BackendType;
     use hyxe_user::external_services::fcm::kem::FcmPostRegister;
@@ -37,6 +27,7 @@ pub mod tests {
 
     use crate::tests::kernel::{ActionType, MessageTransfer, TestContainer, TestKernel};
     use crate::utils::{assert, assert_eq, AssertSendSafeFuture};
+    use tokio::io::{AsyncWriteExt, AsyncReadExt};
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -326,11 +317,11 @@ pub mod tests {
 
         rt.block_on(async move {
             log::info!("Setting up executors ...");
-            let server_executor = create_executor(HyperNodeType::GloballyReachable, handle.clone(), server_bind_addr, Some(test_container.clone()), NodeType::Server, Vec::default(), backend_server(), underlying_proto()).await;
+            let server_executor = create_executor(HyperNodeType::Server(server_bind_addr), handle.clone(), server_bind_addr, Some(test_container.clone()), NodeType::Server, Vec::default(), backend_server(), underlying_proto()).await;
 
             log::info!("Done setting up server executor");
 
-            let client0_executor = create_executor(HyperNodeType::BehindResidentialNAT, handle.clone(), client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
+            let client0_executor = create_executor(HyperNodeType::Peer, handle.clone(), client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_0, keys0, default_security_settings)),
                      function(pinbox(client0_action1(test_container0, CLIENT0_PASSWORD, default_security_settings))),
                      function(pinbox(client0_action2(test_container1, ENABLE_FCM))),
@@ -338,13 +329,13 @@ pub mod tests {
                 ]
             }, backend_client(), underlying_proto()).await;
 
-            let client1_executor = create_executor(HyperNodeType::BehindResidentialNAT, handle.clone(), client1_bind_addr, Some(test_container.clone()), NodeType::Client1, {
+            let client1_executor = create_executor(HyperNodeType::Peer, handle.clone(), client1_bind_addr, Some(test_container.clone()), NodeType::Client1, {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_1, keys1, default_security_settings)),
                      function(pinbox(client1_action1(test_container3, CLIENT1_PASSWORD, default_security_settings)))
                 ]
             }, backend_client(), underlying_proto()).await;
 
-            let client2_executor = create_executor(HyperNodeType::BehindResidentialNAT, handle.clone(), client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
+            let client2_executor = create_executor(HyperNodeType::Peer, handle.clone(), client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_2, keys2, default_security_settings)),
                      function(pinbox(client2_action1(test_container4, CLIENT2_PASSWORD, default_security_settings))),
                      function(pinbox(client2_action2(test_container5, ENABLE_FCM))),
@@ -389,7 +380,7 @@ pub mod tests {
         let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port())), backend_type, None, None).await.unwrap();
         account_manager.purge().await.unwrap();
         let kernel = TestKernel::new(node_type, commands, test_container);
-        KernelExecutor::new(rt, hypernode_type, account_manager, kernel, bind_addr, underlying_proto).await.unwrap()
+        KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto).await.unwrap()
     }
 
     pub mod kernel {
@@ -409,17 +400,12 @@ pub mod tests {
 
         use hyxe_crypt::prelude::SecBuffer;
         use hyxe_fs::io::SyncIO;
-        use hyxe_net::error::NetworkError;
-        use hyxe_net::hdp::hdp_packet_processor::includes::Duration;
-        use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
-        use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerRequest, HdpServerResult, Ticket};
-        use hyxe_net::hdp::peer::channel::PeerChannel;
-        use hyxe_net::hdp::peer::peer_layer::{PeerResponse, PeerSignal};
-        use hyxe_net::kernel::kernel::NetKernel;
+        use std::time::Duration;
         use hyxe_user::client_account::ClientNetworkAccount;
 
         use crate::tests::{client2_action4_fire_group, count, GROUP_TICKET_TEST, handle_c2s_peer_channel, handle_peer_channel, NodeType, rand_message_len};
         use crate::utils::{assert, assert_eq};
+        use hyxe_net::prelude::*;
 
         #[derive(Serialize, Deserialize)]
         pub struct MessageTransfer {
@@ -428,12 +414,12 @@ pub mod tests {
         }
 
         impl MessageTransfer {
-            pub fn create(idx: u64) -> SecBuffer {
+            pub fn create(idx: u64) -> SecureProtocolPacket {
                 let mut rng = ThreadRng::default();
                 let mut rand = vec![0u8; rand_message_len()];
                 rng.fill(rand.as_mut_slice());
 
-                Self { idx, rand }.serialize_to_vector().unwrap().into()
+                SecureProtocolPacket::from(Self { idx, rand }.serialize_to_vector().unwrap())
             }
 
             pub fn receive(input: SecBuffer) -> Self {
@@ -594,8 +580,14 @@ pub mod tests {
 
         #[async_trait]
         impl NetKernel for TestKernel {
-            async fn on_start(&mut self, mut server_remote: HdpServerRemote) -> Result<(), NetworkError> {
+            fn load_remote(&mut self, server_remote: HdpServerRemote) -> Result<(), NetworkError> {
+                self.remote = Some(server_remote);
+                Ok(())
+            }
+
+            async fn on_start(&self) -> Result<(), NetworkError> {
                 log::info!("Running node {:?} onStart", self.node_type);
+                let mut server_remote = self.remote.clone().unwrap();
                 if self.node_type != NodeType::Server {
                     let item = {
                         self.commands.lock().remove(0)
@@ -619,7 +611,6 @@ pub mod tests {
                     }
                 }
 
-                self.remote = Some(server_remote);
                 Ok(())
             }
 
@@ -900,11 +891,7 @@ pub mod tests {
                 Ok(())
             }
 
-            fn can_run(&self) -> bool {
-                true
-            }
-
-            async fn on_stop(&self) -> Result<(), NetworkError> {
+            async fn on_stop(self) -> Result<(), NetworkError> {
                 if self.queued_requests.lock().len() != 0 || self.commands.lock().len() != 0 {
                     log::error!("ITEMS REMAIN (node type: {:?})", self.node_type);
                     Err(NetworkError::Generic(format!("Test error: items still in queue, or commands still pending for {:?}", self.node_type)))
@@ -912,6 +899,10 @@ pub mod tests {
                     log::info!("NO ITEMS REMAIN (node type: {:?})", self.node_type);
                     Ok(())
                 }
+            }
+
+            fn can_run(&self) -> bool {
+                true
             }
         }
     }
@@ -1121,7 +1112,7 @@ pub mod tests {
         std::mem::drop(read_c);
 
         log::info!("About to hash ...");
-        let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
+        let proposed_credentials = cnac.generate_connect_credentials(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
         Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard {force_login: false},  None, udp_mode(), None, security_settings)))
@@ -1134,7 +1125,7 @@ pub mod tests {
         std::mem::drop(read_c);
 
         log::info!("About to hash ...");
-        let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
+        let proposed_credentials = cnac.generate_connect_credentials(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
         Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard {force_login: false},  None, udp_mode(), None, security_settings)))
@@ -1147,7 +1138,7 @@ pub mod tests {
         std::mem::drop(read_c);
 
         log::info!("About to hash ...");
-        let proposed_credentials = cnac.hash_password_as_client(SecBuffer::from(password)).await.unwrap();
+        let proposed_credentials = cnac.generate_connect_credentials(SecBuffer::from(password)).await.unwrap();
         log::info!("Hashing done ...");
 
         Some(ActionType::Request(HdpServerRequest::ConnectToHypernode(cid, proposed_credentials, ConnectMode::Standard { force_login: false },  None, udp_mode(), None, security_settings)))
@@ -1335,7 +1326,6 @@ pub mod utils {
         }
     }
 
-    #[allow(dead_code)]
     pub fn deadlock_detector() {
         log::info!("Deadlock function called ...");
         use std::thread;

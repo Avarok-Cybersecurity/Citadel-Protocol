@@ -1,6 +1,5 @@
 use tokio::time::Instant;
 
-use crate::constants::DO_CONNECT_EXPIRE_TIME_MS;
 use crate::hdp::hdp_packet::packet_flags;
 use hyxe_user::proposed_credentials::ProposedCredentials;
 use crate::hdp::hdp_server::ConnectMode;
@@ -32,15 +31,6 @@ impl ConnectState {
     /// At the end of every stage, this should be called
     pub fn on_connect_packet_received(&mut self) {
         self.last_packet_time = Some(Instant::now());
-    }
-
-    /// This should be periodically called by the session event loop
-    pub fn has_expired(&self) -> bool {
-        if let Some(prev_interaction) = self.last_packet_time.as_ref() {
-            prev_interaction.elapsed() > DO_CONNECT_EXPIRE_TIME_MS
-        } else {
-            false
-        }
     }
 }
 

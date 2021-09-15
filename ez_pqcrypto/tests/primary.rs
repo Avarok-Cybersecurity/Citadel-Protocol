@@ -25,7 +25,7 @@ mod tests {
 
     fn gen(kem_algorithm: KemAlgorithm, encryption_algorithm: EncryptionAlgorithm) -> (PostQuantumContainer, PostQuantumContainer) {
         println!("Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
-        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)));
+        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm))).unwrap();
         let bob_container = PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)), alice_container.get_public_key()).unwrap();
         alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
         (alice_container, bob_container)
@@ -54,7 +54,7 @@ mod tests {
         let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
         println!("Test: {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
         // Alice wants to share data with Bob. She first creates a PostQuantumContainer
-        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)));
+        let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm))).unwrap();
         // Then, alice sends her public key to Bob. She must also send the byte value of algorithm_dictionary::BABYBEAR to him
         let alice_public_key = alice_container.get_public_key();
         //
@@ -276,48 +276,8 @@ mod tests {
         debug_assert_eq!(opened_message.as_slice(), message);
     }*/
 
-    /*
     #[test]
-    fn sike() {
-        let params = rust_sike::sike_p751_params(None, None).unwrap();
-        let kem = rust_sike::KEM::setup(params.clone());
-
-        // Alice runs keygen, publishes pk3. Values s and sk3 are secret
-        let (s, sk3, pk3) = kem.keygen().unwrap();
-
-        // Bob uses pk3 to derive a key k and encapsulation c
-        let (c, k) = kem.encaps(&pk3).unwrap();
-
-        // Bob sends c to Alice
-        // Alice uses s, c, sk3 and pk3 to recover k
-        let k_recovered = kem.decaps(&s, &sk3, &pk3, c).unwrap();
-
-        assert_eq!(k, k_recovered);
-    }
-
-    #[test]
-    fn sike_pke() {
-        let params = rust_sike::sike_p434_params(None, None).unwrap();
-        let pke = rust_sike::PKE::setup(params.clone());
-
-        // Alice generates a keypair, she publishes her pk
-        let (sk, pk) = pke.gen().unwrap();
-
-        // Bob writes a message
-        let msg = rust_sike::pke::Message::from_bytes(vec![0; params.secparam / 8]);
-        // Bob encrypts the message using Alice's pk
-        let ciphertext = pke.enc(&pk, msg.clone()).unwrap();
-
-        // Bob sends the ciphertext to Alice
-        // Alice decrypts the message using her sk
-        let msg_recovered = pke.dec(&sk, ciphertext).unwrap();
-
-        // Alice should correctly recover Bob's plaintext message
-        assert_eq!(msg_recovered.bytes.as_slice(), msg.bytes.as_slice());
-    }*/
-
-    #[test]
-    fn test_10() {
+    fn test_all_kems() {
         setup_log();
         for algorithm in 0..ALGORITHM_COUNT {
             println!("About to test {}", algorithm);

@@ -13,15 +13,18 @@ pub struct DualRwLock<T: ContextRequirements> {
 
 impl<T: ContextRequirements> DualRwLock<T> {
     #[cfg(feature = "multi-threaded")]
+    #[allow(dead_code)]
     pub fn as_weak(&self) -> WeakBorrowType<T> {
         std::sync::Arc::downgrade(&self.inner)
     }
 
     #[cfg(not(feature = "multi-threaded"))]
+    #[allow(dead_code)]
     pub fn as_weak(&self) -> WeakBorrowType<T> {
         std::rc::Rc::downgrade(&self.inner)
     }
 
+    #[allow(dead_code)]
     pub fn upgrade(this: &WeakBorrowType<T>) -> Option<DualRwLock<T>> {
         this.upgrade().map(|inner| Self { inner })
     }
@@ -35,6 +38,7 @@ impl<T: ContextRequirements> DualRwLock<T> {
         *inner_mut!(self) = t;
     }
 
+    #[allow(dead_code)]
     pub fn take(&self) -> T
         where T: Default {
         std::mem::take(&mut *inner_mut!(self))

@@ -29,21 +29,17 @@ pub trait QuicEndpointConnector {
 
     async fn connect_biconn_with(&self, addr: SocketAddr, tls_domain: &str, cfg: Option<ClientConfig>) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
         where Self: Sized {
-        log::info!("RD0. Connecting to {:?} | Custom Cfg? {}", tls_domain, cfg.is_some());
+        log::info!("Connecting to {:?} | Custom Cfg? {}", tls_domain, cfg.is_some());
         let connecting = if let Some(cfg) = cfg {
             self.endpoint().connect_with(cfg, &addr, tls_domain)?
         } else {
             self.endpoint().connect(&addr, tls_domain)?
         };
 
-        log::info!("RD1");
         let conn = connecting.await?;
-        log::info!("RD2");
         let (mut sink, stream) = conn.connection.open_bi().await?;
-        log::info!("RD3");
         // must send some data before the adjacent node can receive a bidirectional connection
         sink.write(&[]).await?;
-        log::info!("RD4");
 
         Ok((conn, sink, stream))
     }
@@ -62,13 +58,9 @@ pub trait QuicEndpointListener {
     fn listener(&mut self) -> &mut Incoming;
     async fn next_connection(&mut self) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
         where Self: Sized {
-        log::info!("NC0");
         let connecting = self.listener().next().await.ok_or_else(|| anyhow::Error::msg("No QUIC connections available"))?;
-        log::info!("NC1");
         let mut conn = connecting.await?;
-        log::info!("NC2");
         let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
-        log::info!("NC3");
         Ok((conn, sink, stream))
     }
 }

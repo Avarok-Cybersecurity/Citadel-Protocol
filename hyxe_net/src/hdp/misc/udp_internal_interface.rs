@@ -13,6 +13,7 @@ use crate::macros::ContextRequirements;
 use futures::stream::{SplitSink, SplitStream};
 use crate::hdp::peer::p2p_conn_handler::generic_error;
 use crate::functional::PairMap;
+use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 
 pub(crate) trait UdpSink: Sink<Bytes, Error=NetworkError> + Unpin + ContextRequirements {}
 impl<T: Sink<Bytes, Error=NetworkError> + Unpin + ContextRequirements> UdpSink for T {}
@@ -45,6 +46,13 @@ impl UdpSplittableTypes {
         match self {
             Self::QUIC(quic) => quic.local_addr(),
             Self::Raw(raw) => raw.local_addr()
+        }
+    }
+
+    pub fn peer_addr(&self) -> HolePunchedSocketAddr {
+        match self {
+            Self::QUIC(quic) => HolePunchedSocketAddr::new_invariant(quic.sink.sink.remote_address()),
+            Self::Raw(raw) => HolePunchedSocketAddr::new_invariant(raw.sink.peer_addr)
         }
     }
 }
@@ -113,6 +121,7 @@ impl Stream for QuicUdpRecvHalf {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let addr = self.stream.connection.remote_address();
+        // TODO: Upon quinn PR resolution, this will receive a BytesMut instead of a Bytes and we'll no longer need to copy
         Pin::new(&mut self.stream.datagrams).poll_next(cx).map_err(|err| generic_error(err))
             .map_ok(|r| (BytesMut::from(&r[..]), addr))
     }

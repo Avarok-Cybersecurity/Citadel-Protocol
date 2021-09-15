@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub trait Then<U, F: Fn(Self) -> U> where Self: Sized {
     fn then(self, fx: F) -> U;
 }

@@ -107,7 +107,7 @@ pub struct FcmRatchetConstructor {
 }
 
 impl EndpointRatchetConstructor<FcmRatchet> for FcmRatchetConstructor {
-    fn new_alice(mut opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, _security_level: Option<SecurityLevel>) -> Self {
+    fn new_alice(mut opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, _security_level: Option<SecurityLevel>) -> Option<Self> {
         FcmRatchetConstructor::new_alice(cid, new_version, opts.remove(0))
     }
 
@@ -178,18 +178,18 @@ pub struct FcmBobToAliceTransfer {
 
 impl FcmRatchetConstructor {
     /// FCM limits messages to 4Kb, so we need to use firesaber alone
-    pub fn new_alice(cid: u64, version: u32, opts: ConstructorOpts) -> Self {
+    pub fn new_alice(cid: u64, version: u32, opts: ConstructorOpts) -> Option<Self> {
         let params = opts.cryptography.unwrap_or_default();
-        let pqc = PostQuantumContainer::new_alice(opts);
+        let pqc = PostQuantumContainer::new_alice(opts).ok()?;
 
-        Self {
+        Some(Self {
             params,
             pqc,
             drill: None,
             nonce: Drill::generate_public_nonce(params.encryption_algorithm),
             cid,
             version
-        }
+        })
     }
 
     ///

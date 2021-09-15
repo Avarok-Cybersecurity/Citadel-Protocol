@@ -58,6 +58,7 @@ pub(crate) mod group {
     use hyxe_fs::io::SyncIO;
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
+    use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
     use hyxe_crypt::prelude::SecBuffer;
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
@@ -69,9 +70,9 @@ pub(crate) mod group {
     }
 
     #[derive(Serialize, Deserialize)]
-    pub(crate) enum GroupHeader<'a> {
+    pub(crate) enum GroupHeader {
         Standard(GroupReceiverConfig, VirtualTargetType),
-        FastMessage(SecBuffer, VirtualTargetType, #[serde(borrow)] Option<AliceToBobTransfer<'a>>)
+        //FastMessage(SecBuffer, VirtualTargetType, #[serde(borrow)] Option<AliceToBobTransfer<'a>>)
     }
 
     pub(crate) fn validate_header(payload: &mut BytesMut) -> Option<GroupHeader> {
@@ -83,11 +84,16 @@ pub(crate) mod group {
                     return None
                 }
             }
-
-            _ => {}
         }
 
         Some(group_header)
+    }
+
+    pub(crate) fn validate_message<'a>(payload: &'a mut BytesMut) -> Option<(SecBuffer, Option<AliceToBobTransfer<'a>>)> {
+        let message = SecureProtocolPacket::extract_message(payload).ok()?;
+        //let deser = bincode2::deserialize(&payload[..]).ok()?;
+        let deser = hyxe_fs::io::SyncIO::deserialize_from_vector(&payload[..]).ok()?;
+        Some((message.into(), deser))
     }
 
 
@@ -249,7 +255,7 @@ pub(crate) mod pre_connect {
     use hyxe_nat::nat_identification::NatType;
     use crate::hdp::hdp_packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;
 
-    pub fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType, SocketAddr), NetworkError> {
+    pub(crate) fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType, SocketAddr), NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
@@ -291,7 +297,7 @@ pub(crate) mod pre_connect {
 
     /// This returns an error if the packet is maliciously invalid (e.g., due to a false packet)
     /// This returns Ok(true) if the system was already synchronized, or Ok(false) if the system needed to synchronize toolsets
-    pub fn validate_syn_ack(cnac: &ClientNetworkAccount, mut alice_constructor: HyperRatchetConstructor, packet: HdpPacket) -> Option<(HyperRatchet, NatType)> {
+    pub fn validate_syn_ack(cnac: &ClientNetworkAccount, mut alice_constructor: HyperRatchetConstructor, packet: HdpPacket) -> Option<(HyperRatchet, NatType, Option<u16>)> {
         let static_auxiliary_ratchet = cnac.get_static_auxiliary_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
         let (_, payload) = super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload)?;
@@ -305,7 +311,7 @@ pub(crate) mod pre_connect {
         let _ = new_hyper_ratchet.verify_level(lvl.into()).ok()?;
         let toolset = Toolset::from((static_auxiliary_ratchet, new_hyper_ratchet.clone()));
         cnac.replace_toolset(toolset);
-        Some((new_hyper_ratchet, packet.nat_type))
+        Some((new_hyper_ratchet, packet.nat_type, packet.udp_port_opt))
     }
 
     // Returns the adjacent node type, wave ports, and external IP. Serverside, we do not update the CNAC's toolset until this point

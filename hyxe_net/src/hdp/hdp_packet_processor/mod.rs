@@ -1,7 +1,5 @@
 use bytes::BytesMut;
 
-use crate::hdp::hdp_packet_processor::includes::SecBuffer;
-use crate::hdp::hdp_server::Ticket;
 //use crate::hdp::outbound_sender::{SendError, TrySendError};
 //use std::ops::{FromResidual, Try, ControlFlow};
 
@@ -26,7 +24,7 @@ pub mod includes {
     pub use hyxe_user::network_account::NetworkAccount;
 
     pub use crate::constants::KEEP_ALIVE_INTERVAL_MS;
-    pub use crate::hdp::{hdp_packet_crafter, validation};
+    pub(crate) use crate::hdp::{hdp_packet_crafter, validation};
     pub use crate::hdp::hdp_packet::{HdpHeader, HdpPacket};
     pub(crate) use crate::hdp::hdp_packet::packet_flags;
     pub use crate::hdp::hdp_server::HdpServerResult;
@@ -74,20 +72,6 @@ pub enum PrimaryProcessorResult {
     ReplyToSender(BytesMut)
 }
 
-/// This gives a set of possible responses/actions
-#[derive(PartialEq)]
-pub enum GroupProcessorResult {
-    /// Do nothing
-    Void,
-    /// Signals the session to shutdown.
-    ShutdownSession(String),
-    /// Sends a packet back to the sender
-    ReplyToSender(BytesMut),
-    /// Send an error to the kernel level
-    Error(String),
-    /// Send a reconstructed packet to the kernel
-    SendToKernel(Ticket, SecBuffer)
-}
 
 /*
 impl Try for PrimaryProcessorResult {

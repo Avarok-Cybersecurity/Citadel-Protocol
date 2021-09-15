@@ -167,7 +167,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         let set_lock = move |this: &mut Self| {
             this.update_in_progress.store(true, Ordering::SeqCst);
             this.lock_set_by_alice = Some(true);
-            Some(this.get_hyper_ratchet(None)?.next_alice_constructor())
+            Some(this.get_hyper_ratchet(None)?.next_alice_constructor()?)
         };
 
         if force {
@@ -203,7 +203,7 @@ impl<R: Ratchet> Drop for PeerSessionCrypto<R> {
 
 // TODO: Use GAT's to have a type AliceToBobConstructor<'a>. Get rid of these enums
 pub trait EndpointRatchetConstructor<R: Ratchet>: Send + Sync + 'static {
-    fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self where Self: Sized;
+    fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Option<Self> where Self: Sized;
     fn new_bob(cid: u64, new_drill_vers: u32, opts: Vec<ConstructorOpts>, transfer: AliceToBobTransferType<'_>) -> Option<Self> where Self: Sized;
     fn stage0_alice(&self) -> AliceToBobTransferType<'_>;
     fn stage0_bob(&self) -> Option<BobToAliceTransferType>;
