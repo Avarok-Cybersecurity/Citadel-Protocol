@@ -1,60 +1,66 @@
 use super::includes::*;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::error::NetworkError;
+use std::sync::atomic::Ordering;
+use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
-#[inline]
-pub async fn process(session_ref: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
-    let session = session_ref;
+pub fn process(session_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
+    let session = session_ref.clone();
 
-    if session.state.get() != SessionState::Connected {
+    if session.state.load(Ordering::Relaxed) != SessionState::Connected {
         log::error!("disconnect packet received, but session state is not connected. Must be connected to deregister. Dropping");
         return Ok(PrimaryProcessorResult::Void);
     }
 
+    let task = async move {
+        let ref session = session;
 
-    let timestamp = session.time_tracker.get_global_time_ns();
-    let ref cnac = return_if_none!(session.cnac.get(), "Sess CNAC not loaded");
-    let implicated_cid = cnac.get_id();
-    let (header, payload, _, _) = packet.decompose();
-    let (header, _payload, hyper_ratchet) = return_if_none!(validation::aead::validate(cnac, &header, payload), "Unable to validate dereg packet");
-    let ref header = header;
-    let security_level = header.security_level.into();
+        let timestamp = session.time_tracker.get_global_time_ns();
+        let ref cnac = return_if_none!(inner_state!(session.state_container).cnac.clone(), "Sess CNAC not loaded");
+        let implicated_cid = cnac.get_id();
+        let (header, payload, _, _) = packet.decompose();
+        let (header, _payload, hyper_ratchet) = return_if_none!(validation::aead::validate(cnac, &header, payload), "Unable to validate dereg packet");
+        let ref header = header;
+        let security_level = header.security_level.into();
 
-    match header.cmd_aux {
-        packet_flags::cmd::aux::do_deregister::STAGE0 => {
-            log::info!("STAGE 0 DEREGISTER PACKET RECV");
-            deregister_client_from_self(implicated_cid, session_ref, &hyper_ratchet, timestamp, security_level).await
+        match header.cmd_aux {
+            packet_flags::cmd::aux::do_deregister::STAGE0 => {
+                log::info!("STAGE 0 DEREGISTER PACKET RECV");
+                deregister_client_from_self(implicated_cid, session, &hyper_ratchet, timestamp, security_level).await
+            }
+
+            packet_flags::cmd::aux::do_deregister::SUCCESS => {
+                log::info!("STAGE SUCCESS DEREGISTER PACKET RECV");
+                deregister_from_hyperlan_server_as_client(cnac, implicated_cid, session).await
+            }
+
+            packet_flags::cmd::aux::do_deregister::FAILURE => {
+                log::info!("STAGE FAILURE DEREGISTER PACKET RECV");
+                let state_container = inner_state!(session.state_container);
+                let ticket = state_container.deregister_state.current_ticket.clone();
+                // state_container.deregister_state.on_fail();
+                std::mem::drop(state_container);
+                let cid = return_if_none!(session.implicated_cid.get(), "implicated CID not loaded");
+                session.kernel_tx.unbounded_send(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), ticket, true, false))?;
+                log::error!("Unable to locally purge account {}. Please report this to the HyperLAN Server admin", cid);
+                Ok(PrimaryProcessorResult::EndSession("Deregistration failure. Closing connection anyways"))
+            }
+
+            _ => {
+                log::error!("Invalid auxiliary command");
+                Ok(PrimaryProcessorResult::Void)
+            }
         }
+    };
 
-        packet_flags::cmd::aux::do_deregister::SUCCESS => {
-            log::info!("STAGE SUCCESS DEREGISTER PACKET RECV");
-            deregister_from_hyperlan_server_as_client(cnac, implicated_cid, session_ref).await
-        }
-
-        packet_flags::cmd::aux::do_deregister::FAILURE => {
-            log::info!("STAGE FAILURE DEREGISTER PACKET RECV");
-            let state_container = inner!(session.state_container);
-            let ticket = state_container.deregister_state.current_ticket.clone();
-            // state_container.deregister_state.on_fail();
-            std::mem::drop(state_container);
-            let cid = return_if_none!(session.implicated_cid.get(), "implicated CID not loaded");
-            session.kernel_tx.unbounded_send(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), ticket, true, false))?;
-            log::error!("Unable to locally purge account {}. Please report this to the HyperLAN Server admin", cid);
-            Ok(PrimaryProcessorResult::EndSession("Deregistration failure. Closing connection anyways"))
-        }
-
-        _ => {
-            log::error!("Invalid auxiliary command");
-            Ok(PrimaryProcessorResult::Void)
-        }
-    }
+    to_concurrent_processor!(concurrent_processor_tx, task)
 }
 
 async fn deregister_client_from_self(implicated_cid: u64, session_ref: &HdpSession, hyper_ratchet: &HyperRatchet, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let (acc_mgr, ticket) = {
-        let state_container = inner!(session.state_container);
+        let state_container = inner_state!(session.state_container);
         let ticket = state_container.deregister_state.current_ticket;
 
         let acc_manager = session.account_manager.clone();
@@ -81,7 +87,7 @@ async fn deregister_client_from_self(implicated_cid: u64, session_ref: &HdpSessi
     let session = session_ref;
 
     // This ensures no further packets are processed
-    session.state.set(SessionState::NeedsRegister);
+    session.state.store(SessionState::NeedsRegister, Ordering::Relaxed);
     session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), ticket, false, success))?;
     session.needs_close_message.set(false);
 
@@ -91,7 +97,7 @@ async fn deregister_client_from_self(implicated_cid: u64, session_ref: &HdpSessi
 async fn deregister_from_hyperlan_server_as_client(cnac: &ClientNetworkAccount, implicated_cid: u64, session_ref: &HdpSession) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let (fcm_client, needs_close_message, acc_manager, to_kernel, cnac, dereg_ticket) = {
-        let state_container = inner!(session.state_container);
+        let state_container = inner_state!(session.state_container);
         let acc_manager = session.account_manager.clone();
         let to_kernel = session.kernel_tx.clone();
         let needs_close_message = session.needs_close_message.clone();

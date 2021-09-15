@@ -18,6 +18,10 @@ impl HolePunchedSocketAddr {
         Self { initial, natted, unique_id }
     }
 
+    pub fn new_invariant(addr: SocketAddr) -> Self {
+        Self { initial: addr, natted: addr, unique_id: HolePunchID(0) }
+    }
+
     pub fn ip_translated(&self) -> bool {
         self.initial.ip() != self.natted.ip()
     }

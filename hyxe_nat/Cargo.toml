@@ -8,6 +8,9 @@ license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+localhost-testing = []
+
 [dependencies]
 igd = { version = "^0.12.0", features = ["aio"] }
 #tokio = { version = "^0.2.22", features = ["macros", "rt-util", "time", "net"] }

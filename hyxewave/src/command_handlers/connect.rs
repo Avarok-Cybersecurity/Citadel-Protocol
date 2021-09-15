@@ -8,7 +8,7 @@ use hyxe_crypt::prelude::algorithm_dictionary::{KemAlgorithm, EncryptionAlgorith
 use hyxe_net::hdp::misc::session_security_settings::{SessionSecuritySettingsBuilder, SessionSecuritySettings};
 use std::convert::TryFrom;
 use hyxe_user::prelude::ConnectionInfo;
-use hyxe_user::external_services::{PostLoginObject, RtdbConfig};
+use hyxe_user::external_services::{ServicesObject, RtdbConfig};
 use crate::ticket_event::CustomPayload;
 use hyxe_net::hdp::peer::peer_layer::UdpMode;
 
@@ -22,7 +22,7 @@ pub enum ConnectResponse {
 pub struct ConnectResponseReceived {
     pub success: bool,
     pub message: Option<String>,
-    pub login_object: PostLoginObject
+    pub login_object: ServicesObject
 }
 
 #[allow(unused_results)]
@@ -142,7 +142,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
 async fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext, username: &str, cnac: &ClientNetworkAccount, conn_info: ConnectionInfo, security_level: SecurityLevel, cid: u64, full_name: String) -> Result<ProposedCredentials, ConsoleError> {
     if matches.is_present("ffi") {
         let password = matches.value_of("password").unwrap();
-        Ok(cnac.hash_password_as_client(SecBuffer::from(password.as_bytes())).await.map_err(|err| ConsoleError::Generic(err.into_string()))?)
+        Ok(cnac.generate_connect_credentials(SecBuffer::from(password.as_bytes())).await.map_err(|err| ConsoleError::Generic(err.into_string()))?)
     } else {
         colour::yellow!("\n{} ", &full_name);
         colour::white!("attempting to connect to ");
@@ -160,7 +160,7 @@ async fn get_proposed_credentials(matches: &ArgMatches<'_>, ctx: &ConsoleContext
         }));
 
         let password_input = SecBuffer::from(password_input.into_bytes());
-        let proposed_credentials = cnac.hash_password_as_client(password_input).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
+        let proposed_credentials = cnac.generate_connect_credentials(password_input).await.map_err(|err| ConsoleError::Generic(err.into_string()))?;
         colour::white_ln!("Attempting to connect to HyperNode ...");
         Ok(proposed_credentials)
     }

@@ -75,6 +75,18 @@ pub mod macros {
     };
 }
 
+    macro_rules! inner_state {
+    ($item:expr) => {
+        $item.inner.borrow()
+    };
+}
+
+    macro_rules! inner_mut_state {
+    ($item:expr) => {
+        $item.inner.borrow_mut()
+    };
+}
+
 
     macro_rules! define_outer_struct_wrapper {
     ($struct_name:ident, $inner:ty) => {
@@ -131,6 +143,11 @@ pub mod macros {
     };
 }
 
+    macro_rules! to_concurrent_processor {
+        ($executor:expr, $future:expr) => {
+            $executor.send(Box::pin($future)).map(|_| PrimaryProcessorResult::Void).map_err(|_| NetworkError::InternalError("Async concurrent executor died"))
+        }
+    }
 
     macro_rules! return_if_none {
         ($opt:expr) => {
@@ -191,15 +208,29 @@ pub mod macros {
 
     macro_rules! inner {
     ($item:expr) => {
-        $item.inner.try_read_for(std::time::Duration::from_millis(1000)).expect("PANIC ON READ (TIMEOUT)")
-        //$item.inner.read()
+        //$item.inner.try_read_for(std::time::Duration::from_millis(10)).expect("PANIC ON READ (TIMEOUT)")
+        $item.inner.read()
     };
 }
 
     macro_rules! inner_mut {
     ($item:expr) => {
-        $item.inner.try_write_for(std::time::Duration::from_millis(1000)).expect("PANIC ON WRITE (TIMEOUT)")
-        //$item.inner.write()
+        //$item.inner.try_write_for(std::time::Duration::from_millis(10)).expect("PANIC ON WRITE (TIMEOUT)")
+        $item.inner.write()
+    };
+}
+
+    macro_rules! inner_state {
+    ($item:expr) => {
+        //$item.inner.try_read_for(std::time::Duration::from_millis(10)).expect("PANIC ON READ (TIMEOUT)")
+        $item.inner.read()
+    };
+}
+
+    macro_rules! inner_mut_state {
+    ($item:expr) => {
+        //$item.inner.try_write_for(std::time::Duration::from_millis(10)).expect("PANIC ON WRITE (TIMEOUT)")
+        $item.inner.write()
     };
 }
 
@@ -260,10 +291,16 @@ pub mod macros {
 }
 
     macro_rules! spawn_handle {
-    ($future:expr) => {
-        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future))
-    };
-}
+        ($future:expr) => {
+            crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future))
+        };
+    }
+
+    macro_rules! to_concurrent_processor {
+        ($executor:expr, $future:expr) => {
+            $executor.send(Box::pin($future)).map(|_| PrimaryProcessorResult::Void).map_err(|_| NetworkError::InternalError("Async concurrent executor died"))
+        }
+    }
 
 
     macro_rules! return_if_none {
@@ -294,15 +331,39 @@ pub mod re_imports {
     pub use hyxe_nat::hypernode_type::HyperNodeType;
 }
 
+
+pub mod prelude {
+    pub use crate::hdp::misc::session_security_settings::{SessionSecuritySettings, SessionSecuritySettingsBuilder};
+    pub use crate::hdp::misc::panic_future::ExplicitPanicFuture;
+    pub use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
+    pub use crate::hdp::peer::channel::{PeerChannel, PeerChannelSendHalf};
+    pub use crate::hdp::peer::message_group::MessageGroupKey;
+    pub use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
+
+    pub use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
+    pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
+    pub use crate::hdp::peer::peer_layer::PeerResponse;
+
+    pub use crate::kernel::{kernel_executor::KernelExecutor, kernel::NetKernel};
+    pub use crate::hdp::hdp_server::{HdpServerRemote, HdpServerResult, HdpServerRequest, atexit};
+    pub use crate::error::NetworkError;
+    pub use crate::functional::*;
+    pub use crate::sdk;
+}
+
 /// Contains the streams for creating connections
-pub mod kernel;
+mod kernel;
 /// The default error type for this crate
-pub mod error;
+mod error;
 /// Contains the constants used by this crate
 pub mod constants;
 /// The primary module of this crate
-pub mod hdp;
+mod hdp;
 /// Functional extras
-pub mod functional;
+mod functional;
 /// For handling differential function input types between single/multi-threaded modes
-pub mod inner_arg;
+mod inner_arg;
+#[doc(hidden)]
+pub mod test_common;
+/// High-level SDK for easily interacting with the protocol
+pub mod sdk;

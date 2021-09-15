@@ -37,6 +37,18 @@ pub struct IpAddressInfo {
     pub external_ipv6: Option<IpAddr>
 }
 
+impl IpAddressInfo {
+    /// Returns localhost addr
+    pub fn localhost() -> Self {
+        let localhost = IpAddr::from_str("127.0.0.1").unwrap();
+        Self {
+            internal_ipv4: localhost,
+            external_ipv4: localhost,
+            external_ipv6: None
+        }
+    }
+}
+
 /// Gets IP info concurrently using default multiple internal sources
 pub async fn get_all_multi_concurrent(client: Option<Client>) -> Result<IpAddressInfo, IpRetrieveError> {
     get_all_multi_concurrent_from(client, &[URL_V4, URL_V4_1, URL_V4_2], &[URL_V6, URL_V6_1, URL_V6_2]).await

@@ -89,7 +89,7 @@ impl<const N: usize> PartitionedSecBuffer<N> {
 }
 
 pub struct SliceHandle<'a> {
-    range: Range<usize>,
+    pub(crate) range: Range<usize>,
     ptr: &'a mut SecBuffer
 }
 

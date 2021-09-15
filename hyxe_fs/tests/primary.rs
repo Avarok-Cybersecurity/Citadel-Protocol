@@ -6,7 +6,6 @@ mod tests {
     use bytes::BufMut;
     use std::time::Instant;
     use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverStatus};
-    use std::io::Write;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "trace");
@@ -21,14 +20,15 @@ mod tests {
     async fn encrypt_decrypt_test() {
         setup_log();
         fn gen(algo: impl Into<CryptoParameters>, drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
-            let mut alice_base = HyperRatchetConstructor::new_alice(Some(algo.into()), 0, 0, None);
-            let bob_base = HyperRatchetConstructor::new_bob(0, drill_vers, alice_base.stage0_alice()).unwrap();
+            let opts = algo.into();
+            let mut alice_base = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(opts), 1), 0, 0, None).unwrap();
+            let bob_base = HyperRatchetConstructor::new_bob(0, drill_vers, ConstructorOpts::new_vec_init(Some(opts), 1), alice_base.stage0_alice()).unwrap();
             alice_base.stage1_alice(&BobToAliceTransferType::Default(bob_base.stage0_bob().unwrap())).unwrap();
 
             (alice_base.finish().unwrap(), bob_base.finish().unwrap())
         }
 
-        let (alice, _bob) = gen(KemAlgorithm::Firesaber + EncryptionAlgorithm::Xchacha20Poly_1305, 0);
+        let (alice, bob) = gen(KemAlgorithm::Firesaber + EncryptionAlgorithm::Xchacha20Poly_1305, 0);
         let security_level = SecurityLevel::LOW;
         const HEADER_LEN: usize = 52;
         // // C:\\satori.net\\target\\debug\\hyxewave
@@ -37,7 +37,7 @@ mod tests {
         let std_file = std::fs::File::open(path).unwrap();
         let (group_sender_tx, mut group_sender_rx) = channel(1);
         let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-        let (bytes, num_groups) = scramble_encrypt_file(std_file, None,99, group_sender_tx, stop_rx, security_level, alice.clone(), HEADER_LEN, 9, 0, |_, _, _, _, packet| {
+        let (bytes, num_groups) = scramble_encrypt_file::<_, HEADER_LEN>(std_file, None,99, group_sender_tx, stop_rx, security_level, alice.clone(), HEADER_LEN, 9, 0, |_, _, _, _, packet| {
             for x in 0..HEADER_LEN {
                 packet.put_u8((x % 255) as u8)
             }
@@ -61,7 +61,7 @@ mod tests {
             let now = Instant::now();
             'here: while let Some(mut packet) = gs.get_next_packet() {
                 let packet_payload = packet.packet.split_off(HEADER_LEN);
-                let result = receiver.on_packet_received(group_id as u64, packet.vector.true_sequence, packet.vector.wave_id, &alice, packet_payload);
+                let result = receiver.on_packet_received(group_id as u64, packet.vector.true_sequence, packet.vector.wave_id, &bob, packet_payload);
                 //dbg!(&result);
                 match result {
                     GroupReceiverStatus::GROUP_COMPLETE(group_id) => {
@@ -103,7 +103,9 @@ mod tests {
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
     use hyxe_crypt::prelude::algorithm_dictionary::{CryptoParameters, KemAlgorithm, EncryptionAlgorithm};
+    use hyxe_crypt::prelude::ConstructorOpts;
 
+    /*
     #[test]
     fn create_dummy_file() {
         const LEN: usize = 4_187_593_113; // 3.9 gigabytes
@@ -117,5 +119,5 @@ mod tests {
 
         file.flush().unwrap();
         file.sync_all().unwrap();
-    }
+    }*/
 }

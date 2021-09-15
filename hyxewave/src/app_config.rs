@@ -131,7 +131,7 @@ impl TomlConfig {
         let node = self.hypernodes.iter().find(|r| r.alias.as_str() == alias).ok_or(ConsoleError::Default("Supplied alias not found"))?;
 
         let (local_bind_addr, hypernode_type) = if let Some(bind_addr) = node.local_bind_addr.as_ref() {
-            (SocketAddr::from_str(bind_addr.as_str()).map_err(|err| ConsoleError::Generic(err.to_string()))?, HyperNodeType::GloballyReachable)
+            (SocketAddr::from_str(bind_addr.as_str()).map_err(|err| ConsoleError::Generic(err.to_string()))?, HyperNodeType::Server)
         } else {
             (SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), PRIMARY_PORT), HyperNodeType::BehindResidentialNAT)
         };

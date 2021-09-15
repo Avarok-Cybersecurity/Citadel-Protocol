@@ -40,7 +40,7 @@ pub struct ServicesHandler {
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 /// Passed to the services handler post-login at the server. Intended to be passed to the client afterwards
-pub struct PostLoginObject {
+pub struct ServicesObject {
     /// Returns the JWebToken
     pub google_auth_jwt: Option<JsonWebToken>,
     /// Google's real time database config
@@ -49,8 +49,8 @@ pub struct PostLoginObject {
 
 impl ServicesHandler {
     /// This should be called after the server validates a login [marked async for now to allow room for future async processes)
-    pub async fn on_post_login_serverside(&self, implicated_cid: u64) -> Result<PostLoginObject, AccountError> {
-        let mut ret: PostLoginObject = Default::default();
+    pub async fn on_post_login_serverside(&self, implicated_cid: u64) -> Result<ServicesObject, AccountError> {
+        let mut ret: ServicesObject = Default::default();
 
         if let Some(auth) = self.google_auth.as_ref() {
             ret.google_auth_jwt = Some(auth.sign_new_custom_jwt_auth(implicated_cid)?)
@@ -65,8 +65,10 @@ impl ServicesHandler {
 #[derive(Deserialize, Debug, Default, Clone)]
 /// An object used to determine the settings for the external services
 pub struct ServicesConfig {
-    google_services_json_path: Option<String>,
-    google_rtdb: Option<RtdbConfig>
+    /// The path to the Google Services JSON config
+    pub google_services_json_path: Option<String>,
+    /// Google realtime database config
+    pub google_rtdb: Option<RtdbConfig>
 }
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone)]

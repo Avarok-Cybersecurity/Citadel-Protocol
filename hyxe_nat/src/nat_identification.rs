@@ -1,3 +1,4 @@
+#![allow(unused)]
 use tokio::net::UdpSocket;
 use std::net::{SocketAddr, IpAddr};
 use stun::client::ClientBuilder;
@@ -53,12 +54,21 @@ impl Default for NatType {
 impl NatType {
     /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
     pub async fn identify() -> Result<Self, FirewallError> {
-        tokio::time::timeout(IDENTIFY_TIMEOUT, get_nat_type()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?.map_err(|err| FirewallError::HolePunch(err.to_string()))
+        Self::identify_timeout(IDENTIFY_TIMEOUT).await
     }
 
     /// Identifies the NAT which the local node is behind
+    #[cfg(not(feature = "localhost-testing"))]
     pub async fn identify_timeout(timeout: Duration) -> Result<Self, FirewallError> {
-        tokio::time::timeout(timeout, get_nat_type()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?.map_err(|err| FirewallError::HolePunch(err.to_string()))
+        #[cfg(not(feature = "localhost-testing"))] {
+            tokio::time::timeout(timeout, get_nat_type()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?.map_err(|err| FirewallError::HolePunch(err.to_string()))
+        }
+    }
+
+    #[cfg(feature = "localhost-testing")]
+    pub async fn identify_timeout(_timeout: Duration) -> Result<Self, FirewallError> {
+        use std::str::FromStr;
+        Ok(Self::EDM(IpAddr::from_str("127.0.0.1").unwrap(), Some(IpAddressInfo::localhost()), 0))
     }
 
     /// Returns the NAT traversal type required to access self and other, respectively

@@ -27,137 +27,140 @@ use crate::hdp::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal, UdpMode};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
+use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
 /// HyperLAN client and the HyperLAN Server
-///
-/// *** IMPORTANT RULE *** : NEVER get a mutable reference to an HdpSession under this function! IF you do, it has the potential to cause deadlocks under tight concurrent situations
-/// b/c sessions sometimes need to access other sessions
-pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header_drill_version: u32, endpoint_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
+pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header_drill_version: u32, endpoint_cid_info: Option<(u64, u64)>, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
     // ALL PEER_CMD packets require that the current session contain a CNAC (not anymore since switching to async)
-    let session = session_orig;
+    let session = session_orig.clone();
     let (header, payload, peer_addr, _) = packet.decompose();
 
-    let (ref cnac, sess_hyper_ratchet, header, payload, security_level, peer_addr) = {
+    let (cnac, sess_hyper_ratchet,  payload, security_level, peer_addr) = {
         // Some PEER_CMD packets get encrypted using the endpoint crypto
-        let cnac = return_if_none!(session.cnac.get(), "Sess CNAC not loaded");
 
         log::info!("RECV PEER CMD packet (proxy: {})", endpoint_cid_info.is_some());
-        let state_container = inner!(session.state_container);
+        let state_container = inner_state!(session.state_container);
+        let cnac = return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded");
         let sess_hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header_drill_version, &cnac, &state_container, endpoint_cid_info), "Unable to obtain peer HR (P_CMD_PKT)");
 
         let (header, payload) = return_if_none!(validation::aead::validate_custom(&sess_hyper_ratchet, &header, payload), "Unable to validate peer CMD packet");
         let security_level = header.security_level.into();
         log::info!("PEER CMD packet authenticated");
-        (cnac, sess_hyper_ratchet, header, payload, security_level, peer_addr)
+        (cnac, sess_hyper_ratchet, payload, security_level, peer_addr)
     };
 
-    match aux_cmd {
-        packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST => {
-            group_broadcast::process(session_orig, header, &payload[..], &sess_hyper_ratchet).await
-        }
+    let task = async move {
+        let ref session = session;
+        // we can unwrap below safely since the header layout has already been verified
+        let header = LayoutVerified::new(&*header).unwrap() as LayoutVerified<&[u8], HdpHeader>;
 
-        packet_flags::cmd::aux::peer_cmd::SIGNAL => {
-            let signal = return_if_none!(PeerSignal::deserialize_from_vector(&payload[..]).ok(), "Unable to deser PeerSignal packet");
-            let timestamp = session.time_tracker.get_global_time_ns();
-            let ticket = header.context_info.get().into();
+        match aux_cmd {
+            packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST => {
+                group_broadcast::process(session, header, &payload[..], &sess_hyper_ratchet).await
+            }
 
-            if !session.is_server {
-                // forward the signal to the kernel, with some exceptions.
-                match &signal {
-                    PeerSignal::FcmTokenUpdate(new_keys) => {
-                        let persistence_handler = session.account_manager.get_persistence_handler().clone();
-                        let to_kernel = session.kernel_tx.clone();
+            packet_flags::cmd::aux::peer_cmd::SIGNAL => {
+                let signal = return_if_none!(PeerSignal::deserialize_from_vector(&payload[..]).ok(), "Unable to deser PeerSignal packet");
+                let timestamp = session.time_tracker.get_global_time_ns();
+                let ticket = header.context_info.get().into();
 
-                        persistence_handler.update_fcm_keys(&cnac, new_keys.clone()).await?;
-                        to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalReceived(ticket), ticket))?;
-                        return Ok(PrimaryProcessorResult::Void);
-                    }
+                if !session.is_server {
+                    // forward the signal to the kernel, with some exceptions.
+                    match &signal {
+                        PeerSignal::FcmTokenUpdate(new_keys) => {
+                            let persistence_handler = session.account_manager.get_persistence_handler().clone();
+                            let to_kernel = session.kernel_tx.clone();
 
-                    PeerSignal::Disconnect(vconn, resp) => {
-                        let target = resp.as_ref().map(|_| vconn.get_original_implicated_cid()).unwrap_or(vconn.get_original_target_cid());
-                        let state_container = inner!(session.state_container);
-                        if let Some(v_conn) = state_container.active_virtual_connections.get(&target) {
-                            v_conn.is_active.store(false, Ordering::SeqCst); //prevent further messages from being sent from this node
-                            // ... but, we still want any messages already sent to be processed
+                            persistence_handler.update_fcm_keys(&cnac, new_keys.clone()).await?;
+                            to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalReceived(ticket), ticket))?;
+                            return Ok(PrimaryProcessorResult::Void);
+                        }
 
-                            let last_packet = v_conn.last_delivered_message_timestamp.clone();
-                            let state_container_ref = session.state_container.clone();
+                        PeerSignal::Disconnect(vconn, resp) => {
+                            let target = resp.as_ref().map(|_| vconn.get_original_implicated_cid()).unwrap_or(vconn.get_original_target_cid());
+                            let state_container = inner_state!(session.state_container);
+                            if let Some(v_conn) = state_container.active_virtual_connections.get(&target) {
+                                v_conn.is_active.store(false, Ordering::SeqCst); //prevent further messages from being sent from this node
+                                // ... but, we still want any messages already sent to be processed
 
-                            std::mem::drop(state_container);
+                                let last_packet = v_conn.last_delivered_message_timestamp.clone();
+                                let state_container_ref = session.state_container.clone();
 
-                            let task = async move {
-                                loop {
-                                    if let Some(ts) = last_packet.get() {
-                                        if ts.elapsed() > Duration::from_millis(1500) {
+                                std::mem::drop(state_container);
+
+                                let task = async move {
+                                    loop {
+                                        if let Some(ts) = last_packet.load(Ordering::SeqCst) {
+                                            if ts.elapsed() > Duration::from_millis(1500) {
+                                                break;
+                                            }
+                                        } else {
                                             break;
                                         }
-                                    } else {
-                                        break;
+
+                                        tokio::time::sleep(Duration::from_millis(1500)).await;
                                     }
 
-                                    tokio::time::sleep(Duration::from_millis(1500)).await;
-                                }
+                                    log::info!("[Peer Vconn] No packets received in the last 1500ms; will drop the connection cleanly");
+                                    // once we're done waiting for packets to stop showing up, we can remove the container to end the underlying TCP stream
+                                    let mut state_container = inner_mut_state!(state_container_ref);
+                                    let _ = state_container.active_virtual_connections.remove(&target);
+                                };
 
-                                log::info!("[Peer Vconn] No packets received in the last 1500ms; will drop the connection cleanly");
-                                // once we're done waiting for packets to stop showing up, we can remove the container to end the underlying TCP stream
-                                let mut state_container = inner_mut!(state_container_ref);
-                                let _ = state_container.active_virtual_connections.remove(&target);
-                            };
-
-                            let _ = spawn!(task);
-                        } else {
-                            log::warn!("Vconn already removed");
-                        }
-
-                        session.send_to_kernel(HdpServerResult::PeerEvent(signal, ticket))?;
-                        return Ok(PrimaryProcessorResult::Void);
-                    }
-
-                    PeerSignal::DisconnectUDP(vconn) => {
-                        let target_cid = return_if_none!(get_resp_target_cid(vconn));
-                        inner_mut!(session.state_container).remove_udp_channel(target_cid);
-                        return Ok(PrimaryProcessorResult::Void)
-                    }
-
-                    PeerSignal::DeregistrationSuccess(peer_cid, used_fcm) => {
-                        log::info!("[Deregistration] about to remove peer {} from {} at the endpoint", peer_cid, cnac.get_cid());
-                        let acc_mgr = session.account_manager.clone();
-                        let kernel_tx = session.kernel_tx.clone();
-                        let cnac = cnac.clone();
-                        let this_cid = cnac.get_cid();
-
-                        if *used_fcm {
-                            let peer_cid = *peer_cid;
-                            // now, send an FCM dereg signal. Then, create FCM dereg signal+handler. Finally, remove the kernel's dereg operation
-                            match cnac.fcm_raw_send_to_peer(peer_cid, |fcm_ratchet| hyxe_user::external_services::fcm::fcm_packet_crafter::craft_deregistered(fcm_ratchet, peer_cid, ticket.0), acc_mgr.fcm_client()).await {
-                                Ok(_) => {
-                                    log::info!("Successfully alerted peer {} that deregistration occurred", peer_cid);
-                                }
-
-                                Err(err) => {
-                                    log::warn!("Unable to alert peer {} that deregistration occurred: {:?}", peer_cid, err);
-                                }
+                                let _ = spawn!(task);
+                            } else {
+                                log::warn!("Vconn already removed");
                             }
-                        } else { // just remove the peer
+
+                            session.send_to_kernel(HdpServerResult::PeerEvent(signal, ticket))?;
+                            return Ok(PrimaryProcessorResult::Void);
                         }
 
-                        if let None = acc_mgr.get_persistence_handler().deregister_p2p_as_client(this_cid, *peer_cid).await? {
-                            log::warn!("Unable to remove hyperlan peer {}", peer_cid);
+                        PeerSignal::DisconnectUDP(vconn) => {
+                            let target_cid = return_if_none!(get_resp_target_cid(vconn));
+                            inner_mut_state!(session.state_container).remove_udp_channel(target_cid);
+                            return Ok(PrimaryProcessorResult::Void)
                         }
 
-                        kernel_tx.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), *peer_cid), *used_fcm), ticket))?;
-                        return Ok(PrimaryProcessorResult::Void)
-                    }
+                        PeerSignal::DeregistrationSuccess(peer_cid, used_fcm) => {
+                            log::info!("[Deregistration] about to remove peer {} from {} at the endpoint", peer_cid, cnac.get_cid());
+                            let acc_mgr = session.account_manager.clone();
+                            let kernel_tx = session.kernel_tx.clone();
+                            let cnac = cnac.clone();
+                            let this_cid = cnac.get_cid();
 
-                    PeerSignal::PostRegister(vconn, a, b, peer_resp, FcmPostRegister::BobToAliceTransfer(transfer, fcm_keys, _cid)) => {
-                        // When using FCM, post-register requires syncing to the HD to establish static key pairs. Otherwise, normal post-registers do not since keys are re-established during post-connect stage
-                        log::info!("[FCM] Received bob to alice transfer from {}", vconn.get_original_implicated_cid());
-                        let peer_cid = vconn.get_original_implicated_cid();
-                        let this_cid = vconn.get_original_target_cid();
-                        // we need to get the peer kem state container
-                        return_if_none!(cnac.visit_mut(|mut inner| {
+                            if *used_fcm {
+                                let peer_cid = *peer_cid;
+                                // now, send an FCM dereg signal. Then, create FCM dereg signal+handler. Finally, remove the kernel's dereg operation
+                                match cnac.fcm_raw_send_to_peer(peer_cid, |fcm_ratchet| hyxe_user::external_services::fcm::fcm_packet_crafter::craft_deregistered(fcm_ratchet, peer_cid, ticket.0), acc_mgr.fcm_client()).await {
+                                    Ok(_) => {
+                                        log::info!("Successfully alerted peer {} that deregistration occurred", peer_cid);
+                                    }
+
+                                    Err(err) => {
+                                        log::warn!("Unable to alert peer {} that deregistration occurred: {:?}", peer_cid, err);
+                                    }
+                                }
+                            } else { // just remove the peer
+                            }
+
+                            if let None = acc_mgr.get_persistence_handler().deregister_p2p_as_client(this_cid, *peer_cid).await? {
+                                log::warn!("Unable to remove hyperlan peer {}", peer_cid);
+                            }
+
+                            kernel_tx.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), *peer_cid), *used_fcm), ticket))?;
+                            return Ok(PrimaryProcessorResult::Void)
+                        }
+
+                        PeerSignal::PostRegister(vconn, a, b, peer_resp, FcmPostRegister::BobToAliceTransfer(transfer, fcm_keys, _cid)) => {
+                            // When using FCM, post-register requires syncing to the HD to establish static key pairs. Otherwise, normal post-registers do not since keys are re-established during post-connect stage
+                            log::info!("[FCM] Received bob to alice transfer from {}", vconn.get_original_implicated_cid());
+                            let peer_cid = vconn.get_original_implicated_cid();
+                            let this_cid = vconn.get_original_target_cid();
+                            // we need to get the peer kem state container
+                            return_if_none!(cnac.visit_mut(|mut inner| {
                             let mut fcm_constructor = inner.kem_state_containers.remove(&peer_cid)?.assume_fcm()?;
                             fcm_constructor.stage1_alice(transfer)?;
                             let fcm_ratchet = fcm_constructor.finish_with_custom_cid(this_cid)?;
@@ -166,275 +169,276 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                             Some(())
                         }));
 
-                        let to_kernel = session.kernel_tx.clone();
-                        let account_manager = session.account_manager.clone();
-                        let cnac = cnac.clone();
+                            let to_kernel = session.kernel_tx.clone();
+                            let account_manager = session.account_manager.clone();
+                            let cnac = cnac.clone();
 
-                        if let Some(peer_resp_) = peer_resp.as_ref() {
-                            match peer_resp_ {
-                                PeerResponse::Accept(Some(peer_uname)) => {
+                            if let Some(peer_resp_) = peer_resp.as_ref() {
+                                match peer_resp_ {
+                                    PeerResponse::Accept(Some(peer_uname)) => {
 
-                                    match account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_uname).await {
-                                        Ok(_) => {
-                                            log::info!("[FCM] Successfully finished registration!");
-                                            to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, a.clone(), b.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
-                                            return Ok(PrimaryProcessorResult::Void);
-                                        },
+                                        match account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_uname).await {
+                                            Ok(_) => {
+                                                log::info!("[FCM] Successfully finished registration!");
+                                                to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, a.clone(), b.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
+                                                return Ok(PrimaryProcessorResult::Void);
+                                            },
 
-                                        Err(err) => {
-                                            log::error!("Unable to register hyperlan p2p at endpoint: {:#?}", err);
+                                            Err(err) => {
+                                                log::error!("Unable to register hyperlan p2p at endpoint: {:#?}", err);
+                                            }
                                         }
                                     }
+
+                                    _ => {}
+                                }
+                            }
+
+                            cnac.save().await?;
+                            log::info!("[FCM] Successfully finished registration!");
+                            to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, a.clone(), b.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
+                            return Ok(PrimaryProcessorResult::Void);
+                        }
+
+                        PeerSignal::PostRegister(vconn, _peer_username, ticket0, Some(PeerResponse::Accept(Some(peer_username))), FcmPostRegister::Disable) => {
+                            let to_kernel = session.kernel_tx.clone();
+                            let account_manager = session.account_manager.clone();
+
+                            let peer_cid = vconn.get_original_implicated_cid();
+                            let this_cid = vconn.get_original_target_cid();
+
+                            match account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_username).await {
+                                Ok(_) => {
+                                    log::info!("Success registering at endpoints");
+                                    to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), *ticket0, Some(PeerResponse::Accept(Some(peer_username.clone()))), FcmPostRegister::Disable), ticket))?;
                                 }
 
-                                _ => {}
+                                Err(err) => {
+                                    log::error!("Unable to register at endpoints: {:?}", &err);
+                                    to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalError(ticket, err.into_string()), ticket))?;
+                                }
                             }
+
+                            return Ok(PrimaryProcessorResult::Void);
                         }
 
-                        cnac.save().await?;
-                        log::info!("[FCM] Successfully finished registration!");
-                        to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, a.clone(), b.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
-                        return Ok(PrimaryProcessorResult::Void);
-                    }
+                        PeerSignal::PostConnect(conn, _, resp, endpoint_security_settings, udp_enabled) => {
+                            if let Some(resp) = resp {
+                                // the connection was mutually accepted. Now, we must begin the KEM subroutine
+                                match resp {
+                                    // the accept case
+                                    PeerResponse::Accept(_) => {
+                                        return match conn {
+                                            PeerConnectionType::HyperLANPeerToHyperLANPeer(original_implicated_cid, original_target_cid) => {
+                                                // this implies this node is receiving an accept_request. As such, we need to NOT
+                                                // forward the signal quite yet, and instead, begin the key-exchange process in order to
+                                                // establish a working [PeerChannel] system that has a custom post-quantum key and toolset
+                                                // unique to the session.
+                                                //let mut state_container = inner_mut!(session.state_container);
+                                                //let peer_cid = conn.get_original_implicated_cid();
+                                                let mut peer_kem_state_container = PeerKemStateContainer::new(*endpoint_security_settings, *udp_enabled == UdpMode::Enabled);
 
-                    PeerSignal::PostRegister(vconn, _peer_username, ticket0, Some(PeerResponse::Accept(Some(peer_username))), FcmPostRegister::Disable) => {
-                        let to_kernel = session.kernel_tx.clone();
-                        let account_manager = session.account_manager.clone();
+                                                let alice_constructor = return_if_none!(HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(endpoint_security_settings.crypto_params), (endpoint_security_settings.security_level.value() + 1) as usize), conn.get_original_target_cid(), 0, Some(endpoint_security_settings.security_level)));
+                                                let transfer = alice_constructor.stage0_alice();
+                                                //log::info!("0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
+                                                let msg_bytes = return_if_none!(transfer.serialize_to_vec());
+                                                peer_kem_state_container.constructor = Some(alice_constructor);
+                                                inner_mut_state!(session.state_container).peer_kem_states.insert(*original_implicated_cid, peer_kem_state_container);
+                                                // finally, prepare the signal and send outbound
+                                                // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &Drill, ticket: Ticket, timestamp: i64
+                                                let signal = PeerSignal::Kem(PeerConnectionType::HyperLANPeerToHyperLANPeer(*original_target_cid, *original_implicated_cid), KeyExchangeProcess::Stage0(msg_bytes, *endpoint_security_settings, *udp_enabled));
 
-                        let peer_cid = vconn.get_original_implicated_cid();
-                        let this_cid = vconn.get_original_target_cid();
+                                                // use the pqc of the session to keep the data protected from here to the central
+                                                // server and to the endpoint
+                                                let hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(None));
 
-                        match account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_username).await {
-                            Ok(_) => {
-                                log::info!("Success registering at endpoints");
-                                to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), *ticket0, Some(PeerResponse::Accept(Some(peer_username.clone()))), FcmPostRegister::Disable), ticket))?;
-                            }
+                                                let stage0_peer_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(&hyper_ratchet, signal, ticket, timestamp, security_level);
+                                                log::info!("Sent peer KEM stage 0 outbound");
+                                                // send to central server
+                                                Ok(PrimaryProcessorResult::ReplyToSender(stage0_peer_kem))
+                                            }
 
-                            Err(err) => {
-                                log::error!("Unable to register at endpoints: {:?}", &err);
-                                to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalError(ticket, err.into_string()), ticket))?;
-                            }
-                        }
-
-                        return Ok(PrimaryProcessorResult::Void);
-                    }
-
-                    PeerSignal::PostConnect(conn, _, resp, endpoint_security_settings, udp_enabled) => {
-                        if let Some(resp) = resp {
-                            // the connection was mutually accepted. Now, we must begin the KEM subroutine
-                            match resp {
-                                // the accept case
-                                PeerResponse::Accept(_) => {
-                                    return match conn {
-                                        PeerConnectionType::HyperLANPeerToHyperLANPeer(original_implicated_cid, original_target_cid) => {
-                                            // this implies this node is receiving an accept_request. As such, we need to NOT
-                                            // forward the signal quite yet, and instead, begin the key-exchange process in order to
-                                            // establish a working [PeerChannel] system that has a custom post-quantum key and toolset
-                                            // unique to the session.
-                                            //let mut state_container = inner_mut!(session.state_container);
-                                            //let peer_cid = conn.get_original_implicated_cid();
-                                            let mut peer_kem_state_container = PeerKemStateContainer::new(*endpoint_security_settings, *udp_enabled == UdpMode::Enabled);
-
-                                            let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(endpoint_security_settings.crypto_params), (endpoint_security_settings.security_level.value() + 1) as usize), conn.get_original_target_cid(), 0, Some(endpoint_security_settings.security_level));
-                                            let transfer = alice_constructor.stage0_alice();
-                                            //log::info!("0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
-                                            let msg_bytes = return_if_none!(transfer.serialize_to_vec());
-                                            peer_kem_state_container.constructor = Some(alice_constructor);
-                                            inner_mut!(session.state_container).peer_kem_states.insert(*original_implicated_cid, peer_kem_state_container);
-                                            // finally, prepare the signal and send outbound
-                                            // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &Drill, ticket: Ticket, timestamp: i64
-                                            let signal = PeerSignal::Kem(PeerConnectionType::HyperLANPeerToHyperLANPeer(*original_target_cid, *original_implicated_cid), KeyExchangeProcess::Stage0(msg_bytes, *endpoint_security_settings, *udp_enabled));
-
-                                            // use the pqc of the session to keep the data protected from here to the central
-                                            // server and to the endpoint
-                                            let hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(None));
-
-                                            let stage0_peer_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(&hyper_ratchet, signal, ticket, timestamp, security_level);
-                                            log::info!("Sent peer KEM stage 0 outbound");
-                                            // send to central server
-                                            Ok(PrimaryProcessorResult::ReplyToSender(stage0_peer_kem))
-                                        }
-
-                                        _ => {
-                                            log::error!("HyperWAN Functionality not yet enabled");
-                                            Ok(PrimaryProcessorResult::Void)
+                                            _ => {
+                                                log::error!("HyperWAN Functionality not yet enabled");
+                                                Ok(PrimaryProcessorResult::Void)
+                                            }
                                         }
                                     }
-                                }
 
-                                _ => {}
+                                    _ => {}
+                                }
                             }
                         }
-                    }
 
-                    PeerSignal::Kem(conn, kep) => {
-                        return match kep {
-                            KeyExchangeProcess::Stage0(transfer, session_security_settings, udp_enabled) => {
-                                log::info!("RECV STAGE 0 PEER KEM");
-                                // We generate bob's pqc, as well as a nonce
-                                //let mut state_container = inner_mut!(session.state_container);
-                                //let this_cid = conn.get_original_target_cid();
-                                let peer_cid = conn.get_original_implicated_cid();
-                                let transfer_deser = return_if_none!(AliceToBobTransfer::deserialize_from(transfer));
-                                let bob_constructor = return_if_none!(HyperRatchetConstructor::new_bob(conn.get_original_target_cid(), 0, ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), transfer_deser));
-                                let transfer = return_if_none!(bob_constructor.stage0_bob());
+                        PeerSignal::Kem(conn, kep) => {
+                            return match kep {
+                                KeyExchangeProcess::Stage0(transfer, session_security_settings, udp_enabled) => {
+                                    log::info!("RECV STAGE 0 PEER KEM");
+                                    // We generate bob's pqc, as well as a nonce
+                                    //let mut state_container = inner_mut!(session.state_container);
+                                    //let this_cid = conn.get_original_target_cid();
+                                    let peer_cid = conn.get_original_implicated_cid();
+                                    let transfer_deser = return_if_none!(AliceToBobTransfer::deserialize_from(transfer));
+                                    let bob_constructor = return_if_none!(HyperRatchetConstructor::new_bob(conn.get_original_target_cid(), 0, ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), transfer_deser));
+                                    let transfer = return_if_none!(bob_constructor.stage0_bob());
 
-                                let bob_transfer = return_if_none!(transfer.serialize_to_vector().ok());
+                                    let bob_transfer = return_if_none!(transfer.serialize_to_vector().ok());
 
-                                let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage1(bob_transfer, None));
+                                    let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage1(bob_transfer, None));
 
-                                let mut state_container_kem = PeerKemStateContainer::new(*session_security_settings, *udp_enabled == UdpMode::Enabled);
-                                state_container_kem.constructor = Some(bob_constructor);
-                                inner_mut!(session.state_container).peer_kem_states.insert(peer_cid, state_container_kem);
+                                    let mut state_container_kem = PeerKemStateContainer::new(*session_security_settings, *udp_enabled == UdpMode::Enabled);
+                                    state_container_kem.constructor = Some(bob_constructor);
+                                    inner_mut_state!(session.state_container).peer_kem_states.insert(peer_cid, state_container_kem);
 
-                                let ref hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(None));
+                                    let ref hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(None));
 
-                                let stage1_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
-                                log::info!("Sent stage 1 peer KEM");
-                                Ok(PrimaryProcessorResult::ReplyToSender(stage1_kem))
-                            }
+                                    let stage1_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
+                                    log::info!("Sent stage 1 peer KEM");
+                                    Ok(PrimaryProcessorResult::ReplyToSender(stage1_kem))
+                                }
 
-                            KeyExchangeProcess::Stage1(transfer, Some(bob_nat_info)) => {
-                                // Here, we finalize the creation of the pqc for alice, and then, generate the new toolset
-                                // The toolset gets encrypted to ensure the central server doesn't see the toolset. This is
-                                // to combat a "chinese communist hijack" scenario wherein a rogue government takes over our
-                                // central servers
-                                log::info!("RECV STAGE 1 PEER KEM");
-                                //let security_level = session.security_level;
+                                KeyExchangeProcess::Stage1(transfer, Some(bob_nat_info)) => {
+                                    // Here, we finalize the creation of the pqc for alice, and then, generate the new toolset
+                                    // The toolset gets encrypted to ensure the central server doesn't see the toolset. This is
+                                    // to combat a "chinese communist hijack" scenario wherein a rogue government takes over our
+                                    // central servers
+                                    log::info!("RECV STAGE 1 PEER KEM");
+                                    //let security_level = session.security_level;
 
-                                let (hole_punch_compat_stream, channel, udp_rx_opt, sync_instant, endpoint_security_level, encrypted_config_container) = {
-                                    let mut state_container = inner_mut!(session.state_container);
+                                    let (hole_punch_compat_stream, channel, udp_rx_opt, sync_instant, endpoint_security_level, encrypted_config_container) = {
+                                        let mut state_container = inner_mut_state!(session.state_container);
+                                        let peer_cid = conn.get_original_implicated_cid();
+                                        let this_cid = conn.get_original_target_cid();
+                                        let mut kem_state = return_if_none!(state_container.peer_kem_states.remove(&peer_cid));
+                                        let session_security_settings = kem_state.session_security_settings;
+                                        let security_level = session_security_settings.security_level;
+                                        let mut alice_constructor = return_if_none!(kem_state.constructor.take());
+                                        return_if_none!(alice_constructor.stage1_alice(&BobToAliceTransferType::Default(return_if_none!(BobToAliceTransfer::deserialize_from(transfer)))));
+                                        let hyper_ratchet = return_if_none!(alice_constructor.finish_with_custom_cid(this_cid));
+                                        let endpoint_hyper_ratchet = hyper_ratchet.clone();
+                                        let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();
+                                        // now, create a new toolset and encrypt it
+                                        // NOTE: when this toolset gets transmitted, it retains this_cid
+                                        // As such, the other end MUST change the CID internally for BOTH
+                                        // toolset AND the single drill
+                                        let toolset = Toolset::new(this_cid, hyper_ratchet);
+                                        // now, register the loaded PQC + toolset into the virtual conn
+                                        let peer_crypto = PeerSessionCrypto::new(toolset, true);
+                                        let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
+                                        let (needs_turn, bob_predicted_socket_addr) = bob_nat_info.generate_proper_listener_connect_addr(&session.local_nat_type);
+                                        log::info!("[STUN] Peer public addr: {:?} || needs TURN? {}", &bob_predicted_socket_addr, needs_turn);
+                                        let udp_rx_opt = kem_state.udp_channel_sender.rx.take();
+
+                                        let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(bob_predicted_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto, session);
+                                        // load the channel now that the keys have been exchanged
+
+                                        kem_state.local_is_initiator = true;
+                                        state_container.peer_kem_states.insert(peer_cid, kem_state);
+                                        log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
+
+                                        let header_time = header.timestamp.get();
+                                        let (sync_instant, sync_time_ns) = calculate_sync_time(timestamp, header_time);
+                                        // now that the virtual connection is created on this end, we need to do the same to the other end
+                                        let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage2(sync_time_ns, None));
+
+                                        let hole_punch_compat_stream = ReliableOrderedCompatStream::new(return_if_none!(session.to_primary_stream.clone()), &mut *state_container, bob_nat_info.peer_remote_addr_visible_from_server, return_if_none!(session.implicated_user_p2p_internal_listener_addr.clone()), peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
+                                        std::mem::drop(state_container);
+                                        let encrypted_config_container = generate_hole_punch_crypt_container(endpoint_hyper_ratchet, SecurityLevel::LOW, peer_cid);
+
+                                        // we need to use the session pqc since this signal needs to get processed by the center node
+                                        let ref sess_hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(None));
+                                        let stage2_kem_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(sess_hyper_ratchet, signal, ticket, timestamp, security_level);
+                                        log::info!("Sent stage 2 peer KEM");
+
+                                        // now, fire-up the hole-punch future
+                                        session.send_to_primary_stream(None, stage2_kem_packet)?;
+
+                                        (hole_punch_compat_stream, channel, udp_rx_opt, sync_instant, endpoint_security_level, encrypted_config_container)
+                                    };
+
+                                    let implicated_cid = session.implicated_cid.clone();
+                                    let kernel_tx = session.kernel_tx.clone();
+                                    // must send packet before registering app, otherwise, registration will fail
+                                    let app = NetworkEndpoint::register(RelativeNodeType::Initiator, hole_punch_compat_stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+                                    //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
+                                    let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
+                                    let quic_endpoint = return_if_none!(session.client_only_quic_endpoint.clone());
+                                    let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, quic_endpoint,  encrypted_config_container);
+                                    let _ = spawn!(hole_punch_future);
+
+                                    //let _ = hole_punch_future.await;
+                                    Ok(PrimaryProcessorResult::Void)
+                                }
+
+                                KeyExchangeProcess::Stage2(sync_time_ns, Some(alice_nat_info)) => {
+                                    // NEW UPDATE: now that we know the other side successfully created its toolset,
+                                    // calculate sync time then begin the hole punch subroutine
+                                    log::info!("RECV STAGE 2 PEER KEM");
                                     let peer_cid = conn.get_original_implicated_cid();
                                     let this_cid = conn.get_original_target_cid();
-                                    let mut kem_state = return_if_none!(state_container.peer_kem_states.remove(&peer_cid));
-                                    let session_security_settings = kem_state.session_security_settings;
-                                    let security_level = session_security_settings.security_level;
-                                    let mut alice_constructor = return_if_none!(kem_state.constructor.take());
-                                    return_if_none!(alice_constructor.stage1_alice(&BobToAliceTransferType::Default(return_if_none!(BobToAliceTransfer::deserialize_from(transfer)))));
-                                    let hyper_ratchet = return_if_none!(alice_constructor.finish_with_custom_cid(this_cid));
-                                    let endpoint_hyper_ratchet = hyper_ratchet.clone();
-                                    let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();
-                                    // now, create a new toolset and encrypt it
-                                    // NOTE: when this toolset gets transmitted, it retains this_cid
-                                    // As such, the other end MUST change the CID internally for BOTH
-                                    // toolset AND the single drill
-                                    let toolset = Toolset::new(this_cid, hyper_ratchet);
-                                    // now, register the loaded PQC + toolset into the virtual conn
-                                    let peer_crypto = PeerSessionCrypto::new(toolset, true);
-                                    let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
-                                    let (needs_turn, bob_predicted_socket_addr) = bob_nat_info.generate_proper_listener_connect_addr(&session.local_nat_type);
-                                    log::info!("[STUN] Peer public addr: {:?} || needs TURN? {}", &bob_predicted_socket_addr, needs_turn);
-                                    let udp_rx_opt = kem_state.udp_channel_sender.rx.take();
+                                    //let security_level = session.security_level;
+                                    let (hole_punch_compat_stream, channel, udp_rx_opt, endpoint_security_level, endpoint_hyper_ratchet) = {
+                                        let mut state_container = inner_mut_state!(session.state_container);
+                                        let kem = return_if_none!(state_container.peer_kem_states.get_mut(&peer_cid));
+                                        let session_security_settings = kem.session_security_settings;
+                                        // since the AES-GCM was a success, we can now entrust that the toolset is perfectly symmetric to the
+                                        // other side's toolset
+                                        let bob_constructor = return_if_none!(kem.constructor.take());
+                                        let udp_rx_opt = kem.udp_channel_sender.rx.take();
+                                        let endpoint_hyper_ratchet = return_if_none!(bob_constructor.finish_with_custom_cid(this_cid));
+                                        //let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();
+                                        let endpoint_security_level = session_security_settings.security_level;
+                                        let toolset = Toolset::new(this_cid, endpoint_hyper_ratchet.clone());
+                                        let peer_crypto = PeerSessionCrypto::new(toolset, false);
 
-                                    let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(&mut *inner_mut!(session.updates_in_progress), bob_predicted_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto);
-                                    // load the channel now that the keys have been exchanged
+                                        // create an endpoint vconn
+                                        let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
+                                        let (needs_turn, alice_predicted_socket_addr) = alice_nat_info.generate_proper_listener_connect_addr(&session.local_nat_type);
+                                        log::info!("[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
+                                        let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(alice_predicted_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto, session);
 
-                                    kem_state.local_is_initiator = true;
-                                    state_container.peer_kem_states.insert(peer_cid, kem_state);
-                                    log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
+                                        log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
+                                        // We can now send the channel to the kernel, where TURN traversal is immediantly available.
+                                        // however, STUN-like traversal will proceed in the background
+                                        //state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
+                                        let hole_punch_compat_stream = ReliableOrderedCompatStream::new(return_if_none!(session.to_primary_stream.clone()), &mut *state_container, alice_nat_info.peer_remote_addr_visible_from_server, return_if_none!(session.implicated_user_p2p_internal_listener_addr.clone()), peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
+                                        (hole_punch_compat_stream, channel, udp_rx_opt, endpoint_security_level, endpoint_hyper_ratchet)
+                                    };
 
-                                    let header_time = header.timestamp.get();
-                                    let (sync_instant, sync_time_ns) = calculate_sync_time(timestamp, header_time);
-                                    // now that the virtual connection is created on this end, we need to do the same to the other end
-                                    let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage2(sync_time_ns, None));
-
-                                    let hole_punch_compat_stream = ReliableOrderedCompatStream::new(return_if_none!(session.to_primary_stream.clone()), &mut *state_container, bob_nat_info.peer_remote_addr_visible_from_server, return_if_none!(session.implicated_user_p2p_internal_listener_addr.clone()), peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
-                                    std::mem::drop(state_container);
+                                    let app = NetworkEndpoint::register(RelativeNodeType::Receiver, hole_punch_compat_stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
                                     let encrypted_config_container = generate_hole_punch_crypt_container(endpoint_hyper_ratchet, SecurityLevel::LOW, peer_cid);
+                                    let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
+                                    let diff = Duration::from_nanos(i64::abs(timestamp - *sync_time_ns) as u64);
+                                    let sync_instant = Instant::now() + diff;
 
-                                    // we need to use the session pqc since this signal needs to get processed by the center node
-                                    let ref sess_hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(None));
-                                    let stage2_kem_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(sess_hyper_ratchet, signal, ticket, timestamp, security_level);
-                                    log::info!("Sent stage 2 peer KEM");
+                                    // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
+                                    let implicated_cid = session.implicated_cid.clone();
+                                    let kernel_tx = session.kernel_tx.clone();
+                                    let quic_endpoint = return_if_none!(session.client_only_quic_endpoint.clone());
 
-                                    // now, fire-up the hole-punch future
-                                    session.send_to_primary_stream(None, stage2_kem_packet)?;
+                                    let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, quic_endpoint,  encrypted_config_container);
+                                    let _ = spawn!(hole_punch_future);
 
-                                    (hole_punch_compat_stream, channel, udp_rx_opt, sync_instant, endpoint_security_level, encrypted_config_container)
-                                };
+                                    //let _ = hole_punch_future.await;
+                                    Ok(PrimaryProcessorResult::Void)
+                                }
 
-                                let implicated_cid = session.implicated_cid.clone();
-                                let kernel_tx = session.kernel_tx.clone();
-                                // must send packet before registering app, otherwise, registration will fail
-                                let app = NetworkEndpoint::register(RelativeNodeType::Initiator, hole_punch_compat_stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-                                //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
-                                let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
-                                let quic_endpoint = return_if_none!(session.client_only_quic_endpoint.clone());
-                                let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, quic_endpoint,  encrypted_config_container);
-                                let _ = spawn!(hole_punch_future);
+                                KeyExchangeProcess::HolePunchEstablished => {
+                                    log::info!("RECV HolePunchEstablished packet");
+                                    // The other side (client) is telling us it made a connection. It still is waiting on this node to verify
+                                    // that the connection is valid. What we do here is set p2p_conn as established.
+                                    // We only upgrade IF local is NOT the initiator. Because if the opposite end IS the initiator,
+                                    // then it gets to keep its connection no matter the result of this end's attempt to connect.
+                                    // If the local IS the initiator, then don't upgrade quite yet. We need to wait to make sure the
+                                    // other end finishes. In either case, we set the p2p conn as established
+                                    let mut state_container = inner_mut_state!(session.state_container);
+                                    let peer_cid = conn.get_original_implicated_cid();
+                                    let kem_state_container = return_if_none!(state_container.peer_kem_states.get_mut(&peer_cid));
 
-                                //let _ = hole_punch_future.await;
-                                Ok(PrimaryProcessorResult::Void)
-                            }
+                                    let possible_verified_conn = kem_state_container.verified_socket_addr.clone();
+                                    kem_state_container.p2p_conn_established = true;
 
-                            KeyExchangeProcess::Stage2(sync_time_ns, Some(alice_nat_info)) => {
-                                // NEW UPDATE: now that we know the other side successfully created its toolset,
-                                // calculate sync time then begin the hole punch subroutine
-                                log::info!("RECV STAGE 2 PEER KEM");
-                                let peer_cid = conn.get_original_implicated_cid();
-                                let this_cid = conn.get_original_target_cid();
-                                //let security_level = session.security_level;
-                                let (hole_punch_compat_stream, channel, udp_rx_opt, endpoint_security_level, endpoint_hyper_ratchet) = {
-                                    let mut state_container = inner_mut!(session.state_container);
-                                    let kem = return_if_none!(state_container.peer_kem_states.get_mut(&peer_cid));
-                                    let session_security_settings = kem.session_security_settings;
-                                    // since the AES-GCM was a success, we can now entrust that the toolset is perfectly symmetric to the
-                                    // other side's toolset
-                                    let bob_constructor = return_if_none!(kem.constructor.take());
-                                    let udp_rx_opt = kem.udp_channel_sender.rx.take();
-                                    let endpoint_hyper_ratchet = return_if_none!(bob_constructor.finish_with_custom_cid(this_cid));
-                                    //let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();
-                                    let endpoint_security_level = session_security_settings.security_level;
-                                    let toolset = Toolset::new(this_cid, endpoint_hyper_ratchet.clone());
-                                    let peer_crypto = PeerSessionCrypto::new(toolset, false);
-
-                                    // create an endpoint vconn
-                                    let vconn_type = VirtualConnectionType::HyperLANPeerToHyperLANPeer(this_cid, peer_cid);
-                                    let (needs_turn, alice_predicted_socket_addr) = alice_nat_info.generate_proper_listener_connect_addr(&session.local_nat_type);
-                                    log::info!("[STUN] Peer public addr: {:?} || needs TURN? {}", &alice_predicted_socket_addr, needs_turn);
-                                    let channel = state_container.insert_new_peer_virtual_connection_as_endpoint(&mut *inner_mut!(session.updates_in_progress),alice_predicted_socket_addr, session_security_settings, ticket, peer_cid, vconn_type, peer_crypto);
-
-                                    log::info!("Virtual connection forged on endpoint tuple {} -> {}", this_cid, peer_cid);
-                                    // We can now send the channel to the kernel, where TURN traversal is immediantly available.
-                                    // however, STUN-like traversal will proceed in the background
-                                    //state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
-                                    let hole_punch_compat_stream = ReliableOrderedCompatStream::new(return_if_none!(session.to_primary_stream.clone()), &mut *state_container, alice_nat_info.peer_remote_addr_visible_from_server, return_if_none!(session.implicated_user_p2p_internal_listener_addr.clone()), peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
-                                    (hole_punch_compat_stream, channel, udp_rx_opt, endpoint_security_level, endpoint_hyper_ratchet)
-                                };
-
-                                let app = NetworkEndpoint::register(RelativeNodeType::Receiver, hole_punch_compat_stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-                                let encrypted_config_container = generate_hole_punch_crypt_container(endpoint_hyper_ratchet, SecurityLevel::LOW, peer_cid);
-                                let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
-                                let diff = Duration::from_nanos(i64::abs(timestamp - *sync_time_ns) as u64);
-                                let sync_instant = Instant::now() + diff;
-
-                                // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
-                                let implicated_cid = session.implicated_cid.clone();
-                                let kernel_tx = session.kernel_tx.clone();
-                                let quic_endpoint = return_if_none!(session.client_only_quic_endpoint.clone());
-                                let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session_orig.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, quic_endpoint,  encrypted_config_container);
-                                let _ = spawn!(hole_punch_future);
-
-                                //let _ = hole_punch_future.await;
-                                Ok(PrimaryProcessorResult::Void)
-                            }
-
-                            KeyExchangeProcess::HolePunchEstablished => {
-                                log::info!("RECV HolePunchEstablished packet");
-                                // The other side (client) is telling us it made a connection. It still is waiting on this node to verify
-                                // that the connection is valid. What we do here is set p2p_conn as established.
-                                // We only upgrade IF local is NOT the initiator. Because if the opposite end IS the initiator,
-                                // then it gets to keep its connection no matter the result of this end's attempt to connect.
-                                // If the local IS the initiator, then don't upgrade quite yet. We need to wait to make sure the
-                                // other end finishes. In either case, we set the p2p conn as established
-                                let mut state_container = inner_mut!(session.state_container);
-                                let peer_cid = conn.get_original_implicated_cid();
-                                let kem_state_container = return_if_none!(state_container.peer_kem_states.get_mut(&peer_cid));
-
-                                let possible_verified_conn = kem_state_container.verified_socket_addr.clone();
-                                kem_state_container.p2p_conn_established = true;
-
-                                // NOTE: Since p2p conns use QUIC now udp_conn should always be some
+                                    // NOTE: Since p2p conns use QUIC now udp_conn should always be some
                                     if let Ok(udp_conn) = state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
                                         log::info!("Successfully upgraded direct p2p connection for {}@{:?}", peer_cid, peer_addr);
 
@@ -450,108 +454,111 @@ pub async fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, 
                                     }
 
 
-                                // Now, tell the other side the connection was established. Here, we use just pqc and drill because this packet,
-                                // by requirement, was encrypted using the endpoint encryption
-                                let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::HolePunchEstablishedVerified(true));
-                                let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal_endpoint(&sess_hyper_ratchet, signal, ticket, timestamp, peer_cid, security_level);
-                                Ok(PrimaryProcessorResult::ReplyToSender(packet))
-                            }
+                                    // Now, tell the other side the connection was established. Here, we use just pqc and drill because this packet,
+                                    // by requirement, was encrypted using the endpoint encryption
+                                    let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::HolePunchEstablishedVerified(true));
+                                    let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal_endpoint(&sess_hyper_ratchet, signal, ticket, timestamp, peer_cid, security_level);
+                                    Ok(PrimaryProcessorResult::ReplyToSender(packet))
+                                }
 
-                            KeyExchangeProcess::HolePunchEstablishedVerified(upgraded_connection) => {
-                                log::info!("RECV HolePunchEstablishedVerified packet");
-                                let mut state_container = inner_mut!(session.state_container);
-                                let peer_cid = conn.get_original_implicated_cid();
-                                // this node made it across the NAT. But, we don't necessarily upgrade the connection unless
-                                // upgraded_connection is true (in which case, the other side upgraded their connection)
-                                let kem_state_container = return_if_none!(state_container.peer_kem_states.get_mut(&peer_cid));
-                                let _local_is_initiator = kem_state_container.local_is_initiator;
-                                let other_conn_established = kem_state_container.p2p_conn_established;
-                                let possible_verified_conn = kem_state_container.verified_socket_addr.clone();
+                                KeyExchangeProcess::HolePunchEstablishedVerified(upgraded_connection) => {
+                                    log::info!("RECV HolePunchEstablishedVerified packet");
+                                    let mut state_container = inner_mut_state!(session.state_container);
+                                    let peer_cid = conn.get_original_implicated_cid();
+                                    // this node made it across the NAT. But, we don't necessarily upgrade the connection unless
+                                    // upgraded_connection is true (in which case, the other side upgraded their connection)
+                                    let kem_state_container = return_if_none!(state_container.peer_kem_states.get_mut(&peer_cid));
+                                    let _local_is_initiator = kem_state_container.local_is_initiator;
+                                    let other_conn_established = kem_state_container.p2p_conn_established;
+                                    let possible_verified_conn = kem_state_container.verified_socket_addr.clone();
 
-                                // the below condition should always be true. Delete other half and conditional during cleanup of code
-                                if *upgraded_connection {
-                                    // upgrade the connection no matter what
-                                    //debug_assert!(local_is_initiator);
-                                    log::info!("This exact connection has been upgraded by the adjacent node, Doing the same locally ...");
-                                    if let Ok(udp_conn) = state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
-                                        log::info!("Successfully upgraded direct p2p connection for {}@{:?}. Process complete!", peer_cid, peer_addr);
-                                        if let Some(udp_conn) = udp_conn {
-                                            let hole_punched_addr = HolePunchedSocketAddr::new(peer_addr, peer_addr, Default::default());
-                                            HdpSession::udp_socket_loader(session.clone(), conn.reverse().as_virtual_connection(), UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, None);
-                                        }
-                                    } else {
-                                        log::warn!("Unable to upgrade direct P2P connection for {:?}. Missing items?", peer_addr);
-                                    }
-                                } else {
-                                    //debug_assert!(!local_is_initiator);
-                                    // Since this connection works, but the other side didn't upgrade it, that means that
-                                    // we are waiting for the initiator's attempt to finish. But, if other_conn_established,
-                                    // then the connection happened which means we can drop this connection.
-                                    if other_conn_established {
-                                        log::info!("Other connection established. Will drop this exact connection");
-                                        // since these packets come thru the p2p streams, ending the session will only end the p2p session
-                                        return Ok(PrimaryProcessorResult::EndSession("Other connection established. Will drop this exact connection"));
-                                    } else {
-                                        // since this connection works, but the other connection has not been established, we need to wait for it
-                                        // to send this node a HolePunchEstablished. This stream will get dropped if a
-                                        // HolePunchEstablished arrives (since the other stream belongs to the initiator, and this one does not).
-                                        // During the upgrade process, since this stream would get overwritten if the initiator stream goes-in,
-                                        // we will upgrade the connection for now
-                                        kem_state_container.verified_socket_addr = Some(peer_addr);
-                                        log::info!("Connection established, but is a non-initiator stream. Will upgrade, but may be overwritten in the interim");
+                                    // the below condition should always be true. Delete other half and conditional during cleanup of code
+                                    if *upgraded_connection {
+                                        // upgrade the connection no matter what
+                                        //debug_assert!(local_is_initiator);
+                                        log::info!("This exact connection has been upgraded by the adjacent node, Doing the same locally ...");
                                         if let Ok(udp_conn) = state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
-                                            log::info!("Successfully upgraded direct p2p connection for {}@{:?}. May be overwritten though ...", peer_cid, peer_addr);
-
+                                            log::info!("Successfully upgraded direct p2p connection for {}@{:?}. Process complete!", peer_cid, peer_addr);
                                             if let Some(udp_conn) = udp_conn {
                                                 let hole_punched_addr = HolePunchedSocketAddr::new(peer_addr, peer_addr, Default::default());
                                                 HdpSession::udp_socket_loader(session.clone(), conn.reverse().as_virtual_connection(), UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, None);
                                             }
                                         } else {
-                                            log::warn!("Unable to upgrade direct P2P connection for {:?}. Missing items? (provisional)", peer_addr);
+                                            log::warn!("Unable to upgrade direct P2P connection for {:?}. Missing items?", peer_addr);
+                                        }
+                                    } else {
+                                        //debug_assert!(!local_is_initiator);
+                                        // Since this connection works, but the other side didn't upgrade it, that means that
+                                        // we are waiting for the initiator's attempt to finish. But, if other_conn_established,
+                                        // then the connection happened which means we can drop this connection.
+                                        if other_conn_established {
+                                            log::info!("Other connection established. Will drop this exact connection");
+                                            // since these packets come thru the p2p streams, ending the session will only end the p2p session
+                                            return Ok(PrimaryProcessorResult::EndSession("Other connection established. Will drop this exact connection"));
+                                        } else {
+                                            // since this connection works, but the other connection has not been established, we need to wait for it
+                                            // to send this node a HolePunchEstablished. This stream will get dropped if a
+                                            // HolePunchEstablished arrives (since the other stream belongs to the initiator, and this one does not).
+                                            // During the upgrade process, since this stream would get overwritten if the initiator stream goes-in,
+                                            // we will upgrade the connection for now
+                                            kem_state_container.verified_socket_addr = Some(peer_addr);
+                                            log::info!("Connection established, but is a non-initiator stream. Will upgrade, but may be overwritten in the interim");
+                                            if let Ok(udp_conn) = state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
+                                                log::info!("Successfully upgraded direct p2p connection for {}@{:?}. May be overwritten though ...", peer_cid, peer_addr);
+
+                                                if let Some(udp_conn) = udp_conn {
+                                                    let hole_punched_addr = HolePunchedSocketAddr::new(peer_addr, peer_addr, Default::default());
+                                                    HdpSession::udp_socket_loader(session.clone(), conn.reverse().as_virtual_connection(), UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, None);
+                                                }
+                                            } else {
+                                                log::warn!("Unable to upgrade direct P2P connection for {:?}. Missing items? (provisional)", peer_addr);
+                                            }
                                         }
                                     }
+
+                                    Ok(PrimaryProcessorResult::Void)
                                 }
 
-                                Ok(PrimaryProcessorResult::Void)
-                            }
+                                KeyExchangeProcess::HolePunchFailed => {
+                                    log::info!("RECV HolePunchFailed");
+                                    // TODO/optional: for future consideration, but is currently not at all necessary
+                                    Ok(PrimaryProcessorResult::Void)
+                                }
 
-                            KeyExchangeProcess::HolePunchFailed => {
-                                log::info!("RECV HolePunchFailed");
-                                // TODO/optional: for future consideration, but is currently not at all necessary
-                                Ok(PrimaryProcessorResult::Void)
-                            }
+                                _ => {
+                                    log::error!("INVALID KEM signal");
+                                    Ok(PrimaryProcessorResult::Void)
+                                }
+                            };
+                        }
 
-                            _ => {
-                                log::error!("INVALID KEM signal");
-                                Ok(PrimaryProcessorResult::Void)
-                            }
-                        };
+                        _ => {}
                     }
 
-                    _ => {}
+                    log::info!("Forwarding PEER signal to kernel ...");
+                    session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(signal, ticket))?;
+                    Ok(PrimaryProcessorResult::Void)
+                } else {
+                    process_signal_command_as_server(session, signal, ticket, sess_hyper_ratchet, header, timestamp, security_level, cnac).await
                 }
+            }
 
-                log::info!("Forwarding PEER signal to kernel ...");
-                session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(signal, ticket))?;
+            packet_flags::cmd::aux::peer_cmd::CHANNEL => {
                 Ok(PrimaryProcessorResult::Void)
-            } else {
-                process_signal_command_as_server(session_orig, signal, ticket, sess_hyper_ratchet, header, timestamp, security_level).await
+            }
+
+            _ => {
+                log::error!("Invalid peer auxiliary command");
+                Ok(PrimaryProcessorResult::Void)
             }
         }
+    };
 
-        packet_flags::cmd::aux::peer_cmd::CHANNEL => {
-            Ok(PrimaryProcessorResult::Void)
-        }
-
-        _ => {
-            log::error!("Invalid peer auxiliary command");
-            Ok(PrimaryProcessorResult::Void)
-        }
-    }
+    to_concurrent_processor!(concurrent_processor_tx, task)
 }
 
 
-async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSignal, ticket: Ticket, sess_hyper_ratchet: HyperRatchet, header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSignal, ticket: Ticket, sess_hyper_ratchet: HyperRatchet, header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64, security_level: SecurityLevel, cnac: ClientNetworkAccount) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref;
     match signal {
         PeerSignal::Kem(conn, mut kep) => {
@@ -621,7 +628,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
 
                                 let res = sess_mgr.clone().fcm_post_register_to(header.session_cid.get(), peer_conn_type.get_original_target_cid(), true, move |static_hr| { hyxe_user::external_services::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, tx, username) },
                                                                                 move |res| {
-                                                                                           post_fcm_send(res, sess_mgr.clone(), ticket, implicated_cid, security_level)
+                                                                                           post_fcm_send(res, sess_mgr.clone(), ticket, implicated_cid, security_level, &cnac)
                                                                                        }).await;
 
                                 match res {
@@ -664,7 +671,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                                 let sess_mgr = session.session_manager.clone(); // we must clone since the session may end after the FCM send occurs. We don't want to hold a strong ref
 
                                 let res = sess_mgr.clone().fcm_post_register_to(implicated_cid, target_cid, false, move |static_hr| { hyxe_user::external_services::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, fcm, username) }, move |res| {
-                                    post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level)
+                                    post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level, &cnac)
                                 }).await;
 
                                 match res {
@@ -702,7 +709,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             // then, delete the cid entry from the CNAC and save to the local FS
             match peer_conn_type {
                 PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                    let cnac = return_if_none!(session.cnac.get());
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
 
@@ -755,8 +761,8 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                                                   // placed into the state_containers
                                                   if let Some(this_tcp_sender) = this_sess.to_primary_stream.clone() {
                                                       if let Some(peer_tcp_sender) = peer_sess.to_primary_stream.clone() {
-                                                          let mut this_sess_state_container = inner_mut!(this_sess.state_container);
-                                                          let mut peer_sess_state_container = inner_mut!(peer_sess.state_container);
+                                                          let mut this_sess_state_container = inner_mut_state!(this_sess.state_container);
+                                                          let mut peer_sess_state_container = inner_mut_state!(peer_sess.state_container);
 
                                                           // The UDP senders may not exist (e.g., TCP only mode)
                                                           let this_udp_sender = this_sess_state_container.udp_primary_outbound_tx.clone();
@@ -790,7 +796,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
         PeerSignal::Disconnect(peer_conn_type, resp) => {
             match peer_conn_type {
                 PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                    let state_container = inner!(session.state_container);
+                    let state_container = inner_state!(session.state_container);
                     if let Some(v_conn) = state_container.active_virtual_connections.get(&target_cid) {
                         v_conn.is_active.store(false, Ordering::SeqCst); //prevent further messages from being sent from this node
                         // ... but, we still want any messages already sent to be processed
@@ -804,7 +810,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
 
                         let task = async move {
                             loop {
-                                if let Some(ts) = last_packet.get() {
+                                if let Some(ts) = last_packet.load(Ordering::SeqCst) {
                                     if ts.elapsed() > Duration::from_millis(1500) {
                                         break;
                                     }
@@ -817,7 +823,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
 
                             log::info!("[Peer Vconn @ Server] No packets received in the last 1500ms; will drop the virtual connection cleanly");
                             // once we're done waiting for packets to stop showing up, we can remove the container to end the underlying TCP stream
-                            let mut state_container = inner_mut!(state_container_ref);
+                            let mut state_container = inner_mut_state!(state_container_ref);
                             let _ = state_container.active_virtual_connections.remove(&target_cid);
 
                             let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!("Peer {} closed the virtual connection to {}", implicated_cid, target_cid))));
@@ -939,7 +945,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
 
         PeerSignal::DisconnectUDP(v_conn) => {
             // close this UDP channel
-            inner_mut!(session.state_container).remove_udp_channel(v_conn.get_target_cid());
+            inner_mut_state!(session.state_container).remove_udp_channel(v_conn.get_target_cid());
             Ok(PrimaryProcessorResult::Void)
         }
 
@@ -963,8 +969,8 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
         }
 
         PeerSignal::FcmFetch(..) => {
-            // TODO: This will be invalid since it doesn't poll the backend
-            let ref cnac = return_if_none!(session.cnac.get());
+            // TODO: This will be invalid since it doesn't poll the backend (uses local CNAC)
+            //let ref cnac = return_if_none!(session.cnac.get());
 
             reply_to_sender(PeerSignal::FcmFetch(cnac.retrieve_raw_fcm_packets().await?), &sess_hyper_ratchet, ticket, timestamp, security_level)
         }
@@ -973,7 +979,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             let _implicated_cid = header.session_cid.get();
             let account_manager = session.account_manager.clone();
             let tt = session.time_tracker.clone();
-            let ref cnac = return_if_none!(session.cnac.get());
 
             let res = account_manager.get_persistence_handler().update_fcm_keys(&cnac, new_keys.clone()).await;
             let timestamp = tt.get_global_time_ns();
@@ -1067,13 +1072,12 @@ fn route_signal_response(signal: PeerSignal, implicated_cid: u64, target_cid: u6
     }
 }
 
-fn post_fcm_send(res: Result<(), AccountError>, session_manager: HdpSessionManager, ticket: Ticket, implicated_cid: u64, security_level: SecurityLevel) {
+fn post_fcm_send(res: Result<(), AccountError>, session_manager: HdpSessionManager, ticket: Ticket, implicated_cid: u64, security_level: SecurityLevel, cnac: &ClientNetworkAccount) {
     log::info!("[FCM] Done sending FCM message");
     // After the send is complete, we go here
     if let Some(sess) = session_manager.get_session_by_cid(implicated_cid) {
         let timestamp = sess.time_tracker.get_global_time_ns();
         if let Some(primary_stream) = sess.to_primary_stream.as_ref() {
-            if let Some(ref cnac) = sess.cnac.get() {
                 let latest_hr = cnac.get_hyper_ratchet(None).unwrap();
                 let packet = match res {
                     Ok(_) => {
@@ -1086,7 +1090,7 @@ fn post_fcm_send(res: Result<(), AccountError>, session_manager: HdpSessionManag
                 };
 
                 reply_to_sender_via_primary_stream(packet, primary_stream);
-            }
+
         }
     }
 }

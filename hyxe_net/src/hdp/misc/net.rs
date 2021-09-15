@@ -154,6 +154,7 @@ impl GenericNetworkListener {
         }
     }
 
+    #[allow(dead_code)]
     pub fn tls_domain(&self) -> TlsDomain {
         match self {
             Self::Tcp(..) => None,
@@ -230,6 +231,7 @@ impl TlsListener {
 
     /// Given a path and password, returns the asymmetric crypto identity
     /// Also stores the QUIC keys for use in case of P2P
+    #[allow(dead_code)]
     pub fn load_tls_pkcs<P: AsRef<Path>, T: AsRef<str>>(path: P, password: T) -> Result<TLSQUICInterop, NetworkError> {
         let bytes = std::fs::read(path).map_err(|err| NetworkError::Generic(err.to_string()))?;
         hyxe_nat::tls::create_server_config(&bytes, password.as_ref()).map_err(|err| NetworkError::Generic(err.to_string()))
@@ -321,6 +323,7 @@ impl Stream for TlsListener {
 pub struct QuicListener {
     endpoint: Endpoint,
     incoming: Incoming,
+    #[allow(unused)]
     domain: TlsDomain,
     queue: Vec<Pin<Box<dyn QuicOutputImpl>>>,
     #[allow(dead_code)]

@@ -3,6 +3,7 @@ use std::fmt::{Display, Debug};
 use std::fmt::Formatter;
 use tokio::sync::mpsc::error::SendError;
 use hyxe_user::misc::AccountError;
+use hyxe_crypt::misc::CryptError;
 
 /// The basic error type for this crate
 pub enum NetworkError {
@@ -92,6 +93,10 @@ impl NetworkError {
             }
         }
     }
+
+    pub fn msg<T: Into<String>>(msg: T) -> Self {
+        Self::Generic(msg.into())
+    }
 }
 
 impl Display for NetworkError {
@@ -114,6 +119,18 @@ impl From<AccountError> for NetworkError {
 
 impl From<anyhow::Error> for NetworkError {
     fn from(err: anyhow::Error) -> Self {
+        NetworkError::Generic(err.to_string())
+    }
+}
+
+impl From<CryptError> for NetworkError {
+    fn from(err: CryptError) -> Self {
+        Self::Generic(err.into_string())
+    }
+}
+
+impl From<std::io::Error> for NetworkError {
+    fn from(err: std::io::Error) -> Self {
         NetworkError::Generic(err.to_string())
     }
 }

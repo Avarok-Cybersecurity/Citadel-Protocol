@@ -6,24 +6,23 @@ use hyxe_crypt::hyper_ratchet::RatchetType;
 use crate::hdp::hdp_server::SecrecyMode;
 use std::ops::Deref;
 use crate::error::NetworkError;
+use std::sync::atomic::Ordering;
 
 pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
-    if session.state.get() != SessionState::Connected {
+    if session.state.load(Ordering::Relaxed) != SessionState::Connected {
         log::error!("Session state is not connected; dropping drill update packet");
         return Ok(PrimaryProcessorResult::Void);
     }
 
     let HdpSessionInner {
-        cnac,
         state_container,
         time_tracker,
-        security_settings,
         ..
     } = session.inner.deref();
 
-    let ref cnac_sess = return_if_none!(cnac.get(), "Sess CNAC not loaded");
     let (header, payload, _, _) = packet.decompose();
-    let mut state_container = inner_mut!(state_container);
+    let mut state_container = inner_mut_state!(state_container);
+    let ref cnac_sess = return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded");
 
     let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header_drill_vers, cnac_sess, &state_container, proxy_cid_info), "Unable to get proper HR");
     let (header, payload) = return_if_none!(validation::aead::validate_custom(&hyper_ratchet, &header, payload), "Unable to validate packet");
@@ -63,9 +62,9 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                     let target_cid = header.target_cid.get();
                     let resp_target_cid = get_resp_target_cid_from_header(header);
                     let needs_truncate = transfer.update_status.requires_truncation();
-                    let constructor = if target_cid != C2S_ENCRYPTION_ONLY { return_if_none!(state_container.drill_update_state.p2p_updates.remove(&peer_cid)) } else { return_if_none!(state_container.drill_update_state.alice_hyper_ratchet.take()) };
+                    let constructor = if target_cid != C2S_ENCRYPTION_ONLY { return_if_none!(state_container.ratchet_update_state.p2p_updates.remove(&peer_cid)) } else { return_if_none!(state_container.ratchet_update_state.alice_hyper_ratchet.take()) };
                     log::info!("Obtained constructor for {}", resp_target_cid);
-                    let secrecy_mode = return_if_none!(security_settings.get().map(|r| r.secrecy_mode).clone());
+                    let secrecy_mode = return_if_none!(state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone());
 
                     let latest_hr = return_if_none!(return_if_none!(attempt_kem_as_alice_finish(secrecy_mode, peer_cid, target_cid, transfer.update_status, &mut state_container.active_virtual_connections, Some(ConstructorType::Default(constructor)), cnac_sess).ok(), "Unable to attempt KEM as alice finish")
                         .unwrap_or(RatchetType::Default(hyper_ratchet)).assume_default());
@@ -93,7 +92,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                 (ToolsetUpdate::E2E { crypt, local_cid }, endpoint_container.default_security_settings.secrecy_mode)
             } else {
                 // Cnac
-                (ToolsetUpdate::SessCNAC(cnac_sess), security_settings.get().map(|r| r.secrecy_mode).clone().unwrap())
+                (ToolsetUpdate::SessCNAC(cnac_sess), state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone().unwrap())
             };
 
             // We optionally deregister at this endpoint to prevent any further packets with this version from being sent
@@ -127,7 +126,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
 
             if secrecy_mode == SecrecyMode::Perfect {
                 if do_poll {
-                    let _ = session.poll_next_enqueued(resp_target_cid, state_container.into())?;
+                    let _ = state_container.poll_next_enqueued(resp_target_cid)?;
                 }
             }
 
@@ -148,7 +147,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                 (ToolsetUpdate::E2E { crypt, local_cid }, endpoint_container.default_security_settings.secrecy_mode)
             } else {
                 // Cnac
-                (ToolsetUpdate::SessCNAC(cnac_sess), security_settings.get().map(|r| r.secrecy_mode).clone().unwrap())
+                (ToolsetUpdate::SessCNAC(cnac_sess), state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone().unwrap())
             };
 
             let _ = return_if_none!(method.unlock(true)); // unconditional unlock
@@ -156,7 +155,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             // now, we can poll any packets
             //std::mem::drop(state_container);
             if secrecy_mode == SecrecyMode::Perfect {
-                let _ = session.poll_next_enqueued(resp_target_cid, state_container.into())?;
+                let _ = state_container.poll_next_enqueued(resp_target_cid)?;
             }
 
             Ok(PrimaryProcessorResult::Void)

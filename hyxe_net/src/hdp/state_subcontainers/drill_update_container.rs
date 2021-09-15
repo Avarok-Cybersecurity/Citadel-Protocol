@@ -6,15 +6,9 @@ use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 use std::collections::HashMap;
 
 #[derive(Default)]
-pub struct DrillUpdateState {
+pub struct RatchetUpdateState {
     pub alice_hyper_ratchet: Option<HyperRatchetConstructor>,
     pub p2p_updates: HashMap<u64, HyperRatchetConstructor>
-}
-
-impl DrillUpdateState {
-    pub fn stage0_alice(&mut self, hyper_ratchet: HyperRatchetConstructor) {
-        self.alice_hyper_ratchet = Some(hyper_ratchet);
-    }
 }
 
 /// Calculates the frequency, in nanoseconds per update

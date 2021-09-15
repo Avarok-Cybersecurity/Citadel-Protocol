@@ -3,7 +3,7 @@ use crate::hdp::hdp_server::SecrecyMode;
 use serde::{Serialize, Deserialize};
 use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Default)]
 pub struct SessionSecuritySettings {
     pub(crate) security_level: SecurityLevel,
     pub(crate) secrecy_mode: SecrecyMode,

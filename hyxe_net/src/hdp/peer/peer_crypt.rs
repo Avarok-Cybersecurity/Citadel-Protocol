@@ -5,13 +5,6 @@ use std::net::SocketAddr;
 use hyxe_nat::nat_identification::NatType;
 use crate::hdp::hdp_server::TlsDomain;
 
-
-pub const KEP_STAGE0: u8 = 0;
-pub const KEP_STAGE1: u8 = 1;
-pub const KEP_INIT_REKEY: u8 = 2;
-pub const KEP_ACCEPT_REKEY: u8 = 3;
-
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum KeyExchangeProcess {
     // alice sends public key

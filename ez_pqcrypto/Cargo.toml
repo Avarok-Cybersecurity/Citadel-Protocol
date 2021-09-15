@@ -16,14 +16,16 @@ exclude = [
 
 [features]
 default = ["unordered"]
-unordered = ["circular-queue", "parking_lot"]
+unordered = ["parking_lot"]
 
 [dependencies]
-pqcrypto-traits = { version = "0.3.3" }
-pqcrypto-saber = { version = "^0.1.7", features = ["serialization"] }
-pqcrypto-kyber = { version = "^0.7.1", features = ["serialization"] }
-pqcrypto-ntru = { version = "^0.5.4", features = ["serialization"] }
+#pqcrypto-traits = { version = "0.3.3" }
+#pqcrypto-saber = { version = "^0.1.7", features = ["serialization"] }
+#pqcrypto-kyber = { version = "^0.7.1", features = ["serialization"] }
+#pqcrypto-ntru = { version = "^0.5.4", features = ["serialization"] }
 generic-array = { version = "0.14.4", features = ["serde"]}
+lazy_static = "1.4.0"
+oqs = { version = "0.7.0", default-features = false, features = ["serde", "saber", "kyber", "sidh", "sike", "ntru"] }
 enum_primitive = "0.1.1"
 serde = { version = "1.0.118", features = ["derive"] }
 #serde_traitobject = "0.2.7"
@@ -32,7 +34,7 @@ bincode2 = "2.0.1"
 aes-gcm-siv = { version = "0.10.2", features = ["heapless"]}
 chacha20poly1305 = { version = "0.8.1", features = ["heapless", "xchacha20poly1305"] }
 bytes = "^1.0.1"
-circular-queue = { version = "*", features = ["serde_support"], optional = true }
+#circular-queue = { version = "*", features = ["serde_support"], optional = true }
 parking_lot = { version = "0.11.0", features = ["serde"], optional = true }
 log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
 strum = { version = "0.21.0", features = ["derive"] }
@@ -42,4 +44,9 @@ sha3 = "0.9.1"
 
 [dev-dependencies]
 rand = "0.7.3"
+criterion = "0.3.5"
 #rust-sike = "0.2.0"
+
+[[bench]]
+name = "test"
+harness = false

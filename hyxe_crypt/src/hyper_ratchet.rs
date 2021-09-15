@@ -41,7 +41,7 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
     fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
     fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
 
-    fn next_alice_constructor(&self) -> Self::Constructor {
+    fn next_alice_constructor(&self) -> Option<Self::Constructor> {
         Self::Constructor::new_alice(self.get_next_constructor_opts(), self.get_cid(), self.version().wrapping_add(1), Some(self.get_default_security_level()))
     }
 }
@@ -536,7 +536,7 @@ pub mod constructor {
     }
 
     impl EndpointRatchetConstructor<HyperRatchet> for HyperRatchetConstructor {
-        fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self {
+        fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Option<Self> {
             HyperRatchetConstructor::new_alice(opts, cid, new_version, security_level)
         }
 
@@ -681,23 +681,28 @@ pub mod constructor {
 
     impl HyperRatchetConstructor {
         /// Called during the initialization stage
-        pub fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Self {
+        pub fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Option<Self> {
             let security_level = security_level.unwrap_or(SecurityLevel::LOW);
             log::info!("[ALICE] creating container with {:?} security level", security_level);
             //let count = security_level.value() as usize + 1;
+            let len = opts.len();
             let params = opts[0].cryptography.unwrap_or_default();
-            let keys = opts.into_iter().map(|opts| MessageRatchetConstructorInner { drill: None, pqc: PostQuantumContainer::new_alice(opts) }).collect();
+            let keys = opts.into_iter().filter_map(|opts| Some(MessageRatchetConstructorInner { drill: None, pqc: PostQuantumContainer::new_alice(opts).ok()? })).collect::<Vec<MessageRatchetConstructorInner>>();
 
-            Self {
+            if keys.len() != len {
+                return None;
+            }
+
+            Some(Self {
                 params,
                 message: MessageRatchetConstructor { inner: keys },
-                scramble: ScrambleRatchetConstructor { drill: None, pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params))) },
+                scramble: ScrambleRatchetConstructor { drill: None, pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params))).ok()? },
                 nonce_message: Drill::generate_public_nonce(params.encryption_algorithm),
                 nonce_scramble: Drill::generate_public_nonce(params.encryption_algorithm),
                 cid,
                 new_version,
                 security_level
-            }
+            })
         }
 
         /// Called when bob receives alice's pk's

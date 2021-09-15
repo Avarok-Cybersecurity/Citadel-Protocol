@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, Debug};
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 
@@ -10,20 +10,21 @@ use crate::hdp::hdp_packet_processor::primary_group_packet::attempt_kem_as_alice
 use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
 
-use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig, GroupSenderDevice};
+use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig};
 use netbeam::time_tracker::TimeTracker;
 use hyxe_user::client_account::ClientNetworkAccount;
 
-use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS};
+use crate::hdp::misc::dual_rwlock::DualRwLock;
+use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS, GROUP_EXPIRE_TIME_MS, MAX_OUTGOING_UNPROCESSED_REQUESTS};
 use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
-use crate::hdp::hdp_packet_crafter::GroupTransmitter;
+use crate::hdp::hdp_packet_crafter::{GroupTransmitter, SecureProtocolPacket, RatchetPacketCrafterContainer};
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr, HdpSession};
 use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote, SecrecyMode};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;
-use crate::hdp::state_subcontainers::drill_update_container::DrillUpdateState;
+use crate::hdp::state_subcontainers::drill_update_container::RatchetUpdateState;
 use crate::hdp::state_subcontainers::preconnect_state_container::PreConnectState;
 use crate::hdp::state_subcontainers::register_state_container::RegisterState;
 use hyxe_crypt::drill::SecurityLevel;
@@ -40,23 +41,33 @@ use futures::StreamExt;
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
 use hyxe_fs::prelude::SyncIO;
 use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
-use crate::hdp::peer::peer_layer::PeerConnectionType;
+use crate::hdp::peer::peer_layer::{PeerConnectionType, UdpMode};
 use hyxe_fs::env::DirectoryStore;
-use crate::hdp::misc::dual_rwlock::DualRwLock;
+//use crate::hdp::misc::dual_rwlock::DualRwLock;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
-use crate::hdp::misc::dual_cell::DualCell;
 use crate::hdp::hdp_session::SessionState;
 use crate::hdp::misc::ordered_channel::OrderedChannel;
 use bytes::Bytes;
 use crate::hdp::misc::udp_internal_interface::QuicUdpSocketConnector;
 use crate::error::NetworkError;
+use atomic::Atomic;
+use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+use either::Either;
+use crate::hdp::session_queue_handler::{QueueWorkerResult, SessionQueueWorkerHandle};
+use crate::hdp::time::TransferStats;
+use crate::hdp::hdp_packet_crafter;
+use crate::hdp::misc::dual_late_init::DualLateInit;
+
+impl Debug for StateContainer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "StateContainer")
+    }
+}
 
 #[derive(Clone)]
 pub struct StateContainer {
-    pub inner: DualRwLock<StateContainerInner>
+    pub(crate) inner: DualRwLock<StateContainerInner>
 }
-
-//define_outer_struct_wrapper!(StateContainer, StateContainerInner);
 
 /// For keeping track of the stages
 pub struct StateContainerInner {
@@ -66,11 +77,12 @@ pub struct StateContainerInner {
     pub(super) register_state: RegisterState,
     /// No hashmap here, since connect is only for a single target
     pub(super) connect_state: ConnectState,
-    pub(super) drill_update_state: DrillUpdateState,
+    pub(super) ratchet_update_state: RatchetUpdateState,
     pub(super) deregister_state: DeRegisterState,
     pub(super) meta_expiry_state: MetaExpiryState,
     pub(super) network_stats: NetworkStats,
-    pub(super) enqueued_packets: HashMap<u64, VecDeque<(Ticket, SecBuffer, VirtualTargetType, SecurityLevel)>>,
+    pub(super) enqueued_packets: HashMap<u64, VecDeque<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>>,
+    pub(super) updates_in_progress: HashMap<u64, Arc<AtomicBool>>,
     pub(super) inbound_files: HashMap<FileKey, InboundFileTransfer>,
     pub(super) outbound_files: HashMap<FileKey, OutboundFileTransfer>,
     pub(super) inbound_groups: HashMap<GroupKey, GroupReceiverContainer>,
@@ -82,10 +94,17 @@ pub struct StateContainerInner {
     pub(super) provisional_direct_p2p_conns: HashMap<SocketAddr, DirectP2PRemote>,
     pub(super) c2s_channel_container: Option<C2SChannelContainer>,
     pub(crate) keep_alive_timeout_ns: i64,
-    pub(crate) state: DualCell<SessionState>,
+    pub(crate) state: Arc<Atomic<SessionState>>,
     // whenever a c2s or p2p channel is loaded, this is fired to signal any UDP loaders that it is safe to store the UDP conn in the corresponding v_conn
     pub(super) tcp_loaded_status: Option<tokio::sync::oneshot::Sender<()>>,
-    pub(super) hole_puncher_pipes: HashMap<u64, tokio::sync::mpsc::UnboundedSender<Bytes>>
+    pub(super) hole_puncher_pipes: HashMap<u64, tokio::sync::mpsc::UnboundedSender<Bytes>>,
+    pub(super) cnac: Option<ClientNetworkAccount>,
+    pub(super) time_tracker: TimeTracker,
+    pub(super) session_security_settings: Option<SessionSecuritySettings>,
+    pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle>,
+    pub(super) transfer_stats: TransferStats,
+    pub(super) udp_mode: UdpMode,
+    is_server: bool
 }
 
 /// This helps consolidate unique keys between vconns sending data to this node
@@ -145,7 +164,7 @@ impl FileKey {
 pub struct VirtualConnection<R: Ratchet = HyperRatchet> {
     /// For determining the type of connection
     pub connection_type: VirtualConnectionType,
-    pub last_delivered_message_timestamp: DualCell<Option<Instant>>,
+    pub last_delivered_message_timestamp: Arc<Atomic<Option<Instant>>>,
     pub is_active: Arc<AtomicBool>,
     // this is Some for server, None for endpoints
     pub sender: Option<(Option<OutboundUdpSender>, OutboundPrimaryStreamSender)>,
@@ -178,7 +197,8 @@ pub struct C2SChannelContainer {
     to_channel: OrderedChannel,
     // for UDP
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
-    is_active: Arc<AtomicBool>
+    is_active: Arc<AtomicBool>,
+    primary_outbound_tx: OutboundPrimaryStreamSender
 }
 
 pub(crate) struct UnorderedChannelContainer {
@@ -214,10 +234,6 @@ pub enum VirtualConnectionType {
 
 /// For readability
 pub type VirtualTargetType = VirtualConnectionType;
-pub const HYPERLAN_PEER_TO_HYPERLAN_PEER: u8 = 0;
-pub const HYPERLAN_PEER_TO_HYPERWAN_PEER: u8 = 1;
-pub const HYPERLAN_PEER_TO_HYPERLAN_SERVER: u8 = 2;
-pub const HYPERLAN_PEER_TO_HYPERWAN_SERVER: u8 = 3;
 impl VirtualConnectionType {
     pub fn serialize(&self) -> Vec<u8> {
         Self::serialize_to_vector(self).unwrap()
@@ -375,12 +391,11 @@ pub(super) struct NetworkStats {
     pub(super) rtt_ns: Option<i64>
 }
 
-define_outer_struct_wrapper!(GroupSender, GroupSenderDevice);
+//define_outer_struct_wrapper!(GroupSender, GroupSenderDevice<HDP_HEADER_BYTE_LEN>);
 
 pub(crate) struct OutboundTransmitterContainer {
     ratchet_constructor: Option<HyperRatchetConstructor>,
-    burst_transmitter: Option<GroupTransmitter>,
-    pub reliability_container: GroupSender,
+    pub(crate) burst_transmitter: GroupTransmitter,
     // in the case of file transfers, it is desirable to wake-up the async task
     // that enqueues the next group
     object_notifier: Option<UnboundedSender<()>>,
@@ -397,13 +412,11 @@ pub(crate) struct OutboundTransmitterContainer {
 
 impl OutboundTransmitterContainer {
     pub fn new(object_notifier: Option<UnboundedSender<()>>, mut burst_transmitter: GroupTransmitter, group_plaintext_length: usize, parent_object_total_groups: usize, relative_group_id: u32, ticket: Ticket) -> Self {
-        let reliability_container = burst_transmitter.get_reliability_container();
         let ratchet_constructor = burst_transmitter.hyper_ratchet_container.base_constructor.take();
-        let burst_transmitter = Some(burst_transmitter);
         let transmission_start_time = Instant::now();
         let has_begun = false;
 
-        Self { ratchet_constructor, has_begun, relative_group_id, ticket, parent_object_total_groups, transmission_start_time, group_plaintext_length, object_notifier, burst_transmitter, reliability_container, waves_in_current_window: 0, wave_acks_in_window_received: 0, enqueued_next_range: None }
+        Self { ratchet_constructor, has_begun, relative_group_id, ticket, parent_object_total_groups, transmission_start_time, group_plaintext_length, object_notifier, burst_transmitter, waves_in_current_window: 0, wave_acks_in_window_received: 0, enqueued_next_range: None }
     }
 
     /// returns Some if the window finished transmitting
@@ -509,9 +522,10 @@ impl GroupReceiverContainer {
 
 impl StateContainerInner {
     /// Creates a new container
-    pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote, keep_alive_timeout_ns: i64, state: DualCell<SessionState>) -> StateContainer {
-        let inner = Self { hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), drill_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
+    pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: HdpServerRemote, keep_alive_timeout_ns: i64, state: Arc<Atomic<SessionState>>, cnac: Option<ClientNetworkAccount>, time_tracker: TimeTracker, session_security_settings: Option<SessionSecuritySettings>, is_server: bool, transfer_stats: TransferStats, udp_mode: UdpMode) -> StateContainer {
+        let inner = Self { udp_mode, transfer_stats, queue_handle: Default::default(), is_server, session_security_settings, time_tracker, cnac, updates_in_progress: HashMap::new(), hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), ratchet_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
         StateContainer { inner: DualRwLock::from(inner) }
+        //StateContainer { inner: Arc::new(parking_lot::RwLock::new(inner)) }
     }
 
     /// This assumes the data has reached its destination endpoint, and must be forwarded to the channel
@@ -669,14 +683,17 @@ impl StateContainerInner {
     }
 
     #[allow(unused_results)]
-    pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, map: &mut HashMap<u64, Arc<AtomicBool>>, peer_socket_addr: SocketAddr, default_security_settings: SessionSecuritySettings, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto) -> PeerChannel {
+    pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, peer_socket_addr: SocketAddr, default_security_settings: SessionSecuritySettings, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto, sess: &HdpSession) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
         let is_active = Arc::new(AtomicBool::new(true));
 
-        map.insert(target_cid, endpoint_crypto.update_in_progress.clone());
+        self.updates_in_progress.insert(target_cid, endpoint_crypto.update_in_progress.clone());
 
-        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket, default_security_settings.security_level, is_active.clone(), channel_rx);
+        let (tx, rx) = futures::channel::mpsc::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
+        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket, default_security_settings.security_level, is_active.clone(), channel_rx, tx);
         let to_channel = OrderedChannel::new(channel_tx);
+
+        HdpSession::spawn_message_sender_function(sess.clone(), rx);
 
         let endpoint_container = Some(EndpointChannelContainer {
             default_security_settings,
@@ -688,7 +705,7 @@ impl StateContainerInner {
         });
 
         let vconn = VirtualConnection {
-            last_delivered_message_timestamp: DualCell::new(None),
+            last_delivered_message_timestamp: Arc::new(Atomic::new(None)),
             connection_type,
             is_active,
             // this is None for endpoints, as there's no need for this
@@ -703,20 +720,23 @@ impl StateContainerInner {
 
     /// This should be ran at the beginning of a session to provide ordered delivery to clients
     #[allow(unused_results)]
-    pub fn init_new_c2s_virtual_connection(&mut self, cnac: &ClientNetworkAccount, map: &mut HashMap<u64, Arc<AtomicBool>>, security_level: SecurityLevel, channel_ticket: Ticket, implicated_cid: u64) -> PeerChannel {
+    pub fn init_new_c2s_virtual_connection(&mut self, cnac: &ClientNetworkAccount, security_level: SecurityLevel, channel_ticket: Ticket, implicated_cid: u64, session: &HdpSession) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
+        let (tx, rx) = futures::channel::mpsc::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
         let is_active = Arc::new(AtomicBool::new(true));
-        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), channel_ticket, security_level, is_active.clone(), channel_rx);
+        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), channel_ticket, security_level, is_active.clone(), channel_rx, tx);
+        HdpSession::spawn_message_sender_function(session.clone(), rx);
 
         let c2s = C2SChannelContainer {
             to_channel: OrderedChannel::new(channel_tx),
             to_unordered_channel: None,
-            is_active
+            is_active,
+            primary_outbound_tx: session.to_primary_stream.clone().unwrap()
         };
 
         self.c2s_channel_container = Some(c2s);
 
-        map.insert(0, cnac.visit(|r| r.crypt_container.update_in_progress.clone()));
+        self.updates_in_progress.insert(0, cnac.visit(|r| r.crypt_container.update_in_progress.clone()));
 
         if let Some(udp_alerter) = self.tcp_loaded_status.take() {
             let _ = udp_alerter.send(());
@@ -734,24 +754,12 @@ impl StateContainerInner {
     /// Note: the `endpoint_crypto` container needs to be Some in order for transfer to occur between peers w/o encryption/decryption at the center point
     /// GROUP packets and PEER_CMD::CHANNEL packets bypass the central node's encryption/decryption phase
     pub fn insert_new_virtual_connection_as_server(&mut self, target_cid: u64, connection_type: VirtualConnectionType, target_udp_sender: Option<OutboundUdpSender>, target_tcp_sender: OutboundPrimaryStreamSender) {
-        let val = VirtualConnection { last_delivered_message_timestamp: DualCell::new(None), endpoint_container: None, sender: Some((target_udp_sender, target_tcp_sender)), connection_type, is_active: Arc::new(AtomicBool::new(true)) };
+        let val = VirtualConnection { last_delivered_message_timestamp: Arc::new(Atomic::new(None)), endpoint_container: None, sender: Some((target_udp_sender, target_tcp_sender)), connection_type, is_active: Arc::new(AtomicBool::new(true)) };
         if self.active_virtual_connections.insert(target_cid, val).is_some() {
             log::warn!("Inserted a virtual connection. but overwrote one in the process. Report to developers");
         }
 
         log::info!("Vconn {} -> {} established", connection_type.get_implicated_cid(), target_cid);
-    }
-
-    /// Once NAT-traversal succeeds between two peers, this should be called
-    pub fn update_direct_p2p_remote(&mut self, target_cid: u64, remote: Option<DirectP2PRemote>) -> bool {
-        if let Some(endpoint_container) = self.active_virtual_connections.get_mut(&target_cid) {
-            if let Some(container) = endpoint_container.endpoint_container.as_mut() {
-                container.direct_p2p_remote = remote;
-                return true;
-            }
-        }
-
-        false
     }
 
     /// Determines whether to use the default primary stream or the direct p2p primary stream
@@ -977,7 +985,6 @@ impl StateContainerInner {
     /// NOTE: If object id != 0, then this header ack belongs to a file transfer and must thus be transmitted via TCP
     #[allow(unused_results)]
     pub fn on_group_header_ack_received(&mut self, base_session_secrecy_mode: SecrecyMode, object_id: u32, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool, cnac_sess: &ClientNetworkAccount) -> bool {
-        // the target is where the packet came from (implicated_cid)
         let key = GroupKey::new(peer_cid, group_id);
 
         if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
@@ -995,23 +1002,15 @@ impl StateContainerInner {
             outbound_container.waves_in_current_window = next_window.clone().unwrap_or(0..=0).count();
             if object_id != 0 || next_window.is_none() {
                 // file-transfer, or TCP only mode since next_window is none. Use TCP
-                if let Some(transmitter) = outbound_container.burst_transmitter.as_mut() {
-                    return transmitter.transmit_tcp_file_transfer();
-                } else {
-                    log::error!("Transmitter already taken. Invalid request");
-                }
+                return outbound_container.burst_transmitter.transmit_tcp_file_transfer();
             } else {
                 // message. Use MQ-UDP
                 if let Some(udp_sender) = self.udp_primary_outbound_tx.as_ref() {
-                    if let Some(transmitter) = outbound_container.burst_transmitter.as_mut() {
-                        return if let Some(next_window) = next_window {
-                            Self::transmit_window_udp(udp_sender, transmitter, next_window)
-                        } else {
-                            log::error!("MQ-UDP was signalled to be used, but the next window was not provided. Invalid request");
-                            false
-                        }
+                    return if let Some(next_window) = next_window {
+                        Self::transmit_window_udp(udp_sender, &mut outbound_container.burst_transmitter, next_window)
                     } else {
-                        log::error!("Transmitter already taken. Invalid request");
+                        log::error!("MQ-UDP was signalled to be used, but the next window was not provided. Invalid request");
+                        false
                     }
                 } else {
                     log::error!("MQ-UDP sender does not exist, yet, the request called for its existence");
@@ -1069,7 +1068,7 @@ impl StateContainerInner {
             if missing_packets != 0 {
                 log::warn!("Missing packet in window (before wait): {}", missing_packets);
                 // clone these items to allow them to live for 'static when moved into the closure below
-                let session_ref = session_ref.clone();
+                let session_ref = session_ref.state_container.clone();
                 let hyper_ratchet = hyper_ratchet.clone();
                 let time_tracker = time_tracker.clone();
 
@@ -1080,8 +1079,7 @@ impl StateContainerInner {
                     log::trace!("ASYNC task waiting for {} nanos = {} millis", wait_time.as_nanos(), wait_time.as_millis());
                     tokio::time::sleep(wait_time).await;
                     // now, we can safely use the state container
-                    let sess = session_ref;
-                    let mut state_container = inner_mut!(sess.state_container);
+                    let mut state_container = inner_mut_state!(session_ref);
                     if let Some(group_receiver) = state_container.inbound_groups.get_mut(&key) {
 
                         // since we are missing packets, decrease the next window.
@@ -1136,7 +1134,7 @@ impl StateContainerInner {
             if let Some(transmitter_container) = self.outbound_transmitters.get_mut(&key) {
                 // we set has_begun here instead of the transmit_tcp, simply because we want the first wave to ACK
                 transmitter_container.has_begun = true;
-                let mut transmitter = inner_mut!(transmitter_container.reliability_container);
+                let ref mut transmitter = transmitter_container.burst_transmitter.group_transmitter;
                 let relative_group_id = transmitter_container.relative_group_id;
                 if transmitter.on_wave_tail_ack_received(wave_id) {
                     // Group is finished. Delete it
@@ -1179,7 +1177,7 @@ impl StateContainerInner {
             // message
             if let Some(transmitter_container) = self.outbound_transmitters.get_mut(&key) {
                 transmitter_container.has_begun = true;
-                let mut transmitter = inner_mut!(transmitter_container.reliability_container);
+                let ref mut transmitter = transmitter_container.burst_transmitter.group_transmitter;
                 if transmitter.on_wave_tail_ack_received(wave_id) {
                     // Group is finished. Delete it
                     delete_group = true;
@@ -1192,14 +1190,14 @@ impl StateContainerInner {
                     }
                 }
 
-                std::mem::drop(transmitter);
+                //std::mem::drop(transmitter);
 
                 // if we are deleting the group, no need to resume transmission (or, no need for tcp_only mode either)
                 if !tcp_only && !delete_group {
                     if let Some(waves_in_next_window) = transmitter_container.on_wave_ack_received(waves_in_next_window) {
                         // window finished. Begin transmission of next window
                         let udp_sender = self.udp_primary_outbound_tx.as_ref().unwrap();
-                        return Self::transmit_window_udp(udp_sender, transmitter_container.burst_transmitter.as_mut().unwrap(), waves_in_next_window);
+                        return Self::transmit_window_udp(udp_sender, &mut transmitter_container.burst_transmitter, waves_in_next_window);
                     }
                 }
             } else {
@@ -1229,8 +1227,8 @@ impl StateContainerInner {
         let group_id = header.group.get();
         let key = GroupKey::new(header.session_cid.get(), group_id);
 
-        if let Some(sender) = self.outbound_transmitters.get(&key) {
-            let sender = inner_mut!(sender.reliability_container);
+        if let Some(sender) = self.outbound_transmitters.get_mut(&key) {
+            let ref mut sender = sender.burst_transmitter.group_transmitter;
             let wave_id = header.wave_id.get();
             if let Some(missing_packets) = sender.on_do_wave_retransmission_received(hyper_ratchet, wave_id, payload) {
                 log::info!("{} packets are missing from wave {} of group {}", missing_packets.len(), wave_id, group_id);
@@ -1258,8 +1256,309 @@ impl StateContainerInner {
         }
     }
 
-    /// Returns true if a timeout occurred
-    pub fn provisional_state_has_timed_out(&self) -> bool {
-        self.register_state.has_expired() || self.connect_state.has_expired() || self.pre_connect_state.has_expired()
+    fn get_secrecy_mode(&self, target_cid: u64) -> Option<SecrecyMode> {
+        if target_cid != C2S_ENCRYPTION_ONLY {
+            Some(self.active_virtual_connections.get(&target_cid)?.endpoint_container.as_ref()?.default_security_settings.secrecy_mode)
+        } else {
+            self.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone()
+        }
+    }
+
+    /// Returns true if a packet was sent, false otherwise. This should only be called when a packet is received
+    pub(crate) fn poll_next_enqueued(&mut self, target_cid: u64) -> Result<bool, NetworkError> {
+        log::info!("Polling next for {}", target_cid);
+        let secrecy_mode = self.get_secrecy_mode(target_cid).ok_or(NetworkError::InternalError("Secrecy mode not loaded"))?;
+        match secrecy_mode {
+            SecrecyMode::BestEffort => {}
+
+            SecrecyMode::Perfect => {
+                // fetch_nand(false
+                let update_in_progress = self.updates_in_progress.get(&target_cid).map(|r| r.fetch_nand(false, Ordering::SeqCst)).ok_or(NetworkError::InternalError("Update state not loaded in hashmap!"))?;
+
+                // We have to make sure when this is called, it also sets update_in_progress to true to place a lock. We will also need to reinforce this via a force_mode inside the get_next_constructor fn in the crypt container
+                // it's possible in high-stress loads, a new inbound packet triggers update_in_progress to true right after checking below. The fetch_nand w/false helps us achieve this
+                if update_in_progress {
+                    log::info!("Cannot send packet at this time since update_in_progress"); // in this case, update will happen upon reception of TRUNCATE packet
+                    return Ok(false);
+                }
+
+                //let mut enqueued = inner_mut!(self.enqueued_packets);
+                if !self.enqueued_packets.contains_key(&target_cid) {
+                    let _ = self.enqueued_packets.insert(target_cid, VecDeque::new());
+                }
+
+                if let Some(queue) = self.enqueued_packets.get_mut(&target_cid) {
+                    log::info!("Queue has: {} items", queue.len());
+                    // since we have a mutable lock on the session, no other attempts will happen. We can safely pop the front of the queue and rest assured that it won't be denied a send this time
+                    if let Some((ticket, packet, virtual_target, security_level)) = queue.pop_front() {
+                        //std::mem::drop(enqueued);
+                        return self.process_outbound_message(ticket, packet, virtual_target, security_level, true).map(|_| true);
+                    } else {
+                        log::info!("NO packets enqueued for target {}", target_cid);
+                    }
+                } else {
+                    log::info!("Enqueued packets queue not present");
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn enqueue_packet(&mut self, target_cid: u64, ticket: Ticket, packet: SecureProtocolPacket, target: VirtualTargetType, security_level: SecurityLevel) {
+        if !self.enqueued_packets.contains_key(&target_cid) {
+            let _ = self.enqueued_packets.insert(target_cid, VecDeque::new());
+        }
+
+        let queue = self.enqueued_packets.get_mut(&target_cid).unwrap();
+        queue.push_back((ticket, packet, target, security_level));
+    }
+
+    fn has_enqueued(&self, target_cid: u64) -> bool {
+        self.enqueued_packets.get(&target_cid).map(|r| r.front().is_some()).unwrap_or(false)
+    }
+
+    #[allow(unused_results)]
+    pub(crate) fn process_outbound_message(&mut self, ticket: Ticket, packet: SecureProtocolPacket, virtual_target: VirtualTargetType, security_level: SecurityLevel, called_from_poll: bool) -> Result<(), NetworkError> {
+        let this = self;
+
+        if this.state.load(Ordering::Relaxed) != SessionState::Connected {
+            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}) outbound, but the session is not connected", ticket)))
+        } else {
+            // first, make sure that there aren't already packets in the queue (unless we were called from the poll, in which case, we are getting the latest version)
+            let secrecy_mode = this.get_secrecy_mode(virtual_target.get_target_cid()).ok_or(NetworkError::InternalError("Secrecy mode not loaded"))?;
+            let cnac = this.cnac.as_ref().unwrap();
+
+            let time_tracker = this.time_tracker.clone();
+
+            if secrecy_mode == SecrecyMode::Perfect && !called_from_poll {
+                //let mut enqueued = inner_mut!(this.enqueued_packets);
+                if this.has_enqueued(virtual_target.get_target_cid()) || this.updates_in_progress.get(&virtual_target.get_target_cid()).map(|r| r.load(Ordering::SeqCst)).ok_or_else(|| NetworkError::InternalError("Update in progress not loaded for client"))? {
+                    // If there are packets enqueued, it doesn't matter if an update is in progress or not. Queue this packet
+                    //log::info!("[ABX] enqueuing packet for {:?}", virtual_target);
+                    this.enqueue_packet(virtual_target.get_target_cid(), ticket, packet, virtual_target, security_level);
+                    return Ok(());
+                }
+            }
+
+            // object singleton == 0 implies that the data does not belong to a file
+            const OBJECT_SINGLETON: u32 = 0;
+            // Drop this to ensure that it doesn't block other async closures from accessing the inner device
+            // std::mem::drop(this);
+            let (mut transmitter, group_id, target_cid) = match virtual_target {
+                VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
+                    // if we are sending this just to the HyperLAN server (in the case of file uploads),
+                    // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
+                    let result = cnac.visit_mut(|mut inner| -> Result<_, NetworkError> {
+                        //let group_id = inner.crypt_container.get_and_increment_group_id();
+                        let latest_hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).cloned().unwrap();
+                        latest_hyper_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_hyper_ratchet.get_default_security_level())))?;
+                        let constructor = inner.crypt_container.get_next_constructor(called_from_poll);
+
+                        match secrecy_mode {
+                            SecrecyMode::BestEffort => {
+                                let group_id = inner.crypt_container.get_and_increment_group_id();
+                                Ok(Either::Left((constructor, latest_hyper_ratchet.clone(), group_id, packet)))
+                            }
+
+                            SecrecyMode::Perfect => {
+                                if constructor.is_some() {
+                                    // we can perform a kex
+                                    let group_id = inner.crypt_container.get_and_increment_group_id();
+                                    Ok(Either::Left((constructor, latest_hyper_ratchet.clone(), group_id, packet)))
+                                } else {
+                                    // kex later
+                                    Ok(Either::Right(packet))
+                                }
+                            }
+                        }
+                    })?;
+
+                    match result {
+                        Either::Left((alice_constructor, latest_hyper_ratchet, group_id, packet)) => {
+                            let to_primary_stream = this.get_primary_stream().cloned().unwrap();
+                            (GroupTransmitter::new_message(to_primary_stream, OBJECT_SINGLETON, C2S_ENCRYPTION_ONLY, RatchetPacketCrafterContainer::new(latest_hyper_ratchet, alice_constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid)
+                        }
+
+                        Either::Right(packet) => {
+                            // store inside hashmap
+                            //let mut enqueued_packets = inner_mut!(this.enqueued_packets);
+                            log::info!("[ATC] Enqueuing c2s packet");
+                            this.enqueue_packet(C2S_ENCRYPTION_ONLY, ticket, packet, virtual_target, security_level);
+                            return Ok(());
+                        }
+                    }
+                }
+
+                VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+                    log::info!("Maybe sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
+                    // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and Toolset
+                    let default_primary_stream = this.get_primary_stream().cloned().unwrap();
+
+                    if let Some(vconn) = this.active_virtual_connections.get_mut(&target_cid) {
+                        if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
+                            //let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
+                            let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| default_primary_stream);
+                            //let to_primary_stream_preferred = this.to_primary_stream.clone().unwrap();
+                            let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap().clone();
+                            latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
+                            let constructor = endpoint_container.endpoint_crypto.get_next_constructor(called_from_poll);
+
+                            match secrecy_mode {
+                                SecrecyMode::BestEffort => {
+                                    let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
+                                    (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON, target_cid, RatchetPacketCrafterContainer::new(latest_usable_ratchet, constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
+                                }
+
+                                SecrecyMode::Perfect => {
+                                    // Note: we can't just add/send here. What if there are packets in the queue? We thus must poll before calling the below function
+                                    if constructor.is_some() {
+                                        let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
+                                        log::info!("[Perfect] will send group {}", group_id);
+                                        (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON, target_cid, RatchetPacketCrafterContainer::new(latest_usable_ratchet, constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
+                                    } else {
+                                        //assert!(!called_from_poll);
+                                        // Being called from poll should only happen when a packet needs to be sent, and is ready to be sent. Further, being called from the poll adds a lock ensuring it gets sent
+                                        if called_from_poll {
+                                            log::error!("Should not happen (CFP). {:?}", endpoint_container.endpoint_crypto.lock_set_by_alice.clone());
+                                            std::process::exit(-1); // for dev purposes
+                                        }
+
+                                        //std::mem::drop(state_container);
+                                        log::info!("[Perfect] will enqueue packet");
+                                        //let mut enqueued_packets = inner_mut!(this.enqueued_packets);
+                                        this.enqueue_packet(target_cid, ticket, packet, virtual_target, security_level);
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        } else {
+                            return Err(NetworkError::InternalError("Endpoint container not found"));
+                        }
+                    } else {
+                        log::error!("Unable to find active vconn for the channel");
+                        return Ok(());
+                    }
+                }
+
+                _ => {
+                    return Err(NetworkError::InvalidExternalRequest("HyperWAN functionality not yet implemented"));
+                }
+            };
+
+
+            // We manually send the header. The tails get sent automatically
+            log::info!("[message] Sending GROUP HEADER through primary stream for group {} as {}", group_id, this.is_server.then(|| "Server").unwrap_or("Client"));
+            let group_len = transmitter.get_total_plaintext_bytes();
+            transmitter.transmit_group_header(virtual_target)?;
+
+            //this.transfer_stats += TransferStats::new(timestamp, group_len as isize);
+
+            let outbound_container = OutboundTransmitterContainer::new(None, transmitter, group_len, 1, 0, ticket);
+            // The payload packets won't be sent until a GROUP_HEADER_ACK is received
+            // NOTE: Ever since using GroupKeys, we use either the implicated_cid (for client -> server conns) or target_cids (for peer conns)
+            let key = GroupKey::new(target_cid, group_id);
+            //inner_mut!(this.state_container).outbound_transmitters.insert(key, outbound_container);
+            this.outbound_transmitters.insert(key, outbound_container);
+
+            //std::mem::drop(state_container);
+
+            this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
+                if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
+                    let ref transmitter = transmitter.burst_transmitter.group_transmitter;
+                    if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
+                        if state_container.meta_expiry_state.expired() {
+                            log::warn!("Outbound group {} has expired; dropping from map", group_id);
+                            QueueWorkerResult::Complete
+                        } else {
+                            log::info!("Other outbound groups being processed; patiently awaiting group {}", group_id);
+                            QueueWorkerResult::Incomplete
+                        }
+                    } else {
+                        // it hasn't expired yet, and is still transmitting
+                        QueueWorkerResult::Incomplete
+                    }
+                } else {
+                    // it finished
+                    QueueWorkerResult::Complete
+                }
+            });
+
+            Ok(())
+        }
+    }
+
+    #[allow(unused_results)]
+    pub(crate) fn initiate_drill_update(&mut self, timestamp: i64, virtual_target: VirtualTargetType, ticket: Option<Ticket>) -> Result<(), NetworkError> {
+        if !self.meta_expiry_state.expired() {
+            log::info!("Drill update will be omitted since packets are being sent");
+            return Ok(());
+        }
+
+        let cnac = self.cnac.clone().ok_or_else(||NetworkError::InternalError("CNAC not loaded"))?;
+        let session_security_settings = self.session_security_settings.clone().unwrap();
+        let security_level = session_security_settings.security_level;
+        let ref default_primary_stream = self.get_primary_stream().cloned().ok_or_else(||NetworkError::InternalError("Primary stream not loaded"))?;
+
+        match virtual_target {
+            VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
+                let (ratchet, res) = cnac.visit_mut(|mut inner| {
+                    let ratchet = inner.crypt_container.get_hyper_ratchet(None).cloned().unwrap();
+                    (ratchet, inner.crypt_container.get_next_constructor(false))
+                });
+
+                match res {
+                    Some(alice_constructor) => {
+                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(&ratchet, alice_constructor.stage0_alice(), timestamp, C2S_ENCRYPTION_ONLY, security_level);
+                        self.ratchet_update_state.alice_hyper_ratchet = Some(alice_constructor);
+                        let to_primary_stream = self.get_primary_stream().unwrap();
+                        let kernel_tx = &self.kernel_tx;
+                        HdpSession::send_to_primary_stream_closure(to_primary_stream, kernel_tx, stage0_packet, ticket)
+                    }
+
+                    None => {
+                        log::info!("Won't perform update b/c concurrent update occurring");
+                        Ok(())
+                    }
+                }
+            }
+
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid) => {
+                const MISSING: NetworkError = NetworkError::InvalidExternalRequest("Peer not connected");
+                let endpoint_container = &mut self.active_virtual_connections.get_mut(&peer_cid).ok_or(MISSING)?.endpoint_container.as_mut().ok_or(MISSING)?;
+                let crypt = &mut endpoint_container.endpoint_crypto;
+                let alice_constructor = crypt.get_next_constructor(false);
+                let latest_hyper_ratchet = crypt.get_hyper_ratchet(None).cloned().ok_or(NetworkError::InternalError("Ratchet not loaded"))?;
+
+                match alice_constructor {
+                    Some(alice_constructor) => {
+                        let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().unwrap_or_else(|| default_primary_stream);
+                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(&latest_hyper_ratchet, alice_constructor.stage0_alice(), timestamp, peer_cid, security_level);
+
+                        to_primary_stream_preferred.unbounded_send(stage0_packet).map_err(|err| NetworkError::Generic(err.to_string()))?;
+
+                        if let Some(_) = self.ratchet_update_state.p2p_updates.insert(peer_cid, alice_constructor) {
+                            log::error!("Overwrote pre-existing peer kem. Report to developers");
+                        }
+
+                        // to_primary_stream_preferred.unbounded_send(stage0_packet).map_err(|err| NetworkError::Generic(err.to_string()))
+                        Ok(())
+                    }
+
+                    None => {
+                        log::info!("Won't perform update b/c concurrent update occurring");
+                        Ok(())
+                    }
+                }
+            }
+
+            _ => {
+                Err(NetworkError::InternalError("HyperWAN Not implemented"))
+            }
+        }
+    }
+
+    fn get_primary_stream(&self) -> Option<&OutboundPrimaryStreamSender> {
+        self.c2s_channel_container.as_ref().map(|r| &r.primary_outbound_tx)
     }
 }

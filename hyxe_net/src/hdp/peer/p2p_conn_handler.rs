@@ -25,6 +25,7 @@ use hyxe_user::re_imports::__private::Formatter;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use hyxe_nat::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use netbeam::sync::operations::net_select_ok::NetSelectOkResult;
+use std::sync::atomic::Ordering;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
@@ -76,7 +77,7 @@ pub async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session:
         match p2p_listener.next().await {
             Some(Ok((p2p_stream, _))) => {
                 let session = HdpSession::upgrade_weak(weak).ok_or(NetworkError::InternalError("HdpSession dropped"))?;
-                if session.state.get() != SessionState::Connected {
+                if session.state.load(Ordering::Relaxed) != SessionState::Connected {
                     log::warn!("Blocked an eager p2p connection (session state not yet connected)");
                     continue;
                 }
@@ -109,7 +110,7 @@ fn handle_p2p_stream(mut p2p_stream: GenericNetworkStream, implicated_cid: DualC
     // or SocketJustOpened. But, what if the primary sessions just started and a user tries registering through
     // here? Well, just as explained, this branch requires a login in order to occur. Thus, it's impossible for
     // a rogue user to attempt to register through here. All other packet types, even pre-connect, require
-    // p2p endpoint crypto, so a rogue connector wouldn't be able to do anything without compromising the crypto
+    // p2p endpoint crypto, so a rogue connector wouldn't be able to do anything
     let remote_peer = p2p_stream.peer_addr()?;
     let local_bind_addr = p2p_stream.local_addr()?;
     let quic_connector = p2p_stream.take_quic_connection().map(|r| QuicUdpSocketConnector::new(r, local_bind_addr));
@@ -136,7 +137,7 @@ fn handle_p2p_stream(mut p2p_stream: GenericNetworkStream, implicated_cid: DualC
 
     let direct_p2p_remote = DirectP2PRemote::new(stopper_tx, p2p_primary_stream_tx.clone(), from_listener, post_conn_loaded_tx, quic_connector);
     let sess = session;
-    let mut state_container = inner_mut!(sess.state_container);
+    let mut state_container = inner_mut_state!(sess.state_container);
     // if this is called from a client-side connection, forcibly upgrade since the client asserts its connection is what will be used
     if !state_container.load_provisional_direct_p2p_remote(remote_peer, direct_p2p_remote, !from_listener) {
         log::warn!("[P2P-stream] Peer from {:?} already trying to connect. Dropping connection", remote_peer);
@@ -148,7 +149,7 @@ fn handle_p2p_stream(mut p2p_stream: GenericNetworkStream, implicated_cid: DualC
     std::mem::drop(state_container);
 
     // have the conn automatically drop after 5s if it's still a provisional type
-    sess.queue_worker.insert_oneshot(Duration::from_millis(3000), move |state_container| {
+    sess.queue_handle.insert_oneshot(Duration::from_millis(3000), move |state_container| {
         if let Some(conn) = state_container.provisional_direct_p2p_conns.remove(&remote_peer) {
             if let Some(peer_cid) = conn.fallback.clone() {
                 // since this connection was marked as a fallback, we need to upgrade it
@@ -297,7 +298,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
 }
 
 fn send_hole_punch_packet(session: &HdpSession, signal: PeerSignal, state_container: &StateContainer, ticket: Ticket, expected_peer_cid: u64, p2p_outbound_stream_opt: Option<&OutboundPrimaryStreamSender>, security_level: SecurityLevel) -> std::io::Result<()> {
-    let endpoint_hyper_ratchet = inner!(state_container).active_virtual_connections.get(&expected_peer_cid).ok_or_else(|| generic_error("Active Vconn not loaded"))?.endpoint_container.as_ref().ok_or_else(|| generic_error("Endpoint container not loaded"))?.endpoint_crypto.get_hyper_ratchet(None).ok_or_else(|| generic_error("Peer hyper ratchet does not exist"))?.clone();
+    let endpoint_hyper_ratchet = inner_state!(state_container).active_virtual_connections.get(&expected_peer_cid).ok_or_else(|| generic_error("Active Vconn not loaded"))?.endpoint_container.as_ref().ok_or_else(|| generic_error("Endpoint container not loaded"))?.endpoint_crypto.get_hyper_ratchet(None).ok_or_else(|| generic_error("Peer hyper ratchet does not exist"))?.clone();
     let sess = session;
     let p2p_outbound_stream = p2p_outbound_stream_opt.unwrap_or_else(|| sess.to_primary_stream.as_ref().unwrap());
     let timestamp = sess.time_tracker.get_global_time_ns();

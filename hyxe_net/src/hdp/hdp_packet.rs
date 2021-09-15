@@ -255,71 +255,14 @@ impl<B: HdpBuffer> HdpPacket<B> {
         Self { packet, remote_peer, local_port }
     }
 
-    /// Note: make sure the buffer has reserved enough room! And make sure the cursor is at zero! Otherwise, panic!
-    /// `payload`: Big Endian order!
-    pub fn inscribe<Buf: BufMut, Payload: AsRef<[u8]>>(writer: &mut Buf, header: &HdpHeader, payload: Option<Payload>) -> io::Result<()> {
-        header.inscribe_into(writer);
-
-        if let Some(payload) = payload {
-            writer.put_slice(payload.as_ref());
-        }
-
-        Ok(())
-    }
-
     /// Parses the zerocopy header
     pub fn parse(&self) -> Option<(LayoutVerified<&[u8], HdpHeader>, &[u8])> {
         LayoutVerified::new_from_prefix(self.packet.as_ref())
     }
 
-    /// Parses the zerocopy header
-    pub fn parse_mut(&mut self) -> Option<(LayoutVerified<&mut [u8], HdpHeader>, &mut [u8])> {
-        LayoutVerified::new_from_prefix(self.packet.as_mut())
-    }
-
     /// Creates a packet out of the inner device
     pub fn into_packet(self) -> B {
         self.packet
-    }
-
-    /// Parses the header
-    pub fn get_header(&self) -> Option<LayoutVerified<&[u8], HdpHeader>> {
-        Some(self.parse()?.0)
-    }
-
-    /// Parses the payload
-    pub fn get_payload(&self) -> Option<&[u8]> {
-        Some(self.parse()?.1)
-    }
-
-    /// Parses the header
-    pub fn get_header_mut(&mut self) -> Option<LayoutVerified<&mut [u8], HdpHeader>> {
-        Some(self.parse_mut()?.0)
-    }
-
-    /// Parses the payload
-    pub fn get_payload_mut(&mut self) -> Option<&mut [u8]> {
-        Some(self.parse_mut()?.1)
-    }
-
-    /// returns the remote socket
-    pub fn get_remote_socket(&self) -> &SocketAddr {
-        &self.remote_peer
-    }
-
-    /// Returns the port from which this packet ventured
-    pub fn get_remote_port(&self) -> u16 {
-        self.remote_peer.port()
-    }
-
-    /// Returns the local port of entry
-    pub fn get_local_port(&self) -> u16 {
-        self.local_port
-    }
-
-    /// Determines if the packet's header is valid
-    pub fn is_header_valid(&self) -> bool {
-        self.get_header().is_some()
     }
 
     /// Returns the length of the packet + header

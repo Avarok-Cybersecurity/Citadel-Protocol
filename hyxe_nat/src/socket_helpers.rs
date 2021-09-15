@@ -1,6 +1,13 @@
 use tokio::net::{UdpSocket, TcpStream, TcpListener};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr};
 use std::time::Duration;
+
+/// Given an ip bind addr, finds an open socket at that ip addr
+pub fn get_unused_udp_socket(bind_addr: IpAddr) -> std::io::Result<UdpSocket> {
+    let socket = std::net::UdpSocket::bind((bind_addr, 0))?;
+    socket.set_nonblocking(true)?;
+    UdpSocket::from_std(socket)
+}
 
 pub fn get_reuse_udp_socket<T: std::net::ToSocketAddrs>(addr: T) -> Result<UdpSocket, anyhow::Error> {
     let addr: SocketAddr = addr.to_socket_addrs()?.next().ok_or(anyhow::Error::msg("No sockets"))?;

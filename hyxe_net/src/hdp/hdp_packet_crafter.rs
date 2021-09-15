@@ -2,24 +2,59 @@ use bytes::BytesMut;
 use num::Integer;
 
 use hyxe_crypt::drill::SecurityLevel;
-use hyxe_crypt::net::crypt_splitter::GroupReceiverConfig;
+use hyxe_crypt::net::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
 use netbeam::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use std::ops::RangeInclusive;
-use crate::hdp::state_container::{VirtualTargetType, GroupSender};
-use hyxe_crypt::prelude::SecBuffer;
+use crate::hdp::state_container::VirtualTargetType;
 use crate::error::NetworkError;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
 use hyxe_fs::hyxe_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
+use hyxe_crypt::secure_buffer::sec_packet::SecureMessagePacket;
+
+#[derive(Debug)]
+/// A thin wrapper used for convenient creation of zero-copy outgoing buffers
+pub struct SecureProtocolPacket {
+    inner: SecureMessagePacket<HDP_HEADER_BYTE_LEN>
+}
+
+impl SecureProtocolPacket {
+    pub(crate) fn new() -> Self {
+        Self { inner: SecureMessagePacket::new().unwrap() }
+    }
+
+    pub(crate) fn extract_message(input: &mut BytesMut) -> std::io::Result<BytesMut> {
+        SecureMessagePacket::<HDP_HEADER_BYTE_LEN>::extract_payload(input)
+    }
+
+    pub(crate) fn from_inner(inner: SecureMessagePacket<HDP_HEADER_BYTE_LEN>) -> Self {
+        Self { inner }
+    }
+}
+
+impl<T: AsRef<[u8]>> From<T> for SecureProtocolPacket {
+    fn from(bytes: T) -> Self {
+        let bytes = bytes.as_ref();
+        let mut this = Self::new();
+        this.inner.write_payload(bytes.len() as u32, |slice| Ok(slice.copy_from_slice(bytes))).unwrap();
+        this
+    }
+}
+
+impl Into<SecureMessagePacket<HDP_HEADER_BYTE_LEN>> for SecureProtocolPacket {
+    fn into(self) -> SecureMessagePacket<HDP_HEADER_BYTE_LEN> {
+        self.inner
+    }
+}
 
 pub struct GroupTransmitter {
     pub hyper_ratchet_container: RatchetPacketCrafterContainer,
     to_primary_stream: OutboundPrimaryStreamSender,
     // Handles the encryption and scrambling asynchronously. Also manages missing packets
-    group_transmitter: GroupSender,
+    pub(crate) group_transmitter: GroupSenderDevice<HDP_HEADER_BYTE_LEN>,
     /// Contained within Self::group_transmitter, but is here for convenience
     group_config: GroupReceiverConfig,
     object_id: u32,
@@ -54,8 +89,8 @@ impl<R: Ratchet> RatchetPacketCrafterContainer<R> {
 }
 
 impl GroupTransmitter {
-    pub fn new_from_group_sender(to_primary_stream: OutboundPrimaryStreamSender, group_sender: GroupSender, hyper_ratchet: RatchetPacketCrafterContainer, object_id: u32, target_cid: u64, ticket: Ticket, security_level: SecurityLevel, time_tracker: TimeTracker) -> Self {
-        let cfg = inner!(group_sender).get_receiver_config();
+    pub fn new_from_group_sender(to_primary_stream: OutboundPrimaryStreamSender, group_sender: GroupSenderDevice<HDP_HEADER_BYTE_LEN>, hyper_ratchet: RatchetPacketCrafterContainer, object_id: u32, target_cid: u64, ticket: Ticket, security_level: SecurityLevel, time_tracker: TimeTracker) -> Self {
+        let cfg = group_sender.get_receiver_config();
         let group_id = cfg.group_id as u64;
         let bytes_encrypted = cfg.plaintext_length;
         Self {
@@ -78,21 +113,20 @@ impl GroupTransmitter {
     }
 
     /// Creates a new stream for a request
-    pub fn new_message(to_primary_stream: OutboundPrimaryStreamSender, object_id: u32, target_cid: u64, hyper_ratchet: RatchetPacketCrafterContainer, input_packet: SecBuffer, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
+    pub fn new_message(to_primary_stream: OutboundPrimaryStreamSender, object_id: u32, target_cid: u64, hyper_ratchet: RatchetPacketCrafterContainer, input_packet: SecureProtocolPacket, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
         // Gets the latest drill version by default for this operation
         log::trace!("Will use HyperRatchet v{} to encrypt group {}", hyper_ratchet.base.version(), group_id);
 
-        let bytes_encrypted = input_packet.len(); //the number of bytes that will be encrypted
+        let bytes_encrypted = input_packet.inner.message_len(); //the number of bytes that will be encrypted
         // + 1 byte source port offset (needed for sending across port-address-translation networks)
         // + 1 byte recv port offset
         const HDP_HEADER_EXTENDED_BYTE_LEN: usize = HDP_HEADER_BYTE_LEN + 2;
         //let res = encrypt_group_unified(input_packet.into_buffer(), &hyper_ratchet.base, HDP_HEADER_EXTENDED_BYTE_LEN, target_cid, object_id, group_id, craft_wave_payload_packet_into);
-        let res = oneshot_unencrypted_group_unified(input_packet, HDP_HEADER_EXTENDED_BYTE_LEN, group_id);
+        let res = oneshot_unencrypted_group_unified(input_packet.into(), HDP_HEADER_EXTENDED_BYTE_LEN, group_id);
 
         match res {
             Ok(group_transmitter) => {
                 let group_config: GroupReceiverConfig = group_transmitter.get_receiver_config();
-                let group_transmitter = GroupSender::from(group_transmitter);
                 let current_wave = 0;
                 let packets_sent = 0;
                 Some(Self {
@@ -137,19 +171,14 @@ impl GroupTransmitter {
     #[allow(dead_code)]
     pub(super) fn get_fast_message_payload(&mut self) -> Option<BytesMut> {
         if self.group_config.packets_needed == 1  && self.is_message {
-            Some(inner_mut!(self.group_transmitter).get_next_packet()?.packet)
+            Some(self.group_transmitter.get_next_packet()?.packet)
         } else {
             None
         }
     }
 
-    pub(super) fn get_unencrypted_oneshot_packet(&mut self) -> Option<SecBuffer> {
-        inner_mut!(self.group_transmitter).get_oneshot()
-    }
-
-    /// Determines how many packets are in the current wave
-    pub fn get_packets_in_current_wave(&self) -> usize {
-        self.group_config.get_packet_count_in_wave(self.current_wave)
+    pub(super) fn get_unencrypted_oneshot_packet(&mut self) -> Option<SecureProtocolPacket> {
+        self.group_transmitter.get_oneshot().map(SecureProtocolPacket::from_inner)
     }
 
     /// Returns the number of bytes that would be encrypted
@@ -157,15 +186,9 @@ impl GroupTransmitter {
         self.bytes_encrypted
     }
 
-    /// Returns the reliability container
-    pub fn get_reliability_container(&self) -> GroupSender {
-        self.group_transmitter.clone()
-    }
-
     #[allow(unused_comparisons)]
     /// NOTE: This assumes non-FCM types!
     pub fn transmit_next_window_udp(&mut self, udp_sender: &OutboundUdpSender, wave_window: RangeInclusive<u32>) -> bool {
-
         let packets_needed = self.group_config.packets_needed;
         let security_level = self.security_level;
         let waves_needed = self.group_config.wave_count;
@@ -180,7 +203,7 @@ impl GroupTransmitter {
 
         debug_assert!(*wave_window.end() < waves_needed as u32);
         log::info!("[Q-UDP] Payload packets to send: {} | Waves: {} | Packets per wave: {} | Last packets per wave: {}", packets_needed, waves_needed, packets_per_wave, last_packets_per_wave);
-        let mut transmitter = inner_mut!(self.group_transmitter);
+        let ref mut transmitter = self.group_transmitter;
         log::info!("Wave window: ({}, {}]", wave_window.start(), wave_window.end());
 
         let packets_in_window = wave_window.clone().into_iter().map(|wave_id| transmitter.get_packets_in_wave(wave_id)).sum::<usize>();
@@ -214,43 +237,26 @@ impl GroupTransmitter {
         true
     }
 
-    pub fn transmit_tcp(&mut self) -> bool {
-        log::info!("[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
-        let ref to_primary_stream = self.to_primary_stream;
-        let ref mut transmitter = inner_mut!(self.group_transmitter);
-        while let Some(ret) = transmitter.get_next_packet() {
-            self.packets_sent += 1;
-            if to_primary_stream.unbounded_send(ret.packet).is_err() {
-                return false;
-            }
-        }
-
-        log::info!("Group {} has been transmitted", self.group_id);
-        true
-    }
-
     #[allow(unused_results)]
-    pub fn transmit_tcp_file_transfer(&self) -> bool {
+    pub fn transmit_tcp_file_transfer(&mut self) -> bool {
         let packets_needed = self.group_config.packets_needed;
         let ref to_primary_stream = self.to_primary_stream;
         log::info!("[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
-        let transmitter = self.group_transmitter.clone();
         let to_primary_stream = to_primary_stream.clone();
-        spawn!(async move {
-            let mut transmitter = inner_mut!(transmitter);
-            if let Some(packets) = transmitter.get_next_packets(packets_needed) {
-                std::mem::drop(transmitter);
-                for packet in packets {
-                    if let Err(err) = to_primary_stream.unbounded_send(packet.packet) {
-                        log::error!("[FILE] to_primary_stream died {:?}", err);
-                    }
-                }
-            } else {
-                log::error!("Unable to load all packets");
-            }
-        });
+        let packets = self.group_transmitter.get_next_packets(packets_needed);
 
-        log::info!("Group {} has begun transmission", self.group_id);
+        if let Some(packets) = packets {
+            for packet in packets {
+                if let Err(err) = to_primary_stream.unbounded_send(packet.packet) {
+                    log::error!("[FILE] to_primary_stream died {:?}", err);
+                }
+            }
+
+            log::info!("Group {} has finished transmission", self.group_id);
+        } else {
+            log::warn!("Packets not present in TCP file transfer");
+        }
+
         true
     }
 }
@@ -278,10 +284,12 @@ pub(crate) mod group {
 
     pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType) -> BytesMut {
         let target_cid = virtual_target.get_target_cid();
+        let is_fast_message = if processor.is_message { 1 } else { 0 };
+
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER,
-            algorithm: 0,
+            algorithm: is_fast_message,
             security_level: processor.security_level.value(),
             context_info: U64::new(processor.ticket.0),
             group: U64::new(processor.group_id),
@@ -292,6 +300,7 @@ pub(crate) mod group {
             target_cid: U64::new(target_cid)
         };
 
+        /*
         let mut packet = BytesMut::with_capacity(packet_sizes::GROUP_HEADER_BASE_LEN);
         header.inscribe_into(&mut packet);
 
@@ -307,6 +316,23 @@ pub(crate) mod group {
         // always use the base here, even in FCM case
         processor.hyper_ratchet_container.base.protect_message_packet(Some(processor.security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 
+        packet*/
+        let mut packet = if processor.is_message {
+            let mut packet = processor.get_unencrypted_oneshot_packet().unwrap().inner;
+            packet.write_header(|buf| Ok(header.inscribe_into_slice(&mut *buf))).unwrap();
+            // both the header and payload are now written. Just have to extend the kem info
+            let kem = processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice());
+            let expected_len = kem.serialized_size().unwrap();
+            packet.write_payload_extension(expected_len as _, |slice| kem.serialize_into_slice(slice)).unwrap()
+        } else {
+            let mut packet = BytesMut::with_capacity(packet_sizes::GROUP_HEADER_BASE_LEN);
+            header.inscribe_into(&mut packet);
+            let header = GroupHeader::Standard(processor.group_config.clone(), virtual_target);
+            header.serialize_into_buf(&mut packet).unwrap();
+            packet
+        };
+
+        processor.hyper_ratchet_container.base.protect_message_packet(Some(processor.security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet
     }
 
@@ -470,7 +496,7 @@ pub(crate) mod do_connect {
     use hyxe_crypt::fcm::keys::FcmKeys;
     use std::collections::{HashMap, BTreeMap};
     use hyxe_user::external_services::fcm::data_structures::RawExternalPacket;
-    use hyxe_user::external_services::PostLoginObject;
+    use hyxe_user::external_services::ServicesObject;
 
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectStage0Packet<'a> {
@@ -518,13 +544,13 @@ pub(crate) mod do_connect {
         pub mailbox: Option<MailboxTransfer>,
         pub fcm_packets: Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>,
         pub peers: Vec<(u64, Option<String>, Option<FcmKeys>)>,
-        pub post_login_object: PostLoginObject,
+        pub post_login_object: ServicesObject,
         #[serde(borrow)]
         pub message: &'a [u8]
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, success: bool, mailbox: Option<MailboxTransfer>, fcm_packets: Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>, post_login_object: PostLoginObject, message: T, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, success: bool, mailbox: Option<MailboxTransfer>, fcm_packets: Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>, post_login_object: ServicesObject, message: T, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
         let payload = DoConnectFinalStatusPacket { mailbox, fcm_packets, peers, message: message.as_ref(), post_login_object };
 
         let cmd_aux = if success {
@@ -1050,10 +1076,11 @@ pub(crate) mod pre_connect {
     #[derive(Serialize, Deserialize)]
     pub struct SynAckPacket {
         pub transfer: BobToAliceTransfer,
-        pub nat_type: NatType
+        pub nat_type: NatType,
+        pub udp_port_opt: Option<u16>
     }
 
-    pub(crate) fn craft_syn_ack(static_aux_hr: &StaticAuxRatchet, transfer: BobToAliceTransfer, nat_type: NatType, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_syn_ack(static_aux_hr: &StaticAuxRatchet, transfer: BobToAliceTransfer, nat_type: NatType, udp_port_opt: Option<u16>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN_ACK,
@@ -1071,7 +1098,7 @@ pub(crate) mod pre_connect {
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        SynAckPacket { transfer, nat_type }.serialize_into_buf(&mut packet).unwrap();
+        SynAckPacket { transfer, nat_type, udp_port_opt }.serialize_into_buf(&mut packet).unwrap();
 
         static_aux_hr.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
 

@@ -455,6 +455,12 @@ pub enum UdpMode {
     Enabled, Disabled
 }
 
+impl Default for UdpMode {
+    fn default() -> Self {
+        Self::Enabled
+    }
+}
+
 // Channel packets don't get decrypted/encrypted at the central node; only at the endpoints
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ChannelPacket {

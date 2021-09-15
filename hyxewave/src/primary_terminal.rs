@@ -176,7 +176,7 @@ pub mod parsers {
     pub fn parse_all_primary_commands(matches: &ArgMatches, app_config: &mut AppConfig) -> Result<(), ConsoleError> {
         if let Some(node_type) = matches.value_of("node_type") {
             let node = match node_type {
-                "pure_server" => HyperNodeType::GloballyReachable,
+                "pure_server" => HyperNodeType::Server,
                 "residential" => HyperNodeType::BehindResidentialNAT,
                 "cellular" => HyperNodeType::BehindSymmetricalNAT,
                 _ => return Err(ConsoleError::Default("Invalid node type"))
