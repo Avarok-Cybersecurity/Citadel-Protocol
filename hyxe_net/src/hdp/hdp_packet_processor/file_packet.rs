@@ -2,17 +2,18 @@ use super::includes::*;
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 use crate::error::NetworkError;
+use std::sync::atomic::Ordering;
 
 pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
-    if session.state.get() != SessionState::Connected {
+    if session.state.load(Ordering::Relaxed) != SessionState::Connected {
         return Ok(PrimaryProcessorResult::Void)
     }
 
     let (header, payload, _, _) = packet.decompose();
 
-    let ref cnac_sess = return_if_none!(session.cnac.get(), "Sess CNAC not loaded");
     let timestamp = session.time_tracker.get_global_time_ns();
-    let mut state_container = inner_mut!(session.state_container);
+    let mut state_container = inner_mut_state!(session.state_container);
+    let ref cnac_sess = return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded");
     // get the proper pqc
     let header_bytes = &header[..];
     let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to validate header layout") as LayoutVerified<&[u8], HdpHeader>;

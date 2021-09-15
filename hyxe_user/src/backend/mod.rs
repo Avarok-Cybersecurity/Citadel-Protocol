@@ -30,6 +30,12 @@ pub enum BackendType {
     SQLDatabase(String, SqlConnectionOptions)
 }
 
+impl Default for BackendType {
+    fn default() -> Self {
+        Self::Filesystem
+    }
+}
+
 impl BackendType {
     /// For requesting the use of the FilesystemBackend driver
     pub const fn filesystem() -> BackendType {

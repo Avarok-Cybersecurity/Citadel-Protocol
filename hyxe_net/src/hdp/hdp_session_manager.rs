@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
@@ -10,7 +9,6 @@ use bytes::BytesMut;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::SecurityLevel;
-use hyxe_crypt::prelude::SecBuffer;
 use hyxe_nat::hypernode_type::HyperNodeType;
 use hyxe_nat::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
@@ -32,8 +30,8 @@ use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode};
 use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
-use crate::hdp::outbound_sender::{Sender, unbounded, UnboundedReceiver, UnboundedSender};
-use crate::hdp::outbound_sender::{OutboundPrimaryStreamSender, OutboundUdpSender};
+use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
+use tokio::sync::broadcast::Sender;
 use crate::hdp::peer::message_group::MessageGroupKey;
 use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal, UdpMode};
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
@@ -116,24 +114,13 @@ impl HdpSessionManager {
         this.sessions.get(&cid).map(|r| r.1.clone())
     }
 
-    /// Returns a set of the currently valid sessions
-    /// TODO: Determine difference between a typical HyperLAN connection and a HyperWAN Server
-    pub fn get_session_cids(&self) -> Option<Vec<u64>> {
-        let this = inner!(self);
-        if !this.sessions.is_empty() {
-            Some(this.sessions.keys().cloned().collect())
-        } else {
-            None
-        }
-    }
-
     /// Called by the higher-level [HdpServer] async writer loop
     /// `nid_local` is only needed incase a provisional id is needed.
     ///
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection<T: ToSocketAddrs>(&self, local_node_type: HyperNodeType, local_nat_type: NatType, local_bind_addr_for_primary_stream: T, init_mode: HdpSessionInitMode, ticket: Ticket, proposed_credentials: ProposedCredentials, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, udp_mode: Option<UdpMode>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
+    pub async fn initiate_connection(&self, local_node_type: HyperNodeType, local_nat_type: NatType, init_mode: HdpSessionInitMode, ticket: Ticket, proposed_credentials: ProposedCredentials, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, udp_mode: Option<UdpMode>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
@@ -183,10 +170,11 @@ impl HdpSessionManager {
                 let peer_only_connect_mode = ConnectProtocol::Quic(listener_underlying_proto.maybe_get_identity());
 
                 // We must now create a TcpStream towards the peer
-                let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
+                //let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
                 // NOTE! From now own, we are using QUIC for p2p streams for NAT traversal reasons. No more TCP hole punching
                 let (p2p_listener, primary_stream) = HdpServer::create_session_transport_init(listener_underlying_proto.into_quic(), peer_addr).await
                     .map_err(|err| NetworkError::SocketError(err.to_string()))?;
+                let local_bind_addr = primary_stream.local_addr().map_err(|err| NetworkError::Generic(err.to_string()))?;
                 (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode)
             };
 
@@ -228,15 +216,13 @@ impl HdpSessionManager {
             }
         }
 
-        // TODO: Use RAII w/ HdpSessionInner & StateContainerInner ? Hmm ... seems good on PC/Linux/Mac,
-        // but not good with android when connections really have the tendency to linger since background
-        // async subroutines get shutoff
-
         let sess_mgr = inner!(session_manager);
         // the final step is to take all virtual conns inside the session, and remove them from other sessions
         let sess = new_session;
 
-        if let Some(cnac) = sess.cnac.get() {
+        let mut state_container = inner_mut_state!(sess.state_container);
+
+        if let Some(cnac) = state_container.cnac.as_ref() {
             // we do not need to save here. When the ratchet is reloaded, it will be zeroed out anyways.
             // the only reason we call this is to ensure that FCM packets that get protected on their way out
             // don't cause false-positives on the anti-replay-attack container
@@ -256,8 +242,7 @@ impl HdpSessionManager {
             if let Some(implicated_cid) = sess.implicated_cid.get() {
                 sess_mgr.hypernode_peer_layer.on_session_shutdown(implicated_cid);
                 let timestamp = sess.time_tracker.get_global_time_ns();
-                let security_level = sess.security_settings.get().map(|r| r.security_level).unwrap_or(SecurityLevel::LOW);
-                let mut state_container = inner_mut!(sess.state_container);
+                let security_level = state_container.session_security_settings.clone().map(|r| r.security_level).unwrap_or(SecurityLevel::LOW);
 
                 state_container.active_virtual_connections.drain().for_each(|(peer_id, vconn)| {
                     let peer_cid = peer_id;
@@ -279,7 +264,7 @@ impl HdpSessionManager {
 
                                     if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
                                         let ref peer_sess = peer_sess.1;
-                                        let mut peer_state_container = inner_mut!(peer_sess.state_container);
+                                        let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
                                         if let None = peer_state_container.active_virtual_connections.remove(&implicated_cid) {
                                             log::warn!("While dropping session {}, attempted to remove vConn to {}, but peer did not have the vConn listed. Report to developers", implicated_cid, peer_cid);
                                         }
@@ -296,8 +281,8 @@ impl HdpSessionManager {
         } else {
             // if we are ending a client session, we just need to ensure that the P2P streams go-down
             log::info!("Ending any active P2P connections");
-            sess.queue_worker.signal_shutdown();
-            inner_mut!(sess.state_container).end_connections();
+            //sess.queue_worker.signal_shutdown();
+            state_container.end_connections();
         }
 
         Ok(())
@@ -345,16 +330,6 @@ impl HdpSessionManager {
         Ok(Box::pin(session))
     }
 
-    /// When the [HdpServer] receives an outbound request, the request flows here. It returns where the packet must be sent to
-    pub fn process_outbound_message(&self, ticket: Ticket, packet: SecBuffer, implicated_cid: u64, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
-        let this = inner!(self);
-        if let Some(existing_session) = this.sessions.get(&implicated_cid) {
-            existing_session.1.process_outbound_message(ticket, packet, virtual_target, security_level)
-        } else {
-            Err(NetworkError::Generic(format!("Hypernode session for {} does not exist! Not going to send data ...", implicated_cid)))
-        }
-    }
-
     /// dispatches an outbound command
     pub fn process_outbound_broadcast_command(&self, ticket: Ticket, implicated_cid: u64, command: GroupBroadcast) -> Result<(), NetworkError> {
         let this = inner!(self);
@@ -382,8 +357,8 @@ impl HdpSessionManager {
         if let Some(sess) = this.sessions.get(&implicated_cid) {
             let ref sess = sess.1;
             let timestamp = sess.time_tracker.get_global_time_ns();
-            let mut state_container = inner_mut!(sess.state_container);
-            sess.initiate_drill_update(timestamp, virtual_target, &mut state_container, Some(ticket))
+            let mut state_container = inner_mut_state!(sess.state_container);
+            state_container.initiate_drill_update(timestamp, virtual_target, Some(ticket))
         } else {
             Err(NetworkError::Generic(format!("Unable to initiate drill update subroutine for {} (not an active session)", implicated_cid)))
         }
@@ -489,12 +464,6 @@ impl HdpSessionManager {
         }
     }
 
-    /// Deliver a signal to an in-memory mailbox
-    pub fn deliver_signal_to_mailbox(&self, target_cid: u64, signal: PeerSignal) -> bool {
-        let this = inner!(self);
-        this.hypernode_peer_layer.try_add_mailbox(true, target_cid, signal)
-    }
-
     /// Sends to user, but does not block. Once the send is complete, will run ``on_send_complete``, which gives the sender the option to return a packet back to the initiator
     ///
     /// This is usually to send packets to another client who may or may not have an endpoint crypt container yet. It doesn't matter here, since we're only using the base ratchet
@@ -550,36 +519,6 @@ impl HdpSessionManager {
 
             on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()));
             Ok(())
-        } else {
-            Err(NetworkError::InvalidExternalRequest("implicated cid == peer_cid"))
-        }
-    }
-
-    /// Sends to user, but does not block. Once the send is complete, will run ``on_send_complete``, which gives the sender the option to return a packet back to the initiator
-    ///
-    /// This is usually to send packets to another client who may or may not have an endpoint crypt container yet. It doesn't matter here, since we're only using the base ratchet
-    ///
-    /// Since the user may or may not be online, we use the static aux ratchet
-    #[allow(unused_results)]
-    pub async fn fcm_send_to_as_server(&self, implicated_cid: u64, peer_cid: u64, packet_crafter: impl FnOnce(&HyperRatchet) -> RawExternalPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
-        let this = inner!(self);
-        if implicated_cid != peer_cid {
-            let account_manager = this.account_manager.clone();
-            std::mem::drop(this);
-
-            let peer_cnac = account_manager.get_client_by_cid(peer_cid).await?.ok_or(NetworkError::InvalidExternalRequest("Peer CID does not exist"))?;
-            peer_cnac.visit(|inner| {
-                let keys = inner.crypt_container.fcm_keys.clone();
-                let static_aux_ratchet = inner.crypt_container.toolset.get_static_auxiliary_ratchet().clone();
-                std::mem::drop(inner);
-
-                async move {
-                    let fcm_instance = FCMInstance::new(keys.ok_or(NetworkError::InvalidExternalRequest("Client cannot receive FCM messages at this time"))?, account_manager.fcm_client().clone());
-                    let packet = packet_crafter(&static_aux_ratchet);
-                    on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()));
-                    Ok(())
-                }
-            }).await
         } else {
             Err(NetworkError::InvalidExternalRequest("implicated cid == peer_cid"))
         }
@@ -684,20 +623,6 @@ impl HdpSessionManager {
         }
     }
 
-    /// Routes a packet to a session's endpoint. Note: If the calling session's CID
-    /// is equal to `cid`, a deadlock will occur.
-    ///
-    /// Returns true if sent successfully
-    pub fn route_packet_to_primary_stream(&self, cid: u64, ticket_opt: Option<Ticket>, packet: BytesMut) -> bool {
-        let this = inner!(self);
-        if let Some(sess) = this.sessions.get(&cid) {
-            let ref sess = sess.1;
-            sess.send_to_primary_stream(ticket_opt, packet).is_ok()
-        } else {
-            false
-        }
-    }
-
     /// sends a signal to the peer using the correct PQC and Drill cryptosystem
     /// NOTE: THIS WILL PANIC if `target_cid` == the implicated cid from the closure that calls this
     pub fn send_signal_to_peer(&self, target_cid: u64, ticket: Ticket, signal: PeerSignal, timestamp: i64, security_level: SecurityLevel) -> bool {
@@ -705,7 +630,7 @@ impl HdpSessionManager {
         if let Some(sess) = this.sessions.get(&target_cid) {
             let ref sess = sess.1;
             if let Some(to_primary_stream) = sess.to_primary_stream.as_ref() {
-                if let Some(cnac) = sess.cnac.get() {
+                if let Some(cnac) = inner_state!(sess.state_container).cnac.as_ref() {
                     return cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
                         if let Some(hyper_ratchet) = hyper_ratchet_opt {
                             let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
@@ -719,44 +644,6 @@ impl HdpSessionManager {
         }
 
         false
-    }
-
-    /// Returns a sink that allows sending data outbound
-    pub fn get_handle_to_udp_sender(&self, cid: u64) -> Option<OutboundUdpSender> {
-        let this = inner!(self);
-        if let Some(sess) = this.sessions.get(&cid) {
-            let ref sess = sess.1;
-            let state_container = inner!(sess.state_container);
-            state_container.udp_primary_outbound_tx.clone()
-        } else {
-            None
-        }
-    }
-
-    /// Returns a sink that allows sending data outbound
-    pub fn get_handle_to_tcp_sender(&self, cid: u64) -> Option<OutboundPrimaryStreamSender> {
-        let this = inner!(self);
-        if let Some(sess) = this.sessions.get(&cid) {
-            let ref sess = sess.1;
-            sess.to_primary_stream.clone()
-        } else {
-            None
-        }
-    }
-
-    // Returns both UDP and TCP handles (useful for when the server detects that, during the POST_CONNECT response phase,
-    // that client B consented to client A.
-    pub fn get_tcp_udp_senders(&self, cid: u64) -> Option<(OutboundPrimaryStreamSender, OutboundUdpSender)> {
-        let this = inner!(self);
-        if let Some(sess) = this.sessions.get(&cid) {
-            let ref sess = sess.1;
-            let tcp_sender = sess.to_primary_stream.clone()?;
-            let state_container = inner!(sess.state_container);
-            let udp_sender = state_container.udp_primary_outbound_tx.clone()?;
-            Some((tcp_sender, udp_sender))
-        } else {
-            None
-        }
     }
 
     /// Ensures the mailbox and tracked event queue are loaded into the [PeerLayer]
@@ -775,9 +662,10 @@ impl HdpSessionManager {
         if let Some(peer_sess) = this.sessions.get(&peer_cid) {
             let ref sess = peer_sess.1;
             let to_primary = sess.to_primary_stream.as_ref().unwrap();
-            let peer_cnac = sess.cnac.get().unwrap();
 
-            let mut state_container = inner_mut!(sess.state_container);
+            let mut state_container = inner_mut_state!(sess.state_container);
+            let peer_cnac = state_container.cnac.clone().ok_or_else(||String::from("Peer CNAC does not exist"))?;
+
             if state_container.active_virtual_connections.remove(&implicated_cid).is_some() {
                 let packet_opt = peer_cnac.borrow_hyper_ratchet(None, |peer_latest_hyper_ratchet_opt| {
                     if let Some(peer_latest_hyper_ratchet) = peer_latest_hyper_ratchet_opt {
@@ -823,7 +711,7 @@ impl HdpSessionManager {
                 this.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout);
                 let ref sess_ref = sess.1;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
-                let peer_cnac = sess_ref.cnac.get().unwrap();
+                let ref peer_cnac = inner_state!(sess_ref.state_container).cnac.clone().ok_or_else(|| String::from("Peer CNAC not loaded"))?;
 
                 peer_cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
                     if let Some(peer_latest_hyper_ratchet) = hyper_ratchet_opt {
@@ -855,7 +743,7 @@ impl HdpSessionManager {
             if let Some(recv) = inner.clean_shutdown_tracker.take() {
                 let len = inner.sessions.len();
                 for sender in inner.sessions.values().map(|r| &r.0) {
-                    let _ = sender.try_send(());
+                    let _ = sender.send(());
                 }
                 (recv, len)
             } else {
@@ -896,7 +784,7 @@ impl HdpSessionManagerInner {
 
                 let ref sess_ref = target_sess.1;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
-                let peer_cnac = sess_ref.cnac.get().unwrap();
+                let peer_cnac = inner_state!(sess_ref.state_container).cnac.clone().ok_or_else(|| String::from("Peer CNAC does not exist"))?;
 
                 peer_cnac.borrow_hyper_ratchet(None, |peer_latest_hyper_ratchet_opt| {
                     if let Some(peer_latest_hyper_ratchet) = peer_latest_hyper_ratchet_opt {
@@ -923,7 +811,7 @@ impl HdpSessionManagerInner {
         if let Some(peer_sess) = self.sessions.get(&target_cid) {
             let ref peer_sess = peer_sess.1;
             let peer_sender = peer_sess.to_primary_stream.as_ref().ok_or_else(|| NetworkError::InternalError("Peer stream absent"))?;
-            let peer_cnac = peer_sess.cnac.get().ok_or_else(|| NetworkError::InternalError("Peer CNAC absent"))?;
+            let peer_cnac = inner_state!(peer_sess.state_container).cnac.clone().ok_or_else(|| NetworkError::InternalError("Peer CNAC absent"))?;
 
             peer_cnac.borrow_hyper_ratchet(None, |latest_peer_hr_opt| {
                 if let Some(peer_latest_hr) = latest_peer_hr_opt {

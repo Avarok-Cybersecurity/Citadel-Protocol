@@ -1,34 +1,32 @@
 /// Used at each HyperNode
 pub mod hdp_server;
 /// The fundamental packet types
-pub mod hdp_packet;
+pub(crate) mod hdp_packet;
 /// Contains the library for processing inbound packet types. all #[inline]'d
-pub mod hdp_packet_processor;
+pub(crate) mod hdp_packet_processor;
 /// Manages multiple sessions
-pub mod hdp_session_manager;
+pub(crate) mod hdp_session_manager;
 /// Each CID gets a session
-pub mod hdp_session;
+pub(crate) mod hdp_session;
 /// Packet validations. This is not the same as encryption
-pub mod validation;
+pub(crate) mod validation;
 /// For creating specific packet types
-pub mod hdp_packet_crafter;
+pub(crate) mod hdp_packet_crafter;
 /// ~!
-pub mod time;
+pub(crate) mod time;
 /// For keeping track of the stages of different processes
-pub mod state_container;
+pub(crate) mod state_container;
 /// For the custom BytesCodec that doesn't overflow
-pub mod codec;
+pub(crate) mod codec;
 /// For organizing the stage containers
-pub mod state_subcontainers;
+pub(crate) mod state_subcontainers;
 /// A cloneable handle for sending data through UDP ports
-pub mod outbound_sender;
+pub(crate) mod outbound_sender;
 /// For handling file-transfer
-pub mod file_transfer;
+pub(crate) mod file_transfer;
 ///
-pub mod nat_handler;
-///
-pub mod peer;
+pub(crate) mod peer;
 ///
 pub(crate) mod endpoint_crypto_accessor;
 pub(crate) mod session_queue_handler;
-pub mod misc;
+pub(crate) mod misc;

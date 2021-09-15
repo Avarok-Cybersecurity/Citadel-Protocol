@@ -127,7 +127,13 @@ impl ArgonSettings {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+impl Default for ArgonSettings {
+    fn default() -> Self {
+        ArgonSettings::new_defaults(vec![])
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct ClientArgonContainer {
     pub settings: ArgonSettings
 }
@@ -135,6 +141,17 @@ pub struct ClientArgonContainer {
 impl From<ArgonSettings> for ClientArgonContainer {
     fn from(settings: ArgonSettings) -> Self {
         Self { settings }
+    }
+}
+
+impl ClientArgonContainer {
+    pub async fn hash_insecure_input(&self, input: SecBuffer) -> Option<SecBuffer> {
+        match AsyncArgon::hash(input, self.settings.clone()).await.ok()? {
+            ArgonStatus::HashSuccess(ret) => Some(ret),
+            _ => {
+                None
+            }
+        }
     }
 }
 
@@ -165,6 +182,22 @@ pub enum ArgonContainerType {
     Server(ServerArgonContainer)
 }
 
+impl ArgonContainerType {
+    pub fn client(&self) -> Option<&ClientArgonContainer> {
+        match self {
+            Self::Client(cl) => Some(cl),
+            _ => None
+        }
+    }
+
+    pub fn server(&self) -> Option<&ServerArgonContainer> {
+        match self {
+            Self::Server(sv) => Some(sv),
+            _ => None
+        }
+    }
+}
+
 impl Future for AsyncArgon {
     type Output = Result<ArgonStatus, JoinError>;
 
@@ -175,7 +208,10 @@ impl Future for AsyncArgon {
 
 const DEFAULT_LANES: u32 = 8;
 pub const DEFAULT_HASH_LENGTH: u32= 32;
-const DEFAULT_MEM_COST: u32 = 1024 * 64;
+#[cfg(not(debug_assertions))]
+const DEFAULT_MEM_COST: u32 = 1024*64;
+#[cfg(debug_assertions)]
+const DEFAULT_MEM_COST: u32 = 1024;
 #[cfg(not(debug_assertions))]
 const DEFAULT_TIME_COST: u32 = 10;
 #[cfg(debug_assertions)]

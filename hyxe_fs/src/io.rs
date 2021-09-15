@@ -97,6 +97,12 @@ pub trait SyncIO {
             }).map_err(|_| FsError::Generic("Bad ser".to_string()))
     }
 
+    /// Serializes directly into a slice
+    fn serialize_into_slice(&self, slice: &mut [u8]) -> std::io::Result<()>
+        where Self: Serialize {
+        bincode2::serialize_into(slice, self).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+    }
+
     /// Returns the expected size of the serialized objects
     fn serialized_size(&self) -> Option<usize>
         where Self: Serialize {

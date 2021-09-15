@@ -19,14 +19,14 @@ impl EndpointCryptoAccessor {
 
         match self {
             Self::P2P(peer_cid, state_container) => {
-                let state_container = inner!(state_container);
+                let state_container = inner_state!(state_container);
                 let v_conn = state_container.active_virtual_connections.get(peer_cid).ok_or(NetworkError::InternalError("Virtual Connection not loaded"))?;
                 let v_conn = v_conn.endpoint_container.as_ref().ok_or(NetworkError::InternalError("Endpoint channel container not loaded"))?;
                 v_conn.endpoint_crypto.get_hyper_ratchet(vers).ok_or(NetworkError::InternalError("P2P HR does not exist")).map(|r| access(r, &state_container))
             }
 
             Self::C2S(cnac, state_container, ) => {
-                let state_container = inner!(state_container);
+                let state_container = inner_state!(state_container);
                 cnac.borrow_hyper_ratchet(vers, |hr| {
                     hr.ok_or(NetworkError::InternalError("C2S HR does not exist")).map(|r| access(r, &state_container))
                 })

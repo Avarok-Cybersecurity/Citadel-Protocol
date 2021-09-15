@@ -15,6 +15,7 @@ use crate::functional::IfTrueConditional;
 use std::ops::Deref;
 use crate::inner_arg::ExpectedInnerTarget;
 use crate::hdp::peer::peer_layer::UdpMode;
+use std::sync::atomic::Ordering;
 
 /// This will handle an inbound primary group packet
 /// NOTE: Since incorporating the proxy features, if a packet gets to this process closure, it implies the packet
@@ -29,16 +30,13 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
 
     let HdpSessionInner {
         time_tracker,
-        udp_mode,
-        cnac,
         state_container,
         to_primary_stream,
         state,
-        security_settings,
         ..
     } = session.inner.deref();
 
-    if state.get() != SessionState::Connected {
+    if state.load(Ordering::Relaxed) != SessionState::Connected {
         log::error!("Group packet dropped; session not connected");
         return Ok(PrimaryProcessorResult::Void);
     }
@@ -47,12 +45,12 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
     // While group payloads are typically processed by the wave ports, it is possible
     // that TCP_ONLY mode is engaged, in which case, the packets are funneled through here
         let (header, payload, _, _) = packet.decompose();
-        let ref cnac_sess = return_if_none!(cnac.get(), "Unable to load CNAC [PGP]");
 
         let timestamp = time_tracker.get_global_time_ns();
-        let udp_mode = udp_mode.get();
 
-        let mut state_container = inner_mut!(state_container);
+        let mut state_container = inner_mut_state!(state_container);
+    let udp_mode = state_container.udp_mode;
+    let ref cnac_sess = return_if_none!(state_container.cnac.clone(), "Unable to load CNAC [PGP]");
         // get the proper pqc
         let header_bytes = &header[..];
         let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to load header [PGP]") as LayoutVerified<&[u8], HdpHeader>;
@@ -66,8 +64,37 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                 match cmd_aux {
                     packet_flags::cmd::aux::group::GROUP_HEADER => {
                         log::info!("RECV GROUP HEADER");
-                        // keep in mind: The group header is a packet with a standard header containing the ticket in the context_info, but with a payload len in the 8-byte "payload"
-                        if let Some(group_header) = validation::group::validate_header(&mut payload) {
+                        let is_message = header.algorithm == 1;
+                        if is_message {
+                            let (plaintext, transfer) = return_if_none!(validation::group::validate_message(&mut payload), "Bad message packet");
+                            log::info!("Recv FastMessage. version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
+                            // Here, we do not go through all the fiasco like above. We just forward the message to the kernel, then send an ACK
+                            // so that the sending side can be notified of a successful send
+                            let resp_target_cid = get_resp_target_cid_from_header(&header);
+                            log::info!("Resp target cid {} obtained. version {} w/ CID {} (local CID: {})", resp_target_cid, hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
+                            let object_id = header.wave_id.get();
+                            let ticket = header.context_info.get().into();
+                            // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
+
+                            // now, update the keys (if applicable)
+                            let transfer = return_if_none!(attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut state_container.active_virtual_connections, cnac_sess, &hyper_ratchet), "Unable to attempt_kem_as_bob [PGP]");
+
+                            if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
+                                if !state_container.forward_data_to_ordered_channel(original_implicated_cid, header.group.get(), plaintext) {
+                                    log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
+                                    return Ok(PrimaryProcessorResult::Void);
+                                }
+                            } else {
+                                if !state_container.forward_data_to_ordered_channel(0, header.group.get(), plaintext) {
+                                    log::error!("Unable to forward data to c2s channel");
+                                    return Ok(PrimaryProcessorResult::Void);
+                                }
+                            }
+
+                            let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer, security_level);
+                            Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
+                        } else {
+                            let group_header = return_if_none!(validation::group::validate_header(&mut payload), "Bad non-message group header");
                             match group_header {
                                 GroupHeader::Standard(group_receiver_config, virtual_target) => {
                                     // First, check to make sure the virtual target can accept
@@ -88,7 +115,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                         let group_id = header.group.get();
                                         let peer_cid = header.session_cid.get();
 
-                                        session.queue_worker.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
+                                        session.queue_handle.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
                                             let key = GroupKey::new(peer_cid, group_id);
                                             if let Some(group) = state_container.inbound_groups.get(&key) {
                                                 if group.has_begun {
@@ -131,39 +158,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, initial_wave_window, false, timestamp, KemTransferStatus::Empty, security_level);
                                     Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
                                 }
-
-                                GroupHeader::FastMessage(plaintext, virtual_target, transfer) => {
-                                    log::info!("Recv FastMessage. version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
-                                    // Here, we do not go through all the fiasco like above. We just forward the message to the kernel, then send an ACK
-                                    // so that the sending side can be notified of a successful send
-                                    let resp_target_cid = return_if_none!(get_resp_target_cid(&virtual_target), "Unable to get resp_target_cid II (PGP)");
-                                    log::info!("Resp target cid {} obtained. version {} w/ CID {} (local CID: {})", resp_target_cid, hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
-                                    let object_id = header.wave_id.get();
-                                    let ticket = header.context_info.get().into();
-                                    // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
-
-                                    // now, update the keys (if applicable)
-                                    let transfer = return_if_none!(attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut state_container.active_virtual_connections, cnac_sess, &hyper_ratchet), "Unable to attempt_kem_as_bob [PGP]");
-
-                                    if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
-                                        if !state_container.forward_data_to_ordered_channel(original_implicated_cid, header.group.get(), plaintext) {
-                                            log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
-                                            return Ok(PrimaryProcessorResult::Void);
-                                        }
-                                    } else {
-                                        if !state_container.forward_data_to_ordered_channel(0, header.group.get(), plaintext) {
-                                            log::error!("Unable to forward data to c2s channel");
-                                            return Ok(PrimaryProcessorResult::Void);
-                                        }
-                                    }
-
-                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer, security_level);
-                                    Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
-                                }
                             }
-                        } else {
-                            log::error!("Invalid GROUP_HEADER");
-                            Ok(PrimaryProcessorResult::Void)
                         }
                     }
 
@@ -189,12 +184,12 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                 let needs_truncate = transfer.requires_truncation();
 
                                 let transfer_occured = transfer.has_some();
-                                let secrecy_mode = return_if_none!(security_settings.get().map(|r| r.secrecy_mode).clone(), "Unable to get secrecy mode [PGP]");
+                                let secrecy_mode = return_if_none!(state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone(), "Unable to get secrecy mode [PGP]");
 
                                 if resp_target_cid != C2S_ENCRYPTION_ONLY {
                                     // If there is a pending disconnect, we need to make sure the session gets dropped until after all packets get processed
                                     let vconn = return_if_none!(state_container.active_virtual_connections.get(&resp_target_cid), "Vconn not loaded");
-                                    vconn.last_delivered_message_timestamp.set(Some(Instant::now()));
+                                    vconn.last_delivered_message_timestamp.store(Some(Instant::now()), Ordering::SeqCst);
                                 }
 
                                 if state_container.on_group_header_ack_received(secrecy_mode, object_id, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg, cnac_sess) {
@@ -216,7 +211,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     // if a transfer occured, we will get polled once we get an TRUNCATE_ACK. No need to double poll
                                     if secrecy_mode == SecrecyMode::Perfect {
                                         log::info!("Polling next in pgp");
-                                        let _ = session.poll_next_enqueued(resp_target_cid, state_container.into())?;
+                                        let _ = state_container.poll_next_enqueued(resp_target_cid)?;
                                     }
 
                                     Ok(PrimaryProcessorResult::Void)
@@ -409,6 +404,7 @@ pub fn get_resp_target_cid_from_header(header: &LayoutVerified<&[u8], HdpHeader>
     }
 }
 
+#[allow(unused)]
 pub enum ToolsetUpdate<'a, R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
     E2E { crypt: &'a mut PeerSessionCrypto<R>, local_cid: u64 },
     SessCNAC(&'a ClientNetworkAccount<R, Fcm>),
@@ -599,7 +595,6 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
 
         }
 
-        // in this case, wtf? insomnia OP
         KemTransferStatus::StatusNoTransfer(_status) => {
             log::error!("Unaccounted program logic @ StatusNoTransfer! Report to developers");
             return Err(())

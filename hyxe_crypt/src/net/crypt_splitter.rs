@@ -10,7 +10,7 @@ use rand::prelude::{SliceRandom, ThreadRng};
 
 use crate::drill::Drill;
 use crate::packet_vector::{generate_packet_coordinates_inv, generate_packet_vector, PacketVector};
-use crate::prelude::{CryptError, SecurityLevel, SecBuffer};
+use crate::prelude::{CryptError, SecurityLevel};
 use rayon::prelude::*;
 use rayon::iter::IndexedParallelIterator;
 use crate::hyper_ratchet::{HyperRatchet, Ratchet};
@@ -138,7 +138,7 @@ pub struct PacketCoordinate {
 /// header_size_bytes: This size (in bytes) of each packet's header
 /// TODO: Handle max_plaintext_bytes_per_wave observed overflow errors. This function is unstable
 #[allow(unused_results)]
-pub fn scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, security_level: SecurityLevel, hyper_ratchet: &R, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, ref header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
+pub fn scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, security_level: SecurityLevel, hyper_ratchet: &R, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, ref header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice<0>, CryptError<String>> {
     let plain_text = plain_text.as_ref();
     let (cfg, msg_drill, msg_pqc, scramble_drill) = get_scramble_encrypt_config(hyper_ratchet, plain_text, header_size_bytes, security_level, group_id, MAX_WAVEFORM_PACKET_SIZE)?;
 
@@ -150,13 +150,14 @@ pub fn scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, securit
     debug_assert_eq!(cfg.packets_needed, packets.len());
     //let group_receiver_config = GroupReceiverConfig::new(group_id as usize, packets.len(), header_size_bytes, plain_text.len(), max_packet_payload_size, debug_last_payload_size, number_of_waves, max_plaintext_bytes_per_wave, bytes_in_last_wave, max_packets_per_wave, packets_in_last_wave);
 
-    Ok(GroupSenderDevice::new(cfg, packets))
+    Ok(GroupSenderDevice::<0>::new(cfg, packets))
 }
 
 /// header_size_bytes: This size (in bytes) of each packet's header
 /// the feed order into the header_inscriber is first the target_cid, and then the object ID
 #[allow(unused_results)]
-pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, security_level: SecurityLevel, hyper_ratchet: &R, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, ref header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
+pub fn par_scramble_encrypt_group<T: AsRef<[u8]>, R: Ratchet, F, const N: usize>(plain_text: T, security_level: SecurityLevel, hyper_ratchet: &R, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, ref header_inscriber: F) -> Result<GroupSenderDevice<N>, CryptError<String>>
+    where F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync {
     let plain_text = plain_text.as_ref();
     let (cfg, msg_drill, msg_pqc, scramble_drill) = get_scramble_encrypt_config(hyper_ratchet, plain_text, header_size_bytes, security_level, group_id, 1024*8)?;
 
@@ -190,7 +191,7 @@ fn scramble_encrypt_wave(wave_idx: usize, bytes_to_encrypt_for_this_wave: &[u8],
 /// header_size_bytes: This size (in bytes) of each packet's header
 /// the feed order into the header_inscriber is first the target_cid, and then the object ID
 #[allow(unused_results)]
-pub fn encrypt_group_unified<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, hyper_ratchet: &R, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice, CryptError<String>> {
+pub fn encrypt_group_unified<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, hyper_ratchet: &R, header_size_bytes: usize, target_cid: u64, object_id: u32, group_id: u64, header_inscriber: impl Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync) -> Result<GroupSenderDevice<0>, CryptError<String>> {
     let (msg_pqc, msg_drill) = hyper_ratchet.message_pqc_drill(None);
     let scramble_drill = hyper_ratchet.get_scramble_drill();
 
@@ -208,9 +209,10 @@ pub fn encrypt_group_unified<T: AsRef<[u8]>, R: Ratchet>(plain_text: T, hyper_ra
 }
 
 /// Used for sending a packet that is expected to already be encrypted
-pub fn oneshot_unencrypted_group_unified(plain_text: SecBuffer, header_size_bytes: usize, group_id: u64) -> Result<GroupSenderDevice, CryptError<String>> {
-    let group_receiver_config = GroupReceiverConfig::new(group_id as usize, 1, header_size_bytes, plain_text.len(), plain_text.len(), plain_text.len(), 1, plain_text.len(), plain_text.len(), 1, 1);
-    Ok(GroupSenderDevice::new_oneshot(group_receiver_config, plain_text))
+pub fn oneshot_unencrypted_group_unified<const N: usize>(plain_text: SecureMessagePacket<N>, header_size_bytes: usize, group_id: u64) -> Result<GroupSenderDevice<N>, CryptError<String>> {
+    let len = plain_text.message_len();
+    let group_receiver_config = GroupReceiverConfig::new(group_id as usize, 1, header_size_bytes, len, len, len, 1, len, len, 1, 1);
+    Ok(GroupSenderDevice::<N>::new_oneshot(group_receiver_config, plain_text))
 }
 
 /// Return statuses for the GroupReceiver
@@ -259,6 +261,7 @@ pub struct GroupReceiver {
 
 use serde::{Serialize, Deserialize};
 use ez_pqcrypto::PostQuantumContainer;
+use crate::secure_buffer::sec_packet::SecureMessagePacket;
 
 /// For containing the data needed to receive a corresponding group
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -622,24 +625,24 @@ impl GroupReceiver {
 }
 
 /// The networking protocol should use this container to keep track of when transmitted packets are sent successfully
-pub struct GroupSenderDevice {
+pub struct GroupSenderDevice<const N: usize> {
     /// the hashmap of packets
     pub packets_in_ram: HashMap<usize, PacketCoordinate>,
-    oneshot: Option<SecBuffer>,
+    oneshot: Option<SecureMessagePacket<N>>,
     packets_received: usize,
     packets_sent: usize,
     receiver_config: GroupReceiverConfig,
     last_wave_ack_received: Instant,
 }
 
-impl GroupSenderDevice {
+impl<const N: usize> GroupSenderDevice<N> {
     /// Before any packets are sent out, this should be called
     pub fn new(receiver_config: GroupReceiverConfig, packets_in_ram: HashMap<usize, PacketCoordinate>) -> Self {
         Self { packets_in_ram, packets_received: 0, packets_sent: 0, receiver_config, oneshot: None, last_wave_ack_received: Instant::now() }
     }
 
     /// Intended for unencrypted packets
-    pub fn new_oneshot(receiver_config: GroupReceiverConfig, oneshot: SecBuffer) -> Self {
+    pub fn new_oneshot(receiver_config: GroupReceiverConfig, oneshot: SecureMessagePacket<N>) -> Self {
         Self { packets_in_ram: HashMap::with_capacity(0), oneshot: Some(oneshot), packets_received: 0, packets_sent: 0, receiver_config, last_wave_ack_received: Instant::now()}
     }
 
@@ -666,7 +669,7 @@ impl GroupSenderDevice {
     }
 
     /// Takes the oneshot packet
-    pub fn get_oneshot(&mut self) -> Option<SecBuffer> {
+    pub fn get_oneshot(&mut self) -> Option<SecureMessagePacket<N>> {
         self.oneshot.take()
     }
 

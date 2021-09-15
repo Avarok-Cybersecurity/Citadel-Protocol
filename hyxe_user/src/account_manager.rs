@@ -1,8 +1,8 @@
 use crate::network_account::NetworkAccount;
-use crate::client_account::ClientNetworkAccount;
+use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::sync::Arc;
 use std::net::SocketAddr;
-use crate::prelude::HyperNodeAccountInformation;
+use crate::prelude::{HyperNodeAccountInformation, UserIdentifier};
 use crate::misc::AccountError;
 use std::fmt::Display;
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
@@ -228,6 +228,30 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         self.persistence_handler.get_hyperlan_peer_list(implicated_cid).await
     }
 
+    /// Finds a hyperlan peer for a given user. Returns the implicated CID and mutual peer info
+    pub async fn find_target_information(&self, implicated_user: impl Into<UserIdentifier>, target_user: impl Into<UserIdentifier>) -> Result<Option<(u64, MutualPeer)>, AccountError> {
+        let implicated_cid = match implicated_user.into() {
+            UserIdentifier::ID(id) => {
+                id
+            }
+
+            UserIdentifier::Username(uname) => {
+                // TODO: optimize this into a single step
+                self.get_persistence_handler().get_cid_by_username(&uname).await?.ok_or_else(||AccountError::msg("Implicated user does not exist"))?
+            }
+        };
+
+        match target_user.into() {
+            UserIdentifier::ID(peer_cid) => {
+                Ok(self.persistence_handler.get_hyperlan_peer_by_cid(implicated_cid, peer_cid).await?.map(|r| (implicated_cid, r)))
+            }
+
+            UserIdentifier::Username(uname) => {
+                Ok(self.persistence_handler.get_hyperlan_peer_by_username(implicated_cid, &uname).await?.map(|r| (implicated_cid, r)))
+            }
+        }
+    }
+
     /// Saves all the CNACs safely. This should be called during the shutdowns sequence.
     pub async fn save(&self) -> Result<(), AccountError> {
         self.persistence_handler.save_all().await
@@ -241,6 +265,14 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// Returns the persistence handler
     pub fn get_persistence_handler(&self) -> &PersistenceHandler<R, Fcm> {
         &self.persistence_handler
+    }
+
+    /// Purges the entire home directory for this node
+    pub async fn purge_home_directory(&self) -> Result<(), AccountError> {
+        let _ = self.purge().await?;
+        let home = self.get_directory_store().inner.read().hyxe_home.clone();
+        log::info!("Purging program home directory: {:?}", &home);
+        tokio::fs::remove_dir_all(home).await.map_err(|err| AccountError::Generic(err.to_string()))
     }
 
     /// Returns the NID of the local system

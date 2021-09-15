@@ -4,9 +4,19 @@ use crate::hdp::hdp_packet_processor::peer::peer_cmd_packet;
 
 use super::includes::*;
 use crate::error::NetworkError;
+use std::sync::atomic::Ordering;
+use tokio::sync::mpsc::UnboundedSender;
+use std::pin::Pin;
+use futures::Future;
+use crate::macros::ContextRequirements;
+
+pub trait ProcessorFuture: Future<Output=Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements {}
+impl<T: Future<Output=Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements> ProcessorFuture for T {}
+
+pub type ConcurrentProcessorTx = UnboundedSender<Pin<Box<dyn ProcessorFuture>>>;
 
 /// For primary-port packet types. NOT for wave ports
-pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut) -> Result<PrimaryProcessorResult, NetworkError> {
+pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
 
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
@@ -24,15 +34,15 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
         Some(packet) => {
             match cmd_primary {
                 packet_flags::cmd::primary::DO_REGISTER => {
-                    super::register_packet::process(session, packet, remote_peer).await
+                    super::register_packet::process(session, packet, remote_peer, concurrent_processor_tx)
                 }
 
                 packet_flags::cmd::primary::DO_CONNECT => {
-                    super::connect_packet::process(session, packet).await
+                    super::connect_packet::process(session, packet, concurrent_processor_tx)
                 }
 
                 packet_flags::cmd::primary::KEEP_ALIVE => {
-                    super::keep_alive_packet::process(session, packet).await
+                    super::keep_alive_packet::process(session, packet, concurrent_processor_tx)
                 }
 
                 packet_flags::cmd::primary::GROUP_PACKET => {
@@ -48,15 +58,15 @@ pub async fn process(this_implicated_cid: Option<u64>, session: &HdpSession, rem
                 }
 
                 packet_flags::cmd::primary::DO_DEREGISTER =>  {
-                    super::deregister_packet::process(session, packet).await
+                    super::deregister_packet::process(session, packet, concurrent_processor_tx)
                 }
 
                 packet_flags::cmd::primary::DO_PRE_CONNECT => {
-                    super::preconnect_packet::process(session, packet).await
+                    super::preconnect_packet::process(session, packet, concurrent_processor_tx)
                 }
 
                 packet_flags::cmd::primary::PEER_CMD => {
-                    peer_cmd_packet::process(session, cmd_aux, packet, header_drill_vers, endpoint_cid_info).await
+                    peer_cmd_packet::process(session, cmd_aux, packet, header_drill_vers, endpoint_cid_info, concurrent_processor_tx)
                 }
 
                 packet_flags::cmd::primary::FILE => {
@@ -103,15 +113,24 @@ pub(crate) fn check_proxy(this_implicated_cid: Option<u64>, cmd_primary: u8, cmd
                 log::info!("Proxying {}:{} packet from {} to {}", cmd_primary, cmd_aux, this_implicated_cid, target_cid);
                 // Proxy will only occur if there exists a virtual connection, in which case, we get the TcpSender (since these are primary packets)
 
-                let mut state_container = inner_mut!(session.state_container);
+                let mut state_container = inner_mut_state!(session.state_container);
                 state_container.meta_expiry_state.on_event_confirmation();
 
                 if let Some(peer_vconn) = state_container.active_virtual_connections.get(&target_cid) {
                     // Ensure that any p2p conn proxied packets (i.e., TURNed packets) can continue to traverse until any full disconnections occur
-                    peer_vconn.last_delivered_message_timestamp.set(Some(Instant::now()));
+                    peer_vconn.last_delivered_message_timestamp.store(Some(Instant::now()), Ordering::SeqCst);
                     // into_packet is a cheap operation the freezes the internal packet; we attain zero-copy when proxying here
                     match recv_port_type {
                         ReceivePortType::OrderedReliable => {
+
+                            #[cfg(all(feature = "localhost-testing", feature = "localhost-testing-assert-no-proxy"))]
+                                {
+                                    if cmd_primary == packet_flags::cmd::primary::GROUP_PACKET && cmd_aux == packet_flags::cmd::aux::group::GROUP_HEADER {
+                                        log::error!("Did not expect packet to be proxied via feature flag");
+                                        panic!("Did not expect packet to be proxied via feature flag")
+                                    }
+                                }
+
                             if let Err(_err) = peer_vconn.sender.as_ref().unwrap().1.unbounded_send(packet.into_packet()) {
                                 log::error!("Proxy TrySendError to {}", target_cid);
                             }
