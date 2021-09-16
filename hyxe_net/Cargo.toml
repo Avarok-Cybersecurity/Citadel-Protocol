@@ -12,7 +12,7 @@ single-threaded = ["ez_pqcrypto/unordered", "hyxe_crypt/single-threaded", "hyxe_
 multi-threaded = ["ez_pqcrypto/unordered", "hyxe_crypt/multi-threaded", "hyxe_user/multi-threaded"]
 enterprise = ["hyxe_user/enterprise"]
 webrtc = ["webrtc-util"]
-localhost-testing = ["hyxe_nat/localhost-testing"]
+localhost-testing = ["hyxe_nat/localhost-testing", "hyxe_user/localhost-testing"]
 localhost-testing-assert-no-proxy = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

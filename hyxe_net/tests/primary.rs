@@ -16,7 +16,7 @@ pub mod tests {
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::fcm::keys::FcmKeys;
     use hyxe_crypt::prelude::SecBuffer;
-    use hyxe_nat::hypernode_type::HyperNodeType;
+    use hyxe_nat::hypernode_type::NodeType;
     use std::time::Duration;
     use std::net::SocketAddr;
     use hyxe_net::prelude::*;
@@ -317,11 +317,11 @@ pub mod tests {
 
         rt.block_on(async move {
             log::info!("Setting up executors ...");
-            let server_executor = create_executor(HyperNodeType::Server(server_bind_addr), handle.clone(), server_bind_addr, Some(test_container.clone()), NodeType::Server, Vec::default(), backend_server(), underlying_proto()).await;
+            let server_executor = create_executor(NodeType::Server(server_bind_addr), handle.clone(), server_bind_addr, Some(test_container.clone()), NodeType::Server, Vec::default(), backend_server(), underlying_proto()).await;
 
             log::info!("Done setting up server executor");
 
-            let client0_executor = create_executor(HyperNodeType::Peer, handle.clone(), client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
+            let client0_executor = create_executor(NodeType::Peer, handle.clone(), client0_bind_addr, Some(test_container.clone()), NodeType::Client0, {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_0, keys0, default_security_settings)),
                      function(pinbox(client0_action1(test_container0, CLIENT0_PASSWORD, default_security_settings))),
                      function(pinbox(client0_action2(test_container1, ENABLE_FCM))),
@@ -329,13 +329,13 @@ pub mod tests {
                 ]
             }, backend_client(), underlying_proto()).await;
 
-            let client1_executor = create_executor(HyperNodeType::Peer, handle.clone(), client1_bind_addr, Some(test_container.clone()), NodeType::Client1, {
+            let client1_executor = create_executor(NodeType::Peer, handle.clone(), client1_bind_addr, Some(test_container.clone()), NodeType::Client1, {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_1, keys1, default_security_settings)),
                      function(pinbox(client1_action1(test_container3, CLIENT1_PASSWORD, default_security_settings)))
                 ]
             }, backend_client(), underlying_proto()).await;
 
-            let client2_executor = create_executor(HyperNodeType::Peer, handle.clone(), client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
+            let client2_executor = create_executor(NodeType::Peer, handle.clone(), client2_bind_addr, Some(test_container.clone()), NodeType::Client2, {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_2, keys2, default_security_settings)),
                      function(pinbox(client2_action1(test_container4, CLIENT2_PASSWORD, default_security_settings))),
                      function(pinbox(client2_action2(test_container5, ENABLE_FCM))),
@@ -376,7 +376,7 @@ pub mod tests {
     }
 
     #[allow(unused_results)]
-    async fn create_executor(hypernode_type: HyperNodeType, rt: Handle, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: NodeType, commands: Vec<ActionType>, backend_type: BackendType, underlying_proto: UnderlyingProtocol) -> KernelExecutor<TestKernel> {
+    async fn create_executor(hypernode_type: NodeType, rt: Handle, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: NodeType, commands: Vec<ActionType>, backend_type: BackendType, underlying_proto: UnderlyingProtocol) -> KernelExecutor<TestKernel> {
         let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port())), backend_type, None, None).await.unwrap();
         account_manager.purge().await.unwrap();
         let kernel = TestKernel::new(node_type, commands, test_container);

@@ -1,0 +1,31 @@
+[package]
+name = "lusna_sdk"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+default = ["enterprise"]
+standard = ["hyxe_net/single-threaded"]
+plus = ["hyxe_net/multi-threaded"]
+enterprise-lite = ["hyxe_net/single-threaded", "hyxe_net/enterprise"]
+enterprise = ["hyxe_net/multi-threaded", "hyxe_net/enterprise"]
+webrtc = ["hyxe_net/webrtc"]
+
+# for testing only
+localhost-testing = ["hyxe_net/localhost-testing"]
+localhost-testing-assert-no-proxy = ["hyxe_net/localhost-testing-assert-no-proxy"]
+
+[dependencies]
+hyxe_net = { path = "../hyxe_net", default-features = false }
+tokio = { version = "1.10.1", features = ["full"] }
+futures = "0.3.17"
+parking_lot = "0.11.2"
+log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
+
+[dev-dependencies]
+parking_lot = { version = "0.11.1", features = ["deadlock_detection"] }
+portpicker = "0.1.1"
+dirs2 = "3.0.1"
+env_logger = "0.8.2"

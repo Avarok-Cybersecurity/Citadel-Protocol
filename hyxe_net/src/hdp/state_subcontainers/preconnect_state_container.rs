@@ -1,6 +1,6 @@
 use crate::hdp::hdp_server::Ticket;
 use crate::hdp::hdp_packet_processor::includes::Instant;
-use hyxe_nat::hypernode_type::HyperNodeType;
+use hyxe_nat::hypernode_type::NodeType;
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 use tokio::sync::oneshot::{Sender, Receiver, channel};
 use crate::hdp::peer::channel::UdpChannel;
@@ -10,7 +10,7 @@ use tokio::net::UdpSocket;
 pub struct PreConnectState {
     pub(crate) last_stage: u8,
     #[allow(dead_code)]
-    pub(crate) adjacent_node_type: Option<HyperNodeType>,
+    pub(crate) adjacent_node_type: Option<NodeType>,
     // This drill should be turned .into() the next toolset once the other side updated
     pub(crate) constructor: Option<HyperRatchetConstructor>,
     pub(crate) ticket: Option<Ticket>,

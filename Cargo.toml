@@ -4,6 +4,7 @@ members = [
     "hyxewave",
     "satori_nos",
     "lusna_ffi",
+    "lusna_sdk",
     "hyxe_nat",
 	"hyxe_user",
 	"hyxe_fs",
