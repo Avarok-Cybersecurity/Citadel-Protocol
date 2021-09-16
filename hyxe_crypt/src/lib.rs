@@ -24,9 +24,6 @@ pub mod prelude {
     pub use crate::toolset::Toolset;
 }
 
-/// This serves as a lock-free method of retrieving specific
-///pub mod GlobalToolset;
-
 /// Provides drill management, update, and versioning. This is what's exposed to the hyxe_user api. The drills themselves are abstracted beneath
 pub mod toolset;
 

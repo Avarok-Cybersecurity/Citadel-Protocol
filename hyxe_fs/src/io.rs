@@ -5,6 +5,7 @@ use bytes::BytesMut;
 use bytes::BufMut;
 use serde::de::DeserializeOwned;
 use bincode2::BincodeRead;
+use crate::system_file_manager::bincode_config;
 
 /// Default Error type for this crate
 pub enum FsError<T: ToString> {
@@ -76,7 +77,7 @@ pub trait SyncIO {
     /// Deserializes from an owned buffer
     fn deserialize_from_owned_vector(input: Vec<u8>) -> Result<Self, FsError<String>> where Self: DeserializeOwned {
         use bytes::Buf;
-        bincode2::deserialize_from(input.reader()).map_err(|err| FsError::Generic(err.to_string()))
+        bincode_config().deserialize_from(input.reader()).map_err(|err| FsError::Generic(err.to_string()))
     }
 
     /// Deserializes in-place
@@ -84,13 +85,13 @@ pub trait SyncIO {
         where
             T: serde::de::Deserialize<'a>,
             R: BincodeRead<'a> {
-        bincode2::deserialize_in_place(reader, place).map_err(|err| FsError::Generic(err.to_string()))
+        bincode_config().deserialize_in_place(reader, place).map_err(|err| FsError::Generic(err.to_string()))
     }
 
     /// Serializes self into a buffer
     fn serialize_into_buf(&self, buf: &mut BytesMut) -> Result<(), FsError<String>>
         where Self: Serialize {
-        bincode2::serialized_size(self)
+        bincode_config().serialized_size(self)
             .and_then(|amt| {
                 buf.reserve(amt as usize);
                 bincode2::serialize_into(buf.writer(), self)
@@ -100,13 +101,13 @@ pub trait SyncIO {
     /// Serializes directly into a slice
     fn serialize_into_slice(&self, slice: &mut [u8]) -> std::io::Result<()>
         where Self: Serialize {
-        bincode2::serialize_into(slice, self).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
+        bincode_config().serialize_into(slice, self).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))
     }
 
     /// Returns the expected size of the serialized objects
     fn serialized_size(&self) -> Option<usize>
         where Self: Serialize {
-        bincode2::serialized_size(self).ok()
+        bincode_config().serialized_size(self).ok()
             .map(|res| res as usize)
     }
 }

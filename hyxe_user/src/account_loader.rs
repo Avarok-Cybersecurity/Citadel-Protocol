@@ -57,6 +57,7 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStor
     let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_impersonal)?;
     let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_personal)?;
     log::info!("[CNAC Loader] Impersonal client network accounts loaded: {} | Personal client network accounts loaded: {}", cnacs_impersonal.len(), cnacs_personal.len());
+
     let mut ret = HashMap::with_capacity(cnacs_impersonal.len() + cnacs_personal.len());
     for cnac in cnacs_impersonal.into_iter().chain(cnacs_personal.into_iter()) {
         match ClientNetworkAccount::<R, Fcm>::load_safe(cnac.0, Some(cnac.1.clone()), None) {

@@ -1,20 +1,16 @@
-use crate::prelude::{NetKernel, UnderlyingProtocol, KernelExecutor};
-use crate::re_imports::HyperNodeType;
-use hyxe_user::account_manager::AccountManager;
-use hyxe_user::backend::BackendType;
-use hyxe_crypt::argon::argon_container::ArgonDefaultServerSettings;
-use hyxe_user::external_services::{ServicesConfig, RtdbConfig};
+use hyxe_net::prelude::*;
+
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use futures::Future;
-use crate::error::NetworkError;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::task::{Context, Poll};
 
 #[derive(Default)]
-pub struct KernelBuilder {
-    hypernode_type: Option<HyperNodeType>,
+/// Used to construct a running client/peer or server instance
+pub struct NodeBuilder {
+    hypernode_type: Option<NodeType>,
     home_directory: Option<String>,
     underlying_protocol: Option<UnderlyingProtocol>,
     backend_type: Option<BackendType>,
@@ -22,11 +18,12 @@ pub struct KernelBuilder {
     services: Option<ServicesConfig>
 }
 
-pub struct KernelFuture {
+/// An awaitable future whose return value propagates any internal protocol or kernel-level errors
+pub struct NodeFuture {
     inner: Pin<Box<dyn Future<Output=Result<(), NetworkError>> + 'static>>
 }
 
-impl Future for KernelFuture {
+impl Future for NodeFuture {
     type Output = Result<(), NetworkError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -34,12 +31,13 @@ impl Future for KernelFuture {
     }
 }
 
+/// Enables access to server-only configuration
 pub struct ServerConfigBuilder<'a> {
-    ptr: &'a mut KernelBuilder
+    ptr: &'a mut NodeBuilder
 }
 
 impl Deref for ServerConfigBuilder<'_> {
-    type Target = KernelBuilder;
+    type Target = NodeBuilder;
 
     fn deref(&self) -> &Self::Target {
         &*self.ptr
@@ -53,24 +51,30 @@ impl DerefMut for ServerConfigBuilder<'_> {
 }
 
 #[derive(Debug)]
-pub enum KernelBuilderError {
+/// Returned when an error occurs while building the node
+pub enum NodeBuilderError {
+    /// Denotes that the supplied configuration was invalid
     InvalidConfiguration(&'static str),
+    /// Denotes any other error during the building process
     Other(String)
 }
 
 impl ServerConfigBuilder<'_> {
+    /// Attaches custom Argon settings for password hashing at the server
     pub fn with_server_argon_settings(&mut self, settings: ArgonDefaultServerSettings) -> &mut Self {
         self.ptr.server_argon_settings = Some(settings);
         self
     }
 
-    /// Attach a google services json path, allowing the use of Google Auth and other dependent services like Realtime Database for android/IOS messaging
+    /// Attaches a google services json path, allowing the use of Google Auth and other dependent services like Realtime Database for android/IOS messaging. Required when using [`Self::with_google_realtime_database_config`]
     pub fn with_google_services_json_path<T: Into<String>>(&mut self, path: T) -> &mut Self {
         let cfg = self.get_or_create_services();
         cfg.google_services_json_path = Some(path.into());
         self
     }
 
+    /// Creates a Google Realtime Database configuration given the project URL and API Key. Requires the use of [`Self::with_google_services_json_path`] to allow minting of JsonWebTokens
+    /// at the central server
     pub fn with_google_realtime_database_config<T: Into<String>, R: Into<String>>(&mut self, url: T, api_key: R) -> &mut Self {
         let cfg = self.get_or_create_services();
         cfg.google_rtdb = Some(RtdbConfig { url: url.into(), api_key: api_key.into()});
@@ -88,9 +92,9 @@ impl ServerConfigBuilder<'_> {
     }
 }
 
-impl KernelBuilder {
-
-    pub fn build<K: NetKernel>(&mut self, kernel: K) -> Result<KernelFuture, KernelBuilderError> {
+impl NodeBuilder {
+    /// Returns a future that represents the both the protocol and kernel execution
+    pub fn build<K: NetKernel>(&mut self, kernel: K) -> Result<NodeFuture, NodeBuilderError> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let home_dir = self.home_directory.take();
@@ -101,13 +105,19 @@ impl KernelBuilder {
         let underlying_proto = if let Some(proto) = self.underlying_protocol.take() {
             proto
         } else {
-            UnderlyingProtocol::new_tls_self_signed().map_err(|err| KernelBuilderError::Other(err.into_string()))?
+            UnderlyingProtocol::new_tls_self_signed().map_err(|err| NodeBuilderError::Other(err.into_string()))?
         };
 
-        Ok(KernelFuture {
+        Ok(NodeFuture {
             inner: Box::pin(async move {
+                log::info!("[NodeBuilder] Checking Tokio runtime ...");
+                let rt = tokio::runtime::Handle::try_current().map_err(|err| NetworkError::Generic(err.to_string()))?;
+
+                log::info!("[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(hypernode_type.bind_addr().unwrap_or_else(|| SocketAddr::from_str("127.0.0.1:25021").unwrap()), home_dir, backend_type, server_argon_settings, server_services_cfg).await?;
-                let kernel_executor = KernelExecutor::new(tokio::runtime::Handle::try_current().map_err(|err| NetworkError::Generic(err.to_string()))?, hypernode_type, account_manager, kernel, underlying_proto).await?;
+                log::info!("[NodeBuilder] Creating KernelExecutor ...");
+                let kernel_executor = KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto).await?;
+                log::info!("[NodeBuilder] Executing kernel");
                 kernel_executor.execute().await
             })
         })
@@ -115,14 +125,14 @@ impl KernelBuilder {
 
     /// Defines the node type. By default, Peer is used. If a server is desired, a bind address is expected
     /// ```
-    /// use hyxe_net::prelude::sdk::kernel_builder::KernelBuilder;
-    /// use hyxe_nat::hypernode_type::HyperNodeType;
     /// use std::net::SocketAddr;
     /// use std::str::FromStr;
+    /// use lusna_sdk::prelude::NodeBuilder;
+    /// use hyxe_net::prelude::NodeType;
     ///
-    /// KernelBuilder::default().with_node_type(HyperNodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()));
+    /// NodeBuilder::default().with_node_type(NodeType::Server(SocketAddr::from_str("0.0.0.0:25021").unwrap()));
     /// ```
-    pub fn with_node_type(&mut self, node_type: HyperNodeType) -> &mut Self {
+    pub fn with_node_type(&mut self, node_type: NodeType) -> &mut Self {
         self.hypernode_type = Some(node_type);
         self
     }
@@ -147,10 +157,10 @@ impl KernelBuilder {
         self
     }
 
-    fn check(&self) -> Result<(), KernelBuilderError> {
+    fn check(&self) -> Result<(), NodeBuilderError> {
         if let Some(svc) = self.services.as_ref() {
             if svc.google_rtdb.is_some() && svc.google_services_json_path.is_none() {
-                return Err(KernelBuilderError::InvalidConfiguration("Google realtime database is enabled, yet, a services path is not provided"))
+                return Err(NodeBuilderError::InvalidConfiguration("Google realtime database is enabled, yet, a services path is not provided"))
             }
         }
 
@@ -160,16 +170,16 @@ impl KernelBuilder {
 
 #[cfg(test)]
 mod tests {
-    use crate::sdk::kernel_builder::KernelBuilder;
-    use crate::sdk::prefabs::server::empty_kernel::EmptyKernel;
+    use crate::node_builder::NodeBuilder;
+    use crate::prefabs::server::empty_kernel::EmptyKernel;
 
     #[test]
     fn okay_config() {
-        let _ = KernelBuilder::default().server_config().with_google_realtime_database_config("123", "456").with_google_services_json_path("abc").build(EmptyKernel{}).unwrap();
+        let _ = NodeBuilder::default().server_config().with_google_realtime_database_config("123", "456").with_google_services_json_path("abc").build(EmptyKernel::default()).unwrap();
     }
 
     #[test]
     fn bad_config() {
-        assert!(KernelBuilder::default().server_config().with_google_realtime_database_config("123", "456").build(EmptyKernel{}).is_err());
+        assert!(NodeBuilder::default().server_config().with_google_realtime_database_config("123", "456").build(EmptyKernel::default()).is_err());
     }
 }

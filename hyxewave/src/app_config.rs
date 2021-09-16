@@ -1,5 +1,5 @@
 use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
-use hyxe_net::re_imports::HyperNodeType;
+use hyxe_net::re_imports::NodeType;
 use crate::ffi::FFIIO;
 use hyxe_user::backend::BackendType;
 use hyxe_net::hdp::misc::underlying_proto::UnderlyingProtocol;
@@ -23,7 +23,7 @@ use hyxe_user::external_services::ServicesConfig;
 pub struct AppConfig {
     pub local_bind_addr: Option<SocketAddr>,
     pub pipe: Option<SocketAddr>,
-    pub hypernode_type: Option<HyperNodeType>,
+    pub hypernode_type: Option<NodeType>,
     pub ffi_io: Option<FFIIO>,
     pub backend_type: Option<BackendType>,
     pub external_services: Option<ServicesConfig>,
@@ -131,9 +131,9 @@ impl TomlConfig {
         let node = self.hypernodes.iter().find(|r| r.alias.as_str() == alias).ok_or(ConsoleError::Default("Supplied alias not found"))?;
 
         let (local_bind_addr, hypernode_type) = if let Some(bind_addr) = node.local_bind_addr.as_ref() {
-            (SocketAddr::from_str(bind_addr.as_str()).map_err(|err| ConsoleError::Generic(err.to_string()))?, HyperNodeType::Server)
+            (SocketAddr::from_str(bind_addr.as_str()).map_err(|err| ConsoleError::Generic(err.to_string()))?, NodeType::Server)
         } else {
-            (SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), PRIMARY_PORT), HyperNodeType::BehindResidentialNAT)
+            (SocketAddr::new(IpAddr::from_str("127.0.0.1").unwrap(), PRIMARY_PORT), NodeType::BehindResidentialNAT)
         };
 
         let backend_type = node.backend.as_ref().map(|r| {

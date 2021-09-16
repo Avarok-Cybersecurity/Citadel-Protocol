@@ -1,11 +1,8 @@
-use crate::prelude::NetKernel;
-use crate::hdp::hdp_server::HdpServerRemote;
-use crate::error::NetworkError;
-use crate::hdp::hdp_packet_processor::includes::HdpServerResult;
-use async_trait::async_trait;
+use hyxe_net::prelude::*;
 
 /// A kernel that does nothing to events in the protocol, nor does it cause any requests. A server that allows any and all connections with no special handlers would benefit from the use of this kernel.
 /// This should never be used for peers/clients, since to do so would deny the possibility of making outgoing connections
+#[derive(Default)]
 pub struct EmptyKernel;
 
 #[async_trait]

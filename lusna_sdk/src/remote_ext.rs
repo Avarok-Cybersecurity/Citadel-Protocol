@@ -1,16 +1,8 @@
-use crate::prelude::{HdpServerRemote, SessionSecuritySettings, UdpMode, HdpServerResult};
-use crate::error::NetworkError;
-use crate::hdp::hdp_server::{HdpServerRequest, ConnectMode};
-use hyxe_user::proposed_credentials::ProposedCredentials;
-use hyxe_crypt::prelude::SecBuffer;
-use hyxe_crypt::fcm::keys::FcmKeys;
-use crate::hdp::peer::channel::{PeerChannel, UdpChannel};
-use hyxe_user::external_services::ServicesObject;
+use crate::prelude::*;
 use std::path::PathBuf;
-use crate::hdp::state_container::VirtualTargetType;
-use crate::hdp::file_transfer::FileTransferStatus;
-use hyxe_user::prelude::UserIdentifier;
+use futures::StreamExt;
 
+/// Contains the elements required to communicate with the adjacent node
 pub struct ConnectSuccess {
     /// An interface to send ordered, reliable, and encrypted messages
     pub channel: PeerChannel,
@@ -20,14 +12,17 @@ pub struct ConnectSuccess {
     pub services: ServicesObject,
 }
 
+/// Contains the elements entailed by a successful registration
 pub struct RegisterSuccess {}
 
-impl HdpServerRemote {
+#[async_trait]
+/// Endows the ['HdpServerRemote'] with additional functions
+pub trait ProtocolRemoteExt: Remote {
     /// Registers with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
-    pub async fn register<T: std::net::ToSocketAddrs, R: Into<String> + Send, V: Into<String> + Send, K: Into<SecBuffer>>(&mut self, addr: T, full_name: R, username: V, proposed_password: K, fcm_keys: Option<FcmKeys>, default_security_settings: SessionSecuritySettings) -> Result<RegisterSuccess, NetworkError> {
+    async fn register<T: std::net::ToSocketAddrs + Send, R: Into<String> + Send, V: Into<String> + Send, K: Into<SecBuffer> + Send>(&mut self, addr: T, full_name: R, username: V, proposed_password: K, fcm_keys: Option<FcmKeys>, default_security_settings: SessionSecuritySettings) -> Result<RegisterSuccess, NetworkError> {
         let creds = ProposedCredentials::new_register(full_name, username, proposed_password.into()).await?;
-        let register_request = HdpServerRequest::RegisterToHypernode(addr.to_socket_addrs()?.next().ok_or_else(||NetworkError::InternalError("Invalid socket addr"))?, creds, fcm_keys, default_security_settings);
+        let register_request = HdpServerRequest::RegisterToHypernode(addr.to_socket_addrs()?.next().ok_or_else(|| NetworkError::InternalError("Invalid socket addr"))?, creds, fcm_keys, default_security_settings);
 
         match self.send_callback(register_request).await? {
             HdpServerResult::RegisterOkay(..) => Ok(RegisterSuccess {}),
@@ -39,16 +34,17 @@ impl HdpServerRemote {
 
     /// Registers using the default settings. The default uses No Google FCM keys and the default session security settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
-    pub async fn register_with_defaults<T: std::net::ToSocketAddrs, R: Into<String> + Send, V: Into<String> + Send, K: Into<SecBuffer>>(&mut self, addr: T, full_name: R, username: V, proposed_password: K) -> Result<RegisterSuccess, NetworkError> {
+    async fn register_with_defaults<T: std::net::ToSocketAddrs + Send, R: Into<String> + Send, V: Into<String> + Send, K: Into<SecBuffer> + Send>(&mut self, addr: T, full_name: R, username: V, proposed_password: K) -> Result<RegisterSuccess, NetworkError> {
         self.register(addr, full_name, username, proposed_password, None, Default::default()).await
     }
 
     /// Connects with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
-    pub async fn connect<T: Into<String> + Send, V: Into<SecBuffer>>(&mut self, username: T, password: V, connect_mode: ConnectMode, fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_sec: Option<u32>, session_security_settings: SessionSecuritySettings) -> Result<ConnectSuccess, NetworkError> {
+    async fn connect<T: Into<String> + Send, V: Into<SecBuffer> + Send>(&mut self, username: T, password: V, connect_mode: ConnectMode, fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_sec: Option<u32>, session_security_settings: SessionSecuritySettings) -> Result<ConnectSuccess, NetworkError> {
         let username = username.into();
+        let account_manager = self.account_manager();
 
-        let cnac = self.account_manager().get_client_by_username(&username).await?.ok_or_else(||NetworkError::msg("Username does not exist locally (is the account registered yet?)"))?;
+        let cnac = account_manager.get_client_by_username(&username).await?.ok_or_else(||NetworkError::msg("Username does not exist locally (is the account registered yet?)"))?;
         let _ = cnac.get_static_auxiliary_hyper_ratchet().verify_level(Some(session_security_settings.security_level))?;
         let creds = cnac.generate_connect_credentials(password.into()).await?;
         let cid = cnac.get_cid();
@@ -67,15 +63,14 @@ impl HdpServerRemote {
 
     /// Connects with the default settings
     /// If FCM keys were created during the registration phase, then those keys will be used for the session. If new FCM keys need to be used, consider using [`Self::connect`]
-    pub async fn connect_with_defaults<T: Into<String> + Send, V: Into<SecBuffer>>(&mut self, username: T, password: V) -> Result<ConnectSuccess, NetworkError> {
+    async fn connect_with_defaults<T: Into<String> + Send, V: Into<SecBuffer> + Send>(&mut self, username: T, password: V) -> Result<ConnectSuccess, NetworkError> {
         self.connect(username, password, Default::default(), None, Default::default(), None, Default::default()).await
     }
 
     /// Sends a file with a custom size. The smaller the chunks, the higher the degree of scrambling, but the higher the performance penalty. A chunk size of zero will use the default
-    pub async fn send_file_with_custom_chunking<T: Into<PathBuf>>(&mut self, path: T, target: VirtualTargetType, chunk_size: usize) -> Result<(), NetworkError> {
+    async fn send_file_with_custom_chunking<T: Into<PathBuf> + Send>(&mut self, path: T, target: VirtualTargetType, chunk_size: usize) -> Result<(), NetworkError> {
         let chunk_size = if chunk_size == 0 { None } else { Some(chunk_size) };
         let mut stream = self.send_callback_stream(HdpServerRequest::SendFile(path.into(), chunk_size,target.get_implicated_cid(), target)).await?;
-        use futures::StreamExt;
 
         while let Some(item) = stream.next().await {
             match item {
@@ -105,7 +100,7 @@ impl HdpServerRemote {
     }
 
     /// Sends a file to the provided target using the default chunking size
-    pub async fn send_file<T: Into<PathBuf>>(&mut self, path: T, target: VirtualTargetType) -> Result<(), NetworkError> {
+    async fn send_file<T: Into<PathBuf> + Send>(&mut self, path: T, target: VirtualTargetType) -> Result<(), NetworkError> {
         self.send_file_with_custom_chunking(path, target, 0).await
     }
 
@@ -116,7 +111,7 @@ impl HdpServerRemote {
     /// // or: remote.find_target(1234, "bob")
     /// remote.send_file("/path/to/file.pdf", target).await.unwrap();
     /// ```
-    pub async fn find_target(&self, local_user: impl Into<UserIdentifier>, peer: impl Into<UserIdentifier>) -> Result<VirtualTargetType, NetworkError> {
+    async fn find_target<T: Into<UserIdentifier> + Send, R: Into<UserIdentifier> + Send>(&self, local_user: T, peer: R) -> Result<VirtualTargetType, NetworkError> {
         self.account_manager().find_target_information(local_user, peer).await?.map(|(cid, peer)| if peer.parent_icid != 0 {
             VirtualTargetType::HyperLANPeerToHyperWANPeer(cid, peer.parent_icid, peer.cid)
         } else {
@@ -124,3 +119,5 @@ impl HdpServerRemote {
         }).ok_or_else(|| NetworkError::msg("Target pair not found"))
     }
 }
+
+impl<T: Remote> ProtocolRemoteExt for T {}

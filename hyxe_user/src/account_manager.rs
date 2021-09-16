@@ -42,7 +42,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         let persistence_handler = match &backend_type {
             BackendType::Filesystem => {
-                // note: call connect HERE! we need &mut, and cant thru Arc
                 let mut backend = FilesystemBackend::from(directory_store.clone());
                 backend.connect(&directory_store).await?;
                 PersistenceHandler::new(backend, directory_store)
@@ -60,7 +59,14 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         persistence_handler.post_connect(&persistence_handler)?;
 
-        Ok(Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into() })
+        let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into() };
+
+        #[cfg(feature = "localhost-testing")]
+            {
+                let _ = this.purge().await?;
+            }
+
+        Ok(this)
     }
 
     /// Using an internal single-threaded executor, creates the account manager. NOTE: It is best not to mix executors. This should be used only in background modes that need to poll

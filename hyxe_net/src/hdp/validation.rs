@@ -236,7 +236,7 @@ pub(crate) mod do_drill_update {
 
 pub(crate) mod pre_connect {
     use hyxe_crypt::toolset::{Toolset, StaticAuxRatchet};
-    use hyxe_nat::hypernode_type::HyperNodeType;
+    use hyxe_nat::hypernode_type::NodeType;
     use hyxe_user::client_account::ClientNetworkAccount;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -316,7 +316,7 @@ pub(crate) mod pre_connect {
 
     // Returns the adjacent node type, wave ports, and external IP. Serverside, we do not update the CNAC's toolset until this point
     // because we want to make sure the client passes the challenge
-    pub fn validate_stage0(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<HyperNodeType> {
+    pub fn validate_stage0(hyper_ratchet: &HyperRatchet, packet: HdpPacket) -> Option<NodeType> {
         let (header, payload, _, _) = packet.decompose();
         let (_header, payload) = super::aead::validate_custom(hyper_ratchet, &header, payload)?;
         let packet = PreConnectStage0::deserialize_from_vector(&payload).ok()?;
