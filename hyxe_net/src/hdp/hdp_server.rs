@@ -19,7 +19,7 @@ use tokio::task::LocalSet;
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_fs::io::SyncIO;
-use hyxe_nat::hypernode_type::HyperNodeType;
+use hyxe_nat::hypernode_type::NodeType;
 use hyxe_nat::local_firewall_handler::{FirewallProtocol, open_local_firewall_port, remove_firewall_rule};
 use hyxe_nat::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
@@ -44,7 +44,7 @@ use crate::hdp::outbound_sender::{BoundedReceiver, BoundedSender, unbounded, Unb
 use crate::hdp::peer::channel::{PeerChannel, UdpChannel};
 use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal, UdpMode};
 use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
-use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
+use crate::kernel::kernel_communicator::{KernelAsyncCallbackHandler, KernelStreamSubscription};
 use crate::kernel::RuntimeFuture;
 use hyxe_nat::quic::{QuicServer, QuicEndpointConnector, SELF_SIGNED_DOMAIN, QuicNode};
 use either::Either;
@@ -76,7 +76,7 @@ pub struct HdpServerInner {
     /// Key: cid (to account for multiple clients from the same node)
     session_manager: HdpSessionManager,
     to_kernel: UnboundedSender<HdpServerResult>,
-    local_node_type: HyperNodeType,
+    local_node_type: NodeType,
     // Applies only to listeners, not outgoing connections
     underlying_proto: UnderlyingProtocol,
     nat_type: NatType
@@ -84,13 +84,13 @@ pub struct HdpServerInner {
 
 impl HdpServer {
     /// Creates a new [HdpServer]
-    pub(crate) async fn init(local_node_type: HyperNodeType, to_kernel: UnboundedSender<HdpServerResult>, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, underlying_proto: UnderlyingProtocol) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>, KernelAsyncCallbackHandler)> {
+    pub(crate) async fn init(local_node_type: NodeType, to_kernel: UnboundedSender<HdpServerResult>, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, underlying_proto: UnderlyingProtocol) -> io::Result<(HdpServerRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>, KernelAsyncCallbackHandler)> {
         let (primary_socket, bind_addr) = match local_node_type {
-            HyperNodeType::Server(bind_addr) => {
+            NodeType::Server(bind_addr) => {
                 Self::server_create_primary_listen_socket(underlying_proto.clone(), &bind_addr)?.map_left(|l|Some(l)).map_right(|r|Some(r))
             }
 
-            HyperNodeType::Peer => {
+            NodeType::Peer => {
                 (None, None)
             }
         };
@@ -603,8 +603,35 @@ pub struct HdpServerRemote {
 struct HdpServerRemoteInner {
     ticket_counter: AtomicU64,
     callback_handler: KernelAsyncCallbackHandler,
-    node_type: HyperNodeType,
+    node_type: NodeType,
     account_manager: AccountManager
+}
+
+#[async_trait::async_trait]
+pub trait Remote {
+    async fn send(&mut self, request: HdpServerRequest) -> Result<Ticket, NetworkError>;
+    async fn send_callback_stream(&mut self, request: HdpServerRequest) -> Result<KernelStreamSubscription, NetworkError>;
+    async fn send_callback(&mut self, request: HdpServerRequest) -> Result<HdpServerResult, NetworkError>;
+    fn account_manager(&self) -> &AccountManager;
+}
+
+#[async_trait::async_trait]
+impl Remote for HdpServerRemote {
+    async fn send(&mut self, request: HdpServerRequest) -> Result<Ticket, NetworkError> {
+        HdpServerRemote::send(self, request).await
+    }
+
+    async fn send_callback_stream(&mut self, request: HdpServerRequest) -> Result<KernelStreamSubscription, NetworkError> {
+        HdpServerRemote::send_callback_stream(self, request).await
+    }
+
+    async fn send_callback(&mut self, request: HdpServerRequest) -> Result<HdpServerResult, NetworkError> {
+        HdpServerRemote::send_callback(self, request).await
+    }
+
+    fn account_manager(&self) -> &AccountManager {
+        HdpServerRemote::account_manager(self)
+    }
 }
 
 impl Debug for HdpServerRemote {
@@ -615,7 +642,7 @@ impl Debug for HdpServerRemote {
 
 impl HdpServerRemote {
     /// Creates a new [HdpServerRemote]
-    pub(crate) fn new(outbound_send_request_tx: BoundedSender<(HdpServerRequest, Ticket)>, callback_handler: KernelAsyncCallbackHandler, account_manager: AccountManager, node_type: HyperNodeType) -> Self {
+    pub(crate) fn new(outbound_send_request_tx: BoundedSender<(HdpServerRequest, Ticket)>, callback_handler: KernelAsyncCallbackHandler, account_manager: AccountManager, node_type: NodeType) -> Self {
         // starts at 1. Ticket 0 is for reserved
         Self { outbound_send_request_tx, inner: Arc::new(HdpServerRemoteInner { ticket_counter: AtomicU64::new(1), callback_handler, account_manager, node_type }) }
     }
@@ -648,7 +675,7 @@ impl HdpServerRemote {
     }
 
     /// Returns an error if the ticket is already registered for a stream-callback
-    pub(crate) async fn send_callback_stream_custom_ticket(&mut self, request: HdpServerRequest, ticket: Ticket) -> Result<impl futures::Stream<Item=HdpServerResult>, NetworkError> {
+    pub(crate) async fn send_callback_stream_custom_ticket(&mut self, request: HdpServerRequest, ticket: Ticket) -> Result<KernelStreamSubscription, NetworkError> {
         let rx = self.inner.callback_handler.register_stream(ticket)?;
         match self.send_with_custom_ticket(ticket, request).await {
             Ok(_) => {
@@ -663,7 +690,7 @@ impl HdpServerRemote {
     }
 
     /// Convenience method for sending and awaiting for a response for the related ticket
-    pub async fn send_callback_stream(&mut self, request: HdpServerRequest) -> Result<impl futures::Stream<Item=HdpServerResult>, NetworkError> {
+    pub async fn send_callback_stream(&mut self, request: HdpServerRequest) -> Result<KernelStreamSubscription, NetworkError> {
         let ticket = self.get_next_ticket();
         self.send_callback_stream_custom_ticket(request, ticket).await
     }
@@ -698,11 +725,11 @@ impl HdpServerRemote {
         self.outbound_send_request_tx.try_send((request, ticket))
     }
 
-    pub fn local_node_type(&self) -> &HyperNodeType {
+    pub fn local_node_type(&self) -> &NodeType {
         &self.inner.node_type
     }
 
-    pub(crate) fn account_manager(&self) -> &AccountManager {
+    pub fn account_manager(&self) -> &AccountManager {
         &self.inner.account_manager
     }
 }
@@ -756,7 +783,7 @@ impl Sink<HdpServerRequest> for HdpServerRemote {
 /// in order for processes sitting above the [Kernel] to know how the request went
 #[allow(variant_size_differences)]
 pub enum HdpServerRequest {
-    /// Sends a request to the underlying [HdpSessionManager] to begin connecting to a new client
+    /// Sends a request to the underlying HdpSessionManager to begin connecting to a new client
     RegisterToHypernode(SocketAddr, ProposedCredentials, Option<FcmKeys>, SessionSecuritySettings),
     /// A high-level peer command. Can be used to facilitate communications between nodes in the HyperLAN
     PeerCommand(u64, PeerSignal),

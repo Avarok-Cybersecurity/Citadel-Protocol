@@ -1,15 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use hyxe_net::prelude::*;
+    use lusna_sdk::prelude::*;
     use std::net::{SocketAddr, IpAddr};
     use std::str::FromStr;
-    use hyxe_net::re_imports::HyperNodeType;
-    use hyxe_user::account_manager::AccountManager;
-    use hyxe_user::backend::BackendType;
-    use hyxe_net::prelude::UnderlyingProtocol;
     use hyxe_net::test_common::base_kernel::generate_endpoint_test_kernels;
     use hyxe_net::test_common::TestingCoKernel;
-    use async_trait::async_trait;
     use tokio::sync::mpsc::UnboundedSender;
     use crate::deadlock_detection::deadlock_detector;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,8 +27,8 @@ mod tests {
         let (server_bind_addr, server_account_manager) = generate_endpoint_context().await;
         let (_client_bind_addr, client_account_manager) = generate_endpoint_context().await;
 
-        let server_kernel = KernelExecutor::new(handle.clone(), HyperNodeType::Server(server_bind_addr), server_account_manager, k0, UNDERLYING_PROTO).await.unwrap();
-        let client_kernel = KernelExecutor::new(handle, HyperNodeType::Peer, client_account_manager, k1,UNDERLYING_PROTO).await.unwrap();
+        let server_kernel = KernelExecutor::new(handle.clone(), NodeType::Server(server_bind_addr), server_account_manager, k0, UNDERLYING_PROTO).await.unwrap();
+        let client_kernel = KernelExecutor::new(handle, NodeType::Peer, client_account_manager, k1, UNDERLYING_PROTO).await.unwrap();
         (server_kernel, client_kernel)
     }
 

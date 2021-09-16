@@ -27,7 +27,7 @@ pub fn load_file_types_by_ext<D: DeserializeOwned, P: AsRef<Path>>(ext: &str, pa
     let mut ret = Vec::new();
 
     for file in files {
-        //println!("[SystemFileManager] Checking {}", file.clone().into_os_string().into_string().unwrap());
+        //log::info!("[SystemFileManager] Checking {}", file.clone().into_os_string().into_string().unwrap());
         match read::<D, _>(&file) {
             Ok(val) => {
                 ret.push((val, std::path::PathBuf::from(file.as_path())));
@@ -47,14 +47,14 @@ pub fn load_file_types_by_ext<D: DeserializeOwned, P: AsRef<Path>>(ext: &str, pa
 pub async fn async_read<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<D, FsError<String>> {
     //let bytes: Vec<u8> = async_std::fs::read(path.as_ref()).await.map_err(|err| FsError::IoError(err.to_string()))?;
     let data = tokio::fs::read(path).map_err(|err| FsError::IoError(err.to_string())).await?;
-    bincode2::deserialize(data.as_slice())
+    bincode_config().deserialize(data.as_slice())
         .map_err(|err| FsError::IoError(err.to_string()))
 }
 
 /// Reads the given path as the given type, D
 pub fn read<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<D, FsError<String>> {
     std::fs::File::open(path.as_ref()).map_err(|err| FsError::IoError(err.to_string())).and_then(|file| {
-        bincode2::deserialize_from(std::io::BufReader::new(file))
+        bincode_config().deserialize_from(std::io::BufReader::new(file))
             .map_err(|err| FsError::IoError(err.to_string()))
     })
 }
@@ -71,7 +71,7 @@ pub fn write<D: Sized + Serialize, P: AsRef<Path>>(object: &D, path: P) -> Resul
         .and_then(|file| {
             let ref mut buf_writer = std::io::BufWriter::new(file);
             // change: use BufWriter, as it's "50x" faster https://stackoverflow.com/questions/49983101/serialization-of-large-struct-to-disk-with-serde-and-bincode-is-slow?noredirect=1&lq=1
-            bincode2::serialize_into(buf_writer, object).map_err(|err| FsError::IoError(err.to_string()))
+            bincode_config().serialize_into(buf_writer, object).map_err(|err| FsError::IoError(err.to_string()))
         })
 }
 
@@ -110,13 +110,13 @@ pub async fn create_file_with<P: AsRef<Path>>(path: P, data: &String) -> Result<
 
 /// Deserializes the bytes, T, into type D
 pub fn bytes_to_type<'a, D: Deserialize<'a>>(bytes: &'a [u8]) -> Result<D, FsError<String>> {
-    bincode2::deserialize(bytes)
+    bincode_config().deserialize(bytes)
         .map_err(|err| FsError::IoError(err.to_string()))
 }
 
 /// Converts a type, D to Vec<u8>
 pub fn type_to_bytes<D: Serialize>(input: D) -> Result<Vec<u8>, FsError<String>> {
-    bincode2::serialize(&input)
+    bincode_config().serialize(&input)
         .map_err(|err| FsError::IoError(err.to_string()))
 }
 
@@ -138,4 +138,14 @@ pub fn write_bytes_to<T: AsRef<[u8]>, P: AsRef<Path>>(bytes: T, path: P) -> Resu
 /// Writes raw bytes to a file asynchronously
 pub async fn async_write_bytes_to<T: AsRef<[u8]>, P: AsRef<Path>>(bytes: T, path: P) -> Result<(), FsError<String>> {
     tokio::fs::write(path, bytes).await.map_err(|err| FsError::IoError(err.to_string()))
+}
+
+/// A limited config. Helps prevent oversized allocations from occurring when deserializing incompatible
+/// objects
+#[inline(always)]
+#[allow(unused_results)]
+pub(crate) fn bincode_config() -> bincode2::Config {
+    let mut cfg = bincode2::config();
+    cfg.limit(1000*1000*1000*4);
+    cfg
 }

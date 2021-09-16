@@ -28,8 +28,9 @@ pub const fn build_tag() -> &'static str {
 pub mod macros {
     use std::future::Future;
 
-    use crate::hdp::hdp_session::HdpSessionInner;
     use either::Either;
+
+    use crate::hdp::hdp_session::HdpSessionInner;
 
     pub type OwnedReadGuard<'a, T> = std::cell::Ref<'a, T>;
     pub type OwnedWriteGuard<'a, T> = std::cell::RefMut<'a, T>;
@@ -171,8 +172,9 @@ pub mod macros {
 pub mod macros {
     use std::future::Future;
 
-    use crate::hdp::hdp_session::HdpSessionInner;
     use either::Either;
+
+    use crate::hdp::hdp_session::HdpSessionInner;
 
     pub type OwnedReadGuard<'a, T> = parking_lot::RwLockReadGuard<'a, T>;
     pub type OwnedWriteGuard<'a, T> = parking_lot::RwLockWriteGuard<'a, T>;
@@ -328,27 +330,41 @@ pub mod re_imports {
     pub use futures::future::try_join3;
 
     pub use ez_pqcrypto::build_tag;
-    pub use hyxe_nat::hypernode_type::HyperNodeType;
+    pub use hyxe_nat::hypernode_type::NodeType;
 }
 
 
 pub mod prelude {
-    pub use crate::hdp::misc::session_security_settings::{SessionSecuritySettings, SessionSecuritySettingsBuilder};
-    pub use crate::hdp::misc::panic_future::ExplicitPanicFuture;
-    pub use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
-    pub use crate::hdp::peer::channel::{PeerChannel, PeerChannelSendHalf};
-    pub use crate::hdp::peer::message_group::MessageGroupKey;
-    pub use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
+    pub use hyxe_crypt::argon::{argon_container::ArgonDefaultServerSettings, autotuner::calculate_optimal_params};
+    pub use hyxe_crypt::secure_buffer::{sec_bytes::SecBuffer, sec_string::SecString};
+    pub use hyxe_crypt::fcm::keys::FcmKeys;
+    pub use hyxe_user::backend::BackendType;
+    pub use hyxe_user::external_services::ServicesConfig;
+    pub use hyxe_user::external_services::ServicesObject;
+    pub use hyxe_user::prelude::{ConnectProtocol, UserIdentifier};
+    pub use hyxe_user::proposed_credentials::ProposedCredentials;
+    pub use hyxe_user::account_manager::AccountManager;
+    pub use hyxe_user::external_services::RtdbConfig;
+    pub use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
 
-    pub use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
-    pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
-    pub use crate::hdp::peer::peer_layer::PeerResponse;
-
-    pub use crate::kernel::{kernel_executor::KernelExecutor, kernel::NetKernel};
-    pub use crate::hdp::hdp_server::{HdpServerRemote, HdpServerResult, HdpServerRequest, atexit};
     pub use crate::error::NetworkError;
     pub use crate::functional::*;
-    pub use crate::sdk;
+    pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
+    pub use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
+    pub use crate::hdp::hdp_server::{atexit, HdpServerRemote, HdpServerRequest, HdpServerResult, SecrecyMode, Remote};
+    pub use crate::hdp::misc::panic_future::ExplicitPanicFuture;
+    pub use crate::hdp::misc::session_security_settings::{SessionSecuritySettings, SessionSecuritySettingsBuilder};
+    pub use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
+    pub use crate::hdp::peer::channel::*;
+    pub use crate::hdp::peer::message_group::MessageGroupKey;
+    pub use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
+    pub use crate::hdp::peer::peer_layer::PeerResponse;
+    pub use crate::hdp::state_container::VirtualTargetType;
+    pub use crate::kernel::{kernel::NetKernel, kernel_executor::KernelExecutor};
+    pub use crate::re_imports::{async_trait, NodeType};
+    pub use crate::hdp::file_transfer::FileTransferStatus;
+    pub use crate::hdp::hdp_server::ConnectMode;
+
 }
 
 /// Contains the streams for creating connections
@@ -365,5 +381,3 @@ mod functional;
 mod inner_arg;
 #[doc(hidden)]
 pub mod test_common;
-/// High-level SDK for easily interacting with the protocol
-pub mod sdk;

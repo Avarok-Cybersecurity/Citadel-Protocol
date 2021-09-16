@@ -1018,7 +1018,7 @@ pub(crate) mod pre_connect {
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U32, U64};
 
-    use hyxe_nat::hypernode_type::HyperNodeType;
+    use hyxe_nat::hypernode_type::NodeType;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
@@ -1107,11 +1107,11 @@ pub(crate) mod pre_connect {
 
     #[derive(Serialize, Deserialize)]
     pub struct PreConnectStage0 {
-        pub node_type: HyperNodeType
+        pub node_type: NodeType
     }
 
     // This gets sent from Alice to Bob
-    pub(crate) fn craft_stage0(hyper_ratchet: &HyperRatchet, timestamp: i64, node_type: HyperNodeType, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_stage0(hyper_ratchet: &HyperRatchet, timestamp: i64, node_type: NodeType, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::STAGE0,

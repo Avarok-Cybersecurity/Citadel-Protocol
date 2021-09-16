@@ -1,7 +1,8 @@
-use crate::prelude::HdpServerRemote;
-use crate::error::NetworkError;
+use hyxe_net::prelude::*;
 
+/// Kernels for servers
 pub mod server;
+/// Kernels for clients
 pub mod client;
 
 /// A limited version of the ['HdpServerRemote'] designed to only allow shutdown calls to the protocol

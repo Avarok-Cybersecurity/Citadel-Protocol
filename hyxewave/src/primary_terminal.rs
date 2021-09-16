@@ -167,7 +167,7 @@ pub mod parsers {
 
     use crate::app_config::AppConfig;
     use crate::console_error::ConsoleError;
-    use hyxe_net::re_imports::HyperNodeType;
+    use hyxe_net::re_imports::NodeType;
     use crate::primary_terminal::try_get_local_addr;
     use hyxe_net::hdp::misc::underlying_proto::UnderlyingProtocol;
     use std::fs::File;
@@ -176,9 +176,9 @@ pub mod parsers {
     pub fn parse_all_primary_commands(matches: &ArgMatches, app_config: &mut AppConfig) -> Result<(), ConsoleError> {
         if let Some(node_type) = matches.value_of("node_type") {
             let node = match node_type {
-                "pure_server" => HyperNodeType::Server,
-                "residential" => HyperNodeType::BehindResidentialNAT,
-                "cellular" => HyperNodeType::BehindSymmetricalNAT,
+                "pure_server" => NodeType::Server,
+                "residential" => NodeType::BehindResidentialNAT,
+                "cellular" => NodeType::BehindSymmetricalNAT,
                 _ => return Err(ConsoleError::Default("Invalid node type"))
             };
 

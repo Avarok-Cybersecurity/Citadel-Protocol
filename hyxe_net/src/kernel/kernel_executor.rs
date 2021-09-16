@@ -4,7 +4,7 @@ use futures::TryStreamExt;
 use tokio::runtime::Handle;
 use tokio::task::LocalSet;
 
-use hyxe_nat::hypernode_type::HyperNodeType;
+use hyxe_nat::hypernode_type::NodeType;
 use hyxe_user::account_manager::AccountManager;
 
 use crate::error::NetworkError;
@@ -30,7 +30,7 @@ pub struct KernelExecutor<K: NetKernel> {
 
 impl<K: NetKernel> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
-    pub async fn new(rt: Handle, hypernode_type: HyperNodeType, account_manager: AccountManager, kernel: K, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
+    pub async fn new(rt: Handle, hypernode_type: NodeType, account_manager: AccountManager, kernel: K, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) = tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote

@@ -15,6 +15,9 @@ enterprise = ["sqlx"]
 multi-threaded = ["hyxe_crypt/multi-threaded"]
 single-threaded = ["hyxe_crypt/single-threaded"]
 
+# whenever an accountmanager is created, all accounts are purged when localhost-testing is enabled
+localhost-testing = []
+
 [dependencies]
 #futures-preview = { version = "=0.3.0-alpha.19", features = ["compat", "async-await"]}
 serde = { version = "1.0.104", features=["rc", "derive"] }
