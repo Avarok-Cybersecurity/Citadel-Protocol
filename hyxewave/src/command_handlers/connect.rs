@@ -26,7 +26,7 @@ pub struct ConnectResponseReceived {
 }
 
 #[allow(unused_results)]
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let username = matches.value_of("username").unwrap();
     let udp = if matches.is_present("qudp") { UdpMode::Enabled } else { UdpMode::Disabled };
     let force_login = matches.is_present("force");

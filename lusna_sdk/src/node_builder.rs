@@ -15,7 +15,8 @@ pub struct NodeBuilder {
     underlying_protocol: Option<UnderlyingProtocol>,
     backend_type: Option<BackendType>,
     server_argon_settings: Option<ArgonDefaultServerSettings>,
-    services: Option<ServicesConfig>
+    services: Option<ServicesConfig>,
+    server_misc_settings: Option<ServerMiscSettings>
 }
 
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
@@ -73,6 +74,12 @@ impl ServerConfigBuilder<'_> {
         self
     }
 
+    /// Attaches miscellaneous server settings (e.g., passwordless mode)
+    pub fn with_server_misc_settings(&mut self, misc_settings: ServerMiscSettings) -> &mut Self {
+        self.server_misc_settings = Some(misc_settings);
+        self
+    }
+
     /// Creates a Google Realtime Database configuration given the project URL and API Key. Requires the use of [`Self::with_google_services_json_path`] to allow minting of JsonWebTokens
     /// at the central server
     pub fn with_google_realtime_database_config<T: Into<String>, R: Into<String>>(&mut self, url: T, api_key: R) -> &mut Self {
@@ -101,6 +108,7 @@ impl NodeBuilder {
         let backend_type = self.backend_type.take().unwrap_or_default();
         let server_argon_settings = self.server_argon_settings.take();
         let server_services_cfg = self.services.take();
+        let server_misc_settings = self.server_misc_settings.take();
 
         let underlying_proto = if let Some(proto) = self.underlying_protocol.take() {
             proto
@@ -114,7 +122,7 @@ impl NodeBuilder {
                 let rt = tokio::runtime::Handle::try_current().map_err(|err| NetworkError::Generic(err.to_string()))?;
 
                 log::info!("[NodeBuilder] Creating account manager ...");
-                let account_manager = AccountManager::new(hypernode_type.bind_addr().unwrap_or_else(|| SocketAddr::from_str("127.0.0.1:25021").unwrap()), home_dir, backend_type, server_argon_settings, server_services_cfg).await?;
+                let account_manager = AccountManager::new(hypernode_type.bind_addr().unwrap_or_else(|| SocketAddr::from_str("127.0.0.1:25021").unwrap()), home_dir, backend_type, server_argon_settings, server_services_cfg, server_misc_settings).await?;
                 log::info!("[NodeBuilder] Creating KernelExecutor ...");
                 let kernel_executor = KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto).await?;
                 log::info!("[NodeBuilder] Executing kernel");

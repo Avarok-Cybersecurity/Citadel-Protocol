@@ -28,7 +28,7 @@ impl ActiveAccounts {
     }
 }
 
-pub async fn handle<'a>(matches: &ArgMatches<'a>, _server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, _server_remote: &'a NodeRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let limit = if let Some(limit) = matches.value_of("limit") {
         Some(i32::from_str(limit)?)
     } else {

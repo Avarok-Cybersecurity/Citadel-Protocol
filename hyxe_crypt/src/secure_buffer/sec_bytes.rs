@@ -116,6 +116,12 @@ impl From<BytesMut> for SecBuffer {
     }
 }
 
+impl<const N: usize> From<[u8; N]> for SecBuffer {
+    fn from(this: [u8; N]) -> Self {
+        Self::from(&this as &[u8])
+    }
+}
+
 impl From<&[u8]> for SecBuffer {
     fn from(this: &[u8]) -> Self {
         Self::from(BytesMut::from(this))

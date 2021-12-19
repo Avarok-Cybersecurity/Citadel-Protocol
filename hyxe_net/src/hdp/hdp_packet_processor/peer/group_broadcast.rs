@@ -7,6 +7,7 @@ use crate::functional::IfEqConditional;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_fs::io::SyncIO;
 use crate::error::NetworkError;
+use crate::hdp::peer::group_channel::GroupBroadcastPayload;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GroupBroadcast {
@@ -17,14 +18,14 @@ pub enum GroupBroadcast {
     End(MessageGroupKey),
     EndResponse(MessageGroupKey, bool),
     Disconnected(MessageGroupKey),
-    // username, key, message
-    Message(String, MessageGroupKey, SecBuffer),
+    // sender cid, key, message
+    Message(u64, MessageGroupKey, SecBuffer),
     // not actually a "response message", but rather, just like the other response types, just what the server sends to the requesting client
     MessageResponse(MessageGroupKey, bool),
     Add(MessageGroupKey, Vec<u64>),
     AddResponse(MessageGroupKey, Option<Vec<u64>>),
     AcceptMembership(MessageGroupKey),
-    AcceptMembershipResponse(bool),
+    AcceptMembershipResponse(MessageGroupKey, bool),
     Kick(MessageGroupKey, Vec<u64>),
     KickResponse(MessageGroupKey, bool),
     Invitation(MessageGroupKey),
@@ -45,12 +46,6 @@ pub enum GroupMemberAlterMode {
     Kick
 }
 
-impl Into<HdpServerResult> for (u64, Ticket, GroupBroadcast) {
-    fn into(self) -> HdpServerResult {
-        HdpServerResult::GroupEvent(self.0, self.1, self.2)
-    }
-}
-
 pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], HdpHeader>, payload: &[u8], sess_hyper_ratchet: &HyperRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let signal = return_if_none!(GroupBroadcast::deserialize_from_vector(payload).ok(), "invalid GroupBroadcast packet");
@@ -68,7 +63,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         }
 
         GroupBroadcast::MemberStateChanged(key, state) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::MemberStateChanged(key, state))
+            forward_signal(&session, ticket, Some(key),GroupBroadcast::MemberStateChanged(key, state))
         }
 
         GroupBroadcast::End(key) => {
@@ -80,11 +75,19 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         }
 
         GroupBroadcast::EndResponse(key, success) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::EndResponse(key, success))
+            forward_signal(&session, ticket, Some(key),GroupBroadcast::EndResponse(key, success))
+                .and_then(|res| {
+                    let _ = inner_mut_state!(session.state_container).group_channels.remove(&key);
+                    Ok(res)
+                })
         }
 
         GroupBroadcast::Disconnected(key) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::Disconnected(key))
+            forward_signal(&session, ticket, Some(key),GroupBroadcast::Disconnected(key))
+                .and_then(|res| {
+                    let _ = inner_mut_state!(session.state_container).group_channels.remove(&key);
+                    Ok(res)
+                })
         }
 
         GroupBroadcast::Message(username, key, message) => {
@@ -96,12 +99,12 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
                 Ok(PrimaryProcessorResult::ReplyToSender(packet))
             } else {
                 // send to kernel
-                send_to_kernel(&session, ticket, GroupBroadcast::Message(username, key, message))
+                forward_signal(&session, ticket, Some(key),GroupBroadcast::Message(username, key, message))
             }
         }
 
         GroupBroadcast::MessageResponse(key, success) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::MessageResponse(key, success))
+            forward_signal(&session, ticket, Some(key),GroupBroadcast::MessageResponse(key, success))
         }
 
         GroupBroadcast::AcceptMembership(key) => {
@@ -121,16 +124,21 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
                 log::info!("Successfully upgraded {} for {:?}", implicated_cid, key);
             }
 
-            let signal = GroupBroadcast::AcceptMembershipResponse(success);
+            let signal = GroupBroadcast::AcceptMembershipResponse(key, success);
             let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
             Ok(PrimaryProcessorResult::ReplyToSender(packet))
         }
 
-        GroupBroadcast::AcceptMembershipResponse(success) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::AcceptMembershipResponse(success))
+        GroupBroadcast::AcceptMembershipResponse(key, success) => {
+            if success {
+                create_group_channel(ticket, key, session)
+            } else {
+                forward_signal(&session, ticket, Some(key), GroupBroadcast::AcceptMembershipResponse(key, success))
+            }
         }
 
         GroupBroadcast::LeaveRoom(key) => {
+            // TODO: If the user leaving the room is the message group owner, then leave
             let success = session.session_manager.kick_from_message_group(GroupMemberAlterMode::Leave, implicated_cid, timestamp, ticket, key, vec![implicated_cid], security_level);
             let message = if success { format!("Successfully removed peer {} from room {}:{}", implicated_cid, key.cid, key.mgid) } else { format!("Unable to remove peer {} from room {}:{}", implicated_cid, key.cid, key.mgid) };
             let signal = GroupBroadcast::LeaveRoomResponse(key, success, message);
@@ -139,7 +147,11 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         }
 
         GroupBroadcast::LeaveRoomResponse(key, success, response) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::LeaveRoomResponse(key, success, response))
+            forward_signal(&session, ticket, Some(key), GroupBroadcast::LeaveRoomResponse(key, success, response))
+                .and_then(|res| {
+                    let _ = inner_mut_state!(session.state_container).group_channels.remove(&key);
+                    Ok(res)
+                })
         }
 
         GroupBroadcast::Add(key, peers) => {
@@ -188,7 +200,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         }
 
         GroupBroadcast::AddResponse(key, failed_peers) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::AddResponse(key, failed_peers))
+            forward_signal(&session, ticket, Some(key),GroupBroadcast::AddResponse(key, failed_peers))
         }
 
         GroupBroadcast::Kick(key, peers) => {
@@ -200,26 +212,59 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         }
 
         GroupBroadcast::KickResponse(key, success) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::KickResponse(key, success))
+            forward_signal(&session, ticket, Some(key),GroupBroadcast::KickResponse(key, success))
         }
 
         GroupBroadcast::Invitation(key) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::Invitation(key))
+            forward_signal(&session, ticket, Some(key), GroupBroadcast::Invitation(key))
         }
 
         GroupBroadcast::CreateResponse(key_opt) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::CreateResponse(key_opt))
+            match key_opt {
+                Some(key) => {
+                    create_group_channel(ticket, key, session)
+                }
+
+                None => {
+                    forward_signal(&session, ticket, None, GroupBroadcast::CreateResponse(None))
+                }
+            }
         }
 
         GroupBroadcast::GroupNonExists(key) => {
-            send_to_kernel(&session, ticket, GroupBroadcast::GroupNonExists(key))
+            forward_signal(&session, ticket, Some(key), GroupBroadcast::GroupNonExists(key))
         }
     }
 }
 
-fn send_to_kernel(session: &HdpSession, ticket: Ticket, broadcast: GroupBroadcast) -> Result<PrimaryProcessorResult, NetworkError> {
+fn create_group_channel(ticket: Ticket, key: MessageGroupKey, session: &HdpSession) -> Result<PrimaryProcessorResult, NetworkError> {
+    let channel = inner_mut_state!(session.state_container).setup_group_channel_endpoints(key, ticket, session)?;
+    session.send_to_kernel(HdpServerResult::GroupChannelCreated(ticket, channel))?;
+    Ok(PrimaryProcessorResult::Void)
+}
+
+impl From<GroupBroadcast> for GroupBroadcastPayload {
+    fn from(broadcast: GroupBroadcast) -> Self {
+        match broadcast {
+            GroupBroadcast::Message(sender, _key, payload) => GroupBroadcastPayload::Message { payload, sender },
+            evt => GroupBroadcastPayload::Event { payload: evt }
+        }
+    }
+}
+
+fn forward_signal(session: &HdpSession, ticket: Ticket, key: Option<MessageGroupKey>, broadcast: GroupBroadcast) -> Result<PrimaryProcessorResult, NetworkError> {
     let implicated_cid = return_if_none!(session.implicated_cid.get(), "Implicated CID not loaded");
-    session.kernel_tx.unbounded_send((implicated_cid, ticket, broadcast).into())?;
+
+    if let Some(key) = key {
+        // send to the dedicated channel
+        if let Some(tx) = inner_mut_state!(session.state_container).group_channels.get(&key) {
+            tx.unbounded_send(broadcast.into()).map_err(|err| NetworkError::Generic(err.to_string()))?;
+            return Ok(PrimaryProcessorResult::Void)
+        }
+    }
+
+    // send to kernel
+    session.send_to_kernel(HdpServerResult::GroupEvent(implicated_cid, ticket, broadcast)).map_err(|err| NetworkError::Generic(err.to_string()))?;
     Ok(PrimaryProcessorResult::Void)
 }
 

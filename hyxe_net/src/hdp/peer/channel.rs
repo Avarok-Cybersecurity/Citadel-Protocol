@@ -1,12 +1,11 @@
-use crate::hdp::hdp_server::{HdpServerRemote, Ticket, HdpServerRequest};
+use crate::hdp::hdp_server::{NodeRemote, Ticket, HdpServerRequest};
 use hyxe_crypt::drill::SecurityLevel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::error::NetworkError;
-use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
-use futures::channel::mpsc::Sender;
+use crate::hdp::state_container::{VirtualConnectionType, StateContainer};
 use crate::hdp::outbound_sender::{UnboundedReceiver, OutboundUdpSender};
-use futures::{Sink, Stream};
+use futures::Stream;
 use futures::task::{Context, Poll};
 use tokio::macros::support::Pin;
 use std::fmt::Debug;
@@ -24,7 +23,35 @@ pub struct PeerChannel {
 }
 
 impl PeerChannel {
-    pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>, to_outbound: Sender<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) -> Self {
+    pub(crate) fn new(server_remote: NodeRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>, state_container: StateContainer) -> Self {
+        let implicated_cid = vconn_type.get_implicated_cid();
+        let recv_type = ReceivePortType::OrderedReliable;
+
+        let send_half = PeerChannelSendHalf {
+            state_container,
+            target_cid,
+            vconn_type,
+            implicated_cid,
+            channel_id,
+            security_level,
+            is_alive: is_alive.clone()
+        };
+
+        let recv_half = PeerChannelRecvHalf {
+            server_remote,
+            receiver,
+            target_cid,
+            vconn_type,
+            channel_id,
+            is_alive,
+            recv_type
+        };
+
+        PeerChannel { send_half, recv_half }
+    }
+
+    /*
+        pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>, to_outbound: Sender<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) -> Self {
         let implicated_cid = vconn_type.get_implicated_cid();
         let recv_type = ReceivePortType::OrderedReliable;
 
@@ -50,6 +77,7 @@ impl PeerChannel {
 
         PeerChannel { send_half, recv_half }
     }
+     */
 
     /// Gets the CID of the endpoint
     pub fn get_peer_cid(&self) -> u64 {
@@ -74,9 +102,22 @@ impl PeerChannel {
     }
 }
 
+/*
 #[derive(Clone)]
 pub struct PeerChannelSendHalf {
     tx: Sender<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>,
+    target_cid: u64,
+    implicated_cid: u64,
+    vconn_type: VirtualConnectionType,
+    channel_id: Ticket,
+    security_level: SecurityLevel,
+    // When the associated virtual conn drops, this gets flipped off, and hence, data won't be sent anymore
+    is_alive: Arc<AtomicBool>
+}*/
+
+#[derive(Clone)]
+pub struct PeerChannelSendHalf {
+    state_container: StateContainer,
     target_cid: u64,
     implicated_cid: u64,
     vconn_type: VirtualConnectionType,
@@ -99,8 +140,12 @@ impl PeerChannelSendHalf {
 
     /// Sends a message using the sink interface
     pub async fn send_message(&mut self, message: SecureProtocolPacket) -> Result<(), NetworkError> {
-        use futures::SinkExt;
-        self.send(message).await
+        /*use futures::SinkExt;
+        self.send(message).await*/
+        let (ticket, message, v_conn, security_level) = self.get_args(message);
+        inner_mut_state!(self.state_container).process_outbound_message(ticket, message, v_conn, security_level, false)?;
+        //tokio::task::yield_now().await;
+        Ok(())
     }
 
     /// used to identify this channel in the network
@@ -108,21 +153,25 @@ impl PeerChannelSendHalf {
         self.channel_id
     }
 
+    #[allow(dead_code)]
     fn close(&self) {
         self.is_alive.store(false, Ordering::SeqCst);
     }
 
+    /*
     /// Attempts to send, returning instantly if blocking would be required to send
     pub fn try_send(&mut self, message: SecureProtocolPacket) -> Result<(), SecureProtocolPacket> {
         let args = self.get_args(message);
         self.tx.try_send(args).map_err(|err| err.into_inner().1)
-    }
+    }*/
 
+    #[inline]
     fn get_args(&self, packet: SecureProtocolPacket) -> (Ticket, SecureProtocolPacket, VirtualConnectionType, SecurityLevel) {
         (self.channel_id, packet, self.vconn_type, self.security_level)
     }
 }
 
+/*
 impl Sink<SecureProtocolPacket> for PeerChannelSendHalf {
     type Error = NetworkError;
 
@@ -150,7 +199,7 @@ impl Sink<SecureProtocolPacket> for PeerChannelSendHalf {
         self.close();
         Pin::new(&mut self.tx).poll_close(cx).map_err(|err| NetworkError::Generic(err.to_string()))
     }
-}
+}*/
 
 impl Unpin for PeerChannelRecvHalf {}
 
@@ -162,7 +211,7 @@ pub struct PeerChannelRecvHalf {
     #[allow(dead_code)]
     channel_id: Ticket,
     is_alive: Arc<AtomicBool>,
-    server_remote: HdpServerRemote,
+    server_remote: NodeRemote,
     recv_type: ReceivePortType
 }
 
@@ -229,7 +278,7 @@ pub struct UdpChannel {
 }
 
 impl UdpChannel {
-    pub fn new(send_half: OutboundUdpSender, receiver: UnboundedReceiver<SecBuffer>, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, is_alive: Arc<AtomicBool>, server_remote: HdpServerRemote) -> Self {
+    pub fn new(send_half: OutboundUdpSender, receiver: UnboundedReceiver<SecBuffer>, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, is_alive: Arc<AtomicBool>, server_remote: NodeRemote) -> Self {
         Self {
             send_half,
             recv_half: PeerChannelRecvHalf {
@@ -249,12 +298,14 @@ impl UdpChannel {
     }
 
     #[cfg(feature = "webrtc")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "webrtc")))]
     pub fn into_webrtc_compat(self) -> WebRTCCompatChannel {
         self.into()
     }
 }
 
 #[cfg(feature = "webrtc")]
+#[cfg_attr(docsrs, doc(cfg(feature = "webrtc")))]
 pub struct WebRTCCompatChannel {
     send_half: OutboundUdpSender,
     recv_half: tokio::sync::Mutex<PeerChannelRecvHalf>

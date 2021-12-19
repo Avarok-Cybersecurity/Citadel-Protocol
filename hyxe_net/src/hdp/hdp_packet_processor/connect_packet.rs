@@ -50,9 +50,6 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                             let is_personal = !session.is_server;
                             let kernel_ticket = session.kernel_ticket.get();
 
-                            // transmit peers to synchronize
-
-
                             //let pqc = state_container.connect_stage.generated_pqc.take();
                             state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::SUCCESS;
                             state_container.connect_state.fail_time = None;
@@ -123,7 +120,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
 
                     session.implicated_cid.set(None);
                     session.state.store(SessionState::NeedsConnect, Ordering::Relaxed);
-                    session.needs_close_message.set(false);
+                    session.disable_dc_signal();
 
                     session.send_to_kernel(HdpServerResult::ConnectFail(kernel_ticket, Some(cid), message))?;
                     Ok(PrimaryProcessorResult::EndSession("Failed connecting. Retry again"))

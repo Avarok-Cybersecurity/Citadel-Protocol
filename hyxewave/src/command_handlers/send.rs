@@ -1,7 +1,7 @@
 use super::imports::*;
 use hyxe_crypt::sec_bytes::SecBuffer;
 
-pub async fn handle<'a>(matches: &ArgMatches<'a>, _server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, _server_remote: &'a NodeRemote, ctx: &'a ConsoleContext) -> Result<Option<KernelResponse>, ConsoleError> {
     let message = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
     let cid = ctx.get_active_cid();
     let security_level = parse_security_level(matches)?;

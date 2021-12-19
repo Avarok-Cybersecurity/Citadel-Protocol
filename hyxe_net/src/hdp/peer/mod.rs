@@ -3,6 +3,8 @@ pub mod peer_layer;
 
 pub mod channel;
 
+pub mod group_channel;
+
 pub mod peer_crypt;
 
 pub mod message_group;

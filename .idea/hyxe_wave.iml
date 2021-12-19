@@ -6,10 +6,6 @@
       <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/benches" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/examples" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/tests" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/benches" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/tokio_kcp/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tokio_kcp/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tokio_kcp/tests" isTestSource="true" />
@@ -341,8 +337,13 @@
       <sourceFolder url="file://$MODULE_DIR$/firebase-rtdb/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/firebase-rtdb/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/netbeam/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_net/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_net/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_net/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_net/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/lusna_sdk/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/lusna_sdk/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/online_order_handler/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/target" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/target" />
       <excludeFolder url="file://$MODULE_DIR$/async_ip/target" />
@@ -371,7 +372,6 @@
       <excludeFolder url="file://$MODULE_DIR$/hyxe_shared/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_user/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_util/target" />
-      <excludeFolder url="file://$MODULE_DIR$/hyxewave_net/target" />
       <excludeFolder url="file://$MODULE_DIR$/kcp-core/target" />
       <excludeFolder url="file://$MODULE_DIR$/net2-rs/target" />
       <excludeFolder url="file://$MODULE_DIR$/quantum_random/target" />
@@ -442,6 +442,7 @@
       <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/android_power_manager/example/build" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/example/build" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/legacy_hyxe_net/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

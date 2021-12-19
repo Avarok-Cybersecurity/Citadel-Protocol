@@ -54,7 +54,7 @@ pub struct HyperNodePeerLayer {
 }
 
 /// We don't use an "on_success" here because it would be structurally redundant. On success, the target node should
-/// provide the packet. In that case, upon reception, the correlated [TrackedPosting] should be cleared
+/// provide the packet. In that case, upon reception, the correlated [`TrackedPosting`] should be cleared
 pub struct TrackedPosting {
     pub(crate) signal: PeerSignal,
     pub(crate) key: delay_queue::Key,

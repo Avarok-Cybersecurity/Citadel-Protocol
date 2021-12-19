@@ -179,24 +179,6 @@ use crate::network_account::NetworkAccount;
 use std::collections::HashMap;
 use crate::client_account::ClientNetworkAccount;
 use hyxe_crypt::hyper_ratchet::Ratchet;
-
-/// These symbols, if used, would cause bugs in the config parser
-pub const ILLEGAL_USERNAME_SYMBOLS: [&'static str; 2] = ["->", "[|]"];
-
-/// Determines if a proposed username already exists or not. This will return true if the username
-/// exists, or false if it does not. This will return an error if the username contains illegal
-/// symbols
-pub fn username_has_invalid_symbols<T: AsRef<str>>(proposed_username: &T) -> Result<(), AccountError> {
-    let proposed = proposed_username.as_ref();
-    for illegal_symbol in ILLEGAL_USERNAME_SYMBOLS.iter() {
-        if *illegal_symbol == proposed {
-            return Err(AccountError::InvalidUsername)
-        }
-    }
-
-    Ok(())
-}
-
 /// Ensures that essential CNAC data is loaded into the NAC for runtime. This only applies to CNACs that synchronize to the local FS (db is unnecessary)
 #[allow(unused_results)]
 pub fn sync_cnacs_and_nac_filesystem<R: Ratchet, Fcm: Ratchet>(nac: &NetworkAccount<R, Fcm>, cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount<R, Fcm>>) -> Result<(), AccountError> {

@@ -3,7 +3,6 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use crate::hdp::hdp_server::{Ticket, HdpServerResult};
 use crate::error::NetworkError;
-use crate::hdp::outbound_sender::UnboundedReceiver;
 use futures::{Stream, Future};
 use std::task::{Context, Poll};
 use std::pin::Pin;
@@ -47,7 +46,7 @@ impl KernelAsyncCallbackHandler {
         let mut this = self.inner.lock();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         this.insert(ticket, CallbackNotifier::Stream(tx))?;
-        Ok(rx.into())
+        Ok(KernelStreamSubscription { inner: rx, ptr: self.clone(), ticket })
     }
 
     #[allow(unused_results)]
@@ -118,13 +117,9 @@ impl Clone for KernelAsyncCallbackHandler {
 }
 
 pub struct KernelStreamSubscription {
-    inner: tokio::sync::mpsc::UnboundedReceiver<HdpServerResult>
-}
-
-impl From<tokio::sync::mpsc::UnboundedReceiver<HdpServerResult>> for KernelStreamSubscription {
-    fn from(inner: UnboundedReceiver<HdpServerResult>) -> Self {
-        Self { inner }
-    }
+    inner: tokio::sync::mpsc::UnboundedReceiver<HdpServerResult>,
+    ptr: KernelAsyncCallbackHandler,
+    ticket: Ticket
 }
 
 impl Stream for KernelStreamSubscription {
@@ -132,5 +127,11 @@ impl Stream for KernelStreamSubscription {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.inner).poll_recv(cx)
+    }
+}
+
+impl Drop for KernelStreamSubscription {
+    fn drop(&mut self) {
+        self.ptr.remove_listener(self.ticket)
     }
 }

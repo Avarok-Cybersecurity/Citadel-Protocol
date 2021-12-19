@@ -59,7 +59,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     }
 
     async fn get_client_by_username(&self, username: &str, _persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        Ok(self.read_map().iter().find(|(_, cnac)| cnac.read().username.eq(username))
+        Ok(self.read_map().iter().find(|(_, cnac)| cnac.get_username().eq(username))
             .map(|(_, cnac)| cnac.clone()))
     }
 
@@ -161,7 +161,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     }
 
     async fn get_cid_by_username(&self, username: &str) -> Result<Option<u64>, AccountError> {
-        Ok(self.read_map().iter().find(|(_, cnac)| cnac.read().username.eq(username))
+        Ok(self.read_map().iter().find(|(_, cnac)| cnac.get_username().eq(username))
             .map(|(cid, _)| *cid))
     }
 

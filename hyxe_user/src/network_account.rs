@@ -9,7 +9,6 @@ use log::info;
 use rand::{random, RngCore, thread_rng};
 use serde::{Deserialize, Serialize};
 
-use hyxe_crypt::argon::argon_container::ArgonContainerType;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
@@ -21,7 +20,7 @@ use crate::backend::PersistenceHandler;
 use crate::client_account::ClientNetworkAccount;
 use crate::hypernode_account::HyperNodeAccountInformation;
 use crate::misc::AccountError;
-use crate::server_config_handler::username_has_invalid_symbols;
+use crate::auth::DeclaredAuthenticationMode;
 
 #[derive(Serialize, Deserialize, Default)]
 /// Inner device
@@ -174,28 +173,24 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     ///
     /// Note: If the local node is the server node, then nac_other should be the client's NAC. This should always be made at a server anyways
     #[allow(unused_results)]
-    pub async fn create_client_account<T: ToString, V: ToString>(&self, reserved_cid: u64, nac_other: Option<NetworkAccount<R, Fcm>>, username: T, full_name: V, argon_container: ArgonContainerType, base_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+    pub async fn create_client_account(&self, reserved_cid: u64, nac_other: Option<NetworkAccount<R, Fcm>>, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         if nac_other.is_none() {
             info!("WARNING: You are using debug mode. The supplied NAC is none, and will receive THIS nac in its place (unit tests only)");
         }
 
         // We must lock the config to ensure that the obtained CID gets added into the database before any competing threads may get called
-
-        let username = username.to_string();
-
-        username_has_invalid_symbols(&username)?;
-        log::info!("Checking username {} for correspondence ...", &username);
+        log::info!("Checking username {} for correspondence ...", auth_store.username());
 
         let persistence_handler = self.inner.1.read().persistence_handler.clone().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".to_string()))?;
+
+        let username = auth_store.username().to_string();
 
         if persistence_handler.username_exists(&username).await? {
             return Err(AccountError::Generic(format!("Username {} already exists!", &username)))
         }
 
-        //log::info!("Received password: {:?}", password.unsecure());
-
         // cnac gets saved below
-        let cnac = ClientNetworkAccount::<R, Fcm>::new(reserved_cid, false, nac_other.unwrap_or_else(|| self.clone()), &username, full_name, argon_container, base_hyper_ratchet, persistence_handler.clone(), fcm_keys).await?;
+        let cnac = ClientNetworkAccount::<R, Fcm>::new(reserved_cid, false, nac_other.unwrap_or_else(|| self.clone()), auth_store, base_hyper_ratchet, persistence_handler.clone(), fcm_keys).await?;
 
         // So long as the CNAC creation succeeded, we can confidently add the CID into the config
         persistence_handler.register_cid_in_nac(reserved_cid, &username).await

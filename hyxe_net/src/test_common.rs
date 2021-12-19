@@ -1,13 +1,15 @@
 use async_trait::async_trait;
-use crate::prelude::{HdpServerRemote, HdpServerResult};
+use crate::prelude::{NodeRemote, HdpServerResult};
 use std::net::SocketAddr;
 use crate::error::NetworkError;
 use tokio::sync::mpsc::UnboundedSender;
 
+pub use crate::hdp::hdp_server::HdpServer;
+
 #[async_trait]
 pub trait TestingCoKernel: Send + Sync + 'static {
     /// A socket address is only passed if the receiving node is a peer
-    async fn on_start(&self, server_remote: HdpServerRemote, server_address: Option<SocketAddr>, stop_server_tx: Option<UnboundedSender<()>>) -> Result<(), NetworkError>;
+    async fn on_start(&self, server_remote: NodeRemote, server_address: Option<SocketAddr>, stop_server_tx: Option<UnboundedSender<()>>) -> Result<(), NetworkError>;
     async fn on_server_message_received(&self, message: HdpServerResult) -> Result<(), NetworkError>;
     async fn on_stop(self) -> Result<(), NetworkError>;
 }
@@ -21,7 +23,7 @@ pub mod base_kernel {
     use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
     use parking_lot::Mutex;
 
-    pub struct TestingServerKernel<CoKernel>(pub Mutex<Option<Sender<SocketAddr>>>, pub Mutex<Option<UnboundedReceiver<()>>>, pub CoKernel, Option<HdpServerRemote>);
+    pub struct TestingServerKernel<CoKernel>(pub Mutex<Option<Sender<SocketAddr>>>, pub Mutex<Option<UnboundedReceiver<()>>>, pub CoKernel, Option<NodeRemote>);
 
     pub fn generate_endpoint_test_kernels<ServerCoKernel: TestingCoKernel, ClientCoKernel: TestingCoKernel>(s: ServerCoKernel, c: ClientCoKernel) -> (TestingServerKernel<ServerCoKernel>, TestingClientKernel<ClientCoKernel>) {
         let (tx, rx) = tokio::sync::oneshot::channel();
@@ -32,7 +34,7 @@ pub mod base_kernel {
 
     #[async_trait]
     impl<CoKernel: TestingCoKernel> NetKernel for TestingServerKernel<CoKernel> {
-        fn load_remote(&mut self, server_remote: HdpServerRemote) -> Result<(), NetworkError> {
+        fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
             self.3 = Some(server_remote);
             Ok(())
         }
@@ -52,7 +54,7 @@ pub mod base_kernel {
             self.2.on_start(server_remote, None, None).await
         }
 
-        async fn on_server_message_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+        async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
             self.2.on_server_message_received(message).await
         }
 
@@ -61,11 +63,11 @@ pub mod base_kernel {
         }
     }
 
-    pub struct TestingClientKernel<CoKernel>(pub Mutex<Option<Receiver<SocketAddr>>>, pub Mutex<Option<UnboundedSender<()>>>, Option<HdpServerRemote>, pub CoKernel);
+    pub struct TestingClientKernel<CoKernel>(pub Mutex<Option<Receiver<SocketAddr>>>, pub Mutex<Option<UnboundedSender<()>>>, Option<NodeRemote>, pub CoKernel);
 
     #[async_trait]
     impl<CoKernel: TestingCoKernel> NetKernel for TestingClientKernel<CoKernel> {
-        fn load_remote(&mut self, server_remote: HdpServerRemote) -> Result<(), NetworkError> {
+        fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
             self.2 = Some(server_remote);
             Ok(())
         }
@@ -86,7 +88,7 @@ pub mod base_kernel {
             self.3.on_start(server_remote, Some(server_addr), Some(stop_server_tx)).await
         }
 
-        async fn on_server_message_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+        async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
             self.3.on_server_message_received(message).await
         }
 

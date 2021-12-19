@@ -8,7 +8,7 @@ use crate::prelude::SecBuffer;
 /// to start with the highest amount of memory possible and one iteration. Reduce the memory
 /// until one hashing operation takes less than your desired duration. Next, advance the
 /// number of iterations to approach the desired execution time as close as possible"
-pub async fn calculate_optimal_params(millis_minimum: u16, hash_length: Option<u32>, secret: Option<Vec<u8>>) -> Result<ArgonDefaultServerSettings, CryptError<String>> {
+pub async fn calculate_optimal_argon_params(millis_minimum: u16, hash_length: Option<u32>, secret: Option<Vec<u8>>) -> Result<ArgonDefaultServerSettings, CryptError<String>> {
     let system = sysinfo::System::new_all();
     let total_memory_kb = std::cmp::max(system.get_available_memory(), 1024*512); // ensure we don't start at too low of a value
     let hash_length = hash_length.unwrap_or(DEFAULT_HASH_LENGTH);

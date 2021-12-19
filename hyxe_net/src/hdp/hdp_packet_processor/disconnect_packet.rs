@@ -11,7 +11,6 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcess
         return Ok(PrimaryProcessorResult::Void);
     }
 
-
     let ref cnac = return_if_none!(inner_state!(session.state_container).cnac.clone(), "Sess CNAC not loaded");
     let (header, payload, _, _) = packet.decompose();
     let (header, _, hyper_ratchet) = return_if_none!(validation::aead::validate(cnac, &header, payload), "Unable to validate");

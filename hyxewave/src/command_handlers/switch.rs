@@ -3,7 +3,7 @@ use tokio::sync::MutexGuard;
 use async_recursion::async_recursion;
 
 #[async_recursion(?Send)]
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>, clap: MutexGuard<'a, AppThreadSafe>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>, clap: MutexGuard<'a, AppThreadSafe>) -> Result<Option<KernelResponse>, ConsoleError> {
     let cnac = get_cid_from_str(&ctx.account_manager, matches.value_of("session").unwrap()).await?;
     if ctx.user_is_connected(Some(cnac.get_cid()), None).await || ffi_io.is_some() {
         let cid = cnac.get_id();

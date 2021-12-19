@@ -9,7 +9,7 @@ use hyxe_user::account_manager::AccountManager;
 
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet_processor::includes::Duration;
-use crate::hdp::hdp_server::{HdpServer, HdpServerRemote, HdpServerResult};
+use crate::hdp::hdp_server::{HdpServer, NodeRemote, HdpServerResult};
 use crate::hdp::misc::panic_future::ExplicitPanicFuture;
 use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
@@ -19,7 +19,7 @@ use crate::kernel::RuntimeFuture;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
-    server_remote: Option<HdpServerRemote>,
+    server_remote: Option<NodeRemote>,
     server_to_kernel_rx: Option<UnboundedReceiver<HdpServerResult>>,
     shutdown_alerter_rx: Option<tokio::sync::oneshot::Receiver<()>>,
     callback_handler: Option<KernelAsyncCallbackHandler>,
@@ -30,6 +30,7 @@ pub struct KernelExecutor<K: NetKernel> {
 
 impl<K: NetKernel> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
+    /// - underlying_proto: The proto to use for client to server communications
     pub async fn new(rt: Handle, hypernode_type: NodeType, account_manager: AccountManager, kernel: K, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) = tokio::sync::oneshot::channel();
@@ -81,7 +82,7 @@ impl<K: NetKernel> KernelExecutor<K> {
     }
 
     #[allow(unused_must_use)]
-    async fn multithreaded_kernel_inner_loop(mut kernel: K, mut server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, ref hdp_server_remote: HdpServerRemote, shutdown: tokio::sync::oneshot::Receiver<()>, ref callback_handler: KernelAsyncCallbackHandler) -> Result<(), NetworkError> {
+    async fn multithreaded_kernel_inner_loop(mut kernel: K, mut server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, ref hdp_server_remote: NodeRemote, shutdown: tokio::sync::oneshot::Receiver<()>, ref callback_handler: KernelAsyncCallbackHandler) -> Result<(), NetworkError> {
         log::info!("Kernel multithreaded environment executed ...");
         // Load the remote into the kernel
         kernel.load_remote(hdp_server_remote.clone())?;
@@ -112,7 +113,7 @@ impl<K: NetKernel> KernelExecutor<K> {
                             Err(NetworkError::Generic("Kernel can no longer run".to_string()))
                         } else {
                             callback_handler.on_message_received(message, |message| async move {
-                                if let Err(err) = kernel_ref.on_server_message_received(message).await {
+                                if let Err(err) = kernel_ref.on_node_event_received(message).await {
                                     log::error!("Kernel threw an error: {:?}. Will end", &err);
                                     // calling this will cause server_to_kernel_rx to receive a shutdown message
                                     hdp_server_remote.clone().shutdown().await?;

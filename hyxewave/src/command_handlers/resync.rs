@@ -1,12 +1,12 @@
 use crate::console::console_context::ConsoleContext;
 use crate::ffi::{FFIIO, KernelResponse};
-use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerRequest};
+use hyxe_net::hdp::hdp_server::{NodeRemote, HdpServerRequest};
 use crate::console_error::ConsoleError;
 use std::time::Duration;
 use crate::ticket_event::CallbackStatus;
 use hyxe_net::hdp::peer::peer_layer::PeerResponse;
 
-pub async fn handle(ctx: &ConsoleContext, ffi_io: Option<FFIIO>, server_remote: &mut HdpServerRemote) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle(ctx: &ConsoleContext, ffi_io: Option<FFIIO>, server_remote: &mut NodeRemote) -> Result<Option<KernelResponse>, ConsoleError> {
     let ticket = server_remote.send(HdpServerRequest::GetActiveSessions).await?;
 
     ctx.register_ticket(ticket, Duration::from_secs(2), 0, move |ctx, _, resp| {

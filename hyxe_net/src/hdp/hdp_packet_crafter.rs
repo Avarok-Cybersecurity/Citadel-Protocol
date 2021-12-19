@@ -487,7 +487,7 @@ pub(crate) mod do_connect {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
-    use hyxe_user::proposed_credentials::ProposedCredentials;
+    use hyxe_user::auth::proposed_credentials::ProposedCredentials;
     use crate::hdp::peer::peer_layer::MailboxTransfer;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
@@ -499,21 +499,14 @@ pub(crate) mod do_connect {
     use hyxe_user::external_services::ServicesObject;
 
     #[derive(Serialize, Deserialize)]
-    pub struct DoConnectStage0Packet<'a> {
-        #[serde(borrow)]
-        pub username: &'a [u8],
-        #[serde(borrow)]
-        pub password: &'a [u8],
+    pub struct DoConnectStage0Packet {
+        pub proposed_credentials: ProposedCredentials,
         pub fcm_keys: Option<FcmKeys>
     }
 
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
     #[allow(unused_results)]
     pub(crate) fn craft_stage0_packet(hyper_ratchet: &HyperRatchet, proposed_credentials: ProposedCredentials, fcm_keys: Option<FcmKeys>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
-        let (username, password, ..) = proposed_credentials.decompose();
-
-        //let encrypted_len = hyxe_crypt::net::crypt_splitter::calculate_aes_gcm_output_length(username.len() + username.len());
-
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_connect::STAGE0,
@@ -529,7 +522,7 @@ pub(crate) mod do_connect {
             target_cid: U64::new(0)
         };
 
-        let payload = DoConnectStage0Packet { username: username.as_bytes(), password: password.as_ref(), fcm_keys };
+        let payload = DoConnectStage0Packet { proposed_credentials, fcm_keys };
 
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + payload.serialized_size().unwrap());
         header.inscribe_into(&mut packet);
@@ -620,7 +613,7 @@ pub(crate) mod do_register {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
-    use hyxe_user::proposed_credentials::ProposedCredentials;
+    use hyxe_user::auth::proposed_credentials::ProposedCredentials;
     use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
@@ -628,12 +621,20 @@ pub(crate) mod do_register {
     use hyxe_fs::io::SyncIO;
     use serde::{Serialize, Deserialize};
 
+    #[derive(Serialize, Deserialize)]
+    pub(crate) struct DoRegisterStage0<'a> {
+        #[serde(borrow)]
+        pub(crate) transfer: AliceToBobTransfer<'a>,
+        pub(crate) potential_cids_alice: Vec<u64>,
+        pub(crate) passwordless: bool
+    }
+
     /// At this stage, the drill does not exist. There is no verifying such packets. The payload contains Alice's public key.
     ///
     /// Since this is sent over TCP, the size of the packet can be up to ~64k bytes
     ///
     /// We also use the NID in place of the CID because the CID only exists AFTER registration completes
-    pub(crate) fn craft_stage0(algorithm: u8, timestamp: i64, local_nid: u64, transfer: AliceToBobTransfer<'_>, potential_cids_alice: &Vec<u64>) -> BytesMut {
+    pub(crate) fn craft_stage0(algorithm: u8, timestamp: i64, local_nid: u64, transfer: AliceToBobTransfer<'_>, potential_cids_alice: Vec<u64>, passwordless: bool) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE0,
@@ -649,10 +650,9 @@ pub(crate) mod do_register {
         };
 
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + potential_cids_alice.len() * 8);
-
         packet.put(header.into_packet());
-        potential_cids_alice.iter().for_each(|val| packet.put_u64(*val));
-        transfer.serialize_into(&mut packet).unwrap();
+
+        DoRegisterStage0 { transfer, potential_cids_alice, passwordless }.serialize_into_buf(&mut packet).unwrap();
 
         packet
     }

@@ -14,6 +14,7 @@ pub trait HyperNodeAccountInformation {
 }
 
 /// A convenience wrapper for passing arguments to functions that require searches for a user
+#[derive(Debug, Clone)]
 pub enum UserIdentifier {
     /// Raw user ID
     ID(u64),
