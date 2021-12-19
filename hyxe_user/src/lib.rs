@@ -18,22 +18,23 @@ warnings
 
 /// Standard imports for this library
 pub mod prelude {
+    pub use fcm::Client;
+
     pub use hyxe_fs::file_crypt_scrambler::MAX_BYTES_PER_GROUP;
 
     pub use crate::client_account::*;
     pub use crate::hypernode_account::*;
     pub use crate::network_account::*;
-    pub use fcm::Client;
 }
 
 /// Serde and others
 pub mod re_imports {
     pub use serde::*;
 
-    pub use hyxe_fs::env::DirectoryStore;
-    pub use hyxe_fs::file_crypt_scrambler::*;
-    pub use hyxe_fs::env::get_default_config_dir;
     pub use firebase_rtdb::FirebaseRTDB;
+    pub use hyxe_fs::env::DirectoryStore;
+    pub use hyxe_fs::env::get_default_config_dir;
+    pub use hyxe_fs::file_crypt_scrambler::*;
 }
 
 /// The general trait for creating account types
@@ -58,7 +59,7 @@ pub mod client_account;
 /// This provides methods to load all locally-stored files
 pub mod account_loader;
 
-/// The [Server] in hyxewave_net requires a means of handling the user database. This module contains the means of achieving this
+/// The [Server] in legacy_hyxe_net requires a means of handling the user database. This module contains the means of achieving this
 pub mod account_manager;
 
 /// The server needs to keep track of existing clients and implied CID values when creating users etc.
@@ -68,7 +69,9 @@ pub mod server_config_handler;
 pub mod misc;
 /// For handling different I/O operations
 pub mod backend;
-/// For handling misc requirements
-pub mod proposed_credentials;
 /// For services
 pub mod external_services;
+/// For authentication
+pub mod auth;
+///
+pub mod server_misc_settings;

@@ -13,7 +13,7 @@ use tokio::time::Instant;
 use hyxe_net::error::NetworkError;
 use hyxe_net::hdp::hdp_packet_processor::includes::SocketAddr;
 use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
-use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerResult, Ticket};
+use hyxe_net::hdp::hdp_server::{NodeRemote, HdpServerResult, Ticket};
 use hyxe_net::hdp::peer::channel::{PeerChannelSendHalf, PeerChannelRecvHalf};
 use hyxe_net::hdp::peer::peer_layer::{PeerConnectionType, PeerResponse, PeerSignal, UdpMode};
 use hyxe_net::hdp::peer::peer_layer::MailboxTransfer;
@@ -41,7 +41,7 @@ use hyxe_net::hdp::outbound_sender::OutboundUdpSender;
 
 #[allow(dead_code)]
 pub struct CLIKernel {
-    remote: Option<HdpServerRemote>,
+    remote: Option<NodeRemote>,
     loopback_pipe_addr: Option<SocketAddr>,
     app_config: AppConfig,
     console_context: ConsoleContext,
@@ -116,7 +116,7 @@ impl CLIKernel {
 
 #[async_trait]
 impl NetKernel for CLIKernel {
-    async fn on_start(&mut self, server_remote: HdpServerRemote) -> Result<(), NetworkError> {
+    async fn on_start(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
         log::info!("CLI/FFI Kernel executed!");
 
         let ffi_io = self.app_config.ffi_io.take();
@@ -131,7 +131,7 @@ impl NetKernel for CLIKernel {
     }
 
     #[allow(unused_variables)]
-    async fn on_server_message_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
         // print a line to ensure spaces between event print-outs, even if there's none (to prevent double printout on single line)
         if !self.file_transfer_in_progress.load(std::sync::atomic::Ordering::Relaxed) {
             colour::white_ln!("\r");
@@ -619,7 +619,7 @@ async fn loopback_future(tcp_addr: Option<SocketAddr>) -> Result<(), ConsoleErro
 }
 
 #[allow(unused_results)]
-async fn terminal_ticket_and_loopback_future(ticket_queue_handler: TicketQueueHandler, loopback_pipe_addr: Option<SocketAddr>, ffi_io: Option<FFIIO>, server_remote: HdpServerRemote, ctx: ConsoleContext, daemon_mode: bool) {
+async fn terminal_ticket_and_loopback_future(ticket_queue_handler: TicketQueueHandler, loopback_pipe_addr: Option<SocketAddr>, ffi_io: Option<FFIIO>, server_remote: NodeRemote, ctx: ConsoleContext, daemon_mode: bool) {
     let unordered = FuturesUnordered::<Pin<Box<dyn Future<Output=Result<(), ConsoleError>> + Send>>>::new();
     if let Some(ffi_io) = ffi_io {
         let ctx = ctx.clone();

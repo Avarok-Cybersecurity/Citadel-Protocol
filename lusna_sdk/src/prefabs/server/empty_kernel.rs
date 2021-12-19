@@ -7,7 +7,7 @@ pub struct EmptyKernel;
 
 #[async_trait]
 impl NetKernel for EmptyKernel {
-    fn load_remote(&mut self, _server_remote: HdpServerRemote) -> Result<(), NetworkError> {
+    fn load_remote(&mut self, _server_remote: NodeRemote) -> Result<(), NetworkError> {
         Ok(())
     }
 
@@ -15,7 +15,7 @@ impl NetKernel for EmptyKernel {
         Ok(())
     }
 
-    async fn on_server_message_received(&self, _message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, _message: HdpServerResult) -> Result<(), NetworkError> {
         Ok(())
     }
 

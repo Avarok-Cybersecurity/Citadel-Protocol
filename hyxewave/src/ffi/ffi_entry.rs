@@ -4,14 +4,14 @@ use crate::hdp_initiator::execute;
 use crate::ffi::{FFIIO, KernelResponse};
 use parking_lot::Mutex;
 use crate::console::console_context::ConsoleContext;
-use hyxe_net::hdp::hdp_server::HdpServerRemote;
+use hyxe_net::hdp::hdp_server::NodeRemote;
 use tokio::runtime::Handle;
 use crate::re_exports::const_mutex;
 use crate::console::virtual_terminal::INPUT_ROUTER;
 use std::sync::Arc;
 use crate::app_config::TomlConfig;
 
-pub static FFI_STATIC: Mutex<Option<(ConsoleContext, HdpServerRemote, FFIIO, Handle)>> = const_mutex(None);
+pub static FFI_STATIC: Mutex<Option<(ConsoleContext, NodeRemote, FFIIO, Handle)>> = const_mutex(None);
 
 /// This should be called by higher-level programs that want to communicate with lusna using FFI
 pub fn execute_lusna_kernel(opts: TomlConfig, to_ffi_frontier: Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>) -> Result<(), ConsoleError> {

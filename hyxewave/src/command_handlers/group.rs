@@ -3,7 +3,7 @@ use hyxe_net::hdp::peer::message_group::MessageGroupKey;
 use hyxe_crypt::sec_bytes::SecBuffer;
 use multimap::MultiMap;
 
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let ctx_cid = ctx.get_active_cid();
     let ref cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC missing"))?;
 
@@ -46,7 +46,7 @@ pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
     Ok(None)
 }
 
-async fn handle_leave<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_leave<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
@@ -75,7 +75,7 @@ async fn handle_leave<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpSe
     Ok(Some(ticket))
 }
 
-async fn handle_accept_invite<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_accept_invite<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let mail_id = usize::from_str(matches.value_of("mid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     let mut write = ctx.unread_mail.write();
     return if let Some(invitation) = write.remove_group_request(mail_id) {
@@ -153,7 +153,7 @@ async fn handle_invites(ctx: &ConsoleContext) -> Result<Option<Ticket>, ConsoleE
     Ok(None)
 }
 
-async fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ctx_cid: u64) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ctx_cid: u64) -> Result<Option<Ticket>, ConsoleError> {
     let target_cids = if let Some(target_cids) = matches.values_of("target_cids") {
         let mut ret = Vec::new();
         for target_cid in target_cids {
@@ -220,7 +220,7 @@ async fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpS
     Ok(Some(ticket))
 }
 
-async fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
@@ -260,7 +260,7 @@ async fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
     Ok(Some(ticket))
 }
 
-async fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
@@ -316,7 +316,7 @@ async fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServ
     Ok(Some(ticket))
 }
 
-async fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
@@ -395,7 +395,7 @@ async fn handle_list(ctx: &ConsoleContext) -> Result<Option<Ticket>, ConsoleErro
     Ok(None)
 }
 
-async fn handle_send<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_send<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;

@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering, AtomicBool};
 use std::collections::HashMap;
 use crate::ticket_event::{CallbackStatus, TicketQueueHandler, ResponseType, CustomPayload, CallbackType};
 use crate::kernel::{KernelSession, PeerSession};
-use hyxe_net::hdp::hdp_server::{Ticket, HdpServerRemote, HdpServerRequest};
+use hyxe_net::hdp::hdp_server::{Ticket, NodeRemote, HdpServerRequest};
 use std::path::PathBuf;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
@@ -259,7 +259,7 @@ impl ConsoleContext {
     }
 
     #[allow(unused_results)]
-    pub async fn disconnect_session(&self, cid: u64, cxn_type: VirtualConnectionType, server_remote: &mut HdpServerRemote) -> Result<Ticket, ConsoleError> {
+    pub async fn disconnect_session(&self, cid: u64, cxn_type: VirtualConnectionType, server_remote: &mut NodeRemote) -> Result<Ticket, ConsoleError> {
         let read = self.sessions.read().await;
         if let Some(sess) = read.get(&cid) {
             let username = sess.cnac.get_username();
@@ -285,7 +285,7 @@ impl ConsoleContext {
     }
 
     #[allow(unused_results, unused_must_use)]
-    pub async fn disconnect_all(&self, server_remote: &mut HdpServerRemote, shutdown_sequence: bool) {
+    pub async fn disconnect_all(&self, server_remote: &mut NodeRemote, shutdown_sequence: bool) {
         let mut write = self.sessions.write().await;
         for (cid, session) in write.drain() {
             //let username = session.cnac.get_username_blocking();
@@ -298,7 +298,7 @@ impl ConsoleContext {
     }
 
     /// `username` should be some if resetting the print prompt is expected (should be Some when disconnecting from hypernodes over peers)
-    async fn send_disconnect_request(&self, cid: u64, username: Option<String>, virt_cxn_type: VirtualConnectionType, server_remote: &mut HdpServerRemote) -> Result<Ticket, ConsoleError> {
+    async fn send_disconnect_request(&self, cid: u64, username: Option<String>, virt_cxn_type: VirtualConnectionType, server_remote: &mut NodeRemote) -> Result<Ticket, ConsoleError> {
         let ticket = server_remote.send(HdpServerRequest::DisconnectFromHypernode(cid, virt_cxn_type)).await?;
         let queue = self.ticket_queue.as_ref().unwrap();
         queue.register_ticket(ticket, DISCONNECT_TIMEOUT, cid, CallbackType::Standard(Box::pin(move |ctx,_, response| {

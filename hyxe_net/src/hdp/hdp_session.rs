@@ -24,7 +24,7 @@ use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use hyxe_user::network_account::ConnectProtocol;
-use hyxe_user::proposed_credentials::ProposedCredentials;
+use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 use hyxe_user::re_imports::scramble_encrypt_file;
 
 use crate::constants::{DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME};
@@ -36,8 +36,7 @@ use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 //use futures_codec::Framed;
 use crate::hdp::hdp_packet_processor::{self, PrimaryProcessorResult};
 use crate::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
-use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::hdp::hdp_server::{ConnectMode, HdpServerRemote, HdpServerResult, Ticket};
+use crate::hdp::hdp_server::{ConnectMode, NodeRemote, HdpServerResult, Ticket};
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::misc;
 use crate::hdp::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};
@@ -67,6 +66,7 @@ use hyxe_nat::nat_identification::NatType;
 use hyxe_nat::exports::{Endpoint, NewConnection};
 use crate::hdp::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 use atomic::Atomic;
+use crate::auth::AuthenticationRequest;
 
 //use crate::define_struct;
 
@@ -169,9 +169,8 @@ pub struct HdpSessionInner {
     pub(super) remote_node_type: Option<NodeType>,
     pub(super) local_bind_addr: SocketAddr,
     pub(super) do_static_hr_refresh_atexit: DualCell<bool>,
-    pub(super) dc_signal_sent_to_kernel: DualCell<bool>,
+    pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<HdpServerResult>>>,
     pub(super) is_server: bool,
-    pub(super) needs_close_message: DualCell<bool>,
     pub(super) stopper_tx: DualRwLock<tokio::sync::broadcast::Sender<()>>,
     pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle>,
     pub(super) fcm_keys: Option<FcmKeys>,
@@ -179,6 +178,7 @@ pub struct HdpSessionInner {
     pub(super) primary_stream_quic_conn: DualRwLock<Option<NewConnection>>,
     pub(super) local_nat_type: NatType,
     pub(super) adjacent_nat_type: DualLateInit<Option<NatType>>,
+    pub(super) connect_mode: DualRwLock<Option<ConnectMode>>,
     on_drop: UnboundedSender<()>,
 }
 
@@ -205,18 +205,29 @@ pub enum SessionState {
 #[derive(Debug, Clone)]
 #[allow(variant_size_differences)]
 pub enum HdpSessionInitMode {
-    Connect(u64),
-    Register(SocketAddr),
+    Connect(AuthenticationRequest),
+    Register(SocketAddr, ProposedCredentials),
 }
 
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
+    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, mut fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings, connect_mode: Option<ConnectMode>) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
         let (cnac, state, implicated_cid) = match &init_mode {
-            HdpSessionInitMode::Connect(implicated_cid) => {
-                let cnac = cnac.ok_or(NetworkError::InvalidExternalRequest("Client does not exist"))?;
-                (Some(cnac), Arc::new(Atomic::new(SessionState::NeedsConnect)), Some(*implicated_cid))
+            HdpSessionInitMode::Connect(auth) => {
+                match auth {
+                    AuthenticationRequest::Credentialed { .. } => {
+                        let cnac = cnac.ok_or(NetworkError::InvalidRequest("Client does not exist"))?;
+                        let cid = cnac.get_cid();
+                        fcm_keys = fcm_keys.or_else(|| cnac.get_fcm_keys()); // use the provided FCM, otherwise, use the default FCM keys
+                        (Some(cnac), Arc::new(Atomic::new(SessionState::NeedsConnect)), Some(cid))
+                    }
+
+                    AuthenticationRequest::Passwordless { .. } => {
+                        // register will redirect to preconnect afterwords
+                        (None, Arc::new(Atomic::new(SessionState::NeedsRegister)), None)
+                    }
+                }
             }
 
             HdpSessionInitMode::Register(..) => {
@@ -228,6 +239,7 @@ impl HdpSession {
         let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
 
         let mut inner = HdpSessionInner {
+            connect_mode: DualRwLock::from(connect_mode),
             primary_stream_quic_conn: DualRwLock::from(None),
             implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
             client_only_quic_endpoint: DualLateInit::default(),
@@ -235,7 +247,7 @@ impl HdpSession {
             adjacent_nat_type: DualLateInit::default(),
             p2p_session_tx: DualLateInit::default(),
             do_static_hr_refresh_atexit: true.into(),
-            dc_signal_sent_to_kernel: false.into(),
+            dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
             peer_only_connect_protocol: Some(peer_only_connect_proto).into(),
             on_drop,
             local_bind_addr,
@@ -252,13 +264,12 @@ impl HdpSession {
             state,
             account_manager,
             is_server: false,
-            needs_close_message: DualCell::new(true),
             stopper_tx: stopper_tx.clone().into(),
             queue_handle: DualLateInit::default(),
             fcm_keys,
         };
 
-        inner.store_proposed_credentials(proposed_credentials, &init_mode);
+        inner.store_proposed_credentials(proposed_credentials);
 
         Ok((stopper_tx, Self::from(inner)))
     }
@@ -268,13 +279,14 @@ impl HdpSession {
     ///
     /// When this is called, the connection is implied to be in impersonal mode. As such, the calling closure should have a way of incrementing
     /// the provisional ticket.
-    pub(crate) fn new_incoming(on_drop: UnboundedSender<()>, local_nat_type: NatType, hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket) -> (tokio::sync::broadcast::Sender<()>, Self) {
+    pub(crate) fn new_incoming(on_drop: UnboundedSender<()>, local_nat_type: NatType, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket) -> (tokio::sync::broadcast::Sender<()>, Self) {
         let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
         let state = Arc::new(Atomic::new(SessionState::SocketJustOpened));
 
         let timestamp = time_tracker.get_global_time_ns();
 
         let inner = HdpSessionInner {
+            connect_mode: DualRwLock::from(None),
             primary_stream_quic_conn: DualRwLock::from(None),
             implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
             client_only_quic_endpoint: DualLateInit::default(),
@@ -282,7 +294,7 @@ impl HdpSession {
             adjacent_nat_type: DualLateInit::default(),
             p2p_session_tx: DualLateInit::default(),
             do_static_hr_refresh_atexit: true.into(),
-            dc_signal_sent_to_kernel: false.into(),
+            dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
             peer_only_connect_protocol: None.into(),
             on_drop,
             local_bind_addr,
@@ -299,7 +311,6 @@ impl HdpSession {
             state,
             account_manager,
             is_server: true,
-            needs_close_message: DualCell::new(true),
             stopper_tx: stopper_tx.clone().into(),
             queue_handle: DualLateInit::default(),
             fcm_keys: None,
@@ -313,7 +324,7 @@ impl HdpSession {
     ///
     /// `tcp_stream`: this goes to the adjacent HyperNode
     /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
-    pub async fn execute(&self, p2p_listener: Option<GenericNetworkListener>, mut primary_stream: GenericNetworkStream, peer_addr: SocketAddr, connect_mode: Option<ConnectMode>) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
+    pub async fn execute(&self, p2p_listener: Option<GenericNetworkListener>, mut primary_stream: GenericNetworkStream, peer_addr: SocketAddr) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
         log::info!("HdpSession is executing ...");
         let this = self.clone();
         let this_outbound = self.clone();
@@ -322,7 +333,7 @@ impl HdpSession {
         let this_p2p_listener = self.clone();
         let this_close = self.clone();
 
-        let (session_future, handle_zero_state, implicated_cid, to_kernel_tx, needs_close_message) = {
+        let (session_future, handle_zero_state, implicated_cid) = {
             let quic_conn_opt = primary_stream.take_quic_connection();
             let (writer, reader) = misc::net::safe_split_stream(primary_stream);
 
@@ -351,13 +362,10 @@ impl HdpSession {
 
             this.to_primary_stream.set_once(Some(primary_outbound_tx.clone()));
 
-            let to_kernel_tx_clone = this.kernel_tx.clone();
-
             let timestamp = this.time_tracker.get_global_time_ns();
             let local_nid = this.account_manager.get_local_nid();
             let cnac_opt = inner_state!(this.state_container).cnac.clone();
             let implicated_cid = this.implicated_cid.clone();
-            let needs_close_message = this.needs_close_message.clone();
             let persistence_handler = this.account_manager.get_persistence_handler().clone();
 
             let stopper = inner!(this.stopper_tx).subscribe();
@@ -368,7 +376,7 @@ impl HdpSession {
             //let timer_future = Self::execute_timer(this.clone());
             let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
             let stopper_future = Self::stopper(stopper);
-            let handle_zero_state = Self::handle_zero_state(None, persistence_handler, primary_outbound_tx.clone(), this_outbound, this.state.load(Ordering::SeqCst), timestamp, local_nid, cnac_opt, connect_mode);
+            let handle_zero_state = Self::handle_zero_state(None, persistence_handler, primary_outbound_tx.clone(), this_outbound, this.state.load(Ordering::SeqCst), timestamp, local_nid, cnac_opt);
 
             let session_future = if let Some((p2p_listener, p2p_session_rx)) = p2p_listener {
                 spawn_handle!(async move {
@@ -400,7 +408,7 @@ impl HdpSession {
             //#[cfg(feature = "multi-threaded")]
             let _ = spawn!(queue_worker_future);
 
-            (session_future, handle_zero_state, implicated_cid, to_kernel_tx_clone, needs_close_message)
+            (session_future, handle_zero_state, implicated_cid)
         };
 
 
@@ -420,19 +428,11 @@ impl HdpSession {
             Err(err) => {
                 let ticket = this_close.kernel_ticket.get();
                 let reason = err.to_string();
-                let needs_close_message = needs_close_message.get();
                 let cid = implicated_cid.get();
 
-                log::info!("Session {} connected to {} is ending! Reason: {}. Needs close message? {} (strong count: {})", ticket.0, peer_addr, reason.as_str(), needs_close_message, this_close.strong_count());
+                log::info!("Session {} connected to {} is ending! Reason: {}. (strong count: {})", ticket.0, peer_addr, reason.as_str(), this_close.strong_count());
 
-                if needs_close_message {
-                    if let Some(cid) = cid {
-                        let result = HdpServerResult::Disconnect(ticket, cid, false, None, reason);
-                        // false indicates a D/C caused by a non-dc subroutine
-                        let _ = to_kernel_tx.unbounded_send(result);
-                        this.dc_signal_sent_to_kernel.set(true);
-                    }
-                }
+                this_close.send_session_dc_signal(Some(ticket), false, "Inbound stream ending");
 
                 Err((err, cid))
             }
@@ -444,26 +444,17 @@ impl HdpSession {
         Err(NetworkError::InternalError("Session stopper-rx triggered"))
     }
 
+    /// Executes each session in parallel (or concurrent if using a LocalSet)
     pub async fn session_future_receiver(mut p2p_session_rx: UnboundedReceiver<Pin<Box<dyn RuntimeFuture>>>) -> Result<(), NetworkError> {
-        /*let stream = async_stream::stream! {
-            while let Some(future) = p2p_session_rx.recv().await {
-                yield future;
-            }
-        };
-
-        stream.for_each_concurrent(None, |future| async move {
-            let _ = future.await;
-        }).await;*/
-
-        while let Some(future) = p2p_session_rx.recv().await {
-            let _ = spawn!(future);
+        while let Some(session) = p2p_session_rx.recv().await {
+            let _ = spawn!(session);
         }
 
         Ok(())
     }
 
     /// Before going through the usual loopy business, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
-    async fn handle_zero_state(zero_packet: Option<BytesMut>, persistence_handler: PersistenceHandler, to_outbound: OutboundPrimaryStreamSender, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>, connect_mode: Option<ConnectMode>) -> Result<(), NetworkError> {
+    async fn handle_zero_state(zero_packet: Option<BytesMut>, persistence_handler: PersistenceHandler, to_outbound: OutboundPrimaryStreamSender, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
         if let Some(zero) = zero_packet {
             to_outbound.unbounded_send(zero).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
         }
@@ -475,14 +466,14 @@ impl HdpSession {
                 let session_ref = session;
                 let mut state_container = inner_mut_state!(session_ref.state_container);
                 let session_security_settings = state_container.session_security_settings.clone().unwrap();
-
+                let passwordless = state_container.register_state.passwordless.clone().ok_or_else(|| NetworkError::InternalError("Passwordless state not loaded"))?;
                 // we supply 0,0 for cid and new drill vers by default, even though it will be reset by bob
                 let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), 0, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
                 let transfer = alice_constructor.stage0_alice();
 
-                let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(session_security_settings.crypto_params.into(), timestamp, local_nid, transfer, &potential_cids_alice);
+                let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(session_security_settings.crypto_params.into(), timestamp, local_nid, transfer, potential_cids_alice, passwordless);
                 if let Err(err) = to_outbound.unbounded_send(stage0_register_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
                     return Err(err);
                 }
@@ -492,42 +483,7 @@ impl HdpSession {
             }
 
             SessionState::NeedsConnect => {
-                log::info!("Beginning pre-connect subroutine!");
-                let session_ref = session;
-                let mut state_container = inner_mut_state!(session_ref.state_container);
-
-                let udp_mode = state_container.udp_mode;
-                let local_peer_listener_addr = session_ref.implicated_user_p2p_internal_listener_addr.clone().ok_or(NetworkError::InternalError("Local listener port not loaded"))?;
-                let timestamp = session_ref.time_tracker.get_global_time_ns();
-                let cnac = cnac.as_ref().unwrap();
-                let session_security_settings = state_container.session_security_settings.clone().unwrap();
-
-                let peer_only_connect_mode = session_ref.peer_only_connect_protocol.get().unwrap();
-                // reset the toolset's ARA
-                let ref static_aux_hr = cnac.refresh_static_hyper_ratchet();
-                // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
-                let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|err| NetworkError::Generic(err.into_string()))?;
-                let opts = static_aux_hr.get_next_constructor_opts().into_iter().take((session_security_settings.security_level.value() + 1) as usize).collect();
-                //static_aux_hr.verify_level(Some(security_level)).map_err(|_| NetworkError::Generic(format!("Invalid security level. Maximum security level for this account is {:?}", static_aux_hr.get_default_security_level())))?;
-                let alice_constructor = HyperRatchetConstructor::new_alice(opts, cnac.get_cid(), 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
-                let transfer = alice_constructor.stage0_alice();
-                let max_usable_level = static_aux_hr.get_default_security_level();
-                let nat_type = session_ref.local_nat_type.clone();
-
-                if udp_mode == UdpMode::Enabled {
-                    state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::default();
-                }
-
-                // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
-                let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, nat_type, udp_mode, local_peer_listener_addr, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode, connect_mode.unwrap_or_default());
-
-                state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
-                state_container.pre_connect_state.constructor = Some(alice_constructor);
-                state_container.connect_state.connect_mode = Some(connect_mode.unwrap_or_default());
-
-                to_outbound.unbounded_send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
-
-                log::info!("Successfully sent SYN pre-connect packet");
+                Self::begin_connect(&session, cnac.as_ref().unwrap())?;
             }
 
             // This implies this node received a new incoming connection. It is up to the other node, Alice, to send a stage 0 packet
@@ -545,6 +501,45 @@ impl HdpSession {
             }
         }
 
+        Ok(())
+    }
+
+    pub(crate) fn begin_connect(session: &HdpSession, cnac: &ClientNetworkAccount) -> Result<(), NetworkError> {
+        log::info!("Beginning pre-connect subroutine!");
+        let session_ref = session;
+        let connect_mode = inner!(session.connect_mode).clone().ok_or_else(||NetworkError::InternalError("Connect mode not loaded"))?;
+        let mut state_container = inner_mut_state!(session_ref.state_container);
+
+        let udp_mode = state_container.udp_mode;
+        let local_peer_listener_addr = session_ref.implicated_user_p2p_internal_listener_addr.clone().ok_or(NetworkError::InternalError("Local listener port not loaded"))?;
+        let timestamp = session_ref.time_tracker.get_global_time_ns();
+        let session_security_settings = state_container.session_security_settings.clone().unwrap();
+        let peer_only_connect_mode = session_ref.peer_only_connect_protocol.get().unwrap();
+        // reset the toolset's ARA
+        let ref static_aux_hr = cnac.refresh_static_hyper_ratchet();
+        // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
+        let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|err| NetworkError::Generic(err.into_string()))?;
+        let opts = static_aux_hr.get_next_constructor_opts().into_iter().take((session_security_settings.security_level.value() + 1) as usize).collect();
+        //static_aux_hr.verify_level(Some(security_level)).map_err(|_| NetworkError::Generic(format!("Invalid security level. Maximum security level for this account is {:?}", static_aux_hr.get_default_security_level())))?;
+        let alice_constructor = HyperRatchetConstructor::new_alice(opts, cnac.get_cid(), 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
+        let transfer = alice_constructor.stage0_alice();
+        let max_usable_level = static_aux_hr.get_default_security_level();
+        let nat_type = session_ref.local_nat_type.clone();
+
+        if udp_mode == UdpMode::Enabled {
+            state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::default();
+        }
+
+        // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
+        let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, nat_type, udp_mode, local_peer_listener_addr, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode, connect_mode);
+
+        state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
+        state_container.pre_connect_state.constructor = Some(alice_constructor);
+        state_container.connect_state.connect_mode = Some(connect_mode);
+
+        session.send_to_primary_stream(None, syn)?;
+
+        log::info!("Successfully sent SYN pre-connect packet");
         Ok(())
     }
 
@@ -697,6 +692,20 @@ impl HdpSession {
             }
         }
 
+        fn handle_session_terminating_error(err: std::io::Error, is_server: bool, p2p: bool) -> NetworkError {
+            const _WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
+            const _RST: i32 = 104;
+            const _ECONN_RST: i32 = 54; // for macs
+
+            let error = err.raw_os_error().unwrap_or(-1);
+            // error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST &&
+            if error != -1 {
+                log::error!("primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), is_server, p2p);
+            }
+
+            NetworkError::Generic(err.to_string())
+        }
+
         let (ref async_processor_tx, mut async_processor_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let inbound_direct = async move {
@@ -704,17 +713,7 @@ impl HdpSession {
                 let packet = packet.map_err(|err| NetworkError::Generic(err.to_string()))?;
 
                 if let Err(err) = evaulute_result(hdp_packet_processor::raw_primary_packet::process(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet, async_processor_tx), primary_stream, kernel_tx) {
-                    const _WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
-                    const _RST: i32 = 104;
-                    const _ECONN_RST: i32 = 54; // for macs
-
-                    let error = err.raw_os_error().unwrap_or(-1);
-                    // error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST &&
-                    if error != -1 {
-                        log::error!("primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), this_main.is_server, p2p);
-                    }
-
-                    return Err(NetworkError::Generic(err.to_string()))
+                    return Err(handle_session_terminating_error(err, this_main.is_server, p2p))
                 }
             }
 
@@ -733,17 +732,7 @@ impl HdpSession {
                     evaulute_result(future.await, primary_stream, kernel_tx)
                 }
             }).await.map_err(|err| {
-                const _WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
-                const _RST: i32 = 104;
-                const _ECONN_RST: i32 = 54; // for macs
-
-                let error = err.raw_os_error().unwrap_or(-1);
-                // error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST &&
-                if error != -1 {
-                    log::error!("primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), this_main.is_server, p2p);
-                }
-
-                NetworkError::Generic(err.to_string())
+                handle_session_terminating_error(err, this_main.is_server, p2p)
             })
         };
 
@@ -849,6 +838,8 @@ impl HdpSession {
                 }
             });
 
+            // TODO: Rework UDP keep-alive subsystem to take QUIC into consideration.
+            // QUIC already handles KA, but raw udp does not
             queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(FIREWALL_KEEP_ALIVE, 0)), FIREWALL_KEEP_ALIVE_UDP, move |state_container| {
                 if state_container.state.load(Ordering::SeqCst) == SessionState::Connected {
                     if state_container.udp_mode == UdpMode::Disabled {
@@ -870,12 +861,14 @@ impl HdpSession {
     }
 
     /// Similar to process_outbound_packet, but optimized to handle files
+    // TODO: Reduce cognitive complexity
     pub fn process_outbound_file(&self, ticket: Ticket, max_group_size: Option<usize>, file: PathBuf, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
         let this = self;
 
         if this.state.load(Ordering::Relaxed) != SessionState::Connected {
             Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}, file: {:?}) outbound, but the session is not connected", ticket, file)))
         } else {
+            // TODO: When io_uring is released for tokio, use async io
             if let Ok(std_file) = std::fs::File::open(&file) {
                 let file_name = file.file_name().ok_or(NetworkError::InternalError("Invalid filename"))?.to_str().ok_or(NetworkError::InternalError("Invalid filename"))?;
                 let file_name = String::from(file_name);
@@ -887,7 +880,7 @@ impl HdpSession {
                 // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
 
                 let mut state_container = inner_mut_state!(this.state_container);
-                let cnac = state_container.cnac.clone().ok_or(NetworkError::InvalidExternalRequest("CNAC not loaded"))?;
+                let cnac = state_container.cnac.clone().ok_or(NetworkError::InvalidRequest("CNAC not loaded"))?;
 
                 log::info!("Transmit file name: {}", &file_name);
                 // the key cid must be differentiated from the target cid because the target_cid needs to be zero if
@@ -910,10 +903,11 @@ impl HdpSession {
                                 object_id,
                                 name: file_name,
                                 date_created: "".to_string(),
-                                author: "".to_string(),
+                                author: inner.auth_store.full_name().to_string(),
                                 plaintext_length: file_size,
                                 group_count: groups_needed,
                             };
+
                             // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                             let amt_to_reserve = groups_needed - 1;
                             inner.crypt_container.rolling_group_id += amt_to_reserve as u64;
@@ -1158,6 +1152,7 @@ impl HdpSession {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn spawn_message_sender_function(this: HdpSession, mut rx: futures::channel::mpsc::Receiver<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) {
         let task = async move {
             let ref this = this;
@@ -1187,44 +1182,9 @@ impl HdpSession {
         let _ = spawn!(task);
     }
 
-    #[allow(unused_results)]
+    #[allow(unused_results, dead_code)]
     pub fn process_outbound_message(&self, ticket: Ticket, packet: SecureProtocolPacket, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
         inner_mut_state!(self.state_container).process_outbound_message(ticket, packet, virtual_target, security_level, false)
-    }
-
-    pub(crate) fn process_outbound_broadcast_command(&self, ticket: Ticket, command: GroupBroadcast) -> Result<(), NetworkError> {
-        let this = self;
-
-        if this.state.load(Ordering::Relaxed) != SessionState::Connected {
-            return Err(NetworkError::InternalError("Session not connected"));
-        }
-
-        let state_container = inner_state!(this.state_container);
-        let cnac = state_container.cnac.as_ref().unwrap();
-        let security_level = state_container.session_security_settings.map(|r| r.security_level).clone().unwrap();
-        let to_primary_stream = this.to_primary_stream.as_ref().unwrap();
-
-        cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
-            let hyper_ratchet = hyper_ratchet_opt.ok_or(NetworkError::InternalError("Hyper ratchet missing"))?;
-            let timestamp = this.time_tracker.get_global_time_ns();
-            let packet = match &command {
-                GroupBroadcast::Create(_) |
-                GroupBroadcast::End(_) |
-                GroupBroadcast::Kick(..) |
-                GroupBroadcast::Message(..) |
-                GroupBroadcast::Add(..) |
-                GroupBroadcast::AcceptMembership(_) |
-                GroupBroadcast::LeaveRoom(_) => {
-                    hdp_packet_crafter::peer_cmd::craft_group_message_packet(hyper_ratchet, &command, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
-                }
-
-                n => {
-                    return Err(NetworkError::Generic(format!("{:?} is not a valid group broadcast request", &n)));
-                }
-            };
-
-            to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
-        })
     }
 
     #[allow(unused_results)]
@@ -1255,13 +1215,13 @@ impl HdpSession {
                                 log::info!("[FCM] client {} requested FCM post-register with {}", inner.cid, target_cid);
 
                                 if state_container.peer_kem_states.contains_key(&target_cid) || inner.fcm_crypt_container.contains_key(&target_cid) {
-                                    return Err(NetworkError::InvalidExternalRequest("Cannot register to the specified client because a concurrent registration process is already occurring, or already registered"));
+                                    return Err(NetworkError::InvalidRequest("Cannot register to the specified client because a concurrent registration process is already occurring, or already registered"));
                                 }
 
                                 // create constructor
                                 // TODO: Extend FCM to include custom params (within reason, ofc)
                                 let fcm_constructor = FcmRatchetConstructor::new_alice(inner.cid, 0, ConstructorOpts::default()).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
-                                let fcm_post_register = FcmPostRegister::AliceToBobTransfer(fcm_constructor.stage0_alice().serialize_to_vector().unwrap(), inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Fcm not configured for this client"))?, this_cid);
+                                let fcm_post_register = FcmPostRegister::AliceToBobTransfer(fcm_constructor.stage0_alice().serialize_to_vector().unwrap(), inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidRequest("Fcm not configured for this client"))?, this_cid);
                                 // finally, store the constructor inside the state container
                                 if let Some(_) = inner.kem_state_containers.insert(target_cid, ConstructorType::Fcm(fcm_constructor)) {
                                     log::error!("Overwrote pre-existing FCM KEM container. Report to developers")
@@ -1278,14 +1238,14 @@ impl HdpSession {
                                 let local_cid = inner.cid;
                                 log::info!("[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
                                 if inner.fcm_crypt_container.contains_key(&target_cid) {
-                                    return Err(NetworkError::InvalidExternalRequest("Cannot register to the specified client because crypt container already exists"));
+                                    return Err(NetworkError::InvalidRequest("Cannot register to the specified client because crypt container already exists"));
                                 }
 
-                                let fcm_keys_local = inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidExternalRequest("Local node does not have FCM keys to share with the endpoint"))?;
+                                let fcm_keys_local = inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidRequest("Local node does not have FCM keys to share with the endpoint"))?;
 
-                                let bob_constructor = FcmRatchetConstructor::new_bob(ConstructorOpts::default(), FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| NetworkError::Generic(err.to_string()))?).ok_or(NetworkError::InvalidExternalRequest("Invalid FCM ratchet constructor"))?;
-                                let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(NetworkError::InvalidExternalRequest("Invalid FCM ratchet constructor"))?, fcm_keys_local.clone(), local_cid);
-                                let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(NetworkError::InvalidExternalRequest("Invalid FCM Ratchet constructor"))?;
+                                let bob_constructor = FcmRatchetConstructor::new_bob(ConstructorOpts::default(), FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| NetworkError::Generic(err.to_string()))?).ok_or(NetworkError::InvalidRequest("Invalid FCM ratchet constructor"))?;
+                                let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(NetworkError::InvalidRequest("Invalid FCM ratchet constructor"))?, fcm_keys_local.clone(), local_cid);
+                                let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(NetworkError::InvalidRequest("Invalid FCM Ratchet constructor"))?;
                                 // no state container, we just add the peer crypt container straight-away
                                 inner.fcm_crypt_container.insert(target_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, peer_fcm_keys)); // local is NOT initiator in this case
                                 do_save = true;
@@ -1443,19 +1403,10 @@ impl HdpSession {
 
 impl HdpSessionInner {
     /// Stores the proposed credentials into the register state container
-    pub(crate) fn store_proposed_credentials(&mut self, proposed_credentials: ProposedCredentials, init_mode: &HdpSessionInitMode) {
+    pub(crate) fn store_proposed_credentials(&mut self, proposed_credentials: ProposedCredentials) {
         let mut state_container = inner_mut_state!(self.state_container);
-
-        match init_mode {
-            HdpSessionInitMode::Register(..) => {
-                state_container.register_state.proposed_credentials = Some(proposed_credentials);
-            }
-
-            HdpSessionInitMode::Connect(_) => {
-                state_container.connect_state.proposed_credentials = Some(proposed_credentials);
-                // we don't need to store the nonce here
-            }
-        }
+        state_container.register_state.passwordless = Some(proposed_credentials.is_passwordless());
+        state_container.connect_state.proposed_credentials = Some(proposed_credentials);
     }
 
     /// When a successful login occurs, this function gets called. Must return any AsRef<[u8]> type
@@ -1545,6 +1496,16 @@ impl HdpSessionInner {
         // SocketJustOpened is only the state for a session created from an incoming connection
         state == SessionState::SocketJustOpened || state == SessionState::NeedsConnect || state == SessionState::ConnectionProcess || state == SessionState::NeedsRegister
     }
+
+    pub(crate) fn send_session_dc_signal<T: Into<String>>(&self, ticket: Option<Ticket>, disconnect_success: bool, msg: T) {
+        if let Some(tx) = self.dc_signal_sender.take() {
+            let _ = tx.unbounded_send(HdpServerResult::Disconnect(ticket.unwrap_or_else(|| self.kernel_ticket.get()), self.implicated_cid.get().unwrap_or_else(|| self.kernel_ticket.get().0), disconnect_success, None, msg.into()));
+        }
+    }
+
+    pub(crate) fn disable_dc_signal(&self) {
+        let _ = self.dc_signal_sender.take();
+    }
 }
 
 impl Drop for HdpSessionInner {
@@ -1556,12 +1517,6 @@ impl Drop for HdpSessionInner {
 
         let _ = inner!(self.stopper_tx).send(());
 
-        if !self.dc_signal_sent_to_kernel.get() {
-            if let Some(cid) = self.implicated_cid.get() {
-                if let Err(_) = self.kernel_tx.unbounded_send(HdpServerResult::Disconnect(Ticket(0), cid, false, None, "Session dropped".to_string())) {
-                    //
-                }
-            }
-        }
+        self.send_session_dc_signal(None, false, "Session dropped");
     }
 }

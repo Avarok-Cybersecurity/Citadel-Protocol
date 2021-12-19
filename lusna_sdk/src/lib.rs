@@ -2,7 +2,9 @@
 //! Software development kit for creating high performance, extremely-secure, and post-quantum network applications. Supports p2p (NAT traversal + WebRTC) and standard client/server architectures for
 //! messaging and streaming. The underlying asynchronous runtime is [Tokio](https://tokio.rs).
 //!
-//! All peer-discovery and NAT traversal are built-in to the protocol, with the central server acting as a broker and authenticator. The central server is used for TURN-like routing when NAT traversal fails between two nodes.
+//! The Network protocol, SDK, and user libraries use 100% safe rust
+//!
+//! All peer-discovery and NAT traversal are built-in to the protocol, with the central server acting as a broker and authenticator. The central server is used for TURN-like routing when direct p2p NAT traversal fails between two nodes.
 //!
 //! Authentication to a central node is required before making peer-to-peer connections. There is both device-dependent auth as well as credentialed authentication backed by the argon2id hashing algorithm.
 //!
@@ -37,6 +39,25 @@
 //! The user may also select a symmetric encryption algorithm before a session starts (see: [SessionSecuritySettingsBuilder](crate::prelude::SessionSecuritySettingsBuilder))
 //! - AES-256-GCM-SIV
 //! - XChacha20Poly-1305
+//!
+//! # Executor Architecture: The [`NetKernel`]
+//! Any node in the network may act as **both** a server and a client/peer (except for when [`NodeType::Peer`] or the default node type is specified). Since multiple parallel connections may exist, handling events is necessary. When the lower-level protocol produces events,
+//! they are sent to the [`NetKernel`]. The [`NetKernel`] is where your application logic must be written.
+//!
+//! ## Initialization Stage: The [`KernelExecutor`] and the [`NodeRemote`]
+//! When the node is built and awaited (as seen in the examples below), the node creates a [`NodeRemote`] which is used to communicate between the [`NetKernel`] and the lower level networking protocol. Then, the [`KernelExecutor`] passes the remote to [`NetKernel::load_remote`] (which uses a mutable reference to
+//! the kernel itself to allow mutation of the inner data, effectively ensuring that the remote may be stored without need of atomics, as well as any other config). Thereafter, the [`KernelExecutor`] calls [`NetKernel::on_start`] (uses an ``&self`` reference) where any first asynchronous calls using the remote itself may be made.
+//!
+//! ## Passive Stage
+//! As the protocol generates events, the developer may choose to add program logic to react to the events. When an event is sent from the protocol to the [`KernelExecutor`], the [`KernelExecutor`] first checks [`NetKernel::can_run`], and if the kernel can still run, the [`KernelExecutor`] executes [`NetKernel::on_node_event_received`] with the new event. Importantly,
+//! every call to [`NetKernel::on_node_event_received`] is executed *concurrently* (**not** to be confused with *parallel*), allowing the developer to react to each event separately without having to await completion before handling the next event. If an error is returned from [`NetKernel::on_node_event_received`], then the [`KernelExecutor`] will attempt
+//! a graceful shutdown of the protocol and any running sessions. Errors returned from [`NetKernel::on_node_event_received`] are propagated to the initial awaited call site on the node.
+//!
+//! Important note: Since [`NetKernel::on_node_event_received`] takes self by reference and is executed concurrently, [`NetKernel`] requires that ``Self: Sync`` since by definition, if ``&T: Send``, then ``T: Sync``
+//!
+//! ## Shutdown stage
+//! Whether through an error, or, a call to [`NodeRemote::shutdown`], the [`KernelExecutor`] will call [`NetKernel::on_stop`] (which is passed the final owned version of the Kernel, ``self``). During and after the execution of [`NetKernel::on_stop`], no more calls to [`NetKernel::on_node_event_received`] will occur. Any errors returned from [`NetKernel::on_stop`] will be propagated
+//! to the initial awaited call site on the node. Execution is complete
 //!
 //! # Examples
 //!
@@ -80,7 +101,16 @@
 //!
 //! [`UdpChannel`]: crate::prelude::UdpChannel
 //! [`NetKernel`]: crate::prelude::NetKernel
-//! ['HdpServerRemote`]: crate::prelude::HdpServerRemote
+//! [`NetKernel::load_remote`]: crate::prelude::NetKernel::load_remote
+//! [`NetKernel::on_start`]: crate::prelude::NetKernel::on_start
+//! [`NetKernel::can_run`]: crate::prelude::NetKernel::can_run
+//! [`NetKernel::on_node_event_received`]: crate::prelude::NetKernel::on_node_event_received
+//! [`NetKernel::on_stop`]: crate::prelude::NetKernel::on_stop
+//! [`KernelExecutor`]: crate::prelude::KernelExecutor
+//! [`NodeRemote`]: crate::prelude::NodeRemote
+//! [`NodeRemote::shutdown`]: crate::prelude::NodeRemote::shutdown
+//! [`NodeType`]: crate::prelude::NodeType
+//! [`NodeType::Peer`]: crate::prelude::NodeType::Peer
 
 #![deny(
 clippy::cognitive_complexity,
@@ -97,15 +127,15 @@ warnings
 /// Convenience import for building applications
 pub mod prelude {
     pub use hyxe_net::prelude::*;
+
     pub use crate::node_builder::*;
-    pub use crate::remote_ext::ProtocolRemoteExt;
+    pub use crate::remote_ext::*;
 }
 
-/// Extension implementations endowed upon the [HdpServerRemote](crate::prelude::HdpServerRemote)
+/// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)
 pub mod remote_ext;
 /// A list of prefabricated kernels designed for common use cases. If a greater degree of control is required for an application, a custom implementation of [NetKernel](crate::prelude::NetKernel) is desirable
 pub mod prefabs;
 mod node_builder;
-
 #[doc(hidden)]
 pub(crate) mod test_common;

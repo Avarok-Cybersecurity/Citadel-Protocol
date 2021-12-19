@@ -9,3 +9,4 @@ pub mod ordered_channel;
 pub mod session_security_settings;
 pub mod underlying_proto;
 pub mod udp_internal_interface;
+pub mod sync_future;

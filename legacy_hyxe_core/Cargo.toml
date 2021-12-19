@@ -57,7 +57,7 @@ bufstream = { version = "0.1.4", features = ["tokio"] }
 quantum_random = { path = "../quantum_random", version = "0.1.0" }
 hyxe_util = { path = "../hyxe_util", version = "0.1.0" }
 hyxe_derive = { path = "../hyxe_derive", version = "0.1.0" }
-hyxewave_net = { path = "../hyxewave_net", version = "0.1.0" }
+hyxewave_net = { path = "../legacy_hyxe_net", version = "0.1.0" }
 
 async_mem = { path = "../async_mem", version = "0.1.0" }
 

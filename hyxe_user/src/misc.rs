@@ -80,7 +80,7 @@ const ASCII_ONLY: bool = false;
 
 /// Used to determine if the desired credentials have a valid format, length, etc. This alone DOES NOT imply whether or not the
 /// credentials are available
-pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(username: &T, password: Option<&R>, full_name: &V) -> Result<(), AccountError> {
+pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(username: T, password: Option<R>, full_name: V) -> Result<(), AccountError> {
     let username = username.as_ref();
     let full_name = full_name.as_ref();
     
@@ -89,7 +89,7 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
             return Err(AccountError::Generic("Username contains non-ascii characters".to_string()));
         }
 
-        if let Some(password) = password {
+        if let Some(password) = password.as_ref() {
             if !password.as_ref().is_ascii() {
                 return Err(AccountError::Generic("Password contains non-ascii characters".to_string()));
             }
@@ -108,7 +108,7 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
         return Err(AccountError::Generic("Username cannot contain spaces. Use a period instead".to_string()));
     }
 
-    if let Some(password) = password {
+    if let Some(password) = password.as_ref() {
         let password = password.as_ref();
         if password.len() < MIN_PASSWORD_LENGTH || password.len() > MAX_PASSWORD_LENGTH {
             return Err(AccountError::Generic(format!("Password must be between {} and {} characters", MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH)));

@@ -92,7 +92,7 @@ pub struct DeregisterResponse {
     pub success: bool
 }
 
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let ctx_user = ctx.get_active_cid();
 
     if ctx_user != 0 {

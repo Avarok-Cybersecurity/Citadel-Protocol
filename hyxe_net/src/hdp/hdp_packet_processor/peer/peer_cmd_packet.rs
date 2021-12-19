@@ -1029,6 +1029,7 @@ async fn route_signal_and_register_ticket_forwards(signal: PeerSignal, timeout: 
         hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal.clone(), ticket, timestamp, security_level)
     }, timeout, move |stale_signal| {
         // on timeout, run this
+        // TODO: Use latest ratchet, otherwise, may expire
         log::warn!("Running timeout closure. Sending error message to {}", implicated_cid);
         let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet_2, stale_signal, ticket, timestamp, security_level);
         let _ = to_primary_stream.unbounded_send(error_packet);

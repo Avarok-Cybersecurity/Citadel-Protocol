@@ -196,7 +196,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     //std::mem::drop(state_container);
                                     log::info!("[Toolset Update] Needs truncation? {:?}", &needs_truncate);
 
-                                    session.send_to_kernel(HdpServerResult::MessageDelivered(header.context_info.get().into()))?;
+                                    //session.send_to_kernel(HdpServerResult::MessageDelivered(header.context_info.get().into()))?;
                                     // now, we need to do one last thing. We need to send a truncate packet to atleast allow bob to begin sending packets using the latest HR
                                     // we need to send a truncate packet. BUT, only if the package was SOME. Just b/c it is some does not mean a truncation is necessary
                                     if transfer_occured {

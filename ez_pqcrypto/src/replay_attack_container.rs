@@ -101,10 +101,14 @@ pub mod unordered {
                 if pid_received >= min {
                     if queue.1.len() >= HISTORY_LEN as _ {
                         let lowest = queue.0;
-                        queue.1.remove(&lowest); // remove the lowest value
+
+                        // remove the lowest value. Only increment if the lowest value exists
+                        if queue.1.remove(&lowest) {
+                            queue.0 += 1;
+                        }
                     }
 
-                    queue.0 += 1;
+                    //queue.0 += 1;
 
                     queue.1.insert(pid_received);
 

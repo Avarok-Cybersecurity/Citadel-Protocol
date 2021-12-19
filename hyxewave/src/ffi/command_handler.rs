@@ -1,4 +1,4 @@
-use hyxe_net::hdp::hdp_server::HdpServerRemote;
+use hyxe_net::hdp::hdp_server::NodeRemote;
 use crate::console::console_context::ConsoleContext;
 use crate::console_error::ConsoleError;
 use crate::console::virtual_terminal::handle;
@@ -18,7 +18,7 @@ pub fn on_ffi_bytes_received<T: AsRef<str>>(input: T) -> Result<Option<KernelRes
 }
 
 /// Checks the first byte, enters the tokio context thereafter
-fn handle_ffi_payload(server_remote: &mut HdpServerRemote, ctx: &ConsoleContext, ffi_io: FFIIO, input: &str, rt_handle: &Handle) -> Result<Option<KernelResponse>, ConsoleError> {
+fn handle_ffi_payload(server_remote: &mut NodeRemote, ctx: &ConsoleContext, ffi_io: FFIIO, input: &str, rt_handle: &Handle) -> Result<Option<KernelResponse>, ConsoleError> {
     //let buffer = String::from_utf8(input)?;
     let parts = input.split(" ").collect::<Vec<&str>>();
     let clap = &super::super::console::virtual_terminal::CLAP_APP;

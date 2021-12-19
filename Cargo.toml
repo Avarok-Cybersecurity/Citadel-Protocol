@@ -13,7 +13,8 @@ members = [
 	"ez_pqcrypto",
 	"hyxe_net",
     "firebase-rtdb",
-    "netbeam"
+    "netbeam",
+    "online_order_handler"
 ]
 
 exclude = [

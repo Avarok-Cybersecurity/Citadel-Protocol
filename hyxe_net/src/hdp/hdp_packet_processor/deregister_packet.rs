@@ -88,24 +88,20 @@ async fn deregister_client_from_self(implicated_cid: u64, session_ref: &HdpSessi
 
     // This ensures no further packets are processed
     session.state.store(SessionState::NeedsRegister, Ordering::Relaxed);
-    session.send_to_kernel(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), ticket, false, success))?;
-    session.needs_close_message.set(false);
+    session.send_session_dc_signal(ticket, success, "Deregistration occurred. Session disconnected");
 
     Ok(ret)
 }
 
 async fn deregister_from_hyperlan_server_as_client(cnac: &ClientNetworkAccount, implicated_cid: u64, session_ref: &HdpSession) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
-    let (fcm_client, needs_close_message, acc_manager, to_kernel, cnac, dereg_ticket) = {
+    let (fcm_client, acc_manager, cnac, dereg_ticket) = {
         let state_container = inner_state!(session.state_container);
         let acc_manager = session.account_manager.clone();
-        let to_kernel = session.kernel_tx.clone();
-        let needs_close_message = session.needs_close_message.clone();
         let fcm_client = acc_manager.fcm_client().clone();
         let dereg_ticket = state_container.deregister_state.current_ticket;
 
-        std::mem::drop(state_container);
-        (fcm_client, needs_close_message, acc_manager, to_kernel, cnac, dereg_ticket)
+        (fcm_client, acc_manager, cnac, dereg_ticket)
     };
 
     if let Err(err) = cnac.fcm_raw_broadcast_to_all_peers(fcm_client, |fcm, peer_cid| hyxe_user::external_services::fcm::fcm_packet_crafter::craft_deregistered(fcm, peer_cid, 0)).await {
@@ -124,11 +120,7 @@ async fn deregister_from_hyperlan_server_as_client(cnac: &ClientNetworkAccount, 
         }
     };
 
-    if let Err(err) = to_kernel.unbounded_send(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), dereg_ticket, true, success)) {
-        log::warn!("Unable to send to kernel: {:#?}", err);
-    }
-
-    needs_close_message.set(false);
+    session.send_session_dc_signal(dereg_ticket, success, "Deregistration occurred. Session disconnected");
 
     Ok(PrimaryProcessorResult::EndSession("Session ended after deregistration"))
 }

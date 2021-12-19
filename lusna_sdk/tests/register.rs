@@ -39,19 +39,19 @@ mod tests {
         dir.push(format!("{}_{}", addr.ip(), addr.port()));
         tokio::fs::create_dir_all(&dir).await.unwrap();
 
-        let acc_mgr = AccountManager::new(addr, Some(dir.into_os_string().into_string().unwrap()), BACKEND_TYPE, None, None).await.unwrap();
+        let acc_mgr = AccountManager::new(addr, Some(dir.into_os_string().into_string().unwrap()), BACKEND_TYPE, None, None, None).await.unwrap();
         (addr, acc_mgr)
     }
 
     struct ClientRegisterCoKernel;
-    struct ServerRegisterCoKernel(Option<HdpServerRemote>);
+    struct ServerRegisterCoKernel(Option<NodeRemote>);
 
     static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
 
 
     #[async_trait]
     impl TestingCoKernel for ClientRegisterCoKernel {
-        async fn on_start(&self, mut server_remote: HdpServerRemote, server_address: Option<SocketAddr>, stop_server_tx: Option<UnboundedSender<()>>) -> Result<(), NetworkError> {
+        async fn on_start(&self, mut server_remote: NodeRemote, server_address: Option<SocketAddr>, stop_server_tx: Option<UnboundedSender<()>>) -> Result<(), NetworkError> {
             let server_addr = server_address.unwrap();
 
             let _register = server_remote.register_with_defaults(server_addr, "Thomas P Braun", "nologik", "mrmoney10").await?;
@@ -73,7 +73,7 @@ mod tests {
 
     #[async_trait]
     impl TestingCoKernel for ServerRegisterCoKernel {
-        async fn on_start(&self, _server_remote: HdpServerRemote, _server_address: Option<SocketAddr>, _stop_server_tx: Option<UnboundedSender<()>>) -> Result<(), NetworkError> {
+        async fn on_start(&self, _server_remote: NodeRemote, _server_address: Option<SocketAddr>, _stop_server_tx: Option<UnboundedSender<()>>) -> Result<(), NetworkError> {
             Ok(())
         }
 
