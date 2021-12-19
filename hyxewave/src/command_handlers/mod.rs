@@ -9,10 +9,10 @@ mod imports {
     pub use hyxe_net::constants::{DO_CONNECT_EXPIRE_TIME_MS, DO_REGISTER_EXPIRE_TIME_MS};
     pub use hyxe_net::hdp::hdp_packet_processor::includes::{Bytes, Duration, HyperNodeAccountInformation, IpAddr, SecurityLevel};
     pub use hyxe_net::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-    pub use hyxe_net::hdp::hdp_server::{HdpServerRemote, HdpServerRequest};
+    pub use hyxe_net::hdp::hdp_server::{NodeRemote, HdpServerRequest};
     pub use hyxe_net::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal};
     pub use hyxe_net::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
-    pub use hyxe_user::proposed_credentials::ProposedCredentials;
+    pub use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 
     pub use crate::console::console_context::ConsoleContext;
     pub use crate::console::virtual_terminal::AppThreadSafe;

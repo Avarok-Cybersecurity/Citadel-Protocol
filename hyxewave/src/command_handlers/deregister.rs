@@ -1,7 +1,7 @@
 use super::imports::*;
 
 #[allow(unused_results)]
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<Ticket>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<Ticket>, ConsoleError> {
     let do_purge = matches.is_present("purge");
 
     if do_purge {

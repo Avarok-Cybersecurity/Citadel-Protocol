@@ -1,7 +1,6 @@
 use tokio::time::Instant;
 
 use crate::hdp::hdp_packet::packet_flags;
-use hyxe_user::proposed_credentials::ProposedCredentials;
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
@@ -9,11 +8,11 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 #[derive(Default)]
 pub struct RegisterState {
     pub(crate) last_stage: u8,
-    pub(crate) proposed_credentials: Option<ProposedCredentials>,
     pub(crate) constructor: Option<HyperRatchetConstructor>,
     pub(crate) created_hyper_ratchet: Option<HyperRatchet>,
     pub(crate) proposed_cid: Option<u64>,
-    pub(crate) last_packet_time: Option<Instant>
+    pub(crate) last_packet_time: Option<Instant>,
+    pub(crate) passwordless: Option<bool>
 }
 
 impl RegisterState {

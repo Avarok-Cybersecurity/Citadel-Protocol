@@ -69,9 +69,14 @@ impl ArgonSettings {
         })}
     }
 
-    /// Creates a new instance with default values
+    /// Creates a new instance with default values and no secret
     pub fn new_defaults(ad: Vec<u8>) -> Self {
-        Self::new_gen_salt(ad, DEFAULT_LANES, DEFAULT_HASH_LENGTH, DEFAULT_MEM_COST, DEFAULT_TIME_COST, vec![])
+        Self::new_defaults_with_static_secret(ad, vec![])
+    }
+
+    /// Creates a new instance with default values and custom secret
+    pub fn new_defaults_with_static_secret(ad: Vec<u8>, secret: Vec<u8>) -> Self {
+        Self::new_gen_salt(ad, DEFAULT_LANES, DEFAULT_HASH_LENGTH, DEFAULT_MEM_COST, DEFAULT_TIME_COST, secret)
     }
 
     /// Takes the internal config, then
@@ -194,6 +199,13 @@ impl ArgonContainerType {
         match self {
             Self::Server(sv) => Some(sv),
             _ => None
+        }
+    }
+
+    pub fn settings(&self) -> &ArgonSettings {
+        match self {
+            Self::Client(cl) => &cl.settings,
+            Self::Server(sv) => &sv.settings
         }
     }
 }

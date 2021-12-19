@@ -16,7 +16,7 @@ pub enum NetworkError {
     /// Occurs when the requested packet size is over the maximum
     InvalidPacketSize(usize),
     /// A bad external request
-    InvalidExternalRequest(&'static str),
+    InvalidRequest(&'static str),
     ///
     InternalError(&'static str),
     /// For a converted error
@@ -52,7 +52,7 @@ impl NetworkError {
             NetworkError::InvalidPacketSize(size) => {
                 format!("Excess packet size requested: {}", *size)
             }
-            NetworkError::InvalidExternalRequest(err) => {
+            NetworkError::InvalidRequest(err) => {
                 format!("{}", *err)
             }
             NetworkError::InvalidPacket(err) => {
@@ -82,7 +82,7 @@ impl NetworkError {
             NetworkError::InvalidPacketSize(size) => {
                 format!("Excess packet size requested: {}", size)
             }
-            NetworkError::InvalidExternalRequest(err) => {
+            NetworkError::InvalidRequest(err) => {
                 format!("{}", err)
             }
             NetworkError::InvalidPacket(err) => {

@@ -5,7 +5,7 @@ use tokio::sync::{Mutex, MutexGuard};
 use termion::input::TermReadEventsAndRaw;
 //use tokio::io::AsyncBufReadExt;
 
-use hyxe_net::hdp::hdp_server::HdpServerRemote;
+use hyxe_net::hdp::hdp_server::NodeRemote;
 
 use crate::console::console_context::ConsoleContext;
 use crate::console::input_handler::InputRouter;
@@ -20,7 +20,7 @@ lazy_static! {
     pub static ref INPUT_ROUTER: InputRouter = InputRouter::new();
 }
 
-pub async fn terminal_future(mut server_remote: HdpServerRemote, ctx: ConsoleContext) -> Result<(), ConsoleError> {
+pub async fn terminal_future(mut server_remote: NodeRemote, ctx: ConsoleContext) -> Result<(), ConsoleError> {
     let (input_tx, input_rx) = tokio::sync::mpsc::channel::<SecString>(2);
     let mut input_rx = tokio_stream::wrappers::ReceiverStream::new(input_rx);
     INPUT_ROUTER.print_prompt(true, &ctx);
@@ -542,7 +542,7 @@ pub mod clap_commands {
 use async_recursion::async_recursion;
 
 #[async_recursion(?Send)]
-pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, AppThreadSafe>, parts: A, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a, A: AsRef<[&'a str]> + Send>(mut clap: MutexGuard<'a, AppThreadSafe>, parts: A, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let matches = clap.0.get_matches_from_safe_borrow(parts.as_ref()).map_err(|err| ConsoleError::Generic(err.message))?;
 
     if let Some(_matches) = matches.subcommand_matches("clear") {

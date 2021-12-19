@@ -11,7 +11,7 @@ pub enum RegisterResponse {
     Failure(#[serde(serialize_with = "string")] u64, String)
 }
 
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
     let target_addr = get_remote_addr(matches)?;
 
     let security_level = parse_security_level(matches)?;

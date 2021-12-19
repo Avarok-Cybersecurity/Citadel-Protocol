@@ -8,7 +8,7 @@ pub mod client;
 /// A limited version of the ['HdpServerRemote'] designed to only allow shutdown calls to the protocol
 #[derive(Clone)]
 pub struct ShutdownRemote {
-    pub(crate) inner: HdpServerRemote
+    pub(crate) inner: NodeRemote
 }
 
 impl ShutdownRemote {

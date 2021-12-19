@@ -36,13 +36,13 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use crate::backend::PersistenceHandler;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use hyxe_crypt::argon::argon_container::{ArgonContainerType, AsyncArgon, ArgonStatus};
-use crate::proposed_credentials::ProposedCredentials;
+use crate::auth::proposed_credentials::ProposedCredentials;
 use std::sync::atomic::Ordering;
 use crate::external_services::rtdb::{RtdbClientConfig, RtdbInstance};
 use crate::external_services::ExternalService;
 use crate::external_services::service_interface::ExternalServiceChannel;
 use hyxe_crypt::prelude::ConstructorOpts;
+use crate::auth::DeclaredAuthenticationMode;
 
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network
@@ -78,16 +78,12 @@ impl PartialEq for MutualPeer {
 pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
     /// The client identification number
     pub cid: u64,
-    /// The alias for locally mapping a client's username to a CID, which is then able to be mapped to the central server NID
-    pub username: String,
     /// While this NAC should be session-oriented, it may be replaced if [PINNED_IP_MODE] is disabled, meaning, a new IP
     /// address can enact as the CNAC, otherwise the IP address must stay constant
     #[serde(bound = "")]
     pub adjacent_nac: NetworkAccount<R, Fcm>,
     /// If this CNAC is for a personal connection, this is true
     pub is_local_personal: bool,
-    /// User's registered full name
-    pub full_name: String,
     /// The creation date
     pub creation_date: String,
     /// For impersonal mode:
@@ -122,7 +118,8 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     pub(crate) persistence_handler: Option<PersistenceHandler<R, Fcm>>,
     /// RTDB config for client-side communications
     pub client_rtdb_config: Option<RtdbClientConfig>,
-    argon_container: ArgonContainerType
+    /// For storing critical ID information for this CNAC
+    pub auth_store: DeclaredAuthenticationMode
 }
 
 /// A thread-safe handle for sharing data across threads and applications
@@ -138,6 +135,7 @@ struct MetaInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
     cid: u64,
     adjacent_nid: u64,
     is_personal: bool,
+    passwordless: bool,
     inner: RwLock<ClientNetworkAccountInner<R, Fcm>>
 }
 
@@ -146,12 +144,10 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     ///
     /// `client_nac`: This is required because it allows the server to keep track of the IP in the case [PINNED_IP_MODE] is engaged
     #[allow(unused_results)]
-    pub async fn new<T: ToString, V: ToString>(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount<R, Fcm>, username: T, full_name: V, argon_container: ArgonContainerType, base_hyper_ratchet: R, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
+    pub async fn new(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount<R, Fcm>, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
         info!("Creating CNAC w/valid cid: {:?}", valid_cid);
-        let username = username.to_string();
-        let full_name = full_name.to_string();
 
-        check_credential_formatting::<_, &str, _>(&username, None, &full_name)?;
+        check_credential_formatting::<_, &str, _>(auth_store.username(), None, auth_store.full_name())?;
 
         let creation_date = get_present_formatted_timestamp();
         // the static & f(0) hyper ratchets will be the provided hyper ratchet
@@ -171,7 +167,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let fcm_packet_store = None;
         let client_rtdb_config = None;
 
-        let inner = ClientNetworkAccountInner::<R, Fcm> { client_rtdb_config, fcm_packet_store, fcm_invitations, kem_state_containers, fcm_crypt_container, persistence_handler, creation_date, cid: valid_cid, argon_container, username, adjacent_nac, is_local_personal: is_personal, full_name, mutuals, local_save_path, crypt_container };
+        let inner = ClientNetworkAccountInner::<R, Fcm> { client_rtdb_config, fcm_packet_store, fcm_invitations, kem_state_containers, fcm_crypt_container, persistence_handler, creation_date, cid: valid_cid, auth_store, adjacent_nac, is_local_personal: is_personal, mutuals, local_save_path, crypt_container };
         let this = Self::from(inner);
 
         this.save().await?;
@@ -214,11 +210,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Towards the end of the registration phase, the [ClientNetworkAccountInner] gets transmitted to Alice.
-    pub async fn new_from_network_personal<X: ToString, K: ToString>(valid_cid: u64, hyper_ratchet: R, username: X, full_name: K, argon_container: ArgonContainerType, adjacent_nac: NetworkAccount<R, Fcm>, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
+    pub async fn new_from_network_personal(valid_cid: u64, hyper_ratchet: R, auth_store: DeclaredAuthenticationMode, adjacent_nac: NetworkAccount<R, Fcm>, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
         const IS_PERSONAL: bool = true;
 
         // We supply none to the valid cid
-        Self::new(valid_cid, IS_PERSONAL, adjacent_nac, username, full_name, argon_container,hyper_ratchet, persistence_handler, fcm_keys).await
+        Self::new(valid_cid, IS_PERSONAL, adjacent_nac, auth_store,hyper_ratchet, persistence_handler, fcm_keys).await
     }
 
     /// When the client received its inner CNAC, it will not have the NAC of the server. Therefore, the client-version of the CNAC must be updated
@@ -229,7 +225,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
     /// Returns the username of this client
     pub fn get_username(&self) -> String {
-        self.read().username.clone()
+        self.read().auth_store.username().to_string()
     }
 
     /// Returns the [NetworkAccount] associated with the [ClientNetworkAccount]. Before being called,
@@ -239,70 +235,35 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Checks the credentials for validity. Used for the login process.
-    pub async fn validate_credentials<T: AsRef<[u8]>>(&self, username: T, password_hashed: SecBuffer) -> Result<(), AccountError> {
-        let (argon_container, username_internal) = {
+    pub async fn validate_credentials(&self, creds: ProposedCredentials) -> Result<(), AccountError> {
+        let argon_container = {
             let read = self.read();
-            (read.argon_container.clone(), read.username.clone())
+            let username = read.auth_store.username();
+
+            if !creds.compare_username(username.as_bytes()) {
+                return Err(AccountError::InvalidUsername);
+            }
+
+            match &read.auth_store {
+                DeclaredAuthenticationMode::Argon { argon, .. } => argon.clone(),
+                DeclaredAuthenticationMode::Passwordless { .. } => return Ok(())
+            }
         };
 
-
-        match argon_container {
-            ArgonContainerType::Server(server_container) => {
-                if username.as_ref() != username_internal.as_bytes() {
-                    return Err(AccountError::InvalidUsername);
-                }
-
-                match AsyncArgon::verify(password_hashed, server_container).await.map_err(|err| AccountError::Generic(err.to_string()))? {
-                    ArgonStatus::VerificationSuccess => {
-                        Ok(())
-                    }
-
-                    ArgonStatus::VerificationFailed(None) => {
-                        log::warn!("Invalid password specified ...");
-                        Err(AccountError::InvalidPassword)
-                    }
-
-                    ArgonStatus::VerificationFailed(Some(err)) => {
-                        log::error!("Password verification failed: {}", &err);
-                        Err(AccountError::Generic(err))
-                    }
-
-                    _ => {
-                        Err(AccountError::InvalidPassword)
-                    }
-                }
-            }
-
-            _ => {
-                return Err(AccountError::Generic("Account does not have password loaded; account is personal".to_string()))
-            }
-        }
+        creds.validate_credentials(argon_container).await
     }
 
     /// This should be called on the client before passing a connect request to the protocol
-    pub async fn generate_connect_credentials(&self, input: SecBuffer) -> Result<ProposedCredentials, AccountError> {
+    pub async fn generate_connect_credentials(&self, password_raw: SecBuffer) -> Result<ProposedCredentials, AccountError> {
         let (settings, full_name, username) = {
           let read = self.read();
-            (read.argon_container.clone(), read.full_name.clone(), read.username.clone())
+            match &read.auth_store {
+                DeclaredAuthenticationMode::Argon { argon, full_name, username } => (argon.settings().clone(), full_name.clone(), username.clone()),
+                DeclaredAuthenticationMode::Passwordless { .. } => return Ok(ProposedCredentials::passwordless())
+            }
         };
 
-        match settings {
-            ArgonContainerType::Client(client_container) => {
-                match AsyncArgon::hash(input, client_container.settings).await.map_err(|err| AccountError::Generic(err.to_string()))? {
-                    ArgonStatus::HashSuccess(hashed_password) => {
-                        Ok(ProposedCredentials::new(full_name, username, hashed_password))
-                    }
-
-                    _ => {
-                        Err(AccountError::Generic("Unable to hash password".to_string()))
-                    }
-                }
-            }
-
-            _ => {
-                Err(AccountError::Generic("Local is not a client type".to_string()))
-            }
-        }
+        ProposedCredentials::new_connect(full_name, username, password_raw, settings).await
     }
 
     /// Returns the FCM keys for the c2s connection
@@ -474,8 +435,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             let mut this = self.write();
             let mut other = other_orig.write();
 
-            let this_username = this.username.clone();
-            let other_username = other.username.clone();
+            let this_username = this.auth_store.username().to_string();
+            let other_username = other.auth_store.username().to_string();
 
             this.mutuals.insert(HYPERLAN_IDX, MutualPeer {
                 parent_icid: HYPERLAN_IDX,
@@ -921,8 +882,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     pub(crate) fn get_metadata(&self) -> CNACMetadata {
         let read = self.read();
         let cid = read.cid;
-        let username = read.username.clone();
-        let full_name = read.full_name.clone();
+        let username = read.auth_store.username().to_string();
+        let full_name = read.auth_store.full_name().to_string();
         let is_personal = read.is_local_personal;
         let creation_date = read.creation_date.clone();
         CNACMetadata { cid, username, full_name, is_personal, creation_date }
@@ -936,6 +897,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// This will panic if the adjacent NAC is not loaded
     pub fn get_adjacent_nid(&self) -> u64 {
         self.inner.adjacent_nid
+    }
+
+    /// Returns true if passwordless
+    pub fn passwordless(&self) -> bool {
+        self.inner.passwordless
     }
 }
 
@@ -954,14 +920,15 @@ impl<R: Ratchet, Fcm: Ratchet> std::fmt::Debug for ClientNetworkAccount<R, Fcm> 
 impl<R: Ratchet, Fcm: Ratchet> std::fmt::Display for ClientNetworkAccount<R, Fcm> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let inner = self.read();
-        writeln!(f, "{}\t\t{}\t\t{}\t\t{}", self.inner.cid, &inner.username, &inner.full_name, self.inner.is_personal)
+        writeln!(f, "{}\t\t{}\t\t{}\t\t{}", self.inner.cid, inner.auth_store.username(), inner.auth_store.full_name(), self.inner.is_personal)
     }
 }
 
 impl<R: Ratchet, Fcm: Ratchet> From<ClientNetworkAccountInner<R, Fcm>> for MetaInner<R, Fcm> {
     fn from(inner: ClientNetworkAccountInner<R, Fcm>) -> Self {
         let adjacent_nid = inner.adjacent_nac.get_id();
-        Self { cid: inner.cid, adjacent_nid, is_personal: inner.is_local_personal, inner: RwLock::new(inner) }
+        let authless = inner.auth_store.is_passwordless();
+        Self { cid: inner.cid, adjacent_nid, is_personal: inner.is_local_personal, passwordless: authless, inner: RwLock::new(inner) }
     }
 }
 

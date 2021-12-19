@@ -12,7 +12,7 @@ mod tests {
     use hyxe_crypt::argon::argon_container::{ArgonSettings, AsyncArgon, ArgonStatus, ServerArgonContainer};
     use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm, ALGORITHM_COUNT, CryptoParameters};
     use std::convert::TryFrom;
-    use hyxe_crypt::argon::autotuner::calculate_optimal_params;
+    use hyxe_crypt::argon::autotuner::calculate_optimal_argon_params;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
 
 
@@ -29,7 +29,7 @@ mod tests {
     async fn argon_autotuner() {
         setup_log();
         let start_time = Instant::now();
-        let final_cfg = calculate_optimal_params(500 as _, Some(32), None).await.unwrap();
+        let final_cfg = calculate_optimal_argon_params(500 as _, Some(32), None).await.unwrap();
         log::info!("DONE. Elapsed time: {:?}", start_time.elapsed());
         log::info!("{:?}", final_cfg)
     }

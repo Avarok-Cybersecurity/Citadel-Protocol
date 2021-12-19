@@ -1,6 +1,6 @@
 use super::imports::*;
 
-pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext) -> Result<Option<KernelResponse>, ConsoleError> {
     if matches.is_present("force_quit") {
         colour::dark_red_ln!("\rHyxeWave is force shutting down");
         shutdown_sequence(0)

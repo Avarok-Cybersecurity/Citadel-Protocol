@@ -175,6 +175,6 @@ mod tests {
     async fn acc_mgr(addr: SocketAddr, backend: BackendType) -> AccountManager {
         let home_dir = format!("{}/tmp/{}", home_dir().unwrap().to_str().unwrap(), addr.to_string().replace(":", "p"));
         log::info!("Home dir: {}", &home_dir);
-        AccountManager::new(addr, Some(home_dir), backend, None, None).await.unwrap()
+        AccountManager::new(addr, Some(home_dir), backend, None, None, None).await.unwrap()
     }
 }

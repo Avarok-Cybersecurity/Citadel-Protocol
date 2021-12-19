@@ -5,13 +5,12 @@ pub(crate) mod do_connect {
     use hyxe_fs::prelude::SyncIO;
     use crate::hdp::hdp_packet_crafter::do_connect::{DoConnectStage0Packet, DoConnectFinalStatusPacket};
     use hyxe_crypt::fcm::keys::FcmKeys;
-    use hyxe_crypt::prelude::SecBuffer;
 
     /// Here, Bob receives a payload of the encrypted username + password. We must verify the login data is valid
     pub(crate) async fn validate_stage0_packet(cnac: &ClientNetworkAccount, payload: &[u8]) -> Result<Option<FcmKeys>, NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
         let payload = DoConnectStage0Packet::deserialize_from_vector(payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
-        cnac.validate_credentials(payload.username, SecBuffer::from(payload.password)).await.map_err(|err| NetworkError::Generic(err.into_string()))?;
+        cnac.validate_credentials(payload.proposed_credentials).await.map_err(|err| NetworkError::Generic(err.into_string()))?;
         log::info!("Success validating credentials!");
         Ok(payload.fcm_keys)
     }
@@ -30,9 +29,6 @@ pub(crate) mod keep_alive {
     use crate::hdp::hdp_packet::HdpHeader;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
-    /// Returns Ok(false) if expired.
-    /// Returns Ok(true) if valid
-    /// Return Err(_) if getting the drill failed or the security params were false
     pub(crate) fn validate_keep_alive<'a, 'b: 'a>(cnac: &ClientNetworkAccount, header: &'b Bytes, payload: BytesMut) -> Option<(LayoutVerified<&'a [u8], HdpHeader>, Bytes, HyperRatchet)> {
         super::aead::validate(cnac,header, payload)
     }
@@ -63,8 +59,6 @@ pub(crate) mod group {
 
     /// First-pass validation. Ensures header integrity through AAD-services in AES-GCM
     pub(crate) fn validate<'a, 'b: 'a>(hyper_ratchet: &HyperRatchet, security_level: SecurityLevel, header: &'b [u8], mut payload: BytesMut) -> Option<Bytes> {
-        //let bytes = &header[..];
-        //let header = LayoutVerified::new(bytes)? as LayoutVerified<&[u8], HdpHeader>;
         hyper_ratchet.validate_message_packet_in_place_split(Some(security_level), header, &mut payload).ok()?;
         Some(payload.freeze())
     }
@@ -152,38 +146,15 @@ pub(crate) mod do_register {
     use hyxe_user::network_account::NetworkAccount;
 
     use crate::hdp::hdp_packet::HdpHeader;
-    use byteorder::{BigEndian, ByteOrder};
     use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use bytes::BytesMut;
     use hyxe_fs::io::SyncIO;
-    use crate::hdp::hdp_packet_crafter::do_register::DoRegisterStage2Packet;
+    use crate::hdp::hdp_packet_crafter::do_register::{DoRegisterStage2Packet, DoRegisterStage0};
     use hyxe_user::backend::PersistenceHandler;
 
-    pub(crate) fn validate_stage0<'a>(header: &'a LayoutVerified<&[u8], HdpHeader>, payload: &'a [u8]) -> Option<(AliceToBobTransfer<'a>, Vec<u64>)> {
-        let cids_to_get = header.context_info.get() as usize;
-        if cids_to_get > 10 {
-            log::error!("Too many CIDs provided");
-        }
-
-        let cids_byte_len = cids_to_get * 8;
-        if payload.len() < cids_byte_len {
-            log::error!("Bad payload size");
-            return None;
-        }
-
-        let mut cids = Vec::with_capacity(cids_to_get);
-        for x in 0..cids_to_get {
-            let start = x*8;
-            let end = start + 8;
-            cids.push(BigEndian::read_u64(&payload[start..end]));
-        }
-
-        let remaining_bytes = &payload[cids_to_get*8..];
-
-        log::info!("Possible CIDs obtained: {:?}", &cids);
-        let transfer = AliceToBobTransfer::deserialize_from(remaining_bytes)?;
-        Some((transfer, cids))
+    pub(crate) fn validate_stage0<'a>(payload: &'a [u8]) -> Option<(AliceToBobTransfer<'a>, Vec<u64>, bool)> {
+        DoRegisterStage0::deserialize_from_vector(payload).ok().map(|r| (r.transfer, r.potential_cids_alice, r.passwordless))
     }
 
     /// Returns the decrypted username, password, and full name
@@ -264,6 +235,7 @@ pub(crate) mod pre_connect {
 
         let transfer = SynPacket::deserialize_from_vector(&payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
 
+        // TODO: Consider adding connect_mode to the HdpSession to sync between both nodes. For now, there's no need
         match transfer.connect_mode {
             ConnectMode::Fetch { force_login: false } | ConnectMode::Standard { force_login: false } => {
                 // before going further, make sure the user isn't already logged-in. We wouldn't want to replace the toolset that is already being used

@@ -78,13 +78,15 @@ pub mod macros {
 
     macro_rules! inner_state {
     ($item:expr) => {
-        $item.inner.borrow()
+        //$item.inner.borrow()
+        self.inner.read()
     };
 }
 
     macro_rules! inner_mut_state {
     ($item:expr) => {
-        $item.inner.borrow_mut()
+        //$item.inner.borrow_mut()
+        self.inner.write()
     };
 }
 
@@ -335,36 +337,42 @@ pub mod re_imports {
 
 
 pub mod prelude {
-    pub use hyxe_crypt::argon::{argon_container::ArgonDefaultServerSettings, autotuner::calculate_optimal_params};
-    pub use hyxe_crypt::secure_buffer::{sec_bytes::SecBuffer, sec_string::SecString};
+    pub use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
+    pub use hyxe_crypt::argon::{argon_container::ArgonDefaultServerSettings, autotuner::calculate_optimal_argon_params};
     pub use hyxe_crypt::fcm::keys::FcmKeys;
+    pub use hyxe_crypt::secure_buffer::{sec_bytes::SecBuffer, sec_string::SecString};
+    pub use hyxe_user::account_manager::AccountManager;
+    pub use hyxe_user::auth::proposed_credentials::ProposedCredentials;
     pub use hyxe_user::backend::BackendType;
+    pub use hyxe_user::external_services::RtdbConfig;
     pub use hyxe_user::external_services::ServicesConfig;
     pub use hyxe_user::external_services::ServicesObject;
     pub use hyxe_user::prelude::{ConnectProtocol, UserIdentifier};
-    pub use hyxe_user::proposed_credentials::ProposedCredentials;
-    pub use hyxe_user::account_manager::AccountManager;
-    pub use hyxe_user::external_services::RtdbConfig;
-    pub use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
+    pub use hyxe_user::server_misc_settings::ServerMiscSettings;
 
     pub use crate::error::NetworkError;
     pub use crate::functional::*;
+    pub use crate::hdp::file_transfer::FileTransferStatus;
     pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
     pub use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
-    pub use crate::hdp::hdp_server::{atexit, HdpServerRemote, HdpServerRequest, HdpServerResult, SecrecyMode, Remote};
+    pub use crate::hdp::hdp_server::{atexit, HdpServerRequest, HdpServerResult, NodeRemote, Remote, SecrecyMode};
+    pub use crate::hdp::hdp_server::ConnectMode;
+    pub use crate::hdp::hdp_server::Ticket;
     pub use crate::hdp::misc::panic_future::ExplicitPanicFuture;
     pub use crate::hdp::misc::session_security_settings::{SessionSecuritySettings, SessionSecuritySettingsBuilder};
     pub use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
+    pub use crate::hdp::outbound_sender::OutboundUdpSender;
     pub use crate::hdp::peer::channel::*;
+    pub use crate::hdp::peer::group_channel::{GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf};
     pub use crate::hdp::peer::message_group::MessageGroupKey;
     pub use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
     pub use crate::hdp::peer::peer_layer::PeerResponse;
     pub use crate::hdp::state_container::VirtualTargetType;
     pub use crate::kernel::{kernel::NetKernel, kernel_executor::KernelExecutor};
     pub use crate::re_imports::{async_trait, NodeType};
-    pub use crate::hdp::file_transfer::FileTransferStatus;
-    pub use crate::hdp::hdp_server::ConnectMode;
-
+    pub use hyxe_user::external_services::fcm::kem::FcmPostRegister;
+    pub use crate::hdp::peer::peer_layer::HypernodeConnectionType;
+    pub use crate::hdp::misc::sync_future::*;
 }
 
 /// Contains the streams for creating connections
@@ -381,3 +389,4 @@ mod functional;
 mod inner_arg;
 #[doc(hidden)]
 pub mod test_common;
+pub mod auth;
