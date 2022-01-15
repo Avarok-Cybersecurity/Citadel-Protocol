@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/lusna_notification_icon2_background"/>
+    <foreground android:drawable="@mipmap/lusna_notification_icon2_foreground"/>
+</adaptive-icon>

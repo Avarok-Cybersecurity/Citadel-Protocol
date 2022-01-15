@@ -1,56 +1,58 @@
 use super::imports::*;
 use hyxe_net::hdp::peer::message_group::MessageGroupKey;
+use hyxe_crypt::sec_bytes::SecBuffer;
+use multimap::MultiMap;
 
-pub fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let ctx_cid = ctx.get_active_cid();
-    let ref cnac = ctx.get_cnac_of_active_session().ok_or(ConsoleError::Default("Session CNAC missing"))?;
+    let ref cnac = ctx.get_cnac_of_active_session().await.ok_or(ConsoleError::Default("Session CNAC missing"))?;
 
     if let Some(matches) = matches.subcommand_matches("accept-invite") {
-        return handle_accept_invite(matches, server_remote, ctx);
+        return handle_accept_invite(matches, server_remote, ctx).await;
     }
 
     if let Some(_matches) = matches.subcommand_matches("invites") {
-        return handle_invites(ctx, cnac)
+        return handle_invites(ctx).await
     }
 
     if let Some(matches) = matches.subcommand_matches("create") {
-        return handle_create(matches, server_remote, ctx, cnac, ctx_cid);
+        return handle_create(matches, server_remote, ctx, ctx_cid).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("end") {
-        return handle_end(matches, server_remote, ctx);
+        return handle_end(matches, server_remote, ctx).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("add") {
-        return handle_add(matches, server_remote, ctx, cnac);
+        return handle_add(matches, server_remote, ctx, ctx_cid).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("kick") {
-        return handle_kick(matches, server_remote, ctx, cnac);
+        return handle_kick(matches, server_remote, ctx, ctx_cid).await;
     }
 
     if let Some(_) = matches.subcommand_matches("list") {
-        return handle_list(ctx, cnac, ctx_cid);
+        return handle_list(ctx).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("leave") {
-        return handle_leave(matches, server_remote, ctx);
+        return handle_leave(matches, server_remote, ctx).await;
     }
 
     if let Some(matches) = matches.subcommand_matches("send") {
-        return handle_send(matches, server_remote, ctx, cnac);
+        return handle_send(matches, server_remote, ctx, cnac).await;
     }
 
     Ok(None)
 }
 
-fn handle_leave<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_leave<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
     let signal = GroupBroadcast::LeaveRoom(key.key);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request).await?;
 
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, move |_ctx, _ticket, peer_response| {
         match peer_response {
@@ -73,7 +75,7 @@ fn handle_leave<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote
     Ok(Some(ticket))
 }
 
-fn handle_accept_invite<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_accept_invite<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let mail_id = usize::from_str(matches.value_of("mid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     let mut write = ctx.unread_mail.write();
     return if let Some(invitation) = write.remove_group_request(mail_id) {
@@ -84,7 +86,7 @@ fn handle_accept_invite<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServ
         let signal = GroupBroadcast::AcceptMembership(key);
         let request = HdpServerRequest::GroupBroadcastCommand(implicated_local_cid, signal);
 
-        server_remote.send_with_custom_ticket(ticket, request);
+        server_remote.send_with_custom_ticket(ticket, request).await?;
         std::mem::drop(write);
 
         // track request
@@ -118,20 +120,31 @@ fn handle_accept_invite<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServ
     }
 }
 
-fn handle_invites<'a>(ctx: &'a ConsoleContext, cnac: &'a ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_invites(ctx: &ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+    struct GroupRow {
+        invite_id: usize,
+        entry_key_cid: u64,
+        mgid: u8
+    }
+
     let read = ctx.unread_mail.read();
     let mut table = Table::new();
     table.set_titles(prettytable::row![Fgcb => "Invite ID", "Owner Username", "Owner CID", "MGID"]);
-    let mut count = 0;
+    let mut peers = MultiMap::new();
     read.visit_group_requests(|invite_id, entry| {
-        if let Some(owner_peer) = cnac.get_hyperlan_peer(entry.key.cid) {
-            let username = owner_peer.username.unwrap_or(String::from("INVALID"));
-            table.add_row(prettytable::row![c => invite_id, username, entry.key.cid, entry.key.mgid]);
-            count += 1;
-        }
+        peers.insert(entry.implicated_local_cid, GroupRow { invite_id, entry_key_cid: entry.key.cid, mgid: entry.key.mgid });
     });
 
-    if count != 0 {
+    std::mem::drop(read);
+
+    if peers.len() != 0 {
+        for (implicated_cid, entries) in peers {
+            for entry in entries {
+                let username = ctx.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(implicated_cid, entry.entry_key_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.map(|r| r.username).flatten().unwrap_or_else(|| "INVALID".into());
+                table.add_row(prettytable::row![c => entry.invite_id, username, entry.entry_key_cid, entry.mgid]);
+            }
+        }
+
         printf!(table.printstd());
     } else {
         printf_ln!(colour::white!("No pending invites exist locally\n"));
@@ -140,9 +153,14 @@ fn handle_invites<'a>(ctx: &'a ConsoleContext, cnac: &'a ClientNetworkAccount) -
     Ok(None)
 }
 
-fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount, ctx_cid: u64) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ctx_cid: u64) -> Result<Option<Ticket>, ConsoleError> {
     let target_cids = if let Some(target_cids) = matches.values_of("target_cids") {
-        target_cids.filter_map(|res| get_peer_cid_from_cnac(cnac, res).ok()).collect::<Vec<u64>>()
+        let mut ret = Vec::new();
+        for target_cid in target_cids {
+            ret.push(get_peer_cid_from_cnac(&ctx.account_manager, ctx_cid,target_cid).await?)
+        }
+
+        ret
     } else {
         Vec::with_capacity(0)
     };
@@ -161,7 +179,7 @@ fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemot
     let signal = GroupBroadcast::Create(target_cids);
     let request = HdpServerRequest::GroupBroadcastCommand(ctx_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request).await?;
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, ctx_cid, move |ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -202,7 +220,7 @@ fn handle_create<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemot
     Ok(Some(ticket))
 }
 
-fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
@@ -212,7 +230,7 @@ fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let signal = GroupBroadcast::End(key.key);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request).await?;
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -242,11 +260,15 @@ fn handle_end<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     Ok(Some(ticket))
 }
 
-fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
-    let target_cids = matches.values_of("target_cids").unwrap().filter_map(|res| get_peer_cid_from_cnac(cnac, res).ok()).collect::<Vec<u64>>();
+    let values = matches.values_of("target_cids").unwrap();
+    let mut target_cids = Vec::new();
+    for target_cid in values {
+        target_cids.push(get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?)
+    }
 
     printfs!({
         colour::white_ln!("\rWill attempt to add to the broadcast group ({}) with these provided peers:\n", &key.key);
@@ -259,7 +281,7 @@ fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     let signal = GroupBroadcast::Add(key.key, target_cids);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request).await?;
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -294,11 +316,15 @@ fn handle_add<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, 
     Ok(Some(ticket))
 }
 
-fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, ctx_user: u64) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
-    let target_cids = matches.values_of("target_cids").unwrap().filter_map(|res| get_peer_cid_from_cnac(cnac, res).ok()).collect::<Vec<u64>>();
+    let values = matches.values_of("target_cids").unwrap();
+    let mut target_cids = Vec::new();
+    for target_cid in values {
+        target_cids.push(get_peer_cid_from_cnac(&ctx.account_manager, ctx_user, target_cid).await?)
+    }
 
     printfs!({
         colour::white_ln!("\rWill attempt to kick the provided peers from the broadcast group ({}):\n", &key.key);
@@ -311,7 +337,7 @@ fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote,
     let signal = GroupBroadcast::Kick(key.key, target_cids);
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request).await?;
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, |_ctx, _ticket, signal| {
         match signal {
             PeerResponse::Group(broadcast_signal) => {
@@ -341,23 +367,26 @@ fn handle_kick<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote,
     Ok(Some(ticket))
 }
 
-fn handle_list(ctx: &ConsoleContext, cnac: &ClientNetworkAccount, ctx_cid: u64) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_list(ctx: &ConsoleContext) -> Result<Option<Ticket>, ConsoleError> {
+    struct ListRow {
+        gid: usize,
+        key_cid: u64,
+        mgid: u8,
+        implicated_local_cid: u64
+    }
+
     let mut table = Table::new();
     table.set_titles(prettytable::row![Fgcb => "GID", "Owner Username", "Owner CID", "MGID"]);
     let read = ctx.message_groups.read();
-    let len = read.len();
-    for (gid, key) in read.iter() {
-        let username = if key.key.cid != ctx_cid {
-            cnac.get_hyperlan_peer(key.key.cid).and_then(|res| res.username.clone())
-                .unwrap_or(String::from("INVALID"))
-        } else {
-            ctx.active_user.read().clone()
-        };
+    let rows = read.iter().map(|(gid, container)| ListRow { gid: *gid, key_cid: container.key.cid, mgid: container.key.mgid, implicated_local_cid: container.implicated_cid }).collect::<Vec<ListRow>>();
+    std::mem::drop(read);
 
-        table.add_row(prettytable::row![c => gid, username, key.key.cid, key.key.mgid]);
-    }
+    if rows.len() != 0 {
+        for row in rows {
+            let username = ctx.account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(row.implicated_local_cid, row.key_cid).await.map_err(|err| ConsoleError::Generic(err.into_string()))?.map(|r| r.username).flatten().unwrap_or_else(|| "INVALID".into());
+            table.add_row(prettytable::row![c => row.gid, username, row.key_cid, row.mgid]);
+        }
 
-    if len != 0 {
         printf!(table.printstd());
     } else {
         printf_ln!(colour::white!("No concurrent message groups found\n"));
@@ -366,17 +395,17 @@ fn handle_list(ctx: &ConsoleContext, cnac: &ClientNetworkAccount, ctx_cid: u64) 
     Ok(None)
 }
 
-fn handle_send<'a>(matches: &ArgMatches<'a>, server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
+async fn handle_send<'a>(matches: &ArgMatches<'a>, server_remote: &'a mut NodeRemote, ctx: &'a ConsoleContext, cnac: &ClientNetworkAccount) -> Result<Option<Ticket>, ConsoleError> {
     let gid = usize::from_str(matches.value_of("gid").unwrap()).map_err(|err| ConsoleError::Generic(err.to_string()))?;
     // we must now map the gid to a key
     let key = ctx.message_groups.read().get(&gid).cloned().ok_or(ConsoleError::Default("Supplied GID does not map to a key"))?;
     let message: String = matches.values_of("message").unwrap().collect::<Vec<&str>>().join(" ");
     printf_ln!(colour::white!("Will send the following message to the broadcast group ({}): {}\n", &key.key, &message));
     let username = cnac.get_username();
-    let signal = GroupBroadcast::Message(username.clone(), key.key, message.clone());
+    let signal = GroupBroadcast::Message(username.clone(), key.key, SecBuffer::from(message.clone()));
     let request = HdpServerRequest::GroupBroadcastCommand(key.implicated_cid, signal);
 
-    let ticket = server_remote.unbounded_send(request);
+    let ticket = server_remote.send(request).await?;
 
     // once the server broadcasts the message, the console will print-out the data
     ctx.register_ticket(ticket, CREATE_GROUP_TIMEOUT, key.implicated_cid, move |_ctx, _ticket, signal| {

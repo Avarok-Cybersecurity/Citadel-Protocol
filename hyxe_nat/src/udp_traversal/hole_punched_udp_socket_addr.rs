@@ -1,17 +1,25 @@
 use std::net::{SocketAddr, IpAddr};
 use std::fmt::{Display, Formatter};
+use tokio::net::UdpSocket;
+use serde::{Serialize, Deserialize};
+use crate::udp_traversal::HolePunchID;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct HolePunchedSocketAddr {
     // Outbound packets should get sent here
     pub initial: SocketAddr,
     // Inbound packets coming from 'initial" will read as this address
-    pub natted: SocketAddr
+    pub natted: SocketAddr,
+    pub unique_id: HolePunchID
 }
 
 impl HolePunchedSocketAddr {
-    pub fn new(initial: SocketAddr, natted: SocketAddr) -> Self {
-        Self { initial, natted }
+    pub fn new(initial: SocketAddr, natted: SocketAddr, unique_id: HolePunchID) -> Self {
+        Self { initial, natted, unique_id }
+    }
+
+    pub fn new_invariant(addr: SocketAddr) -> Self {
+        Self { initial: addr, natted: addr, unique_id: HolePunchID(0) }
     }
 
     pub fn ip_translated(&self) -> bool {
@@ -36,4 +44,10 @@ impl Display for HolePunchedSocketAddr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "(Original, Natted): {:?} -> {:?}", &self.initial, &self.natted)
     }
+}
+
+#[derive(Debug)]
+pub struct HolePunchedUdpSocket {
+    pub socket: UdpSocket,
+    pub addr: HolePunchedSocketAddr
 }

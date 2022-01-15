@@ -1,5 +1,5 @@
-#![feature(const_fn, async_closure,trivial_bounds)]
-#![feature(shrink_to)]
+#![allow(rustdoc::broken_intra_doc_links)]
+#![forbid(unsafe_code)]
 //! hyxe_fs (Hyxe::FileSystem) organizes the libraries responsible for handling I/O with the disk and notably the variably-centralized virtual-fs
 //! for home, business, enterprise, or government settings
 
@@ -15,15 +15,12 @@ unused_results,
 warnings
 )]
 
-#[macro_use]
-/// For global constants
-extern crate lazy_static;
-
 /// Conveniance import to access important I/O subroutines, including local and virtual
 pub mod prelude {
     pub use crate::hyxe_file::*;
     pub use crate::io::*;
     pub use crate::async_io::*;
+    pub use serde::{Serialize, Deserialize};
 }
 
 /// Re-import
@@ -47,10 +44,11 @@ pub mod io;
 /// Contains the async file I/O subroutines, as well as async serialization/deserialization
 pub mod async_io;
 
-/// Contains the method for serializing/deserializing objects with Arc<RwLock<T>> types
-pub mod arc_rwlock_serde;
 /// Allows thread-pooled asynchronous and parallel file processing
 pub mod file_crypt_scrambler;
 
 /// Contains misc subroutines
 pub mod misc;
+
+/// For handling ser/de into source
+pub mod utils;

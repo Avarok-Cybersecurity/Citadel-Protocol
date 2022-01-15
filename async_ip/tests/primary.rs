@@ -2,14 +2,17 @@
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn get_ipv4() {
-        tokio::runtime::Runtime::new().unwrap().block_on(get())
+    use async_ip::{get_all, get_all_multi_concurrent};
+
+    #[tokio::test]
+    async fn get() {
+        let addrs = get_all(None).await.unwrap();
+        println!("Addrs: {:?}", addrs);
     }
 
-    async fn get() {
-        println!("Getting IP...");
-        let ip = async_ip::get_ip(true, None).await.unwrap();
-        println!("IP: {}", ip);
+    #[tokio::test]
+    async fn get_multi() {
+        let addrs = get_all_multi_concurrent(None).await.unwrap();
+        println!("Addrs: {:?}", addrs);
     }
 }

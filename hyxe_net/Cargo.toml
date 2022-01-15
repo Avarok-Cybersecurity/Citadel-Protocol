@@ -4,46 +4,63 @@ version = "0.1.0"
 authors = ["Thomas Braun <tbraun96@gmail.com>"]
 edition = "2018"
 workspace = "../"
+license = "MIT"
 
 [features]
-default = ["single-threaded"]
-single-threaded = []
-multi-threaded = []
+default = ["multi-threaded"]
+single-threaded = ["ez_pqcrypto/unordered", "hyxe_crypt/single-threaded", "hyxe_user/single-threaded"]
+multi-threaded = ["ez_pqcrypto/unordered", "hyxe_crypt/multi-threaded", "hyxe_user/multi-threaded"]
+enterprise = ["hyxe_user/enterprise"]
+webrtc = ["webrtc-util"]
+localhost-testing = ["hyxe_nat/localhost-testing", "hyxe_user/localhost-testing"]
+localhost-testing-assert-no-proxy = []
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 #futures = { version = "0.3.1", features = ["compat", "async-await"] }
-futures = "0.3.5"
+futures = "0.3.12"
+#rav1e = {version = "0.4.0-alpha", default-features=false, features = ["binaries", "signal_support"]}
 bstr = "0.2.13"
-log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_info"] }
-#async-std = { version = "1.6.2", features = ["unstable"] }
+log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
 async-trait = "0.1.31"
-#base64 = { path = "../base64", version = "0.10.1" }
-#tokio = { path = "../tokio/tokio", version = "0.3.0", features = ["full"] }
-#tokio-util = { path = "../tokio/tokio-util", version = "0.4.0", features = ["udp", "codec"] }
-tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
-tokio = { version = "^0.2.22", features = ["full"] }
-parking_lot = "*"
-zerocopy = "0.3.0"
-bytes = "0.5.6"
+#tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
+tokio-util = { version = "^0.6.7", features = ["net", "codec", "time", "io"] }
+#tokio = { version = "^0.2.22", features = ["full"] }
+tokio = { version = "1.10.1", features = ["full"] }
+tokio-stream = "0.1.7"
+parking_lot = "0.11.1"
+zerocopy = "0.5.0"
+#bytes = "0.5.6"
+bytes = {version = "^1.0.1", features = ["serde"]}
 byteorder = "1.3.4"
-nanoserde = "0.1.18"
 rand = "0.7.3"
 atomic = "0.5.0"
-secstr = "0.4.0"
-env_logger = "0.7.1"
-net2 = "0.2.34"
+serde = { version = "^1.0.123", features=["derive"] }
+anyhow = "1.0.42"
+net2 = "0.2.37"
 num = "0.2.1"
-#rsntp = "0.3.1"
 either = "1.5.3"
+async-stream = "0.3.2"
 bitvec = "0.17.3"
-#futures_codec = { git = "https://github.com/matthunz/futures-codec/", version = "0.4.0"}
-hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0" }
-hyxe_user = { path = "../hyxe_user", version = "0.1.0" }
+hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }
+hyxe_user = { path = "../hyxe_user", version = "0.1.0", default-features=false }
 hyxe_nat = { path = "../hyxe_nat", version = "0.1.0" }
-ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1" }
-rust-argon2 = "0.8.3"
+hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
+sync_wrapper = "0.1.1"
+ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
+netbeam = { path = "../netbeam", version = "0.1.0" }
+#tokio-native-tls = "0.3.0"
+#native-tls = { version = "0.2.7", features = ["vendored"] }
 num_cpus = "1.13.0"
-#radix64 = "*"
-#base64-codec = { path = "../base64-codec", version = "0.1.0" }
+once_cell = "1.8.0"
+webrtc-util = {version = "0.4.2", optional = true}
+
+
+[dev-dependencies]
+env_logger = "0.8.2"
+parking_lot = { version = "0.11.1", features = ["deadlock_detection"] }
+async-recursion = "0.3.2"
+clap = "2.33.3"
+portpicker = "0.1.1"
+dirs2 = "3.0.1"

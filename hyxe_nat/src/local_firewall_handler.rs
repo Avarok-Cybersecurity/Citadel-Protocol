@@ -39,22 +39,36 @@ impl Display for FirewallProtocol {
     }
 }
 
-pub fn open_local_firewall_port(protocol: FirewallProtocol) -> std::io::Result<Output> {
-    #[cfg(not(target_os="windows"))]
-        {
-            linux(protocol)
-        }
-    #[cfg(target_os = "windows")]
-        {
-            windows(protocol)
-        }
+pub fn open_local_firewall_port(protocol: FirewallProtocol) -> std::io::Result<Option<Output>> {
+    if can_use_sudo() {
+        #[cfg(not(target_os="windows"))]
+            {
+                linux(protocol).map(Some)
+            }
+        #[cfg(target_os = "windows")]
+            {
+                windows(protocol).map(Some)
+            }
+    } else {
+        Ok(None)
+    }
 }
+
+#[cfg(not(target_os = "windows"))]
+fn can_use_sudo() -> bool {
+    //#[cfg(not(all(target_os = "windows", target_os = "ios", target_os = "android")))]
+    //nix::unistd::Uid::effective().is_root()
+    false
+}
+
+#[cfg(target_os = "windows")]
+fn can_use_sudo() -> bool { true }
 
 // source: https://winaero.com/blog/open-port-windows-firewall-windows-10/
 #[allow(unused)]
 fn windows(protocol: FirewallProtocol) -> std::io::Result<Output> {
     let port = protocol.get_port();
-    let arg_name = format!("name=\"Lusna{}\"", port);
+    let arg_name = format!("name=\"SatoriNET{}\"", port);
     let arg_protocol = format!("protocol={}", protocol);
     let arg_end = format!("localport={}", port);
 
@@ -80,7 +94,7 @@ fn linux(protocol: FirewallProtocol) -> std::io::Result<Output> {
     let protocol_arg = format!("{}", protocol);
     let port_arg = format!("{}", port);
 
-    std::process::Command::new("iptables")
+    let res_v4 = std::process::Command::new("iptables")
         .arg("-A")
         .arg("INPUT")
         .arg("-p")
@@ -92,26 +106,44 @@ fn linux(protocol: FirewallProtocol) -> std::io::Result<Output> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map(|res| res.wait_with_output().unwrap())
+        .map(|res| res.wait_with_output().unwrap());
+
+    std::process::Command::new("ip6tables")
+        .arg("-A")
+        .arg("INPUT")
+        .arg("-p")
+        .arg(protocol_arg.as_str())
+        .arg("--dport")
+        .arg(port_arg.as_str())
+        .arg("-j")
+        .arg("ACCEPT")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map(|res| res.wait_with_output().unwrap()).and(res_v4)
 }
 
 #[allow(unused)]
-pub fn remove_firewall_rule(protocol: FirewallProtocol) -> std::io::Result<Output> {
-    #[cfg(not(target_os="windows"))]
-        {
-            linux_remove(protocol)
-        }
+pub fn remove_firewall_rule(protocol: FirewallProtocol) -> std::io::Result<Option<Output>> {
+    if can_use_sudo() {
+        #[cfg(not(target_os="windows"))]
+            {
+                linux_remove(protocol).map(Some)
+            }
 
-    #[cfg(target_os = "windows")]
-        {
-            windows_remove(protocol)
-        }
+        #[cfg(target_os = "windows")]
+            {
+                windows_remove(protocol).map(Some)
+            }
+    } else {
+        Ok(None)
+    }
 }
 
 #[allow(unused)]
 fn windows_remove(protocol: FirewallProtocol) -> std::io::Result<Output> {
     let port = protocol.get_port();
-    let arg_name = format!("name=\"Lusna{}\"", port);
+    let arg_name = format!("name=\"SatoriNET{}\"", port);
     let arg_protocol = format!("protocol={}", protocol);
     let arg_end = format!("localport={}", port);
 
@@ -135,7 +167,7 @@ fn linux_remove(protocol: FirewallProtocol) -> std::io::Result<Output> {
     let protocol_arg = format!("{}", protocol);
     let port_arg = format!("{}", port);
 
-    std::process::Command::new("iptables")
+    let res_v4 = std::process::Command::new("iptables")
         .arg("-D")
         .arg("INPUT")
         .arg("-p")
@@ -147,10 +179,25 @@ fn linux_remove(protocol: FirewallProtocol) -> std::io::Result<Output> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map(|res| res.wait_with_output().unwrap())
+        .map(|res| res.wait_with_output().unwrap());
+
+    std::process::Command::new("ip6tables")
+        .arg("-D")
+        .arg("INPUT")
+        .arg("-p")
+        .arg(protocol_arg.as_str())
+        .arg("--dport")
+        .arg(port_arg.as_str())
+        .arg("-j")
+        .arg("ACCEPT")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map(|res| res.wait_with_output().unwrap()).and(res_v4)
 }
 
 /// Will exit if the permissions are not valid
+#[cfg(debug_assertions)]
 pub fn check_permissions() {
     #[cfg(target_os = "windows")]
         {
@@ -192,7 +239,7 @@ pub fn check_permissions() {
                 .unwrap()
                 .stdout;
 
-            let buf = unsafe { String::from_utf8_unchecked(output) };
+            let buf = String::from_utf8(output).unwrap_or_else(|_|String::from("NULL"));
             println!("Output: {}", &buf);
 
             if buf.contains("password for") {

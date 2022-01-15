@@ -6,10 +6,6 @@
       <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/benches" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/examples" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/tests" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxewave_net/benches" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/tokio_kcp/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tokio_kcp/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tokio_kcp/tests" isTestSource="true" />
@@ -18,10 +14,10 @@
       <sourceFolder url="file://$MODULE_DIR$/hyxe_util/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/hyxe_util/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/hyxe_util/benches" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/examples" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/tests" isTestSource="true" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_core/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_core/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_core/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_core/benches" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
@@ -331,6 +327,23 @@
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/jni-67ad7e1c45f94a65/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libc-b19fe58621b3c2ec/out" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/target/debug/build/libc-0b7a02b532051c67/out" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/satori_nos/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/satori_nos/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/async_firebase/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/fcm-rust/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/fcm-rust/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_fcm/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxewave/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/firebase-rtdb/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/firebase-rtdb/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/netbeam/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_net/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_net/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_net/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/legacy_hyxe_net/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/lusna_sdk/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lusna_sdk/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/online_order_handler/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/target" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/target" />
       <excludeFolder url="file://$MODULE_DIR$/async_ip/target" />
@@ -341,9 +354,15 @@
       <excludeFolder url="file://$MODULE_DIR$/dashmap/target" />
       <excludeFolder url="file://$MODULE_DIR$/ez_pqcrypto/oqs-rs/target" />
       <excludeFolder url="file://$MODULE_DIR$/ez_pqcrypto/target" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/satori_ffi_parser/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/satori_ffi_parser/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/scrap_ffi/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/scrap_ffi/build" />
       <excludeFolder url="file://$MODULE_DIR$/hypervec/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_config/target" />
-      <excludeFolder url="file://$MODULE_DIR$/hyxe_core/target" />
+      <excludeFolder url="file://$MODULE_DIR$/legacy_hyxe_core/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_crypt/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_db_handler/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_derive/target" />
@@ -353,7 +372,6 @@
       <excludeFolder url="file://$MODULE_DIR$/hyxe_shared/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_user/target" />
       <excludeFolder url="file://$MODULE_DIR$/hyxe_util/target" />
-      <excludeFolder url="file://$MODULE_DIR$/hyxewave_net/target" />
       <excludeFolder url="file://$MODULE_DIR$/kcp-core/target" />
       <excludeFolder url="file://$MODULE_DIR$/net2-rs/target" />
       <excludeFolder url="file://$MODULE_DIR$/quantum_random/target" />
@@ -366,6 +384,65 @@
       <excludeFolder url="file://$MODULE_DIR$/sidh-rs/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/tokio_kcp/target" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/scrap/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/scrap/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/path_provider/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/path_provider/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/path_provider/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/path_provider/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/awesome_notifications/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/awesome_notifications/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/awesome_notifications/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/awesome_notifications/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_messaging/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_messaging/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_messaging/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_messaging/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/awesome_notifications/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/awesome_notifications/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_core/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_core/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_core/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_core/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/awesome_notifications/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/awesome_notifications/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/google_https_dns/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/google_https_dns/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/android_power_manager/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/old/awesome_notifications/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/packages/old/awesome_notifications/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/background_fetch/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/background_fetch/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_secure_storage/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_secure_storage/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_auth/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_auth/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/sqflite/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/sqflite/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_secure_storage/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_secure_storage/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/android_power_manager/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/android_power_manager/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_auth/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_auth/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_chat_bubble/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_chat_bubble/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/background_fetch/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/background_fetch/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/sqflite/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/sqflite/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_chat_bubble/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/flutter_chat_bubble/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/android_power_manager/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/android_power_manager/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/example/build" />
+      <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/example/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/legacy_hyxe_net/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

@@ -1,0 +1,16 @@
+[package]
+name = "firebase-rtdb"
+version = "0.1.0"
+edition = "2018"
+license = "MIT"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest = { version = "0.11.3", features = ["native-tls-vendored", "json", "serde_json"] }
+log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_error"] }
+serde = "1.0.126"
+
+[dev-dependencies]
+tokio = { version = "^1.7.0", features = ["full"] }
+env_logger = "0.8.4"

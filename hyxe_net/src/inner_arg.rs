@@ -1,5 +1,5 @@
 use std::ops::{Deref, DerefMut};
-use hyxe_user::re_imports::export::PhantomData;
+use std::marker::PhantomData;
 
 pub struct InnerParameterMut<'a, T: 'a, K> {
     inner: &'a mut T,
@@ -8,8 +8,7 @@ pub struct InnerParameterMut<'a, T: 'a, K> {
 
 pub trait ExpectedInnerTargetMut<K> where Self: Deref<Target=K>, Self: DerefMut<Target=K> {}
 
-impl<K> ExpectedInnerTargetMut<K> for std::cell::RefMut<'_, K> {}
-impl<K> ExpectedInnerTargetMut<K> for parking_lot::RwLockWriteGuard<'_, K> {}
+impl<K, T> ExpectedInnerTargetMut<K> for T where T: Deref<Target=K>, T: DerefMut<Target=K> {}
 
 
 impl<'a, T: 'a, K> From<&'a mut T> for InnerParameterMut<'a, T, K> where T: Deref<Target=K>, T: DerefMut<Target=K> {
@@ -43,8 +42,7 @@ pub struct InnerParameter<'a, T: 'a + ?Sized, K> {
 
 pub trait ExpectedInnerTarget<K> where Self: Deref<Target=K> {}
 
-impl<K> ExpectedInnerTarget<K> for std::cell::RefMut<'_, K> {}
-impl<K> ExpectedInnerTarget<K> for parking_lot::RwLockWriteGuard<'_, K> {}
+impl<K, T> ExpectedInnerTarget<K> for T where T: Deref<Target=K> {}
 
 
 impl<'a, T: 'a, K> From<&'a T> for InnerParameter<'a, T, K> where T: Deref<Target=K> {

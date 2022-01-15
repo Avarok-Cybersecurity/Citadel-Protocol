@@ -1,40 +1,50 @@
-use std::sync::Arc;
-use crate::console_error::ConsoleError;
 use std::ops::Deref;
-use crate::command_handlers::list_sessions::ActiveSessions;
-use crate::command_handlers::connect::ConnectResponse;
-use crate::command_handlers::register::RegisterResponse;
-use crate::command_handlers::list_accounts::ActiveAccounts;
+use std::sync::Arc;
+
 use serde::Serialize;
+
+use crate::command_handlers::connect::ConnectResponse;
 use crate::command_handlers::disconnect::DisconnectResponse;
-use crate::command_handlers::peer::PeerList;
+use crate::command_handlers::list_accounts::ActiveAccounts;
+use crate::command_handlers::list_sessions::ActiveSessions;
+use crate::command_handlers::peer::{PeerList, PostRegisterRequest, PostRegisterResponse, PeerMutuals, DeregisterResponse};
+use crate::command_handlers::register::RegisterResponse;
+use crate::console_error::ConsoleError;
+use ser::string;
+use hyxe_user::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult};
+use hyxe_user::external_services::fcm::data_structures::FcmTicket;
+use hyxe_user::external_services::fcm::data_structures::base64_string;
+use hyxe_user::external_services::fcm::fcm_packet_processor::peer_post_register::FcmPostRegisterResponse;
+use hyxe_user::misc::AccountError;
 
 pub mod ffi_entry;
 
 pub mod command_handler;
+pub mod ser;
 
 #[derive(Clone)]
 pub struct FFIIO {
     // to send data from rust to native
-    to_ffi_frontier: Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + 'static>>
+    pub(crate) to_ffi_frontier: Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>
 }
 
-unsafe impl Send for FFIIO {}
-/// Safety note: For JNI, each thread gets its thread-local pointer to the JVM. For now, we are okay.
-/// however, in the future, to_ffi_frontier should be protected with a Mutex to cover all cases.
-unsafe impl Sync for FFIIO {}
-
 impl Deref for FFIIO {
-    type Target = Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + 'static>>;
+    type Target = Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>;
 
     fn deref(&self) -> &Self::Target {
         &self.to_ffi_frontier
     }
 }
 
-impl From<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + 'static>> for FFIIO {
-    fn from(input: Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send>) -> Self {
-        Self { to_ffi_frontier: Arc::new(input) }
+impl From<Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>> for FFIIO {
+    fn from(to_ffi_frontier: Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>) -> Self {
+        Self { to_ffi_frontier }
+    }
+}
+
+impl From<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>> for FFIIO {
+    fn from(to_ffi_frontier: Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>) -> Self {
+        Self { to_ffi_frontier: Arc::new(to_ffi_frontier) }
     }
 }
 // When this crate returns data to the FFI interface, the following combinations exist:
@@ -42,15 +52,23 @@ impl From<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + 'sta
 // respresentation
 #[derive(Debug, Serialize)]
 #[serde(tag="type", content="info")]
+#[allow(variant_size_differences)]
 pub enum KernelResponse {
     Confirmation,
-    Message(String),
+    Message(#[serde(with = "base64_string")] Vec<u8>),
+    MessageReceived(#[serde(serialize_with = "string")] u64),
+    KernelStatus(bool),
     // ticket, implicated_cid, icid (0 if HyperLAN server), peer_cid
-    NodeMessage(u64, u64, u64, u64, String),
-    ResponseTicket(u64),
-    ResponseHybrid(u64, String),
+    NodeMessage(#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64,#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
+    ResponseTicket(#[serde(serialize_with = "string")] u64),
+    ResponseFcmTicket(FcmTicket),
+    ResponseHybrid(#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
     DomainSpecificResponse(DomainResponse),
-    Error(u64, String),
+    KernelShutdown(#[serde(with = "base64_string")] Vec<u8>),
+    KernelInitiated,
+    Error(#[serde(serialize_with = "string")] u64, #[serde(with = "base64_string")] Vec<u8>),
+    FcmError(FcmTicket, #[serde(with = "base64_string")] Vec<u8>),
+    Multiple(Vec<KernelResponse>)
 }
 
 impl KernelResponse {
@@ -68,8 +86,33 @@ pub enum DomainResponse {
     Register(RegisterResponse),
     Connect(ConnectResponse),
     Disconnect(DisconnectResponse),
-    PeerList(PeerList)
+    PeerList(PeerList),
+    PeerMutuals(PeerMutuals),
+    PostRegisterRequest(PostRegisterRequest),
+    PostRegisterResponse(PostRegisterResponse),
+    DeregisterResponse(DeregisterResponse),
+    FcmMessage(FcmMessage),
+    FcmMessageSent(FcmMessageSent),
+    FcmMessageReceived(FcmMessageReceived)
 }
+
+#[derive(Serialize, Debug)]
+pub struct FcmMessage {
+    pub fcm_ticket: FcmTicket,
+    #[serde(with = "base64_string")]
+    pub message: Vec<u8>
+}
+
+#[derive(Serialize, Debug)]
+pub struct FcmMessageSent {
+    pub fcm_ticket: FcmTicket
+}
+
+#[derive(Serialize, Debug)]
+pub struct FcmMessageReceived {
+    pub fcm_ticket: FcmTicket
+}
+
 
 impl From<Result<Option<KernelResponse>, ConsoleError>> for KernelResponse {
     fn from(res: Result<Option<KernelResponse>, ConsoleError>) -> Self {
@@ -87,7 +130,83 @@ impl From<Result<Option<KernelResponse>, ConsoleError>> for KernelResponse {
             }
 
             Err(err) => {
-                KernelResponse::Error(0, err.into_string())
+                KernelResponse::Error(0, err.into_string().into_bytes())
+            }
+        }
+    }
+}
+
+impl From<Result<FcmProcessorResult, AccountError>> for KernelResponse {
+    fn from(res: Result<FcmProcessorResult, AccountError>) -> Self {
+        match res {
+            Err(err) => {
+                KernelResponse::Error(0,err.into_string().into_bytes())
+            }
+
+            Ok(res) => {
+                KernelResponse::from(res)
+            }
+        }
+    }
+}
+
+impl From<FcmProcessorResult> for KernelResponse {
+    fn from(res: FcmProcessorResult) -> Self {
+        match res {
+            FcmProcessorResult::Void | FcmProcessorResult::RequiresSave => {
+                KernelResponse::Confirmation
+            }
+
+            FcmProcessorResult::Value(fcm_res) => {
+                match fcm_res {
+                    FcmResult::GroupHeader { ticket, message } => {
+                        KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessage(FcmMessage { fcm_ticket: ticket, message }))
+                    }
+
+                    FcmResult::GroupHeaderAck { ticket } => {
+                        KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessageReceived(FcmMessageReceived { fcm_ticket: ticket }))
+                    }
+
+                    FcmResult::MessageSent { ticket } => {
+                        KernelResponse::DomainSpecificResponse(DomainResponse::FcmMessageSent(FcmMessageSent { fcm_ticket: ticket }))
+                    }
+
+                    FcmResult::Deregistered { peer_cid, requestor_cid, ticket } => {
+                        KernelResponse::DomainSpecificResponse(DomainResponse::DeregisterResponse(DeregisterResponse {
+                            implicated_cid: requestor_cid,
+                            peer_cid,
+                            ticket,
+                            success: true
+                        }))
+                    }
+
+                    FcmResult::PostRegisterInvitation { invite } => {
+                        KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterRequest(PostRegisterRequest {
+                            mail_id: 0,
+                            username: invite.username,
+                            peer_cid: invite.peer_cid,
+                            implicated_cid: invite.local_cid,
+                            ticket: invite.ticket,
+                            fcm: true
+                        }))
+                    }
+
+                    FcmResult::PostRegisterResponse { response: FcmPostRegisterResponse { local_cid, peer_cid, ticket, accept, username } } => {
+                        KernelResponse::DomainSpecificResponse(DomainResponse::PostRegisterResponse(PostRegisterResponse {
+                            implicated_cid: local_cid,
+                            peer_cid,
+                            ticket,
+                            accept,
+                            username: username.into_bytes(),
+                            fcm: true
+                        }))
+                    }
+                }
+            }
+
+
+            FcmProcessorResult::Values(vals) => {
+                KernelResponse::Multiple(vals.into_iter().map(|r| KernelResponse::from(FcmProcessorResult::Value(r))).collect::<Vec<KernelResponse>>())
             }
         }
     }

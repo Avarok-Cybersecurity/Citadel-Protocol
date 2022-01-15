@@ -1,3 +1,5 @@
+use std::error::Error;
+
 #[derive(Debug)]
 pub enum ConsoleError {
     Generic(String),
@@ -13,8 +15,8 @@ impl ConsoleError {
     }
 }
 
-impl<T: ToString> From<T> for ConsoleError {
-    fn from(val: T) -> Self {
-        ConsoleError::Generic(val.to_string())
+impl<E: Error> From<E> for ConsoleError {
+    fn from(err: E) -> Self {
+        ConsoleError::Generic(err.to_string())
     }
 }

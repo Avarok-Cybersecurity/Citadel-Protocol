@@ -1,5 +1,5 @@
 use super::imports::*;
-use hyxe_user::client_account::ClientNetworkAccount;
+use hyxe_user::misc::CNACMetadata;
 
 #[derive(Copy, Clone, Debug)]
 enum ListType {
@@ -10,6 +10,7 @@ enum ListType {
 
 #[derive(Debug, Default, Serialize)]
 pub struct ActiveAccounts {
+    #[serde(serialize_with = "string_vec")]
     cids: Vec<u64>,
     usernames: Vec<String>,
     full_names: Vec<String>,
@@ -27,54 +28,62 @@ impl ActiveAccounts {
     }
 }
 
-pub fn handle<'a>(matches: &ArgMatches<'a>, _server_remote: &'a HdpServerRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+pub async fn handle<'a>(matches: &ArgMatches<'a>, _server_remote: &'a NodeRemote, ctx: &'a ConsoleContext, ffi_io: Option<FFIIO>) -> Result<Option<KernelResponse>, ConsoleError> {
+    let limit = if let Some(limit) = matches.value_of("limit") {
+        Some(i32::from_str(limit)?)
+    } else {
+        None
+    };
+
     if matches.is_present("personal") {
         return if ffi_io.is_some() {
-            Ok(Some(handle_ffi(ctx, ListType::Personal)))
+            handle_ffi(ctx, ListType::Personal, limit).await
         } else {
-            list(ctx,ListType::Personal, "No personal accounts exist locally")
+            list(ctx,ListType::Personal, "No personal accounts exist locally", limit).await
         }
     }
 
     if matches.is_present("impersonal") {
         return if ffi_io.is_some() {
-            Ok(Some(handle_ffi(ctx, ListType::Impersonal)))
+            handle_ffi(ctx, ListType::Impersonal, limit).await
         } else {
-            list(ctx,ListType::Impersonal, "No impersonal accounts exist locally")
+            list(ctx,ListType::Impersonal, "No impersonal accounts exist locally", limit).await
         }
     }
 
     return if ffi_io.is_some() {
-        Ok(Some(handle_ffi(ctx, ListType::All)))
+        handle_ffi(ctx, ListType::All, limit).await
     } else {
-        list(ctx,ListType::All, "No accounts exist locally")
+        list(ctx,ListType::All, "No accounts exist locally", limit).await
     }
 }
 
-fn list(ctx: &ConsoleContext, list_type: ListType, none_message: &str) -> Result<Option<KernelResponse>, ConsoleError> {
+async fn list(ctx: &ConsoleContext, list_type: ListType, none_message: &str, limit: Option<i32>) -> Result<Option<KernelResponse>, ConsoleError> {
     let mut table = Table::new();
+
     table.set_titles(prettytable::row![Fgcb => "CID", "Username", "Full Name", "Personal", "Creation Date"]);
     let mut cnt = 0;
 
-    ctx.list_all_registered_users(|cnac| {
+    let users = ctx.list_all_registered_users(limit).await?;
+    for user in users {
         match list_type {
             ListType::All => {
-                add_to_table(cnac, &mut table, &mut cnt)
+                add_to_table(user, &mut table, &mut cnt)
             }
 
             ListType::Personal => {
-                if cnac.is_personal() {
-                    add_to_table(cnac, &mut table, &mut cnt)
+                if user.is_personal {
+                    add_to_table(user, &mut table, &mut cnt)
                 }
             }
 
             ListType::Impersonal => {
-                if !cnac.is_personal() {
-                    add_to_table(cnac, &mut table, &mut cnt)
+                if !user.is_personal {
+                    add_to_table(user, &mut table, &mut cnt)
                 }
             }
         }
-    });
+    }
 
     if cnt != 0 {
         printf!(table.printstd());
@@ -85,50 +94,49 @@ fn list(ctx: &ConsoleContext, list_type: ListType, none_message: &str) -> Result
     Ok(None)
 }
 
-fn add_to_table(cnac: &ClientNetworkAccount, table: &mut Table, cnt: &mut usize) {
-    let read = cnac.read();
-    let cid = read.cid;
-    let username = read.username.as_str();
-    let full_name = read.full_name.as_str();
-    let is_personal = read.is_local_personal;
-    let creation_date = read.creation_date.as_str();
+fn add_to_table(metadata: CNACMetadata, table: &mut Table, cnt: &mut usize) {
+    let cid = metadata.cid;
+    let username = metadata.username.as_str();
+    let full_name = metadata.full_name.as_str();
+    let is_personal = metadata.is_personal;
+    let creation_date = metadata.creation_date.as_str();
 
     *cnt += 1;
     table.add_row(prettytable::row![c => cid, username, full_name, is_personal, creation_date]);
 }
 
-fn handle_ffi(ctx: &ConsoleContext, list_type: ListType) -> KernelResponse {
+async fn handle_ffi(ctx: &ConsoleContext, list_type: ListType, limit: Option<i32>) -> Result<Option<KernelResponse>, ConsoleError> {
     let mut ret = ActiveAccounts::default();
-    ctx.list_all_registered_users(|cnac| {
+    let users = ctx.list_all_registered_users(limit).await?;
+    for user in users {
         match list_type {
             ListType::All => {
-                ret.insert(get_info(cnac))
+                ret.insert(get_info(user))
             }
 
             ListType::Personal => {
-                if cnac.is_personal() {
-                    ret.insert(get_info(cnac))
+                if user.is_personal {
+                    ret.insert(get_info(user))
                 }
             }
 
             ListType::Impersonal => {
-                if !cnac.is_personal() {
-                    ret.insert(get_info(cnac))
+                if !user.is_personal {
+                    ret.insert(get_info(user))
                 }
             }
         }
-    });
+    }
 
-    KernelResponse::DomainSpecificResponse(DomainResponse::GetAccounts(ret))
+    Ok(Some(KernelResponse::DomainSpecificResponse(DomainResponse::GetAccounts(ret))))
 }
 
-fn get_info(cnac: &ClientNetworkAccount) -> (u64, String, String, bool, String) {
-    let read = cnac.read();
-    let cid = read.cid;
-    let username = read.username.as_str();
-    let full_name = read.full_name.as_str();
-    let is_personal = read.is_local_personal;
-    let creation_date = read.creation_date.as_str();
+fn get_info(metadata: CNACMetadata) -> (u64, String, String, bool, String) {
+    let cid = metadata.cid;
+    let username = metadata.username;
+    let full_name = metadata.full_name;
+    let is_personal = metadata.is_personal;
+    let creation_date = metadata.creation_date;
 
-    (cid, username.to_string(), full_name.to_string(), is_personal, creation_date.to_string())
+    (cid, username, full_name, is_personal, creation_date)
 }
