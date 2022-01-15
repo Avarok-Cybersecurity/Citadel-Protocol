@@ -178,35 +178,17 @@ use crate::misc::AccountError;
 use crate::network_account::NetworkAccount;
 use std::collections::HashMap;
 use crate::client_account::ClientNetworkAccount;
-
-/// These symbols, if used, would cause bugs in the config parser
-pub const ILLEGAL_USERNAME_SYMBOLS: [&'static str; 2] = ["->", "[|]"];
-
-/// Determines if a proposed username already exists or not. This will return true if the username
-/// exists, or false if it does not. This will return an error if the username contains illegal
-/// symbols
-pub fn username_has_invalid_symbols<T: AsRef<str>>(proposed_username: &T) -> Result<(), AccountError<String>> {
-    let proposed = proposed_username.as_ref();
-    for illegal_symbol in ILLEGAL_USERNAME_SYMBOLS.iter() {
-        if *illegal_symbol == proposed {
-            return Err(AccountError::InvalidUsername)
-        }
-    }
-
-    Ok(())
-}
-
-/// Ensures that essential CNAC data is loaded into the NAC for runtime
+use hyxe_crypt::hyper_ratchet::Ratchet;
+/// Ensures that essential CNAC data is loaded into the NAC for runtime. This only applies to CNACs that synchronize to the local FS (db is unnecessary)
 #[allow(unused_results)]
-pub fn sync_cnacs_and_nac(nac: &NetworkAccount, cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount>) -> Result<(), AccountError<String>> {
+pub fn sync_cnacs_and_nac_filesystem<R: Ratchet, Fcm: Ratchet>(nac: &NetworkAccount<R, Fcm>, cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount<R, Fcm>>) -> Result<(), AccountError> {
     let mut write = nac.write();
-    let mut needs_save = false;
+    let cids_registered = &mut write.cids_registered;
 
-    write.cids_registered.retain(|cid, _e| {
+    cids_registered.retain(|cid, _e| {
         if !cnacs_loaded.contains_key(cid) {
             // if the NAC has a CID that doesn't map to a loaded CNAC, get rid of the entry in the NAC
             log::info!("CID {} no longer exists on local storage. Removing entry from local NAC", cid);
-            needs_save = true;
             false
         } else {
             true
@@ -215,19 +197,12 @@ pub fn sync_cnacs_and_nac(nac: &NetworkAccount, cnacs_loaded: &mut HashMap<u64, 
 
     for (cid, cnac) in cnacs_loaded {
         // if a loaded CNAC doesn't map to a value in the NAC, add it to the NAC
-        if !write.cids_registered.contains_key(cid) {
+        if !cids_registered.contains_key(cid) {
             log::info!("CNAC {} was not synced to NAC. Syncing ...", cid);
             let username = cnac.get_username();
-            write.cids_registered.insert(*cid, username);
-            needs_save = true;
+            cids_registered.insert(*cid, username);
         }
     }
 
-    std::mem::drop(write);
-
-    if needs_save {
-        nac.save_to_local_fs()
-    } else {
-        Ok(())
-    }
+    Ok(())
 }

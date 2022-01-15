@@ -1,51 +1,61 @@
-use crate::{PostQuantumContainer, PQNode};
-use nanoserde::{DeBin, SerBin};
+use crate::KeyStore;
+use serde::{Deserialize, Serialize};
+use crate::algorithm_dictionary::EncryptionAlgorithm;
+use generic_array::GenericArray;
+use chacha20poly1305::aead::NewAead;
+use crate::encryption::AeadModule;
 
-/// The default type to store data from a [PostQuantumContainer]
-#[derive(DeBin, SerBin)]
-pub struct PostQuantumExport {
-    pub(super) algorithm: u8,
-    pub(super) public_key: Vec<u8>,
-    pub(super) secret_key: Option<Vec<u8>>,
-    pub(super) ciphertext: Option<Vec<u8>>,
-    pub(super) shared_secret: Option<Vec<u8>>,
-    pub(super) node: u8
+#[derive(Serialize, Deserialize)]
+struct KeyStoreIntermediate {
+    alice_key: GenericArray<u8, generic_array::typenum::U32>,
+    bob_key: GenericArray<u8, generic_array::typenum::U32>,
+    enx: EncryptionAlgorithm
 }
 
-impl From<&'_ PostQuantumContainer> for PostQuantumExport {
-    fn from(container: &PostQuantumContainer) -> Self {
-        let algorithm = container.algorithm;
-        let node = if container.node == PQNode::Alice {
-            0u8
-        } else {
-            1u8
-        };
 
-        let public_key = container.get_public_key().to_vec();
-        let secret_key = {
-            if let Ok(secret_key) = container.get_secret_key() {
-                Some(secret_key.to_vec())
-            } else {
-                None
-            }
-        };
+pub(crate) mod custom_serde {
+    use crate::KeyStore;
+    use serde::{Serializer, Serialize, Deserializer, Deserialize};
+    use crate::export::KeyStoreIntermediate;
 
-        let ciphertext = {
-            if let Ok(ciphertext) = container.get_ciphertext() {
-                Some(ciphertext.to_vec())
-            } else {
-                None
-            }
-        };
+    impl Serialize for KeyStore {
+        fn serialize<S>(&self, s: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+            S: Serializer {
+            let intermediate_form = KeyStoreIntermediate { alice_key: self.alice_key.clone(), bob_key: self.bob_key.clone(), enx: self.encryption_algorithm };
+            KeyStoreIntermediate::serialize(&intermediate_form, s)
+        }
+    }
 
-        let shared_secret = {
-            if let Ok(shared_secret) = container.get_shared_secret() {
-                Some(shared_secret.to_vec())
-            } else {
-                None
-            }
-        };
+    impl<'de> Deserialize<'de> for KeyStore {
+        fn deserialize<D>(d: D) -> Result<Self, <D as Deserializer<'de>>::Error> where
+            D: Deserializer<'de> {
+            Ok(KeyStore::from(KeyStoreIntermediate::deserialize(d).map_err(|_| serde::de::Error::custom("PQExport Deser err"))? as KeyStoreIntermediate))
+        }
+    }
+}
 
-        Self { algorithm, public_key, secret_key, ciphertext, shared_secret, node }
+impl From<KeyStoreIntermediate> for KeyStore {
+    fn from(int: KeyStoreIntermediate) -> Self {
+        let (alice_symmetric_key, bob_symmetric_key) = generic_array_to_key(&int.alice_key, &int.bob_key, int.enx);
+
+        KeyStore {
+            alice_symmetric_key,
+            bob_symmetric_key,
+            alice_key: int.alice_key,
+            bob_key: int.bob_key,
+            encryption_algorithm: int.enx
+        }
+    }
+}
+
+pub(crate) fn generic_array_to_key(alice: &GenericArray<u8, generic_array::typenum::U32>, bob: &GenericArray<u8, generic_array::typenum::U32>, encryption_algorithm: EncryptionAlgorithm) -> (Box<dyn AeadModule>, Box<dyn AeadModule>) {
+    match encryption_algorithm {
+        EncryptionAlgorithm::AES_GCM_256_SIV => {
+            (Box::new(aes_gcm_siv::Aes256GcmSiv::new(alice)), Box::new(aes_gcm_siv::Aes256GcmSiv::new(bob)))
+        }
+
+        EncryptionAlgorithm::Xchacha20Poly_1305 => {
+            (Box::new(chacha20poly1305::XChaCha20Poly1305::new(alice)), Box::new(chacha20poly1305::XChaCha20Poly1305::new(bob)))
+        }
     }
 }

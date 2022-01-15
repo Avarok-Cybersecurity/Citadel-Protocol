@@ -1,357 +1,279 @@
 use super::includes::*;
-use std::sync::Arc;
+use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
+use crate::error::NetworkError;
+use hyxe_crypt::prelude::ConstructorOpts;
 use std::sync::atomic::Ordering;
+use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// This will handle an HDP registration packet
 #[inline]
-pub fn process(session: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8], remote_addr: SocketAddr) -> PrimaryProcessorResult {
-    let mut session = inner_mut!(session);
-    if session.state != SessionState::NeedsRegister {
-        if session.state != SessionState::SocketJustOpened {
-            log::error!("Register packet received, but the system's state is not NeedsRegister. Dropping packet");
-            return PrimaryProcessorResult::Void;
-        } else {
-            log::info!("Socket just opened, but will attempt registration reguardless ...");
-        }
+pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
+    let session = session_ref.clone();
+    let state = session.state.load(Ordering::Relaxed);
+
+    if state != SessionState::NeedsRegister && state != SessionState::SocketJustOpened && state != SessionState::NeedsConnect {
+        log::error!("Register packet received, but the system's state is not NeedsRegister. Dropping packet");
+        return Ok(PrimaryProcessorResult::Void);
     }
 
-    debug_assert_eq!(packet_flags::cmd::primary::DO_REGISTER, header.cmd_primary);
+    let task = async move {
+        let (header, payload, _, _) = packet.decompose();
+        let ref header = return_if_none!(LayoutVerified::new(&header[..]),"Unable to parse header") as LayoutVerified<&[u8], HdpHeader>;
+        debug_assert_eq!(packet_flags::cmd::primary::DO_REGISTER, header.cmd_primary);
+        let security_level = header.security_level.into();
 
-    match header.cmd_aux {
-        packet_flags::cmd::aux::do_register::STAGE0 => {
-            log::info!("STAGE 0 REGISTER PACKET");
-            // This node is Bob (receives a stage 0 packet from Alice). The payload should have Alice's public key
-            if inner!(session.state_container).register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE0 {
-                let algorithm = header.algorithm;
-                match PostQuantumContainer::new_bob(algorithm, payload) {
-                    Ok(container_bob) => {
-                        let ciphertext = container_bob.get_ciphertext()?;
-                        debug_assert!(inner!(session.state_container).register_state.proposed_credentials.is_none());
+        match header.cmd_aux {
+            packet_flags::cmd::aux::do_register::STAGE0 => {
+                log::info!("STAGE 0 REGISTER PACKET");
+                let task = {
+                    let mut state_container = inner_mut_state!(session.state_container);
+                    // This node is Bob (receives a stage 0 packet from Alice). The payload should have Alice's public key
+                    if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE0 {
+                        let algorithm = header.algorithm;
 
-                        // Now, create a stage 1 packet
-                        let timestamp = session.time_tracker.get_global_time_ns();
-                        let local_nid = session.account_manager.get_local_nid();
-                        let potential_cid_alice = header.group.get();
-                        let potential_cid_bob = session.account_manager.get_local_nac().reserve_cid();
+                        match validation::do_register::validate_stage0(&*payload) {
+                            Some((transfer, possible_cids, passwordless)) => {
+                                // Now, create a stage 1 packet
+                                let timestamp = session.time_tracker.get_global_time_ns();
+                                let local_nid = session.account_manager.get_local_nid();
+                                state_container.register_state.passwordless = Some(passwordless);
 
-                        let reserved_true_cid = if potential_cid_alice >= potential_cid_bob {
-                            potential_cid_alice
-                        } else {
-                            potential_cid_bob
-                        };
+                                if passwordless {
+                                    if !session.account_manager.get_misc_settings().allow_passwordless {
+                                        // passwordless is not allowed on this node
+                                        let err = hdp_packet_crafter::do_register::craft_failure(algorithm, local_nid, timestamp, "Passwordless connections are not enabled on the target node");
+                                        return Ok(PrimaryProcessorResult::ReplyToSender(err));
+                                    }
+                                }
 
+                                let account_manager = session.account_manager.clone();
 
-                        let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, local_nid, ciphertext, reserved_true_cid);
-                        let mut state_container = inner_mut!(session.state_container);
-                        state_container.register_state.proposed_cid = Some(reserved_true_cid);
-                        state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE1;
-                        state_container.register_state.on_register_packet_received();
-                        std::mem::drop(state_container);
+                                std::mem::drop(state_container);
 
-                        // we can store directly in here
-                        session.post_quantum = Some(Arc::new(container_bob));
+                                async move {
+                                    //let transfer = validation::do_register::validate_stage0(&*payload).ok_or_else(|| NetworkError::InternalError("Bad deser; should have worked"))?.0;
+                                    let reserved_true_cid = account_manager.get_persistence_handler().find_first_valid_cid(&possible_cids).await?.ok_or(NetworkError::InvalidRequest("Infinitesimally small probability this happens"))?;
+                                    let bob_constructor = HyperRatchetConstructor::new_bob(reserved_true_cid, 0, ConstructorOpts::new_vec_init(Some(transfer.params), (transfer.security_level.value() + 1) as usize), transfer).ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
+                                    let transfer = return_if_none!(bob_constructor.stage0_bob(), "Unable to advance past stage0-bob");
 
-                        PrimaryProcessorResult::ReplyToSender(stage1_packet)
-                    }
+                                    let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, local_nid, transfer, reserved_true_cid);
 
-                    Err(err) => {
-                        log::error!("Unable to create bob container (ERR: {}). Resetting register state ...", err.to_string());
-                        session.state = SessionState::NeedsRegister;
-                        let timestamp = session.time_tracker.get_global_time_ns();
-                        let mut state_container = inner_mut!(session.state_container);
-                        state_container.register_state.on_fail(timestamp);
-                        state_container.register_state.on_register_packet_received();
+                                    let mut state_container = inner_mut_state!(session.state_container);
+                                    state_container.register_state.proposed_cid = Some(reserved_true_cid);
+                                    state_container.register_state.created_hyper_ratchet = Some(return_if_none!(bob_constructor.finish(), "Unable to finish bob constructor"));
+                                    state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE1;
+                                    state_container.register_state.on_register_packet_received();
 
-                        PrimaryProcessorResult::Void
-                    }
-                }
-            } else {
-                warn!("Inconsistency between the session's stage and the packet's state. Dropping");
-                PrimaryProcessorResult::Void
-            }
-        }
+                                    Ok(PrimaryProcessorResult::ReplyToSender(stage1_packet))
+                                }
+                            }
 
-        packet_flags::cmd::aux::do_register::STAGE1 => {
-            log::info!("STAGE 1 REGISTER PACKET");
-            // Node is Alice. This packet will contain Bob's ciphertext; Alice will now be able to create the shared private key
-            let mut state_container = inner_mut!(session.state_container);
-            if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE0 {
-                let algorithm = header.algorithm;
-                let nonce = state_container.register_state.nonce.clone()?;
+                            _ => {
+                                log::error!("Unable to validate STAGE0_REGISTER packet");
+                                state_container.register_state.on_fail();
+                                state_container.register_state.on_register_packet_received();
+                                std::mem::drop(state_container);
 
-                // pqc is stored in the register state container for now
-                //debug_assert!(session.post_quantum.is_none());
-                if let Some(post_quantum) = state_container.register_state.pqc.as_mut() {
-                    let ciphertext = payload;
-                    match post_quantum.alice_on_receive_ciphertext(ciphertext) {
-                        Ok(_) => {
-                            // At this point, the shared secrets are synchronized! Now, transmit the NONCE
-                            //let mut nonce: [u8; AES_GCM_NONCE_LEN_BYTES] = [0u8; AES_GCM_NONCE_LEN_BYTES];
-                            //ThreadRng::default().fill_bytes(&mut nonce);
-                            //log::info!("Generated NONCE: {:?}", &nonce);
+                                session.state.store(SessionState::NeedsRegister, Ordering::Relaxed);
 
-                            let timestamp = session.time_tracker.get_global_time_ns();
-                            let local_nid = session.account_manager.get_local_nid();
-
-                            let stage2_packet = hdp_packet_crafter::do_register::craft_stage2(&nonce, algorithm, local_nid, timestamp);
-                            //let mut state_container = inner_mut!(session.state_container);
-                            let reserved_true_cid = header.group.get();
-
-                            state_container.register_state.proposed_cid = Some(reserved_true_cid);
-                            //state_container.register_state.nonce = Some(nonce);
-                            state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE2;
-                            state_container.register_state.on_register_packet_received();
-
-                            PrimaryProcessorResult::ReplyToSender(stage2_packet)
+                                return Ok(PrimaryProcessorResult::Void)
+                            }
                         }
-
-                        Err(err) => {
-                            log::error!("Error processing ciphertext. Ending registration process. ERR: {}", err.to_string());
-                            let timestamp = session.time_tracker.get_global_time_ns();
-                            //let mut state_container = inner_mut!(session.state_container);
-                            state_container.register_state.on_fail(timestamp);
-                            state_container.register_state.on_register_packet_received();
-                            std::mem::drop(state_container);
-
-                            session.state = SessionState::NeedsRegister;
-
-                            PrimaryProcessorResult::Void
-                        }
-                    }
-                } else {
-                    log::error!("Register stage is one, yet, no PQC is present. Aborting.");
-                    PrimaryProcessorResult::Void
-                }
-            } else {
-                warn!("Inconsistency between the session's stage and the packet's state. Dropping");
-                PrimaryProcessorResult::Void
-            }
-        }
-
-        packet_flags::cmd::aux::do_register::STAGE2 => {
-            log::info!("STAGE 2 REGISTER PACKET");
-            // Bob receives this packet. It contains a nonce in the payload
-            if inner!(session.state_container).register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE1 {
-                let algorithm = header.algorithm;
-
-                if let Some(_post_quantum) = session.post_quantum.as_ref() {
-                    if let Some(nonce) = validation::do_register::validate_stage2(header, payload) {
-                        let timestamp = session.time_tracker.get_global_time_ns();
-                        let local_nid = session.account_manager.get_local_nid();
-                        let mut state_container = inner_mut!(session.state_container);
-                        state_container.register_state.nonce = Some(nonce);
-                        state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE3;
-                        state_container.register_state.on_register_packet_received();
-
-                        let stage3_packet = hdp_packet_crafter::do_register::craft_stage3(algorithm, local_nid, timestamp);
-                        PrimaryProcessorResult::ReplyToSender(stage3_packet)
                     } else {
-                        log::error!("Unable to validate stage2 packet. Aborting");
-                        PrimaryProcessorResult::Void
+                        warn!("Inconsistency between the session's stage and the packet's state. Dropping");
+                        return Ok(PrimaryProcessorResult::Void)
                     }
-                } else {
-                    log::error!("Register stage is two, yet, no PQC is present. Aborting.");
-                    PrimaryProcessorResult::Void
-                }
-            } else {
-                warn!("Inconsistency between the session's stage and the packet's state. Dropping");
-                PrimaryProcessorResult::Void
-            }
-        }
+                };
 
-        packet_flags::cmd::aux::do_register::STAGE3 => {
-            log::info!("STAGE 3 REGISTER PACKET");
-            // Alice receives this packet. This packet implies Bob received the nonce and is ready to receive the proposed username, password, full_name
-            let mut state_container = inner_mut!(session.state_container);
-            if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE2 {
-                if validation::do_register::validate_stage3(header, payload) {
+                return task.await;
+
+            }
+
+            packet_flags::cmd::aux::do_register::STAGE1 => {
+                log::info!("STAGE 1 REGISTER PACKET");
+                // Node is Alice. This packet will contain Bob's ciphertext; Alice will now be able to create the shared private key
+                let mut state_container = inner_mut_state!(session.state_container);
+                if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE0 {
                     let algorithm = header.algorithm;
 
-                    let timestamp = session.time_tracker.get_global_time_ns();
-                    let local_nid = session.account_manager.get_local_nid();
-                    state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE4;
-                    state_container.register_state.on_register_packet_received();
+                    // pqc is stored in the register state container for now
+                    //debug_assert!(session.post_quantum.is_none());
+                    if let Some(mut alice_constructor) = state_container.register_state.constructor.take() {
+                        let transfer = return_if_none!(BobToAliceTransfer::deserialize_from(&payload[..]), "Unable to deserialize BobToAliceTransfer");
+                        let security_level = transfer.security_level;
+                        return_if_none!(alice_constructor.stage1_alice(&BobToAliceTransferType::Default(transfer)), "Unable to advance past stage1_alice");
+                        let new_hyper_ratchet = return_if_none!(alice_constructor.finish(), "Unable to finish alice constructor");
 
-                    let post_quantum = state_container.register_state.pqc.as_ref()?;
-                    let nonce = state_container.register_state.nonce.as_ref()?;
-                    // alice just sends the username, full name, and hashed password over
-                    let proposed_credentials = state_container.register_state.proposed_credentials.as_ref()?;
-                    log::info!("Sending stage 4 packet");
-                    let stage4_packet = hdp_packet_crafter::do_register::craft_stage4(nonce, algorithm, local_nid, timestamp, post_quantum, proposed_credentials);
+                        let reserved_true_cid = header.group.get();
+                        let timestamp = session.time_tracker.get_global_time_ns();
+                        let local_nid = session.account_manager.get_local_nid();
 
+                        let proposed_credentials = return_if_none!(state_container.connect_state.proposed_credentials.as_ref(), "Unable to load proposed credentials");
+                        let fcm_keys = session.fcm_keys.clone();
 
-                    PrimaryProcessorResult::ReplyToSender(stage4_packet)
+                        let stage2_packet = hdp_packet_crafter::do_register::craft_stage2(&new_hyper_ratchet, algorithm, local_nid, timestamp, proposed_credentials, fcm_keys, security_level);
+                        //let mut state_container = inner_mut!(session.state_container);
+
+                        state_container.register_state.proposed_cid = Some(reserved_true_cid);
+                        state_container.register_state.created_hyper_ratchet = Some(new_hyper_ratchet);
+                        state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE2;
+                        state_container.register_state.on_register_packet_received();
+
+                        Ok(PrimaryProcessorResult::ReplyToSender(stage2_packet))
+                    } else {
+                        log::error!("Register stage is one, yet, no PQC is present. Aborting.");
+                        Ok(PrimaryProcessorResult::Void)
+                    }
                 } else {
-                    log::error!("Unable to validate stage3 packet. Aborting");
-                    PrimaryProcessorResult::Void
+                    warn!("Inconsistency between the session's stage and the packet's state. Dropping");
+                    Ok(PrimaryProcessorResult::Void)
                 }
-            } else {
-                warn!("Inconsistency between the session's stage and the packet's state. Dropping");
-                PrimaryProcessorResult::Void
             }
-        }
 
-        packet_flags::cmd::aux::do_register::STAGE4 => {
-            log::info!("STAGE 4 REGISTER PACKET");
-            // Bob receives this packet. It contains the encrypted username, password, and full name
-            let state_borrow = inner!(session.state_container);
-            if state_borrow.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE3 {
-                let algorithm = header.algorithm;
+            packet_flags::cmd::aux::do_register::STAGE2 => {
+                log::info!("STAGE 2 REGISTER PACKET");
+                // Bob receives this packet. It contains the proposed credentials. We need to register and we're good to go
 
-                if let Some(post_quantum) = session.post_quantum.as_ref() {
-                    let reserved_true_cid = state_borrow.register_state.proposed_cid.clone();
-                    if let Some(nonce) = state_borrow.register_state.nonce.as_ref() {
-                        if let Some((obtained_credentials, adjacent_nac)) = validation::do_register::validate_stage4(header, payload, nonce, post_quantum, remote_addr) {
-                            // At this point, we either send a SUCCESS or FAILURE packet
-                            log::info!("Proposed credentials: {:?}", &obtained_credentials);
-                            let (username, password, full_name, nonce) = obtained_credentials.decompose();
+                let task = {
+                    let state_container = inner_state!(session.state_container);
+                    if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE1 {
+                        let algorithm = header.algorithm;
+                        let hyper_ratchet = return_if_none!(state_container.register_state.created_hyper_ratchet.clone(), "Unable to load created hyper ratchet");
+                        if let Some((stage2_packet, adjacent_nac)) = validation::do_register::validate_stage2(&hyper_ratchet, header, payload, remote_addr, session.account_manager.get_persistence_handler()) {
+                            let creds = stage2_packet.credentials;
+                            let fcm_keys = stage2_packet.fcm_keys;
                             let timestamp = session.time_tracker.get_global_time_ns();
                             let local_nid = session.account_manager.get_local_nid();
-                            // pub async fn register_impersonal_hyperlan_client_network_account<T: ToString, R: ToString, V: ToString>(&self, nac_other: NetworkAccount, is_hyperwan_server: bool, username: T, password: R, full_name: V, post_quantum_container: &PostQuantumContainer) -> Result<ClientNetworkAccount, AccountError<String>>
+                            let reserved_true_cid = return_if_none!(state_container.register_state.proposed_cid.clone(), "Unable to load proposed cid");
+                            let account_manager = session.account_manager.clone();
+                            std::mem::drop(state_container);
 
-                            match session.account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid.unwrap(), adjacent_nac, &username, password, full_name, Vec::from(&nonce as &[u8]), post_quantum) {
-                                Ok(peer_cnac) => {
-                                    log::info!("Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_id());
-                                    let success_message = session.create_register_success_message();
-                                    let packet = hdp_packet_crafter::do_register::craft_success(&peer_cnac, algorithm, local_nid, timestamp, post_quantum, &nonce, success_message);
-                                    std::mem::drop(state_borrow);
-                                    let mut state_container = inner_mut!(session.state_container);
-                                    state_container.register_state.on_success(timestamp);
-                                    state_container.register_state.on_register_packet_received();
-                                    std::mem::drop(state_container);
+                            // we must now create the CNAC
+                            async move {
+                                match account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid, adjacent_nac, creds,  hyper_ratchet.clone(), fcm_keys).await {
+                                    Ok(peer_cnac) => {
+                                        log::info!("Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_id());
 
-                                    //session.session_manager.clear_provisional_session(&remote_addr);
+                                        let success_message = session.create_register_success_message();
+                                        let packet = hdp_packet_crafter::do_register::craft_success(&hyper_ratchet, algorithm, local_nid, timestamp, success_message, security_level);
 
-                                    //PrimaryProcessorResult::FinalReply(packet)
-                                    // We set this that way, once the adjacent node closes, this node won't get a propagated error message
-                                    session.needs_close_message.store(false, Ordering::SeqCst);
-                                    // we no longer use FinalReply, because that cuts the connection and end the future on the other end. Let the other end terminate it
-                                    PrimaryProcessorResult::ReplyToSender(packet)
-                                }
+                                        // We set this that way, once the adjacent node closes, this node won't get a propagated error message
+                                        //session.needs_close_message.set(false);
+                                        // below was moved above
+                                        //let _ = handle_client_fcm_keys(stage2_packet.fcm_keys, &peer_cnac);
 
-                                Err(AccountError::ClientExists(taken_cid)) => {
-                                    log::error!("Attempted to register the new CNAC ({}) locally, but unfortunately the CID was taken", taken_cid);
-                                    std::mem::drop(state_borrow);
-                                    // this shouldnt happen anymore
-                                    //session.session_manager.clear_provisional_session(&remote_addr);
-                                    inner_mut!(session.state_container).register_state.on_register_packet_received();
-                                    PrimaryProcessorResult::EndSession("CID taken")
-                                }
+                                        Ok(PrimaryProcessorResult::ReplyToSender(packet))
+                                    }
 
-                                Err(err) => {
-                                    let err = err.to_string();
-                                    log::error!("Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
-                                    let packet = hdp_packet_crafter::do_register::craft_failure(algorithm, local_nid, timestamp, err);
-                                    std::mem::drop(state_borrow);
-                                    let mut state_container = inner_mut!(session.state_container);
-                                    state_container.register_state.on_fail(timestamp);
-                                    state_container.register_state.on_register_packet_received();
-                                    std::mem::drop(state_container);
+                                    Err(err) => {
+                                        let err = err.into_string();
+                                        log::error!("Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
+                                        let packet = hdp_packet_crafter::do_register::craft_failure(algorithm, local_nid, timestamp, err);
 
-                                    //session.session_manager.clear_provisional_session(&remote_addr);
-                                    PrimaryProcessorResult::ReplyToSender(packet)
+                                        Ok(PrimaryProcessorResult::ReplyToSender(packet))
+                                    }
                                 }
                             }
                         } else {
-                            PrimaryProcessorResult::Void
+                            log::error!("Unable to validate stage2 packet. Aborting");
+                            return Ok(PrimaryProcessorResult::Void)
                         }
                     } else {
-                        log::error!("Bob does not have his nonce set, which is required for stage 4. Aborting");
-                        PrimaryProcessorResult::Void
+                        warn!("Inconsistency between the session's stage and the packet's state. Dropping");
+                        return Ok(PrimaryProcessorResult::Void)
                     }
-                } else {
-                    log::error!("Register stage is four, yet, no PQC is present. Aborting.");
-                    PrimaryProcessorResult::Void
-                }
-            } else {
-                warn!("Inconsistency between the session's stage and the packet's state. Dropping");
-                PrimaryProcessorResult::Void
+                };
+
+                return task.await;
             }
-        }
 
-        packet_flags::cmd::aux::do_register::SUCCESS => {
-            log::info!("STAGE SUCCESS REGISTER PACKET");
-            // This will follow stage 4 in the case of a successful registration. The packet's payload contains the CNAC bytes, encrypted using AES-GCM.
-            // The CNAC does not have the credentials (Serde skips the serialization thereof)
-            // run: pub async fn register_personal_hyperlan_server<T: AsRef<[u8]>>(&self, cnac_inner_bytes: T, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>) -> Result<ClientNetworkAccount, AccountError<String>>
-            let mut state_container = inner_mut!(session.state_container);
-            if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE4 {
-                let post_quantum = state_container.register_state.pqc.take()?;
+            packet_flags::cmd::aux::do_register::SUCCESS => {
+                log::info!("STAGE SUCCESS REGISTER PACKET");
+                // This will follow stage 4 in the case of a successful registration. The packet's payload contains the CNAC bytes, encrypted using AES-GCM.
+                // The CNAC does not have the credentials (Serde skips the serialization thereof)
 
-                if let Some(nonce) = state_container.register_state.nonce.as_ref() {
-                    if let Some((toolset_bytes, success_message)) = validation::do_register::validate_success(header, payload, nonce, &post_quantum) {
-                        // Now, register the CNAC locally
-                        let adjacent_nac = NetworkAccount::new_from_recent_connection(header.session_cid.get(), remote_addr);
+                let task = {
+                    let state_container = inner_state!(session.state_container);
+                    if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE2 {
+                        let hyper_ratchet = return_if_none!(state_container.register_state.created_hyper_ratchet.clone(), "Unable to load created hyper ratchet");
 
-                        //let mut state_container = inner_mut!(session.state_container);
-                        let credentials = state_container.register_state.proposed_credentials.take()?;
-                        let (username, password, full_name, nonce) = credentials.decompose();
-                        let timestamp = session.time_tracker.get_global_time_ns();
+                        if let Some((success_message, adjacent_nac)) = validation::do_register::validate_success(&hyper_ratchet, header, payload, remote_addr, session.account_manager.get_persistence_handler()) {
+                            // Now, register the CNAC locally
 
-                        // &self, cnac_inner_bytes: T, username: R, full_name: V, adjacent_nac: NetworkAccount, post_quantum_container: &PostQuantumContainer, password: SecVec<u8>
-                        match session.account_manager.register_personal_hyperlan_server(toolset_bytes, username, full_name, adjacent_nac, &post_quantum, password, Vec::from(&nonce as &[u8])) {
-                            Ok(new_cnac) => {
-                                // Finally, alert the higher-level kernel about the success
-                                state_container.register_state.on_success(timestamp);
-                                std::mem::drop(state_container);
-                                //session.session_manager.clear_provisional_session(&remote_addr);
-                                session.send_to_kernel(HdpServerResult::RegisterOkay(session.kernel_ticket, new_cnac, success_message))?;
-                                // now, reposition the pqc
-                                session.post_quantum = Some(Arc::new(post_quantum));
+                            let credentials = return_if_none!(state_container.connect_state.proposed_credentials.clone(), "Unable to take proposed credentials");
+                            //let (username, _password, full_name, argon_settings) = credentials.decompose();
+                            let reserved_true_cid = return_if_none!(state_container.register_state.proposed_cid.clone(), "Unable to load proposed CID");
+
+                            let passwordless = return_if_none!(state_container.register_state.passwordless.clone(), "Passwordless unset (reg)");
+
+                            std::mem::drop(state_container);
+
+                            let reg_ticket = session.kernel_ticket.clone();
+                            let account_manager = session.account_manager.clone();
+                            let kernel_tx = session.kernel_tx.clone();
+                            let fcm_keys = session.fcm_keys.clone();
+
+                            async move {
+                                match account_manager.register_personal_hyperlan_server(reserved_true_cid, hyper_ratchet, credentials, adjacent_nac, fcm_keys).await {
+                                    Ok(new_cnac) => {
+                                        if passwordless {
+                                            HdpSession::begin_connect(&session, &new_cnac)?;
+                                            inner_mut_state!(session.state_container).cnac = Some(new_cnac);
+                                            // begin_connect will handle the connection process from here on out
+                                            Ok(PrimaryProcessorResult::Void)
+                                        } else {
+                                            // Finally, alert the higher-level kernel about the success
+                                            kernel_tx.unbounded_send(HdpServerResult::RegisterOkay(reg_ticket.get(), new_cnac, success_message))?;
+                                            Ok(PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: Success)"))
+                                        }
+                                    }
+
+                                    Err(err) => {
+                                        kernel_tx.unbounded_send(HdpServerResult::RegisterFailure(reg_ticket.get(), err.into_string()))?;
+                                        Ok(PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: ERR)"))
+                                    }
+                                }
                             }
-
-                            Err(err) => {
-                                state_container.register_state.on_fail(timestamp);
-                                std::mem::drop(state_container);
-                                //session.session_manager.clear_provisional_session(&remote_addr);
-                                session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, err.to_string()))?;
-                            }
+                        } else {
+                            log::error!("Unable to validate SUCCESS packet");
+                            return Ok(PrimaryProcessorResult::Void)
                         }
-                        inner_mut!(session.state_container).register_state.on_register_packet_received();
-                        // Send this to prevent double-sending to the kernel
-                        session.needs_close_message.store(false, Ordering::SeqCst);
+                    } else {
+                        warn!("Inconsistency between the session's stage and the packet's state. Dropping");
+                        return Ok(PrimaryProcessorResult::Void)
+                    }
+                };
+
+                return task.await;
+            }
+
+            packet_flags::cmd::aux::do_register::FAILURE => {
+                log::info!("STAGE FAILURE REGISTER PACKET");
+                // This node is again Bob. Alice received Bob's stage1 packet, but was unable to connect
+                // A failure can be sent at any stage greater than the zeroth
+                if inner_state!(session.state_container).register_state.last_stage > packet_flags::cmd::aux::do_register::STAGE0 {
+                    if let Some(error_message) = validation::do_register::validate_failure(header, &payload[..]) {
+                        session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket.get(), String::from_utf8(error_message).unwrap_or("Non-UTF8 error message".to_string())))?;
+                        //session.needs_close_message.set(false);
                         session.shutdown();
-                        PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: Success)")
                     } else {
-                        log::error!("Unable to validate SUCCESS packet");
-                        PrimaryProcessorResult::Void
+                        log::error!("Error validating FAILURE packet");
+                        return Ok(PrimaryProcessorResult::Void);
                     }
+
+                    Ok(PrimaryProcessorResult::EndSession("Registration subroutine ended (Status: FAIL)"))
                 } else {
-                    log::error!("Alice does not have her nonce set, which is required for the success stage. Aborting");
-                    PrimaryProcessorResult::Void
+                    log::warn!("A failure packet was received, but the program's registration did not advance past stage 0. Dropping");
+                    Ok(PrimaryProcessorResult::Void)
                 }
-            } else {
-                warn!("Inconsistency between the session's stage and the packet's state. Dropping");
-                PrimaryProcessorResult::Void
+            }
+
+            _ => {
+                warn!("Invalid auxiliary command. Dropping packet");
+                Ok(PrimaryProcessorResult::Void)
             }
         }
+    };
 
-        packet_flags::cmd::aux::do_register::FAILURE => {
-            log::info!("STAGE FAILURE REGISTER PACKET");
-            // This node is again Bob. Alice received Bob's stage1 packet, but was unable to connect
-            // A failure can be sent at any stage greater than the zeroth
-            if inner!(session.state_container).register_state.last_stage > packet_flags::cmd::aux::do_register::STAGE0 {
-                if let Some(error_message) = validation::do_register::validate_failure(header, payload) {
-                    session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket, String::from_utf8(error_message).unwrap_or("Non-UTF8 error message".to_string())))?;
-                    //session.session_manager.clear_provisional_session(&remote_addr);
-                    inner_mut!(session.state_container).register_state.on_register_packet_received();
-                    session.needs_close_message.store(false, Ordering::SeqCst);
-                    session.shutdown();
-                } else {
-                    log::error!("Error validating FAILURE packet");
-                    return PrimaryProcessorResult::Void;
-                }
-
-                PrimaryProcessorResult::EndSession("Registration subroutine ended (Status: FAIL)")
-            } else {
-                log::warn!("A failure packet was received, but the program's registration did not advance past stage 0. Dropping");
-                PrimaryProcessorResult::Void
-            }
-        }
-
-        _ => {
-            warn!("Invalid auxiliary command. Dropping packet");
-            PrimaryProcessorResult::Void
-        }
-    }
+    to_concurrent_processor!(concurrent_processor_tx, task)
 }

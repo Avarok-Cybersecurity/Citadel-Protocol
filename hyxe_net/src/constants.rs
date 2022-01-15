@@ -1,19 +1,13 @@
-pub const BUILD_VERSION: usize = 769;
-/// Signal for closing the stream_wrapper
-pub const STREAM_SHUTDOWN: u8 = 0;
-/// Signal for restarting the stream_wrapper
-pub const STREAM_RESTART: u8 = 1;
-/// Each [HdpSession] will be polled twice per second to ensure validity of connection
-pub const CONNECTION_HANDLER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(1000);
-/// If NoDelay is set, then wave packets are sent outbound immediately
-pub const HDP_NODELAY: bool = false;
-/// by default, TCP_ONLY is true since the MQ-UDP is experimental
-pub const TCP_ONLY: bool = true;
-/// Id HDP_NODELAY is false, then the payload of a wave is sent after HDP_WAVE_PAYLOAD_DELAY time
-pub const HDP_WAVE_PAYLOAD_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+use crate::hdp::peer::peer_layer::UdpMode;
+
+pub const BUILD_VERSION: usize = 7463;
+/// by default, the UDP is not initialized
+pub const UDP_MODE: UdpMode = UdpMode::Disabled;
+/// Setting this option to zero will imply an RST gets sent once close() is called. This will lead to packets possibly being undelivered
+pub const DEFAULT_SO_LINGER_TIME: std::time::Duration = std::time::Duration::from_millis(1000);
 /// For calculating network latency
 pub const NANOSECONDS_PER_SECOND: i64 = 1_000_000_000;
-/// The length of an ethernet header. Source: https://app.netrounds.com/static/2.24/support/defs-notes/l2-eth-frame-sizes.html
+/// The length of an ethernet header. Source: `<https://app.netrounds.com/static/2.24/support/defs-notes/l2-eth-frame-sizes.html>`
 pub const LAYER2_ETHERNET_HEADER_BYTE_LEN: usize = 18;
 /// The IPv4 Header len
 pub const LAYER3_IPV4_HEADER_BYTE_LEN: usize = 20;
@@ -54,14 +48,13 @@ pub const FIREWALL_KEEP_ALIVE_UDP: std::time::Duration = std::time::Duration::fr
 /// The largest size, in bytes, that a single group can hold (~8 Megs)
 pub const MAX_GROUP_SIZE_BYTES: usize = 1_000_000 * 8;
 /// How many bytes are stored
-pub const CODEC_BUFFER_CAPACITY: usize = u16::max_value() as usize;
+pub const CODEC_BUFFER_CAPACITY: usize = u16::MAX as usize;
 /// The minimum number of bytes allocated in the codec
 pub const CODEC_MIN_BUFFER: usize = 8192;
-
 /// After the time defined below, any incomplete packet groups will be discarded
-pub const GROUP_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(4000);
+pub const GROUP_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(60000);
 /// After this time, the registration state is invalidated
-pub const DO_REGISTER_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(4000);
+pub const DO_REGISTER_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(10000);
 /// After this time, the connect state is invalidated
 pub const DO_CONNECT_EXPIRE_TIME_MS: std::time::Duration = std::time::Duration::from_millis(8000);
 /// After this timeout,
@@ -72,18 +65,16 @@ pub const MULTIPORT_START: u16 = 25000;
 pub const MULTIPORT_END: u16 = 1 + MULTIPORT_START;
 ///
 pub const PRIMARY_PORT: u16 = 25021;
-pub const DEFAULT_PQC_ALGORITHM: u8 = ez_pqcrypto::algorithm_dictionary::FIRESABER;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_LOW_BASE: u64 = 1 * 240 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_LOW_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_MEDIUM_BASE: u64 = 1 * 240 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_MEDIUM_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_HIGH_BASE: u64 = 1 * 240 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_HIGH_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_ULTRA_BASE: u64 = 1 * 240 * 1_000_000_000;
+pub const DRILL_UPDATE_FREQUENCY_ULTRA_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// The minimum time (in nanoseconds) per drill update (nanoseconds per update)
-pub const DRILL_UPDATE_FREQUENCY_DIVINE_BASE: u64 = 1 * 240 * 1_000_000_000;
-
+pub const DRILL_UPDATE_FREQUENCY_DIVINE_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// For ensuring that the hole-punching process begin at about the same time (required)
 /// this is applied to the ping. If the ping is 200ms, the a multiplier of 2.0 will mean that in 200*2.0 = 400ms,
 /// the hole-punching process will begin
@@ -96,3 +87,8 @@ pub const TIMED_TICKET_LIFETIME: std::time::Duration = std::time::Duration::from
 pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from_secs(8);
 /// Every 30 minutes, resync the clocks. This was to fix bugs related to long-lasting connections and reconnections
 pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_secs(60*30);
+///
+pub const TCP_CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
+
+pub const MAX_OUTGOING_UNPROCESSED_REQUESTS: usize = 512;
+pub const MAX_INCOMING_UNPROCESSED_REQUESTS: usize = 512;

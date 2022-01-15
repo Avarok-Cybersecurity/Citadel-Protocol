@@ -4,10 +4,10 @@ use std::str::FromStr;
 
 fn main() {
     let mut buf = String::new();
-    let mut file = File::open("./src/constants.rs").unwrap();
+    let mut file = File::open("../meta.txt").unwrap();
     file.read_to_string(&mut buf).unwrap();
     std::mem::drop(file);
-    let mut output = std::io::BufWriter::new(File::create("./src/constants.rs").unwrap());
+    let mut output = std::io::BufWriter::new(File::create("../meta.txt").unwrap());
 
     buf.lines().for_each(|line| {
         if line.contains("pub const BUILD_VERSION") {

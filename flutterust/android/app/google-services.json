@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "763819880163",
+    "project_id": "verisend-d3aec",
+    "storage_bucket": "verisend-d3aec.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:763819880163:android:33e5b74fc18615da4b1fd6",
+        "android_client_info": {
+          "package_name": "com.satori.verisend"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "763819880163-s5ca3no9e74mnd5nfkn7a240vpd3nsav.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDtYt9f0c7x3uL7EhALL6isXXD0q_wGBpA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "763819880163-s5ca3no9e74mnd5nfkn7a240vpd3nsav.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

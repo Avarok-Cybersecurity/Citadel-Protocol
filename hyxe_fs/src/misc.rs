@@ -13,9 +13,9 @@ pub fn generate_random_string(count: usize) -> String {
         .collect()
 }
 
-/// Returns the present timestamp
+/// Returns the present timestamp in ISO 8601 format
 pub fn get_present_formatted_timestamp() -> String {
-    Utc::now().format("%a %b %e %T %Y").to_string()
+    Utc::now().to_rfc3339()
 }
 
 /// Returns a PathBuf given a path input

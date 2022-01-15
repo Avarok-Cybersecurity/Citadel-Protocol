@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use nanoserde::{SerBin, DeBin};
-use hyxe_user::re_imports::export::Formatter;
+use serde::{Serialize, Deserialize};
+use std::fmt::Formatter;
 
 /// A [MessageGroup] is a set of HyperLAN Clients communicating through the HyperLAN Server.
 /// let P_0 be peer 0. Let S be the HyperLAN Server. Let there be a set of n peers: P_0 ... P_n-1
@@ -29,10 +29,11 @@ pub struct MessageGroup {
 
 /// TODO: Attributed data (e.g., permissions)
 pub(crate) struct MessageGroupPeer {
+    #[allow(dead_code)]
     pub peer_cid: u64,
 }
 
-#[derive(Copy, Clone, Hash, Eq, PartialEq, SerBin, DeBin)]
+#[derive(Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MessageGroupKey {
     pub cid: u64,
     // max 256 message groups per cid
