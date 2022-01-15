@@ -25,7 +25,7 @@ public class EventHandlers {
         TextView passwordField = activity.getComponent(R.id.password);
         String username = usernameField.getText().toString();
         String password = passwordField.getText().toString();
-        String cmd = "connect " + username + " --ffi --password " + password + " --tcp";
+        String cmd = "connect " + username + " --ffi --password " + password;
         System.out.println("Will execute: {}");
         byte[] ffiPacket = prepareFFIPacket(cmd, STD_COMMAND);
         ToFFI.sendConnectToFFI(activity, kConn, username, ffiPacket, null);

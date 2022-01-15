@@ -1,38 +1,99 @@
 use hyxe_net::hdp::hdp_server::Ticket;
-use tokio::time::{Duration, DelayQueue};
+use tokio_util::time::{DelayQueue, delay_queue};
+use tokio::time::error::Error;
 use std::pin::Pin;
 use crate::console::console_context::ConsoleContext;
-use tokio::time::delay_queue;
 use hyxe_net::hdp::peer::peer_layer::PeerResponse;
 use futures_util::task::{Poll, Context, Waker};
-use tokio::stream::Stream;
+use tokio_stream::Stream;
 use std::sync::Arc;
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use hyxe_net::hdp::hdp_packet_processor::includes::Duration;
+use crate::command_handlers::connect::ConnectResponseReceived;
 
 pub struct TrackedTicket {
     pub ticket: Ticket,
     pub key: delay_queue::Key,
     pub lifetime: Duration,
     pub implicated_cid: u64,
-    pub fx: Pin<Box<dyn Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static>>
+    pub fx: CallbackType
 }
-
-unsafe impl Send for TrackedTicket {}
-unsafe impl Sync for TrackedTicket {}
 
 impl TrackedTicket {
 
     /// This should be called from the [TimedQueueHandler]
-    pub fn new(key: delay_queue::Key, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: impl Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static) -> Self {
-        let fx = Box::pin(fx);
+    pub fn new(key: delay_queue::Key, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: CallbackType) -> Self {
         Self { ticket, key, lifetime, fx, implicated_cid}
     }
 
-    pub fn run_fx(&self, ctx: &ConsoleContext, response: PeerResponse) -> CallbackStatus {
-        (self.fx)(ctx, self.ticket, response)
+    pub fn run_fx(&self, ctx: &ConsoleContext, response: ResponseType) -> CallbackStatus {
+        match (response, &self.fx) {
+            (ResponseType::PeerResponse(response), CallbackType::Standard(fx)) => {
+                (fx)(ctx, self.ticket, response)
+            }
+
+            (ResponseType::Custom(response), CallbackType::Custom(fx)) => {
+                (fx)(ctx, self.ticket, response)
+            }
+
+            (ResponseType::Error(err), CallbackType::Custom(fx)) => {
+                (fx)(ctx, self.ticket, CustomPayload::Error(err))
+            }
+
+            (ResponseType::Error(err), CallbackType::Standard(fx)) => {
+                (fx)(ctx, self.ticket, PeerResponse::Err(Some(err)))
+            }
+
+            _ => {
+                log::error!("Incompatible function type/response paired");
+                CallbackStatus::TaskComplete
+            }
+        }
     }
 
+    #[allow(unused_results)]
+    pub fn on_timeout(&self, ctx: &ConsoleContext) {
+        match &self.fx {
+            CallbackType::Custom(fx) => {
+                (fx)(ctx, self.ticket, CustomPayload::Timeout);
+            }
+
+            CallbackType::Standard(fx) => {
+                (fx)(ctx, self.ticket, PeerResponse::Timeout);
+            }
+        }
+    }
+
+}
+
+pub enum ResponseType {
+    PeerResponse(PeerResponse),
+    Custom(CustomPayload),
+    Error(String)
+}
+
+impl From<PeerResponse> for ResponseType {
+    fn from(this: PeerResponse) -> Self {
+        Self::PeerResponse(this)
+    }
+}
+
+impl From<CustomPayload> for ResponseType {
+    fn from(this: CustomPayload) -> Self {
+        Self::Custom(this)
+    }
+}
+
+pub enum CallbackType {
+    Standard(Pin<Box<dyn Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + Send + 'static>>),
+    Custom(Pin<Box<dyn Fn(&ConsoleContext, Ticket, CustomPayload) -> CallbackStatus + Send + 'static>>)
+}
+
+pub enum CustomPayload {
+    Timeout,
+    Connect(ConnectResponseReceived),
+    Error(String)
 }
 
 struct TicketQueueHandlerInner {
@@ -53,7 +114,7 @@ impl TicketQueueHandler {
         Self { inner: Arc::new(Mutex::new(inner)) }
     }
 
-    pub fn register_ticket(&self, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: impl Fn(&ConsoleContext, Ticket, PeerResponse) -> CallbackStatus + 'static) {
+    pub fn register_ticket(&self, ticket: Ticket, lifetime: Duration, implicated_cid: u64, fx: CallbackType) {
         let mut this = self.inner.lock();
         let key = this.queue.insert(ticket, lifetime);
         let tracked_ticket = TrackedTicket::new(key, ticket, lifetime, implicated_cid, fx);
@@ -64,9 +125,25 @@ impl TicketQueueHandler {
     }
 
     #[allow(unused_results)]
+    pub fn remove_ticket(&self, ticket: Ticket) -> bool {
+        let mut this = self.inner.lock();
+        if let Some(tt) = this.tracked_tickets.remove(&ticket) {
+            this.queue.remove(&tt.key);
+
+            if let Some(waker) = this.waker.as_ref() {
+                waker.wake_by_ref()
+            }
+
+            true
+        } else {
+            false
+        }
+    }
+
+    #[allow(unused_results)]
     /// This is the only closure where the callback gets measured. If the callback returns
     /// as TaskComplete, the entry is removed. Otherwise, the task will remain
-    pub fn on_ticket_received(&self, ticket: Ticket, response: PeerResponse) {
+    pub fn on_ticket_received(&self, ticket: Ticket, response: ResponseType) {
         let mut this = self.inner.lock();
         if let Some(waker) = this.waker.as_ref() {
             waker.wake_by_ref();
@@ -92,11 +169,9 @@ impl TicketQueueHandler {
         }
     }
 
-    fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), tokio::time::Error>> {
+    fn poll_purge(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         let mut this = self.inner.lock();
-        if this.waker.is_none() {
-            this.waker = Some(cx.waker().clone());
-        }
+        this.waker = Some(cx.waker().clone());
 
         while let Some(res) = futures_util::ready!(this.queue.poll_expired(cx)) {
             //log::info!("Poll: Expired ticket");
@@ -106,7 +181,8 @@ impl TicketQueueHandler {
             if let Some(tracker) = tracker_opt {
                 // run on_timeout
                 let ref console_ctx = this.console_ctx;
-                (tracker.fx)(console_ctx, tracker.ticket, PeerResponse::Timeout);
+                //(tracker.fx)(console_ctx, tracker.ticket, PeerResponse::Timeout);
+                tracker.on_timeout(console_ctx)
             }
         }
 

@@ -124,11 +124,6 @@ public class ExampleUnitTest {
     String DSRlistSessions = "{\"type\":\"DomainSpecificResponse\",\"info\":{\"dtype\":\"GetActiveSessions\",\"usernames\":[\"nologik.test4\", \"nologik.test5\"],\"cids\":[2865279926, 123456789],\"ips\":[\"51.81.35.200\", \"51.81.35.201\"],\"is_personals\":[true, false],\"runtime_sec\":[8, 1000]}}";
 
     @Test
-    // usernames: Vec<String>,
-    // cids: Vec<u64>,
-    // ips: Vec<String>,
-    // is_personals: Vec<bool>,
-    // runtime_sec: Vec<u64>
     public void DSRGetSessionsTypeIsCorrect() {
         System.out.println("Parsing: " + DSRlistSessions);
         KernelResponse resp = KernelResponseDeserializer.tryFrom(DSRlistSessions).get();

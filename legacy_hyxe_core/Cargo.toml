@@ -1,0 +1,72 @@
+[package]
+name = "hyxe_core"
+version = "0.1.0"
+authors = ["Thomas Braun <tbraun96@gmail.com>"]
+edition = "2018"
+
+exclude = [
+    "./target/*"
+]
+
+[dependencies]
+hashbrown = { version = "0.5.0", features = ["serde", "rayon"] }
+predicates = "1.0.1"
+#udt = "0.2.0"
+crossbeam-queue = "0.1.2"
+crossbeam-channel = "0.3.8"
+crossbeam-deque = "0.7.1"
+crossbeam = "0.7.2"
+rayon = "1.1.0"
+tokio = {version = "0.1.21"}
+tokio-io = "0.1.12"
+arrayfire = "3.6.2"
+colored = "1.7"
+dirs-2 = "1.1.0"
+lazy_static = "1.3.0"
+crossterm = "0.10.2"
+bincode = "1.1.2"
+serde = { version = "1.0.98", features = ["rc"] }
+serde_derive = "1.0.98"
+futures = "0.1.28"
+tokio-core = "*"
+tokio-codec = "0.1.1"
+tokio-sync = "0.1.4"
+bytes = "0.4.12"
+atoi = "0.3.1"
+multimap = "0.4.0"
+byteorder = "1.3.1"
+rand = "0.6.5"
+base64 = "0.10.1"
+net2 = "0.2.33"
+num = "0.2.0"
+mut_static = "5.0.0"
+reqwest = "0.9.17"
+futures-mpmc = "0.1.0"
+libmath = "0.2.1"
+seq = "0.5.0"
+chrono = "0.4.7"
+zerocopy = "*"
+
+
+secstr = { version = "0.3.2", features = ["serde"]}
+parking_lot = {version = "0.9.0", features = ["nightly", "serde"]}
+
+state = { version = "0.2", features = ["tls"] }
+bufstream = { version = "0.1.4", features = ["tokio"] }
+
+quantum_random = { path = "../quantum_random", version = "0.1.0" }
+hyxe_util = { path = "../hyxe_util", version = "0.1.0" }
+hyxe_derive = { path = "../hyxe_derive", version = "0.1.0" }
+hyxewave_net = { path = "../legacy_hyxe_net", version = "0.1.0" }
+
+async_mem = { path = "../async_mem", version = "0.1.0" }
+
+[dev-dependencies]
+criterion = "*"
+
+[profile.bench]
+debug = true
+
+[[bench]]
+name = "benchmarks"
+harness = false

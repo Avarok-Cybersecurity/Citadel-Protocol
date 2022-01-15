@@ -1,354 +1,180 @@
-#![feature(async_closure)]
 #[cfg(test)]
 mod tests {
-    pub const ALGORITHM: u8 = hyxe_fs::hyxe_crypt::prelude::algorithm_dictionary::FIRESABER;
-    use hyxe_user::network_account::NetworkAccount;
-    use hyxe_fs::hyxe_crypt::prelude::PostQuantumContainer;
-    use hyxe_user::account_loader::{load_cnac_files, load_node_nac};
-    use hyxe_user::prelude::HyperNodeAccountInformation;
-    use hyxe_fs::hyxe_crypt::drill::SecurityLevel;
-    use futures::Future;
+
     use hyxe_user::account_manager::AccountManager;
-    use secstr::SecVec;
+    use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
+    use std::net::{IpAddr, SocketAddr};
+    use std::str::FromStr;
+    use hyxe_user::client_account::ClientNetworkAccount;
+    use dirs2::home_dir;
+    use hyxe_crypt::hyper_ratchet::constructor::{BobToAliceTransferType, HyperRatchetConstructor};
+    use hyxe_crypt::fcm::fcm_ratchet::{FcmRatchet, FcmRatchetConstructor};
+    use hyxe_user::backend::BackendType;
+    use rand::random;
+    use hyxe_crypt::argon::argon_container::{ArgonContainerType, ArgonSettings, ClientArgonContainer};
+    use hyxe_crypt::prelude::{SecBuffer, ConstructorOpts};
+    use tokio::net::TcpListener;
+    use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
+    use tokio::sync::Mutex;
 
-    fn block_on<F: Future>(future: F) {
-        std::env::set_var("RUST_LOG", "info");
-        env_logger::init();
-        tokio::runtime::Runtime::new().unwrap().block_on(future);
+    static TEST_MUTEX: Mutex<()> = Mutex::const_new(());
+
+    struct TestContainer {
+        server_acc_mgr: AccountManager,
+        client_acc_mgr: AccountManager
     }
 
-    #[test]
-    fn create_nac() {
-        block_on(
-        async {
-            match NetworkAccount::new_local().await {
-                Ok(nac) => {
-                    println!("NAC creation success!");
-                    if let Err(e) = nac.async_save_to_local_fs().await {
-                        eprintln!("Error saving NAC: {}", e.to_string());
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Error: {}", e.to_string());
-                }
+    impl TestContainer {
+        pub async fn new() -> Self {
+            let server_bind = TcpListener::bind((IpAddr::from_str("127.0.0.1").unwrap(), 0)).await.unwrap();
+            let client_bind = TcpListener::bind((IpAddr::from_str("127.0.0.1").unwrap(), 0)).await.unwrap();
+            let server_acc_mgr = acc_mgr(server_bind.local_addr().unwrap(), backend_server()).await;
+            let client_acc_mgr = acc_mgr(client_bind.local_addr().unwrap(), backend_client()).await;
+
+            server_acc_mgr.purge().await.unwrap();
+            client_acc_mgr.purge().await.unwrap();
+
+            Self {
+                server_acc_mgr,
+                client_acc_mgr
             }
+        }
+
+        pub async fn create_cnac(&self, username: &str, password: &str, full_name: &str) -> (ClientNetworkAccount, ClientNetworkAccount) {
+            let argon_settings = ArgonSettings::new_defaults(vec![]);
+            let client_nac = self.client_acc_mgr.get_local_nac().clone();
+            let client_argon_container = ArgonContainerType::Client(ClientArgonContainer::from(argon_settings.clone()));
+            let client_hashed_password = client_argon_container.client().unwrap().hash_insecure_input(SecBuffer::from(password)).await.unwrap(); // hashed once
+            let cid = random::<u64>();
+            let (client_hr, server_hr) = gen(cid, 0, None);
+            let server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(cid, client_nac.clone(), username, client_hashed_password, full_name, server_hr, None).await.unwrap();
+            let client_vers = self.client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, username, full_name, self.server_acc_mgr.get_local_nac().clone(), client_argon_container, None).await.unwrap();
+
+            (client_vers, server_vers)
+        }
+
+        async fn deinit(self) {
+            self.server_acc_mgr.purge_home_directory().await.unwrap();
+            self.client_acc_mgr.purge_home_directory().await.unwrap();
+        }
+
+        #[allow(dead_code)]
+        async fn purge(&self) {
+            self.server_acc_mgr.purge().await.unwrap();
+            self.client_acc_mgr.purge().await.unwrap();
+        }
+    }
+
+    #[allow(unused_must_use)]
+    fn setup_log() {
+        std::env::set_var("RUST_LOG", "trace");
+        let _ = env_logger::try_init();
+        log::trace!("TRACE enabled");
+        log::info!("INFO enabled");
+        log::warn!("WARN enabled");
+        log::error!("ERROR enabled");
+    }
+
+    #[cfg(feature = "enterprise")]
+    fn backend_server() -> BackendType {
+        BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    fn backend_server() -> BackendType {
+        BackendType::Filesystem
+    }
+
+    fn backend_client() -> BackendType {
+        BackendType::Filesystem
+    }
+
+    #[tokio::test]
+    async fn setup_account_managers() {
+        let _lock = TEST_MUTEX.lock().await;
+        let test = TestContainer::new().await;
+        test.deinit().await;
+    }
+
+    #[tokio::test]
+    async fn serde_cnac() {
+        setup_log();
+        let _lock = TEST_MUTEX.lock().await;
+
+        let test_container = TestContainer::new().await;
+        let (_client, _server) = test_container.create_cnac("nologik", "mrmoney10", "Thomas P Braun").await;
+
+        test_container.deinit().await;
+    }
+
+    /*
+    #[tokio::test]
+    async fn fcm() {
+
+        let acc_mgr_0 = acc_mgr(Some("1.2.2.0"), backend()).await;
+        let acc_mgr_1 = acc_mgr(Some("1.2.2.1"), backend()).await;
+        let user0 = create_cnac(Some(acc_mgr_0.clone())).await;
+        let user1 = create_cnac(Some(acc_mgr_1.clone())).await;
+        acc_mgr_0.register_hyperlan_p2p_at_endpoints(user0.get_cid(), user1.get_cid(), user1.get_username()).await.unwrap();
+        acc_mgr_1.register_hyperlan_p2p_at_endpoints(user1.get_cid(), user0.get_cid(), user0.get_username()).await.unwrap();
+
+        // now, create an HR for both
+        let (hr_alice, hr_bob) = gen_fcm(user0.get_cid(), 0, Some(user1.get_cid()));
+        assert_eq!(hr_alice.get_cid(), user0.get_cid());
+        assert_eq!(hr_bob.get_cid(), user1.get_cid());
+        assert_eq!(hr_alice.version(), hr_bob.version());
+
+        let api_key = "AAAAsdc2buM:APA91bFGIgSp9drZGpM6rsTVWD_4A28QZVjBG9ty0ijwXn0k-peMNiivzCuSzojR7ESN13txcD7pZMyYJC_LPdjRk56EdXnUfIYDgVVbTN8VmWiVd82uJv2kEgcoGL-Flh1HXWZlVSf8";
+        let alice_cl_key = "abcdefgh";
+        let bob_cl_key = "e2xixMK2SKe66ryMXa1HUR:APA91bFeFWyYjh_9tPRGlDleBfUwiOLsBDXhA8__LmyYYiI8a9P4U2JcBPHtWjEnTbLxeF0ImX0nNemVZDBGxw3OYMb_UD0i2FG4UsqiOqbrMvY6dlWVYxWOy4PSDSSQS0cAgyndyR14";
+        let alice_keys = FcmKeys::new(api_key, alice_cl_key);
+        let bob_keys = FcmKeys::new(api_key, bob_cl_key);
+
+        user0.visit_mut(|mut inner| {
+            let toolset = Toolset::new(hr_alice.get_cid(), hr_alice.clone());
+            let endpoint_container = PeerSessionCrypto::new_fcm(toolset, true, bob_keys);
+            inner.fcm_crypt_container.insert(user1.get_cid(), endpoint_container);
         });
-    }
 
-    #[test]
-    fn load_nac() {
-        block_on(async {
-            let mut cnacs = load_cnac_files().await.unwrap_or_default();
-            load_node_nac(&mut cnacs).await.and_then(|nac| {
-                println!("Loaded NAC with nid {}", nac.get_id());
-                Ok(())
-            }).map_err(|err| {
-                println!("Err: {}", err.to_string());
-            }).unwrap();
-
-            for cnac in cnacs {
-                cnac.1.async_save_to_local_fs().await.unwrap()
-            }
+        user1.visit_mut(|mut inner| {
+            let toolset = Toolset::new(hr_bob.get_cid(), hr_bob.clone());
+            let endpoint_container = PeerSessionCrypto::new_fcm(toolset, false, alice_keys);
+            inner.fcm_crypt_container.insert(user0.get_cid(), endpoint_container);
         });
+
+        let input = "s6ZxbnhOXhcAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAADAAAAUAcAn+RvpBzkXNKr3cklyUhh/7Y/a/FcfEbgCguo//43hgR1C5QH9wnQobwnBj21htBMQV/Et9BKijQzudTdZbLXd8/DeMdQ4xlb3/XJXN6u+mEA12RnjySShx7AIYV+ZfKAT6VdKpLOHguUigjAOFjOlaaLFjTsLx6KtwyYiQ4/svwIUaBTnH5mYrRAjQOn1e+E8oeHoEOznw4scn/mVDIwhhCJ9oimmdEKVz5GVqhq9g5WZYUntT0hOgj4+WYtvqqu8rS0EqGWf16ODNGFmsW55+3kLxMm4Daw5S5QNVXSMId77Eoni+rcjepZeJebEo8yhqO3C3tbeBhcFJjuoMBt3tb3efk6mDY41oiRqZaTZfHUOTedZ3sguyPEZMrVa62ngRUcHHFheqe/7kHdrNtPuFLbI3+bIudNEaUqG/gk+H+6c3+4+/7mFXIItmyF1/+qRN0sOiv2BqUeE+IcKyvnpBWjWNBgJRBvzV31V2ayT0D1M/0Y2b4maULZA/7XHlwyF4qofTQBjPI+6bLs/jZky0DgPkU/9XP+56N30d5wKfGDyyhezFO2lDP4YG1W3udwMB2Mo0yM9C+Nwjs5bB4AUB4+Dmt/qLy2GyBDAIHMb87ULazfy3ZtfgOwnBNebwu+XmGJiA92Q0nn5LVjqvMuW/GPvdQXRF8f58DYLF758EO4GRwDXOYwY2sC468dGWdiGaNOezAZbK0wXvzsesEi6vMNEYuXsH3yvZwI6zyb4XlXZ32x/EG3+36EvAVUJArzlkWOuReToJKcMSFM0LUQYaLhqMHkMhO+pxsePcKuL4DQSIQVg9QxjITUuqDTTk3Wnj2m2hj2ujeHtKi2NPbVN9Sauzk7Tlgiz9c20FMDjfyH9WFpWZUu1pwdKYKIrvq4HF8gSX7As1Q7tG0fs/ikAAcE2c9ShMseax4zJ70d23qkdZqpgStT19l7upN2snm9/OU9ujXGgUQx7XF1XiusrVpEn+LoGMVPR2SzZpzbZ7Zjrx8pALscaOMM9Ud8nWYjCAsOPwxRShz0QGTm3rSKsU/0idza46czc8uZeJv3DVraF7hnhh8yZ+t29rql/2gbecr7F1JBtD/KrbM0u0EH+F0XUaB0aXIfA9YGL/aUR7WftfV045H1r+vwlBDme2UoXIIvTfK/uFS6vi8TSP9jBeYdzOQzwEWNaiB6kYGMVUaS94OWzgn3gTN3zNbhZJvOXVgtsj1U67N4GPmFaiYuy1TyRw1IlZLosvxjOn4mRmqa4wf+Ku0iBdSfklCt7PT0AJyxLYjemT255mx4euzGu8Z3ap4w5uUvOWNDiZJHDwnY+9jCox0TRzyVCImbdID43XsyLVEMoFBwPcAyrxTKi2DhXSR0es6+URWZWE3wqhbty8Km11oxI/2GfwtiwfMOnkypDszMglpXsDgzy6oZqzdbHeCzyJwQC4y+2NOlnTgzII9I3dh6alAudz41YE+VbL8nfP1RndFXEa03biSr9MBrXQ3Hpv9RHUdDwreT11CYu1HvL01ysROdtqejA1E9ZAG2Ihbz9i4pjYemxLgUchRKEq5b36udHpniCrAUkhRziNos26WaZX7MaI0xnNZmYlQ3hXkwCDe1/9MGYiqhou4J/ekWtFverTyqDrq+I2QTV0mAEF14hRrW+PXSjWK24JGklWHnRXTWGda6zmp+17rc+NzcN7cxzJMosXtWRwTE8kvCfpvK5JatKo6cq131c3WbqpsbV8hOISFcNXi6MooJGViyR3cHQbbEA0CYoxrZVhFXfLQDsaEJXyCXyB7robsgQHV+imyQ7NP/iwNKYOitrgI1xdhIp9PHBEgo4lE0CEc++LGY3/tvWdC8Uph/MUo1jI8G6CFJthjt+S2IXmUnrgQ/wQ36kL4gEzjV";
+        // test blocking process
+        log::info!("{:?}", hyxe_user::fcm::fcm_packet_processor::process(input, acc_mgr_0.clone()).await);
+
+        // now, start the simulation
+        user0.fcm_send_message_to(user1.get_cid(), SecBuffer::from("Hello, bob! From alice"), 0,acc_mgr_0.fcm_client()).await.unwrap();
+
+        let _ = acc_mgr_0.purge().await.unwrap();
+        let _ = acc_mgr_1.purge().await.unwrap();
+    }*/
+
+    #[allow(dead_code)]
+    fn gen_fcm(cid: u64, version: u32, endpoint_bob_cid: Option<u64>) -> (FcmRatchet, FcmRatchet) {
+        let opts = ConstructorOpts::new_init(None as Option<CryptoParameters>);
+        let mut alice = FcmRatchetConstructor::new_alice(cid, version, opts.clone()).unwrap();
+        let bob = FcmRatchetConstructor::new_bob(opts,alice.stage0_alice()).unwrap();
+        alice.stage1_alice(&bob.stage0_bob().unwrap()).unwrap();
+        let bob = if let Some(cid) = endpoint_bob_cid { bob.finish_with_custom_cid(cid).unwrap() } else { bob.finish().unwrap() };
+        (alice.finish().unwrap(), bob)
     }
 
-    #[test]
-    fn test_quantum_cnac() {
-        println!("Executing load_cnacs ...");
-        block_on(
-            async {
-                match load_cnac_files().await {
-                    Ok(vec) => {
-                        println!("CNACS loaded: {}", vec.len());
-                        for (_, cnac) in vec {
-                            println!("{}", cnac.get_id());
-                            for version in cnac.get_drill_versions().await {
-                                cnac.borrow_drill(Some(version),|drill_opt| {
-                                    if let Some(drill) = drill_opt {
-                                        println!("Borrowing drill vers: {}", drill.get_version());
-                                        debug_assert_eq!(version, drill.get_version());
-                                    }
-                                }).await;
-                            }
-
-                            cnac.async_save_to_local_fs().await.unwrap();
-                        }
-                    },
-                    Err(err) => {
-                        println!("Err: {}", err.to_string());
-                    }
-                }
-            });
+    fn gen(cid: u64, version: u32, endpoint_bob_cid: Option<u64>) -> (HyperRatchet, HyperRatchet) {
+        let opts = ConstructorOpts::new_vec_init(None as Option<CryptoParameters>, 1);
+        let mut alice = HyperRatchetConstructor::new_alice(opts.clone(), cid, version, None).unwrap();
+        let bob = HyperRatchetConstructor::new_bob(cid,version, opts,alice.stage0_alice()).unwrap();
+        alice.stage1_alice(&BobToAliceTransferType::Default(bob.stage0_bob().unwrap())).unwrap();
+        let bob = if let Some(cid) = endpoint_bob_cid { bob.finish_with_custom_cid(cid).unwrap() } else { bob.finish().unwrap() };
+        (alice.finish().unwrap(), bob)
     }
 
-    #[test]
-    fn delete_cnac_by_username() {
-        let args: Vec<String> = std::env::args().collect();
-        let username = args.last().unwrap().clone();
-
-        log::info!("Deleting username: {}", &username);
-        block_on(async {
-            match AccountManager::new().await {
-                Ok(account_manager) => {
-                    if !account_manager.delete_client_by_username(&username).await {
-                        log::error!("Unable to delete user {} from the internal system. Now syncing files ...", username)
-                    } else {
-                        log::info!("Deleted the user {} from the internal system. Now syncing files ...", username);
-                    }
-
-                    account_manager.async_save_to_local_fs().await.unwrap()
-                },
-
-                Err(err) => {
-                    panic!("Error loading account manager: {}", err.to_string());
-                }
-            }
-        });
-    }
-
-    #[test]
-    fn create_cnac_then_ser_deser_then_check_login() {
-        block_on(async {
-            let ref pqc = PostQuantumContainer::new_alice(Some(ALGORITHM));
-            let acc_manager = AccountManager::new().await.unwrap();
-            let local_nac = acc_manager.get_local_nac();
-
-            let username = "tbraun96";
-            let password = SecVec::new("mrmoney10".as_bytes().to_vec());
-
-            match local_nac.create_client_account::<_, _,&[u8]>(None, username, password, "Thomas P Braun", pqc, None).await {
-                Ok(ref cnac) => unsafe {
-                    match cnac.validate_credentials("tbraun96", SecVec::new("mrmoney10".as_bytes().to_vec())).await {
-                        Ok(_) => {
-                            log::info!("Validation success");
-                            let bytes = cnac.generate_bytes_async().await.unwrap();
-                            let deser = hyxe_user::account_loader::load_cnac_from_bytes(bytes).await.unwrap();
-                            match deser.validate_credentials("tbraun96", SecVec::new("mrmoney10".as_bytes().to_vec())).await {
-                                Ok(_) => {
-                                    log::info!("Validation success (part II)");
-                                },
-
-                                Err(err) => {
-                                    log::error!("Validation failure (part II). Reason: {:?}", err);
-                                }
-                            }
-                        },
-
-                        Err(err) => {
-                            log::error!("Validation failure. Reason: {:?}", err);
-                        }
-                    }
-                },
-
-                Err(err) => {
-                    log::error!("Error: {:?}", err);
-                }
-            }
-        });
-    }
-
-    #[test]
-    fn create_cnac() {
-        //let args: Vec<String> = std::env::args().collect();
-        //let username = args.last().unwrap().clone();
-        let username = "tbraun96";
-        let password = SecVec::new("mrmoney10".as_bytes().to_vec());
-        let ref pqc = PostQuantumContainer::new_alice(Some(ALGORITHM));
-        block_on( async {
-            let mut cnacs = load_cnac_files().await.unwrap_or_default();
-            let node_nac = load_node_nac(&mut cnacs).await.unwrap();
-
-                println!("Loaded NAC with NID {}", node_nac.get_id());
-                // nac_other: Option<NetworkAccount>, username: T, password: SecVec<u8>, full_name: V, post_quantum_container: &PostQuantumContainer, toolset_bytes: Option<K>
-                match node_nac.create_client_account::<_, _, &[u8]>(None, username, password, "Thomas P Braun", pqc, None).await {
-                    Ok(cnac) => {
-                        println!("CNAC successfully constructed");
-                        cnac.update_toolset(None).await.unwrap();
-                        let range = cnac.get_drill_versions().await;
-
-                        debug_assert_eq!(range.clone().count(), 2);
-                        for version in range {
-                            cnac.borrow_drill(Some(version), |drill_opt| {
-                                let drill = drill_opt.unwrap();
-                                println!("Borrowing drill vers: {}. Expects: {}", drill.get_version(), version);
-                                debug_assert_eq!(version, drill.get_version());
-                            }).await;
-                        }
-
-                        cnac.update_toolset(Some(10)).await.unwrap();
-                        let range = cnac.get_drill_versions().await;
-                        debug_assert_eq!(range.clone().count(), 12);
-
-                        for version in range {
-                            cnac.borrow_drill(Some(version), |drill_opt| {
-                                let drill = drill_opt.unwrap();
-                                println!("Borrowing drill vers: {}. Expects: {}", drill.get_version(), version);
-                                debug_assert_eq!(version, drill.get_version());
-                            }).await;
-                        }
-
-                        cnac.update_toolset(Some(40)).await.unwrap();
-                        let range = cnac.get_drill_versions().await;
-                        debug_assert_eq!(range.clone().count(), 52);
-
-                        for version in range {
-                            cnac.borrow_drill(Some(version), |drill_opt| {
-                                let drill = drill_opt.unwrap();
-                                println!("Borrowing drill vers: {}. Expects: {}", drill.get_version(), version);
-                                debug_assert_eq!(version, drill.get_version());
-                            }).await;
-                        }
-
-                        cnac.update_toolset(Some(hyxe_fs::hyxe_crypt::toolset::MAX_DRILLS_IN_MEMORY)).await.unwrap();
-                        let range = cnac.get_drill_versions().await;
-                        debug_assert_eq!(range.clone().count(), hyxe_fs::hyxe_crypt::toolset::MAX_DRILLS_IN_MEMORY);
-
-                        for version in range {
-                            cnac.borrow_drill(Some(version), |drill_opt| {
-                                let drill = drill_opt.unwrap();
-                                println!("Borrowing drill vers: {}. Expects: {}", drill.get_version(), version);
-                                debug_assert_eq!(version, drill.get_version());
-                            }).await;
-                        }
-
-                        /*match cnac.async_save_to_local_fs().await {
-                            Ok(_) => {
-                                println!("Saved CNAC to disk successfully");
-                            },
-                            Err(err) => {
-                                println!("ERR: {}", err.to_string());
-                            }
-                        }*/
-                    },
-                    Err(err) => {
-                        println!("ERR: {}", err.to_string());
-                    }
-                }
-
-            /*for cnac in cnacs {
-                cnac.1.async_save_to_local_fs().await.unwrap()
-            }*/
-        });
-    }
-
-    #[test]
-    fn load_cnacs() {
-        println!("Executing load_cnacs ...");
-        block_on(
-        async {
-            match load_cnac_files().await {
-                Ok(vec) => {
-                    println!("CNACS loaded: {}", vec.len());
-                    for (_, cnac) in vec {
-                        println!("{}", cnac.get_id());
-                        for version in cnac.get_drill_versions().await {
-                            cnac.borrow_drill(Some(version),|drill_opt| {
-                                if let Some(drill) = drill_opt {
-                                    println!("Borrowing drill vers: {}", drill.get_version());
-                                    debug_assert_eq!(version, drill.get_version());
-                                }
-                            }).await;
-                        }
-
-                        let username = cnac.get_username().await;
-                        println!("Username loaded: {}", &username);
-                        if username == "tbraun96" {
-                            unsafe { cnac.validate_credentials("tbraun96", SecVec::new("mrmoney10".as_bytes().to_vec())).await.unwrap() };
-                        }
-
-                        cnac.async_save_to_local_fs().await.unwrap();
-                    }
-                },
-                Err(err) => {
-                    println!("Err: {}", err.to_string());
-                }
-            }
-        });
-    }
-
-    #[test]
-    fn encrypt_decrypt_from_cnac() {
-        let msg = "hello world!";
-        let msg_bytes = Vec::from(msg);
-        block_on(
-            async {
-                match load_cnac_files().await {
-                    Ok(mut vec) => {
-                        println!("CNACS loaded: {}", vec.len());
-                        let mut first = 0;
-                        for (id, cnac) in &vec {
-                            println!("{}", cnac.get_id());
-                            if first == 0 {
-                                first = *id;
-                            }
-                            cnac.clone().async_save_to_local_fs().await.unwrap();
-                        }
-                        let cnac = vec.remove(&first).unwrap();
-                        let drill = cnac.read().await.toolset.get_most_recent_drill().unwrap().clone();
-                        let encrypted_bytes = drill.encrypt_to_vec(msg.as_bytes(), 0, SecurityLevel::DIVINE).unwrap();
-                        assert_ne!(encrypted_bytes, msg_bytes);
-                        let decrypted_bytes = drill.decrypt_to_vec(encrypted_bytes.as_slice(), 0, SecurityLevel::DIVINE).unwrap();
-                        assert_eq!(decrypted_bytes, msg_bytes);
-                    },
-                    Err(err) => {
-                        println!("Err: {}", err.to_string());
-                    }
-                }
-            });
-
-
-    }
-
-    #[test]
-    fn update_toolset() {
-        block_on(async {
-            match load_cnac_files().await {
-                Ok(mut vec) => {
-                    println!("CNACS loaded: {}", vec.len());
-                    let mut first = 0;
-                    for (id, _) in &vec {
-                        if first == 0 {
-                            first = *id;
-                        }
-                        println!("{}", id);
-                    }
-                    let cnac = vec.remove(&first).unwrap();
-                    let mut write = cnac.write().await;
-                    for _ in 0..100usize {
-                        write.toolset.update().await.and_then(|_|{
-                            //println!("Update done");
-                            Ok(())
-                        }).unwrap();
-                    }
-                    std::mem::drop(write);
-                    cnac.async_save_to_local_fs().await.unwrap();
-
-                    for cnac in vec {
-                        cnac.1.async_save_to_local_fs().await.unwrap();
-                    }
-
-                },
-                Err(err) => {
-                    println!("Err: {}", err.to_string());
-                }
-            }
-          });
-    }
-
-    #[test]
-    fn delete_all_users() {
-        block_on(async {
-            let account_manager = AccountManager::new().await.unwrap();
-            debug_assert!(account_manager.delete_all_users().await);
-            debug_assert!(account_manager.async_save_to_local_fs().await.is_ok());
-        });
-    }
-
-    #[test]
-    fn network_map_create() {
-        block_on(async {
-            let account_manager = AccountManager::new().await.unwrap();
-            account_manager.async_save_to_local_fs().await.unwrap();
-        });
+    async fn acc_mgr(addr: SocketAddr, backend: BackendType) -> AccountManager {
+        let home_dir = format!("{}/tmp/{}", home_dir().unwrap().to_str().unwrap(), addr.to_string().replace(":", "p"));
+        log::info!("Home dir: {}", &home_dir);
+        AccountManager::new(addr, Some(home_dir), backend, None, None, None).await.unwrap()
     }
 }

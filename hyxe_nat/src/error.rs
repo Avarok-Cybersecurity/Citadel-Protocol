@@ -32,3 +32,9 @@ impl Into<std::io::Error> for FirewallError {
         std::io::Error::new(std::io::ErrorKind::Other, self.to_string())
     }
 }
+
+impl From<std::io::Error> for FirewallError {
+    fn from(err: Error) -> Self {
+        FirewallError::HolePunch(err.to_string())
+    }
+}

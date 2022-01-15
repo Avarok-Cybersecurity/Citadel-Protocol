@@ -1,97 +1,185 @@
 use std::net::IpAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
 //use async_std::prelude::*;
 use bytes::{Bytes, BytesMut};
-use futures::{SinkExt, StreamExt, TryFutureExt, TryStreamExt, Future, Stream};
-use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
-use tokio::net::{TcpStream, UdpSocket};
+use futures::{SinkExt, StreamExt, TryStreamExt, TryFutureExt};
 use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
-use tokio_util::udp::UdpFramed;
 
-use ez_pqcrypto::prelude::*;
 use hyxe_crypt::drill::SecurityLevel;
+use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+use hyxe_crypt::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmRatchetConstructor};
+use hyxe_crypt::fcm::keys::FcmKeys;
+use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, HyperRatchetConstructor};
+use hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_crypt::toolset::Toolset;
+use hyxe_fs::io::SyncIO;
+use hyxe_nat::hypernode_type::NodeType;
+use netbeam::time_tracker::TimeTracker;
 use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
-
-use crate::constants::{CODEC_BUFFER_CAPACITY, DEFAULT_PQC_ALGORITHM, INITIAL_RECONNECT_LOCKOUT_TIME_NS, LOGIN_EXPIRATION_TIME, DRILL_UPDATE_FREQUENCY_LOW_BASE, KEEP_ALIVE_INTERVAL_MS, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN};
-use crate::error::NetworkError;
-use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
-use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter};
-//use futures_codec::Framed;
-use crate::hdp::hdp_packet_processor::{self, GroupProcessorResult, PrimaryProcessorResult};
-use crate::hdp::hdp_packet_processor::includes::{SocketAddr, Duration};
-use crate::hdp::hdp_server::{HdpServerResult, Ticket, HdpServerRemote};
-use crate::hdp::hdp_session_manager::HdpSessionManager;
-use crate::hdp::outbound_sender::{OutboundUdpSender, KEEP_ALIVE};
-use crate::hdp::state_container::{OutboundTransmitterContainer, StateContainerInner, VirtualConnectionType, VirtualTargetType, GroupKey, OutboundFileTransfer, FileKey, StateContainer, GroupSender};
-use crate::hdp::time::TransferStats;
-use crate::proposed_credentials::ProposedCredentials;
-use hyxe_nat::hypernode_type::HyperNodeType;
-use hyxe_nat::time_tracker::TimeTracker;
-use futures::stream::FuturesUnordered;
-use std::pin::Pin;
-use crate::hdp::session_queue_handler::{SessionQueueWorker, QueueWorkerTicket, PROVISIONAL_CHECKER, QueueWorkerResult, DRILL_REKEY_WORKER, KEEP_ALIVE_CHECKER, FIREWALL_KEEP_ALIVE};
-use std::hint::black_box;
-use crate::hdp::state_subcontainers::drill_update_container::calculate_update_frequency;
-use std::sync::Arc;
+use hyxe_user::external_services::fcm::kem::FcmPostRegister;
+use hyxe_user::network_account::ConnectProtocol;
+use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 use hyxe_user::re_imports::scramble_encrypt_file;
-use hyxe_crypt::net::crypt_splitter::GroupSenderDevice;
+
+use crate::constants::{DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME};
+use crate::error::NetworkError;
 use crate::hdp::file_transfer::VirtualFileMetadata;
-use std::path::PathBuf;
-use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
-use crate::hdp::hdp_packet_crafter::peer_cmd::ENDPOINT_ENCRYPTION_OFF;
-use atomic::{Atomic, Ordering};
-use std::sync::atomic::AtomicBool;
-use crate::inner_arg::{InnerParameterMut, ExpectedInnerTargetMut};
-use hyxe_crypt::sec_bytes::SecBuffer;
+use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
+use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer, SecureProtocolPacket};
+use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
+//use futures_codec::Framed;
+use crate::hdp::hdp_packet_processor::{self, PrimaryProcessorResult};
+use crate::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
+use crate::hdp::hdp_server::{ConnectMode, NodeRemote, HdpServerResult, Ticket};
+use crate::hdp::hdp_session_manager::HdpSessionManager;
+use crate::hdp::misc;
+use crate::hdp::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};
+use crate::hdp::misc::dual_rwlock::DualRwLock;
+use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
+use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
+//use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
+use crate::hdp::outbound_sender::{channel, SendError, unbounded, UnboundedReceiver, UnboundedSender};
+use crate::hdp::outbound_sender::{OutboundPrimaryStreamReceiver, OutboundPrimaryStreamSender, OutboundUdpSender};
+use crate::hdp::peer::p2p_conn_handler::P2PInboundHandle;
+use crate::hdp::peer::peer_layer::{PeerResponse, PeerSignal, UdpMode};
+use crate::hdp::session_queue_handler::{DRILL_REKEY_WORKER, FIREWALL_KEEP_ALIVE, KEEP_ALIVE_CHECKER, PROVISIONAL_CHECKER, QueueWorkerResult, QueueWorkerTicket, RESERVED_CID_IDX, SessionQueueWorker, SessionQueueWorkerHandle};
+use crate::hdp::state_container::{FileKey, GroupKey, OutboundFileTransfer, OutboundTransmitterContainer, StateContainer, StateContainerInner, VirtualConnectionType, VirtualTargetType};
+use crate::hdp::state_subcontainers::drill_update_container::calculate_update_frequency;
+use crate::hdp::time::TransferStats;
+use hyxe_user::backend::PersistenceHandler;
+use crate::hdp::misc::dual_cell::DualCell;
+use std::ops::Deref;
+use crate::hdp::misc::dual_late_init::DualLateInit;
+use crate::kernel::RuntimeFuture;
+use std::pin::Pin;
+use hyxe_crypt::prelude::ConstructorOpts;
+use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
+use crate::hdp::hdp_packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
+use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
+use hyxe_nat::nat_identification::NatType;
+use hyxe_nat::exports::{Endpoint, NewConnection};
+use crate::hdp::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
+use atomic::Atomic;
+use crate::auth::AuthenticationRequest;
+
 //use crate::define_struct;
 
 // Defines the primary structure which wraps the inner device
-define_outer_struct_wrapper!(HdpSession, HdpSessionInner);
+//define_outer_struct_wrapper!(HdpSession, HdpSessionInner);
 
-/*
+
 /// Allows a connection stream to be worked on by a single worker
 pub struct HdpSession {
-    pub inner: Rc<RefCell<HdpSessionInner>>
+    #[cfg(not(feature = "multi-threaded"))]
+    pub inner: std::rc::Rc<HdpSessionInner>,
+    #[cfg(feature = "multi-threaded")]
+    pub inner: std::sync::Arc<HdpSessionInner>,
 }
-*/
+
+impl HdpSession {
+    pub fn strong_count(&self) -> usize {
+        #[cfg(not(feature = "multi-threaded"))]
+            {
+                std::rc::Rc::strong_count(&self.inner)
+            }
+
+        #[cfg(feature = "multi-threaded")]
+            {
+                std::sync::Arc::strong_count(&self.inner)
+            }
+    }
+
+    #[cfg(not(feature = "multi-threaded"))]
+    pub fn as_weak(&self) -> std::rc::Weak<HdpSessionInner> {
+        std::rc::Rc::downgrade(&self.inner)
+    }
+
+    #[cfg(feature = "multi-threaded")]
+    pub fn as_weak(&self) -> std::sync::Weak<HdpSessionInner> {
+        std::sync::Arc::downgrade(&self.inner)
+    }
+
+    #[cfg(feature = "multi-threaded")]
+    pub fn upgrade_weak(this: &std::sync::Weak<HdpSessionInner>) -> Option<Self> {
+        this.upgrade().map(|inner| Self { inner })
+    }
+
+    #[cfg(not(feature = "multi-threaded"))]
+    pub fn upgrade_weak(this: &std::rc::Weak<HdpSessionInner>) -> Option<Self> {
+        this.upgrade().map(|inner| Self { inner })
+    }
+}
+
+impl From<HdpSessionInner> for HdpSession {
+    fn from(inner: HdpSessionInner) -> Self {
+        #[cfg(not(feature = "multi-threaded"))]
+            {
+                Self { inner: std::rc::Rc::new(inner) }
+            }
+
+        #[cfg(feature = "multi-threaded")]
+            {
+                Self { inner: std::sync::Arc::new(inner) }
+            }
+    }
+}
+
+impl Deref for HdpSession {
+    type Target = HdpSessionInner;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.deref()
+    }
+}
+
+impl Clone for HdpSession {
+    fn clone(&self) -> Self {
+        Self { inner: self.inner.clone() }
+    }
+}
+
 
 //define_struct!(HdpSession, HdpSessionInner);
 
 /// Structure for holding and keep track of packets, as well as basic connection information
 #[allow(unused)]
 pub struct HdpSessionInner {
-    pub(super) implicated_cid: Arc<Atomic<Option<u64>>>,
-    pub(super) kernel_ticket: Ticket,
+    pub(super) implicated_cid: DualCell<Option<u64>>,
+    pub(super) kernel_ticket: DualCell<Ticket>,
     pub(super) remote_peer: SocketAddr,
-    pub(super) cnac: Option<ClientNetworkAccount>,
-    pub(super) wave_socket_loader: Option<tokio::sync::oneshot::Sender<Vec<(UdpSocket, HolePunchedSocketAddr)>>>,
     // Sends results directly to the kernel
     pub(super) kernel_tx: UnboundedSender<HdpServerResult>,
-    pub(super) to_primary_stream: Option<UnboundedSender<Bytes>>,
-    pub(super) to_wave_ports: Option<OutboundUdpSender>,
-    pub(super) post_quantum: Option<Arc<PostQuantumContainer>>,
+    pub(super) to_primary_stream: DualLateInit<Option<OutboundPrimaryStreamSender>>,
+    pub(super) p2p_session_tx: DualLateInit<Option<UnboundedSender<Pin<Box<dyn RuntimeFuture>>>>>,
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
-    pub(super) pqc_algorithm: Option<u8>,
     pub(super) session_manager: HdpSessionManager,
-    pub(super) state: SessionState,
+    pub(super) state: Arc<Atomic<SessionState>>,
+    pub(super) implicated_user_p2p_internal_listener_addr: DualLateInit<Option<SocketAddr>>,
+    pub(super) client_only_quic_endpoint: DualLateInit<Option<Endpoint>>,
     pub(super) state_container: StateContainer,
     pub(super) account_manager: AccountManager,
     pub(super) time_tracker: TimeTracker,
-    pub(super) local_node_type: HyperNodeType,
-    pub(super) remote_node_type: Option<HyperNodeType>,
+    pub(super) local_node_type: NodeType,
+    pub(super) remote_node_type: Option<NodeType>,
     pub(super) local_bind_addr: SocketAddr,
-    // if this is enabled, then UDP won't be used
-    pub(super) tcp_only: bool,
-    pub(super) hdp_nodelay: bool,
-    pub(super) security_level: SecurityLevel,
-    pub(super) current_group_id: u64,
-    pub(super) transfer_stats: TransferStats,
+    pub(super) do_static_hr_refresh_atexit: DualCell<bool>,
+    pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<HdpServerResult>>>,
     pub(super) is_server: bool,
-    pub(super) needs_close_message: Arc<AtomicBool>,
-    pub(super) rolling_object_idx: u32,
-    pub(super) queue_worker: SessionQueueWorker
+    pub(super) stopper_tx: DualRwLock<tokio::sync::broadcast::Sender<()>>,
+    pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle>,
+    pub(super) fcm_keys: Option<FcmKeys>,
+    pub(super) peer_only_connect_protocol: DualRwLock<Option<ConnectProtocol>>,
+    pub(super) primary_stream_quic_conn: DualRwLock<Option<NewConnection>>,
+    pub(super) local_nat_type: NatType,
+    pub(super) adjacent_nat_type: DualLateInit<Option<NatType>>,
+    pub(super) connect_mode: DualRwLock<Option<ConnectMode>>,
+    on_drop: UnboundedSender<()>,
 }
 
 /// allows each session worker to check the state of the session
@@ -114,69 +202,76 @@ pub enum SessionState {
     Disconnected,
 }
 
+#[derive(Debug, Clone)]
+#[allow(variant_size_differences)]
+pub enum HdpSessionInitMode {
+    Connect(AuthenticationRequest),
+    Register(SocketAddr, ProposedCredentials),
+}
+
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub fn new(hdp_remote: HdpServerRemote, pqc_algorithm: Option<u8>, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, remote_peer: SocketAddr, time_tracker: TimeTracker, implicated_cid: Option<u64>, kernel_ticket: Ticket, security_level: SecurityLevel, hdp_nodelay: bool, tcp_only: bool) -> Option<Self> {
-        let cnac = if let Some(implicated_cid) = implicated_cid {
-            if let Some(cnac) = account_manager.get_client_by_cid(implicated_cid) {
-                Some(cnac)
-            } else {
-                log::error!("Supplied an implicated CID, but does not exist within the account manager. Make sure to register");
-                None
+    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, mut fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings, connect_mode: Option<ConnectMode>) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
+        let (cnac, state, implicated_cid) = match &init_mode {
+            HdpSessionInitMode::Connect(auth) => {
+                match auth {
+                    AuthenticationRequest::Credentialed { .. } => {
+                        let cnac = cnac.ok_or(NetworkError::InvalidRequest("Client does not exist"))?;
+                        let cid = cnac.get_cid();
+                        fcm_keys = fcm_keys.or_else(|| cnac.get_fcm_keys()); // use the provided FCM, otherwise, use the default FCM keys
+                        (Some(cnac), Arc::new(Atomic::new(SessionState::NeedsConnect)), Some(cid))
+                    }
+
+                    AuthenticationRequest::Passwordless { .. } => {
+                        // register will redirect to preconnect afterwords
+                        (None, Arc::new(Atomic::new(SessionState::NeedsRegister)), None)
+                    }
+                }
             }
-        } else {
-            None
-        };
 
-        if implicated_cid.is_some() && cnac.is_none() {
-            return None;
-        }
-
-        let mut state = SessionState::NeedsConnect;
-
-        let post_quantum = if cnac.is_none() {
-            log::warn!("The client is either missing or non-specified; setting state to NeedsRegister and creating a new post quantum container");
-            state = SessionState::NeedsRegister;
-            //Some(Rc::new(PostQuantumContainer::new_alice(Some(DEFAULT_PQC_ALGORITHM))))
-            None
-        } else {
-            Some(Arc::new(cnac.as_ref().unwrap().get_post_quantum_container().unwrap()))
+            HdpSessionInitMode::Register(..) => {
+                (None, Arc::new(Atomic::new(SessionState::NeedsRegister)), None)
+            }
         };
 
         let timestamp = time_tracker.get_global_time_ns();
+        let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
 
-        let inner = HdpSessionInner {
-            pqc_algorithm,
-            tcp_only,
+        let mut inner = HdpSessionInner {
+            connect_mode: DualRwLock::from(connect_mode),
+            primary_stream_quic_conn: DualRwLock::from(None),
+            implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
+            client_only_quic_endpoint: DualLateInit::default(),
+            local_nat_type,
+            adjacent_nat_type: DualLateInit::default(),
+            p2p_session_tx: DualLateInit::default(),
+            do_static_hr_refresh_atexit: true.into(),
+            dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
+            peer_only_connect_protocol: Some(peer_only_connect_proto).into(),
+            on_drop,
             local_bind_addr,
-            to_wave_ports: None,
-            wave_socket_loader: None,
             local_node_type,
             remote_node_type: None,
-            security_level,
             kernel_tx: kernel_tx.clone(),
-            implicated_cid: Arc::new(Atomic::new(implicated_cid)),
+            implicated_cid: DualCell::new(implicated_cid),
             time_tracker,
-            kernel_ticket,
-            post_quantum,
-            to_primary_stream: None,
-            rolling_object_idx: 1,
-            state_container: StateContainer::from(StateContainerInner::new(kernel_tx, hdp_remote)),
+            kernel_ticket: kernel_ticket.into(),
+            to_primary_stream: DualLateInit::default(),
+            state_container: StateContainerInner::new(kernel_tx, hdp_remote, keep_alive_timeout_ns, state.clone(), cnac, time_tracker.clone(), Some(security_settings), false,TransferStats::new(timestamp, 0), udp_mode),
             session_manager,
             remote_peer,
-            cnac,
             state,
             account_manager,
-            hdp_nodelay,
-            current_group_id: 0,
-            transfer_stats: TransferStats::new(timestamp, 0),
             is_server: false,
-            needs_close_message: Arc::new(AtomicBool::new(true)),
-            queue_worker: SessionQueueWorker::new()
+            stopper_tx: stopper_tx.clone().into(),
+            queue_handle: DualLateInit::default(),
+            fcm_keys,
         };
 
-        Some(Self::from(inner))
+        inner.store_proposed_credentials(proposed_credentials);
+
+        Ok((stopper_tx, Self::from(inner)))
     }
 
     /// During impersonal mode, a new connection may come inbound. Unlike above in Self::new, we do not yet have the implicated cid nor nid.
@@ -184,162 +279,211 @@ impl HdpSession {
     ///
     /// When this is called, the connection is implied to be in impersonal mode. As such, the calling closure should have a way of incrementing
     /// the provisional ticket.
-    pub fn new_incoming(hdp_remote: HdpServerRemote, local_bind_addr: SocketAddr, local_node_type: HyperNodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket, hdp_nodelay: bool) -> Self {
+    pub(crate) fn new_incoming(on_drop: UnboundedSender<()>, local_nat_type: NatType, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket) -> (tokio::sync::broadcast::Sender<()>, Self) {
+        let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
+        let state = Arc::new(Atomic::new(SessionState::SocketJustOpened));
+
         let timestamp = time_tracker.get_global_time_ns();
 
         let inner = HdpSessionInner {
-            rolling_object_idx: 1,
-            pqc_algorithm: None,
-            tcp_only: false,
+            connect_mode: DualRwLock::from(None),
+            primary_stream_quic_conn: DualRwLock::from(None),
+            implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
+            client_only_quic_endpoint: DualLateInit::default(),
+            local_nat_type,
+            adjacent_nat_type: DualLateInit::default(),
+            p2p_session_tx: DualLateInit::default(),
+            do_static_hr_refresh_atexit: true.into(),
+            dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
+            peer_only_connect_protocol: None.into(),
+            on_drop,
             local_bind_addr,
-            to_wave_ports: None,
-            wave_socket_loader: None,
             local_node_type,
             remote_node_type: None,
-            security_level: SecurityLevel::LOW,
-            implicated_cid: Arc::new(Atomic::new(None)),
+            implicated_cid: DualCell::new(None),
             time_tracker,
-            kernel_ticket: provisional_ticket,
+            kernel_ticket: provisional_ticket.into(),
             remote_peer,
-            cnac: None,
             kernel_tx: kernel_tx.clone(),
             session_manager: session_manager.clone(),
-            post_quantum: None,
-            state_container: StateContainer::from(StateContainerInner::new(kernel_tx, hdp_remote)),
-            to_primary_stream: None,
-            state: SessionState::SocketJustOpened,
+            state_container: StateContainerInner::new(kernel_tx, hdp_remote, KEEP_ALIVE_TIMEOUT_NS, state.clone(), None, time_tracker.clone(), None, true,TransferStats::new(timestamp, 0), UdpMode::Disabled),
+            to_primary_stream: DualLateInit::default(),
+            state,
             account_manager,
-            hdp_nodelay,
-            current_group_id: 0,
-            transfer_stats: TransferStats::new(timestamp, 0),
             is_server: true,
-            needs_close_message: Arc::new(AtomicBool::new(true)),
-            queue_worker: SessionQueueWorker::new()
+            stopper_tx: stopper_tx.clone().into(),
+            queue_handle: DualLateInit::default(),
+            fcm_keys: None,
         };
 
-        Self { inner: create_inner!(inner) }
+        (stopper_tx, Self::from(inner))
     }
 
     /// Once the [HdpSession] is created, it can then be executed to begin handling a periodic connection handler.
     /// This will automatically stop running once the internal state is set to Disconnected
-    pub async fn execute(&self, tcp_stream: TcpStream) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
+    ///
+    /// `tcp_stream`: this goes to the adjacent HyperNode
+    /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
+    pub async fn execute(&self, p2p_listener: Option<GenericNetworkListener>, mut primary_stream: GenericNetworkStream, peer_addr: SocketAddr) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
         log::info!("HdpSession is executing ...");
         let this = self.clone();
         let this_outbound = self.clone();
         let this_inbound = self.clone();
-        let this_socket_loader = self.clone();
         let this_queue_worker = self.clone();
+        let this_p2p_listener = self.clone();
+        let this_close = self.clone();
 
-        let sock = tcp_stream.peer_addr().unwrap();
+        let (session_future, handle_zero_state, implicated_cid) = {
+            let quic_conn_opt = primary_stream.take_quic_connection();
+            let (writer, reader) = misc::net::safe_split_stream(primary_stream);
 
-        // With access to the primary stream, we can now communicate through it from this session
-        let framed = LengthDelimitedCodec::builder()
-            .length_field_offset(0) // default value
-            .length_field_length(2)
-            .length_adjustment(0)   // default value
-            // `num_skip` is not needed, the default is to skip
-            .new_framed(tcp_stream);
-        let (writer, reader) = framed.split();
+            let (primary_outbound_tx, primary_outbound_rx) = unbounded();
+            let primary_outbound_tx = OutboundPrimaryStreamSender::from(primary_outbound_tx);
+            let primary_outbound_rx = OutboundPrimaryStreamReceiver::from(primary_outbound_rx);
 
-        let (primary_outbound_tx, primary_outbound_rx) = unbounded();
+            let (p2p_session_tx, p2p_session_rx) = unbounded();
 
-        let mut this_ref = inner_mut!(this);
-
-        let sess_id = this_ref.kernel_ticket;
-        this_ref.to_primary_stream = Some(primary_outbound_tx.clone());
-
-        let to_kernel_tx_clone = this_ref.kernel_tx.clone();
-
-        let timestamp = this_ref.time_tracker.get_global_time_ns();
-        let local_nid = this_ref.account_manager.get_local_nid();
-        let cnac_opt = this_ref.cnac.clone();
-        let implicated_cid = this_ref.implicated_cid.clone();
-        let needs_close_message = this_ref.needs_close_message.clone();
-
-
-        // setup the socket-loader
-        let (socket_loader_tx, socket_loader_rx) = tokio::sync::oneshot::channel();
-        this_ref.wave_socket_loader = Some(socket_loader_tx);
-
-        // Ensure the tx forwards to the writer
-        let writer_future = Self::outbound_stream(primary_outbound_rx, writer);
-        let reader_future = Self::execute_inbound_stream(reader, this_inbound);
-        //let timer_future = Self::execute_timer(this.clone());
-        let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
-        let socket_loader_future = Self::socket_loader(this_socket_loader, to_kernel_tx_clone.clone(), socket_loader_rx);
-
-        let handle_zero_state = Self::handle_zero_state(primary_outbound_tx.clone(), this_outbound, this_ref.state, timestamp, local_nid, cnac_opt);
-        std::mem::drop(this_ref);
-
-        let session_future = FuturesUnordered::new();
-        session_future.push(Box::pin(writer_future) as Pin<Box<dyn Future<Output=Result<(), NetworkError>>>>);
-        session_future.push(Box::pin(reader_future));
-        session_future.push(Box::pin(queue_worker_future));
-        // TODO: if local node type is pure_server, don't add the below
-        session_future.push(Box::pin(socket_loader_future));
-
-        //let session_future = futures::future::try_join4(writer_future, reader_future, timer_future, socket_loader_future);
-        if let Err(err) = handle_zero_state.await {
-            log::error!("Unable to proceed past session zero-state. Stopping session");
-            return Err((err, implicated_cid.load(Ordering::SeqCst)));
-        }
-
-        session_future.try_collect::<Vec<()>>().await.map(|_| {
-            implicated_cid.load(Ordering::SeqCst)
-        }).map_err(|err| {
-            let ticket = sess_id;
-            let reason = err.to_string();
-            let needs_close_message = needs_close_message.load(Ordering::Relaxed);
-            let cid = implicated_cid.load(Ordering::Relaxed);
-
-            log::info!("Session {} connected to {} is ending! Reason: {}. Needs close message? {}", ticket.0, sock, reason.as_str(), needs_close_message);
-
-            if needs_close_message {
-                let result = HdpServerResult::Disconnect(ticket, cid.unwrap_or(0), false, None, reason);
-                // false indicates a D/C caused by a non-dc subroutine
-                let _ = to_kernel_tx_clone.unbounded_send(result);
+            if let Some(ref p2p_listener) = p2p_listener {
+                // We can unwrap below since, by default, p2p always uses QUIC
+                this.client_only_quic_endpoint.set_once(Some(p2p_listener.quic_endpoint().unwrap()));
+                this.implicated_user_p2p_internal_listener_addr.set_once(Some(p2p_listener.local_addr().map_err(|err| (NetworkError::Generic(err.to_string()), None))?))
             }
 
-            (err, cid)
-        })
+            // if the primary stream uses QUIC, load this inside for both client and server
+            if let Some(quic_conn) = quic_conn_opt {
+                *inner_mut!(this.primary_stream_quic_conn) = Some(quic_conn);
+            }
+
+            let p2p_listener = p2p_listener.map(|r| (r, p2p_session_rx));
+            this.p2p_session_tx.set_once(Some(p2p_session_tx));
+
+            //let (obfuscator, packet_opt) = HeaderObfuscator::new(this.is_server);
+            //let sess_id = this_ref.kernel_ticket;
+
+            this.to_primary_stream.set_once(Some(primary_outbound_tx.clone()));
+
+            let timestamp = this.time_tracker.get_global_time_ns();
+            let local_nid = this.account_manager.get_local_nid();
+            let cnac_opt = inner_state!(this.state_container).cnac.clone();
+            let implicated_cid = this.implicated_cid.clone();
+            let persistence_handler = this.account_manager.get_persistence_handler().clone();
+
+            let stopper = inner!(this.stopper_tx).subscribe();
+
+            // Ensure the tx forwards to the writer
+            let writer_future = Self::outbound_stream(primary_outbound_rx, writer);
+            let reader_future = Self::execute_inbound_stream(reader, this_inbound, None);
+            //let timer_future = Self::execute_timer(this.clone());
+            let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
+            let stopper_future = Self::stopper(stopper);
+            let handle_zero_state = Self::handle_zero_state(None, persistence_handler, primary_outbound_tx.clone(), this_outbound, this.state.load(Ordering::SeqCst), timestamp, local_nid, cnac_opt);
+
+            let session_future = if let Some((p2p_listener, p2p_session_rx)) = p2p_listener {
+                spawn_handle!(async move {
+                            tokio::select! {
+                                res0 = writer_future => res0,
+                                res1 = reader_future => res1,
+                                res2 = stopper_future => res2,
+                                res3 = crate::hdp::peer::p2p_conn_handler::p2p_conn_handler(p2p_listener, this_p2p_listener) => res3,
+                                res4 = Self::session_future_receiver(p2p_session_rx) => res4
+                            }
+                        })
+            } else {
+                spawn_handle!(async move {
+                            tokio::select! {
+                                res0 = writer_future => res0,
+                                res1 = reader_future => res1,
+                                res2 = stopper_future => res2
+                            }
+                        })
+            };
+
+            //let session_future = futures::future::try_join4(writer_future, reader_future, timer_future, socket_loader_future);
+
+
+            // this will automatically drop when getting polled, because it tries upgrading a Weak reference to the session
+            // as such, if it cannot, it will end the future. We do this to ensure there is no deadlocking.
+            // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
+            // separate task, we solve the issue of re-entrancing of mutex
+            //#[cfg(feature = "multi-threaded")]
+            let _ = spawn!(queue_worker_future);
+
+            (session_future, handle_zero_state, implicated_cid)
+        };
+
+
+        if let Err(err) = handle_zero_state.await {
+            log::error!("Unable to proceed past session zero-state. Stopping session: {:?}", &err);
+            return Err((err, implicated_cid.get()));
+        }
+
+        let res = session_future.await.map_err(|err| (NetworkError::Generic(err.to_string()), None))?;
+
+        match res {
+            Ok(_) => {
+                log::info!("Done EXECUTING sess");
+                Ok(implicated_cid.get())
+            }
+
+            Err(err) => {
+                let ticket = this_close.kernel_ticket.get();
+                let reason = err.to_string();
+                let cid = implicated_cid.get();
+
+                log::info!("Session {} connected to {} is ending! Reason: {}. (strong count: {})", ticket.0, peer_addr, reason.as_str(), this_close.strong_count());
+
+                this_close.send_session_dc_signal(Some(ticket), false, "Inbound stream ending");
+
+                Err((err, cid))
+            }
+        }
+    }
+
+    async fn stopper(mut receiver: tokio::sync::broadcast::Receiver<()>) -> Result<(), NetworkError> {
+        receiver.recv().await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+        Err(NetworkError::InternalError("Session stopper-rx triggered"))
+    }
+
+    /// Executes each session in parallel (or concurrent if using a LocalSet)
+    pub async fn session_future_receiver(mut p2p_session_rx: UnboundedReceiver<Pin<Box<dyn RuntimeFuture>>>) -> Result<(), NetworkError> {
+        while let Some(session) = p2p_session_rx.recv().await {
+            let _ = spawn!(session);
+        }
+
+        Ok(())
     }
 
     /// Before going through the usual loopy business, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
-    async fn handle_zero_state(to_outbound: UnboundedSender<Bytes>, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
+    async fn handle_zero_state(zero_packet: Option<BytesMut>, persistence_handler: PersistenceHandler, to_outbound: OutboundPrimaryStreamSender, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
+        if let Some(zero) = zero_packet {
+            to_outbound.unbounded_send(zero).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
+        }
+
         match state {
             SessionState::NeedsRegister => {
                 log::info!("Beginning registration subroutine!");
-                let session_ref = inner!(session);
-                let potential_cid_alice = session_ref.account_manager.get_local_nac().reserve_cid();
-                let new_pqc = PostQuantumContainer::new_alice(Some(session_ref.pqc_algorithm.unwrap_or(DEFAULT_PQC_ALGORITHM)));
-                let mut state_container = inner_mut!(session_ref.state_container);
-                state_container.register_state.last_packet_time = Some(Instant::now());
-                let alice_public_key = new_pqc.get_public_key();
+                let potential_cids_alice = persistence_handler.client_only_generate_possible_cids().await.map_err(|err| NetworkError::Generic(err.into_string()))?;
+                let session_ref = session;
+                let mut state_container = inner_mut_state!(session_ref.state_container);
+                let session_security_settings = state_container.session_security_settings.clone().unwrap();
+                let passwordless = state_container.register_state.passwordless.clone().ok_or_else(|| NetworkError::InternalError("Passwordless state not loaded"))?;
+                // we supply 0,0 for cid and new drill vers by default, even though it will be reset by bob
+                let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), 0, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
 
-                let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(DEFAULT_PQC_ALGORITHM, timestamp, local_nid, alice_public_key, potential_cid_alice);
+                state_container.register_state.last_packet_time = Some(Instant::now());
+                let transfer = alice_constructor.stage0_alice();
+
+                let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(session_security_settings.crypto_params.into(), timestamp, local_nid, transfer, potential_cids_alice, passwordless);
                 if let Err(err) = to_outbound.unbounded_send(stage0_register_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
                     return Err(err);
                 }
 
-                state_container.register_state.pqc = Some(new_pqc);
+                state_container.register_state.constructor = Some(alice_constructor);
                 log::info!("Successfully sent stage0 register packet outbound");
             }
 
             SessionState::NeedsConnect => {
-                log::info!("Beginning pre-connect subroutine!");
-                let session_ref = inner!(session);
-                let tcp_only = session_ref.tcp_only;
-                let timestamp = session_ref.time_tracker.get_global_time_ns();
-                let ref latest_local_drill = cnac.unwrap().get_drill(None).unwrap();
-                let syn = hdp_packet_crafter::pre_connect::craft_syn(latest_local_drill, tcp_only, timestamp);
-                let mut state_container = inner_mut!(session_ref.state_container);
-                state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
-
-                if let Err(err) = to_outbound.unbounded_send(syn).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
-                    return Err(err);
-                }
-
-                log::info!("Successfully sent SYN pre-connect packet");
+                Self::begin_connect(&session, cnac.as_ref().unwrap())?;
             }
 
             // This implies this node received a new incoming connection. It is up to the other node, Alice, to send a stage 0 packet
@@ -348,7 +492,7 @@ impl HdpSession {
                 // If somebody makes a connection to this node, but doesn't send anything, we need a way to remove
                 // such a stale connection. By setting the value below, we ensure the possibility that the session
                 // timer removes it
-                inner_mut!(inner_mut!(session).state_container).connect_state.last_packet_time = Some(Instant::now());
+                inner_mut_state!(session.state_container).connect_state.last_packet_time = Some(Instant::now());
             }
 
             _ => {
@@ -360,259 +504,432 @@ impl HdpSession {
         Ok(())
     }
 
-    async fn socket_loader(this: HdpSession, to_kernel: UnboundedSender<HdpServerResult>, receiver: tokio::sync::oneshot::Receiver<Vec<(UdpSocket, HolePunchedSocketAddr)>>) -> Result<(), NetworkError> {
-        let sockets = receiver.await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+    pub(crate) fn begin_connect(session: &HdpSession, cnac: &ClientNetworkAccount) -> Result<(), NetworkError> {
+        log::info!("Beginning pre-connect subroutine!");
+        let session_ref = session;
+        let connect_mode = inner!(session.connect_mode).clone().ok_or_else(||NetworkError::InternalError("Connect mode not loaded"))?;
+        let mut state_container = inner_mut_state!(session_ref.state_container);
 
-        let mut sess = inner_mut!(this);
-        let local_is_server = sess.is_server;
+        let udp_mode = state_container.udp_mode;
+        let local_peer_listener_addr = session_ref.implicated_user_p2p_internal_listener_addr.clone().ok_or(NetworkError::InternalError("Local listener port not loaded"))?;
+        let timestamp = session_ref.time_tracker.get_global_time_ns();
+        let session_security_settings = state_container.session_security_settings.clone().unwrap();
+        let peer_only_connect_mode = session_ref.peer_only_connect_protocol.get().unwrap();
+        // reset the toolset's ARA
+        let ref static_aux_hr = cnac.refresh_static_hyper_ratchet();
+        // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
+        let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|err| NetworkError::Generic(err.into_string()))?;
+        let opts = static_aux_hr.get_next_constructor_opts().into_iter().take((session_security_settings.security_level.value() + 1) as usize).collect();
+        //static_aux_hr.verify_level(Some(security_level)).map_err(|_| NetworkError::Generic(format!("Invalid security level. Maximum security level for this account is {:?}", static_aux_hr.get_default_security_level())))?;
+        let alice_constructor = HyperRatchetConstructor::new_alice(opts, cnac.get_cid(), 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
+        let transfer = alice_constructor.stage0_alice();
+        let max_usable_level = static_aux_hr.get_default_security_level();
+        let nat_type = session_ref.local_nat_type.clone();
 
-        //log::info!("[Oneshot channel] received sockets. Now loading ...");
-        let mut sinks = Vec::with_capacity(sockets.len());
-        let (outbound_sender_tx, outbound_sender_rx) = unbounded();
-        let udp_sender = OutboundUdpSender::new(outbound_sender_tx, sockets.len());
-
-        sess.to_wave_ports = Some(udp_sender.clone());
-        inner_mut!(sess.state_container).udp_sender = Some(udp_sender);
-        std::mem::drop(sess);
-
-        let unordered_futures = futures::stream::FuturesUnordered::new();
-        // we supply the natted ip since it is where we expect to receive packets
-        // whether local is server or not, we should expect to receive packets from natted
-        let hole_punched_addr_ip = sockets[0].1.natted.ip();
-        let mut hole_punched_addrs = Vec::with_capacity(sockets.len());
-
-        for (socket, hole_punched_addr) in sockets {
-            let local_bind_addr = socket.local_addr().unwrap();
-
-            let codec = super::codec::BytesCodec::new(CODEC_BUFFER_CAPACITY);
-            let framed = UdpFramed::new(socket, codec);
-            let (writer, reader) = framed.split();
-
-            unordered_futures.push(Self::listen_wave_port(this.clone(), to_kernel.clone(), hole_punched_addr_ip, local_bind_addr.port(), reader));
-            sinks.push(writer);
-            hole_punched_addrs.push(hole_punched_addr);
-            log::info!("Server established UDP Port {}", local_bind_addr);
+        if udp_mode == UdpMode::Enabled {
+            state_container.pre_connect_state.udp_channel_oneshot_tx = UdpChannelSender::default();
         }
 
-        //futures.push();
-        let udp_sender_future = Self::wave_outbound_sender(local_is_server, outbound_sender_rx, hole_punched_addrs, to_kernel, sinks);
+        // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
+        let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, nat_type, udp_mode, local_peer_listener_addr, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode, connect_mode);
 
-        futures::future::try_join(unordered_futures.try_collect::<Vec<()>>(), udp_sender_future).await
-            .map(|_| ()).map_err(|err| {
-            log::error!("UDP subsystem ending. Reason: {}", err.to_string());
-            err
-        })
+        state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
+        state_container.pre_connect_state.constructor = Some(alice_constructor);
+        state_container.connect_state.connect_mode = Some(connect_mode);
+
+        session.send_to_primary_stream(None, syn)?;
+
+        log::info!("Successfully sent SYN pre-connect packet");
+        Ok(())
     }
 
-    async fn outbound_stream<S: SinkExt<Bytes> + Unpin>(mut primary_outbound_rx: UnboundedReceiver<Bytes>, mut writer: S) -> Result<(), NetworkError> {
-        while let Some(outbound_packet) = primary_outbound_rx.next().await {
-            //log::info!("outbound_stream sending object w/ {} bytes to TCP stream (using LengthDelimitedCodec)", outbound_packet.len());
-            if let Err(err) = writer.send(outbound_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")).await {
-                return Err(err);
+    // tcp_conn_awaiter must be provided in order to know when the begin loading the UDP conn for the user. The TCP connection must first be loaded in order to place the udp conn inside the virtual_conn hashmap
+    pub(crate) fn udp_socket_loader(this: HdpSession, v_target: VirtualTargetType, udp_conn: UdpSplittableTypes, addr: HolePunchedSocketAddr, ticket: Ticket, tcp_conn_awaiter: Option<tokio::sync::oneshot::Receiver<()>>) {
+        let this_weak = this.as_weak();
+        std::mem::drop(this);
+        let task = async move {
+            let (listener, udp_sender_future, stopper_rx) = {
+                let this = HdpSession::upgrade_weak(&this_weak).ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
+
+                let sess = this;
+                let local_is_server = sess.is_server;
+
+                // we supply the natted ip since it is where we expect to receive packets
+                // whether local is server or not, we should expect to receive packets from natted
+                let hole_punched_socket = addr.natted;
+                let hole_punched_addr_ip = hole_punched_socket.ip();
+
+                let local_bind_addr = udp_conn.local_addr().unwrap();
+
+                let (outbound_sender_tx, outbound_sender_rx) = unbounded();
+                let udp_sender = OutboundUdpSender::new(outbound_sender_tx, local_bind_addr, hole_punched_socket);
+                let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
+
+                std::mem::drop(sess);
+                if let Some(tcp_conn_awaiter) = tcp_conn_awaiter {
+                    tcp_conn_awaiter.await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+                }
+
+                let sess = HdpSession::upgrade_weak(&this_weak).ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
+
+                let accessor = match v_target {
+                    VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
+                        let mut state_container = inner_mut_state!(sess.state_container);
+                        state_container.udp_primary_outbound_tx = Some(udp_sender.clone());
+
+                        if let Some(channel) = state_container.insert_udp_channel(C2S_ENCRYPTION_ONLY, v_target, ticket, udp_sender, stopper_tx) {
+                            let cnac = state_container.cnac.clone().ok_or(NetworkError::InternalError("CNAC not loaded (required for UDP socket_loader stage)"))?;
+                            if let Some(sender) = state_container.pre_connect_state.udp_channel_oneshot_tx.tx.take() {
+                                sender.send(channel).map_err(|_| NetworkError::InternalError("Unable to send UdpChannel through"))?;
+                                EndpointCryptoAccessor::C2S(cnac, sess.state_container.clone())
+                            } else {
+                                log::error!("Tried loading UDP channel, but, the state container had no UDP sender");
+                                return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had no UDP sender"))
+                            }
+                        } else {
+                            log::error!("Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
+                            return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ..."))
+                        }
+                    }
+
+                    VirtualConnectionType::HyperLANPeerToHyperLANPeer(_implicated_cid, target_cid) => {
+                        let mut state_container = inner_mut_state!(sess.state_container);
+                        if let Some(channel) = state_container.insert_udp_channel(target_cid, v_target, ticket, udp_sender, stopper_tx) {
+                            if let Some(kem_state) = state_container.peer_kem_states.get_mut(&target_cid) {
+                                // Below will fail if UDP mode is off, as desired
+                                if let Some(sender) = kem_state.udp_channel_sender.tx.take() {
+                                    // below will fail if the user drops the receiver at the kernel-level
+                                    sender.send(channel).map_err(|_| NetworkError::InternalError("Unable to send UdpChannel through"))?;
+                                    EndpointCryptoAccessor::P2P(target_cid, sess.state_container.clone())
+                                } else {
+                                    log::error!("Tried loading UDP channel, but, the state container had no UDP sender");
+                                    return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had no UDP sender"))
+                                }
+                            } else {
+                                log::error!("Tried loading the peer kem state, but was absent");
+                                return Err(NetworkError::InternalError("Tried loading the peer kem state, but was absent"))
+                            }
+                        } else {
+                            log::error!("Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
+                            return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ..."))
+                        }
+                    }
+
+                    _ => {
+                        return Err(NetworkError::InternalError("Invalid virtual target"));
+                    }
+                };
+
+                // unlike TCP, we will not use [LengthDelimitedCodec] because there is no guarantee that packets
+                // will arrive in order
+                let (writer, reader) = udp_conn.split();
+
+                let listener = Self::listen_wave_port(sess.clone(), hole_punched_addr_ip, local_bind_addr.port(), reader, accessor.clone());
+
+                log::info!("Server established UDP Port {}", local_bind_addr);
+
+                //futures.push();
+                let udp_sender_future = Self::udp_outbound_sender(local_is_server, outbound_sender_rx, addr, writer, accessor);
+                (listener, udp_sender_future, stopper_rx)
+            };
+
+            log::info!("[Q-UDP] Initiated UDP subsystem...");
+
+            let stopper = async move {
+                stopper_rx.await.map_err(|err| NetworkError::Generic(err.to_string()))
+            };
+
+            tokio::select! {
+                res0 = listener => res0,
+                res1 = udp_sender_future => res1,
+                res2 = stopper => res2
             }
-        }
+        };
 
-        Err(NetworkError::InternalError("Ending"))
+        let _ = spawn!(task);
     }
 
-    async fn execute_inbound_stream<S: Stream<Item=Result<BytesMut, std::io::Error>> + Unpin>(mut reader: S, ref this_main: HdpSession) -> Result<(), NetworkError> {
+    pub async fn outbound_stream(primary_outbound_rx: OutboundPrimaryStreamReceiver, writer: CleanShutdownSink<GenericNetworkStream, LengthDelimitedCodec, Bytes>) -> Result<(), NetworkError> {
+        primary_outbound_rx.0.map(|r| Ok(r.freeze())).forward(writer).map_err(|err| NetworkError::Generic(err.to_string())).await
+    }
+
+    /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
+    pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>) -> Result<(), NetworkError> {
         log::info!("HdpSession async inbound-stream subroutine executed");
-        let borrow = inner!(this_main);
-        //let borrow = this_main.inner.borrow();
-        let ref remote_peer = borrow.remote_peer.clone();
-        let local_primary_port = borrow.local_bind_addr.port();
-        let _kernel_ticket = borrow.kernel_ticket;
-        let implicated_cid = borrow.implicated_cid.clone();
-        let ref kernel_tx = borrow.kernel_tx.clone();
-        let ref mut primary_stream = borrow.to_primary_stream.clone().unwrap();
+        let (ref remote_peer, ref local_primary_port, ref implicated_cid, ref kernel_tx, ref primary_stream, p2p) = if let Some(p2p) = p2p_handle {
+            (p2p.remote_peer, p2p.local_bind_port, p2p.implicated_cid, p2p.kernel_tx, p2p.to_primary_stream, true)
+        } else {
+            let borrow = this_main;
+            let remote_peer = borrow.remote_peer.clone();
+            let local_primary_port = borrow.local_bind_addr.port();
+            let implicated_cid = borrow.implicated_cid.clone();
+            let kernel_tx = borrow.kernel_tx.clone();
+            let primary_stream = borrow.to_primary_stream.clone().unwrap();
+            (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream, false)
+        };
 
-        std::mem::drop(borrow);
-
-        loop {
-            match reader.next().await {
-                Some(Err(err)) => {
-                    const WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
-                    const RST: i32 = 104;
-
-                    let error = err.raw_os_error().unwrap_or(-1);
-                    if error != WINDOWS_FORCE_SHUTDOWN && error != RST {
-                        log::error!("primary port reader error {}: {}", error, err.to_string());
-                    }
-
-                    return Err(NetworkError::Generic(err.to_string()));
+        fn evaulute_result(result: Result<PrimaryProcessorResult, NetworkError>, primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<HdpServerResult>) -> std::io::Result<()> {
+            match result {
+                Ok(PrimaryProcessorResult::ReplyToSender(return_packet)) => {
+                    HdpSession::send_to_primary_stream_closure(primary_stream, kernel_tx, return_packet, None)
+                        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.into_string()))
                 }
 
-                Some(Ok(packet)) => {
-                    //log::info!("Primary port received packet with {} bytes+header or {} payload bytes ..", packet.len(), packet.len() - HDP_HEADER_BYTE_LEN);
-                    match hdp_packet_processor::raw_primary_packet::process(implicated_cid.load(Ordering::Relaxed), this_main, remote_peer.clone(), local_primary_port, packet) {
-                        PrimaryProcessorResult::ReplyToSender(return_packet) => {
-                            Self::send_to_primary_stream_closure(primary_stream, kernel_tx, return_packet, None);
-                        }
-
-                        PrimaryProcessorResult::FinalReply(last_packet_of_sess) => {
-                            Self::send_to_primary_stream_closure(primary_stream, kernel_tx, last_packet_of_sess, None);
-                            return Err(NetworkError::InternalError("ending inbound stream"));
-                        }
-
-                        PrimaryProcessorResult::EndSession(reason) => {
-                            return Err(NetworkError::InternalError(reason));
-                        }
-
-                        PrimaryProcessorResult::Void => {
-                            // this implies that the packet processor found no reason to return a message
-                        }
-                    }
+                Err(reason) => {
+                    log::error!("[PrimaryProcessor] session ending: {:?}", reason);
+                    Err(std::io::Error::new(std::io::ErrorKind::Other, reason.into_string()))
                 }
 
-                _ => {
-                    return Err(NetworkError::InternalError("ending inbound stream"));
+                Ok(PrimaryProcessorResult::EndSession(reason)) => {
+                    log::warn!("[PrimaryProcessor] session ending: {}", reason);
+                    Err(std::io::Error::new(std::io::ErrorKind::Other, reason))
+                }
+
+                Ok(PrimaryProcessorResult::Void) => {
+                    // this implies that the packet processor found no reason to return a message
+                    Ok(())
                 }
             }
         }
+
+        fn handle_session_terminating_error(err: std::io::Error, is_server: bool, p2p: bool) -> NetworkError {
+            const _WINDOWS_FORCE_SHUTDOWN: i32 = 10054;
+            const _RST: i32 = 104;
+            const _ECONN_RST: i32 = 54; // for macs
+
+            let error = err.raw_os_error().unwrap_or(-1);
+            // error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST &&
+            if error != -1 {
+                log::error!("primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), is_server, p2p);
+            }
+
+            NetworkError::Generic(err.to_string())
+        }
+
+        let (ref async_processor_tx, mut async_processor_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let inbound_direct = async move {
+            while let Some(packet) = reader.next().await {
+                let packet = packet.map_err(|err| NetworkError::Generic(err.to_string()))?;
+
+                if let Err(err) = evaulute_result(hdp_packet_processor::raw_primary_packet::process(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet, async_processor_tx), primary_stream, kernel_tx) {
+                    return Err(handle_session_terminating_error(err, this_main.is_server, p2p))
+                }
+            }
+
+            Ok(())
+        };
+
+        let futures_concurrent_executor = async move {
+            let reader = async_stream::stream! {
+                while let Some(value) = async_processor_rx.recv().await {
+                    yield Ok(value);
+                }
+            };
+
+            reader.try_for_each_concurrent(None, move |future| {
+                async move {
+                    evaulute_result(future.await, primary_stream, kernel_tx)
+                }
+            }).await.map_err(|err| {
+                handle_session_terminating_error(err, this_main.is_server, p2p)
+            })
+        };
+
+        tokio::select! {
+            res0 = inbound_direct => res0,
+            res1 = futures_concurrent_executor => res1
+        }
     }
 
-    fn send_to_primary_stream_closure(to_primary_stream: &UnboundedSender<Bytes>, kernel_tx: &UnboundedSender<HdpServerResult>, msg: Bytes, ticket: Option<Ticket>) {
+    pub(crate) fn send_to_primary_stream_closure(to_primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<HdpServerResult>, msg: BytesMut, ticket: Option<Ticket>) -> Result<(), NetworkError> {
         if let Err(err) = to_primary_stream.unbounded_send(msg) {
-            kernel_tx.unbounded_send(HdpServerResult::InternalServerError(ticket, err.to_string())).expect("Unable to send message to kernel ...");
+            kernel_tx.unbounded_send(HdpServerResult::InternalServerError(ticket, err.to_string())).map_err(|err| NetworkError::Generic(err.to_string()))?;
+            Err(NetworkError::InternalError("Primary stream closed"))
+        } else {
+            Ok(())
         }
     }
 
     async fn execute_queue_worker(this_main: HdpSession) -> Result<(), NetworkError> {
         log::info!("HdpSession async timer subroutine executed");
-        //let this_interval = this_main.clone();
-        let borrow = inner!(this_main);
-        let mut queue_worker = borrow.queue_worker.clone();
-        queue_worker.load_session(&this_main);
-        let is_server = borrow.is_server;
-        std::mem::drop(borrow);
 
-        // now, begin loading the subroutines
-        //let mut loop_idx = 0;
-        queue_worker.insert_reserved(QueueWorkerTicket::Oneshot(PROVISIONAL_CHECKER, 0), LOGIN_EXPIRATION_TIME, |sess| {
-            if sess.state != SessionState::Connected {
-                QueueWorkerResult::EndSession
-            } else {
-                // remove it from being called again
-                QueueWorkerResult::Complete
-            }
-        });
+        let queue_worker = {
+            //let this_interval = this_main.clone();
+            let borrow = this_main;
+            let (mut queue_worker, sender) = SessionQueueWorker::new(borrow.stopper_tx.get());
+            inner_mut_state!(borrow.state_container).queue_handle.set_once(sender.clone());
+            borrow.queue_handle.set_once(sender);
 
-        if !is_server {
-            queue_worker.insert_reserved(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0), Duration::from_nanos(DRILL_UPDATE_FREQUENCY_LOW_BASE), |sess| {
-                if sess.state == SessionState::Connected {
-                    let timestamp = sess.time_tracker.get_global_time_ns();
-                    let ticket = sess.kernel_ticket;
-                    let security_level = sess.security_level;
-                    let transfer_stats = sess.transfer_stats.clone();
-                    let mut state_container = inner_mut!(sess.state_container);
-                    sess.initiate_drill_update(timestamp, &mut wrap_inner_mut!(state_container), Some(ticket));
-                    QueueWorkerResult::AdjustPeriodicity(calculate_update_frequency(security_level.value(), &transfer_stats))
+            queue_worker.load_state_container(borrow.state_container.clone());
+            let time_tracker = borrow.time_tracker.clone();
+            let time_tracker_2 = time_tracker.clone();
+
+            let kernel_ticket = borrow.kernel_ticket.get();
+            let is_server = borrow.is_server;
+            std::mem::drop(borrow);
+
+            // now, begin loading the subroutines
+            //let mut loop_idx = 0;
+            queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Oneshot(PROVISIONAL_CHECKER, RESERVED_CID_IDX)), LOGIN_EXPIRATION_TIME, |state_container| {
+                if state_container.state.load(Ordering::SeqCst) != SessionState::Connected {
+                    QueueWorkerResult::EndSession
                 } else {
+                    // remove it from being called again
+                    QueueWorkerResult::Complete
+                }
+            });
+
+            if !is_server {
+                queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(DRILL_REKEY_WORKER, 0)), Duration::from_nanos(DRILL_UPDATE_FREQUENCY_LOW_BASE), move |state_container| {
+                    let time_tracker = time_tracker.clone();
+                    let ticket = kernel_ticket;
+
+                    if state_container.state.load(Ordering::Relaxed) == SessionState::Connected {
+                        let timestamp = time_tracker.get_global_time_ns();
+
+                        let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).clone().unwrap();
+
+                        let p2p_sessions = state_container.active_virtual_connections.iter().filter_map(|vconn| {
+                            if vconn.1.endpoint_container.as_ref()?.endpoint_crypto.local_is_initiator && vconn.1.is_active.load(Ordering::SeqCst) && vconn.1.last_delivered_message_timestamp.load(Ordering::SeqCst).map(|r| r.elapsed() > Duration::from_millis(15000)).unwrap_or(true) {
+                                Some(vconn.1.connection_type)
+                            } else {
+                                None
+                            }
+                        }).collect::<Vec<VirtualTargetType>>();
+
+                        let virtual_target = VirtualTargetType::HyperLANPeerToHyperLANServer(C2S_ENCRYPTION_ONLY);
+                        if let Ok(_) = state_container.initiate_drill_update(timestamp, virtual_target, Some(ticket)) {
+                            // now, call for each p2p session
+                            for vconn in p2p_sessions {
+                                if let Err(err) = state_container.initiate_drill_update(timestamp, vconn, None) {
+                                    log::warn!("Unable to initiate drill update for {:?}: {:?}", vconn, err);
+                                }
+                            }
+
+                            QueueWorkerResult::AdjustPeriodicity(calculate_update_frequency(security_level.value(), &state_container.transfer_stats))
+                        } else {
+                            log::warn!("initiate_drill_update subroutine signalled failure");
+                            QueueWorkerResult::EndSession
+                        }
+                    } else {
+                        QueueWorkerResult::Incomplete
+                    }
+                });
+            }
+
+            queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(KEEP_ALIVE_CHECKER, 0)), Duration::from_millis(KEEP_ALIVE_INTERVAL_MS), move |state_container| {
+                let timestamp = time_tracker_2.get_global_time_ns();
+                if state_container.state.load(Ordering::SeqCst) == SessionState::Connected {
+                    if state_container.keep_alive_timeout_ns != 0 {
+                        if state_container.keep_alive_subsystem_timed_out(timestamp) && state_container.meta_expiry_state.expired() {
+                            log::error!("The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
+                            QueueWorkerResult::EndSession
+                        } else {
+                            QueueWorkerResult::Incomplete
+                        }
+                    } else {
+                        log::error!("Keep alive subsystem will not be used for this session as requested");
+                        QueueWorkerResult::Complete
+                    }
+                } else {
+                    // keep it running, as we may be in provisional mode
                     QueueWorkerResult::Incomplete
                 }
             });
-        }
 
-        queue_worker.insert_reserved(QueueWorkerTicket::Periodic(KEEP_ALIVE_CHECKER, 0), Duration::from_millis(KEEP_ALIVE_INTERVAL_MS),move |sess| {
-            let timestamp = sess.time_tracker.get_global_time_ns();
-            if sess.state == SessionState::Connected {
-                let state_container = inner!(sess.state_container);
-                if state_container.keep_alive_subsystem_timed_out(timestamp) {
-                    log::warn!("The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
-                    QueueWorkerResult::EndSession
-                } else {
-                    QueueWorkerResult::Incomplete
+            // TODO: Rework UDP keep-alive subsystem to take QUIC into consideration.
+            // QUIC already handles KA, but raw udp does not
+            queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(FIREWALL_KEEP_ALIVE, 0)), FIREWALL_KEEP_ALIVE_UDP, move |state_container| {
+                if state_container.state.load(Ordering::SeqCst) == SessionState::Connected {
+                    if state_container.udp_mode == UdpMode::Disabled {
+                        //log::info!("TCP only mode detected. Removing FIREWALL_KEEP_ALIVE subroutine");
+                        return QueueWorkerResult::Complete;
+                    }
+
+                    let _ = state_container.udp_primary_outbound_tx.as_ref().unwrap().send_keep_alive();
                 }
-            } else {
-                // keep it running, as we may be in provisional mode
+
                 QueueWorkerResult::Incomplete
-            }
-        });
+            });
 
-        queue_worker.insert_reserved(QueueWorkerTicket::Periodic(FIREWALL_KEEP_ALIVE, 0), FIREWALL_KEEP_ALIVE_UDP, |sess| {
-            if sess.state == SessionState::Connected {
-                if sess.tcp_only {
-                    //log::info!("TCP only mode detected. Removing FIREWALL_KEEP_ALIVE subroutine");
-                    return QueueWorkerResult::Complete
-                }
+            queue_worker
+        };
 
-                if !sess.to_wave_ports.as_ref().unwrap().send_keep_alive_through_all() {
-                    return QueueWorkerResult::EndSession
-                }
-            }
-
-            QueueWorkerResult::Incomplete
-        });
-
-        while let Some(_) = queue_worker.next().await {
-            black_box(())
-        }
-
-        Err(NetworkError::InternalError("Queue Handler signalled shutdown"))
+        //std::mem::drop(this_main);
+        queue_worker.await
     }
 
     /// Similar to process_outbound_packet, but optimized to handle files
+    // TODO: Reduce cognitive complexity
     pub fn process_outbound_file(&self, ticket: Ticket, max_group_size: Option<usize>, file: PathBuf, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
-        let mut this = inner_mut!(self);
+        let this = self;
 
-        if this.state != SessionState::Connected {
+        if this.state.load(Ordering::Relaxed) != SessionState::Connected {
             Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}, file: {:?}) outbound, but the session is not connected", ticket, file)))
         } else {
+            // TODO: When io_uring is released for tokio, use async io
             if let Ok(std_file) = std::fs::File::open(&file) {
                 let file_name = file.file_name().ok_or(NetworkError::InternalError("Invalid filename"))?.to_str().ok_or(NetworkError::InternalError("Invalid filename"))?;
                 let file_name = String::from(file_name);
                 let time_tracker = this.time_tracker.clone();
                 let timestamp = this.time_tracker.get_global_time_ns();
-                let to_primary_stream = this.to_primary_stream.clone().unwrap();
-                let (group_sender, mut group_sender_rx) = channel::<GroupSenderDevice>(5);
-                let (stop_tx, stop_rx) = futures::channel::oneshot::channel();
+                let (group_sender, group_sender_rx) = channel(5);
+                let mut group_sender_rx = tokio_stream::wrappers::ReceiverStream::new(group_sender_rx);
+                let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
                 // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
+
+                let mut state_container = inner_mut_state!(this.state_container);
+                let cnac = state_container.cnac.clone().ok_or(NetworkError::InvalidRequest("CNAC not loaded"))?;
 
                 log::info!("Transmit file name: {}", &file_name);
                 // the key cid must be differentiated from the target cid because the target_cid needs to be zero if
                 // there is no proxying. the key cid cannot be zero; if client -> server, key uses implicated cid
-                let (file_header, object_id, target_cid, key_cid, drill, groups_needed, pqc) = match virtual_target {
+                let (to_primary_stream, file_header, object_id, target_cid, key_cid, groups_needed) = match virtual_target {
                     VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                         // if we are sending this just to the HyperLAN server (in the case of file uploads),
                         // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
-                        let object_id = this.get_and_increment_object_id();
-                        let pqc = this.post_quantum.clone().unwrap();
-                        let latest_drill = this.cnac.clone().unwrap().get_drill(None).unwrap();
-                        let target_cid = 0;
-                        // get the start group ID
-                        let group_id_start = this.get_and_increment_group_id();
-                        let (file_size, groups_needed) = scramble_encrypt_file(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_drill.clone(), pqc.clone(), HDP_HEADER_BYTE_LEN, target_cid, group_id_start, hdp_packet_crafter::group::craft_wave_payload_packet_into)
-                            .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                        cnac.visit_mut(|mut inner| -> Result<_, NetworkError> {
+                            let object_id = inner.crypt_container.get_and_increment_object_id();
+                            let group_id_start = inner.crypt_container.get_and_increment_group_id();
+                            let latest_hr = inner.crypt_container.get_hyper_ratchet(None).cloned().unwrap();
 
-                        let file_metadata = VirtualFileMetadata {
-                            object_id,
-                            name: file_name,
-                            date_created: "".to_string(),
-                            author: "".to_string(),
-                            plaintext_length: file_size,
-                            group_count: groups_needed
-                        };
-                        // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                        let amt_to_reserve = groups_needed - 1;
-                        this.current_group_id += amt_to_reserve as u64;
-                        let file_header = hdp_packet_crafter::file::craft_file_header_packet(group_id_start, &latest_drill, &pqc, ticket, security_level, virtual_target, file_metadata, timestamp);
-                        (file_header, object_id, target_cid, implicated_cid, latest_drill, groups_needed, pqc)
+                            let to_primary_stream = this.to_primary_stream.clone().unwrap();
+                            let target_cid = 0;
+                            let (file_size, groups_needed) = scramble_encrypt_file(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_hr.clone(), HDP_HEADER_BYTE_LEN, target_cid, group_id_start, hdp_packet_crafter::group::craft_wave_payload_packet_into)
+                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+
+                            let file_metadata = VirtualFileMetadata {
+                                object_id,
+                                name: file_name,
+                                date_created: "".to_string(),
+                                author: inner.auth_store.full_name().to_string(),
+                                plaintext_length: file_size,
+                                group_count: groups_needed,
+                            };
+
+                            // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
+                            let amt_to_reserve = groups_needed - 1;
+                            inner.crypt_container.rolling_group_id += amt_to_reserve as u64;
+                            let file_header = hdp_packet_crafter::file::craft_file_header_packet(&latest_hr, group_id_start, ticket, security_level, virtual_target, file_metadata, timestamp);
+                            Ok((to_primary_stream, file_header, object_id, target_cid, implicated_cid, groups_needed))
+                        })?
                     }
 
                     VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                         log::info!("Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
-                        // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and Toolset
-                        let mut state_container = inner_mut!(this.state_container);
+                        // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
                         if let Some(vconn) = state_container.active_virtual_connections.get_mut(&target_cid) {
                             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
-                                let latest_usable_drill = endpoint_container.endpoint_crypto.get_drill(None).unwrap().clone();
-                                let object_id = endpoint_container.get_and_increment_object_id();
+                                let object_id = endpoint_container.endpoint_crypto.get_and_increment_object_id();
                                 // reserve group ids
-                                let start_group_id = endpoint_container.get_and_increment_group_id();
+                                let start_group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
 
-                                let ref pqc = endpoint_container.endpoint_crypto.pqc;
+                                let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap();
 
-                                let (file_size, groups_needed) = scramble_encrypt_file(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_usable_drill.clone(), pqc.clone(), HDP_HEADER_BYTE_LEN, target_cid, start_group_id, hdp_packet_crafter::group::craft_wave_payload_packet_into)
+                                let preferred_primary_stream = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
+
+                                let (file_size, groups_needed) = scramble_encrypt_file(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_usable_ratchet.clone(), HDP_HEADER_BYTE_LEN, target_cid, start_group_id, hdp_packet_crafter::group::craft_wave_payload_packet_into)
                                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
                                 let file_metadata = VirtualFileMetadata {
@@ -621,26 +938,29 @@ impl HdpSession {
                                     date_created: "".to_string(),
                                     author: "".to_string(),
                                     plaintext_length: file_size,
-                                    group_count: groups_needed
+                                    group_count: groups_needed,
                                 };
+
+                                let file_header = hdp_packet_crafter::file::craft_file_header_packet(latest_usable_ratchet, start_group_id, ticket, security_level, virtual_target, file_metadata, timestamp);
+
                                 // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                                 let amt_to_reserve = groups_needed - 1;
-                                endpoint_container.rolling_group_id += amt_to_reserve as u64;
+                                endpoint_container.endpoint_crypto.rolling_group_id += amt_to_reserve as u64;
 
-                                let file_header = hdp_packet_crafter::file::craft_file_header_packet(start_group_id, &latest_usable_drill, pqc, ticket, security_level, virtual_target, file_metadata, timestamp);
-                                (file_header, object_id, target_cid, target_cid, latest_usable_drill, groups_needed, pqc.clone())
+                                (preferred_primary_stream, file_header, object_id, target_cid, target_cid, groups_needed)
                             } else {
                                 log::error!("Endpoint container not found");
-                                return Ok(())
+                                return Err(NetworkError::InternalError("Endpoint container not found"));
                             }
                         } else {
                             log::error!("Unable to find active vconn for the channel");
-                            return Ok(())
+                            return Err(NetworkError::InternalError("Virtual connection not found for channel"));
                         }
                     }
 
                     _ => {
-                        unimplemented!("HyperWAN functionality not yet implemented")
+                        log::error!("HyperWAN functionality not yet implemented");
+                        return Err(NetworkError::InternalError("HyperWAN functionality not yet implemented"));
                     }
                 };
 
@@ -654,26 +974,25 @@ impl HdpSession {
                 // send the FILE_HEADER
                 to_primary_stream.unbounded_send(file_header).map_err(|_| NetworkError::InternalError("Primary stream disconnected"))?;
                 // create the outbound file container
-                let mut state_container = inner_mut!(this.state_container);
-                let (next_gs_alerter, mut next_gs_alerter_rx) = unbounded();
-                let (start, start_rx) = futures::channel::oneshot::channel();
+                let kernel_tx = state_container.kernel_tx.clone();
+                let (next_gs_alerter, next_gs_alerter_rx) = unbounded();
+                let mut next_gs_alerter_rx = tokio_stream::wrappers::UnboundedReceiverStream::new(next_gs_alerter_rx);
+                let (start, start_rx) = tokio::sync::oneshot::channel();
                 let outbound_file_transfer_container = OutboundFileTransfer {
                     stop_tx: Some(stop_tx),
                     object_id,
                     ticket,
                     next_gs_alerter: next_gs_alerter.clone(),
-                    start: Some(start)
+                    start: Some(start),
                 };
                 let file_key = FileKey::new(key_cid, object_id);
                 let _ = state_container.outbound_files.insert(file_key, outbound_file_transfer_container);
                 // spawn the task that takes GroupSenders from the threadpool cryptscrambler
                 std::mem::drop(state_container);
-                std::mem::drop(this);
+
                 let this = self.clone();
-                let _ = spawn!(async move {
-                    let ref drill = drill;
+                let future = async move {
                     let ref this = this;
-                    let ref pqc = pqc;
                     let ref next_gs_alerter = next_gs_alerter;
                     // this future will resolve when the sender drops in the file_crypt_scrambler
                     match start_rx.await {
@@ -681,10 +1000,10 @@ impl HdpSession {
                             log::warn!("start_rx signalled to NOT begin streaming process. Ending async subroutine");
                             return;
                         }
-                         Err(err) => {
-                             log::error!("start_rx error occured: {:?}", err);
-                             return;
-                         }
+                        Err(err) => {
+                            log::error!("start_rx error occurred: {:?}", err);
+                            return;
+                        }
 
                         _ => {
                             log::info!("Outbound file transfer async subroutine signalled to begin!");
@@ -694,77 +1013,137 @@ impl HdpSession {
                     let mut relative_group_id = 0;
                     // while waiting, we likely have a set of GroupSenders to process
                     while let Some(sender) = group_sender_rx.next().await {
-                        // construct the OutboundTransmitters
-                        let mut transmitter = GroupTransmitter::new_from_group_sender(GroupSender::from(sender), pqc.clone(), drill.clone(), object_id, target_cid, ticket, security_level, time_tracker.clone());
-                        // group_id is unique per session
-                        let group_id = transmitter.group_id;
-                        let mut sess = inner_mut!(this);
-                        // We manually send the header. The tails get sent automatically
-                        log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
-                        if let Err(err) = sess.send_to_primary_stream(Some(ticket), transmitter.generate_group_header(virtual_target)) {
-                            log::error!("Unable to send through primary stream: {}", err.to_string());
-                            return;
-                        }
-                        let group_byte_len = transmitter.get_total_plaintext_bytes();
-                        sess.transfer_stats += TransferStats::new(timestamp, group_byte_len as isize);
+                        match sender {
+                            Ok(sender) => {
+                                let (group_id, key) = {
+                                    // construct the OutboundTransmitters
+                                    let sess = this;
+                                    if sess.state.load(Ordering::Relaxed) != SessionState::Connected {
+                                        log::warn!("Since transmitting the file, the session ended");
+                                        return;
+                                    }
 
-                        let outbound_container = OutboundTransmitterContainer::new(Some(next_gs_alerter.clone()),transmitter, group_byte_len, groups_needed, relative_group_id, ticket);
-                        relative_group_id += 1;
-                        // The payload packets won't be sent until a GROUP_HEADER_ACK is received
-                        // the key is the target_cid coupled with the group id
-                        let key = GroupKey::new(key_cid, group_id);
-                        let mut state_container = inner_mut!(sess.state_container);
-                        assert!(state_container.outbound_transmitters.insert(key, outbound_container).is_none());
-                        // We can't just add the outbound container. We need to wait til we get the signal to. When the > 50% WAVE_ACKs
-                        // are received, the OutboundFileContainer (which should have a group_notifier) should send a signal which we await for
-                        // here. Also: DROP `sess`!
-                        std::mem::drop(state_container);
-                        std::mem::drop(sess);
+                                    let mut state_container = inner_mut_state!(sess.state_container);
 
-                        // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
-                        // received a signal here
-                        if let None = next_gs_alerter_rx.next().await {
-                            log::warn!("next_gs_alerter: steam ended");
-                            return;
-                        }
+                                    let proper_latest_hyper_ratchet = match virtual_target {
+                                        VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => { cnac.get_hyper_ratchet(None) }
+                                        VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid) => {
+                                            match StateContainerInner::get_peer_session_crypto(&mut state_container.active_virtual_connections, peer_cid) {
+                                                Some(peer_sess_crypt) => {
+                                                    peer_sess_crypt.get_hyper_ratchet(None).cloned()
+                                                }
 
-                        let this = inner!(this);
-
-                        this.queue_worker.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |sess| {
-                            let mut state_container = inner_mut!(sess.state_container);
-                            if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
-                                // as long as a wave ACK has been received, proceed with the timeout check
-                                // The reason why is because this group may be loaded, but the previous one isn't done
-                                if transmitter.has_begun {
-                                    let transmitter = inner!(transmitter.reliability_container);
-                                    if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
-                                        log::error!("Outbound group {} has expired; dropping entire transfer", group_id);
-                                        std::mem::drop(transmitter);
-                                        if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
-                                            if let Some(stop) = outbound_container.stop_tx.take() {
-                                                if let Err(_) = stop.send(()) {
-                                                    log::error!("Unable to send stop signal");
+                                                None => {
+                                                    log::warn!("Since transmitting the file, the peer session ended");
+                                                    return;
                                                 }
                                             }
-                                        } else {
-                                            log::warn!("Attempted to remove {:?}, but was already absent from map", &file_key);
                                         }
-                                        QueueWorkerResult::Complete
-                                    } else {
-                                        // it hasn't expired yet, and is still transmitting
-                                        QueueWorkerResult::Incomplete
+
+                                        _ => {
+                                            log::error!("HyperWAN Functionality not implemented");
+                                            return;
+                                        }
+                                    };
+
+                                    if proper_latest_hyper_ratchet.is_none() {
+                                        log::error!("Unable to unwrap HyperRatchet (X-05)");
+                                        return;
                                     }
-                                } else {
-                                    // WAVE_ACK hasn't been received yet; try again later
-                                    QueueWorkerResult::Incomplete
+
+                                    let hyper_ratchet = proper_latest_hyper_ratchet.unwrap();
+
+                                    let mut transmitter = GroupTransmitter::new_from_group_sender(to_primary_stream.clone(), sender, RatchetPacketCrafterContainer::new(hyper_ratchet.clone(), None), object_id, target_cid, ticket, security_level, time_tracker.clone());
+                                    // group_id is unique per session
+                                    let group_id = transmitter.group_id;
+
+                                    // We manually send the header. The tails get sent automatically
+                                    log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
+                                    if let Err(err) = sess.try_action(Some(ticket), || transmitter.transmit_group_header(virtual_target)) {
+                                        log::error!("Unable to send through primary stream: {}", err.to_string());
+                                        return;
+                                    }
+                                    let group_byte_len = transmitter.get_total_plaintext_bytes();
+
+
+                                    let outbound_container = OutboundTransmitterContainer::new(Some(next_gs_alerter.clone()), transmitter, group_byte_len, groups_needed, relative_group_id, ticket);
+                                    relative_group_id += 1;
+                                    // The payload packets won't be sent until a GROUP_HEADER_ACK is received
+                                    // the key is the target_cid coupled with the group id
+                                    let key = GroupKey::new(key_cid, group_id);
+
+                                    assert!(state_container.outbound_transmitters.insert(key, outbound_container).is_none());
+                                    // We can't just add the outbound container. We need to wait til we get the signal to. When the > 50% WAVE_ACKs
+                                    // are received, the OutboundFileContainer (which should have a group_notifier) should send a signal which we await for
+                                    // here. Also: DROP `sess`!
+                                    std::mem::drop(state_container);
+                                    //sess.transfer_stats += TransferStats::new(timestamp, group_byte_len as isize);
+                                    (group_id, key)
+                                };
+
+                                // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
+                                // received a signal here
+
+                                if let None = next_gs_alerter_rx.next().await {
+                                    log::warn!("next_gs_alerter: steam ended");
+                                    return;
                                 }
-                            } else {
-                                // it finished
-                                QueueWorkerResult::Complete
+
+                                let kernel_tx2 = kernel_tx.clone();
+
+                                this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
+                                    if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
+                                        // as long as a wave ACK has been received, proceed with the timeout check
+                                        // The reason why is because this group may be loaded, but the previous one isn't done
+                                        if transmitter.has_begun {
+                                            let ref transmitter = transmitter.burst_transmitter.group_transmitter;
+                                            if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
+                                                if state_container.meta_expiry_state.expired() {
+                                                    log::error!("Outbound group {} has expired; dropping entire transfer", group_id);
+                                                    //std::mem::drop(transmitter);
+                                                    if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
+                                                        if let Some(stop) = outbound_container.stop_tx.take() {
+                                                            if let Err(_) = stop.send(()) {
+                                                                log::error!("Unable to send stop signal");
+                                                            }
+                                                        }
+                                                    } else {
+                                                        log::warn!("Attempted to remove {:?}, but was already absent from map", &file_key);
+                                                    }
+
+                                                    if let Err(_) = kernel_tx2.unbounded_send(HdpServerResult::InternalServerError(Some(ticket), format!("Timeout on ticket {}", ticket))) {
+                                                        log::error!("[File] Unable to send kernel error signal. Ending session");
+                                                        QueueWorkerResult::EndSession
+                                                    } else {
+                                                        QueueWorkerResult::Complete
+                                                    }
+                                                } else {
+                                                    log::info!("[X-04] Other outbound groups being processed; patiently awaiting group {}", group_id);
+                                                    QueueWorkerResult::Incomplete
+                                                }
+                                            } else {
+                                                // it hasn't expired yet, and is still transmitting
+                                                QueueWorkerResult::Incomplete
+                                            }
+                                        } else {
+                                            // WAVE_ACK hasn't been received yet; try again later
+                                            QueueWorkerResult::Incomplete
+                                        }
+                                    } else {
+                                        // it finished
+                                        QueueWorkerResult::Complete
+                                    }
+                                });
                             }
-                        });
+
+                            Err(err) => {
+                                let _ = kernel_tx.clone().unbounded_send(HdpServerResult::InternalServerError(Some(ticket), err.to_string()));
+                            }
+                        }
                     }
-                });
+                };
+
+                let _ = spawn!(future);
 
                 Ok(())
             } else {
@@ -773,199 +1152,175 @@ impl HdpSession {
         }
     }
 
-    /// When a raw packet is received by the [HdpServerRequest] listeners, it is passed into here.
-    /// This will return None if the connection is not engaged. An incomplete state will not
-    /// be valid either.
-    ///
-    /// This will send the group header too
+    #[allow(dead_code)]
+    pub(crate) fn spawn_message_sender_function(this: HdpSession, mut rx: futures::channel::mpsc::Receiver<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) {
+        let task = async move {
+            let ref this = this;
+            let mut stopper_rx = inner!(this.stopper_tx).subscribe();
+            let ref to_kernel_tx = this.kernel_tx.clone();
+
+            let stopper = async move {
+                stopper_rx.recv().await.map_err(|err| NetworkError::Generic(err.to_string()))
+            };
+
+            let receiver = async move {
+                while let Some((ticket, message, v_target, security_level)) = rx.next().await {
+                    if let Err(err) = this.process_outbound_message(ticket, message, v_target, security_level) {
+                        to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket), err.into_string())).map_err(|err| NetworkError::Generic(err.to_string()))?
+                    }
+                }
+
+                Ok(())
+            };
+
+            tokio::select! {
+                res0 = stopper => res0,
+                res1 = receiver => res1
+            }
+        };
+
+        let _ = spawn!(task);
+    }
+
+    #[allow(unused_results, dead_code)]
+    pub fn process_outbound_message(&self, ticket: Ticket, packet: SecureProtocolPacket, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
+        inner_mut_state!(self.state_container).process_outbound_message(ticket, packet, virtual_target, security_level, false)
+    }
+
     #[allow(unused_results)]
-    pub fn process_outbound_packet(&self, ticket: Ticket, packet: SecBuffer, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
-        let mut this = inner_mut!(self);
-        if this.state != SessionState::Connected {
-            Err(NetworkError::Generic(format!("Attempted to send data (ticket: {}, len: {}) outbound, but the session is not connected", ticket, packet.len())))
-        } else {
-            let cnac = this.cnac.clone().unwrap();
-            let time_tracker = this.time_tracker.clone();
-            let timestamp = time_tracker.get_global_time_ns();
-            // object singleton == 0 implies that the data does not belong to a file
-            const OBJECT_SINGLETON: u32 = 0;
-            // Drop this to ensure that it doesn't block other async closures from accessing the inner device
-            // std::mem::drop(this);
-            let (mut transmitter, group_id, target_cid) = match virtual_target {
-                VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
-                    // if we are sending this just to the HyperLAN server (in the case of file uploads),
-                    // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
-                    let group_id = this.get_and_increment_group_id();
-                    let pqc = this.post_quantum.as_ref().unwrap();
-                    let latest_drill = cnac.get_drill(None).unwrap();
-                    let target_cid = 0;
-                    (GroupTransmitter::new(OBJECT_SINGLETON, target_cid, latest_drill, pqc, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid)
-                }
+    pub(crate) async fn dispatch_peer_command(&self, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
+        log::info!("Dispatching peer command ...");
+        let this = self;
+        let timestamp = this.time_tracker.get_global_time_ns();
+        let mut do_save = false;
 
-                VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                    log::info!("Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
-                    // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and Toolset
-                    let mut state_container = inner_mut!(this.state_container);
-                    if let Some(vconn) = state_container.active_virtual_connections.get_mut(&target_cid) {
-                        if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
-                            let group_id = endpoint_container.get_and_increment_group_id();
-                            let latest_usable_drill = endpoint_container.endpoint_crypto.get_drill(None).unwrap().clone();
-                            let ref pqc = endpoint_container.endpoint_crypto.pqc;
-                            (GroupTransmitter::new(OBJECT_SINGLETON, target_cid, latest_usable_drill, pqc, packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
-                        } else {
-                            log::error!("Endpoint container not found");
-                            return Ok(())
-                        }
-                    } else {
-                        log::error!("Unable to find active vconn for the channel");
-                        return Ok(())
-                    }
-                }
+        let (cnac, res) = {
+            let mut state_container = inner_mut_state!(this.state_container);
 
-                _ => {
-                    unimplemented!("HyperWAN functionality not yet implemented")
-                }
-            };
-
-            // TODO: implement FAST-SEND if TCP detected to reduce from 2 back-and-forths to 1
-            // We manually send the header. The tails get sent automatically
-            log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
-            let group_len = transmitter.get_total_plaintext_bytes();
-            this.send_to_primary_stream(Some(ticket), transmitter.generate_group_header(virtual_target))?;
-            this.transfer_stats += TransferStats::new(timestamp, group_len as isize);
-            let outbound_container = OutboundTransmitterContainer::new(None,transmitter, group_len, 1, 0, ticket);
-            // The payload packets won't be sent until a GROUP_HEADER_ACK is received
-            // NOTE: Ever since using GroupKeys, we use either the implicated_cid (for client -> server conns) or target_cids (for peer conns)
-            let key = GroupKey::new(target_cid, group_id);
-            inner_mut!(this.state_container).outbound_transmitters.insert(key, outbound_container);
-
-            this.queue_worker.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |sess| {
-                let state_container = inner!(sess.state_container);
-                if let Some(transmitter) = state_container.outbound_transmitters.get(&key) {
-                    let transmitter = inner!(transmitter.reliability_container);
-                    if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
-                        log::info!("Outbound group {} has expired; dropping from map", group_id);
-                        QueueWorkerResult::Complete
-                    } else {
-                        // it hasn't expired yet, and is still transmitting
-                        QueueWorkerResult::Incomplete
-                    }
-                } else {
-                    // it finished
-                    QueueWorkerResult::Complete
-                }
-            });
-
-            Ok(())
-        }
-    }
-
-    pub(crate) fn process_outbound_broadcast_command(&self, ticket: Ticket, command: GroupBroadcast) -> Result<(), NetworkError> {
-        let this = inner!(self);
-        if this.state != SessionState::Connected {
-            return Err(NetworkError::InternalError("Session not connected"))
-        }
-
-        let pqc = this.post_quantum.as_ref().unwrap();
-        let cnac = this.cnac.as_ref().unwrap();
-        let to_primary_stream = this.to_primary_stream.as_ref().unwrap();
-
-        cnac.borrow_drill(None, |drill_opt| {
-            let drill = drill_opt.ok_or(NetworkError::InternalError("Drill missing"))?;
-            let timestamp = this.time_tracker.get_global_time_ns();
-            let packet = match &command {
-                GroupBroadcast::Create(_) |
-                GroupBroadcast::End(_) |
-                GroupBroadcast::Kick(_, _) |
-                GroupBroadcast::Message(_, _, _) |
-                GroupBroadcast::Add(_,_) |
-                GroupBroadcast::AcceptMembership(_) |
-                GroupBroadcast::LeaveRoom(_) => {
-                    hdp_packet_crafter::peer_cmd::craft_group_message_packet(pqc,drill, &command, ticket, ENDPOINT_ENCRYPTION_OFF, timestamp)
-                }
-
-                n => {
-                    return Err(NetworkError::Generic(format!("{:?} is not a valid group broadcast request", &n)))
-                }
-            };
-
-            to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))
-        })
-    }
-
-    async fn listen_wave_port<S: Stream<Item=Result<(BytesMut, SocketAddr), std::io::Error>> + Unpin>(this: HdpSession, to_kernel: UnboundedSender<HdpServerResult>, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S) -> Result<(), NetworkError> {
-        'looper: loop {
-            match stream.next().await {
-                None => {
-                    //log::info!("WAVE LISTENER: NO ITEMS");
-                },
-
-                Some(res) => {
-                    match res {
-                        Err(err) => {
-                            log::error!("Wave stream error: {}", err.to_string());
-                            break 'looper;
-                        },
-
-                        Ok((packet, remote_peer)) => {
-                            log::trace!("packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
-                            if remote_peer.ip() != hole_punched_addr_ip {
-                                log::error!("The packet received is not part of the firewall session. Dropping");
-                            } else {
-                                if packet != KEEP_ALIVE {
-                                    let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                                    if let Err(err) = this.process_inbound_packet_wave(packet) {
-                                        to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
-                                        log::error!("The session manager returned a critical error. Aborting system");
-                                        return Err(err);
-                                    }
-                                }
+            if let Some(cnac) = state_container.cnac.clone() {
+                if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
+                    // move into the closure without cloning the drill
+                    let packet = cnac.visit_mut(|mut inner| {
+                        let this_cid = inner.cid;
+                        let signal_processed = match peer_command {
+                            PeerSignal::DisconnectUDP(v_conn) => {
+                                // disconnect UDP locally
+                                log::info!("Closing UDP subsystem locally ...");
+                                state_container.remove_udp_channel(v_conn.get_target_cid());
+                                PeerSignal::DisconnectUDP(v_conn)
                             }
-                        }
+                            // case 1: user just initiated a post-register request that has Fcm enabled
+                            PeerSignal::PostRegister(vconn, a, b, c, FcmPostRegister::Enable) => {
+                                let target_cid = vconn.get_original_target_cid();
+                                log::info!("[FCM] client {} requested FCM post-register with {}", inner.cid, target_cid);
+
+                                if state_container.peer_kem_states.contains_key(&target_cid) || inner.fcm_crypt_container.contains_key(&target_cid) {
+                                    return Err(NetworkError::InvalidRequest("Cannot register to the specified client because a concurrent registration process is already occurring, or already registered"));
+                                }
+
+                                // create constructor
+                                // TODO: Extend FCM to include custom params (within reason, ofc)
+                                let fcm_constructor = FcmRatchetConstructor::new_alice(inner.cid, 0, ConstructorOpts::default()).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
+                                let fcm_post_register = FcmPostRegister::AliceToBobTransfer(fcm_constructor.stage0_alice().serialize_to_vector().unwrap(), inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidRequest("Fcm not configured for this client"))?, this_cid);
+                                // finally, store the constructor inside the state container
+                                if let Some(_) = inner.kem_state_containers.insert(target_cid, ConstructorType::Fcm(fcm_constructor)) {
+                                    log::error!("Overwrote pre-existing FCM KEM container. Report to developers")
+                                }
+
+                                do_save = true;
+                                PeerSignal::PostRegister(vconn, a, b, c, fcm_post_register)
+                            }
+
+                            // case 2: local just accepted, fcm is enabled. But, signal was not sent via FCM. Instead, was sent via normal network
+                            // TODO: This doesn't make sense. Why is it switching on AliceToBobTransfer, and not BobToAliceTransfer??? ANSWER: check the else statement in hyxewave:[..]/peer.rs. It does not switch-out the transfer type. that must instead be done here (delegation of responsibility as desired)
+                            PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, _this_cid)) => {
+                                let target_cid = vconn.get_original_target_cid();
+                                let local_cid = inner.cid;
+                                log::info!("[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
+                                if inner.fcm_crypt_container.contains_key(&target_cid) {
+                                    return Err(NetworkError::InvalidRequest("Cannot register to the specified client because crypt container already exists"));
+                                }
+
+                                let fcm_keys_local = inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidRequest("Local node does not have FCM keys to share with the endpoint"))?;
+
+                                let bob_constructor = FcmRatchetConstructor::new_bob(ConstructorOpts::default(), FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| NetworkError::Generic(err.to_string()))?).ok_or(NetworkError::InvalidRequest("Invalid FCM ratchet constructor"))?;
+                                let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(NetworkError::InvalidRequest("Invalid FCM ratchet constructor"))?, fcm_keys_local.clone(), local_cid);
+                                let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(NetworkError::InvalidRequest("Invalid FCM Ratchet constructor"))?;
+                                // no state container, we just add the peer crypt container straight-away
+                                inner.fcm_crypt_container.insert(target_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, peer_fcm_keys)); // local is NOT initiator in this case
+                                do_save = true;
+
+                                PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), fcm_post_register)
+                            }
+
+                            n => {
+                                n
+                            }
+                        };
+
+                        let hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).unwrap();
+                        let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
+                        Ok(packet)
+                    })?;
+
+                    (cnac, to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string())))
+                } else {
+                    return Err(NetworkError::InternalError("Invalid configuration"))
+                }
+            } else {
+                return Err(NetworkError::InternalError("Invalid configuration"))
+            }
+        };
+
+        if do_save {
+            cnac.save().await?;
+        }
+
+        res
+    }
+
+    async fn listen_wave_port<S: UdpStream>(this: HdpSession, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
+        while let Some(res) = stream.next().await {
+            match res {
+                Ok((packet, remote_peer)) => {
+                    log::info!("packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
+                    if remote_peer.ip() != hole_punched_addr_ip {
+                        log::warn!("The packet received is not part of the firewall session. Dropping");
+                    } else {
+                        let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
+                        this.process_inbound_packet_wave(packet, peer_session_accessor)?;
                     }
+                }
+
+                Err(err) => {
+                    log::warn!("UDP Stream error: {:#?}", err);
+                    break;
                 }
             }
         }
-        /*
-        while let Some(Ok((packet, remote_peer))) = stream.next().await {
-            log::info!("packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
-            if remote_peer.ip() != hole_punched_addr_ip {
-                log::error!("The packet received is not part of the firewall session. Dropping");
-            } else {
-                let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                if let Err(err) = this.process_inbound_packet_wave(packet) {
-                    to_kernel.unbounded_send(HdpServerResult::InternalServerError(None, err.to_string())).unwrap();
-                    log::error!("The session manager returned a critical error. Aborting system");
-                    return Err(err);
-                }
-            }
-        }*/
 
         log::info!("Ending waveport listener on {}", local_port);
 
         Ok(())
     }
 
-    async fn wave_outbound_sender<S: SinkExt<(Bytes, SocketAddr)> + Unpin>(local_is_server: bool, mut receiver: UnboundedReceiver<(usize, Bytes)>, hole_punched_addrs: Vec<HolePunchedSocketAddr>, to_kernel_tx: UnboundedSender<HdpServerResult>, mut sinks: Vec<S>) -> Result<(), NetworkError> {
-        while let Some((idx, packet)) = receiver.next().await {
-            if let Some(sink) = sinks.get_mut(idx) {
+    async fn udp_outbound_sender<S: SinkExt<Bytes> + Unpin>(local_is_server: bool, receiver: UnboundedReceiver<(u8, BytesMut)>, hole_punched_addr: HolePunchedSocketAddr, mut sink: S, peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
+        let mut receiver = tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
+        let target_cid = peer_session_accessor.get_target_cid();
 
-                // TODO: figure out the logistics of this IP mess for all possible use cases. This works for hyperlan though
-                let send_addr = if local_is_server {
-                    // if the local is server, we send to the natted ports instead of the initial. It is flip-flopped
-                    hole_punched_addrs[idx].natted
-                } else {
-                    hole_punched_addrs[idx].initial
-                };
-
-                log::trace!("About to send packet w/len {} through UDP sink idx: {} | Dest: {:?}", packet.len(), idx, &send_addr);
-
-                if let Err(_err) = sink.send((packet, send_addr)).await {
-                    to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(None, format!("Sink Error on idx {}", idx))).unwrap();
-                }
+        while let Some((cmd_aux, packet)) = receiver.next().await {
+            // TODO: figure out the logistics of this IP mess for all possible use cases. This works for hyperlan though
+            let send_addr = if local_is_server {
+                // if the local is server, we send to the natted ports instead of the initial. It is flip-flopped
+                hole_punched_addr.natted
             } else {
-                log::error!("Invalid idx: {}", idx);
-            }
+                hole_punched_addr.initial
+            };
+
+            let packet = peer_session_accessor.borrow_hr(None, |hr, _| hdp_packet_crafter::udp::craft_udp_packet(hr, cmd_aux,packet, target_cid, SecurityLevel::LOW))?;
+
+            log::trace!("About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);
+            sink.send(packet.freeze()).await.map_err(|_| NetworkError::InternalError("UDP sink unable to receive outbound requests"))?;
         }
 
         log::info!("Outbound wave sender ending");
@@ -973,101 +1328,48 @@ impl HdpSession {
         Ok(())
     }
 
-    /// In general, the packets that come through here are one of two general types: Either the modulated transmission of
-    /// the encryption file, or, post-registration modulated data
-    pub fn process_inbound_packet_wave(&self, packet: HdpPacket) -> Result<(), NetworkError> {
+    pub fn process_inbound_packet_wave(&self, packet: HdpPacket, accessor: &EndpointCryptoAccessor) -> Result<(), NetworkError> {
         if packet.get_length() < HDP_HEADER_BYTE_LEN {
-            return Ok(())
+            return Ok(());
         }
-
-        let mut this = inner_mut!(self);
 
         //log::info!("Wave inbound port (original): {}", packet.get_remote_port());
 
-        if let Some((header, payload)) = packet.parse() {
-            // even in the case of proxy, we can quickly see if it's even worth proxying
-
-            // now, check to see if we need to proxy the wave packet. With the same logic as with primary packets, we check
-            // to see if the target_cid is not zero
-            let target_cid = header.target_cid.get();
-            let mut proxy_cid_info = None;
-            let this_implicated_cid = this.implicated_cid.load(Ordering::SeqCst);
-            if target_cid != 0 {
-                // after the UDP hole-punching process, it is possible that packets arrive here
-                // that are small ACK's. Ignore them, but check implicated_cid below since, if they arrive,
-                // this will get triggered before a session starts
-                if let Some(this_implicated_cid) = this_implicated_cid {
-                    if this_implicated_cid != target_cid {
-                        // we need to proxy the wave packet
-                        log::info!("Proxying WAVE packet from {} to {}", this_implicated_cid, target_cid);
-                        // check for the existence of the vconn
-                        let state_container = inner!(this.state_container);
-                        if let Some(peer_vconn) = state_container.active_virtual_connections.get(&target_cid) {
-                            let senders = peer_vconn.sender.as_ref().unwrap();
-                            if let Some(peer_udp_sender) = senders.0.as_ref() {
-                                // in this case, we can complete the movement all the way through w/ UDP
-                                if !peer_udp_sender.unbounded_send(packet.into_packet()) {
-                                    log::error!("[UDP] Unable to proxy WAVE packet from {} to {} (TrySendError)", this_implicated_cid, target_cid);
-                                    return Ok(())
-                                }
-                            } else {
-                                // in this case, while we can route from A -> S w/ UDP, going from S -> B will require TCP
-                                if let Err(_) = senders.1.unbounded_send(packet.into_packet()) {
-                                    log::error!("[TCP] Unable to proxy WAVE packet from {} to {} (TrySendError)", this_implicated_cid, target_cid);
-                                    return Ok(())
-                                }
-                            }
-                            // now that the packet was forwarded, we automatically switch into the outer branch and return Ok(());
-                        } else {
-                            log::error!("Unable to proxy wave packet; Virtual connection to {} not active", target_cid);
-                        }
-
-                        return Ok(())
-                    } else {
-                        // since implicated_cid == target_cid, the packet has reached its destination
-                        proxy_cid_info = Some((header.session_cid.get(), target_cid))
-                    }
-                }
-                // else, the wave packet has reached its destination, and as such, the normal processing logic can execute below
+        if let Some((header, _)) = packet.parse() {
+            // we only process streaming packets
+            if header.cmd_aux != packet_flags::cmd::aux::udp::STREAM {
+                // discard any keep alives
+                return Ok(())
             }
 
-            // since we are here, it means the wave packet reached its destination
-            let v_src_port = payload[0] as u16;
-            let v_recv_port = payload[1] as u16;
-            let payload = &payload[2..];
-
-            log::info!("WAVE Packet with cmd {} being processed by session {}", header.cmd_primary, this.get_id());
-            match header.cmd_primary {
-                packet_flags::cmd::primary::GROUP_PACKET => {
-                    match hdp_packet_processor::wave_group_packet::process(&mut wrap_inner_mut!(this), v_src_port, v_recv_port, &header, payload, proxy_cid_info) {
-                        GroupProcessorResult::SendToKernel(ticket, concatenated_packet) => {
-                            this.send_to_kernel(HdpServerResult::DataDelivery(ticket, this_implicated_cid.unwrap(), concatenated_packet))?;
+            let hr_version = header.drill_version.get();
+            let mut endpoint_cid_info = None;
+            match check_proxy(self.implicated_cid.get(), header.cmd_primary, header.cmd_aux, header.session_cid.get(), header.target_cid.get(), self, &mut endpoint_cid_info, ReceivePortType::UnorderedUnreliable, packet) {
+                Some(packet) => {
+                    match hdp_packet_processor::udp_packet::process(self, packet, hr_version, accessor) {
+                        Ok(PrimaryProcessorResult::Void) => {
                             Ok(())
                         }
 
-                        GroupProcessorResult::ReplyToSender(return_packet) => {
-                            this.send_to_primary_stream(None, return_packet)?;
-                            Ok(())
+                        Ok(PrimaryProcessorResult::EndSession(err)) => {
+                            // stop the UDP stream
+                            log::warn!("UDP session ending: {:?}", err);
+                            Err(NetworkError::Generic(err.to_string()))
                         }
 
-                        GroupProcessorResult::Void => {
-                            // no-op
-                            Ok(())
+                        Err(err) => {
+                            // stop the UDP stream
+                            log::warn!("UDP session ending: {:?}", err);
+                            Err(err)
                         }
 
-                        GroupProcessorResult::Error(err) => {
-                            this.send_to_kernel(HdpServerResult::InternalServerError(Some(header.context_info.get().into()), err))?;
+                        _ => {
                             Ok(())
-                        }
-                        GroupProcessorResult::ShutdownSession(err) => {
-                            this.send_to_kernel(HdpServerResult::InternalServerError(Some(header.context_info.get().into()), err))?;
-                            Err(NetworkError::InternalError("Session signalled to shutdown. Reason sent to kernel"))
                         }
                     }
                 }
 
-                _ => {
-                    log::trace!("A non-group packet was received on a waveform port");
+                None => {
                     Ok(())
                 }
             }
@@ -1078,81 +1380,35 @@ impl HdpSession {
     }
 
     /// Returns true if the disconnect initiate was a success, false if not. An error returns if something else occurs
-    pub fn initiate_disconnect(&self, ticket: Ticket, target: VirtualConnectionType) -> Result<bool, NetworkError> {
-        let session = inner!(self);
-        if session.state != SessionState::Connected {
+    pub fn initiate_disconnect(&self, ticket: Ticket, _target: VirtualConnectionType) -> Result<bool, NetworkError> {
+        let session = self;
+        if session.state.load(Ordering::Relaxed) != SessionState::Connected {
             log::error!("Must be connected to HyperLAN in order to start disconnect")
         }
 
-        let cnac = session.cnac.as_ref().unwrap();
-        let drill = cnac.get_drill(None).unwrap();
+        let state_container = inner_state!(session.state_container);
+
+        let cnac = state_container.cnac.as_ref().unwrap();
+        let hyper_ratchet = cnac.get_hyper_ratchet(None).unwrap();
         let timestamp = session.time_tracker.get_global_time_ns();
+        let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).clone().unwrap();
         let to_primary_stream = session.to_primary_stream.as_ref().unwrap();
         let ref to_kernel_tx = session.kernel_tx;
-        let mut state_container = inner_mut!(session.state_container);
-        state_container.disconnect_state.virtual_connection_type = Some(target);
 
-        match target {
-            VirtualConnectionType::HyperLANPeerToHyperLANPeer(_implicated_cid, target_cid) => {
-                if let Some(virtual_conn) = state_container.active_virtual_connections.get(&target_cid) {
-                    if virtual_conn.connection_type == target {
-                        log::info!("Successfully found the active virtual connection to HyperLAN peer {}. Now initiating disconnect response with HyperLAN server", target_cid);
-                        let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(target, &drill, ticket, timestamp);
-                        state_container.disconnect_state.ticket = ticket;
-                        Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket));
-                        Ok(true)
-                    } else {
-                        log::error!("Target CID {} is not a HyperLAN Peer -> HyperLAN Peer type", target_cid);
-                        Ok(false)
-                    }
-                } else {
-                    log::error!("Target CID {} does not exist as an active connection", target_cid);
-                    Ok(false)
-                }
-            }
-
-            VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) => {
-                log::info!("Now initiating disconnect response with HyperLAN server {}", implicated_cid);
-                state_container.disconnect_state.ticket = ticket;
-                let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(target, &drill, ticket, timestamp);
-                Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket));
-                Ok(true)
-            }
-
-            VirtualConnectionType::HyperLANPeerToHyperWANPeer(_implicated_cid, _icid, _target_cid) => {
-                unimplemented!()
-            }
-
-            VirtualConnectionType::HyperLANPeerToHyperWANServer(_implicated_cid, _icid) => {
-                unimplemented!()
-            }
-        }
-    }
-
-    /// Stores the proposed credentials into the register state container
-    pub fn store_proposed_credentials(&self, proposed_credentials: ProposedCredentials, stage_for: u8) {
-        let this = inner_mut!(self);
-        let mut state_container = inner_mut!(this.state_container);
-        let nonce = proposed_credentials.nonce.clone();
-        match stage_for {
-            packet_flags::cmd::primary::DO_REGISTER => {
-                state_container.register_state.proposed_credentials = Some(proposed_credentials);
-                state_container.register_state.nonce = Some(nonce);
-            }
-
-            packet_flags::cmd::primary::DO_CONNECT => {
-                state_container.connect_state.proposed_credentials = Some(proposed_credentials);
-                // we don't need to store the nonce here
-            }
-
-            _ => {
-                panic!("Invalid proposed stage for credential insertion")
-            }
-        }
+        let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(&hyper_ratchet, ticket, timestamp, security_level);
+        Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket))
+            .and_then(|_| Ok(true))
     }
 }
 
 impl HdpSessionInner {
+    /// Stores the proposed credentials into the register state container
+    pub(crate) fn store_proposed_credentials(&mut self, proposed_credentials: ProposedCredentials) {
+        let mut state_container = inner_mut_state!(self.state_container);
+        state_container.register_state.passwordless = Some(proposed_credentials.is_passwordless());
+        state_container.connect_state.proposed_credentials = Some(proposed_credentials);
+    }
+
     /// When a successful login occurs, this function gets called. Must return any AsRef<[u8]> type
     pub(super) fn create_welcome_message(&self, cid: u64) -> String {
         format!("SatoriNET login::success. Welcome to the Post-quantum network. Implicated CID: {}", cid)
@@ -1167,7 +1423,7 @@ impl HdpSessionInner {
     pub(super) fn can_reconnect(&self) -> bool {
         let current_time = self.time_tracker.get_global_time_ns();
         // if there was no failure, the value will be much larger than the initial locckout time, thus returning true
-        if let Some(fail_time) = inner!(self.state_container).connect_state.fail_time {
+        if let Some(fail_time) = inner_state!(self.state_container).connect_state.fail_time {
             // if the gap between the current time and the fail time is enough, then reconnection is possible
             current_time - fail_time > INITIAL_RECONNECT_LOCKOUT_TIME_NS
         } else {
@@ -1178,12 +1434,12 @@ impl HdpSessionInner {
 
     /// This will panic if cannot be sent
     #[inline]
-    pub fn send_to_kernel(&self, msg: HdpServerResult) -> Result<(), TrySendError<HdpServerResult>> {
+    pub fn send_to_kernel(&self, msg: HdpServerResult) -> Result<(), SendError<HdpServerResult>> {
         self.kernel_tx.unbounded_send(msg)
     }
 
     /// Will send the message to the primary stream, and will alert the kernel if the stream's connector is full
-    pub fn send_to_primary_stream(&self, ticket: Option<Ticket>, msg: Bytes) -> Result<(), NetworkError> {
+    pub fn send_to_primary_stream(&self, ticket: Option<Ticket>, msg: BytesMut) -> Result<(), NetworkError> {
         if let Some(tx) = self.to_primary_stream.as_ref() {
             match tx.unbounded_send(msg) {
                 Ok(_) => {
@@ -1201,65 +1457,66 @@ impl HdpSessionInner {
         }
     }
 
-    /// Stops the future from running. This will stop once the periodic checker determines the state is disconnected
-    pub fn shutdown(&mut self) {
-        self.state = SessionState::Disconnected
-    }
-
-    fn get_id(&self) -> u64 {
-        match self.implicated_cid.load(Ordering::SeqCst) {
-            Some(implicated_cid) => {
-                implicated_cid
+    /// will try a running a function, and if an error occurs, will send error to Kernel
+    pub fn try_action<T, E: ToString>(&self, ticket: Option<Ticket>, fx: impl FnOnce() -> Result<T, E>) -> Result<T, NetworkError> {
+        match (fx)().map_err(|err| NetworkError::Generic(err.to_string())) {
+            Err(err) => {
+                self.send_to_kernel(HdpServerResult::InternalServerError(ticket, err.to_string()))
+                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                Err(err)
             }
 
-            None => {
-                self.kernel_ticket.0
-            }
+            res => res
         }
     }
 
-    pub(crate) fn initiate_drill_update<K: ExpectedInnerTargetMut<StateContainerInner>>(&self, timestamp: i64, state_container: &mut InnerParameterMut<K, StateContainerInner>, ticket: Option<Ticket>)
-     {
-        //log::info!("Initiating drill update process ...");
-
-        // begin update process by immediately setting semaphore
-        state_container.drill_update_state.on_begin_update_subroutine(timestamp, ticket);
-        //std::mem::drop(state_container);
-        let cnac = self.cnac.as_ref().unwrap();
-        let latest_drill = cnac.get_drill(None).unwrap();
-
-        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(&latest_drill, timestamp);
-        let to_primary_stream = self.to_primary_stream.as_ref().unwrap();
-        let kernel_tx = &self.kernel_tx;
-        HdpSession::send_to_primary_stream_closure(to_primary_stream, kernel_tx, stage0_packet, ticket);
+    /// Stops the future from running. This will stop once the periodic checker determines the state is disconnected
+    pub fn shutdown(&self) {
+        self.state.store(SessionState::Disconnected, Ordering::SeqCst);
+        let _ = inner!(self.stopper_tx).send(());
     }
 
-    pub(crate) fn initiate_deregister(&self, virtual_connection_type: VirtualConnectionType, ticket: Ticket) -> bool {
+    pub(crate) fn initiate_deregister(&self, _virtual_connection_type: VirtualConnectionType, ticket: Ticket) -> Result<(), NetworkError> {
         log::info!("Initiating deregister process ...");
+        let mut state_container = inner_mut_state!(self.state_container);
         let timestamp = self.time_tracker.get_global_time_ns();
-        let cnac = self.cnac.as_ref().unwrap();
-        let ref drill = cnac.get_drill(None).unwrap();
+        let cnac = state_container.cnac.as_ref().ok_or_else(|| NetworkError::InternalError("CNAC not loaded"))?;
+        let security_level = state_container.session_security_settings.clone().map(|r| r.security_level).clone().unwrap();
+        let ref hyper_ratchet = cnac.get_hyper_ratchet(None).unwrap();
 
-        let stage0_packet = hdp_packet_crafter::do_deregister::craft_stage0(drill, timestamp, virtual_connection_type);
-        let mut state_container = inner_mut!(self.state_container);
-        state_container.deregister_state.on_init(virtual_connection_type, timestamp,  ticket);
-        std::mem::drop(state_container);
-        self.send_to_primary_stream(Some(ticket), stage0_packet).is_ok()
-    }
+        let stage0_packet = hdp_packet_crafter::do_deregister::craft_stage0(hyper_ratchet, timestamp, security_level);
 
-    fn get_and_increment_group_id(&mut self) -> u64 {
-        self.current_group_id += 1;
-        self.current_group_id - 1
-    }
-
-    fn get_and_increment_object_id(&mut self) -> u32 {
-        self.rolling_object_idx += 1;
-        self.rolling_object_idx - 1
+        state_container.deregister_state.on_init(timestamp, ticket);
+        self.send_to_primary_stream(Some(ticket), stage0_packet)
     }
 
     pub(crate) fn is_provisional(&self) -> bool {
+        let state = self.state.load(Ordering::Relaxed);
         //self.implicated_cid.is_none()
         // SocketJustOpened is only the state for a session created from an incoming connection
-        self.state == SessionState::SocketJustOpened || self.state == SessionState::NeedsConnect || self.state == SessionState::ConnectionProcess || self.state == SessionState::NeedsRegister
+        state == SessionState::SocketJustOpened || state == SessionState::NeedsConnect || state == SessionState::ConnectionProcess || state == SessionState::NeedsRegister
+    }
+
+    pub(crate) fn send_session_dc_signal<T: Into<String>>(&self, ticket: Option<Ticket>, disconnect_success: bool, msg: T) {
+        if let Some(tx) = self.dc_signal_sender.take() {
+            let _ = tx.unbounded_send(HdpServerResult::Disconnect(ticket.unwrap_or_else(|| self.kernel_ticket.get()), self.implicated_cid.get().unwrap_or_else(|| self.kernel_ticket.get().0), disconnect_success, None, msg.into()));
+        }
+    }
+
+    pub(crate) fn disable_dc_signal(&self) {
+        let _ = self.dc_signal_sender.take();
+    }
+}
+
+impl Drop for HdpSessionInner {
+    fn drop(&mut self) {
+        log::info!("*** Dropping HdpSession ***");
+        if let Err(_) = self.on_drop.unbounded_send(()) {
+            //log::error!("Unable to cleanly alert node that session ended: {:?}", err);
+        }
+
+        let _ = inner!(self.stopper_tx).send(());
+
+        self.send_session_dc_signal(None, false, "Session dropped");
     }
 }

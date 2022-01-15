@@ -1,139 +1,167 @@
 use std::collections::HashMap;
-use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::fmt::{Debug, Display};
+use std::fmt::Formatter;
+use std::net::SocketAddr;
 use std::sync::Arc;
-use async_trait::async_trait;
+use parking_lot::{RwLock, RwLockWriteGuard, RwLockReadGuard};
 //use future_parking_lot::rwlock::{FutureReadable, FutureWriteable, RwLock};
 use log::info;
-use rand::{random, RngCore};
-use secstr::SecVec;
+use rand::{random, RngCore, thread_rng};
 use serde::{Deserialize, Serialize};
 
-use hyxe_fs::hyxe_crypt::prelude::PostQuantumContainer;
+use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
+use hyxe_crypt::fcm::keys::FcmKeys;
+use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
+use hyxe_fs::env::DirectoryStore;
 use hyxe_fs::misc::get_pathbuf;
 use hyxe_fs::prelude::SyncIO;
 
+use crate::backend::PersistenceHandler;
 use crate::client_account::ClientNetworkAccount;
 use crate::hypernode_account::HyperNodeAccountInformation;
 use crate::misc::AccountError;
-use crate::server_config_handler::username_has_invalid_symbols;
-use rand::prelude::ThreadRng;
-use crossbeam_utils::sync::{ShardedLock, ShardedLockWriteGuard, ShardedLockReadGuard};
-use std::ops::Deref;
-
-lazy_static! {
-    /// Each node has a unique NetworkAccount; this information is stored at the address below if the instance is a server node
-    pub static ref NAC_NODE_DEFAULT_STORE_LOCATION: Mutex<Option<String>> = Mutex::new(None);
-}
+use crate::auth::DeclaredAuthenticationMode;
 
 #[derive(Serialize, Deserialize, Default)]
 /// Inner device
-pub struct NetworkAccountInner {
-    /// The global IPv4 address for this node
-    pub(crate) global_ipv4: Option<SocketAddrV4>,
-    /// The global IPv6 address for this node
-    pub(crate) global_ipv6: Option<SocketAddrV6>,
-    /// Contains a list of registered HyperLAN CIDS
+pub struct NetworkAccountInner<R: Ratchet, Fcm: Ratchet> {
+    /// The global connection info for this conn
+    pub(crate) connection_info: Option<ConnectionInfo>,
+    /// Contains a list of registered HyperLAN CIDS. We only store values herein if using the local filesystem
     pub cids_registered: HashMap<u64, String>,
-    /// Used to determining an unused cid
-    pub max_cid_id: AtomicU64,
+    /// for serialization
+    #[serde(with = "crate::external_services::fcm::data_structures::none")]
+    pub persistence_handler: Option<PersistenceHandler<R, Fcm>>,
     /// The NID
     nid: u64,
 }
 
-/// Thread-safe handle
-#[derive(Default)]
-pub struct NetworkAccount {
-    /// the inner device
-    pub inner: Arc<ShardedLock<NetworkAccountInner>>,
-    nid: u64,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+/// For saving the state of client-side connections
+pub struct ConnectionInfo {
+    /// The address of the adjacent node
+    pub addr: SocketAddr
 }
 
-unsafe impl Send for NetworkAccount {}
-unsafe impl Sync for NetworkAccount {}
+#[derive(Clone, Serialize, Deserialize, Debug)]
+/// For saving the state of client-side connections
+pub enum ConnectProtocol {
+    /// Uses the transmission control protocol
+    Tcp,
+    /// The domain
+    Tls(Option<String>),
+    /// Quic
+    Quic(Option<String>)
+}
 
-impl NetworkAccount {
+impl ConnectProtocol {
+    /// Gets domain
+    pub fn get_domain(&self) -> Option<String> {
+        match self {
+            Self::Tcp => None,
+            Self::Tls(t) => t.clone(),
+            Self::Quic(t) => t.clone()
+        }
+    }
+}
+
+/// Thread-safe handle
+#[derive(Clone, Serialize, Deserialize)]
+pub struct NetworkAccount<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+    /// the inner device
+    #[serde(bound = "")]
+    inner: Arc<(u64, RwLock<NetworkAccountInner<R, Fcm>>)>
+}
+
+impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     /// This should be called at runtime if the current node does not have a detected NAC. This is NOT for
     /// creating a NAC for new server connections; instead, use `new_from_recent_connection`.
-    pub fn new_local() -> Result<NetworkAccount, AccountError<String>> {
+    pub fn new(directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError> {
         let nid = random::<u64>() ^ random::<u64>();
-        let (global_ipv4, global_ipv6) = (None, None);
-        let local_save_path = get_pathbuf(NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().as_ref().unwrap());
-        info!("Attempting to create a NAC at {}", local_save_path.to_str().unwrap());
-        Ok(Self { nid, inner: Arc::new(ShardedLock::new(NetworkAccountInner { max_cid_id: AtomicU64::new(ThreadRng::default().next_u32() as u64), cids_registered: HashMap::new(), nid, global_ipv4, global_ipv6})) })
+        let local_path = get_pathbuf(directory_store.inner.read().nac_node_default_store_location.as_str());
+        let cids_registered = HashMap::new();
+        info!("Attempting to create a NAC at {:?}", &local_path);
+
+        Ok(Self { inner: Arc::new((nid, RwLock::new(NetworkAccountInner::<R, Fcm> { cids_registered, nid, connection_info: None, persistence_handler: None}))) })
     }
 
     /// When a new connection is created, this may be called
-    pub fn new_from_recent_connection(nid: u64, addr: SocketAddr) -> NetworkAccount {
-        let (global_ipv4, global_ipv6) = {
-            if addr.is_ipv4() {
-                (Some(SocketAddrV4::from_str(addr.to_string().as_str()).unwrap()), None)
-            } else {
-                (None, Some(SocketAddrV6::from_str(addr.to_string().as_str()).unwrap()))
-            }
-        };
+    /// 'proto' should be None if calling from a server, and Some if from a client
+    /// Server keeps addr in case PINNED_ADDR_MODE is enabled
+    #[allow(unused_results)]
+    pub fn new_from_recent_connection(nid: u64, addr: SocketAddr, persistence_handler: PersistenceHandler<R, Fcm>) -> NetworkAccount<R, Fcm> {
         Self {
-            nid,
-            inner: Arc::new(ShardedLock::new(NetworkAccountInner {
+            inner: Arc::new((nid, RwLock::new(NetworkAccountInner::<R, Fcm> {
                 cids_registered: HashMap::new(),
-                max_cid_id: AtomicU64::new(0),
                 nid,
-                global_ipv4,
-                global_ipv6
-            })),
+                connection_info: Some(ConnectionInfo { addr }),
+                persistence_handler: Some(persistence_handler)
+            }))),
         }
     }
 
-    /// Once the [NetworkAccountInner] is loaded, this should be called. It internally updates the save path
-    pub fn new_from_local_fs(inner: NetworkAccountInner) -> Self {
-        Self { nid: inner.nid, inner: Arc::new(ShardedLock::new(inner)) }
+    /// Gets the persistence handler
+    pub fn persistence_handler(&self) -> Option<PersistenceHandler<R, Fcm>> {
+        self.read().persistence_handler.clone()
     }
 
-    /// When a CNAC loads its internally encrypted [NetworkAccount]
-    pub fn new_from_cnac(inner: NetworkAccountInner) -> Self {
-        Self { nid: inner.nid, inner: Arc::new(ShardedLock::new(inner)) }
-    }
-
-    /// Sets the highest cid internally. Must be consistent with the data loaded with the set of CNACS.
+    /// This should be called during the registration phase client-side. It generates a list of CIDs that are available
     ///
-    /// Will only set the value if the highest cid provided is greater than the stored internal value
-    pub fn set_highest_cid(&self, highest_cid: u64) {
-        let write = self.write();
-        if highest_cid > write.max_cid_id.load(Ordering::Relaxed) {
-            // only update the value if the highest obtained CID is greater than what's stored in max_cid_id
-            // If this is the case, it tells us that the NAC wasn't synced to the storage device (i.e, no safe shutdown).
-            // No biggie; just ensure that all future calls to reserve_cid guarantee that the number isn't taken
-            write.max_cid_id.store(highest_cid, Ordering::Relaxed)
-        }
-    }
-
-    /// This should be called during the registration phase. The incrementing mechanism ensures the CID is unique
-    ///
-    /// this is a get and increment mechanism that is atomic-safe
-    pub fn reserve_cid(&self) -> u64 {
+    /// NOTE: This can only be run client-side on a node. Otherwise, this will return None
+    pub fn client_only_generate_possible_cids(&self) -> Vec<u64> {
         let read = self.read();
-        // We add 1 to ensure there is no zero CID (reserved)
-        1 + read.max_cid_id.fetch_add(1, Ordering::SeqCst)
+        let mut rng = thread_rng();
+        let cids_registered = &read.cids_registered;
+        let mut ret = Vec::with_capacity(10);
+        loop {
+            let possible = rng.next_u64();
+            if !cids_registered.contains_key(&possible) {
+                ret.push(possible);
+                if ret.len() == 10 {
+                    return ret;
+                }
+            }
+        }
+    }
+
+    /// Returns true if the given CID exists
+    pub fn cid_exists_filesystem(&self, cid: u64) -> bool {
+        self.read().cids_registered.contains_key(&cid)
+    }
+
+    /// Scans a list for a valid CID
+    pub fn find_first_valid_cid_filesystem<T: AsRef<[u64]>>(&self, possible_cids: T) -> Option<u64> {
+        let read = self.read();
+        let possible_cids = possible_cids.as_ref();
+        let cids_registered = &read.cids_registered;
+        possible_cids.iter().find(|res| !cids_registered.contains_key(*res))
+            .cloned()
     }
 
     /// This should be called after registration occurs
-    pub fn register_cid<T: ToString>(&self, cid: u64, username: T) {
+    #[allow(unused_results)]
+    pub fn register_cid_filesystem<T: Into<String>>(&self, cid: u64, username: T) -> Result<(), AccountError>{
         let mut write = self.write();
-        assert!(write.cids_registered.insert(cid, username.to_string()).is_none())
+        let cids_registered = &mut write.cids_registered;
+        if cids_registered.contains_key(&cid) {
+            log::error!("Overwrote pre-existing account that lingered in the NID list. Report to developers");
+            Err(AccountError::ClientExists(cid))
+        } else {
+            cids_registered.insert(cid, username.into());
+            Ok(())
+        }
     }
 
     /// Determines if a username exists
-    pub fn username_exists<T: AsRef<str>>(&self, username: T) -> bool {
+    pub fn username_exists_filesystem<T: AsRef<str>>(&self, username: T) -> bool {
         let read = self.read();
         let username = username.as_ref();
-        read.cids_registered.values().any(|stored_username| stored_username.as_str() == username)
+        let cids_registered = &read.cids_registered;
+        cids_registered.values().any(|stored_username| stored_username.as_str() == username)
     }
 
     /// Returns true if the removal was a success
-    pub fn remove_registered_cid(&self, cid: u64) -> bool {
+    pub fn remove_registered_cid_filesystem(&self, cid: u64) -> bool {
         let mut write = self.write();
         write.cids_registered.remove(&cid).is_some()
     }
@@ -145,139 +173,91 @@ impl NetworkAccount {
     ///
     /// Note: If the local node is the server node, then nac_other should be the client's NAC. This should always be made at a server anyways
     #[allow(unused_results)]
-    pub fn create_client_account<T: ToString, V: ToString, K: AsRef<[u8]>>(&self, reserved_cid: u64, nac_other: Option<NetworkAccount>, username: T, password: SecVec<u8>, full_name: V, password_hash: Vec<u8>, post_quantum_container: &PostQuantumContainer, toolset_bytes: Option<K>) -> Result<ClientNetworkAccount, AccountError<String>> {
+    pub async fn create_client_account(&self, reserved_cid: u64, nac_other: Option<NetworkAccount<R, Fcm>>, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         if nac_other.is_none() {
             info!("WARNING: You are using debug mode. The supplied NAC is none, and will receive THIS nac in its place (unit tests only)");
         }
 
         // We must lock the config to ensure that the obtained CID gets added into the database before any competing threads may get called
+        log::info!("Checking username {} for correspondence ...", auth_store.username());
 
-        let username = username.to_string();
+        let persistence_handler = self.inner.1.read().persistence_handler.clone().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".to_string()))?;
 
-        username_has_invalid_symbols(&username)?;
-        log::info!("Checking username {} for correspondence ...", &username);
+        let username = auth_store.username().to_string();
 
-        if self.username_exists(&username) {
+        if persistence_handler.username_exists(&username).await? {
             return Err(AccountError::Generic(format!("Username {} already exists!", &username)))
         }
 
-        let cnac = ClientNetworkAccount::new(Some(reserved_cid), false, nac_other.unwrap_or_else(|| self.clone()), &username, password, full_name, password_hash, post_quantum_container, toolset_bytes)?;
+        // cnac gets saved below
+        let cnac = ClientNetworkAccount::<R, Fcm>::new(reserved_cid, false, nac_other.unwrap_or_else(|| self.clone()), auth_store, base_hyper_ratchet, persistence_handler.clone(), fcm_keys).await?;
+
         // So long as the CNAC creation succeeded, we can confidently add the CID into the config
-        self.register_cid(reserved_cid, username);
-        Ok(cnac)
-    }
-
-    /// Returns the IPv4 address which belongs to the NID enclosed herein
-    #[deprecated]
-    pub fn get_ipv4_addr(&self) -> Option<SocketAddr> {
-        Some(SocketAddr::V4(self.read().global_ipv4?))
-    }
-
-    /// Returns the IPv6 address which belongs to the NID enclosed herein
-    pub fn get_ipv6_addr(&self) -> Option<SocketAddr> {
-        Some(SocketAddr::V6(self.read().global_ipv6?))
+        persistence_handler.register_cid_in_nac(reserved_cid, &username).await
+            .and_then(|_| Ok(cnac))
     }
 
     /// Returns the IP address which belongs to the NID enclosed herein.
+    /// if peer_cid is None, will get the HyperLAN conn info
     #[allow(deprecated)]
-    pub fn get_addr(&self, prefer_ipv6: bool) -> Option<SocketAddr> {
-        if prefer_ipv6 {
-            if let Some(addr) = self.get_ipv6_addr() {
-                Some(addr)
-            } else {
-                self.get_ipv4_addr()
-            }
-        } else {
-            if let Some(addr) = self.get_ipv4_addr() {
-                Some(addr)
-            } else {
-                self.get_ipv6_addr()
-            }
-        }
-    }
-
-    /// Returns the IP address which belongs to the NID enclosed herein.
-    #[allow(deprecated)]
-    pub fn get_addr_blocking(&self, prefer_ipv6: bool) -> Option<SocketAddr> {
-        if prefer_ipv6 {
-            if let Some(addr) = self.get_ipv6_addr() {
-                Some(addr)
-            } else {
-                self.get_ipv4_addr()
-            }
-        } else {
-            if let Some(addr) = self.get_ipv4_addr() {
-                Some(addr)
-            } else {
-                self.get_ipv6_addr()
-            }
-        }
+    pub fn get_conn_info(&self) -> Option<ConnectionInfo> {
+        self.read().connection_info.clone()
     }
 
     /// This sets the IP address. This automatically determines if the address is IPv6 or IPv4, and then it places
     /// it inside the correct field of self
     #[allow(unused_results)]
-    pub fn update_ip(&self, new_addr: SocketAddr) {
-        if new_addr.is_ipv4() {
-            self.write().global_ipv4.replace(SocketAddrV4::from_str(new_addr.to_string().as_str()).unwrap());
-        } else {
-            self.write().global_ipv6.replace(SocketAddrV6::from_str(new_addr.to_string().as_str()).unwrap());
-        }
+    pub fn update_conn_info(&self, new_info: ConnectionInfo) {
+        self.write().connection_info = Some(new_info)
     }
 
     /// Reads futures-style
-    pub fn read(&self) -> ShardedLockReadGuard<NetworkAccountInner> {
-        self.inner.read().unwrap()
+    pub fn read(&self) -> RwLockReadGuard<NetworkAccountInner<R, Fcm>> {
+        self.inner.1.read()
     }
 
     /// Reads futures-style
-    pub fn write(&self) -> ShardedLockWriteGuard<NetworkAccountInner> {
-        self.inner.write().unwrap()
+    pub fn write(&self) -> RwLockWriteGuard<NetworkAccountInner<R, Fcm>> {
+        self.inner.1.write()
     }
 
     /// blocking version of async_save_to_local_fs
-    pub fn save_to_local_fs(&self) -> Result<(), AccountError<String>> {
+    pub fn save_to_local_fs(&self) -> Result<(), AccountError> {
         let inner_nac = self.write();
-        let path = get_pathbuf(NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().as_ref().unwrap());
+        let path = get_pathbuf(inner_nac.persistence_handler.as_ref().unwrap().directory_store().inner.read().nac_node_default_store_location.as_str());
 
         let path_no_filename = path.parent().unwrap().clone();
         info!("Storing NAC to directory: {}", &path_no_filename.display());
         hyxe_fs::system_file_manager::make_dir_all_blocking(path_no_filename).map_err(|err| AccountError::Generic(err.to_string()))?;
-        // First, save the NAC
         inner_nac.serialize_to_local_fs(path).map_err(|err| AccountError::IoError(err.to_string()))
     }
-}
 
-/// This is called by the [ServerBridgeHandler] when needing to create a new Network account
-impl From<(u64, SocketAddr)> for NetworkAccount {
-    fn from(obj: (u64, SocketAddr)) -> Self {
-        Self::new_from_recent_connection(obj.0, obj.1)
+    /// Stores the PersistenceHandler internally
+    pub fn store_persistence_handler(&self, persistence_handler: &PersistenceHandler<R, Fcm>) {
+        self.write().persistence_handler = Some(persistence_handler.clone());
     }
 }
 
-#[async_trait]
-impl HyperNodeAccountInformation for NetworkAccount {
+impl<R: Ratchet, Fcm: Ratchet> Debug for NetworkAccount<R, Fcm> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NID: {} | CIDs registered: {:?}", self.get_id(), &self.read().cids_registered)
+    }
+}
+
+impl<R: Ratchet, Fcm: Ratchet> HyperNodeAccountInformation for NetworkAccount<R, Fcm> {
     fn get_id(&self) -> u64 {
-        self.nid
-    }
-
-    async fn get_filesystem_location(&self) -> PathBuf {
-        get_pathbuf(NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().as_ref().unwrap())
-    }
-
-    async fn async_save_to_local_fs(self) -> Result<(), AccountError<String>> where NetworkAccountInner: SyncIO {
-        let path = get_pathbuf(NAC_NODE_DEFAULT_STORE_LOCATION.lock().unwrap().as_ref().unwrap());
-        let path_no_filename = path.parent().unwrap().clone();
-        info!("Storing NAC to directory: {}", &path_no_filename.display());
-        hyxe_fs::system_file_manager::make_dir_all(path_no_filename).await.map_err(|err| AccountError::Generic(err.to_string()))?;
-        let inner_nac = self.write();
-        // Save the NAC
-        inner_nac.deref().serialize_to_local_fs(path).map_err(|err| AccountError::IoError(err.to_string()))
+        self.inner.0
     }
 }
 
-impl Clone for NetworkAccount {
-    fn clone(&self) -> Self {
-        Self { nid: self.nid, inner: self.inner.clone() }
+impl<R: Ratchet, Fcm: Ratchet> From<NetworkAccountInner<R, Fcm>> for NetworkAccount<R, Fcm> {
+    fn from(inner: NetworkAccountInner<R, Fcm>) -> Self {
+        Self { inner: Arc::new((inner.nid, RwLock::new(inner))) }
+    }
+}
+
+impl Display for ConnectionInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "addr: {}", self.addr)
     }
 }

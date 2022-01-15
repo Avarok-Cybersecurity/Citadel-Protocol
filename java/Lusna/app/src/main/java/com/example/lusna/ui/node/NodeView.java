@@ -82,7 +82,7 @@ public class NodeView extends Fragment {
                                         // here, we add 3 fragments: one for home, one for actions, one for messages
                                         adapter.addFragment(new NodeHomeFragment(username));
                                         adapter.addFragment(new NodeActionFragment(username));
-                                        adapter.addFragment(new NodeMessagesFragment(dsr));
+                                        adapter.addFragment(new NodeMessagesFragment());
 
                                         new TabLayoutMediator(tabLayout, viewPager,
                                                 (tab, position) -> tab.setText(tabTitles[position])
