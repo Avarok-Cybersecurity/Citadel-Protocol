@@ -47,10 +47,10 @@ impl SqlConnectionHandler {
         Ok(())
     }
 
-    pub async fn remove_customer(&self, customer: Customer) -> Result<(), anyhow::Error> {
+    pub async fn remove_customer(&self, customer: &Customer) -> Result<(), anyhow::Error> {
         let cmd = "DELETE FROM customers WHERE uuid = ?";
         let ref mut sql = self.open_connection().await?;
-        let result = sqlx::query(cmd).bind(customer.uuid).execute(&mut *sql).await?;
+        let result = sqlx::query(cmd).bind(customer.uuid.as_str()).execute(&mut *sql).await?;
         if result.rows_affected() != 0 {
             Ok(())
         } else {
@@ -58,9 +58,9 @@ impl SqlConnectionHandler {
         }
     }
 
-    pub async fn get_referral_count(&self, customer: Customer) -> Result<usize, anyhow::Error> {
+    pub async fn get_referral_count(&self, customer: &Customer) -> Result<usize, anyhow::Error> {
         let ref mut conn = self.open_connection().await?;
-        let query: SqliteRow = sqlx::query("SELECT COUNT(*) as count FROM referrals WHERE uuid = ?").bind(customer.uuid).fetch_one(&mut *conn).await?;
+        let query: SqliteRow = sqlx::query("SELECT COUNT(*) as count FROM referrals WHERE uuid = ?").bind(customer.uuid.as_str()).fetch_one(&mut *conn).await?;
         let count = query.get::<i64, _>("count") as usize;
 
         Ok(count)
@@ -75,6 +75,12 @@ impl SqlConnectionHandler {
         let query2 = sqlx::query_as::<_, ReferralEntry>(cmd2).fetch_all(&mut *conn).await?;
 
         Ok(format!("Customers:\n{:?}\n\nReferrals:\n{:?}\n\n", query, query2))
+    }
+
+    pub async fn get_customer(&self, customer: &Customer) -> Result<CustomerEntry, anyhow::Error> {
+        let ref mut conn = self.open_connection().await?;
+        let row = sqlx::query_as::<_, CustomerEntry>("SELECT * FROM customers WHERE uuid = ?").bind(customer.uuid.as_str()).fetch_one(&mut *conn).await?;
+        Ok(row)
     }
 
     async fn open_connection(&self) -> Result<SqliteConnection, anyhow::Error> {
