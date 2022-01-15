@@ -48,3 +48,5 @@ parking_lot = { version = "0.11.1", features = ["deadlock_detection"] }
 rand = "0.8.4"
 tokio-util = "0.6.7"
 
+[lib]
+doctest = false

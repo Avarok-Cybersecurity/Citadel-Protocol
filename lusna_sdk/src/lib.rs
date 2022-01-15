@@ -114,14 +114,12 @@
 
 #![deny(
 clippy::cognitive_complexity,
-missing_docs,
 trivial_numeric_casts,
 unused_extern_crates,
 unused_import_braces,
 variant_size_differences,
 unused_features,
 unused_results,
-warnings
 )]
 
 /// Convenience import for building applications
