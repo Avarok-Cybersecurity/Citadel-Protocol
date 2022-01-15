@@ -5,6 +5,7 @@ pub mod sql {
         pub uuid: String,
         pub name: String,
         pub email: String,
+        pub github_id: String,
         pub purchase_date_utc: String
     }
 
@@ -25,6 +26,7 @@ pub mod rest {
         pub uuid: String,
         pub name: String,
         pub email: String,
+        pub github_id: String,
         // points to the uuid
         pub referral: Option<String>
     }
@@ -46,6 +48,7 @@ pub mod impls {
                 uuid: purchase.uuid,
                 name: purchase.name,
                 email: purchase.email,
+                github_id: purchase.github_id,
                 purchase_date_utc: Date::today().to_string()
             }
         }
