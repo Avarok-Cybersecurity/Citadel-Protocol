@@ -33,3 +33,7 @@ parking_lot = "0.11.1"
 [dev-dependencies]
 byteorder = "*"
 env_logger = "0.8.2"
+
+
+[lib]
+doctest = false

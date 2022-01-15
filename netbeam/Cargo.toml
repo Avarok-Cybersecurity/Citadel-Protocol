@@ -29,3 +29,6 @@ log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_lev
 parking_lot = { version = "0.11.1", features = ["deadlock_detection"] }
 async-recursion = "0.3.2"
 env_logger = "0.7.1"
+
+[lib]
+doctest = false
