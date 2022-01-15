@@ -13,6 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
+#      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
       - run: cargo build --verbose
       - run: cargo test --verbose
