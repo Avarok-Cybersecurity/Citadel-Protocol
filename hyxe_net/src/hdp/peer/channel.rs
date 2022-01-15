@@ -119,6 +119,7 @@ pub struct PeerChannelSendHalf {
 pub struct PeerChannelSendHalf {
     state_container: StateContainer,
     target_cid: u64,
+    #[allow(dead_code)]
     implicated_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
