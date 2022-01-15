@@ -1,0 +1,18 @@
+name: Rust
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
+      - run: cargo build --verbose
+      - run: cargo test --verbose
