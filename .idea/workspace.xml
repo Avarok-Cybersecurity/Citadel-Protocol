@@ -41,6 +41,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
+      <change afterPath="$PROJECT_DIR$/mac_m1_README.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ez_pqcrypto/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/ez_pqcrypto/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/tests/crypto.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/tests/crypto.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/tests/primary.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -192,7 +198,7 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Run online_order_handler">
+  <component name="RunManager" selected="Cargo.Test tests::unordered_mode">
     <configuration default="true" type="ArquillianTestNG" factoryName="" nameIsGenerated="true">
       <option name="arquillianRunConfiguration">
         <value>
@@ -281,56 +287,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test prefabs::client::single_connection::tests::passwordless" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package lusna_sdk --features localhost-testing --lib prefabs::client::single_connection::tests::single_connection_passwordless -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="STABLE" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="withSudo" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
     <configuration name="Test prefabs::client::single_connection::tests::single_connection_passwordless" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
       <option name="command" value="test --package lusna_sdk --lib prefabs::client::single_connection::tests::single_connection_passwordless -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="STABLE" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="withSudo" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test prefabs::client::single_connection::tests::single_connection_registered" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package lusna_sdk --lib prefabs::client::single_connection::tests::single_connection_registered -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="STABLE" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="withSudo" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test single_connection::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package lusna_sdk --lib prefabs::client::single_connection::tests" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -361,8 +319,56 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
+    <configuration name="Test tests::in_place_out_of_order_for_unordered_mode" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package ez_pqcrypto --test primary tests::in_place_out_of_order_for_unordered_mode -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="STABLE" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="backtrace" value="FULL" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="Test tests::main (RELEASE)" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="command" value="test --package hyxe_net --features localhost-testing --release --test primary tests::main -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="STABLE" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="backtrace" value="FULL" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test tests::runit" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package ez_pqcrypto --test primary tests::runit -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="STABLE" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="backtrace" value="FULL" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test tests::unordered_mode" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package ez_pqcrypto --test primary tests::unordered_mode -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -399,19 +405,19 @@
       <item itemvalue="Cargo.Test tests::delete_all_users" />
       <item itemvalue="Cargo.Test tests::main (RELEASE)" />
       <item itemvalue="Cargo.Test main - UDP+TLS" />
-      <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::passwordless" />
       <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_passwordless" />
-      <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_registered" />
-      <item itemvalue="Cargo.Test single_connection::tests" />
       <item itemvalue="Cargo.Run online_order_handler" />
+      <item itemvalue="Cargo.Test tests::runit" />
+      <item itemvalue="Cargo.Test tests::unordered_mode" />
+      <item itemvalue="Cargo.Test tests::in_place_out_of_order_for_unordered_mode" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Cargo.Test tests::unordered_mode" />
+        <item itemvalue="Cargo.Test tests::in_place_out_of_order_for_unordered_mode" />
+        <item itemvalue="Cargo.Test tests::runit" />
         <item itemvalue="Cargo.Run online_order_handler" />
         <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_passwordless" />
-        <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_registered" />
-        <item itemvalue="Cargo.Test single_connection::tests" />
-        <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::passwordless" />
       </list>
     </recent_temporary>
   </component>
@@ -675,7 +681,7 @@
       <workItem from="1633958564349" duration="31114000" />
       <workItem from="1635949297639" duration="1199000" />
       <workItem from="1638725401397" duration="1918000" />
-      <workItem from="1639601115939" duration="42076000" />
+      <workItem from="1639601115939" duration="46038000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

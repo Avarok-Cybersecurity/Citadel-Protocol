@@ -17,6 +17,7 @@ single-threaded = ["hyxe_crypt/single-threaded"]
 
 # whenever an accountmanager is created, all accounts are purged when localhost-testing is enabled
 localhost-testing = []
+jwt-testing = []
 
 [dependencies]
 #futures-preview = { version = "=0.3.0-alpha.19", features = ["compat", "async-await"]}
@@ -56,3 +57,6 @@ env_logger = "0.8.2"
 dirs2 = "3.0.1"
 
 ez_pqcrypto = { version = "0.1.1", path = "../ez_pqcrypto" }
+
+[lib]
+doctest = false
