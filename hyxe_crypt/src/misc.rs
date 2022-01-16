@@ -140,6 +140,13 @@ unsafe fn memset(s: *mut u8, c: u8, n: usize) {
 #[inline]
 pub unsafe fn zeroize(dest: *const u8, n: usize) {
     memset(dest as *mut u8, 0, n);
+    atomic_fence()
+}
+
+/// Uses a fence to ensure operations are not reordered when zeroing
+#[inline]
+fn atomic_fence() {
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
 }
 
 #[inline]
