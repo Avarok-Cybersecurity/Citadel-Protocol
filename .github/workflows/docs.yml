@@ -1,0 +1,42 @@
+on:
+  push:
+    branches:
+      - 'main'
+
+name: Publish documentation
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+    env:
+      # 20 MiB stack
+      RUST_MIN_STACK: 20971520
+
+    steps:
+      - uses: actions/checkout@v2.4.0
+        with:
+          submodules: true
+
+      - uses: actions-rs/toolchain@v1.0.7
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      - uses: actions-rs/cargo@v1.0.3
+        with:
+          command: doc
+          args: --all --all-features
+
+      - name: Deploy documentation
+        if: success()
+        uses: crazy-max/ghaction-github-pages@v2.6.0
+        with:
+          build_dir: target/doc
+          target_branch: master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
