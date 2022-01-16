@@ -44,7 +44,7 @@ jobs:
       
       - uses: actions/checkout@v2
         with:
-          ref: my-branch
+          ref: gh-pages
       - name: Ensure valid redirection
         run: | 
           echo "<meta http-equiv="refresh" content="0; url=lusna_sdk">" > ${GITHUB_WORKSPACE}/index.html
