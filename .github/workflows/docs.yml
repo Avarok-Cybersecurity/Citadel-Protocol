@@ -41,13 +41,14 @@ jobs:
           target_branch: gh-pages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
+      
+      - uses: actions/checkout@v2
+        with:
+          ref: my-branch
       - name: Ensure valid redirection
         run: | 
-          git checkout gh-pages
-          touch ${GITHUB_WORKSPACE}/index.html
           echo "<meta http-equiv="refresh" content="0; url=lusna_sdk">" > ${GITHUB_WORKSPACE}/index.html
           git config --global user.name "tbraun96"
           git config --global user.email "thomas.braun@avarok.net"
-          git commit -am "Auto update"
+          git commit -am "redirection file"
           git push
