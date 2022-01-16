@@ -46,7 +46,7 @@ jobs:
         run: | 
           git checkout gh-pages
           touch ${GITHUB_WORKSPACE}/index.html
-          echo "<meta http-equiv="refresh" content="0; url=build_wheel">" > ${GITHUB_WORKSPACE}/index.html
+          echo "<meta http-equiv="refresh" content="0; url=lusna_sdk">" > ${GITHUB_WORKSPACE}/index.html
           git config --global user.name "tbraun96"
           git config --global user.email "thomas.braun@avarok.net"
           git commit -am "Auto update"
