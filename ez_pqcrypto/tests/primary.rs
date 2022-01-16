@@ -184,7 +184,7 @@ mod tests {
 
         let mut zeroth = Vec::default();
         let mut zeroth_nonce = Vec::from_iter(0..nonce_len as u8);
-        for y in 0..100 {
+        for y in 0..(HISTORY_LEN + 10) {
             let mut buf = Vec::with_capacity(TOTAL_LEN);
             for x in 0..TOTAL_LEN {
                 buf.put_u8(x as u8);
@@ -230,6 +230,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "unordered")]
     fn unordered_mode() {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;
@@ -254,7 +255,7 @@ mod tests {
         }
 
         let header = packet0.split_to(HEADER_LEN);
-        assert!(bob_container.validate_packet_in_place(&header, &mut packet0, &nonce).is_err());
+        assert!(alice_container.validate_packet_in_place(&header, &mut packet0, &nonce).is_err());
     }
 
     /*
