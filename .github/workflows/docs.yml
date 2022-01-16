@@ -47,9 +47,9 @@ jobs:
           ref: gh-pages
       - name: Ensure valid redirection
         run: | 
-          echo "<meta http-equiv="refresh" content="0; url=lusna_sdk">" > ${GITHUB_WORKSPACE}/index.html
+          mv ${GITHUB_WORKSPACE}/lusna_sdk ${GITHUB_WORKSPACE}/docs
           git config --global user.name "tbraun96"
           git config --global user.email "thomas.braun@avarok.net"
           git add .
-          git commit -m "redirection file"
+          git commit -m "redirection config"
           git push
