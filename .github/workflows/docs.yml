@@ -48,6 +48,7 @@ jobs:
       - name: Ensure valid redirection
         run: | 
           mv ${GITHUB_WORKSPACE}/lusna_sdk ${GITHUB_WORKSPACE}/docs
+          echo "<meta http-equiv="refresh" content="0; url=docs">" > ${GITHUB_WORKSPACE}/index.html
           git config --global user.name "tbraun96"
           git config --global user.email "thomas.braun@avarok.net"
           git add .
