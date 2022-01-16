@@ -212,19 +212,20 @@ pub fn check_permissions() {
                 .unwrap()
                 .stdout;
 
-            let buf = unsafe { String::from_utf8_unchecked(output) };
-            let line = buf.lines().filter(|line| (*line).contains("Local Group Memberships")).collect::<Vec<&str>>();
-            if line.len() == 1 {
-                if line[0].to_lowercase().contains("administrators") {
-                    return;
+            if let Ok(buf) = String::from_utf8(output) {
+                let line = buf.lines().filter(|line| (*line).contains("Local Group Memberships")).collect::<Vec<&str>>();
+                if line.len() == 1 {
+                    if line[0].to_lowercase().contains("administrators") {
+                        return;
+                    }
+
+                    eprintln!("The current user does not have admin rights. Aborting program")
+                } else {
+                    eprintln!("Unable to check command result. Please report to the developers");
                 }
 
-                eprintln!("The current user does not have admin rights. Aborting program")
-            } else {
-                eprintln!("Unable to check command result. Please report to the developers");
+                std::process::exit(-1);
             }
-
-            std::process::exit(-1);
         }
 
     #[cfg(not(target_os="windows"))]
