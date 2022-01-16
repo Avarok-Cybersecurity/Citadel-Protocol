@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[cfg(feature = "jwt-testing")]
 mod tests {
     use std::collections::HashMap;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;

@@ -11,17 +11,20 @@ mod tests {
     use hyxe_crypt::fcm::fcm_ratchet::{FcmRatchet, FcmRatchetConstructor};
     use hyxe_user::backend::BackendType;
     use rand::random;
-    use hyxe_crypt::argon::argon_container::{ArgonContainerType, ArgonSettings, ClientArgonContainer};
     use hyxe_crypt::prelude::{SecBuffer, ConstructorOpts};
     use tokio::net::TcpListener;
     use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
     use tokio::sync::Mutex;
+    use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 
     static TEST_MUTEX: Mutex<()> = Mutex::const_new(());
 
     struct TestContainer {
         server_acc_mgr: AccountManager,
-        client_acc_mgr: AccountManager
+        client_acc_mgr: AccountManager,
+        #[allow(dead_code)]
+        // hold the tcp listeners for the duration of the test to ensure no re-binding during parallel tests
+        tcp_listeners: (TcpListener, TcpListener)
     }
 
     impl TestContainer {
@@ -36,19 +39,17 @@ mod tests {
 
             Self {
                 server_acc_mgr,
-                client_acc_mgr
+                client_acc_mgr,
+                tcp_listeners: (server_bind, client_bind)
             }
         }
 
         pub async fn create_cnac(&self, username: &str, password: &str, full_name: &str) -> (ClientNetworkAccount, ClientNetworkAccount) {
-            let argon_settings = ArgonSettings::new_defaults(vec![]);
             let client_nac = self.client_acc_mgr.get_local_nac().clone();
-            let client_argon_container = ArgonContainerType::Client(ClientArgonContainer::from(argon_settings.clone()));
-            let client_hashed_password = client_argon_container.client().unwrap().hash_insecure_input(SecBuffer::from(password)).await.unwrap(); // hashed once
             let cid = random::<u64>();
             let (client_hr, server_hr) = gen(cid, 0, None);
-            let server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(cid, client_nac.clone(), username, client_hashed_password, full_name, server_hr, None).await.unwrap();
-            let client_vers = self.client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, username, full_name, self.server_acc_mgr.get_local_nac().clone(), client_argon_container, None).await.unwrap();
+            let server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(cid, client_nac.clone(), ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), server_hr, None).await.unwrap();
+            let client_vers = self.client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), client_nac, None).await.unwrap();
 
             (client_vers, server_vers)
         }
