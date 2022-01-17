@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Setup Runner Database
         run: |
-          mysql -uroot -h127.0.0.1 -proot -e 'CREATE DATABASE IF NOT EXISTS db1;'
+          mysql -uroot -h127.0.0.1 -proot -e 'CREATE DATABASE IF NOT EXISTS db0;'
       - name: Install LLVM and Clang
         if: startsWith(matrix.os, 'windows')
         uses: KyleMayes/install-llvm-action@v1.5.0
@@ -48,7 +48,7 @@ jobs:
       - name: Run user library with multiple backends
         with:
           env:
-            TESTING_SQL_SERVER_ADDR:"mysql://root:root@localhost/db1"
+            TESTING_SQL_SERVER_ADDR:"mysql://root:root@localhost/db0"
           run: cargo test --package hyxe_user --features enterprise
       - run: cargo test --package hyxe_net
       - run: cargo test --package lusna_sdk
