@@ -45,8 +45,10 @@ jobs:
       - run: cargo test --package ez_pqcrypto
       - run: cargo test --package hyxe_crypt
       - run: cargo test --package hyxe_fs
-      - run: |
-          export TESTING_SQL_SERVER_ADDR=mysql://root:root@localhost/db1
-          cargo test --package hyxe_user --features enterprise
+      - name: Run user library with multiple backends
+        with:
+          env:
+            TESTING_SQL_SERVER_ADDR:"mysql://root:root@localhost/db1"
+          run: cargo test --package hyxe_user --features enterprise
       - run: cargo test --package hyxe_net
       - run: cargo test --package lusna_sdk
