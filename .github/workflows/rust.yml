@@ -41,6 +41,12 @@ jobs:
         
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
+      - uses: mirromutth/mysql-action@v1.1
+        with:
+          mysql version: '8.0'
+          mysql database: 'db0'
+          mysql root password: root
+      
 #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
       - run: cargo build --package lusna_sdk --verbose
       - run: cargo test --package ez_pqcrypto
