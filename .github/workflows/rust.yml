@@ -12,6 +12,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
+      - name: Setup Runner Database
+        run: |
+          mysql -uroot -h127.0.0.1 -proot -e 'CREATE DATABASE IF NOT EXISTS db1;'
       - name: Install LLVM and Clang
         if: startsWith(matrix.os, 'windows')
         uses: KyleMayes/install-llvm-action@v1.5.0
@@ -42,6 +45,8 @@ jobs:
       - run: cargo test --package ez_pqcrypto
       - run: cargo test --package hyxe_crypt
       - run: cargo test --package hyxe_fs
-      - run: cargo test --package hyxe_user
+      - run: |
+          export TESTING_SQL_SERVER_ADDR=mysql://root:root@localhost/db1
+          cargo test --package hyxe_user --features enterprise
       - run: cargo test --package hyxe_net
       - run: cargo test --package lusna_sdk
