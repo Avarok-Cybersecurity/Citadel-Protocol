@@ -181,7 +181,7 @@ mod tests {
         let buf = bincode2::deserialize::<SecBuffer>(&serde).unwrap();
 
         assert_eq!(buf.as_ref(), b"Hello, world!");
-        let cloned = buf.clone();
+        let mut cloned = buf.clone();
         let ptr = cloned.as_ref().as_ptr();
         let len = cloned.as_ref().len();
 
@@ -189,7 +189,9 @@ mod tests {
 
         assert_eq!(&*retrieved, b"Hello, world!");
         assert_eq!(&*retrieved, cloned.as_ref());
+
         std::mem::drop(cloned);
+
         let slice = unsafe { &*std::ptr::slice_from_raw_parts(ptr, len) };
         assert_eq!(slice, &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     }
