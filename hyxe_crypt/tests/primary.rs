@@ -172,6 +172,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "linux"))]
     fn secbytes() {
         setup_log();
         let buf = SecBuffer::from("Hello, world!");
