@@ -31,10 +31,8 @@ mod tests {
         let (alice, bob) = gen(KemAlgorithm::Firesaber + EncryptionAlgorithm::Xchacha20Poly_1305, 0);
         let security_level = SecurityLevel::LOW;
         const HEADER_LEN: usize = 52;
-        // // C:\\satori.net\\target\\debug\\hyxewave
-        let path = "/Users/nologik/Downloads/TheBridge.pdf";
-        let cmp = include_bytes!("/Users/nologik/Downloads/TheBridge.pdf");
-        let std_file = std::fs::File::open(path).unwrap();
+        let cmp = include_bytes!("../../resources/TheBridge.pdf");
+        let std_file = std::fs::File::open("../resources/TheBridge.pdf").unwrap();
         let (group_sender_tx, mut group_sender_rx) = channel(1);
         let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
         let (bytes, num_groups) = scramble_encrypt_file::<_, HEADER_LEN>(std_file, None,99, group_sender_tx, stop_rx, security_level, alice.clone(), HEADER_LEN, 9, 0, |_, _, _, _, packet| {
@@ -104,6 +102,8 @@ mod tests {
     use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
     use hyxe_crypt::prelude::algorithm_dictionary::{CryptoParameters, KemAlgorithm, EncryptionAlgorithm};
     use hyxe_crypt::prelude::ConstructorOpts;
+    use std::path::PathBuf;
+    use std::str::FromStr;
 
     /*
     #[test]

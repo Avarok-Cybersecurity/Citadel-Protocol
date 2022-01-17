@@ -78,7 +78,18 @@ mod tests {
 
     #[cfg(feature = "enterprise")]
     fn backend_server() -> BackendType {
-        BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+        match std::env::var("TESTING_SQL_SERVER_ADDR") {
+            Ok(addr) => {
+                log::info!("Testing SQL ADDR: {}", addr);
+                //BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+                BackendType::sql(addr)
+            }
+
+            _ => {
+                log::error!("Make sure TESTING_SQL_SERVER_ADDR is set in the environment");
+                std::process::exit(1)
+            }
+        }
     }
 
     #[cfg(not(feature = "enterprise"))]
@@ -92,6 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn setup_account_managers() {
+        setup_log();
         let _lock = TEST_MUTEX.lock().await;
         let test = TestContainer::new().await;
         test.deinit().await;

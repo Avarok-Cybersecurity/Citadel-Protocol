@@ -91,10 +91,13 @@ impl FirebaseRTDB {
         #[derive(Deserialize, Debug)]
         struct RenewResponse {
             expires_in: String,
+            #[allow(dead_code)]
             token_type: String,
             refresh_token: String,
             id_token: String,
+            #[allow(dead_code)]
             user_id: String,
+            #[allow(dead_code)]
             project_id: String
         }
 
