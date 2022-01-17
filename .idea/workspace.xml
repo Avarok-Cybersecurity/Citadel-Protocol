@@ -42,8 +42,7 @@
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/misc.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/misc.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -147,7 +146,7 @@
     <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxe_user/src/shutdown_hooks.rs" value="true" />
     <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/hyxewave_net/src/connection/network_map.rs" value="true" />
     <property name="org.rust.hideDetachedFileNotificationsC:/hyxe_wave/rustai/src/lib.rs" value="true" />
-    <property name="project.structure.last.edited" value="SDKs" />
+    <property name="project.structure.last.edited" value="Modules" />
     <property name="project.structure.proportion" value="0.0" />
     <property name="project.structure.side.proportion" value="0.2" />
     <property name="restartRequiresConfirmation" value="false" />
@@ -677,7 +676,7 @@
       <workItem from="1633958564349" duration="31114000" />
       <workItem from="1635949297639" duration="1199000" />
       <workItem from="1638725401397" duration="1918000" />
-      <workItem from="1639601115939" duration="48357000" />
+      <workItem from="1639601115939" duration="50129000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
