@@ -13,9 +13,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - name: Setup Runner Database
-        run: |
-          mysql -uroot -h127.0.0.1 -proot -e 'CREATE DATABASE IF NOT EXISTS db0;'
       - name: Install LLVM and Clang
         if: startsWith(matrix.os, 'windows')
         uses: KyleMayes/install-llvm-action@v1.5.0
