@@ -3,7 +3,7 @@ on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
-  TESTING_SQL_SERVER_ADDR: "mysql://root:@localhost/db0"
+  TESTING_SQL_SERVER_ADDR: "mysql://root:password@localhost/db0"
 
 jobs:
   build:
@@ -18,7 +18,7 @@ jobs:
         with:
           mysql version: '8.0'
           mysql database: 'db0'
-          mysql root password: ${{ secrets.RootPassword }} # Required if "mysql user" is empty, default is empty. The root superuser password
+          mysql root password: password
 #      - uses: ankane/setup-mysql@v1
 #        with:
 #          database: db0
