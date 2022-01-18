@@ -30,6 +30,7 @@ pub mod tests {
     use tokio::io::{AsyncWriteExt, AsyncReadExt};
     use hyxe_net::test_common::HdpServer;
     use hyxe_net::auth::AuthenticationRequest;
+    use dirs2::home_dir;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -53,7 +54,7 @@ pub mod tests {
     async fn tcp_or_tls() {
         setup_log();
 
-        let protos = vec![UnderlyingProtocol::Tcp, UnderlyingProtocol::new_tls_self_signed().unwrap(), UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap()];
+        let protos = vec![UnderlyingProtocol::Tcp, UnderlyingProtocol::new_tls_self_signed().unwrap(), UnderlyingProtocol::load_tls("../keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap()];
 
         for proto in protos {
             log::info!("Testing proto {:?}", &proto);
@@ -104,7 +105,18 @@ pub mod tests {
             BackendType::Filesystem
         } else {
             #[cfg(feature = "enterprise")] {
-                BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+                match std::env::var("TESTING_SQL_SERVER_ADDR") {
+                    Ok(addr) => {
+                        log::info!("Testing SQL ADDR: {}", addr);
+                        //BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
+                        BackendType::sql(addr)
+                    }
+
+                    _ => {
+                        log::error!("Make sure TESTING_SQL_SERVER_ADDR is set in the environment");
+                        std::process::exit(1)
+                    }
+                }
             }
 
             #[cfg(not(feature = "enterprise"))] {
@@ -197,17 +209,14 @@ pub mod tests {
 
 
         if matches.is_present("tls") {
-            *PROTO.lock() = Some(UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
+            *PROTO.lock() = Some(UnderlyingProtocol::load_tls("../keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
         } else if matches.is_present("quic") {
-            *PROTO.lock() = Some(UnderlyingProtocol::load_quic("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
+            *PROTO.lock() = Some(UnderlyingProtocol::load_quic("../keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
         } else if matches.is_present("tcp") {
             *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
         } else {
             *PROTO.lock() = Some(DEFAULT_UNDERLYING_PROTOCOL);
         }
-
-        //*PROTO.lock() = Some(UnderlyingProtocol::load_tls("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
-        //*PROTO.lock() = Some(UnderlyingProtocol::Tcp);
     }
 
     fn count() -> usize {
@@ -379,7 +388,9 @@ pub mod tests {
 
     #[allow(unused_results)]
     async fn create_executor(hypernode_type: NodeType, rt: Handle, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: TestNodeType, commands: Vec<ActionType>, backend_type: BackendType, underlying_proto: UnderlyingProtocol) -> KernelExecutor<TestKernel> {
-        let account_manager = AccountManager::new(bind_addr, Some(format!("/Users/nologik/tmp/{}_{}", bind_addr.ip(), bind_addr.port())), backend_type, None, None, None).await.unwrap();
+        let home_dir = format!("{}/tmp/{}_{}", home_dir().unwrap().to_str().unwrap(), bind_addr.ip(), bind_addr.port());
+        log::info!("Home dir: {}", &home_dir);
+        let account_manager = AccountManager::new(bind_addr, Some(home_dir), backend_type, None, None, None).await.unwrap();
         account_manager.purge().await.unwrap();
         let kernel = TestKernel::new(node_type, commands, test_container);
         KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto).await.unwrap()
