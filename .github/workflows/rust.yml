@@ -61,6 +61,7 @@ jobs:
 #      - run: cargo test --package hyxe_user --features enterprise
       - run: cargo clean
       - run: cargo test --package hyxe_net --features single-threaded,localhost-testing
+      - run: cargo clean
       - run: cargo test --package hyxe_net --features multi-threaded,localhost-testing
       - run: cargo clean
       - run: cargo test --package lusna_sdk
