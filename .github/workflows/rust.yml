@@ -13,9 +13,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: ankane/setup-mysql@v1
+      - uses: mirromutth/mysql-action@v1.1
+        if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'ubuntu')
         with:
-          database: db0
+          mysql version: '8.0'
+          mysql database: 'db0'
+          mysql root password: ${{ secrets.RootPassword }} # Required if "mysql user" is empty, default is empty. The root superuser password
+#      - uses: ankane/setup-mysql@v1
+#        with:
+#          database: db0
 #      - uses: ankane/setup-postgres@v1
 #        with:
 #          postgres-version: 14
@@ -44,7 +50,9 @@ jobs:
         
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --package hyxe_user --features enterprise
+      - name: Run user library + SQL backend
+        if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'ubuntu')
+        run: cargo test --package hyxe_user --features enterprise
 #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
 #      - run: cargo build --package lusna_sdk --verbose
       - run: cargo test --package ez_pqcrypto
