@@ -3,7 +3,7 @@ on: [push, pull_request]
 
 env:
   CARGO_TERM_COLOR: always
-  TESTING_SQL_SERVER_ADDR: "mysql://root@localhost/db0"
+  TESTING_SQL_SERVER_ADDR: "mysql://root:@localhost/db0"
 
 jobs:
   build:
