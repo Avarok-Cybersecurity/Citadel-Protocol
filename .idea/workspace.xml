@@ -41,12 +41,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change afterPath="$PROJECT_DIR$/resources/TheBridge.pdf" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/firebase-rtdb/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/firebase-rtdb/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_fs/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/tests/primary.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/ordered_channel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/ordered_channel.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -197,7 +195,7 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test tests::setup_account_managers">
+  <component name="RunManager" selected="Cargo.Test tests::main">
     <configuration default="true" type="ArquillianTestNG" factoryName="" nameIsGenerated="true">
       <option name="arquillianRunConfiguration">
         <value>
@@ -312,8 +310,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::secbytes" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_crypt --test primary tests::secbytes -- --exact" />
+    <configuration name="Test tests::main" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_net --test primary tests::main -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -360,8 +358,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::unordered_mode" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package ez_pqcrypto --test primary tests::unordered_mode -- --exact" />
+    <configuration name="Test tests::tcp_or_tls" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_net --test primary tests::tcp_or_tls -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -398,19 +396,19 @@
       <item itemvalue="Cargo.Test tests::delete_all_users" />
       <item itemvalue="Cargo.Test tests::main (RELEASE)" />
       <item itemvalue="Cargo.Test main - UDP+TLS" />
-      <item itemvalue="Cargo.Test tests::unordered_mode" />
-      <item itemvalue="Cargo.Test tests::secbytes" />
       <item itemvalue="Cargo.Test tests::encrypt_decrypt_test" />
       <item itemvalue="Cargo.Test tests::setup_account_managers" />
       <item itemvalue="Cargo.Test tests::setup_account_managers (1)" />
+      <item itemvalue="Cargo.Test tests::tcp_or_tls" />
+      <item itemvalue="Cargo.Test tests::main" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Cargo.Test tests::main" />
+        <item itemvalue="Cargo.Test tests::tcp_or_tls" />
         <item itemvalue="Cargo.Test tests::setup_account_managers" />
         <item itemvalue="Cargo.Test tests::setup_account_managers (1)" />
         <item itemvalue="Cargo.Test tests::encrypt_decrypt_test" />
-        <item itemvalue="Cargo.Test tests::secbytes" />
-        <item itemvalue="Cargo.Test tests::unordered_mode" />
       </list>
     </recent_temporary>
   </component>
@@ -674,7 +672,7 @@
       <workItem from="1633958564349" duration="31114000" />
       <workItem from="1635949297639" duration="1199000" />
       <workItem from="1638725401397" duration="1918000" />
-      <workItem from="1639601115939" duration="53822000" />
+      <workItem from="1639601115939" duration="55901000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

@@ -70,18 +70,14 @@ impl OrderedChannel {
     // Assumes `last_arrived_id` has already been sent through the sink. This function will scan the elements in the hashmap sequentially, sending each enqueued packet, stopping once discontinuity occurs
     fn scan_send(&mut self, last_arrived_id: u64) -> Result<(), NetworkError> {
         let mut cur_scan_id = last_arrived_id.wrapping_add(1);
-        let mut cnt = 0;
         loop {
             if let Some(next) = self.map.remove(&cur_scan_id) {
                 self.send_unconditional(cur_scan_id, next)?;
                 cur_scan_id = cur_scan_id.wrapping_add(1);
-                cnt += 1;
             } else {
                 break;
             }
         }
-
-        log::info!("CNT: {}", cnt);
 
         Ok(())
     }
@@ -129,7 +125,6 @@ mod tests {
         let recv_task = async move {
             let mut id = 0;
             while let Some(value) = rx.recv().await {
-                log::info!("RECV: {:?}", value.as_ref());
                 assert_eq!(id, value.as_ref()[0]);
                 id += 1;
 
@@ -167,7 +162,6 @@ mod tests {
         let recv_task = async move {
             let mut id: usize = 0;
             while let Some(value) = rx.recv().await {
-                log::info!("RECV: {:?}", value.as_ref());
                 assert_eq!((id % u8::MAX as usize) as u8, value.as_ref()[0]);
                 id += 1;
 
@@ -191,7 +185,7 @@ mod tests {
     #[tokio::test]
     async fn smoke_unordered_concurrent() -> Result<(), Box<dyn Error>> {
         //setup_log();
-        const COUNT: usize = 1000000;
+        const COUNT: usize = 10000;
         let (tx, mut rx) = unbounded();
         let ordered_channel = OrderedChannel::new(tx.clone());
         let mut values_ordered = (0..COUNT).into_iter().map(|r| (r as _, SecBuffer::from(&[(r % (u8::MAX as usize)) as u8] as &[u8]))).collect::<Vec<(u64, SecBuffer)>>();
@@ -206,7 +200,6 @@ mod tests {
         let recv_task = async move {
             let mut id: usize = 0;
             while let Some(value) = rx.recv().await {
-                log::info!("RECV: {:?}", value.as_ref());
                 assert_eq!((id % u8::MAX as usize) as u8, value.as_ref()[0]);
                 id += 1;
 
