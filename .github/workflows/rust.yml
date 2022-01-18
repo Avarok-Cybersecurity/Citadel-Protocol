@@ -45,10 +45,11 @@ jobs:
       - uses: actions/checkout@v2
       - uses: dtolnay/rust-toolchain@stable
 #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
-      - run: cargo build --package lusna_sdk --verbose
+#      - run: cargo build --package lusna_sdk --verbose
       - run: cargo test --package ez_pqcrypto
       - run: cargo test --package hyxe_crypt
       - run: cargo test --package hyxe_fs
       - run: cargo test --package hyxe_user --features enterprise
-      - run: cargo test --package hyxe_net
+      - run: cargo test --package hyxe_net --features single-threaded,localhost-testing
+      - run: cargo test --package hyxe_net --features multi-threaded,localhost-testing
       - run: cargo test --package lusna_sdk
