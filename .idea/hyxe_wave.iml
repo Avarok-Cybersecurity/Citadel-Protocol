@@ -344,6 +344,7 @@
       <sourceFolder url="file://$MODULE_DIR$/lusna_sdk/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/lusna_sdk/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/online_order_handler/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_nat/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/target" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/target" />
       <excludeFolder url="file://$MODULE_DIR$/async_ip/target" />

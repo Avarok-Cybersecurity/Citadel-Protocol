@@ -8,7 +8,7 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::ConstructorOpts;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::prelude::SyncIO;
-use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
+use hyxe_nat::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use netbeam::sync::RelativeNodeType;
 
@@ -443,7 +443,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         log::info!("Successfully upgraded direct p2p connection for {}@{:?}", peer_cid, peer_addr);
 
                                         if let Some(udp_conn) = udp_conn {
-                                            let hole_punched_addr = HolePunchedSocketAddr::new(peer_addr, peer_addr, Default::default());
+                                            let hole_punched_addr = TargettedSocketAddr::new(peer_addr, peer_addr, Default::default());
                                             HdpSession::udp_socket_loader(session.clone(), conn.reverse().as_virtual_connection(), UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, None);
                                         }
 
@@ -480,7 +480,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         if let Ok(udp_conn) = state_container.upgrade_provisional_direct_p2p_connection(peer_addr, peer_cid, possible_verified_conn) {
                                             log::info!("Successfully upgraded direct p2p connection for {}@{:?}. Process complete!", peer_cid, peer_addr);
                                             if let Some(udp_conn) = udp_conn {
-                                                let hole_punched_addr = HolePunchedSocketAddr::new(peer_addr, peer_addr, Default::default());
+                                                let hole_punched_addr = TargettedSocketAddr::new(peer_addr, peer_addr, Default::default());
                                                 HdpSession::udp_socket_loader(session.clone(), conn.reverse().as_virtual_connection(), UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, None);
                                             }
                                         } else {
@@ -507,7 +507,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                                 log::info!("Successfully upgraded direct p2p connection for {}@{:?}. May be overwritten though ...", peer_cid, peer_addr);
 
                                                 if let Some(udp_conn) = udp_conn {
-                                                    let hole_punched_addr = HolePunchedSocketAddr::new(peer_addr, peer_addr, Default::default());
+                                                    let hole_punched_addr = TargettedSocketAddr::new(peer_addr, peer_addr, Default::default());
                                                     HdpSession::udp_socket_loader(session.clone(), conn.reverse().as_virtual_connection(), UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, None);
                                                 }
                                             } else {

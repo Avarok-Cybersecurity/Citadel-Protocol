@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 /// Linear hole-punching
 pub mod linear;
 
-pub mod hole_punched_udp_socket_addr;
+pub mod targetted_udp_socket_addr;
 
 pub mod udp_hole_puncher;
 

@@ -19,7 +19,7 @@ use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::io::SyncIO;
 use hyxe_nat::hypernode_type::NodeType;
 use netbeam::time_tracker::TimeTracker;
-use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
+use hyxe_nat::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
@@ -544,7 +544,7 @@ impl HdpSession {
     }
 
     // tcp_conn_awaiter must be provided in order to know when the begin loading the UDP conn for the user. The TCP connection must first be loaded in order to place the udp conn inside the virtual_conn hashmap
-    pub(crate) fn udp_socket_loader(this: HdpSession, v_target: VirtualTargetType, udp_conn: UdpSplittableTypes, addr: HolePunchedSocketAddr, ticket: Ticket, tcp_conn_awaiter: Option<tokio::sync::oneshot::Receiver<()>>) {
+    pub(crate) fn udp_socket_loader(this: HdpSession, v_target: VirtualTargetType, udp_conn: UdpSplittableTypes, addr: TargettedSocketAddr, ticket: Ticket, tcp_conn_awaiter: Option<tokio::sync::oneshot::Receiver<()>>) {
         let this_weak = this.as_weak();
         std::mem::drop(this);
         let task = async move {
@@ -1304,7 +1304,7 @@ impl HdpSession {
         Ok(())
     }
 
-    async fn udp_outbound_sender<S: SinkExt<Bytes> + Unpin>(local_is_server: bool, receiver: UnboundedReceiver<(u8, BytesMut)>, hole_punched_addr: HolePunchedSocketAddr, mut sink: S, peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
+    async fn udp_outbound_sender<S: SinkExt<Bytes> + Unpin>(local_is_server: bool, receiver: UnboundedReceiver<(u8, BytesMut)>, hole_punched_addr: TargettedSocketAddr, mut sink: S, peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
         let mut receiver = tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
         let target_cid = peer_session_accessor.get_target_cid();
 
