@@ -10,7 +10,7 @@ use tokio::time::Duration;
 
 
 use crate::error::FirewallError;
-use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
+use crate::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use crate::udp_traversal::HolePunchID;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::linear::LinearUdpHolePunchImpl;
@@ -23,10 +23,10 @@ pub struct Method3 {
     encrypted_config: EncryptedConfigContainer,
     unique_id: HolePunchID,
     // in the case the adjacent node for id=key succeeds, yet, this node fails, recovery mode can ensue
-    observed_addrs_on_syn: Mutex<HashMap<HolePunchID, HolePunchedSocketAddr>>,
+    observed_addrs_on_syn: Mutex<HashMap<HolePunchID, TargettedSocketAddr>>,
     // for sending SYNs to a receiver that allow for faster Hole-punch resolutions as mediated by the controller
     // local_id, peer_id, addr
-    syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>
+    syn_observer: UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -39,14 +39,14 @@ enum NatPacket {
 
 impl Method3 {
     /// Make sure to complete the pre-process stage before calling this
-    pub fn new(this_node_type: RelativeNodeType, encrypted_config: EncryptedConfigContainer, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Self {
+    pub fn new(this_node_type: RelativeNodeType, encrypted_config: EncryptedConfigContainer, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Self {
         Self { this_node_type, encrypted_config, unique_id, observed_addrs_on_syn: Mutex::new(HashMap::new()), syn_observer }
     }
 
     /// The initiator must pass a vector correlating to the target endpoints. Each provided socket will attempt to reach out to the target endpoint (1-1)
     ///
     /// Note! The endpoints should be the port-predicted addrs
-    async fn execute_either(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedSocketAddr, FirewallError> {
+    async fn execute_either(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<TargettedSocketAddr, FirewallError> {
         let default_ttl = socket.ttl().ok();
         let ref unique_id = self.unique_id.clone();
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
@@ -103,7 +103,7 @@ impl Method3 {
     }
 
     // Handles the reception of packets, as well as sending/awaiting for a verification
-    async fn recv_until(socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer, unique_id: &HolePunchID, observed_addrs_on_syn: &Mutex<HashMap<HolePunchID, HolePunchedSocketAddr>>, syn_observer: &UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<HolePunchedSocketAddr, FirewallError> {
+    async fn recv_until(socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer, unique_id: &HolePunchID, observed_addrs_on_syn: &Mutex<HashMap<HolePunchID, TargettedSocketAddr>>, syn_observer: &UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<TargettedSocketAddr, FirewallError> {
         let buf = &mut [0u8; 4096];
         log::info!("[Hole-punch] Listening on {:?}", socket.local_addr().unwrap());
 
@@ -122,7 +122,7 @@ impl Method3 {
             match packet {
                 NatPacket::Syn(peer_unique_id, ttl) => {
                     log::info!("RECV SYN");
-                    let hole_punched_addr = HolePunchedSocketAddr::new(*endpoint, peer_external_addr, peer_unique_id);
+                    let hole_punched_addr = TargettedSocketAddr::new(*endpoint, peer_external_addr, peer_unique_id);
 
                     let _ = syn_observer.send((*unique_id, peer_unique_id, hole_punched_addr));
                     observed_addrs_on_syn.lock().insert(peer_unique_id, hole_punched_addr);
@@ -139,7 +139,7 @@ impl Method3 {
                     log::info!("RECV SYN_ACK");
                     // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
                     let initial_socket = endpoint;
-                    let hole_punched_addr = HolePunchedSocketAddr::new(*initial_socket, peer_external_addr, adjacent_unique_id);
+                    let hole_punched_addr = TargettedSocketAddr::new(*initial_socket, peer_external_addr, adjacent_unique_id);
                     log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
 
                     return Ok(hole_punched_addr);
@@ -153,7 +153,7 @@ impl Method3 {
 
 #[async_trait]
 impl LinearUdpHolePunchImpl for Method3 {
-    async fn execute(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedSocketAddr, FirewallError> {
+    async fn execute(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<TargettedSocketAddr, FirewallError> {
         match self.this_node_type {
             RelativeNodeType::Initiator => {
                 self.execute_either(socket, endpoints).await
@@ -165,7 +165,7 @@ impl LinearUdpHolePunchImpl for Method3 {
         }
     }
 
-    fn get_peer_external_addr_from_peer_hole_punch_id(&self, id: HolePunchID) -> Option<HolePunchedSocketAddr> {
+    fn get_peer_external_addr_from_peer_hole_punch_id(&self, id: HolePunchID) -> Option<TargettedSocketAddr> {
         let lock = self.observed_addrs_on_syn.lock();
         log::info!("Recv'd SYNS: {:?}", &*lock);
         lock.get(&id).cloned()

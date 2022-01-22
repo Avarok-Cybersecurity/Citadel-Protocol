@@ -58,7 +58,6 @@ jobs:
       - run: cargo test --package ez_pqcrypto
       - run: cargo test --package hyxe_crypt
       - run: cargo test --package hyxe_fs
-#      - run: cargo test --package hyxe_user --features enterprise
       - run: cargo clean
       - run: cargo test --package hyxe_net --features single-threaded,localhost-testing
       - run: cargo clean

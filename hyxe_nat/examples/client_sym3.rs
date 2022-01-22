@@ -1,7 +1,8 @@
 use tokio::io::{BufReader, AsyncBufReadExt};
-use net_sync::sync::RelativeNodeType;
 use hyxe_nat::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use hyxe_nat::quic::QuicEndpointConnector;
+use netbeam::sync::RelativeNodeType;
+use netbeam::sync::network_endpoint::NetworkEndpoint;
 
 fn setup_log() {
     std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -17,11 +18,11 @@ fn setup_log() {
 async fn main() {
     setup_log();
 
-    let ref server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025").await.unwrap();
+    let server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025").await.unwrap();
 
     log::info!("Established TCP server connection");
 
-    let hole_punched_socket = UdpHolePuncher::new(server_stream, RelativeNodeType::Initiator, Default::default()).await.unwrap();
+    let hole_punched_socket = UdpHolePuncher::new(&NetworkEndpoint::register(RelativeNodeType::Initiator, server_stream).await.unwrap(), Default::default()).await.unwrap();
 
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
     let (_conn, mut sink, mut stream) = hyxe_nat::quic::QuicClient::new_verify(hole_punched_socket.socket, &[]).unwrap().connect_biconn(hole_punched_socket.addr.natted, "mail.satorisocial.com").await.unwrap();
