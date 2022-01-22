@@ -1,10 +1,10 @@
+name: Publish documentation
+
 on:
   workflow_dispatch:
   push:
     branches:
       - 'master'
-
-name: Publish documentation
 
 jobs:
   docs:

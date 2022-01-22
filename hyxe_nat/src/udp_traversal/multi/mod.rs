@@ -15,7 +15,7 @@ use async_ip::IpAddressInfo;
 
 use crate::nat_identification::NatType;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
-use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedSocketAddr, HolePunchedUdpSocket};
+use crate::udp_traversal::targetted_udp_socket_addr::{TargettedSocketAddr, HolePunchedUdpSocket};
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
 use netbeam::reliable_conn::{ReliableOrderedConnectionToTarget, ReliableOrderedStreamToTarget};
@@ -60,7 +60,7 @@ impl<'a> DualStackUdpHolePuncher<'a> {
         Ok(Self { future: Box::pin(drive(hole_punchers, stream, relative_node_type, syn_observer_rx)) })
     }
 
-    fn generate_dual_stack_hole_punchers_with_delta(hole_punchers: &mut Vec<SingleUDPHolePuncher>, relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn_local_addr: SocketAddr, conn_peer_addr: SocketAddr, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, delta: u16, unique_id: &mut HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<(), anyhow::Error> {
+    fn generate_dual_stack_hole_punchers_with_delta(hole_punchers: &mut Vec<SingleUDPHolePuncher>, relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn_local_addr: SocketAddr, conn_peer_addr: SocketAddr, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, delta: u16, unique_id: &mut HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<(), anyhow::Error> {
         let peer_ip_info = peer_nat.ip_addr_info().ok_or_else(|| anyhow::Error::msg("Peer IP info not loaded"))?;
         let local_ip_info = local_nat.ip_addr_info().ok_or_else(|| anyhow::Error::msg("Local IP info not loaded"))?;
 
@@ -96,7 +96,7 @@ impl Future for DualStackUdpHolePuncher<'_> {
     }
 }
 
-async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T, node_type: RelativeNodeType, mut syn_observer_rx: UnboundedReceiver<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T, node_type: RelativeNodeType, mut syn_observer_rx: UnboundedReceiver<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let (final_candidate_tx, final_candidate_rx) = tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
     let (reader_done_tx, mut reader_done_rx) = tokio::sync::broadcast::channel::<()>(2);
     let mut reader_done_rx_2 = reader_done_tx.subscribe();
@@ -105,7 +105,7 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
     let (ref post_rebuild_tx, mut post_rebuild_rx) = tokio::sync::mpsc::unbounded_channel();
     //let ref post_rebuild_tx = post_rebuild_tx;
 
-    let assert_rebuild_ready = |local_id: HolePunchID, peer_id: HolePunchID, addr: HolePunchedSocketAddr| async move {
+    let assert_rebuild_ready = |local_id: HolePunchID, peer_id: HolePunchID, addr: TargettedSocketAddr| async move {
         let _receivers = kill_signal_tx.send((local_id, peer_id, addr))?;
         if let Some(Some(val)) = post_rebuild_rx.recv().await {
             Ok(val)
@@ -127,7 +127,7 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
     // key = local
     let ref local_completions: RwLock<HashMap<HolePunchID, (HolePunchedUdpSocket, SingleUDPHolePuncher)>> = RwLock::new(HashMap::new());
     let ref local_failures: RwLock<HashMap<HolePunchID, SingleUDPHolePuncher>> = RwLock::new(HashMap::new());
-    let ref syns_observed_map: RwLock<HashSet<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>> = RwLock::new(HashSet::new());
+    let ref syns_observed_map: RwLock<HashSet<(HolePunchID, HolePunchID, TargettedSocketAddr)>> = RwLock::new(HashSet::new());
 
     let syns_observed = async move {
         while let Some((local_id, peer_id, addr)) = syn_observer_rx.recv().await {
@@ -371,8 +371,8 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
 }
 
 /// returns mapping of (remote_id, local_id)
-fn construct_received_ids(received_syns: &HashSet<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Vec<(HolePunchID, HolePunchID, HolePunchedSocketAddr)> {
-    let mut ret: Vec<(HolePunchID, HolePunchID, HolePunchedSocketAddr)> = Vec::new();
+fn construct_received_ids(received_syns: &HashSet<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Vec<(HolePunchID, HolePunchID, TargettedSocketAddr)> {
+    let mut ret: Vec<(HolePunchID, HolePunchID, TargettedSocketAddr)> = Vec::new();
 
     for (local_id, remote_id, addr) in received_syns.iter() {
         ret.push((*local_id, *remote_id, *addr));

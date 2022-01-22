@@ -9,7 +9,7 @@ use tokio::time::Duration;
 
 use crate::error::FirewallError;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
-use crate::udp_traversal::hole_punched_udp_socket_addr::{HolePunchedSocketAddr, HolePunchedUdpSocket};
+use crate::udp_traversal::targetted_udp_socket_addr::{TargettedSocketAddr, HolePunchedUdpSocket};
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::linear::method3::Method3;
 use crate::upnp_handler::UPnPHandler;
@@ -50,15 +50,15 @@ impl SingleUDPHolePuncher {
     /// the other way around in the case with carrier grade or symmetric NATs.
     ///
     /// `peer_addr`: This should be the addr where the server/client is already connected to (external addr). It is assumed that this already has a hole in the NAT
-    pub fn new_initiator(encrypted_config_container: EncryptedConfigContainer, local_bind_addr: SocketAddr, peer_external_addr: SocketAddr, peer_internal_addr: SocketAddr, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<Self, anyhow::Error> {
+    pub fn new_initiator(encrypted_config_container: EncryptedConfigContainer, local_bind_addr: SocketAddr, peer_external_addr: SocketAddr, peer_internal_addr: SocketAddr, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<Self, anyhow::Error> {
         Self::new(RelativeNodeType::Initiator, encrypted_config_container,  local_bind_addr, peer_external_addr, peer_internal_addr, unique_id, syn_observer)
     }
 
-    pub fn new_receiver(encrypted_config_container: EncryptedConfigContainer, local_bind_addr: SocketAddr, peer_external_addr: SocketAddr, peer_internal_addr: SocketAddr, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<Self, anyhow::Error> {
+    pub fn new_receiver(encrypted_config_container: EncryptedConfigContainer, local_bind_addr: SocketAddr, peer_external_addr: SocketAddr, peer_internal_addr: SocketAddr, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<Self, anyhow::Error> {
         Self::new(RelativeNodeType::Receiver,  encrypted_config_container, local_bind_addr, peer_external_addr, peer_internal_addr, unique_id, syn_observer)
     }
 
-    pub fn new(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, local_bind_addr: SocketAddr, peer_external_addr: SocketAddr, peer_internal_addr: SocketAddr, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>) -> Result<Self, anyhow::Error> {
+    pub fn new(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, local_bind_addr: SocketAddr, peer_external_addr: SocketAddr, peer_internal_addr: SocketAddr, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<Self, anyhow::Error> {
         log::info!("Setting up single-udp hole-puncher. Local bind addr: {:?} | Peer External Addr: {:?} | Peer Internal Addr: {:?} [id = {:?}]", local_bind_addr, peer_external_addr, peer_internal_addr, unique_id);
 
         let method3= Method3::new(relative_node_type, encrypted_config_container, unique_id.clone(), syn_observer);
@@ -80,7 +80,7 @@ impl SingleUDPHolePuncher {
     }
 
     /// kill_switch: Item sent is (local_id, peer_id)
-    pub async fn try_method(&mut self, method: NatTraversalMethod, mut kill_switch: tokio::sync::broadcast::Receiver<(HolePunchID, HolePunchID, HolePunchedSocketAddr)>, post_kill_rebuild: tokio::sync::mpsc::UnboundedSender<Option<HolePunchedUdpSocket>>) -> Result<HolePunchedUdpSocket, FirewallError> {
+    pub async fn try_method(&mut self, method: NatTraversalMethod, mut kill_switch: tokio::sync::broadcast::Receiver<(HolePunchID, HolePunchID, TargettedSocketAddr)>, post_kill_rebuild: tokio::sync::mpsc::UnboundedSender<Option<HolePunchedUdpSocket>>) -> Result<HolePunchedUdpSocket, FirewallError> {
         match method {
             NatTraversalMethod::UPnP => {
                 self.upnp_handler.0 = true;
@@ -98,7 +98,7 @@ impl SingleUDPHolePuncher {
                 let natted_socket = SocketAddr::new(peer_external_addr.ip(), reserved_port);
                 log::info!("[UPnP]: Opened port {}", reserved_port);
                 let unique_id = self.unique_id;
-                let hole_punched_addr = HolePunchedSocketAddr::new(peer_external_addr, natted_socket, unique_id);
+                let hole_punched_addr = TargettedSocketAddr::new(peer_external_addr, natted_socket, unique_id);
                 log::info!("[UPnP] {}", &hole_punched_addr);
 
                 Ok(HolePunchedUdpSocket { addr: hole_punched_addr, socket: self.socket.take().ok_or_else(|| FirewallError::HolePunch("UDP socket not loaded".to_string()))? })
@@ -149,7 +149,7 @@ impl SingleUDPHolePuncher {
                 let socket = self.socket.take().ok_or_else(|| FirewallError::HolePunch("UDP socket not loaded".to_string()))?;
                 //let bind_addr = socket.local_addr()?;
                 let unique_id = self.unique_id;
-                Ok(HolePunchedUdpSocket { socket, addr: HolePunchedSocketAddr { initial: self.peer_external_addr(), natted: self.peer_external_addr(), unique_id } })
+                Ok(HolePunchedUdpSocket { socket, addr: TargettedSocketAddr { initial: self.peer_external_addr(), natted: self.peer_external_addr(), unique_id } })
             }
         }
     }
@@ -188,7 +188,7 @@ impl SingleUDPHolePuncher {
     }
 
     /// this should only be called when the adjacent node verified that the connection occured
-    pub fn recovery_mode_generate_socket_by_addr(&mut self, addr: HolePunchedSocketAddr) -> Option<HolePunchedUdpSocket> {
+    pub fn recovery_mode_generate_socket_by_addr(&mut self, addr: TargettedSocketAddr) -> Option<HolePunchedUdpSocket> {
         let socket = self.socket.take()?;
         Some(HolePunchedUdpSocket { addr, socket })
     }
@@ -232,9 +232,9 @@ pub trait LinearUdpHolePunchImpl {
     ///
     /// `endpoint`: is the initial send location
     /// `sockets`: Must be the same length as the base_local_ports
-    async fn execute(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<HolePunchedSocketAddr, FirewallError>;
+    async fn execute(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<TargettedSocketAddr, FirewallError>;
     /// used during "recovery mode" (when one side completes, but the other does not
-    fn get_peer_external_addr_from_peer_hole_punch_id(&self, id: HolePunchID) -> Option<HolePunchedSocketAddr>;
+    fn get_peer_external_addr_from_peer_hole_punch_id(&self, id: HolePunchID) -> Option<TargettedSocketAddr>;
     fn get_all_received_peer_hole_punched_ids(&self) -> Vec<HolePunchID>;
 }
 

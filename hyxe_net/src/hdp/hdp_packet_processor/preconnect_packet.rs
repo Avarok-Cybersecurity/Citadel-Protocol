@@ -1,5 +1,5 @@
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedUdpSocket;
+use hyxe_nat::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use hyxe_nat::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use netbeam::sync::RelativeNodeType;
 

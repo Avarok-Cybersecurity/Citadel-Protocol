@@ -1,7 +1,8 @@
 use tokio::io::{BufReader, AsyncBufReadExt};
-use net_sync::sync::RelativeNodeType;
 use hyxe_nat::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use hyxe_nat::quic::QuicEndpointListener;
+use netbeam::sync::network_endpoint::NetworkEndpoint;
+use netbeam::sync::RelativeNodeType;
 
 fn setup_log() {
     std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -17,13 +18,13 @@ fn setup_log() {
 async fn main() {
     setup_log();
     let listener = tokio::net::TcpListener::bind("0.0.0.0:25025").await.unwrap();
-    let (ref client_stream, peer_addr) = listener.accept().await.unwrap();
+    let (client_stream, peer_addr) = listener.accept().await.unwrap();
     log::info!("Received client stream from {:?}", peer_addr);
 
-    let hole_punched_socket = UdpHolePuncher::new(client_stream, RelativeNodeType::Receiver, Default::default()).await.unwrap();
+    let hole_punched_socket = UdpHolePuncher::new(&NetworkEndpoint::register(RelativeNodeType::Receiver, client_stream).await.unwrap(), Default::default()).await.unwrap();
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
 
-    let (_conn, mut sink, mut stream) = hyxe_nat::quic::QuicServer::new_from_pkcs_12_der_path(hole_punched_socket.socket, "/home/ubuntu/satori/keys/testing.p12", "mrmoney10").unwrap().next_connection().await.unwrap();
+    let (_conn, mut sink, mut stream) = hyxe_nat::quic::QuicServer::new_from_pkcs_12_der_path(hole_punched_socket.socket, "../keys/testing.p12", "mrmoney10").unwrap().next_connection().await.unwrap();
     log::info!("Successfully obtained QUIC connection ...");
 
     let writer = async move {

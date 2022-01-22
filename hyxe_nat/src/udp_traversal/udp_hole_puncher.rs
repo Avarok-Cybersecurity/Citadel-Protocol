@@ -1,6 +1,6 @@
 use std::pin::Pin;
 use futures::Future;
-use crate::udp_traversal::hole_punched_udp_socket_addr::HolePunchedUdpSocket;
+use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use std::task::{Context, Poll};
 use crate::nat_identification::NatType;
 use std::time::Duration;
@@ -21,7 +21,6 @@ impl<'a> UdpHolePuncher<'a> {
         Self::new_timeout(conn, encrypted_config_container, DEFAULT_TIMEOUT)
     }
 
-    // TODO: once STUN developers make underlying ClientSettings Send, we can remove the unsafe wrapper below
     pub fn new_timeout(conn: &'a NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer, timeout: Duration) -> Self {
         Self { driver: Box::pin(async move {
             tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?

@@ -13,7 +13,7 @@ use crate::macros::ContextRequirements;
 use futures::stream::{SplitSink, SplitStream};
 use crate::hdp::peer::p2p_conn_handler::generic_error;
 use crate::functional::PairMap;
-use hyxe_nat::udp_traversal::hole_punched_udp_socket_addr::HolePunchedSocketAddr;
+use hyxe_nat::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 
 pub(crate) trait UdpSink: Sink<Bytes, Error=NetworkError> + Unpin + ContextRequirements {}
 impl<T: Sink<Bytes, Error=NetworkError> + Unpin + ContextRequirements> UdpSink for T {}
@@ -49,10 +49,10 @@ impl UdpSplittableTypes {
         }
     }
 
-    pub fn peer_addr(&self) -> HolePunchedSocketAddr {
+    pub fn peer_addr(&self) -> TargettedSocketAddr {
         match self {
-            Self::QUIC(quic) => HolePunchedSocketAddr::new_invariant(quic.sink.sink.remote_address()),
-            Self::Raw(raw) => HolePunchedSocketAddr::new_invariant(raw.sink.peer_addr)
+            Self::QUIC(quic) => TargettedSocketAddr::new_invariant(quic.sink.sink.remote_address()),
+            Self::Raw(raw) => TargettedSocketAddr::new_invariant(raw.sink.peer_addr)
         }
     }
 }
