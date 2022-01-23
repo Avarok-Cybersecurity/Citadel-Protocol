@@ -102,7 +102,7 @@ pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(msg_drill: &Drill, plain_text
         0
     };
 
-    let packets_in_last_wave = ciphertext_len_last_wave.div_ceil(&max_packet_payload_size);
+    let packets_in_last_wave = num_integer::Integer::div_ceil(&ciphertext_len_last_wave, &max_packet_payload_size);
 
     let (_normal_packets_in_last_wave, mut debug_last_payload_size) = ciphertext_len_last_wave.div_rem(&max_packet_payload_size);
     if debug_last_payload_size == 0 {

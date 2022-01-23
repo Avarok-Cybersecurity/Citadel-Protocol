@@ -17,7 +17,6 @@ use std::ops::Div;
 use bytes::BufMut;
 use ez_pqcrypto::{PostQuantumContainer, LARGEST_NONCE_LEN};
 use rand::prelude::ThreadRng;
-use num_integer::Integer;
 
 /// Index for the set of data that obscures the port-send-order
 pub const PORT_COMBOS_INDEX: usize = 0;
@@ -99,7 +98,7 @@ impl Drill {
     fn get_nonce(&self, nonce_version: usize) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
         let mut base = Default::default();
         let nonce_len = self.algorithm.nonce_len();
-        let f64s_needed = nonce_len.div_ceil(&8);
+        let f64s_needed = num_integer::Integer::div_ceil(&nonce_len, &8);
         let mut outer_idx = 0;
 
         for x in 0..f64s_needed {
