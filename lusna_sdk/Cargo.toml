@@ -19,17 +19,17 @@ localhost-testing-assert-no-proxy = ["hyxe_net/localhost-testing-assert-no-proxy
 
 [dependencies]
 hyxe_net = { path = "../hyxe_net", default-features = false }
-tokio = { version = "1.10.1", features = ["full"] }
-futures = "0.3.17"
+tokio = { version = "1.15.0", features = ["full"] }
+futures = "0.3.19"
 parking_lot = "0.11.2"
-log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
-env_logger = "0.8.2"
+log = { version = "0.4.14", features = ["std", "max_level_info", "release_max_level_info"] }
+env_logger = "0.9.0"
 
 [dev-dependencies]
-parking_lot = { version = "0.11.1", features = ["deadlock_detection"] }
+parking_lot = { version = "0.11.2", features = ["deadlock_detection"] }
 portpicker = "0.1.1"
 dirs2 = "3.0.1"
-env_logger = "0.8.2"
+env_logger = "0.9.0"
 
 [lib]
 doctest = false
