@@ -1,5 +1,3 @@
-#![feature(async_closure)]
-
 #[cfg(test)]
 mod tests {
     use async_ip::{get_all, get_all_multi_concurrent};

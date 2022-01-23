@@ -1,4 +1,4 @@
-//! Tools for punching holes through the firewall. This enables functionality across residential NATs
+//! Tools for punching holes through the firewall and network. This enables functionality across residential NATs
 #![forbid(unsafe_code)]
 pub mod exports {
     pub use igd::PortMappingProtocol;
