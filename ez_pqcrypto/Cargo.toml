@@ -25,7 +25,7 @@ unordered = ["parking_lot"]
 #pqcrypto-ntru = { version = "^0.5.4", features = ["serialization"] }
 generic-array = { version = "0.14.4", features = ["serde"]}
 lazy_static = "1.4.0"
-oqs = { version = "0.7.0", default-features = false, features = ["serde", "saber", "kyber", "sidh", "sike", "ntru"] }
+oqs = { version = "0.7.0", default-features = false, features = ["std", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
 enum_primitive = "0.1.1"
 serde = { version = "1.0.118", features = ["derive"] }
 #serde_traitobject = "0.2.7"
@@ -40,7 +40,6 @@ log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_lev
 strum = { version = "0.21.0", features = ["derive"] }
 env_logger = "0.8.3"
 sha3 = "0.9.1"
-#oqs = { version = "^0.5.0", default-features = false, features = ["minimal"] }
 
 [dev-dependencies]
 rand = "0.7.3"

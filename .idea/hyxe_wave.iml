@@ -444,6 +444,14 @@
       <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/example/build" />
       <excludeFolder url="file://$MODULE_DIR$/flutterust/ios/.symlinks/plugins/firebase_database/example/.pub" />
       <excludeFolder url="file://$MODULE_DIR$/legacy_hyxe_net/target" />
+      <excludeFolder url="file://$MODULE_DIR$/java/Lusna/.idea/caches" />
+      <excludeFolder url="file://$MODULE_DIR$/java/Lusna/.idea/libraries" />
+      <excludeFolder url="file://$MODULE_DIR$/java/Lusna/.idea/modules" />
+      <excludeFolder url="file://$MODULE_DIR$/java/Lusna/app/build" />
+      <excludeFolder url="file://$MODULE_DIR$/java/Lusna/.gradle" />
+      <excludeFolder url="file://$MODULE_DIR$/java/Lusna/build" />
+      <excludeFolder url="file://$MODULE_DIR$/lusna_ffi/.idea" />
+      <excludeFolder url="file://$MODULE_DIR$/netbeam/.idea" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
