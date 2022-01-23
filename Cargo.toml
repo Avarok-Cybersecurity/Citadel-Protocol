@@ -1,8 +1,6 @@
 [workspace]
 
 members = [
-    "hyxewave",
-    "lusna_ffi",
     "lusna_sdk",
     "hyxe_nat",
 	"hyxe_user",
@@ -21,6 +19,7 @@ exclude = [
 
 [profile.dev]
 panic = "abort"
+split-debuginfo = "unpacked"
 
 [licenses]
 default = "warn"

@@ -41,9 +41,72 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
+      <change beforePath="$PROJECT_DIR$/.github/workflows/lusna_sdk.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/lusna_sdk.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.github/workflows/nat.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/nat.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.github/workflows/protocol.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/protocol.yml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/async_ip/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/async_ip/tests/primary.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/drill.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/drill.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/net/crypt_splitter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/net/crypt_splitter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_fs/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_fs/src/file_crypt_scrambler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/src/file_crypt_scrambler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/.idea/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/.idea/hyxewave.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/.idea/misc.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/.idea/modules.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/.idea/vcs.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/Cargo.lock" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/Cargo.toml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/app_config.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/connect.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/deregister.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/disconnect.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/external_process.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/group.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/list_accounts.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/list_algorithms.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/list_sessions.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/mod.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/os/cd.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/os/ls.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/os/mod.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/peer.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/quit.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/register.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/resync.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/send.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/send_udp.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/switch.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/ticket.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/command_handlers/waitfor.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/console_context.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/input_handler.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/mod.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console/virtual_terminal.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/console_error.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/constants.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/command_handler.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/ffi_entry.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/mod.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/ffi/ser.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/hdp_initiator.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/kernel.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/lib.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/mail.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/main.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/misc.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/src/ticket_event.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxewave/tests/primary.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_ffi/.gitignore" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_ffi/Cargo.toml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_ffi/src/ffi_object.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_ffi/src/lib.rs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -86,15 +149,11 @@
   </component>
   <component name="HighlightingSettingsPerFile">
     <setting file="file://$PROJECT_DIR$/netbeam/Cargo.toml" root0="FORCE_HIGHLIGHTING" />
-    <setting file="file://$PROJECT_DIR$/hyxewave/Cargo.toml" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/netbeam/src/sync/network_endpoint.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_net/tests/primary.rs" root0="FORCE_HIGHLIGHTING" />
-    <setting file="file://$PROJECT_DIR$/hyxewave/src/app_config.rs" root0="FORCE_HIGHLIGHTING" />
-    <setting file="file://$PROJECT_DIR$/hyxewave/tests/primary.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/netbeam/src/lib.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/netbeam/src/reliable_conn.rs" root0="FORCE_HIGHLIGHTING" />
-    <setting file="file://$PROJECT_DIR$/hyxewave/src/primary_terminal.rs" root0="FORCE_HIGHLIGHTING" />
   </component>
   <component name="KotlinMultiplatform">
     <allAvailableExecutables />
@@ -671,7 +730,7 @@
       <workItem from="1633958564349" duration="31114000" />
       <workItem from="1635949297639" duration="1199000" />
       <workItem from="1638725401397" duration="1918000" />
-      <workItem from="1639601115939" duration="68776000" />
+      <workItem from="1639601115939" duration="72086000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

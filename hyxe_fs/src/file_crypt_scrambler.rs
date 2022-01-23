@@ -2,7 +2,6 @@ use bytes::BytesMut;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
 use futures::task::Context;
-use num::Integer;
 use std::marker::PhantomData;
 use std::io::{BufReader, Read};
 use tokio::macros::support::Pin;
@@ -48,7 +47,7 @@ pub fn scramble_encrypt_file<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMu
     }
 
     let file_len = metadata.len() as usize;
-    let total_groups = file_len.div_ceil(&max_bytes_per_group);
+    let total_groups = num::Integer::div_ceil(&file_len, &max_bytes_per_group);
 
     println!("\n\rWill parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, file_len, (file_len as f32)/(1024f32*1024f32), total_groups);
     let reader = BufReader::with_capacity(std::cmp::min(file_len, max_bytes_per_group), std_file);
