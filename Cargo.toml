@@ -2,7 +2,6 @@
 
 members = [
     "hyxewave",
-    "satori_nos",
     "lusna_ffi",
     "lusna_sdk",
     "hyxe_nat",
@@ -14,7 +13,6 @@ members = [
 	"hyxe_net",
     "firebase-rtdb",
     "netbeam",
-    "online_order_handler"
 ]
 
 exclude = [
@@ -24,11 +22,12 @@ exclude = [
 [profile.dev]
 panic = "abort"
 
-#[licenses]
-#default = "warn"
-#confidence-threshold = 0.95
+[licenses]
+default = "warn"
+confidence-threshold = 0.95
 
-#allow = [
-#    "MIT",
-#    "Apache-2.0"
-#]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "MIT OR Apache-2.0"
+]
