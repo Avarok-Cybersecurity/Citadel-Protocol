@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 /// The default error type for this crate
 #[derive(Debug)]
 pub enum EzError {
@@ -11,13 +13,18 @@ pub enum EzError {
     Generic(&'static str)
 }
 
-impl ToString for EzError {
-    fn to_string(&self) -> String {
-        match *self {
-            EzError::SharedSecretNotLoaded => "Shared secret not loaded".to_string(),
-            EzError::AesGcmEncryptionFailure => "AES-GCM Encryption Failure".to_string(),
-            EzError::AesGcmDecryptionFailure => "AES-GCM Decryption Failure".to_string(),
-            EzError::Generic(val) => val.to_string()
-        }
+
+impl Display for EzError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let val = match *self {
+            EzError::SharedSecretNotLoaded => "Shared secret not loaded",
+            EzError::AesGcmEncryptionFailure => "AES-GCM Encryption Failure",
+            EzError::AesGcmDecryptionFailure => "AES-GCM Decryption Failure",
+            EzError::Generic(val) => val
+        };
+
+        write!(f, "{}", val)
     }
 }
+
+impl std::error::Error for EzError {}
