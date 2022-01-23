@@ -60,13 +60,8 @@ mod tests {
 
     #[test]
     fn main() {
-        let _ = read_pkcs_12_der_to_quinn_keys("/Users/nologik/satori.net/keys/testing.p12", "mrmoney10").unwrap();
+        let _ = read_pkcs_12_der_to_quinn_keys("../keys/testing.p12", "mrmoney10").unwrap();
         let (cert, _) = generate_self_signed_cert().unwrap();
         println!("self-signed: {:?}", is_self_signed(&X509::from_der(&cert).unwrap()));
-    }
-
-    #[tokio::test]
-    async fn tester() {
-
     }
 }

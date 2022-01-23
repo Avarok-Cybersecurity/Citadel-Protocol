@@ -41,27 +41,17 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change afterPath="$PROJECT_DIR$/.github/workflows/codecov.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.github/workflows/nat.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.github/workflows/docs.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/docs.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.github/workflows/rust.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/protocol.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/hyxe_wave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hyxe_wave.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.github/workflows/codecov.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/codecov.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.github/workflows/lusna_sdk.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/lusna_sdk.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.github/workflows/nat.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/nat.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.github/workflows/protocol.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/protocol.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitlab-ci.yml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/examples/client_sym3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/examples/client_sym3.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/examples/server_sym3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/examples/server_sym3.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/hole_punched_udp_socket_addr.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/targetted_udp_socket_addr.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/method3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/method3.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/multi/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/multi/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/udp_hole_puncher.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/udp_hole_puncher.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/preconnect_packet.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/udp_internal_interface.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/udp_internal_interface.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/prefabs/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/prefabs/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/test_common.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/test_common.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/deny.toml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/misc.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/misc.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/legion-keys/cert.pem" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/legion-keys/certificate.p12" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/legion-keys/key.pem" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -689,7 +679,7 @@
       <workItem from="1633958564349" duration="31114000" />
       <workItem from="1635949297639" duration="1199000" />
       <workItem from="1638725401397" duration="1918000" />
-      <workItem from="1639601115939" duration="61902000" />
+      <workItem from="1639601115939" duration="64129000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
