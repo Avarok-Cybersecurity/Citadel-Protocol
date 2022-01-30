@@ -6,11 +6,12 @@ on:
     branches:
       - 'master'
 
+concurrency:
+  group: ${{ github.head_ref }}
+  cancel-in-progress: true
+
 jobs:
   docs:
-    concurrency:
-      group: ${{ github.head_ref }}
-      cancel-in-progress: true
     runs-on: ubuntu-latest
     strategy:
       matrix:
