@@ -46,15 +46,6 @@
       <change beforePath="$PROJECT_DIR$/.github/workflows/lusna_sdk.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/lusna_sdk.yml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.github/workflows/nat.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/nat.yml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.github/workflows/protocol.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/protocol.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/nat_identification.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/nat_identification.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/udp_hole_puncher.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/udp_hole_puncher.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_server.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/node_builder.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/node_builder.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/prefabs/client/single_connection.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/prefabs/client/single_connection.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mac_m1_README.txt" beforeDir="false" afterPath="$PROJECT_DIR$/mac_m1_README.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -674,7 +665,7 @@
       <workItem from="1639601115939" duration="74534000" />
       <workItem from="1643040364399" duration="17223000" />
       <workItem from="1643485662211" duration="13587000" />
-      <workItem from="1643564061488" duration="4832000" />
+      <workItem from="1643564061488" duration="5464000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

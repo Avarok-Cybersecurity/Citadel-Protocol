@@ -8,6 +8,9 @@ on:
 
 jobs:
   docs:
+    concurrency:
+      group: ${{ github.head_ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -18,7 +21,6 @@ jobs:
       RUST_MIN_STACK: 20971520
 
     steps:
-      - uses: andymckay/cancel-action@0.2
       - uses: actions/checkout@v2.4.0
         with:
           submodules: true

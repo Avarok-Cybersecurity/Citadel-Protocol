@@ -8,13 +8,15 @@ env:
 
 jobs:
   build:
+    concurrency:
+      group: ${{ github.head_ref }}
+      cancel-in-progress: true
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
-      - uses: andymckay/cancel-action@0.2
       - uses: mirromutth/mysql-action@v1.1
         if: startsWith(matrix.os, 'ubuntu')
         with:

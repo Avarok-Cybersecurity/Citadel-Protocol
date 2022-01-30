@@ -8,10 +8,12 @@ on:
 
 jobs:
   coverage:
+    concurrency:
+      group: ${{ github.head_ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
-      - uses: andymckay/cancel-action@0.2
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
