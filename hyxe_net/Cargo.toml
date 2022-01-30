@@ -64,6 +64,7 @@ async-recursion = "0.3.2"
 clap = "2.33.3"
 portpicker = "0.1.1"
 dirs2 = "3.0.1"
+rstest = "0.12.0"
 
 [lib]
 doctest = false

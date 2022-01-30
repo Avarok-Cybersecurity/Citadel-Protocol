@@ -1,6 +1,6 @@
 #[cfg(test)]
 pub mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashSet, HashMap};
     use std::error::Error;
     use std::pin::Pin;
     use std::str::FromStr;
@@ -8,7 +8,6 @@ pub mod tests {
     use std::time::Instant;
 
     use futures::{Future, StreamExt};
-    use once_cell::sync::OnceCell;
     use parking_lot::{const_mutex, Mutex, RwLock};
     use tokio::runtime::{Builder, Handle};
 
@@ -31,6 +30,9 @@ pub mod tests {
     use hyxe_net::test_common::HdpServer;
     use hyxe_net::auth::AuthenticationRequest;
     use dirs2::home_dir;
+    use clap::ArgMatches;
+
+    use rstest::*;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -137,6 +139,25 @@ pub mod tests {
         lock.as_ref().unwrap().clone()
     }
 
+    enum InputExtractionSource<'a> {
+        UnitTest(HashMap<&'static str, &'a str>),
+        Console(ArgMatches<'a>)
+    }
+
+    impl<'a> InputExtractionSource<'a> {
+        fn value_of(&self, key: &str) -> Option<&'_ str> {
+            match self {
+                Self::UnitTest(map) => map.get(key).map(|r| *r),
+                Self::Console(matches) => matches.value_of(key)
+            }
+        }
+
+        fn is_present(&self, key: &str) -> bool {
+            self.value_of(key).is_some()
+        }
+    }
+
+    #[allow(dead_code)]
     fn setup_clap() {
         let kems = KemAlgorithm::names();
         let kems = kems.iter().map(|r| r.as_str()).collect::<Vec<&str>>();
@@ -150,97 +171,96 @@ pub mod tests {
             .arg(clap::Arg::with_name("encryption_algorithm").long("enx").required(false).takes_value(true).possible_values(&["aes", "chacha"]))
             .arg(clap::Arg::with_name("key_exchange_mechanism").long("kem").required(false).takes_value(true).possible_values(kems.as_slice()))
             .arg(clap::Arg::with_name("udp").long("udp").required(false).takes_value(false))
-            .arg(clap::Arg::with_name("tcp").long("tcp").required(false).takes_value(false).conflicts_with_all(&["tls", "quic"]))
-            .arg(clap::Arg::with_name("quic").long("quic").required(false).takes_value(false).conflicts_with_all(&["tcp", "tls"]));
+            .arg(clap::Arg::with_name("proto").long("proto").default_value("tcp").required(false).takes_value(true).possible_values(&["tcp", "tls", "quic"]));
 
         let matches = app.get_matches_from(std::env::args().skip_while(|v| v != "--clap").collect::<Vec<String>>());
+        extract_args_to_statics(InputExtractionSource::Console(matches))
+    }
+
+    fn extract_args_to_statics(matches: InputExtractionSource) {
         if let Some(matches) = matches.value_of("count") {
-            COUNT.set(usize::from_str(matches).unwrap()).unwrap();
+            COUNT.lock().replace(usize::from_str(matches).unwrap());
         } else {
-            COUNT.set(DEFAULT_COUNT).unwrap();
+            COUNT.lock().replace(DEFAULT_COUNT);
         }
 
         if matches.is_present("udp") {
-            UDP_MODE.set(UdpMode::Enabled).unwrap();
+            UDP_MODE.lock().replace(UdpMode::Enabled);
         } else {
-            UDP_MODE.set(DEFAULT_UDP_MODE).unwrap();
+            UDP_MODE.lock().replace(DEFAULT_UDP_MODE);
         }
 
         if let Some(matches) = matches.value_of("secrecy_mode") {
-            SECRECY_MODE.set( matches.if_eq("pfs", SecrecyMode::Perfect).if_false(SecrecyMode::BestEffort)).unwrap();
+            SECRECY_MODE.lock().replace(matches.if_eq("pfs", SecrecyMode::Perfect).if_false(SecrecyMode::BestEffort));
         } else {
-            SECRECY_MODE.set(DEFAULT_SECRECY_MODE).unwrap()
+            SECRECY_MODE.lock().replace(DEFAULT_SECRECY_MODE);
         }
 
         if let Some(matches) = matches.value_of("encryption_algorithm") {
-            ENCRYPTION_ALGORITHM.set( matches.if_eq("aes", EncryptionAlgorithm::AES_GCM_256_SIV).if_false(EncryptionAlgorithm::Xchacha20Poly_1305)).unwrap();
+            ENCRYPTION_ALGORITHM.lock().replace(matches.if_eq("aes", EncryptionAlgorithm::AES_GCM_256_SIV).if_false(EncryptionAlgorithm::Xchacha20Poly_1305));
         } else {
-            ENCRYPTION_ALGORITHM.set(DEFAULT_ENCRYPTION_ALGORITHM).unwrap()
+            ENCRYPTION_ALGORITHM.lock().replace(DEFAULT_ENCRYPTION_ALGORITHM);
         }
 
         if let Some(matches) = matches.value_of("key_exchange_mechanism") {
-            KEM_ALGORITHM.set(KemAlgorithm::try_from_str(matches).unwrap()).unwrap()
+            KEM_ALGORITHM.lock().replace(KemAlgorithm::try_from_str(matches).unwrap());
         } else {
-            KEM_ALGORITHM.set(DEFAULT_KEM_ALGORITHM).unwrap();
+            KEM_ALGORITHM.lock().replace(DEFAULT_KEM_ALGORITHM);
         }
 
         if let Some(matches) = matches.value_of("security_level") {
             let level = SecurityLevel::from(u8::from_str(matches).unwrap());
-            SESSION_SECURITY_LEVEL.set(level).unwrap();
-            P2P_SECURITY_LEVEL.set(level).unwrap();
+            SESSION_SECURITY_LEVEL.lock().replace(level);
+            P2P_SECURITY_LEVEL.lock().replace(level);
         } else {
-            SESSION_SECURITY_LEVEL.set(DEFAULT_SESSION_SECURITY_LEVEL).unwrap();
-            P2P_SECURITY_LEVEL.set(DEFAULT_P2P_SECURITY_LEVEL).unwrap();
+            SESSION_SECURITY_LEVEL.lock().replace(DEFAULT_SESSION_SECURITY_LEVEL);
+            P2P_SECURITY_LEVEL.lock().replace(DEFAULT_P2P_SECURITY_LEVEL);
         }
 
         if let Some(matches) = matches.value_of("timeout") {
             let timeout = usize::from_str(matches).unwrap();
-            TIMEOUT_CNT_MS.set(timeout).unwrap();
+            TIMEOUT_CNT_MS.lock().replace(timeout);
         } else {
-            TIMEOUT_CNT_MS.set(DEFAULT_TIMEOUT_CNT_MS).unwrap();
+            TIMEOUT_CNT_MS.lock().replace(DEFAULT_TIMEOUT_CNT_MS);
         }
 
         if let Some(matches) = matches.value_of("message_length") {
             let len = usize::from_str(matches).unwrap();
-            RAND_MESSAGE_LEN.set(len).unwrap();
+            RAND_MESSAGE_LEN.lock().replace(len);
         } else {
-            RAND_MESSAGE_LEN.set(DEFAULT_RAND_MESSAGE_LEN).unwrap();
+            RAND_MESSAGE_LEN.lock().replace(DEFAULT_RAND_MESSAGE_LEN);
         }
 
-
-        if matches.is_present("tls") {
-            *PROTO.lock() = Some(UnderlyingProtocol::load_tls("../keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
-        } else if matches.is_present("quic") {
-            *PROTO.lock() = Some(UnderlyingProtocol::load_quic("../keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap())
-        } else if matches.is_present("tcp") {
-            *PROTO.lock() = Some(UnderlyingProtocol::Tcp);
-        } else {
-            *PROTO.lock() = Some(DEFAULT_UNDERLYING_PROTOCOL);
-        }
+        let proto = matches.value_of("proto").unwrap();
+        match proto {
+            "tls" => PROTO.lock().replace(UnderlyingProtocol::new_tls_self_signed().unwrap()),
+            "quic" => PROTO.lock().replace(UnderlyingProtocol::new_quic_self_signed()),
+            "tcp" => PROTO.lock().replace(UnderlyingProtocol::Tcp),
+            invalid_proto => panic!("invalid proto specified: {}", invalid_proto)
+        };
     }
 
     fn count() -> usize {
-        *COUNT.get().unwrap()
+        COUNT.lock().clone().unwrap()
     }
+    fn secrecy_mode() -> SecrecyMode { SECRECY_MODE.lock().clone().unwrap() }
+    fn session_security_level() -> SecurityLevel { SESSION_SECURITY_LEVEL.lock().clone().unwrap() }
+    fn p2p_security_level() -> SecurityLevel { P2P_SECURITY_LEVEL.lock().clone().unwrap() }
+    fn timeout_cnt_ms() -> usize { TIMEOUT_CNT_MS.lock().clone().unwrap() }
+    fn rand_message_len() -> usize { RAND_MESSAGE_LEN.lock().clone().unwrap() }
+    fn encryption_algorithm() -> EncryptionAlgorithm { ENCRYPTION_ALGORITHM.lock().clone().unwrap() }
+    fn kem_algorithm() -> KemAlgorithm { KEM_ALGORITHM.lock().clone().unwrap() }
+    fn udp_mode() -> UdpMode { UDP_MODE.lock().clone().unwrap() }
 
-    fn secrecy_mode() -> SecrecyMode { *SECRECY_MODE.get().unwrap() }
-    fn session_security_level() -> SecurityLevel { *SESSION_SECURITY_LEVEL.get().unwrap() }
-    fn p2p_security_level() -> SecurityLevel { *P2P_SECURITY_LEVEL.get().unwrap() }
-    fn timeout_cnt_ms() -> usize { *TIMEOUT_CNT_MS.get().unwrap() }
-    fn rand_message_len() -> usize { *RAND_MESSAGE_LEN.get().unwrap() }
-    fn encryption_algorithm() -> EncryptionAlgorithm { *ENCRYPTION_ALGORITHM.get().unwrap() }
-    fn kem_algorithm() -> KemAlgorithm { *KEM_ALGORITHM.get().unwrap() }
-    fn udp_mode() -> UdpMode { *UDP_MODE.get().unwrap() }
-
-    pub static SECRECY_MODE: OnceCell<SecrecyMode> = OnceCell::new();
-    pub static SESSION_SECURITY_LEVEL: OnceCell<SecurityLevel> = OnceCell::new();
-    pub static P2P_SECURITY_LEVEL: OnceCell<SecurityLevel> = OnceCell::new();
-    pub static COUNT: OnceCell<usize> = OnceCell::new();
-    pub static RAND_MESSAGE_LEN: OnceCell<usize> = OnceCell::new();
-    pub static TIMEOUT_CNT_MS: OnceCell<usize> = OnceCell::new();
-    pub static ENCRYPTION_ALGORITHM: OnceCell<EncryptionAlgorithm> = OnceCell::new();
-    pub static KEM_ALGORITHM: OnceCell<KemAlgorithm> = OnceCell::new();
-    pub static UDP_MODE: OnceCell<UdpMode> = OnceCell::new();
+    pub static SECRECY_MODE: parking_lot::Mutex<Option<SecrecyMode>> = const_mutex(None);
+    pub static SESSION_SECURITY_LEVEL: parking_lot::Mutex<Option<SecurityLevel>> = const_mutex(None);
+    pub static P2P_SECURITY_LEVEL: parking_lot::Mutex<Option<SecurityLevel>> = const_mutex(None);
+    pub static COUNT: parking_lot::Mutex<Option<usize>> = const_mutex(None);
+    pub static RAND_MESSAGE_LEN: parking_lot::Mutex<Option<usize>> = const_mutex(None);
+    pub static TIMEOUT_CNT_MS: parking_lot::Mutex<Option<usize>> = const_mutex(None);
+    pub static ENCRYPTION_ALGORITHM: parking_lot::Mutex<Option<EncryptionAlgorithm>> = const_mutex(None);
+    pub static KEM_ALGORITHM: parking_lot::Mutex<Option<KemAlgorithm>> = const_mutex(None);
+    pub static UDP_MODE: parking_lot::Mutex<Option<UdpMode>> = const_mutex(None);
 
     pub const DEFAULT_SESSION_SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
     pub const DEFAULT_P2P_SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
@@ -257,13 +277,26 @@ pub mod tests {
     pub static P2P_SENDING_START_TIME: Mutex<Option<Instant>> = const_mutex(None);
     pub static P2P_SENDING_END_TIME: Mutex<Option<Instant>> = const_mutex(None);
 
-    #[test]
-    // line 874 contains message for you
-    fn main() -> Result<(), Box<dyn Error>> {
+    #[rstest]
+    #[trace]
+    fn stress_test_messaging(
+        #[values("tcp", "tls", "quic")]
+        underlying_proto_arg: &str,
+        #[values("aes", "chacha")]
+        enx_algorithm: &str,
+        #[values("4000")]
+        message_count_per_activity: &str
+    ) -> Result<(), Box<dyn Error>> {
+        setup_log();
         super::utils::deadlock_detector();
 
-        setup_log();
-        setup_clap();
+        let map = std::collections::HashMap::from([
+            ("proto", underlying_proto_arg),
+            ("encryption_algorithm", enx_algorithm),
+            ("count", message_count_per_activity)
+        ]);
+
+        extract_args_to_statics(InputExtractionSource::UnitTest(map));
 
         let total_p2p_messages = 2 * count();
         let total_messages = total_p2p_messages + (2 * count()) + (3 * count()); // p2p sending to each other simultaneously, c2s sending to each other simultaneously, then one group member using central server to broadcast to two others (3 encryptions)
