@@ -7,7 +7,7 @@ env:
   TESTING_SQL_SERVER_ADDR: "mysql://root:password@localhost/db0"
 
 concurrency:
-  group: build-${{ github.event.pull_request.number || github.ref }}
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
