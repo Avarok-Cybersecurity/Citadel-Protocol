@@ -4,10 +4,6 @@ on: [push, pull_request]
 env:
   CARGO_TERM_COLOR: always
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
     strategy:
