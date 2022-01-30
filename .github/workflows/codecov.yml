@@ -6,11 +6,12 @@ on:
     branches:
       - 'master'
 
+concurrency:
+    group: ${{ github.head_ref }}
+    cancel-in-progress: true
+
 jobs:
   coverage:
-    concurrency:
-      group: ${{ github.head_ref }}
-      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
