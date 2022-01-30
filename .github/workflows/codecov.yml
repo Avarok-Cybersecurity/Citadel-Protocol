@@ -7,8 +7,8 @@ on:
       - 'master'
 
 concurrency:
-    group: ${{ github.head_ref }}
-    cancel-in-progress: true
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   coverage:
