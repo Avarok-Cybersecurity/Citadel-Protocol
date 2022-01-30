@@ -225,6 +225,8 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, ref session: HdpSession, peer_nat_info: PeerNatInfo, implicated_cid: DualCell<Option<u64>>, ref kernel_tx: UnboundedSender<HdpServerResult>, channel_signal: HdpServerResult, sync_time: Instant,
                                                     ref state_container: StateContainer, security_level: SecurityLevel, ref app: NetworkEndpoint, quic_endpoint: Endpoint, encrypted_config_container: EncryptedConfigContainer) -> std::io::Result<()> {
 
+    let mut other_side_secure_connection = false;
+
     let process = async move {
         tokio::time::sleep_until(sync_time).await;
 
@@ -280,7 +282,12 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
                 log::warn!("Hole-punching using this QUIC stream did not occur. Sending failure packet");
                 let fail_signal = PeerSignal::Kem(peer_connection_type, KeyExchangeProcess::HolePunchFailed);
                 send_hole_punch_packet(session, fail_signal, state_container, ticket, expected_peer_cid, None, security_level)
-                    .and_then(|_| Err(std::io::Error::new(std::io::ErrorKind::Other, if res.global_failure() { "could not hole punch" } else { "Other side secured connection" })))
+                    .and_then(|_| Err(std::io::Error::new(std::io::ErrorKind::Other, if res.global_failure() {
+                        "could not hole punch"
+                    } else {
+                        other_side_secure_connection = true;
+                        "Other side secured connection"
+                    })))
             }
         }
     };
@@ -289,10 +296,10 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
         log::warn!("[Hole-punch/Err] {:?}", err);
     }
 
-    //tokio::time::sleep(Duration::from_millis(2000)).await;
-    // If STUN succeeded, then the channel will use the latest conn. Else, it will use TURN-like routing by default
-    // To prevent the weird bug that ocurred in release mode relating to missing packets, we return that channel only after we conclude hole-punching
-    kernel_tx.unbounded_send(channel_signal).map_err(|_| generic_error("Unable to send signal to kernel"))?;
+    // in the case other side secured the connection, local will automatically get a channel via the p2p inbound processor
+    if !other_side_secure_connection {
+        kernel_tx.unbounded_send(channel_signal).map_err(|_| generic_error("Unable to send signal to kernel"))?;
+    }
 
     Ok(())
 }

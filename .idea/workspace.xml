@@ -41,13 +41,23 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change afterPath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml.old" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/lusna_sdk/Cargo.toml.old" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.dockerignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docker-compose.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docker/rust_backend/Dockerfile" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/install_clang.sh" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.github/workflows/codecov.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/codecov.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.github/workflows/lusna_sdk.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/lusna_sdk.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.github/workflows/protocol.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/protocol.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/primary.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/lusna_sdk/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/prefabs/client/single_connection.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/prefabs/client/single_connection.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/prefabs/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/prefabs/mod.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -164,11 +174,11 @@
       <recent name="C:\hyxe_wave\hyxe_net\backup" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$" />
       <recent name="$PROJECT_DIR$/hyxe_user/src" />
       <recent name="$PROJECT_DIR$/hyxe_net/src" />
       <recent name="$PROJECT_DIR$/hyxe_user/src/auth" />
       <recent name="$PROJECT_DIR$/lusna_sdk/src" />
-      <recent name="$PROJECT_DIR$/lusna_sdk/tests" />
     </key>
     <key name="MoveClassesOrPackagesDialog.RECENTS_KEY">
       <recent name="" />
@@ -195,7 +205,7 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test tests::main">
+  <component name="RunManager" selected="Cargo.Test prefabs::client::single_connection::tests::single_connection_registered">
     <configuration default="true" type="ArquillianTestNG" factoryName="" nameIsGenerated="true">
       <option name="arquillianRunConfiguration">
         <value>
@@ -262,10 +272,10 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::delete_all_users" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
-      <option name="command" value="test --package hyxe_user --test primary tests::delete_all_users -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
-      <option name="channel" value="NIGHTLY" />
+    <configuration name="Test prefabs::client::single_connection::tests::single_connection_registered (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package lusna_sdk --lib prefabs::client::single_connection::tests::single_connection_registered -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
@@ -278,10 +288,26 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::encrypt_decrypt_test" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_fs --test primary tests::encrypt_decrypt_test -- --exact" />
+    <configuration name="Test prefabs::client::single_connection::tests::single_connection_registered" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package lusna_sdk --features localhost-testing --lib prefabs::client::single_connection::tests::single_connection_registered -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="backtrace" value="FULL" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test tests::delete_all_users" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
+      <option name="command" value="test --package hyxe_user --test primary tests::delete_all_users -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/async_udt/udt-rs" />
+      <option name="channel" value="NIGHTLY" />
       <option name="requiredFeatures" value="true" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
@@ -310,8 +336,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::main" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_net --test primary tests::main -- --exact" />
+    <configuration name="Test tests::stress_test_messaging (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_net --test primary tests::stress_test_messaging -- --exact --test-threads=1" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -326,40 +352,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::setup_account_managers (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_user --test primary tests::setup_account_managers -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="STABLE" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="withSudo" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test tests::setup_account_managers" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_user --features enterprise --test primary tests::setup_account_managers -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="STABLE" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="withSudo" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test tests::tcp_or_tls" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_net --test primary tests::tcp_or_tls -- --exact" />
+    <configuration name="Test tests::stress_test_messaging" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_net --features localhost-testing --test primary tests::stress_test_messaging -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -390,25 +384,34 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
+    <configuration name="rust_backend/Dockerfile" type="docker-deploy" factoryName="dockerfile" temporary="true" server-name="Docker">
+      <deployment type="dockerfile">
+        <settings>
+          <option name="containerName" value="" />
+          <option name="sourceFilePath" value="docker/rust_backend/Dockerfile" />
+        </settings>
+      </deployment>
+      <method v="2" />
+    </configuration>
     <list>
       <item itemvalue="Cargo.Build HyxeWave" />
       <item itemvalue="Cargo.Run hyxewave 127.0.0.2" />
       <item itemvalue="Cargo.Test tests::delete_all_users" />
       <item itemvalue="Cargo.Test tests::main (RELEASE)" />
       <item itemvalue="Cargo.Test main - UDP+TLS" />
-      <item itemvalue="Cargo.Test tests::encrypt_decrypt_test" />
-      <item itemvalue="Cargo.Test tests::setup_account_managers" />
-      <item itemvalue="Cargo.Test tests::setup_account_managers (1)" />
-      <item itemvalue="Cargo.Test tests::tcp_or_tls" />
-      <item itemvalue="Cargo.Test tests::main" />
+      <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_registered" />
+      <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_registered (1)" />
+      <item itemvalue="Cargo.Test tests::stress_test_messaging" />
+      <item itemvalue="Cargo.Test tests::stress_test_messaging (1)" />
+      <item itemvalue="Docker.rust_backend/Dockerfile" />
     </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Cargo.Test tests::main" />
-        <item itemvalue="Cargo.Test tests::tcp_or_tls" />
-        <item itemvalue="Cargo.Test tests::setup_account_managers" />
-        <item itemvalue="Cargo.Test tests::setup_account_managers (1)" />
-        <item itemvalue="Cargo.Test tests::encrypt_decrypt_test" />
+        <item itemvalue="Docker.rust_backend/Dockerfile" />
+        <item itemvalue="Cargo.Test tests::stress_test_messaging (1)" />
+        <item itemvalue="Cargo.Test tests::stress_test_messaging" />
+        <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_registered" />
+        <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_registered (1)" />
       </list>
     </recent_temporary>
   </component>
@@ -673,6 +676,8 @@
       <workItem from="1635949297639" duration="1199000" />
       <workItem from="1638725401397" duration="1918000" />
       <workItem from="1639601115939" duration="74534000" />
+      <workItem from="1643040364399" duration="17223000" />
+      <workItem from="1643485662211" duration="10833000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

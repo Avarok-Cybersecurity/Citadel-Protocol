@@ -1503,6 +1503,7 @@ dependencies = [
  "parking_lot",
  "portpicker",
  "rand 0.7.3",
+ "rstest",
  "serde",
  "sync_wrapper",
  "tokio",
@@ -1754,6 +1755,7 @@ dependencies = [
  "log",
  "parking_lot",
  "portpicker",
+ "rstest",
  "tokio",
 ]
 
@@ -2754,6 +2756,19 @@ dependencies = [
  "rand 0.8.4",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rstest"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d912f35156a3f99a66ee3e11ac2e0b3f34ac85a07e05263d05a7e2c8810d616f"
+dependencies = [
+ "cfg-if 1.0.0",
+ "proc-macro2",
+ "quote",
+ "rustc_version",
+ "syn",
 ]
 
 [[package]]
