@@ -6,11 +6,12 @@ env:
   CARGO_TERM_COLOR: always
   TESTING_SQL_SERVER_ADDR: "mysql://root:password@localhost/db0"
 
+concurrency:
+  group: ${{ github.head_ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    concurrency:
-      group: ${{ github.head_ref }}
-      cancel-in-progress: true
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
