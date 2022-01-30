@@ -1,0 +1,7 @@
+*target/
+./target
+target
+flutterust
+./flutterust
+.idea/
+./deny.toml

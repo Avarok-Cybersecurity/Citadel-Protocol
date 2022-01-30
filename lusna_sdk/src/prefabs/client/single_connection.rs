@@ -1,7 +1,7 @@
 use hyxe_net::prelude::*;
 use parking_lot::Mutex;
 use crate::remote_ext::ConnectSuccess;
-use crate::prefabs::ShutdownRemote;
+use crate::prefabs::ClientServerRemote;
 use crate::remote_ext::ProtocolRemoteExt;
 use std::net::SocketAddr;
 use futures::Future;
@@ -28,7 +28,7 @@ enum ConnectionType {
 
 impl<F, Fut> SingleClientServerConnectionKernel<F, Fut>
     where
-        F: FnOnce(ConnectSuccess, ShutdownRemote) -> Fut + Send + 'static,
+        F: FnOnce(ConnectSuccess, ClientServerRemote) -> Fut + Send + 'static,
         Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
     /// Creates a new connection with a central server entailed by the user information
     pub fn new_connect<T: Into<String>, P: Into<SecBuffer>>(username: T, password: P, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
@@ -88,7 +88,7 @@ impl<F, Fut> SingleClientServerConnectionKernel<F, Fut>
 #[async_trait]
 impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
     where
-        F: FnOnce(ConnectSuccess, ShutdownRemote) -> Fut + Send + 'static,
+        F: FnOnce(ConnectSuccess, ClientServerRemote) -> Fut + Send + 'static,
         Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
 
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
@@ -122,7 +122,7 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
 
         let connect_success = remote.connect(auth, Default::default(), None, self.udp_mode, None, self.session_security_settings).await?;
 
-        (handler)(connect_success, ShutdownRemote { inner: remote }).await
+        (handler)(connect_success, ClientServerRemote { inner: remote }).await
     }
 
     async fn on_node_event_received(&self, _message: HdpServerResult) -> Result<(), NetworkError> {
@@ -141,13 +141,23 @@ mod tests {
     use std::str::FromStr;
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use rstest::{rstest, fixture};
 
+    #[fixture]
+    fn server_info() -> (NodeFuture, SocketAddr) {
+        let port = portpicker::pick_unused_port().unwrap();
+        let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
+        let server = crate::test_common::default_server_test_node(bind_addr);
+        (server, bind_addr)
+    }
+
+    #[rstest]
     #[tokio::test]
-    async fn single_connection_registered() {
+    async fn single_connection_registered(server_info: (NodeFuture, SocketAddr)) {
         crate::test_common::setup_log();
 
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
-        let server_addr = SocketAddr::from_str("127.0.0.1:26000").unwrap();
+        let (server, server_addr) = server_info;
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
 
@@ -158,7 +168,6 @@ mod tests {
             Ok(())
         });
 
-        let server = crate::test_common::default_server_test_node(server_addr);
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
         let joined = futures::future::try_join(server, client);
@@ -171,12 +180,13 @@ mod tests {
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
     }
 
+    #[rstest]
     #[tokio::test]
-    async fn single_connection_passwordless() {
+    async fn single_connection_passwordless(server_info: (NodeFuture, SocketAddr)) {
         crate::test_common::setup_log();
 
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
-        let server_addr = SocketAddr::from_str("127.0.0.1:26001").unwrap();
+        let (server, server_addr) = server_info;
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
 
@@ -188,7 +198,6 @@ mod tests {
             Ok(())
         });
 
-        let server = crate::test_common::default_server_test_node(server_addr);
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
         let joined = futures::future::try_join(server, client);
