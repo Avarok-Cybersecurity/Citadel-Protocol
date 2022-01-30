@@ -6,7 +6,7 @@ env:
   CARGO_TERM_COLOR: always
 
 concurrency:
-  group: ${{ github.head_ref }}
+  group: build-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
