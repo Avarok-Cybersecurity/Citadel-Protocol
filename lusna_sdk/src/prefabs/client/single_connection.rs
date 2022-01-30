@@ -152,6 +152,7 @@ mod tests {
     }
 
     #[rstest]
+    #[trace]
     #[tokio::test]
     async fn single_connection_registered(server_info: (NodeFuture, SocketAddr)) {
         crate::test_common::setup_log();

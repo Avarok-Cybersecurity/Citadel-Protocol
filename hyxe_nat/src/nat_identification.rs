@@ -53,22 +53,23 @@ impl Default for NatType {
 
 impl NatType {
     /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
-    pub async fn identify() -> Result<Self, FirewallError> {
-        Self::identify_timeout(IDENTIFY_TIMEOUT).await
+    /// `local_bind_addr`: Only relevant for localhost testing
+    pub async fn identify(local_bind_ip: IpAddr) -> Result<Self, FirewallError> {
+        Self::identify_timeout(IDENTIFY_TIMEOUT, local_bind_ip).await
     }
 
     /// Identifies the NAT which the local node is behind
     #[cfg(not(feature = "localhost-testing"))]
-    pub async fn identify_timeout(timeout: Duration) -> Result<Self, FirewallError> {
+    pub async fn identify_timeout(timeout: Duration, _local_bind_ip: IpAddr) -> Result<Self, FirewallError> {
         #[cfg(not(feature = "localhost-testing"))] {
             tokio::time::timeout(timeout, get_nat_type()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?.map_err(|err| FirewallError::HolePunch(err.to_string()))
         }
     }
 
     #[cfg(feature = "localhost-testing")]
-    pub async fn identify_timeout(_timeout: Duration) -> Result<Self, FirewallError> {
+    pub async fn identify_timeout(_timeout: Duration, local_bind_ip: IpAddr) -> Result<Self, FirewallError> {
         use std::str::FromStr;
-        Ok(Self::EDM(IpAddr::from_str("127.0.0.1").unwrap(), Some(IpAddressInfo::localhost()), 0))
+        Ok(Self::EDM(local_bind_ip, Some(IpAddressInfo::localhost()), 0))
     }
 
     /// Returns the NAT traversal type required to access self and other, respectively
@@ -260,6 +261,8 @@ fn get_reuse_udp_socket<T: std::net::ToSocketAddrs>(addr: Option<T>) -> Result<U
 #[cfg(test)]
 mod tests {
     use crate::nat_identification::NatType;
+    use std::net::IpAddr;
+    use std::str::FromStr;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -274,7 +277,7 @@ mod tests {
     #[tokio::test]
     async fn main() {
         setup_log();
-        let nat_type = NatType::identify().await.unwrap();
+        let nat_type = NatType::identify(IpAddr::from_str("127.0.0.1").unwrap()).await.unwrap();
         let traversal_type = nat_type.traversal_type_required();
         let connect_data = nat_type.get_connect_data(25000);
         log::info!("NAT Type: {:?} | Reaching this node will require: {:?} NAT traversal | Hypothetical connect scenario: {:?}", nat_type, traversal_type, connect_data);
