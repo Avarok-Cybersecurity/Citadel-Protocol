@@ -6,6 +6,7 @@ use futures::Future;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::task::{Context, Poll};
+use std::fmt::{Debug, Formatter};
 
 #[derive(Default)]
 /// Used to construct a running client/peer or server instance
@@ -22,6 +23,12 @@ pub struct NodeBuilder {
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
 pub struct NodeFuture {
     inner: Pin<Box<dyn Future<Output=Result<(), NetworkError>> + 'static>>
+}
+
+impl Debug for NodeFuture {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NodeFuture")
+    }
 }
 
 impl Future for NodeFuture {

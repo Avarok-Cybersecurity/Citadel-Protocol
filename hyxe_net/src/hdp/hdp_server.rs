@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr};
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -54,6 +54,7 @@ use hyxe_nat::exports::tokio_rustls::webpki::DNSNameRef;
 use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::peer::group_channel::GroupChannel;
 use crate::auth::AuthenticationRequest;
+use std::str::FromStr;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -110,7 +111,7 @@ impl HdpServer {
         let time_tracker = TimeTracker::new();
         let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager.clone(), time_tracker.clone());
 
-        let nat_type = NatType::identify().await.ok().unwrap_or_default();
+        let nat_type = NatType::identify(bind_addr.map(|r| r.ip()).unwrap_or_else(|| IpAddr::from_str("127.0.0.1").unwrap())).await.ok().unwrap_or_default();
         let inner = HdpServerInner {
             underlying_proto,
             local_node_type,
@@ -359,6 +360,7 @@ impl HdpServer {
     }
 
     pub async fn c2s_connect_defaults(timeout: Option<Duration>, remote: SocketAddr) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
+        log::info!("C2S connect defaults to {:?}", remote);
         let mut stream = hyxe_nat::socket_helpers::get_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT)).await.map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
         let bind_addr = stream.local_addr()?;
         let first_packet = Self::read_first_packet(&mut stream, timeout).await?;

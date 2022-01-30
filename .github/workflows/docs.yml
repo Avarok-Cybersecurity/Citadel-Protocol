@@ -18,6 +18,7 @@ jobs:
       RUST_MIN_STACK: 20971520
 
     steps:
+      - uses: andymckay/cancel-action@0.2
       - uses: actions/checkout@v2.4.0
         with:
           submodules: true
