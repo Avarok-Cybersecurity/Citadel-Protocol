@@ -37,11 +37,13 @@ impl Future for UdpHolePuncher<'_> {
 }
 
 async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    let ref nat_type = NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
-    log::info!("[driver] Local NAT type: {:?}", &nat_type);
     let local_addr = conn.local_addr()?;
     let peer_addr = conn.peer_addr()?;
     let internal_bind_port = local_addr.port();
+
+    let ref nat_type = NatType::identify(local_addr.ip()).await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
+    log::info!("[driver] Local NAT type: {:?}", &nat_type);
+
 
     let (peer_nat_type, peer_internal_bind_port ) = conn.sync_exchange_payload((nat_type.clone(), internal_bind_port)).await?;
     log::info!("[driver] Synchronized; will now execute dualstack hole-puncher ...");
