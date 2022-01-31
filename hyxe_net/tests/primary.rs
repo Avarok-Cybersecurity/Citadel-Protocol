@@ -110,7 +110,6 @@ pub mod tests {
                 match std::env::var("TESTING_SQL_SERVER_ADDR") {
                     Ok(addr) => {
                         log::info!("Testing SQL ADDR: {}", addr);
-                        //BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
                         BackendType::sql(addr)
                     }
 
@@ -277,6 +276,17 @@ pub mod tests {
     pub static P2P_SENDING_START_TIME: Mutex<Option<Instant>> = const_mutex(None);
     pub static P2P_SENDING_END_TIME: Mutex<Option<Instant>> = const_mutex(None);
 
+    #[fixture]
+    fn bind_addrs() -> (SocketAddr, SocketAddr, SocketAddr, SocketAddr) {
+        let mut addrs = vec![];
+        for _ in 0..4 {
+            let port = portpicker::pick_unused_port().unwrap();
+            addrs.push(SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap())
+        }
+
+        (addrs.pop().unwrap(), addrs.pop().unwrap(), addrs.pop().unwrap(), addrs.pop().unwrap())
+    }
+
     #[rstest]
     #[trace]
     fn stress_test_messaging(
@@ -285,7 +295,8 @@ pub mod tests {
         #[values("aes", "chacha")]
         enx_algorithm: &str,
         #[values("4000")]
-        message_count_per_activity: &str
+        message_count_per_activity: &str,
+        bind_addrs: (SocketAddr, SocketAddr, SocketAddr, SocketAddr)
     ) -> Result<(), Box<dyn Error>> {
         setup_log();
         super::utils::deadlock_detector();
@@ -313,10 +324,7 @@ pub mod tests {
 
         let rt = Builder::new_multi_thread().enable_time().enable_io().build().unwrap();
 
-        let server_bind_addr = SocketAddr::from_str("127.0.0.1:33332").unwrap();
-        let client0_bind_addr = SocketAddr::from_str("127.0.0.1:33333").unwrap();
-        let client1_bind_addr = SocketAddr::from_str("127.0.0.1:33334").unwrap();
-        let client2_bind_addr = SocketAddr::from_str("127.0.0.1:33335").unwrap();
+        let (server_bind_addr, client0_bind_addr, client1_bind_addr, client2_bind_addr) = bind_addrs;
 
         let params = kem_algorithm() + encryption_algorithm();
 
@@ -324,15 +332,15 @@ pub mod tests {
 
         static CLIENT0_FULLNAME: &'static str = "Thomas P Braun (test)";
         static CLIENT0_USERNAME: &'static str = "nologik";
-        static CLIENT0_PASSWORD: &'static str = "mrmoney10";
+        static CLIENT0_PASSWORD: &'static str = "password0";
 
         static CLIENT1_FULLNAME: &'static str = "Thomas P Braun I (test)";
         static CLIENT1_USERNAME: &'static str = "nologik1";
-        static CLIENT1_PASSWORD: &'static str = "mrmoney10";
+        static CLIENT1_PASSWORD: &'static str = "password1";
 
         static CLIENT2_FULLNAME: &'static str = "Thomas P Braun II (test)";
         static CLIENT2_USERNAME: &'static str = "nologik2";
-        static CLIENT2_PASSWORD: &'static str = "mrmoney10";
+        static CLIENT2_PASSWORD: &'static str = "password2";
 
         let (proposed_credentials_0, proposed_credentials_1, proposed_credentials_2) = rt.block_on(async move {
             let p_0 = ProposedCredentials::new_register(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecBuffer::from(CLIENT0_PASSWORD)).await.unwrap();

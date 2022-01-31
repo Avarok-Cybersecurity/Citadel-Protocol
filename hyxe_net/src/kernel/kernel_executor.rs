@@ -101,7 +101,7 @@ impl<K: NetKernel> KernelExecutor<K> {
             };
 
             reader.try_for_each_concurrent(None, |message: HdpServerResult| async move {
-                log::info!("[KernelExecutor] Received message {:?}", &message);
+                log::info!("[KernelExecutor] Received message");
                 match message {
                     HdpServerResult::Shutdown => {
                         log::info!("Kernel received safe shutdown signal");
