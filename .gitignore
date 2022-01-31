@@ -1,3 +1,4 @@
-*target/
-.idea/
+**/target/
+**/.idea/
 ./deny.toml
+**/.DS_Store
