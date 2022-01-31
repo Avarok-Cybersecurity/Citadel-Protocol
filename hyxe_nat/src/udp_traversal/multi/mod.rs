@@ -20,6 +20,7 @@ use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigCon
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
 use netbeam::reliable_conn::{ReliableOrderedConnectionToTarget, ReliableOrderedStreamToTarget};
 use netbeam::sync::RelativeNodeType;
+use crate::error::FirewallError;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
@@ -108,6 +109,7 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
     let assert_rebuild_ready = |local_id: HolePunchID, peer_id: HolePunchID, addr: TargettedSocketAddr| async move {
         let _receivers = kill_signal_tx.send((local_id, peer_id, addr))?;
         if let Some(Some(val)) = post_rebuild_rx.recv().await {
+            log::info!("Post-rebuild: Received signal, and returning rebuilt socket");
             Ok(val)
         } else {
             Err(anyhow::Error::msg("Failed to rebuild socket"))
@@ -151,8 +153,12 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
                     send(DualStackCandidate::SingleHolePunchSuccess(peer_unique_id), conn).await?;
                 }
 
+                Err(FirewallError::Skip) => {
+                    log::info!("Rebuilt socket; Will not add to failures")
+                }
+
                 Err(err) => {
-                    log::warn!("Hole-punch for local bind addr {:?} failed: {:?}", hole_puncher.get_unique_id(), err);
+                    log::warn!("[non-terminating] Hole-punch for local bind addr {:?} failed: {:?}", hole_puncher.get_unique_id(), err);
                     local_failures.write().await.insert(hole_puncher.get_unique_id(), hole_puncher);
                 }
             }
