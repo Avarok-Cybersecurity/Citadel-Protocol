@@ -138,7 +138,7 @@ impl SingleUDPHolePuncher {
 
                     Either::Left((_local_id, _peer_id, addr)) => {
                         post_kill_rebuild.send(Some(self.recovery_mode_generate_socket_by_addr(addr).ok_or_else(|| FirewallError::HolePunch("Kill switch called, but no matching values were found internally".to_string()))?)).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-                        Err(FirewallError::HolePunch("Kill switch called".to_string()))
+                        Err(FirewallError::Skip)
                     }
                 }
             },

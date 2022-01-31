@@ -2,9 +2,9 @@ name: Lusna Protocol
 on: [push, pull_request]
 
 env:
-  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
   TESTING_SQL_SERVER_ADDR: "mysql://root:password@localhost/db0"
+  RUST_BACKTRACE: 1
 
 jobs:
   build:

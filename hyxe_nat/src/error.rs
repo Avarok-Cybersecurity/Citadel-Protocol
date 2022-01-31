@@ -4,6 +4,7 @@ use tokio::io::Error;
 pub enum FirewallError {
     UPNP(String),
     HolePunch(String),
+    Skip,
     NotApplicable,
     HolePunchExhausted,
     LocalIPAddrFail
@@ -22,7 +23,8 @@ impl ToString for FirewallError {
             FirewallError::HolePunch(err) => err.to_string(),
             FirewallError::NotApplicable => "Method not applicable to local node".to_string(),
             FirewallError::HolePunchExhausted => "No more NAT traversal methods exist".to_string(),
-            FirewallError::LocalIPAddrFail => "Unable to obtain local IP info".to_string()
+            FirewallError::LocalIPAddrFail => "Unable to obtain local IP info".to_string(),
+            FirewallError::Skip => {"Skipped".to_string()}
         }
     }
 }
