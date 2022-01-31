@@ -397,10 +397,10 @@ pub mod tests {
 
             log::info!("Done setting up executors");
 
+            let server_future = ExplicitPanicFuture::new(handle.spawn(AssertSendSafeFuture::new_silent(server_executor.execute())));
             let client0_future = ExplicitPanicFuture::new(handle.spawn(tokio::time::timeout(Duration::from_millis(timeout_cnt_ms() as u64), AssertSendSafeFuture::new_silent(client0_executor.execute()))));
             let client1_future = ExplicitPanicFuture::new(handle.spawn(tokio::time::timeout(Duration::from_millis(timeout_cnt_ms() as u64), AssertSendSafeFuture::new_silent(client1_executor.execute()))));
             let client2_future = ExplicitPanicFuture::new(handle.spawn(tokio::time::timeout(Duration::from_millis(timeout_cnt_ms() as u64), AssertSendSafeFuture::new_silent(client2_executor.execute()))));
-            let server_future = ExplicitPanicFuture::new(handle.spawn(AssertSendSafeFuture::new_silent(server_executor.execute())));
 
             tokio::time::sleep(Duration::from_millis(100)).await;
 
