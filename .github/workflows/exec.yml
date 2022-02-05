@@ -1,0 +1,8 @@
+name: Execute reusable workflow
+on:
+  - push
+  - pull_request
+  - workflow_dispatch
+jobs:
+  primary_workflow:
+    uses: ./.github/workflows/workflow.yml
