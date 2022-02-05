@@ -76,11 +76,11 @@ jobs:
       - run: cargo test --package hyxe_crypt
       - run: cargo test --package hyxe_fs
       - name: clean
-        if: !startsWith(matrix.os, 'ubuntu')
+        if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'macos')
         run: cargo clean
       - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing -- --test-threads=1
       - name: clean
-        if: !startsWith(matrix.os, 'ubuntu')
+        if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'macos')
         run: cargo clean
       - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing -- --test-threads=1
       - uses: actions/github-script@v2
