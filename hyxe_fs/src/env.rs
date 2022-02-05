@@ -6,7 +6,7 @@ use crate::io::FsError;
 use std::path::PathBuf;
 
 /// Home directory
-pub const BASE_NAME: &'static str = ".HyxeWave";
+pub const BASE_NAME: &'static str = ".lusna";
 /// The total length of each saved file's name
 pub const HYXE_FILE_OBFUSCATED_LEN: usize = 50;
 
