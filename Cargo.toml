@@ -18,7 +18,6 @@ exclude = [
 ]
 
 [profile.dev]
-panic = "abort"
 split-debuginfo = "unpacked"
 
 [licenses]
