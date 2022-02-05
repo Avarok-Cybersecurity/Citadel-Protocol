@@ -109,7 +109,7 @@ impl Method3 {
 
         //let mut recv_from_required = None;
         while let Ok((len, peer_external_addr)) = socket.recv_from(buf).await {
-            log::info!("[Hole-punch] RECV packet from {:?}", &peer_external_addr);
+            log::info!("[UDP Hole-punch] RECV packet from {:?} | {:?}", &peer_external_addr, &buf[..len]);
             let packet = match encryptor.decrypt_packet(&buf[..len]) {
                 Some(plaintext) => plaintext,
                 _ => {
