@@ -70,8 +70,16 @@ jobs:
       - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing -- --test-threads=1
       - run: cargo clean
       - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing -- --test-threads=1
-      - uses: vishnudxb/cancel-workflow@v1.2
+      - uses: actions/github-script@v2
         if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
   nat:
     strategy:
       matrix:
@@ -108,8 +116,16 @@ jobs:
 
       - run: cargo test --package netbeam
       - run: cargo test --package hyxe_nat
-      - uses: vishnudxb/cancel-workflow@v1.2
+      - uses: actions/github-script@v2
         if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
   lusna_sdk:
     strategy:
       matrix:
@@ -147,8 +163,16 @@ jobs:
       - run: cargo test --package lusna_sdk --features=localhost-testing -- --test-threads=1
       - run: cargo clean
       - run: cargo test --release --package lusna_sdk --features=localhost-testing -- --test-threads=1
-      - uses: vishnudxb/cancel-workflow@v1.2
+      - uses: actions/github-script@v2
         if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
@@ -175,8 +199,16 @@ jobs:
         with:
           name: code-coverage-report
           path: cobertura.xml
-      - uses: vishnudxb/cancel-workflow@v1.2
+      - uses: actions/github-script@v2
         if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
   docs:
     needs:
       - proto
