@@ -9,5 +9,5 @@ on:
       - synchronize
   workflow_dispatch:
 jobs:
-  primary_workflow:
+  workflow:
     uses: ./.github/workflows/workflow.yml
