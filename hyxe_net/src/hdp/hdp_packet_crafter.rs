@@ -1478,7 +1478,7 @@ pub(crate) mod hole_punch {
     /// This strips the header, since it's only relevant to the networking protocol and NOT the hole-puncher
     pub fn decrypt_packet(hyper_ratchet: &HyperRatchet, packet: &[u8], security_level: SecurityLevel) -> Option<BytesMut> {
         if packet.len() < HDP_HEADER_BYTE_LEN {
-            log::warn!("Bad hole-punch packet size");
+            log::warn!("Bad hole-punch packet size. Len: {} | {:?}", packet.len(), packet);
             return None;
         }
 
