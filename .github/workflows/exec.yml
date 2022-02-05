@@ -1,8 +1,13 @@
-name: Execute reusable workflow
+name: Execute Pipeline
 on:
-  - push
-  - pull_request
-  - workflow_dispatch
+  push:
+  pull_request:
+    types:
+      - edited
+      - opened
+      - reopened
+      - synchronize
+  workflow_dispatch:
 jobs:
   primary_workflow:
     uses: ./.github/workflows/workflow.yml

@@ -2,11 +2,16 @@ name: All workflows
 on:
   workflow_call:
 
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
   TESTING_SQL_SERVER_ADDR: "mysql://root:password@localhost/db0"
   RUST_BACKTRACE: 1
+  # 20 MiB stack
+  RUST_MIN_STACK: 20971520
 
 jobs:
   proto:
@@ -65,6 +70,8 @@ jobs:
       - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing -- --test-threads=1
       - run: cargo clean
       - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing -- --test-threads=1
+      - uses: vishnudxb/cancel-workflow@v1.2
+        if: failure()
   nat:
     strategy:
       matrix:
@@ -101,6 +108,8 @@ jobs:
 
       - run: cargo test --package netbeam
       - run: cargo test --package hyxe_nat
+      - uses: vishnudxb/cancel-workflow@v1.2
+        if: failure()
   lusna_sdk:
     strategy:
       matrix:
@@ -138,6 +147,8 @@ jobs:
       - run: cargo test --package lusna_sdk --features=localhost-testing -- --test-threads=1
       - run: cargo clean
       - run: cargo test --release --package lusna_sdk --features=localhost-testing -- --test-threads=1
+      - uses: vishnudxb/cancel-workflow@v1.2
+        if: failure()
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
@@ -164,6 +175,8 @@ jobs:
         with:
           name: code-coverage-report
           path: cobertura.xml
+      - uses: vishnudxb/cancel-workflow@v1.2
+        if: failure()
   docs:
     needs:
       - proto
@@ -175,10 +188,6 @@ jobs:
       matrix:
         rust:
           - stable
-    env:
-      # 20 MiB stack
-      RUST_MIN_STACK: 20971520
-
     steps:
       - uses: actions/checkout@v2.4.0
         with:
@@ -205,6 +214,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/checkout@v2
+        if: success()
         with:
           ref: gh-pages
       - name: Ensure valid redirection
