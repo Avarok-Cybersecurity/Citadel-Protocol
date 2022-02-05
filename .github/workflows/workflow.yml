@@ -1,0 +1,218 @@
+name: All workflows
+on:
+  workflow_call:
+
+
+env:
+  CARGO_TERM_COLOR: always
+  TESTING_SQL_SERVER_ADDR: "mysql://root:password@localhost/db0"
+  RUST_BACKTRACE: 1
+
+jobs:
+  proto:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 80
+    steps:
+      - uses: mirromutth/mysql-action@v1.1
+        if: startsWith(matrix.os, 'ubuntu')
+        with:
+          mysql version: '8.0'
+          mysql database: 'db0'
+          mysql root password: password
+#      - uses: ankane/setup-mysql@v1
+#        with:
+#          database: db0
+#      - uses: ankane/setup-postgres@v1
+#        with:
+#          postgres-version: 14
+      - name: Install LLVM and Clang
+        if: startsWith(matrix.os, 'windows')
+        uses: KyleMayes/install-llvm-action@v1.5.0
+        with:
+          version: "13.0"
+          directory: ${{ runner.temp }}/llvm
+
+      - name: Set LIBCLANG_PATH
+        if: startsWith(matrix.os, 'windows')
+        run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
+
+      - name: Install OpenSSL
+        if: startsWith(matrix.os, 'windows')
+        run: choco install openssl --limit-output
+
+      - name: Set OPENSSL_ROOT_DIR
+        if: startsWith(matrix.os, 'windows')
+        run: echo "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL-Win64" >> $env:GITHUB_ENV
+
+      - name: Set OPENSSL_ROOT_DIR
+        if: startsWith(matrix.os, 'macos')
+        run: echo "OPENSSL_ROOT_DIR=/usr/local/opt/openssl@1.1" >> $GITHUB_ENV
+        
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v1
+      - name: Run user library + SQL backend
+        if: startsWith(matrix.os, 'ubuntu')
+        run: cargo test --package hyxe_user --features enterprise
+#      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
+      - run: cargo test --package ez_pqcrypto
+      - run: cargo test --package hyxe_crypt
+      - run: cargo test --package hyxe_fs
+      - run: cargo clean
+      - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing -- --test-threads=1
+      - run: cargo clean
+      - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing -- --test-threads=1
+  nat:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Install LLVM and Clang
+        if: startsWith(matrix.os, 'windows')
+        uses: KyleMayes/install-llvm-action@v1.5.0
+        with:
+          version: "13.0"
+          directory: ${{ runner.temp }}/llvm
+
+      - name: Set LIBCLANG_PATH
+        if: startsWith(matrix.os, 'windows')
+        run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
+
+      - name: Install OpenSSL
+        if: startsWith(matrix.os, 'windows')
+        run: choco install openssl --limit-output
+
+      - name: Set OPENSSL_ROOT_DIR
+        if: startsWith(matrix.os, 'windows')
+        run: echo "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL-Win64" >> $env:GITHUB_ENV
+
+      - name: Set OPENSSL_ROOT_DIR
+        if: startsWith(matrix.os, 'macos')
+        run: echo "OPENSSL_ROOT_DIR=/usr/local/opt/openssl@1.1" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v1
+
+      - run: cargo test --package netbeam
+      - run: cargo test --package hyxe_nat
+  lusna_sdk:
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 100
+    steps:
+      - name: Install LLVM and Clang
+        if: startsWith(matrix.os, 'windows')
+        uses: KyleMayes/install-llvm-action@v1.5.0
+        with:
+          version: "13.0"
+          directory: ${{ runner.temp }}/llvm
+
+      - name: Set LIBCLANG_PATH
+        if: startsWith(matrix.os, 'windows')
+        run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
+
+      - name: Install OpenSSL
+        if: startsWith(matrix.os, 'windows')
+        run: choco install openssl --limit-output
+
+      - name: Set OPENSSL_ROOT_DIR
+        if: startsWith(matrix.os, 'windows')
+        run: echo "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL-Win64" >> $env:GITHUB_ENV
+
+      - name: Set OPENSSL_ROOT_DIR
+        if: startsWith(matrix.os, 'macos')
+        run: echo "OPENSSL_ROOT_DIR=/usr/local/opt/openssl@1.1" >> $GITHUB_ENV
+
+      - uses: actions/checkout@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v1
+
+      - run: cargo test --package lusna_sdk --features=localhost-testing -- --test-threads=1
+      - run: cargo clean
+      - run: cargo test --release --package lusna_sdk --features=localhost-testing -- --test-threads=1
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          args: '--timeout 3600 --packages lusna_sdk --features=localhost-testing -- --test-threads=1'
+      - uses: codecov/codecov-action@v1.0.2
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
+      - uses: actions/upload-artifact@v1
+        with:
+          name: code-coverage-report
+          path: codecov.xml
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v1
+        with:
+          name: code-coverage-report
+          path: cobertura.xml
+  docs:
+    needs:
+      - proto
+      - nat
+      - lusna_sdk
+      - coverage
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust:
+          - stable
+    env:
+      # 20 MiB stack
+      RUST_MIN_STACK: 20971520
+
+    steps:
+      - uses: actions/checkout@v2.4.0
+        with:
+          submodules: true
+
+      - uses: actions-rs/toolchain@v1.0.7
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      - uses: actions-rs/cargo@v1.0.3
+        with:
+          command: doc
+          args: --package lusna_sdk --features webrtc --no-deps
+
+      - name: Deploy documentation
+        if: success()
+        uses: crazy-max/ghaction-github-pages@v2.6.0
+        with:
+          build_dir: target/doc
+          target_branch: gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/checkout@v2
+        with:
+          ref: gh-pages
+      - name: Ensure valid redirection
+        run: |
+          mv ${GITHUB_WORKSPACE}/lusna_sdk ${GITHUB_WORKSPACE}/docs
+          echo "<meta http-equiv=\"refresh\" content=\"0; url=docs\">" > ${GITHUB_WORKSPACE}/index.html
+          git config --global user.name "tbraun96"
+          git config --global user.email "thomas.braun@avarok.net"
+          git add .
+          git commit -m "redirection config"
+          git push
