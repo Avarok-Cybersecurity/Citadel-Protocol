@@ -49,11 +49,12 @@ use hyxe_nat::quic::{QuicServer, QuicEndpointConnector, SELF_SIGNED_DOMAIN, Quic
 use either::Either;
 use crate::hdp::peer::p2p_conn_handler::generic_error;
 use hyxe_nat::exports::Endpoint;
-use hyxe_nat::exports::tokio_rustls::webpki::DNSNameRef;
 use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::peer::group_channel::GroupChannel;
 use crate::auth::AuthenticationRequest;
 use std::str::FromStr;
+use hyxe_nat::exports::tokio_rustls::rustls::ServerName;
+use std::convert::TryFrom;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -334,7 +335,7 @@ impl HdpServer {
         Self::quic_p2p_connect_defaults(quic_endpoint, timeout, tls_domain, remote, false).await
     }
 
-    /// - force_use_default_config: if trie, this will unconditionally use the default client config already present inside the quic_endpoint parameter
+    /// - force_use_default_config: if true, this will unconditionally use the default client config already present inside the quic_endpoint parameter
     pub async fn quic_p2p_connect_defaults(quic_endpoint: Endpoint, timeout: Option<Duration>, domain: TlsDomain, remote: SocketAddr, force_use_default_config: bool) -> io::Result<GenericNetworkStream> {
         log::info!("Connecting to QUIC node {:?}", remote);
         // when using p2p quic, if domain is some, then we will use the default cfg
@@ -342,7 +343,7 @@ impl HdpServer {
             None
         } else {
             if !force_use_default_config {
-                Some(hyxe_nat::quic::configure_client_insecure())
+                Some(hyxe_nat::quic::insecure::configure_client())
             } else {
                 None
             }
@@ -379,11 +380,11 @@ impl HdpServer {
                     hyxe_nat::tls::create_client_dangerous_config()
                 } else {
                     //hyxe_nat::tls::create_client_config()
-                    // TODO: Resolve issue of unknown issuer when using valid cert
+                    // TODO: Resolve issue of unknown issuer when using valid cert (note: was because no cert was trusted before by the client)
                     hyxe_nat::tls::create_client_dangerous_config()
                 };
 
-                let stream = connector.connect(DNSNameRef::try_from_ascii_str(domain.as_ref().map(|r| r.as_str()).unwrap_or(SELF_SIGNED_DOMAIN)).map_err(|err| generic_error(err.to_string()))?, stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
+                let stream = connector.connect(ServerName::try_from(domain.as_ref().map(|r| r.as_str()).unwrap_or(SELF_SIGNED_DOMAIN)).map_err(|err| generic_error(err.to_string()))?, stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
                 Ok((GenericNetworkStream::Tls(stream.into()), None))
             }
             FirstPacket::Quic { domain, external_addr, is_self_signed } => {
