@@ -1,10 +1,9 @@
-use quinn::{Endpoint, SendStream, RecvStream, Incoming, ClientConfig, ServerConfig, ClientConfigBuilder, ServerConfigBuilder, NewConnection, Connecting};
+use quinn::{Endpoint, SendStream, RecvStream, Incoming, ClientConfig, ServerConfig, NewConnection, Connecting, EndpointConfig};
 use futures::{StreamExt, Future};
 
-use quinn::{Certificate, CertificateChain, PrivateKey, TransportConfig};
+use quinn::TransportConfig;
 use std::sync::Arc;
-use rustls::{ServerCertVerifier, ServerCertVerified, RootCertStore};
-use quinn::crypto::rustls::TLSError;
+use rustls::{PrivateKey, Certificate};
 use std::time::Duration;
 use std::path::Path;
 use tokio::net::UdpSocket;
@@ -12,6 +11,7 @@ use std::net::SocketAddr;
 use async_trait_with_sync::async_trait;
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
+use either::Either;
 
 /// Used in the protocol especially to receive bidirectional connections
 pub struct QuicServer;
@@ -33,9 +33,9 @@ pub trait QuicEndpointConnector {
         where Self: Sized {
         log::info!("Connecting to {:?}={} | Custom Cfg? {}", tls_domain, addr, cfg.is_some());
         let connecting = if let Some(cfg) = cfg {
-            self.endpoint().connect_with(cfg, &addr, tls_domain)?
+            self.endpoint().connect_with(cfg, addr, tls_domain)?
         } else {
-            self.endpoint().connect(&addr, tls_domain)?
+            self.endpoint().connect(addr, tls_domain)?
         };
 
         log::info!("RP0");
@@ -112,9 +112,13 @@ impl Debug for QuicNode {
 }
 
 impl QuicClient {
-    /// - trusted_certs: If None, won't verify certs
+    /// - trusted_certs: If None, won't verify certs. NOTE: this implies is Some(&[]) is passed, no verification will work.
     pub fn new(socket: UdpSocket, trusted_certs: Option<&[&[u8]]>) -> Result<QuicNode, anyhow::Error> {
-        let (endpoint, listener) = make_client_endpoint(socket.into_std()?, trusted_certs)?;
+        if trusted_certs.as_ref().map(|r| r.is_empty()).unwrap_or(false) {
+            log::warn!("Client passed an empty set of trusted certs. Will fallback to native roots")
+        }
+
+        let (endpoint, listener) = make_client_endpoint(socket, trusted_certs)?;
         Ok(QuicNode { endpoint, listener, tls_domain_opt: None })
     }
 
@@ -130,8 +134,8 @@ impl QuicClient {
 }
 
 impl QuicServer {
-    pub fn new(socket: UdpSocket, crypt: Option<(CertificateChain, PrivateKey)>) -> Result<QuicNode, anyhow::Error> {
-        let (endpoint, listener) = make_server_endpoint(socket.into_std()?, crypt)?;
+    pub fn new(socket: UdpSocket, crypt: Option<(Vec<Certificate>, PrivateKey)>) -> Result<QuicNode, anyhow::Error> {
+        let (endpoint, listener) = make_server_endpoint(socket, crypt)?;
         Ok(QuicNode { endpoint, listener, tls_domain_opt: None })
     }
 
@@ -150,105 +154,56 @@ impl QuicServer {
     }
 }
 
-/// Constructs a QUIC endpoint configured for use a client only.
-///
-/// ## Args
-///
-/// - server_certs: list of trusted certificates.
-#[allow(unused)]
-pub fn make_client_endpoint(
-    socket: std::net::UdpSocket,
-    server_certs: Option<&[&[u8]]>,
-) -> Result<(Endpoint, Incoming), anyhow::Error> {
-    let client_cfg = if let Some(server_certs) = server_certs {
-        configure_client_secure(server_certs)?
-    } else {
-        configure_client_insecure()
+fn make_server_endpoint(socket: UdpSocket, crypt: Option<(Vec<Certificate>, PrivateKey)>) -> Result<(Endpoint, quinn::Incoming), anyhow::Error> {
+    let mut server_cfg = match crypt {
+        Some((certs, key)) => configure_server_with_crypto(certs, key)?,
+        None => configure_server_self_signed()?.0
     };
 
-    let mut endpoint_builder = Endpoint::builder();
-    endpoint_builder.default_client_config(client_cfg);
-    let (endpoint, incoming) = endpoint_builder.with_socket(socket)?;
+    load_hole_punch_friendly_quic_transport_config(Either::Left(&mut server_cfg));
+    let endpoint_config = EndpointConfig::default();
+    let socket = socket.into_std()?; // Quinn sets nonblocking to true
+    let (endpoint, incoming) = Endpoint::new(endpoint_config, Some(server_cfg), socket)?;
+    Ok((endpoint, incoming))
+}
+
+
+fn make_client_endpoint(
+    socket: UdpSocket,
+    server_certs: Option<&[&[u8]]>,
+) -> Result<(Endpoint, Incoming), anyhow::Error> {
+    let mut client_cfg = match server_certs {
+        Some(certs) => configure_client_secure(certs)?,
+        None => insecure::configure_client()
+    };
+
+    let socket = socket.into_std()?; // Quinn handles setting nonblocking to true
+    load_hole_punch_friendly_quic_transport_config(Either::Right(&mut client_cfg));
+    let (mut endpoint, incoming) = Endpoint::new(EndpointConfig::default(), None, socket)?;
+    endpoint.set_default_client_config(client_cfg);
 
     Ok((endpoint, incoming))
 }
 
-/// Constructs a QUIC endpoint configured to listen for incoming connections on a certain address
-/// and port.
-///
-/// ## Returns
-///
-/// - a stream of incoming QUIC connections
-/// - server certificate serialized into DER format
-#[allow(unused)]
-pub fn make_server_endpoint(socket: std::net::UdpSocket, crypt: Option<(CertificateChain, PrivateKey)>) -> Result<(Endpoint, Incoming), anyhow::Error> {
-    let server_config = configure_server_crypto(crypt)?;
-    let mut endpoint_builder = Endpoint::builder();
-    endpoint_builder.listen(server_config);
-
-    let (endpoint, incoming) = endpoint_builder.with_socket(socket)?;
-    Ok((endpoint, incoming))
-}
-
-/// Builds default quinn client config and trusts given certificates.
-///
-/// ## Args
-///
-/// - server_certs: a list of trusted certificates in DER format.
-pub fn configure_client_secure(server_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
-    let mut cfg_builder = ClientConfigBuilder::default();
-    for cert in server_certs {
-        cfg_builder.add_certificate_authority(Certificate::from_der(&cert)?)?;
-    }
-
-    let mut cfg = cfg_builder.build();
-
-    load_hole_punch_friendly_quic_transport_config(&mut cfg);
-
-    Ok(cfg)
-}
-
-pub fn configure_client_insecure() -> ClientConfig {
-    let mut cfg = ClientConfigBuilder::default().build();
-    load_hole_punch_friendly_quic_transport_config(&mut cfg);
-    let tls_cfg: &mut rustls::ClientConfig = Arc::get_mut(&mut cfg.crypto).unwrap();
-    // this is only available when compiled with "dangerous_configuration" feature
-    tls_cfg
-        .dangerous()
-        .set_certificate_verifier(SkipServerVerification::new());
-    cfg
-}
 
 /// only one side needs to set this transport config
-fn load_hole_punch_friendly_quic_transport_config(cfg: &mut ClientConfig) {
+fn load_hole_punch_friendly_quic_transport_config<'a>(cfg: Either<&'a mut ServerConfig, &'a mut ClientConfig>) {
     let mut transport_cfg = TransportConfig::default();
     transport_cfg.keep_alive_interval(Some(Duration::from_millis(2000)));
-    cfg.transport = Arc::new(transport_cfg);
+    transport_cfg.max_concurrent_uni_streams(0u8.into());
+
+    match cfg {
+        Either::Left(cfg) => {
+            cfg.transport = Arc::new(transport_cfg)
+        }
+
+        Either::Right(cfg) => {
+            cfg.transport = Arc::new(transport_cfg)
+        }
+    }
 }
 
 pub const SELF_SIGNED_DOMAIN: &'static str = "localhost";
-
-/// Returns default server configuration along with its certificate.
-fn configure_server_crypto(crypt: Option<(CertificateChain, PrivateKey)>) -> Result<ServerConfig, anyhow::Error> {
-    let mut transport_config = TransportConfig::default();
-    transport_config.max_concurrent_uni_streams(0).unwrap();
-    let mut server_config = ServerConfig::default();
-    server_config.transport = Arc::new(transport_config);
-    let mut cfg_builder = ServerConfigBuilder::new(server_config);
-
-    if let Some((chain, pkey)) = crypt {
-        cfg_builder.certificate(chain, pkey)?;
-    } else {
-        log::info!("Generating self-signed cert [requires endpoint dangerous configuration]");
-        let (cert_der, priv_key) = generate_self_signed_cert()?;
-        let priv_key = PrivateKey::from_der(&priv_key)?;
-        let cert = Certificate::from_der(&cert_der)?;
-
-        cfg_builder.certificate(CertificateChain::from_certs(vec![cert]), priv_key)?;
-    }
-
-    Ok(cfg_builder.build())
-}
 
 /// returns the (cert, priv_key) der bytes
 ///
@@ -260,17 +215,85 @@ pub fn generate_self_signed_cert() -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> 
     Ok((cert_der, priv_key_der))
 }
 
-pub(crate) struct SkipServerVerification;
 
-impl SkipServerVerification {
-    pub(crate) fn new() -> Arc<Self> {
-        Arc::new(Self)
+/// Builds default quinn client config and trusts given certificates.
+///
+/// ## Args
+///
+/// - server_certs: a list of trusted certificates in DER format.
+fn configure_client_secure(server_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
+    if server_certs.is_empty() {
+        log::warn!("Using native roots since no trusted server certs specified");
+        return Ok(ClientConfig::with_native_roots())
     }
+
+    let mut certs = rustls::RootCertStore::empty();
+    for cert in server_certs {
+        certs.add(&rustls::Certificate(cert.to_vec()))?;
+    }
+
+    Ok(ClientConfig::with_root_certificates(certs))
 }
 
-impl ServerCertVerifier for SkipServerVerification {
-    fn verify_server_cert(&self, _roots: &RootCertStore, _presented_certs: &[rustls::Certificate], _dns_name: webpki::DNSNameRef<'_>, _ocsp_response: &[u8]) -> Result<ServerCertVerified, TLSError> {
-        Ok(ServerCertVerified::assertion())
+/// Returns default server configuration along with its certificate.
+#[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
+fn configure_server_self_signed() -> Result<(ServerConfig, Vec<u8>), anyhow::Error> {
+    let (cert_der, priv_key) = generate_self_signed_cert()?;
+    let priv_key = rustls::PrivateKey(priv_key);
+    let cert_chain = vec![rustls::Certificate(cert_der.clone())];
+
+    let server_config = ServerConfig::with_single_cert(cert_chain, priv_key)?;
+
+    Ok((server_config, cert_der))
+}
+
+fn configure_server_with_crypto(cert_chain: Vec<rustls::Certificate>, private_key: rustls::PrivateKey) -> Result<ServerConfig, anyhow::Error> {
+    let server_crypto = rustls::ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, private_key)?;
+
+    let server_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
+
+    Ok(server_config)
+}
+
+pub mod insecure {
+    use std::sync::Arc;
+
+    use quinn::ClientConfig;
+
+    pub(crate) struct SkipServerVerification;
+
+    impl SkipServerVerification {
+        pub(crate) fn new() -> Arc<Self> {
+            Arc::new(Self)
+        }
+    }
+
+    impl rustls::client::ServerCertVerifier for SkipServerVerification {
+        fn verify_server_cert(
+            &self,
+            _end_entity: &rustls::Certificate,
+            _intermediates: &[rustls::Certificate],
+            _server_name: &rustls::ServerName,
+            _scts: &mut dyn Iterator<Item = &[u8]>,
+            _ocsp_response: &[u8],
+            _now: std::time::SystemTime,
+        ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+            Ok(rustls::client::ServerCertVerified::assertion())
+        }
+    }
+
+    pub fn rustls_client_config() -> rustls::ClientConfig {
+        rustls::ClientConfig::builder()
+            .with_safe_defaults()
+            .with_custom_certificate_verifier(SkipServerVerification::new())
+            .with_no_client_auth()
+    }
+
+    pub fn configure_client() -> ClientConfig {
+        ClientConfig::new(Arc::new(rustls_client_config()))
     }
 }
 
