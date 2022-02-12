@@ -1,4 +1,4 @@
-use quinn::{Endpoint, SendStream, RecvStream, Incoming, ClientConfig, ServerConfig, NewConnection, Connecting, EndpointConfig};
+use quinn::{Endpoint, SendStream, RecvStream, Incoming, ClientConfig, ServerConfig, NewConnection, EndpointConfig};
 use futures::{StreamExt, Future};
 
 use quinn::TransportConfig;
@@ -56,29 +56,23 @@ pub trait QuicEndpointConnector {
         where Self: Sized {
         self.connect_biconn_with(addr, tls_domain, None).await
     }
-
-
 }
 
-#[async_trait]
 pub trait QuicEndpointListener {
     fn listener(&mut self) -> &mut Incoming;
-    async fn next_connection(&mut self) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
-        where Self: Sized {
-        log::info!("TT0");
-        let connecting = self.listener().next().await.ok_or_else(|| anyhow::Error::msg("No QUIC connections available"))?;
-        log::info!("TT1");
-        handle_connecting(connecting).await
-    }
-}
+    fn next_connection<'a>(&'a mut self) -> Pin<Box<dyn Future<Output=Result<(NewConnection, SendStream, RecvStream), anyhow::Error>> + Send + Sync + 'a>>
+        where Self: Sized + Send + Sync {
+        Box::pin(async move {
+            log::info!("TT0");
+            let connecting = self.listener().next().await.ok_or_else(|| anyhow::Error::msg("No QUIC connections available"))?;
+            log::info!("TT1");
+            let mut conn = connecting.await?;
+            log::info!("TT2");
+            let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
 
-pub fn handle_connecting(connecting: Connecting) -> Pin<Box<dyn Future<Output=Result<(NewConnection, SendStream, RecvStream), anyhow::Error>> + Send + Sync>> {
-    Box::pin(async move {
-        let mut conn = connecting.await?;
-        log::info!("TT2");
-        let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
-        Ok((conn, sink, stream))
-    })
+            Ok((conn, sink, stream))
+        })
+    }
 }
 
 impl QuicEndpointListener for Incoming {

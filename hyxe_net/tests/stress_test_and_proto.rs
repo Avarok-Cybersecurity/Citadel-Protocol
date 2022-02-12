@@ -58,7 +58,9 @@ pub mod tests {
         setup_log();
         deadlock_detector();
 
-        let protos = vec![UnderlyingProtocol::new_quic_self_signed()];
+        let protos = vec![UnderlyingProtocol::Tcp,
+                          UnderlyingProtocol::new_tls_self_signed().unwrap(),
+                          UnderlyingProtocol::new_quic_self_signed()];
 
         for proto in protos {
             log::info!("Testing proto {:?}", &proto);
@@ -71,23 +73,27 @@ pub mod tests {
                 log::info!("[Server] Next conn: {:?}", next);
                 let (mut stream, peer_addr) = next.unwrap().unwrap();
                 log::info!("[Server] Received stream from {}", peer_addr);
-                let res = stream.read_u8().await;
+                let buf = &mut [0u8;64];
+                let res = stream.read(buf).await;
                 log::info!("Server-res: {:?}", res);
-                assert_eq(res.unwrap(), 0xfb, "Invalid read");
-                let _ = stream.write_u8(0xfa).await.unwrap();
+                assert_eq(buf[0], 0xfb, "Invalid read");
+                let _ = stream.write(&[0xfa]).await.unwrap();
+                stream.shutdown().await.unwrap();
             };
 
             let client = async move {
                 let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr).await.unwrap();
                 log::info!("Client connected");
-                let res = stream.write_u8(0xfb).await;
+                let res = stream.write(&[0xfb]).await;
                 log::info!("Client connected - A02 {:?}", res);
-                let res = stream.read_u8().await;
-                log::info!("Client connected - AO3");
-                assert_eq(res.unwrap(), 0xfa, "Invalid read - client");
+                let buf = &mut [0u8;64];
+                let res = stream.read(buf).await;
+                log::info!("Client connected - AO3 {:?}", res);
+                assert_eq(buf[0], 0xfa, "Invalid read - client");
             };
 
-            tokio::join!(server, client);
+            let _ = tokio::join!(server, client);
+            log::info!("Ended");
         }
 
         Ok(())
