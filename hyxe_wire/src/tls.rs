@@ -18,7 +18,7 @@ pub fn create_client_dangerous_config() -> TlsConnector {
     TlsConnector::from(Arc::new(default))
 }
 
-pub fn create_client_config(allowed_certs: &[&[u8]]) -> Result<TlsConnector, anyhow::Error> {
+pub fn create_rustls_client_config(allowed_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
     let mut default = if allowed_certs.is_empty() {
         let mut root_store = RootCertStore::empty();
         let natives = rustls_native_certs::load_native_certs()?;
@@ -36,7 +36,11 @@ pub fn create_client_config(allowed_certs: &[&[u8]]) -> Result<TlsConnector, any
     };
 
     default.enable_sni = true;
-    Ok(TlsConnector::from(Arc::new(default)))
+    Ok(default)
+}
+
+pub fn create_client_config(allowed_certs: &[&[u8]]) -> Result<TlsConnector, anyhow::Error> {
+    Ok(TlsConnector::from(Arc::new(create_rustls_client_config(allowed_certs)?)))
 }
 
 pub fn create_server_self_signed_config() -> Result<TLSQUICInterop, anyhow::Error> {

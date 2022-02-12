@@ -163,10 +163,6 @@
       <sourceFolder url="file://$MODULE_DIR$/udt_tokio/udt-rs/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/udt_tokio/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/udt_tokio/examples" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_nat/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_nat/rust-igd/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_nat/rust-igd/examples" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_nat/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/async_udt/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/async_udt/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/async_udt/udt-rs/src" isTestSource="false" />
@@ -344,7 +340,11 @@
       <sourceFolder url="file://$MODULE_DIR$/lusna_sdk/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/lusna_sdk/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/online_order_handler/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/hyxe_nat/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_wire/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_wire/rust-igd/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_wire/rust-igd/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_wire/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/hyxe_wire/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf/target" />
       <excludeFolder url="file://$MODULE_DIR$/HyperBuf/hyperbuf_derive/target" />
       <excludeFolder url="file://$MODULE_DIR$/async_ip/target" />

@@ -44,7 +44,7 @@ async-stream = "0.3.2"
 bitvec = "0.17.3"
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }
 hyxe_user = { path = "../hyxe_user", version = "0.1.0", default-features=false }
-hyxe_nat = { path = "../hyxe_nat", version = "0.1.0" }
+hyxe_nat = { path = "../hyxe_wire", version = "0.1.0" }
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 sync_wrapper = "0.1.1"
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
