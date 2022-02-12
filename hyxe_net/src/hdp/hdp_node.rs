@@ -46,7 +46,6 @@ use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetT
 use crate::kernel::kernel_communicator::{KernelAsyncCallbackHandler, KernelStreamSubscription};
 use crate::kernel::RuntimeFuture;
 use hyxe_nat::quic::{QuicServer, QuicEndpointConnector, SELF_SIGNED_DOMAIN, QuicNode};
-use either::Either;
 use crate::hdp::peer::p2p_conn_handler::generic_error;
 use hyxe_nat::exports::Endpoint;
 use hyxe_crypt::prelude::SecBuffer;
@@ -237,18 +236,17 @@ impl HdpServer {
         }
     }
 
-    pub fn server_create_primary_listen_socket<T: ToSocketAddrs + Clone>(underlying_proto: UnderlyingProtocol, full_bind_addr: T) -> io::Result<(DualListener, SocketAddr)> {
+    pub fn server_create_primary_listen_socket<T: ToSocketAddrs>(underlying_proto: UnderlyingProtocol, full_bind_addr: T) -> io::Result<(DualListener, SocketAddr)> {
         match &underlying_proto {
             UnderlyingProtocol::Tls(..) | UnderlyingProtocol::Tcp => {
-                Self::create_listen_socket(underlying_proto, None, None, full_bind_addr).map(|r| (DualListener { listener_0: r.0, quic: None }, r.1))
+                Self::create_listen_socket(underlying_proto, None, None, full_bind_addr).map(|r| (DualListener::new(r.0, None), r.1))
             }
 
             UnderlyingProtocol::Quic(_, domain, is_self_signed) => {
-
                 // we need two sockets: one for TCP connection to allow connecting peers to determine the protocol, then another for QUIC
-                let (tcp_listener, bind_addr) = Self::create_listen_socket(UnderlyingProtocol::Tcp, Some((domain.clone(), *is_self_signed)), None,full_bind_addr.clone())?;
-                let (quic_listener, _bind_addr_quic) = Self::create_listen_socket(underlying_proto, None, None, full_bind_addr)?;
-                Ok((DualListener { listener_0: tcp_listener, quic: Some(quic_listener)}, bind_addr))
+                let (tcp_listener, bind_addr) = Self::create_listen_socket(UnderlyingProtocol::Tcp, Some((domain.clone(), *is_self_signed)), None,full_bind_addr)?;
+                let (quic_listener, _bind_addr_quic) = Self::create_listen_socket(underlying_proto, None, None, bind_addr)?;
+                Ok((DualListener::new(tcp_listener, Some(quic_listener)), bind_addr))
             }
         }
     }
@@ -291,7 +289,6 @@ impl HdpServer {
                     quic
                 } else {
                     let udp_socket = hyxe_nat::socket_helpers::get_reuse_udp_socket(bind).map_err(generic_error)?;
-
                     QuicServer::new(udp_socket, crypto).map_err(generic_error)?
                 };
 
@@ -349,6 +346,8 @@ impl HdpServer {
             }
         };
 
+        log::info!("Using cfg={:?} to connect to {:?}", cfg, remote);
+
         // we MUST use the connect_biconn_WITH below since we are using the server quic instance to make this outgoing connection
         let (conn, sink, stream) = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), quic_endpoint.connect_biconn_with(remote, domain.as_ref().map(|r| r.as_str()).unwrap_or(SELF_SIGNED_DOMAIN), cfg)).await?.map_err(generic_error)?;
         Ok(GenericNetworkStream::Quic(sink, stream, quic_endpoint, Some(conn), remote))
@@ -393,6 +392,7 @@ impl HdpServer {
                 let mut quic_endpoint = if is_self_signed {
                     hyxe_nat::quic::QuicClient::new_no_verify(udp_socket).map_err(generic_error)?
                 } else {
+                    // TODO: trusted_certs is empty, which means the system will default to native certs. Allow clients to specify cert chains
                     hyxe_nat::quic::QuicClient::new_verify(udp_socket, &[]).map_err(generic_error)?
                 };
 
@@ -424,48 +424,18 @@ impl HdpServer {
             let session_manager = this.session_manager.clone();
             let local_nat_type = this.nat_type.clone();
             std::mem::drop(this);
-            if let Some(quic_listener) = listener.quic {
-                let primary_port_future_0 = Self::primary_session_creator_loop(to_kernel.clone(), local_nat_type.clone(), session_manager.clone(), listener.listener_0, session_spawner.clone(), true);
-                let primary_port_future_1 = Self::primary_session_creator_loop(to_kernel, local_nat_type, session_manager, quic_listener, session_spawner, false);
-                Either::Left((primary_port_future_0, primary_port_future_1))
-            } else {
-                let primary_port_future = Self::primary_session_creator_loop(to_kernel, local_nat_type, session_manager, listener.listener_0, session_spawner, false);
-                Either::Right(primary_port_future)
-            }
+            Self::primary_session_creator_loop(to_kernel, local_nat_type, session_manager, listener, session_spawner)
         };
 
-        match primary_port_future {
-            Either::Left((f0, f1)) => {
-                tokio::select! {
-                    res0 = f0 => res0,
-                    res1 = f1 => res1
-                }
-            }
-
-            Either::Right(future) => {
-                future.await
-            }
-        }
+        primary_port_future.await
     }
 
-    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, local_nat_type: NatType, session_manager: HdpSessionManager, mut socket: GenericNetworkListener, session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>, early_exit: bool) -> Result<(), NetworkError> {
-        'outer: loop {
+    async fn primary_session_creator_loop(to_kernel: UnboundedSender<HdpServerResult>, local_nat_type: NatType, session_manager: HdpSessionManager, mut socket: DualListener, session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>) -> Result<(), NetworkError> {
+        loop {
             match socket.next().await {
                 Some(Ok((stream, peer_addr))) => {
                     log::trace!("Received stream from {:?}", peer_addr);
                     let local_bind_addr = stream.local_addr().unwrap();
-
-                    if early_exit {
-                        // give time for the futures on the adjacent side to finish
-                        let delayed_drop = async move {
-                            let stream = stream;
-                            tokio::time::sleep(Duration::from_millis(1000)).await;
-                            std::mem::drop(stream);
-                        };
-
-                        let _  = spawn!(delayed_drop);
-                        continue 'outer;
-                    }
 
                     log::info!("[Server] Starting connection with remote={} w/ proto={:?}", peer_addr, &stream);
 
