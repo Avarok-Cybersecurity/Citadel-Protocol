@@ -1,5 +1,5 @@
 use crate::hdp::hdp_node::TlsDomain;
-use hyxe_nat::exports::{CertificateChain, PrivateKey};
+use hyxe_nat::exports::{PrivateKey, Certificate};
 use std::path::Path;
 use crate::error::NetworkError;
 use std::net::SocketAddr;
@@ -13,7 +13,7 @@ use hyxe_nat::misc::is_self_signed_from_bytes;
 pub enum UnderlyingProtocol {
     Tcp,
     Tls(TLSQUICInterop, TlsDomain, bool),
-    Quic(Option<(CertificateChain, PrivateKey)>, TlsDomain, bool)
+    Quic(Option<(Vec<Certificate>, PrivateKey)>, TlsDomain, bool)
 }
 
 impl UnderlyingProtocol {

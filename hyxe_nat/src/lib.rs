@@ -2,7 +2,8 @@
 #![forbid(unsafe_code)]
 pub mod exports {
     pub use igd::PortMappingProtocol;
-    pub use quinn::{CertificateChain, Connecting, Connection, Endpoint, Incoming, NewConnection, PrivateKey, RecvStream, SendStream};
+    pub use quinn::{Connecting, Connection, Endpoint, Incoming, NewConnection, RecvStream, SendStream};
+    pub use rustls::{Certificate, PrivateKey};
     pub use tokio_rustls;
 }
 
