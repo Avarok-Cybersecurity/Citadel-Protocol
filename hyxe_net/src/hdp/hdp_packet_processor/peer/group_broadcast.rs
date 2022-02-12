@@ -1,7 +1,7 @@
 use super::super::includes::*;
 use serde::{Serialize, Deserialize};
 use crate::hdp::peer::message_group::MessageGroupKey;
-use crate::hdp::hdp_server::Ticket;
+use crate::hdp::hdp_node::Ticket;
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::functional::IfEqConditional;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;

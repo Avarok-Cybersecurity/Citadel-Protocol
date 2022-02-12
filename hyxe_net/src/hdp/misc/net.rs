@@ -1,7 +1,7 @@
 use tokio_util::codec::LengthDelimitedCodec;
 use crate::hdp::misc::clean_shutdown::{clean_framed_shutdown, CleanShutdownSink, CleanShutdownStream};
 use bytes::Bytes;
-use tokio::io::{AsyncWrite, AsyncRead, ReadBuf, AsyncWriteExt};
+use tokio::io::{AsyncWrite, AsyncRead, ReadBuf};
 use crate::macros::{ContextRequirements, SyncContextRequirements};
 use std::net::SocketAddr;
 use tokio::net::{TcpStream, TcpListener};
@@ -9,17 +9,17 @@ use tokio_stream::Stream;
 use std::task::{Context, Poll};
 use std::pin::Pin;
 use std::ops::DerefMut;
-use std::io::{Error, Write};
+use std::io::Error;
 use hyxe_nat::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
-use futures::{Future, StreamExt};
+use futures::Future;
 use std::sync::Arc;
 //use tokio_native_tls::native_tls::{Identity, Certificate};
 use std::path::Path;
 use crate::error::NetworkError;
-use crate::hdp::hdp_server::TlsDomain;
+use crate::hdp::hdp_node::TlsDomain;
 use serde::{Serialize, Deserialize};
 use hyxe_fs::io::SyncIO;
-use hyxe_nat::exports::{SendStream, RecvStream, Endpoint, Incoming, Connecting, NewConnection};
+use hyxe_nat::exports::{SendStream, RecvStream, Endpoint, Connecting, NewConnection};
 use hyxe_nat::quic::QuicNode;
 use crate::hdp::peer::p2p_conn_handler::generic_error;
 use std::fmt::Debug;
@@ -48,6 +48,8 @@ pub enum GenericNetworkStream {
     // local addr is first addr, remote addr is final addr
     Quic(SendStream, RecvStream, Endpoint, Option<NewConnection>, SocketAddr)
 }
+
+impl Unpin for GenericNetworkStream {}
 
 impl Debug for GenericNetworkStream {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -132,25 +134,25 @@ impl AsyncWrite for GenericNetworkStream {
 
 #[allow(variant_size_differences)]
 pub enum GenericNetworkListener {
-    Tcp(TcpListener, Option<(TlsDomain, bool)>),
+    Tcp(TcpListener, Option<(TlsDomain, bool)>, Vec<Pin<Box<dyn TcpOutputImpl>>>),
     Tls(TlsListener),
     Quic(QuicListener)
 }
 
 impl GenericNetworkListener {
-    pub fn from_quic_node(quic: QuicNode, is_self_signed: bool) -> Self {
-        let endpoint = quic.endpoint;
-        let incoming = quic.listener;
-        let domain = quic.tls_domain_opt;
+    pub fn from_quic_node(quic_node: QuicNode, is_self_signed: bool) -> Self {
+        Self::Quic(QuicListener { quic_node, queue: vec![], is_self_signed })
+    }
 
-        Self::Quic(QuicListener { endpoint, incoming, domain, queue: Vec::new(), is_self_signed})
+    pub fn new_tcp(listener: TcpListener, redirect_to_quic: Option<(TlsDomain, bool)>) -> Self {
+        Self::Tcp(listener, redirect_to_quic, vec![])
     }
 
     pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
             Self::Tcp(listener, ..) => listener.local_addr(),
             Self::Tls(listener) => listener.inner.local_addr(),
-            Self::Quic(listener) => listener.endpoint.local_addr()
+            Self::Quic(listener) => listener.quic_node.endpoint.local_addr()
         }
     }
 
@@ -159,7 +161,7 @@ impl GenericNetworkListener {
         match self {
             Self::Tcp(..) => None,
             Self::Tls(tls) => tls.domain.clone(),
-            Self::Quic(quic) => quic.domain.clone()
+            Self::Quic(quic) => quic.quic_node.tls_domain_opt.clone()
         }
     }
 
@@ -167,30 +169,81 @@ impl GenericNetworkListener {
     pub fn quic_endpoint(&self) -> Option<Endpoint> {
         match self {
             Self::Tcp(..) | Self::Tls(..) => None,
-            Self::Quic(quic) => Some(quic.endpoint.clone())
+            Self::Quic(quic) => Some(quic.quic_node.endpoint.clone())
         }
     }
+
+    fn poll_future(future: &mut Pin<Box<dyn TcpOutputImpl>>, cx: &mut Context<'_>) -> Poll<Option<<Self as Stream>::Item>> {
+        future.as_mut().poll(cx).map(|r| Some(r.map(|stream| {
+            let peer_addr = stream.peer_addr().unwrap();
+            let stream = GenericNetworkStream::Tcp(stream);
+            (stream, peer_addr)
+        }).map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))))
+    }
 }
+
+pub trait TcpOutputImpl: Future<Output=Result<TcpStream, NetworkError>> + SyncContextRequirements {}
+impl<T: Future<Output=Result<TcpStream, NetworkError>> + SyncContextRequirements> TcpOutputImpl for T {}
 
 impl Stream for GenericNetworkListener {
     type Item = std::io::Result<(GenericNetworkStream, SocketAddr)>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.deref_mut() {
-            Self::Tcp(ref listener, redirect_to_quic) => {
-                match futures::ready!(listener.poll_accept(cx)) {
-                    Ok((stream, addr)) => {
-                        let mut stream = stream.into_std()?;
-                        stream.set_nonblocking(false)?;
-                        if let Some((domain, is_self_signed)) = redirect_to_quic {
-                            let _ = stream.write(&FirstPacket::Quic { domain: domain.clone(), external_addr: addr, is_self_signed: *is_self_signed }.serialize_to_vector().unwrap())?;
-                        } else {
-                            let _ = stream.write(&FirstPacket::Tcp { external_addr: addr }.serialize_to_vector().unwrap())?;
+            Self::Tcp(ref listener, redirect_to_quic, writers_queue) => {
+
+                for (idx, future) in writers_queue.iter_mut().enumerate() {
+                    match Self::poll_future(future, cx) {
+                        Poll::Ready(res) => {
+                            let _ = writers_queue.remove(idx);
+                            return match res {
+                                Some(Ok((stream, peer_addr))) => {
+                                    Poll::Ready(Some(Ok((stream, peer_addr))))
+                                }
+
+                                Some(Err(err)) => {
+                                    Poll::Ready(Some(Err(err)))
+                                }
+
+                                None => {
+                                    log::error!("TlsListener: Polled none");
+                                    Poll::Ready(Some(Err(std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "Polled none"))))
+                                }
+                            }
                         }
 
-                        stream.set_nonblocking(true)?;
+                        Poll::Pending => {} // don't return, just keep polling any additional futures
+                    }
+                }
 
-                        Poll::Ready(Some(Ok((GenericNetworkStream::Tcp(tokio::net::TcpStream::from_std(stream)?), addr))))
+                match futures::ready!(listener.poll_accept(cx)) {
+                    Ok((stream, addr)) => {
+                        log::info!("Received raw TCP stream from {:?}: {:?}", addr, stream);
+                        let first_packet = if let Some((domain, is_self_signed)) = redirect_to_quic {
+                            FirstPacket::Quic { domain: domain.clone(), external_addr: addr, is_self_signed: *is_self_signed }
+                        } else {
+                            FirstPacket::Tcp { external_addr: addr }
+                        };
+
+                        let future = async move {
+                            super::write_one_packet(stream, first_packet.serialize_to_vector().map_err(|err| NetworkError::Generic(err.to_string()))?).await
+                        };
+
+                        let mut future = Box::pin(future) as Pin<Box<dyn TcpOutputImpl>>;
+                        // poll the future once to register any internal wakers
+                        let poll_res = Self::poll_future(&mut future, cx);
+
+                        match poll_res {
+                            Poll::Pending => {
+                                writers_queue.push(future);
+                                Poll::Pending
+                            }
+
+                            res => {
+                                log::warn!("Will not enqueue future since already finished");
+                                res
+                            }
+                        }
                     }
 
                     Err(err) => {
@@ -205,6 +258,7 @@ impl Stream for GenericNetworkListener {
             }
 
             Self::Quic(listener) => {
+                log::info!("Polling quic_listener from GenericNetworkListener");
                 // QUIC listener already sends the first packet. Nothing to do here
                 Pin::new(listener).poll_next(cx).map(|r| r.map(|res: std::io::Result<(NewConnection, SendStream, RecvStream, SocketAddr, Endpoint)>| res.map(|(conn, sink, stream, peer_addr, endpoint)| (GenericNetworkStream::Quic(sink, stream, endpoint, Some(conn), peer_addr), peer_addr))))
             }
@@ -281,8 +335,8 @@ impl Stream for TlsListener {
         }
 
         match futures::ready!(Pin::new(inner).poll_accept(cx)) {
-            Ok((mut stream, peer_addr)) => {
-
+            Ok((stream, peer_addr)) => {
+                log::info!("TLs-listener RECV Raw TCP stream: {:?}", stream);
                 let tls_acceptor = tls_acceptor.clone();
                 let domain = domain.clone();
                 let is_self_signed = *is_self_signed;
@@ -290,9 +344,10 @@ impl Stream for TlsListener {
                 let future = async move {
                     //let _ = stream.write(&[TLS_CONN_TYPE] as &[u8]).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
                     let serialized_first_packet = FirstPacket::Tls { domain, external_addr: peer_addr, is_self_signed }.serialize_to_vector().unwrap();
-                    let _ = stream.write(serialized_first_packet.as_slice()).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    let stream = super::write_one_packet(stream, serialized_first_packet).await?;
                     // Upgrade TCP stream to TLS stream
-                    tls_acceptor.accept(stream).await.map_err(|err| NetworkError::Generic(err.to_string()))
+                    let res = tls_acceptor.accept(stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    Ok(res)
                 };
 
                 let mut future = Box::pin(future) as Pin<Box<dyn TlsOutputImpl>>;
@@ -321,10 +376,7 @@ impl Stream for TlsListener {
 }
 
 pub struct QuicListener {
-    endpoint: Endpoint,
-    incoming: Incoming,
-    #[allow(unused)]
-    domain: TlsDomain,
+    quic_node: QuicNode,
     queue: Vec<Pin<Box<dyn QuicOutputImpl>>>,
     #[allow(dead_code)]
     is_self_signed: bool
@@ -343,10 +395,10 @@ impl Stream for QuicListener {
     type Item = std::io::Result<(NewConnection, SendStream, RecvStream, SocketAddr, Endpoint)>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        log::info!("Polling quic_listener from QuicListener");
         let Self {
-            incoming,
+            quic_node,
             queue,
-            endpoint,
             ..
         } = &mut *self;
 
@@ -374,18 +426,17 @@ impl Stream for QuicListener {
             }
         }
 
-        match futures::ready!(Pin::new(incoming).poll_next(cx)) {
+        match futures::ready!(Pin::new(&mut quic_node.listener).poll_next(cx)) {
             Some(connecting) => {
+                log::info!("X0");
                 let connecting: Connecting = connecting;
-                let endpoint = endpoint.clone();
+                let endpoint = quic_node.endpoint.clone();
 
                 let future = async move {
+                    log::info!("X1");
                     let remote_address = connecting.remote_address();
-                    let mut conn = connecting.await.map_err(|err| generic_error(format!("{:?}", err)))?;
-                    // as the server, we will await for the client to open the bi stream
-                    let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| generic_error("No bi-streams can be obtained"))?.map_err(|err| generic_error(format!("{:?}", err)))?;
-                    // since the client writes a null packet to open the bi-stream, we just have to read the first amt
-                    //let _ = stream.read(&mut []).await?;
+                    let (conn, sink, stream) = hyxe_nat::quic::handle_connecting(connecting).await
+                        .map_err(|err| generic_error(err.to_string()))?;
                     Ok((conn, sink, stream, remote_address, endpoint))
                 };
 
@@ -432,15 +483,27 @@ impl Stream for DualListener {
     type Item = std::io::Result<(GenericNetworkStream, SocketAddr)>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match Pin::new(&mut self.listener_0).poll_next(cx) {
-            Poll::Ready(res) => return Poll::Ready(res),
-            Poll::Pending => {
-                if let Some(quic_listener) = self.quic.as_mut() {
-                    Pin::new(quic_listener).poll_next(cx)
-                } else {
-                    Poll::Pending
+        if let Some(quic_listener) = self.quic.as_mut() {
+            log::info!("Polling_next quic_listener from DualListener");
+            match Pin::new(quic_listener).poll_next(cx) {
+                Poll::Pending => {
+                    // all return values here get disposed
+                    match futures::ready!(Pin::new(&mut self.listener_0).poll_next(cx)) {
+                        None => {
+                            Poll::Ready(Some(Err(generic_error("Polled none on listener_0"))))
+                        }
+
+                        Some(res) => {
+                            let _res = res?;
+                            self.poll_next(cx)
+                        }
+                    }
                 }
+
+                res => res
             }
+        } else {
+            Pin::new(&mut self.listener_0).poll_next(cx)
         }
     }
 }

@@ -1,5 +1,5 @@
 use super::includes::*;
-use crate::hdp::hdp_server::Ticket;
+use crate::hdp::hdp_node::Ticket;
 use crate::hdp::hdp_packet_processor::primary_group_packet::get_proper_hyper_ratchet;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;

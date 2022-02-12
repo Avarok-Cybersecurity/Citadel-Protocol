@@ -10,7 +10,7 @@ use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::error::NetworkError;
 use std::collections::HashMap;
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
-use crate::hdp::hdp_server::SecrecyMode;
+use crate::hdp::hdp_node::SecrecyMode;
 use crate::functional::IfTrueConditional;
 use std::ops::Deref;
 use crate::inner_arg::ExpectedInnerTarget;

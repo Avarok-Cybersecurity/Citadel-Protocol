@@ -1,4 +1,4 @@
-use crate::hdp::hdp_server::TlsDomain;
+use crate::hdp::hdp_node::TlsDomain;
 use hyxe_nat::exports::{CertificateChain, PrivateKey};
 use std::path::Path;
 use crate::error::NetworkError;

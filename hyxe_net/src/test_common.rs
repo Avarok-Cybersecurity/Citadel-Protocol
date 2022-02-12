@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use crate::error::NetworkError;
 use tokio::sync::mpsc::UnboundedSender;
 
-pub use crate::hdp::hdp_server::HdpServer;
+pub use crate::hdp::hdp_node::HdpServer;
 
 #[async_trait]
 pub trait TestingCoKernel: Send + Sync + 'static {

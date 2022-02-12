@@ -1,4 +1,4 @@
-use crate::hdp::hdp_server::{NodeRemote, Ticket, HdpServerRequest};
+use crate::hdp::hdp_node::{NodeRemote, Ticket, HdpServerRequest};
 use hyxe_crypt::drill::SecurityLevel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

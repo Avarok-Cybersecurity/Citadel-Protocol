@@ -36,7 +36,7 @@ use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 //use futures_codec::Framed;
 use crate::hdp::hdp_packet_processor::{self, PrimaryProcessorResult};
 use crate::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
-use crate::hdp::hdp_server::{ConnectMode, NodeRemote, HdpServerResult, Ticket};
+use crate::hdp::hdp_node::{ConnectMode, NodeRemote, HdpServerResult, Ticket};
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::misc;
 use crate::hdp::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};

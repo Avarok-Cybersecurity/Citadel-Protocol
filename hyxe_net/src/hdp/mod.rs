@@ -1,5 +1,5 @@
 /// Used at each HyperNode
-pub mod hdp_server;
+pub mod hdp_node;
 /// The fundamental packet types
 pub(crate) mod hdp_packet;
 /// Contains the library for processing inbound packet types. all #[inline]'d

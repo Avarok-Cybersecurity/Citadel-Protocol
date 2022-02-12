@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use crate::hdp::hdp_server::{Ticket, HdpServerResult};
+use crate::hdp::hdp_node::{Ticket, HdpServerResult};
 use crate::error::NetworkError;
 use futures::{Stream, Future};
 use std::task::{Context, Poll};

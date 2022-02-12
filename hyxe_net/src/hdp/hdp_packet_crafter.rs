@@ -6,7 +6,7 @@ use hyxe_crypt::net::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
 use netbeam::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
-use crate::hdp::hdp_server::Ticket;
+use crate::hdp::hdp_node::Ticket;
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use std::ops::RangeInclusive;
 use crate::hdp::state_container::VirtualTargetType;
@@ -276,7 +276,7 @@ pub(crate) mod group {
     use std::ops::RangeInclusive;
     use crate::hdp::state_container::VirtualTargetType;
     use crate::hdp::hdp_packet::packet_sizes::GROUP_HEADER_ACK_LEN;
-    use crate::hdp::hdp_server::Ticket;
+    use crate::hdp::hdp_node::Ticket;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
     use hyxe_fs::io::SyncIO;
@@ -776,7 +776,7 @@ pub mod do_disconnect {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
-    use crate::hdp::hdp_server::Ticket;
+    use crate::hdp::hdp_node::Ticket;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
 
@@ -1032,7 +1032,7 @@ pub(crate) mod pre_connect {
     use serde::{Serialize, Deserialize};
     use hyxe_fs::io::SyncIO;
     use hyxe_user::prelude::ConnectProtocol;
-    use crate::hdp::hdp_server::ConnectMode;
+    use crate::hdp::hdp_node::ConnectMode;
     use crate::hdp::peer::peer_layer::UdpMode;
     use hyxe_nat::nat_identification::NatType;
 
@@ -1218,7 +1218,7 @@ pub(crate) mod peer_cmd {
     use bytes::BytesMut;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
     use zerocopy::{U64, U32, I64};
-    use crate::hdp::hdp_server::Ticket;
+    use crate::hdp::hdp_node::Ticket;
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use crate::hdp::peer::peer_layer::ChannelPacket;
@@ -1342,7 +1342,7 @@ pub(crate) mod peer_cmd {
 
 pub(crate) mod file {
     use crate::hdp::hdp_packet_processor::includes::{SecurityLevel, HdpHeader, packet_flags};
-    use crate::hdp::hdp_server::Ticket;
+    use crate::hdp::hdp_node::Ticket;
     use crate::hdp::state_container::VirtualTargetType;
     use crate::hdp::file_transfer::VirtualFileMetadata;
     use zerocopy::{U64, U32, I64};

@@ -27,7 +27,7 @@ pub mod includes {
     pub(crate) use crate::hdp::{hdp_packet_crafter, validation};
     pub use crate::hdp::hdp_packet::{HdpHeader, HdpPacket};
     pub(crate) use crate::hdp::hdp_packet::packet_flags;
-    pub use crate::hdp::hdp_server::HdpServerResult;
+    pub use crate::hdp::hdp_node::HdpServerResult;
     pub use crate::hdp::hdp_session::{HdpSession, HdpSessionInner, SessionState};
     pub use crate::inner_arg::{ExpectedInnerTargetMut, InnerParameterMut};
 
