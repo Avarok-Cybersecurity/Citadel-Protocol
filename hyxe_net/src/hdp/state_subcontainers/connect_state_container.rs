@@ -2,7 +2,7 @@ use tokio::time::Instant;
 
 use crate::hdp::hdp_packet::packet_flags;
 use hyxe_user::auth::proposed_credentials::ProposedCredentials;
-use crate::hdp::hdp_server::ConnectMode;
+use crate::hdp::hdp_node::ConnectMode;
 
 /// These values should correlate directly to the packet_flags::cmd::aux::do_connect::*
 #[derive(Default)]

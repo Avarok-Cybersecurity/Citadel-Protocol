@@ -6,7 +6,7 @@ use hyxe_crypt::drill::SecurityLevel;
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::hdp::hdp_packet_processor::includes::{Duration, hdp_packet_crafter, Instant, SocketAddr};
-use crate::hdp::hdp_server::{HdpServer, HdpServerResult, Ticket};
+use crate::hdp::hdp_node::{HdpServer, HdpServerResult, Ticket};
 use crate::hdp::hdp_session::{HdpSession, SessionState};
 use crate::hdp::misc;
 use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};

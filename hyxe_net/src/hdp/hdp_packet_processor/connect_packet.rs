@@ -1,7 +1,7 @@
 use super::includes::*;
 use crate::hdp::state_container::VirtualConnectionType;
 use hyxe_crypt::fcm::keys::FcmKeys;
-use crate::hdp::hdp_server::ConnectMode;
+use crate::hdp::hdp_node::ConnectMode;
 use hyxe_user::backend::PersistenceHandler;
 use crate::error::NetworkError;
 use hyxe_user::external_services::ServicesObject;

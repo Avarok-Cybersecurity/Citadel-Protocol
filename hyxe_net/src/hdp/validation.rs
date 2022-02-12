@@ -221,7 +221,7 @@ pub(crate) mod pre_connect {
     use hyxe_user::prelude::ConnectProtocol;
     use crate::hdp::hdp_session_manager::HdpSessionManager;
     use crate::error::NetworkError;
-    use crate::hdp::hdp_server::ConnectMode;
+    use crate::hdp::hdp_node::ConnectMode;
     use crate::hdp::peer::peer_layer::UdpMode;
     use hyxe_nat::nat_identification::NatType;
     use crate::hdp::hdp_packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;

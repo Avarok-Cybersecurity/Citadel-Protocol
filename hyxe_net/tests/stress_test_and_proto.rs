@@ -25,7 +25,7 @@ pub mod tests {
     use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 
     use crate::tests::kernel::{ActionType, MessageTransfer, TestContainer, TestKernel};
-    use crate::utils::{assert, assert_eq, AssertSendSafeFuture};
+    use crate::utils::{assert, assert_eq, AssertSendSafeFuture, deadlock_detector};
     use tokio::io::{AsyncWriteExt, AsyncReadExt};
     use hyxe_net::test_common::HdpServer;
     use hyxe_net::auth::AuthenticationRequest;
@@ -53,41 +53,44 @@ pub mod tests {
     }
 
     #[tokio::test]
-    async fn tcp_or_tls() {
+    async fn tcp_or_tls() -> std::io::Result<()> {
+        // TODO: RSTest with ipv6 and v4
         setup_log();
+        deadlock_detector();
 
-        let protos = vec![UnderlyingProtocol::Tcp, UnderlyingProtocol::new_tls_self_signed().unwrap(), UnderlyingProtocol::load_tls("../keys/testing.p12", "mrmoney10", "mail.satorisocial.com").unwrap()];
+        let protos = vec![UnderlyingProtocol::new_quic_self_signed()];
 
         for proto in protos {
             log::info!("Testing proto {:?}", &proto);
-            let addr = SocketAddr::from_str("127.0.0.1:0").unwrap();
 
-            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,addr).unwrap();
+            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,"127.0.0.1:0").unwrap();
             log::info!("Bind/connect addr: {:?}", addr);
 
             let server = async move {
-                while let Some(val) = listener.next().await {
-                    let (mut stream, peer_addr) = val.unwrap();
-                    log::info!("[Server] Received stream from {}", peer_addr);
-                    let buf = &mut [0u8; 4096];
-                    let _ = stream.read(buf as &mut [u8]).await.unwrap();
-                    assert_eq(buf[0], 0xff, "Invalid read");
-                    let _ = stream.write(&[0xfa]).await.unwrap();
-                    return;
-                }
+                let next = listener.next().await;
+                log::info!("[Server] Next conn: {:?}", next);
+                let (mut stream, peer_addr) = next.unwrap().unwrap();
+                log::info!("[Server] Received stream from {}", peer_addr);
+                let res = stream.read_u8().await;
+                log::info!("Server-res: {:?}", res);
+                assert_eq(res.unwrap(), 0xfb, "Invalid read");
+                let _ = stream.write_u8(0xfa).await.unwrap();
             };
 
             let client = async move {
                 let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr).await.unwrap();
                 log::info!("Client connected");
-                let buf = &mut [0u8; 4096];
-                let _ = stream.write(&[0xff]).await.unwrap();
-                let _ = stream.read(buf as &mut [u8]).await.unwrap();
-                assert_eq(buf[0], 0xfa, "Invalid read - client");
+                let res = stream.write_u8(0xfb).await;
+                log::info!("Client connected - A02 {:?}", res);
+                let res = stream.read_u8().await;
+                log::info!("Client connected - AO3");
+                assert_eq(res.unwrap(), 0xfa, "Invalid read - client");
             };
 
             tokio::join!(server, client);
         }
+
+        Ok(())
     }
 
     fn pinbox<F: Future<Output=Option<ActionType>> + 'static>(f: F) -> Pin<Box<dyn Future<Output=Option<ActionType>> + Send + 'static>> {

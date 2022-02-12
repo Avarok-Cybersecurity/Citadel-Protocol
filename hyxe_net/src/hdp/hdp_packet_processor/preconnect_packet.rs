@@ -74,7 +74,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                                 // we also need to reserve a local socket addr. Since servers are usually globally-reachable, we assume no IP/port translation
                                 if inner!(session.primary_stream_quic_conn).is_none() {
                                     // we need to reserve a new UDP socket since we can't use the local bind addr if there are multiple udp-requesting connections to this server
-                                    let socket = hyxe_nat::socket_helpers::get_unused_udp_socket(session.local_bind_addr.ip())?;
+                                    let socket = hyxe_nat::socket_helpers::get_unused_udp_socket_at_bind_ip(session.local_bind_addr.ip())?;
                                     let port = socket.local_addr()?.port();
                                     state_container.pre_connect_state.unused_local_udp_socket = Some(socket);
                                     Some(port)

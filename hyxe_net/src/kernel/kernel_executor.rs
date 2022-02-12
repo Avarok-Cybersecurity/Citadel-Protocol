@@ -9,7 +9,7 @@ use hyxe_user::account_manager::AccountManager;
 
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet_processor::includes::Duration;
-use crate::hdp::hdp_server::{HdpServer, NodeRemote, HdpServerResult};
+use crate::hdp::hdp_node::{HdpServer, NodeRemote, HdpServerResult};
 use crate::hdp::misc::panic_future::ExplicitPanicFuture;
 use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};

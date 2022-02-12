@@ -19,7 +19,7 @@ use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::{GroupTransmitter, SecureProtocolPacket, RatchetPacketCrafterContainer};
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr, HdpSession};
-use crate::hdp::hdp_server::{HdpServerResult, Ticket, NodeRemote, SecrecyMode};
+use crate::hdp::hdp_node::{HdpServerResult, Ticket, NodeRemote, SecrecyMode};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;

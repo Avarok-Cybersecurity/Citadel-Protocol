@@ -1,5 +1,5 @@
 use hyxe_crypt::drill::SecurityLevel;
-use crate::hdp::hdp_server::SecrecyMode;
+use crate::hdp::hdp_node::SecrecyMode;
 use serde::{Serialize, Deserialize};
 use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
 
