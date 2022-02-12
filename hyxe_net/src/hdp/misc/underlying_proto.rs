@@ -6,7 +6,6 @@ use std::net::SocketAddr;
 use std::fmt::Debug;
 use hyxe_user::re_imports::__private::Formatter;
 use hyxe_nat::tls::TLSQUICInterop;
-use hyxe_nat::misc::is_self_signed_from_bytes;
 
 #[derive(Clone)]
 #[allow(variant_size_differences)]
@@ -36,16 +35,6 @@ impl UnderlyingProtocol {
     /// The self-signed cert will be created internally automatically
     pub fn new_quic_self_signed() -> Self {
         Self::Quic(None, None, true)
-    }
-
-    #[allow(dead_code)]
-    pub fn uses_self_signed_cert(&self) -> Option<bool> {
-        match self {
-            Self::Tcp => None,
-            Self::Tls(interop, ..) => is_self_signed_from_bytes(&interop.quic_chain.iter().next()?.0),
-            Self::Quic(Some((chain, _)), ..) => is_self_signed_from_bytes(&chain.iter().next()?.0),
-            Self::Quic(None, ..) => Some(true)
-        }
     }
 
     /// Maps a TCP conn to a QUIC conn w/ no crypto

@@ -2,7 +2,7 @@
 
 members = [
     "lusna_sdk",
-    "hyxe_nat",
+    "hyxe_wire",
 	"hyxe_user",
 	"hyxe_fs",
 	"hyxe_crypt",
