@@ -1,6 +1,5 @@
 name: Execute Pipeline
 on:
-  push:
   pull_request:
     types:
       - edited
