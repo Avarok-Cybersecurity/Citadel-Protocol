@@ -9,4 +9,5 @@ on:
   workflow_dispatch:
 jobs:
   workflow:
+    name: Unit tests
     uses: ./.github/workflows/workflow.yml

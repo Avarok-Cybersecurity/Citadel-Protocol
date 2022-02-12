@@ -378,7 +378,7 @@ impl HdpServer {
                 let connector = if is_self_signed {
                     hyxe_nat::tls::create_client_dangerous_config()
                 } else {
-                    //hyxe_nat::tls::create_client_config()
+                    //hyxe_wire::tls::create_client_config()
                     // TODO: Resolve issue of unknown issuer when using valid cert (note: was because no cert was trusted before by the client)
                     hyxe_nat::tls::create_client_dangerous_config()
                 };

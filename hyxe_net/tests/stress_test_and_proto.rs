@@ -52,8 +52,11 @@ pub mod tests {
         ActionType::Function(f)
     }
 
+    #[rstest]
+    #[case("127.0.0.1:0")]
+    #[case("[::1]:0")]
     #[tokio::test]
-    async fn tcp_or_tls() -> std::io::Result<()> {
+    async fn tcp_or_tls(#[case] addr: SocketAddr) -> std::io::Result<()> {
         // TODO: RSTest with ipv6 and v4
         setup_log();
         deadlock_detector();
@@ -65,7 +68,7 @@ pub mod tests {
         for proto in protos {
             log::info!("Testing proto {:?}", &proto);
 
-            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,"127.0.0.1:0").unwrap();
+            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,addr).unwrap();
             log::info!("Bind/connect addr: {:?}", addr);
 
             let server = async move {
