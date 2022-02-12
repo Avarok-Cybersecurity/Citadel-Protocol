@@ -25,7 +25,7 @@ use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, GroupMemberAlterMode, MemberState};
 use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
-use crate::hdp::hdp_server::{ConnectMode, HdpServer, NodeRemote, HdpServerResult, Ticket};
+use crate::hdp::hdp_node::{ConnectMode, HdpServer, NodeRemote, HdpServerResult, Ticket};
 use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode};
 use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;

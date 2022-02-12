@@ -1,5 +1,5 @@
-use quinn::{Endpoint, SendStream, RecvStream, Incoming, ClientConfig, ServerConfig, ClientConfigBuilder, ServerConfigBuilder, NewConnection};
-use futures::StreamExt;
+use quinn::{Endpoint, SendStream, RecvStream, Incoming, ClientConfig, ServerConfig, ClientConfigBuilder, ServerConfigBuilder, NewConnection, Connecting};
+use futures::{StreamExt, Future};
 
 use quinn::{Certificate, CertificateChain, PrivateKey, TransportConfig};
 use std::sync::Arc;
@@ -9,7 +9,9 @@ use std::time::Duration;
 use std::path::Path;
 use tokio::net::UdpSocket;
 use std::net::SocketAddr;
-use async_trait::async_trait;
+use async_trait_with_sync::async_trait;
+use std::fmt::{Debug, Formatter};
+use std::pin::Pin;
 
 /// Used in the protocol especially to receive bidirectional connections
 pub struct QuicServer;
@@ -29,17 +31,22 @@ pub trait QuicEndpointConnector {
 
     async fn connect_biconn_with(&self, addr: SocketAddr, tls_domain: &str, cfg: Option<ClientConfig>) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
         where Self: Sized {
-        log::info!("Connecting to {:?} | Custom Cfg? {}", tls_domain, cfg.is_some());
+        log::info!("Connecting to {:?}={} | Custom Cfg? {}", tls_domain, addr, cfg.is_some());
         let connecting = if let Some(cfg) = cfg {
             self.endpoint().connect_with(cfg, &addr, tls_domain)?
         } else {
             self.endpoint().connect(&addr, tls_domain)?
         };
 
+        log::info!("RP0");
+
         let conn = connecting.await?;
+        log::info!("RP1");
         let (mut sink, stream) = conn.connection.open_bi().await?;
+        log::info!("RP2");
         // must send some data before the adjacent node can receive a bidirectional connection
         sink.write(&[]).await?;
+        log::info!("RP3");
 
         Ok((conn, sink, stream))
     }
@@ -58,11 +65,20 @@ pub trait QuicEndpointListener {
     fn listener(&mut self) -> &mut Incoming;
     async fn next_connection(&mut self) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
         where Self: Sized {
+        log::info!("TT0");
         let connecting = self.listener().next().await.ok_or_else(|| anyhow::Error::msg("No QUIC connections available"))?;
+        log::info!("TT1");
+        handle_connecting(connecting).await
+    }
+}
+
+pub fn handle_connecting(connecting: Connecting) -> Pin<Box<dyn Future<Output=Result<(NewConnection, SendStream, RecvStream), anyhow::Error>> + Send + Sync>> {
+    Box::pin(async move {
         let mut conn = connecting.await?;
+        log::info!("TT2");
         let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
         Ok((conn, sink, stream))
-    }
+    })
 }
 
 impl QuicEndpointListener for Incoming {
@@ -86,6 +102,12 @@ impl QuicEndpointConnector for Endpoint {
 impl QuicEndpointListener for QuicNode {
     fn listener(&mut self) -> &mut Incoming {
         &mut self.listener
+    }
+}
+
+impl Debug for QuicNode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "QuicNode")
     }
 }
 
@@ -250,4 +272,69 @@ impl ServerCertVerifier for SkipServerVerification {
     fn verify_server_cert(&self, _roots: &RootCertStore, _presented_certs: &[rustls::Certificate], _dns_name: webpki::DNSNameRef<'_>, _ocsp_response: &[u8]) -> Result<ServerCertVerified, TLSError> {
         Ok(ServerCertVerified::assertion())
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::socket_helpers::is_ipv6_enabled;
+    use rstest::*;
+    use std::net::SocketAddr;
+    use crate::quic::{QuicServer, QuicEndpointListener, QuicClient, QuicEndpointConnector, SELF_SIGNED_DOMAIN};
+
+    fn setup_log() {
+        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        //std::env::set_var("RUST_LOG", "error");
+        let _ = env_logger::try_init();
+        log::trace!("TRACE enabled");
+        log::info!("INFO enabled");
+        log::warn!("WARN enabled");
+        log::error!("ERROR enabled");
+    }
+
+
+    #[rstest]
+    #[case("127.0.0.1:0")]
+    #[case("[::1]:0")]
+    #[trace]
+    #[tokio::test]
+    async fn test_quic(#[case] addr: SocketAddr) -> std::io::Result<()> {
+        setup_log();
+        if addr.is_ipv6() {
+            if !is_ipv6_enabled() {
+                log::info!("Skipping IPv6 test since IPv6 is not enabled");
+                return Ok(())
+            }
+        }
+        let mut server = QuicServer::new_self_signed(tokio::net::UdpSocket::bind(addr).await?).unwrap();
+        let client_bind_addr = SocketAddr::from((addr.ip(), 0));
+        let (start_tx, start_rx) = tokio::sync::oneshot::channel();
+        let (end_tx, end_rx) = tokio::sync::oneshot::channel::<()>();
+        let addr = server.endpoint.local_addr().unwrap();
+
+        let server = async move {
+            log::info!("Starting server @ {:?}", addr);
+            start_tx.send(()).unwrap();
+            let (conn, _tx, mut rx) = server.next_connection().await.unwrap();
+            let addr = conn.connection.remote_address();
+            log::info!("RECV {:?} from {:?}", &conn, addr);
+            let buf = &mut [0u8; 3];
+            rx.read_exact(buf as &mut [u8]).await.unwrap();
+            assert_eq!(buf, &[1, 2, 3]);
+            end_tx.send(()).unwrap();
+        };
+
+        let client = async move {
+            start_rx.await.unwrap();
+            let client = QuicClient::new_no_verify(tokio::net::UdpSocket::bind(client_bind_addr).await.unwrap()).unwrap();
+            let res = client.connect_biconn(addr, SELF_SIGNED_DOMAIN).await;
+            log::info!("Client res: {:?}", res);
+            let (_conn, mut tx, _rx) = res.unwrap();
+            tx.write_all(&[1, 2, 3]).await.unwrap();
+            end_rx.await.unwrap();
+        };
+
+        let (_r0, _r1) = tokio::join!(server, client);
+        Ok(())
+    }
+
 }

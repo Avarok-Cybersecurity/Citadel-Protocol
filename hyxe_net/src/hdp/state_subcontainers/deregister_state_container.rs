@@ -1,4 +1,4 @@
-use crate::hdp::hdp_server::Ticket;
+use crate::hdp::hdp_node::Ticket;
 
 /// For keeping track of deregistration processes
 pub struct DeRegisterState {

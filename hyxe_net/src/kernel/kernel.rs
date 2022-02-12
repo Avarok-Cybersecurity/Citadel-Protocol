@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::error::NetworkError;
-use crate::hdp::hdp_server::{NodeRemote, HdpServerResult};
+use crate::hdp::hdp_node::{NodeRemote, HdpServerResult};
 
 /// The [NetKernel] is the thread-safe interface between the single-threaded OR multi-threaded async
 /// protocol and your network application

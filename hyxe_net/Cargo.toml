@@ -25,9 +25,9 @@ bstr = "0.2.13"
 log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
 async-trait = "0.1.31"
 #tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
-tokio-util = { version = "^0.6.7", features = ["net", "codec", "time", "io"] }
+tokio-util = { version = "^0.6.9", features = ["net", "codec", "time", "io"] }
 #tokio = { version = "^0.2.22", features = ["full"] }
-tokio = { version = "1.10.1", features = ["full"] }
+tokio = { version = "1.16.1", features = ["full"] }
 tokio-stream = "0.1.7"
 parking_lot = "0.11.1"
 zerocopy = "0.5.0"
@@ -38,7 +38,6 @@ rand = "0.7.3"
 atomic = "0.5.0"
 serde = { version = "^1.0.123", features=["derive"] }
 anyhow = "1.0.42"
-net2 = "0.2.37"
 num = "0.2.1"
 either = "1.5.3"
 async-stream = "0.3.2"

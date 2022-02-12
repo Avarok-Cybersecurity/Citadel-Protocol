@@ -17,7 +17,7 @@ use crate::hdp::hdp_packet_processor::includes::*;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast;
 use crate::hdp::hdp_packet_processor::preconnect_packet::{calculate_sync_time, generate_hole_punch_crypt_container};
 use crate::hdp::hdp_packet_processor::primary_group_packet::{get_proper_hyper_ratchet, get_resp_target_cid};
-use crate::hdp::hdp_server::Ticket;
+use crate::hdp::hdp_node::Ticket;
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::misc::udp_internal_interface::UdpSplittableTypes;
 use crate::hdp::outbound_sender::OutboundPrimaryStreamSender;

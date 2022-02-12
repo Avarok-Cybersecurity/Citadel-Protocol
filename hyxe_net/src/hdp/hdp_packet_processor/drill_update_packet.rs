@@ -3,7 +3,7 @@ use crate::hdp::hdp_packet_processor::primary_group_packet::{ToolsetUpdate, get_
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, ConstructorType};
 use hyxe_crypt::hyper_ratchet::RatchetType;
-use crate::hdp::hdp_server::SecrecyMode;
+use crate::hdp::hdp_node::SecrecyMode;
 use std::ops::Deref;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;

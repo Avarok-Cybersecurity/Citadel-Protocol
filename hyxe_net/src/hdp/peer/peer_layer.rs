@@ -1,6 +1,6 @@
 use std::collections::{VecDeque, HashMap, BTreeMap};
 use crate::hdp::file_transfer::VirtualFileMetadata;
-use crate::hdp::hdp_server::Ticket;
+use crate::hdp::hdp_node::Ticket;
 use tokio::time::error::Error;
 use tokio_util::time::{delay_queue, delay_queue::DelayQueue};
 use crate::constants::PEER_EVENT_MAILBOX_SIZE;
