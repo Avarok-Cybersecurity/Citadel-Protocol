@@ -128,7 +128,7 @@ jobs:
       - uses: Swatinem/rust-cache@v1
 
       - run: cargo test --package netbeam
-      - run: cargo test --package hyxe_nat
+      - run: cargo test --package hyxe_wire
       - uses: actions/github-script@v2
         if: failure()
         with:
