@@ -117,6 +117,8 @@ impl NodeBuilder {
         let server_services_cfg = self.services.take();
         let server_misc_settings = self.server_misc_settings.take();
 
+        // TODO: Include custom ClientConfig, though, default should be good enough for most uses (None = native certs)
+
         let underlying_proto = if let Some(proto) = self.underlying_protocol.take() {
             proto
         } else {
@@ -127,11 +129,10 @@ impl NodeBuilder {
             inner: Box::pin(async move {
                 log::info!("[NodeBuilder] Checking Tokio runtime ...");
                 let rt = tokio::runtime::Handle::try_current().map_err(|err| NetworkError::Generic(err.to_string()))?;
-
                 log::info!("[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(hypernode_type.bind_addr().unwrap_or_else(|| SocketAddr::from_str("127.0.0.1:25021").unwrap()), home_dir, backend_type, server_argon_settings, server_services_cfg, server_misc_settings).await?;
                 log::info!("[NodeBuilder] Creating KernelExecutor ...");
-                let kernel_executor = KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto).await?;
+                let kernel_executor = KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto, None).await?;
                 log::info!("[NodeBuilder] Executing kernel");
                 kernel_executor.execute().await
             })

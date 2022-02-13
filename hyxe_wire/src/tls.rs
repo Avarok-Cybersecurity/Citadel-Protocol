@@ -2,6 +2,7 @@ use rustls::{ClientConfig, ServerConfig, RootCertStore, Certificate, PrivateKey}
 use crate::quic::{insecure::SkipServerVerification, generate_self_signed_cert};
 use std::sync::Arc;
 use tokio_rustls::{TlsConnector, TlsAcceptor};
+use std::io::Error;
 
 /// Useful for allowing migration from a TLS config to a QUIC config in the hyxe_net crate
 #[derive(Clone)]
@@ -18,12 +19,12 @@ pub fn create_client_dangerous_config() -> TlsConnector {
     TlsConnector::from(Arc::new(default))
 }
 
-pub fn create_rustls_client_config(allowed_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
+pub async fn create_rustls_client_config(allowed_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
     let mut default = if allowed_certs.is_empty() {
         let mut root_store = RootCertStore::empty();
-        let natives = rustls_native_certs::load_native_certs()?;
+        let natives = load_native_certs().await?;
         for cert in natives {
-            root_store.add(&rustls::Certificate(cert.0))?;
+            root_store.add(&cert)?;
         }
 
         ClientConfig::builder().with_safe_defaults().with_root_certificates(root_store).with_no_client_auth()
@@ -32,15 +33,19 @@ pub fn create_rustls_client_config(allowed_certs: &[&[u8]]) -> Result<ClientConf
         for cert in allowed_certs {
             certs.add(&rustls::Certificate(cert.to_vec()))?;
         }
-        rustls::ClientConfig::builder().with_safe_defaults().with_root_certificates(certs).with_no_client_auth()
+        ClientConfig::builder().with_safe_defaults().with_root_certificates(certs).with_no_client_auth()
     };
 
     default.enable_sni = true;
     Ok(default)
 }
 
-pub fn create_client_config(allowed_certs: &[&[u8]]) -> Result<TlsConnector, anyhow::Error> {
-    Ok(TlsConnector::from(Arc::new(create_rustls_client_config(allowed_certs)?)))
+pub async fn create_client_config(allowed_certs: &[&[u8]]) -> Result<TlsConnector, anyhow::Error> {
+    Ok(client_config_to_tls_connector(Arc::new(create_rustls_client_config(allowed_certs).await?)))
+}
+
+pub fn client_config_to_tls_connector(config: Arc<ClientConfig>) -> TlsConnector {
+    TlsConnector::from(config)
 }
 
 pub fn create_server_self_signed_config() -> Result<TLSQUICInterop, anyhow::Error> {
@@ -72,6 +77,14 @@ pub fn create_server_config(pkcs12_der: &[u8], password: &str) -> Result<TLSQUIC
     };
 
     Ok(ret)
+}
+
+/// This can be an expensive operation, empirically lasting upwards of 200ms on some systems
+/// This should only be called once, preferably at init of the protocol
+pub async fn load_native_certs() -> Result<Vec<Certificate>, Error> {
+    tokio::task::spawn_blocking(|| rustls_native_certs::load_native_certs())
+        .await?
+        .map(|r| r.into_iter().map(|cert| Certificate(cert.0)).collect())
 }
 
 #[cfg(test)]

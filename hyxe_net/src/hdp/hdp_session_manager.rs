@@ -38,6 +38,8 @@ use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::kernel::RuntimeFuture;
 use crate::macros::{ContextRequirements, SyncContextRequirements};
 use crate::auth::AuthenticationRequest;
+use hyxe_nat::exports::tokio_rustls::rustls::ClientConfig;
+use std::sync::Arc;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -121,7 +123,7 @@ impl HdpSessionManager {
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection(&self, local_node_type: NodeType, local_nat_type: NatType, init_mode: HdpSessionInitMode, ticket: Ticket, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, udp_mode: Option<UdpMode>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
+    pub async fn initiate_connection(&self, local_node_type: NodeType, local_nat_type: NatType, init_mode: HdpSessionInitMode, ticket: Ticket, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, udp_mode: Option<UdpMode>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings, default_client_config: &Arc<ClientConfig>) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
@@ -184,7 +186,7 @@ impl HdpSessionManager {
                 // We must now create a TcpStream towards the peer
                 //let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
                 // NOTE! From now own, we are using QUIC for p2p streams for NAT traversal reasons. No more TCP hole punching
-                let (p2p_listener, primary_stream) = HdpServer::create_session_transport_init(listener_underlying_proto.into_quic(), peer_addr).await
+                let (p2p_listener, primary_stream) = HdpServer::create_session_transport_init(listener_underlying_proto.into_quic(), peer_addr, default_client_config).await
                     .map_err(|err| NetworkError::SocketError(err.to_string()))?;
                 let local_bind_addr = primary_stream.local_addr().map_err(|err| NetworkError::Generic(err.to_string()))?;
                 (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode, proposed_credentials)
