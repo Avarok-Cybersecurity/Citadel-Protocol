@@ -52,8 +52,9 @@ use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::peer::group_channel::GroupChannel;
 use crate::auth::AuthenticationRequest;
 use std::str::FromStr;
-use hyxe_nat::exports::tokio_rustls::rustls::ServerName;
+use hyxe_nat::exports::tokio_rustls::rustls::{ServerName, ClientConfig};
 use std::convert::TryFrom;
+use hyxe_nat::tls::client_config_to_tls_connector;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -81,12 +82,14 @@ pub struct HdpServerInner {
     local_node_type: NodeType,
     // Applies only to listeners, not outgoing connections
     underlying_proto: UnderlyingProtocol,
-    nat_type: NatType
+    nat_type: NatType,
+    // for TLS params
+    client_config: Arc<ClientConfig>
 }
 
 impl HdpServer {
     /// Creates a new [HdpServer]
-    pub(crate) async fn init(local_node_type: NodeType, to_kernel: UnboundedSender<HdpServerResult>, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, underlying_proto: UnderlyingProtocol) -> io::Result<(NodeRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>, KernelAsyncCallbackHandler)> {
+    pub(crate) async fn init(local_node_type: NodeType, to_kernel: UnboundedSender<HdpServerResult>, account_manager: AccountManager, shutdown: tokio::sync::oneshot::Sender<()>, underlying_proto: UnderlyingProtocol, client_config: Option<Arc<ClientConfig>>) -> io::Result<(NodeRemote, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>, KernelAsyncCallbackHandler)> {
         let (primary_socket, bind_addr) = match local_node_type {
             NodeType::Server(bind_addr) => {
                 Self::server_create_primary_listen_socket(underlying_proto.clone(), &bind_addr)?.map_left(|l|Some(l)).map_right(|r|Some(r))
@@ -111,13 +114,21 @@ impl HdpServer {
         let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager.clone(), time_tracker.clone());
 
         let nat_type = NatType::identify(bind_addr.map(|r| r.ip()).unwrap_or_else(|| IpAddr::from_str("127.0.0.1").unwrap())).await.ok().unwrap_or_default();
+
+        let client_config = if let Some(config) = client_config {
+            config
+        } else {
+            Arc::new(hyxe_nat::tls::create_rustls_client_config(&[]).await.map_err(|err| generic_error(err.to_string()))?)
+        };
+
         let inner = HdpServerInner {
             underlying_proto,
             local_node_type,
             primary_socket,
             to_kernel,
             session_manager,
-            nat_type
+            nat_type,
+            client_config
         };
 
         let this = Self::from(inner);
@@ -267,12 +278,12 @@ impl HdpServer {
                         let bind = listener.local_addr()?;
                         match underlying_proto {
                             UnderlyingProtocol::Tcp => {
-                                Ok((GenericNetworkListener::new_tcp(listener, redirect_to_quic), bind))
+                                Ok((GenericNetworkListener::new_tcp(listener, redirect_to_quic)?, bind))
                             }
 
                             UnderlyingProtocol::Tls(interop, domain, is_self_signed) => {
                                 let tls_listener = TlsListener::new(listener, interop.tls_acceptor, domain, is_self_signed)?;
-                                Ok((GenericNetworkListener::Tls(tls_listener), bind))
+                                Ok((GenericNetworkListener::new_tls(tls_listener)?, bind))
                             }
 
                             UnderlyingProtocol::Quic(..) => {
@@ -296,7 +307,7 @@ impl HdpServer {
 
                 quic.tls_domain_opt = domain;
 
-                Ok((GenericNetworkListener::from_quic_node(quic, is_self_signed), bind))
+                Ok((GenericNetworkListener::from_quic_node(quic, is_self_signed)?, bind))
             }
         }
     }
@@ -307,9 +318,9 @@ impl HdpServer {
     /// The remote is usually the central server. Then the P2P listener binds to it to allow NATs to keep the hole punched
     ///
     /// It is expected that the listener_underlying_proto is QUIC here since this is called for p2p connections!
-    pub(crate) async fn create_session_transport_init<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, remote: R) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
+    pub(crate) async fn create_session_transport_init<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, remote: R, default_client_config: &Arc<ClientConfig>) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
         // We start by creating a client to server connection
-        let (stream, quic_endpoint_generated_during_connect) = Self::create_c2s_connect_socket(remote, None).await?;
+        let (stream, quic_endpoint_generated_during_connect) = Self::create_c2s_connect_socket(remote, None, default_client_config).await?;
         // We bind to the addr from the source socket_addr the stream has reserved for NAT traversal purposes
         // NOTE! We CANNOT bind to this address otherwise there will be overlapping TCP connections from the SO_REUSEADDR, causing stream CORRUPTION under high traffic loads. This was proven to exist from stress-testing this protocol
         // Wait ... maybe not? Jul 22 2021
@@ -354,12 +365,12 @@ impl HdpServer {
     }
 
     /// Only for client to server conns
-    pub async fn create_c2s_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
+    pub async fn create_c2s_connect_socket<R: ToSocketAddrs>(remote: R, timeout: Option<Duration>, default_client_config: &Arc<ClientConfig>) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
         let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::c2s_connect_defaults(timeout, remote).await
+        Self::c2s_connect_defaults(timeout, remote, default_client_config).await
     }
 
-    pub async fn c2s_connect_defaults(timeout: Option<Duration>, remote: SocketAddr) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
+    pub async fn c2s_connect_defaults(timeout: Option<Duration>, remote: SocketAddr, default_client_config: &Arc<ClientConfig>) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
         log::info!("C2S connect defaults to {:?}", remote);
         let mut stream = hyxe_nat::socket_helpers::get_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT)).await.map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
         let bind_addr = stream.local_addr()?;
@@ -378,9 +389,7 @@ impl HdpServer {
                 let connector = if is_self_signed {
                     hyxe_nat::tls::create_client_dangerous_config()
                 } else {
-                    //hyxe_wire::tls::create_client_config()
-                    // TODO: Resolve issue of unknown issuer when using valid cert (note: was because no cert was trusted before by the client)
-                    hyxe_nat::tls::create_client_dangerous_config()
+                    client_config_to_tls_connector(default_client_config.clone())
                 };
 
                 let stream = connector.connect(ServerName::try_from(domain.as_ref().map(|r| r.as_str()).unwrap_or(SELF_SIGNED_DOMAIN)).map_err(|err| generic_error(err.to_string()))?, stream).await.map_err(|err| std::io::Error::new(std::io::ErrorKind::ConnectionRefused, err))?;
@@ -393,6 +402,7 @@ impl HdpServer {
                     hyxe_nat::quic::QuicClient::new_no_verify(udp_socket).map_err(generic_error)?
                 } else {
                     // TODO: trusted_certs is empty, which means the system will default to native certs. Allow clients to specify cert chains
+                    // TODO: ensure we pass client_config below as well for performance reasons
                     hyxe_nat::quic::QuicClient::new_verify(udp_socket, &[]).map_err(generic_error)?
                 };
 
@@ -467,7 +477,7 @@ impl HdpServer {
     }
 
     async fn outbound_kernel_request_handler(this: HdpServer, ref to_kernel_tx: UnboundedSender<HdpServerResult>, mut outbound_send_request_rx: BoundedReceiver<(HdpServerRequest, Ticket)>, session_spawner: UnboundedSender<Pin<Box<dyn RuntimeFuture>>>) -> Result<(), NetworkError> {
-        let (local_node_type, session_manager, listener_underlying_proto, local_nat_type) = {
+        let (local_node_type, session_manager, listener_underlying_proto, local_nat_type, default_client_config) = {
             let read = inner!(this);
             let local_node_type = read.local_node_type;
             let listener_underlying_proto = read.underlying_proto.clone();
@@ -475,9 +485,10 @@ impl HdpServer {
             // We need only the underlying [HdpSessionManager]
             let session_manager = read.session_manager.clone();
             let local_nat_type = read.nat_type.clone();
+            let default_client_config = read.client_config.clone();
             // Drop the read handle; we are done with it
             //std::mem::drop(read);
-            (local_node_type, session_manager, listener_underlying_proto ,local_nat_type)
+            (local_node_type, session_manager, listener_underlying_proto ,local_nat_type, default_client_config)
         };
 
         let send_error = |ticket_id: Ticket, err: NetworkError| {
@@ -499,7 +510,7 @@ impl HdpServer {
                 }
 
                 HdpServerRequest::RegisterToHypernode(peer_addr, credentials, fcm_keys,  security_settings) => {
-                    match session_manager.initiate_connection(local_node_type, local_nat_type.clone(), HdpSessionInitMode::Register(peer_addr, credentials),ticket_id, None, listener_underlying_proto.clone(), fcm_keys, None,None, security_settings).await {
+                    match session_manager.initiate_connection(local_node_type, local_nat_type.clone(), HdpSessionInitMode::Register(peer_addr, credentials),ticket_id, None, listener_underlying_proto.clone(), fcm_keys, None,None, security_settings, &default_client_config).await {
                         Ok(session) => {
                             session_spawner.unbounded_send(session).map_err(|err| NetworkError::Generic(err.to_string()))?;
                         }
@@ -511,7 +522,7 @@ impl HdpServer {
                 }
 
                 HdpServerRequest::ConnectToHypernode(authentication_request, connect_mode, fcm_keys, udp_mode, keep_alive_timeout,  security_settings) => {
-                    match session_manager.initiate_connection(local_node_type, local_nat_type.clone(), HdpSessionInitMode::Connect(authentication_request), ticket_id,  Some(connect_mode), listener_underlying_proto.clone(), fcm_keys, Some(udp_mode), keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000), security_settings).await {
+                    match session_manager.initiate_connection(local_node_type, local_nat_type.clone(), HdpSessionInitMode::Connect(authentication_request), ticket_id,  Some(connect_mode), listener_underlying_proto.clone(), fcm_keys, Some(udp_mode), keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000), security_settings, &default_client_config).await {
                         Ok(session) => {
                             session_spawner.unbounded_send(session).map_err(|err| NetworkError::Generic(err.to_string()))?;
                         }

@@ -64,7 +64,7 @@ pub trait QuicEndpointListener {
         where Self: Sized + Send + Sync {
         Box::pin(async move {
             log::info!("TT0");
-            let connecting = self.listener().next().await.ok_or_else(|| anyhow::Error::msg("No QUIC connections available"))?;
+            let connecting = self.listener().next().await.ok_or_else(|| anyhow::Error::msg(QUIC_LISTENER_DIED))?;
             log::info!("TT1");
             let mut conn = connecting.await?;
             log::info!("TT2");
@@ -74,6 +74,8 @@ pub trait QuicEndpointListener {
         })
     }
 }
+
+pub const QUIC_LISTENER_DIED: &'static str = "No QUIC connections available";
 
 impl QuicEndpointListener for Incoming {
     fn listener(&mut self) -> &mut Incoming {
