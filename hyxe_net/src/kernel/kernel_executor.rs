@@ -16,6 +16,8 @@ use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::kernel::kernel::NetKernel;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::RuntimeFuture;
+use hyxe_nat::exports::tokio_rustls::rustls::ClientConfig;
+use std::sync::Arc;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
@@ -31,11 +33,11 @@ pub struct KernelExecutor<K: NetKernel> {
 impl<K: NetKernel> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
     /// - underlying_proto: The proto to use for client to server communications
-    pub async fn new(rt: Handle, hypernode_type: NodeType, account_manager: AccountManager, kernel: K, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
+    pub async fn new(rt: Handle, hypernode_type: NodeType, account_manager: AccountManager, kernel: K, underlying_proto: UnderlyingProtocol, client_config: Option<Arc<ClientConfig>>) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) = tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt, callback_handler) = HdpServer::init(hypernode_type, server_to_kernel_tx, account_manager.clone(), server_shutdown_alerter_tx, underlying_proto).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let (remote, future, localset_opt, callback_handler) = HdpServer::init(hypernode_type, server_to_kernel_tx, account_manager.clone(), server_shutdown_alerter_tx, underlying_proto, client_config).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
 
         Ok(Self { shutdown_alerter_rx: Some(server_shutdown_alerter_rx), callback_handler: Some(callback_handler), server_remote: Some(remote), server_to_kernel_rx: Some(server_to_kernel_rx), kernel, context: Some((rt, future, localset_opt)), account_manager })
     }

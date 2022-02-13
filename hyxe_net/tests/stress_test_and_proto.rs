@@ -33,6 +33,10 @@ pub mod tests {
     use clap::ArgMatches;
 
     use rstest::*;
+    use futures::stream::FuturesUnordered;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use rand::{SeedableRng, Rng};
+    use hyxe_nat::exports::tokio_rustls::rustls::ClientConfig;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -52,20 +56,27 @@ pub mod tests {
         ActionType::Function(f)
     }
 
+    #[fixture]
+    fn protocols() -> Vec<UnderlyingProtocol> {
+        vec![
+            UnderlyingProtocol::Tcp,
+            UnderlyingProtocol::new_tls_self_signed().unwrap(),
+            UnderlyingProtocol::new_quic_self_signed(),
+            UnderlyingProtocol::load_tls("../keys/testing.p12", "password", "thomaspbraun.com").unwrap()
+        ]
+    }
+
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[tokio::test]
-    async fn tcp_or_tls(#[case] addr: SocketAddr) -> std::io::Result<()> {
-        // TODO: RSTest with ipv6 and v4
+    async fn test_tcp_or_tls(#[case] addr: SocketAddr, protocols: Vec<UnderlyingProtocol>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
 
-        let protos = vec![UnderlyingProtocol::Tcp,
-                          UnderlyingProtocol::new_tls_self_signed().unwrap(),
-                          UnderlyingProtocol::new_quic_self_signed()];
+        let ref client_config = Arc::new(hyxe_nat::tls::create_rustls_client_config(&[]).await.unwrap());
 
-        for proto in protos {
+        for proto in protocols {
             log::info!("Testing proto {:?}", &proto);
 
             let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,addr).unwrap();
@@ -85,7 +96,7 @@ pub mod tests {
             };
 
             let client = async move {
-                let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr).await.unwrap();
+                let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await.unwrap();
                 log::info!("Client connected");
                 let res = stream.write(&[0xfb]).await;
                 log::info!("Client connected - A02 {:?}", res);
@@ -101,6 +112,84 @@ pub mod tests {
 
         Ok(())
     }
+
+    #[rstest]
+    #[case("127.0.0.1:0")]
+    #[case("[::1]:0")]
+    #[tokio::test]
+    async fn test_many_proto_conns(#[case] addr: SocketAddr, protocols: Vec<UnderlyingProtocol>) -> std::io::Result<()> {
+        setup_log();
+        deadlock_detector();
+
+        let ref client_config = Arc::new(hyxe_nat::tls::create_rustls_client_config(&[]).await.unwrap());
+
+        let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
+        for proto in protocols {
+            let mut rng = rand::rngs::StdRng::from_entropy();
+            // give sleep to give time for conns to "respirate"
+            tokio::time::sleep(Duration::from_millis(rng.gen_range(10, 50))).await;
+            log::info!("Testing proto {:?}", &proto);
+            let ref cnt = AtomicUsize::new(0);
+
+            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,addr).unwrap();
+            log::info!("Bind/connect addr: {:?}", addr);
+
+            let server = async move {
+                loop {
+                    let next = listener.next().await;
+                    log::info!("[Server] Next conn: {:?}", next);
+                    let (mut stream, peer_addr) = next.unwrap().unwrap();
+                    tokio::spawn(async move {
+                        log::info!("[Server] Received stream from {}", peer_addr);
+                        let buf = &mut [0u8;64];
+                        let res = stream.read(buf).await;
+                        log::info!("Server-res: {:?}", res);
+                        assert_eq(buf[0], 0xfb, "Invalid read");
+                        let _ = stream.write(&[0xfa]).await.unwrap();
+                        stream.shutdown().await.unwrap();
+                    });
+                }
+            };
+
+            let client = FuturesUnordered::new();
+
+            for _ in 0..count {
+                client.push(async move {
+                    let mut rng = rand::rngs::StdRng::from_entropy();
+                    tokio::time::sleep(Duration::from_millis(rng.gen_range(10, 50))).await;
+                    let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await.unwrap();
+                    log::info!("Client connected");
+                    let res = stream.write(&[0xfb]).await;
+                    log::info!("Client connected - A02 {:?}", res);
+                    let buf = &mut [0u8;64];
+                    let res = stream.read(buf).await;
+                    log::info!("Client connected - AO3 {:?}", res);
+                    assert_eq(buf[0], 0xfa, "Invalid read - client");
+                    let _ = cnt.fetch_add(1, Ordering::SeqCst);
+                });
+            }
+
+            let client = client.collect::<Vec<()>>();
+            // if server ends, bad. If client ends, maybe good
+            let res = tokio::select! {
+                res0 = server => {
+                    res0
+                },
+                res1 = client => {
+                    res1
+                }
+            };
+
+            log::info!("Res: {:?}", res);
+
+            assert_eq!(cnt.load(Ordering::SeqCst), count);
+
+            log::info!("Ended proto test for singular proto successfully");
+        }
+
+        Ok(())
+    }
+
 
     fn pinbox<F: Future<Output=Option<ActionType>> + 'static>(f: F) -> Pin<Box<dyn Future<Output=Option<ActionType>> + Send + 'static>> {
         Box::pin(AssertSendSafeFuture::new_silent(f))
@@ -354,11 +443,12 @@ pub mod tests {
         static CLIENT2_USERNAME: &'static str = "nologik2";
         static CLIENT2_PASSWORD: &'static str = "password2";
 
-        let (proposed_credentials_0, proposed_credentials_1, proposed_credentials_2) = rt.block_on(async move {
+        let (proposed_credentials_0, proposed_credentials_1, proposed_credentials_2, client_config) = rt.block_on(async move {
             let p_0 = ProposedCredentials::new_register(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecBuffer::from(CLIENT0_PASSWORD)).await.unwrap();
             let p_1 = ProposedCredentials::new_register(CLIENT1_FULLNAME, CLIENT1_USERNAME, SecBuffer::from(CLIENT1_PASSWORD)).await.unwrap();
             let p_2 = ProposedCredentials::new_register(CLIENT2_FULLNAME, CLIENT2_USERNAME, SecBuffer::from(CLIENT2_PASSWORD)).await.unwrap();
-            (p_0, p_1, p_2)
+            let client_config = Arc::new(hyxe_nat::tls::create_rustls_client_config(&[]).await.unwrap());
+            (p_0, p_1, p_2, client_config)
         });
 
         let init = Instant::now();
@@ -381,7 +471,7 @@ pub mod tests {
 
         rt.block_on(async move {
             log::info!("Setting up executors ...");
-            let server_executor = create_executor(NodeType::Server(server_bind_addr), handle.clone(), server_bind_addr, Some(test_container.clone()), TestNodeType::Server, Vec::default(), backend_server(), underlying_proto()).await;
+            let server_executor = create_executor(NodeType::Server(server_bind_addr), handle.clone(), server_bind_addr, Some(test_container.clone()), TestNodeType::Server, Vec::default(), backend_server(), underlying_proto(), client_config.clone()).await;
 
             log::info!("Done setting up server executor");
 
@@ -391,13 +481,13 @@ pub mod tests {
                      function(pinbox(client0_action2(test_container1, ENABLE_FCM))),
                      function(pinbox(client0_action3(test_container2, p2p_security_level())))
                 ]
-            }, backend_client(), underlying_proto()).await;
+            }, backend_client(), underlying_proto(), client_config.clone()).await;
 
             let client1_executor = create_executor(NodeType::Peer, handle.clone(), client1_bind_addr, Some(test_container.clone()), TestNodeType::Client1, {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_1, keys1, default_security_settings)),
                      function(pinbox(client1_action1(test_container3, CLIENT1_PASSWORD, default_security_settings)))
                 ]
-            }, backend_client(), underlying_proto()).await;
+            }, backend_client(), underlying_proto(), client_config.clone()).await;
 
             let client2_executor = create_executor(NodeType::Peer, handle.clone(), client2_bind_addr, Some(test_container.clone()), TestNodeType::Client2, {
                 vec![ActionType::Request(HdpServerRequest::RegisterToHypernode(server_bind_addr, proposed_credentials_2, keys2, default_security_settings)),
@@ -405,7 +495,7 @@ pub mod tests {
                      function(pinbox(client2_action2(test_container5, ENABLE_FCM))),
                      function(pinbox(client2_action3_start_group(test_container6)))
                 ]
-            }, backend_client(), underlying_proto()).await;
+            }, backend_client(), underlying_proto(), client_config.clone()).await;
 
             log::info!("Done setting up executors");
 
@@ -440,13 +530,13 @@ pub mod tests {
     }
 
     #[allow(unused_results)]
-    async fn create_executor(hypernode_type: NodeType, rt: Handle, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: TestNodeType, commands: Vec<ActionType>, backend_type: BackendType, underlying_proto: UnderlyingProtocol) -> KernelExecutor<TestKernel> {
+    async fn create_executor(hypernode_type: NodeType, rt: Handle, bind_addr: SocketAddr, test_container: Option<Arc<RwLock<TestContainer>>>, node_type: TestNodeType, commands: Vec<ActionType>, backend_type: BackendType, underlying_proto: UnderlyingProtocol, client_config: Arc<ClientConfig>) -> KernelExecutor<TestKernel> {
         let home_dir = format!("{}/tmp/{}_{}", home_dir().unwrap().to_str().unwrap(), bind_addr.ip(), bind_addr.port());
         log::info!("Home dir: {}", &home_dir);
         let account_manager = AccountManager::new(bind_addr, Some(home_dir), backend_type, None, None, None).await.unwrap();
         account_manager.purge().await.unwrap();
         let kernel = TestKernel::new(node_type, commands, test_container);
-        KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto).await.unwrap()
+        KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto, Some(client_config)).await.unwrap()
     }
 
     pub mod kernel {

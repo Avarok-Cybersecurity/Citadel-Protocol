@@ -27,8 +27,8 @@ mod tests {
         let (server_bind_addr, server_account_manager) = generate_endpoint_context().await;
         let (_client_bind_addr, client_account_manager) = generate_endpoint_context().await;
 
-        let server_kernel = KernelExecutor::new(handle.clone(), NodeType::Server(server_bind_addr), server_account_manager, k0, UNDERLYING_PROTO).await.unwrap();
-        let client_kernel = KernelExecutor::new(handle, NodeType::Peer, client_account_manager, k1, UNDERLYING_PROTO).await.unwrap();
+        let server_kernel = KernelExecutor::new(handle.clone(), NodeType::Server(server_bind_addr), server_account_manager, k0, UNDERLYING_PROTO, None).await.unwrap();
+        let client_kernel = KernelExecutor::new(handle, NodeType::Peer, client_account_manager, k1, UNDERLYING_PROTO, None).await.unwrap();
         (server_kernel, client_kernel)
     }
 
