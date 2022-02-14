@@ -5,6 +5,7 @@ pub mod exports {
     pub use quinn::{Connecting, Connection, Endpoint, Incoming, NewConnection, RecvStream, SendStream};
     pub use rustls::{Certificate, PrivateKey};
     pub use tokio_rustls;
+    pub use rustls::ClientConfig;
 }
 
 pub mod ip_addr;

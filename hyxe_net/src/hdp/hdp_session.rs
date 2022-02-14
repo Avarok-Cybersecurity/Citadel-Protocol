@@ -67,6 +67,7 @@ use hyxe_nat::exports::{Endpoint, NewConnection};
 use crate::hdp::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 use atomic::Atomic;
 use crate::auth::AuthenticationRequest;
+use hyxe_nat::exports::tokio_rustls::rustls;
 
 //use crate::define_struct;
 
@@ -179,6 +180,7 @@ pub struct HdpSessionInner {
     pub(super) local_nat_type: NatType,
     pub(super) adjacent_nat_type: DualLateInit<Option<NatType>>,
     pub(super) connect_mode: DualRwLock<Option<ConnectMode>>,
+    pub(super) client_config: Arc<rustls::ClientConfig>,
     on_drop: UnboundedSender<()>,
 }
 
@@ -212,7 +214,7 @@ pub enum HdpSessionInitMode {
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, mut fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings, connect_mode: Option<ConnectMode>) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
+    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, mut fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings, connect_mode: Option<ConnectMode>, client_config: Arc<rustls::ClientConfig>) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
         let (cnac, state, implicated_cid) = match &init_mode {
             HdpSessionInitMode::Connect(auth) => {
                 match auth {
@@ -267,6 +269,7 @@ impl HdpSession {
             stopper_tx: stopper_tx.clone().into(),
             queue_handle: DualLateInit::default(),
             fcm_keys,
+            client_config
         };
 
         inner.store_proposed_credentials(proposed_credentials);
@@ -279,7 +282,7 @@ impl HdpSession {
     ///
     /// When this is called, the connection is implied to be in impersonal mode. As such, the calling closure should have a way of incrementing
     /// the provisional ticket.
-    pub(crate) fn new_incoming(on_drop: UnboundedSender<()>, local_nat_type: NatType, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket) -> (tokio::sync::broadcast::Sender<()>, Self) {
+    pub(crate) fn new_incoming(on_drop: UnboundedSender<()>, local_nat_type: NatType, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket, client_config: Arc<rustls::ClientConfig>) -> (tokio::sync::broadcast::Sender<()>, Self) {
         let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
         let state = Arc::new(Atomic::new(SessionState::SocketJustOpened));
 
@@ -314,6 +317,7 @@ impl HdpSession {
             stopper_tx: stopper_tx.clone().into(),
             queue_handle: DualLateInit::default(),
             fcm_keys: None,
+            client_config
         };
 
         (stopper_tx, Self::from(inner))
