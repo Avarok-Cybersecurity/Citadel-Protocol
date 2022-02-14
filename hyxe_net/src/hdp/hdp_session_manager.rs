@@ -40,6 +40,7 @@ use crate::macros::{ContextRequirements, SyncContextRequirements};
 use crate::auth::AuthenticationRequest;
 use hyxe_nat::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
+use hyxe_nat::exports::tokio_rustls::rustls;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 
@@ -59,7 +60,8 @@ pub struct HdpSessionManagerInner {
     kernel_tx: UnboundedSender<HdpServerResult>,
     time_tracker: TimeTracker,
     clean_shutdown_tracker_tx: UnboundedSender<()>,
-    clean_shutdown_tracker: Option<UnboundedReceiver<()>>
+    clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
+    client_config: Arc<rustls::ClientConfig>
 }
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq)]
@@ -76,7 +78,7 @@ impl FcmPeerRegisterTicket {
 
 impl HdpSessionManager {
     /// Creates a new [SessionManager] which handles individual connections
-    pub fn new(local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, account_manager: AccountManager, time_tracker: TimeTracker) -> Self {
+    pub fn new(local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, account_manager: AccountManager, time_tracker: TimeTracker, client_config: Arc<rustls::ClientConfig>) -> Self {
         let incoming_cxn_count = 0;
         let (clean_shutdown_tracker_tx, clean_shutdown_tracker_rx) = unbounded();
         let inner = HdpSessionManagerInner {
@@ -91,7 +93,8 @@ impl HdpSessionManager {
             account_manager,
             provisional_connections: HashMap::new(),
             kernel_tx,
-            time_tracker
+            time_tracker,
+            client_config
         };
 
         Self::from(inner)
@@ -194,7 +197,7 @@ impl HdpSessionManager {
 
             //let peer_only_connect_mode = match listener_underlying_proto { UnderlyingProtocol::Tcp => ConnectProtocol::Tcp, UnderlyingProtocol::Tls(_, domain) => ConnectProtocol::Tls(domain) };
 
-            let (stopper, new_session) = HdpSession::new(init_mode, local_nat_type, peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, udp_mode.unwrap_or(UDP_MODE), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings, connect_mode)?;
+            let (stopper, new_session) = HdpSession::new(init_mode, local_nat_type, peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, udp_mode.unwrap_or(UDP_MODE), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings, connect_mode, default_client_config.clone())?;
 
             inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
 
@@ -321,6 +324,7 @@ impl HdpSessionManager {
         let mut this = inner_mut!(self);
         let on_drop = this.clean_shutdown_tracker_tx.clone();
         let remote = this.server_remote.clone().unwrap();
+        let client_config = this.client_config.clone();
 
         if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
             if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
@@ -336,7 +340,7 @@ impl HdpSessionManager {
         let provisional_ticket = Ticket(this.incoming_cxn_count as u64);
         this.incoming_cxn_count += 1;
 
-        let (stopper, new_session) = HdpSession::new_incoming(on_drop, local_nat_type, remote, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket);
+        let (stopper, new_session) = HdpSession::new_incoming(on_drop, local_nat_type, remote, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket, client_config);
         this.provisional_connections.insert(peer_addr.clone(), (Instant::now(), stopper, new_session.clone()));
         std::mem::drop(this);
 

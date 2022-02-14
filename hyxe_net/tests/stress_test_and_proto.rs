@@ -62,7 +62,8 @@ pub mod tests {
             UnderlyingProtocol::Tcp,
             UnderlyingProtocol::new_tls_self_signed().unwrap(),
             UnderlyingProtocol::new_quic_self_signed(),
-            UnderlyingProtocol::load_tls("../keys/testing.p12", "password", "thomaspbraun.com").unwrap()
+            UnderlyingProtocol::load_tls("../keys/testing.p12", "password", "thomaspbraun.com").unwrap(),
+            UnderlyingProtocol::load_quic("../keys/testing.p12", "password", "thomaspbraun.com").unwrap()
         ]
     }
 

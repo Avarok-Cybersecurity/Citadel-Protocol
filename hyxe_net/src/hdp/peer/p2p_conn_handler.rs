@@ -26,6 +26,8 @@ use netbeam::sync::network_endpoint::NetworkEndpoint;
 use hyxe_nat::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use netbeam::sync::operations::net_select_ok::NetSelectOkResult;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use hyxe_nat::exports::tokio_rustls::rustls;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
@@ -223,7 +225,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 
 /// Both sides need to begin this process at `sync_time`
 pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, ref session: HdpSession, peer_nat_info: PeerNatInfo, implicated_cid: DualCell<Option<u64>>, ref kernel_tx: UnboundedSender<HdpServerResult>, channel_signal: HdpServerResult, sync_time: Instant,
-                                                    ref state_container: StateContainer, security_level: SecurityLevel, ref app: NetworkEndpoint, quic_endpoint: Endpoint, encrypted_config_container: EncryptedConfigContainer) -> std::io::Result<()> {
+                                                    ref state_container: StateContainer, security_level: SecurityLevel, ref app: NetworkEndpoint, quic_endpoint: Endpoint, encrypted_config_container: EncryptedConfigContainer, client_config: Arc<rustls::ClientConfig>) -> std::io::Result<()> {
 
     let mut other_side_secure_connection = false;
 
@@ -232,11 +234,11 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
 
         let task_inner = async move {
             let hole_punched_socket = app.begin_udp_hole_punch(encrypted_config_container).await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
-            std::mem::drop(hole_punched_socket.socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
             let remote_connect_addr = hole_punched_socket.addr.natted;
             let addr = hole_punched_socket.addr;
+            std::mem::drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
             log::info!("~!@ P2P UDP Hole-punch finished @!~");
-            Ok(HdpServer::create_p2p_quic_connect_socket(quic_endpoint, remote_connect_addr, peer_nat_info.tls_domain, None)
+            Ok(HdpServer::create_p2p_quic_connect_socket(quic_endpoint, remote_connect_addr, peer_nat_info.tls_domain, None, client_config)
                 .and_then(move |r| async move { Ok((r, addr)) }).map_err(anyhow::Error::new))
         };
 

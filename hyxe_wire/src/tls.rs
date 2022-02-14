@@ -1,5 +1,5 @@
-use rustls::{ClientConfig, ServerConfig, RootCertStore, Certificate, PrivateKey};
-use crate::quic::{insecure::SkipServerVerification, generate_self_signed_cert};
+use rustls::{ClientConfig, RootCertStore, Certificate, PrivateKey};
+use crate::quic::generate_self_signed_cert;
 use std::sync::Arc;
 use tokio_rustls::{TlsConnector, TlsAcceptor};
 use std::io::Error;
@@ -13,30 +13,27 @@ pub struct TLSQUICInterop {
 }
 
 pub fn create_client_dangerous_config() -> TlsConnector {
-    let mut default = crate::quic::insecure::rustls_client_config();
-    default.enable_sni = true;
-    default.dangerous().set_certificate_verifier(SkipServerVerification::new());
-    TlsConnector::from(Arc::new(default))
+    TlsConnector::from(Arc::new(crate::quic::insecure::rustls_client_config()))
 }
 
 pub async fn create_rustls_client_config(allowed_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
-    let mut default = if allowed_certs.is_empty() {
+    let root_store = if allowed_certs.is_empty() {
         let mut root_store = RootCertStore::empty();
         let natives = load_native_certs().await?;
         for cert in natives {
             root_store.add(&cert)?;
         }
 
-        ClientConfig::builder().with_safe_defaults().with_root_certificates(root_store).with_no_client_auth()
+        root_store
     } else {
         let mut certs = rustls::RootCertStore::empty();
         for cert in allowed_certs {
             certs.add(&rustls::Certificate(cert.to_vec()))?;
         }
-        ClientConfig::builder().with_safe_defaults().with_root_certificates(certs).with_no_client_auth()
+        certs
     };
 
-    default.enable_sni = true;
+    let default = crate::quic::secure::client_config(root_store);
     Ok(default)
 }
 
@@ -51,13 +48,14 @@ pub fn client_config_to_tls_connector(config: Arc<ClientConfig>) -> TlsConnector
 pub fn create_server_self_signed_config() -> Result<TLSQUICInterop, anyhow::Error> {
     let (cert_der, priv_key_der) = generate_self_signed_cert()?;
     let (quic_chain, quic_priv_key) = crate::misc::cert_and_priv_key_der_to_quic_keys(&cert_der, &priv_key_der)?;
+    let quic_chain = vec![quic_chain];
 
     // the server won't verify clients. The clients verify the server
-    let server_config = ServerConfig::builder().with_safe_defaults().with_no_client_auth().with_single_cert(vec![Certificate(cert_der)], PrivateKey(priv_key_der))?;
+    let server_config = crate::quic::secure::server_config(quic_chain.clone(), quic_priv_key.clone())?;
 
     let ret = TLSQUICInterop {
         tls_acceptor: TlsAcceptor::from(Arc::new(server_config)),
-        quic_chain: vec![quic_chain],
+        quic_chain,
         quic_priv_key
     };
 
@@ -68,7 +66,7 @@ pub fn create_server_config(pkcs12_der: &[u8], password: &str) -> Result<TLSQUIC
     let (certs_stack, cert, priv_key) = crate::misc::pkcs12_to_components(pkcs12_der, password)?;
     let (quic_chain, quic_priv_key) = crate::misc::pkcs_12_components_to_quic_keys(certs_stack.as_ref(), &cert, &priv_key)?;
 
-    let server_config = ServerConfig::builder().with_safe_defaults().with_no_client_auth().with_single_cert(quic_chain.clone(), quic_priv_key.clone())?;
+    let server_config = crate::quic::secure::server_config(quic_chain.clone(), quic_priv_key.clone())?;
 
     let ret = TLSQUICInterop {
         tls_acceptor: TlsAcceptor::from(Arc::new(server_config)),

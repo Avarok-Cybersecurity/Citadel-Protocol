@@ -43,23 +43,14 @@
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_node.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_node.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/net.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/misc/net.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/kernel/kernel_executor.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/p2p_conn_handler.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/tests/stress_test_and_proto.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/stress_test_and_proto.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_wire/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/lib.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_wire/src/quic.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/quic.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_wire/src/tls.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/tls.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/keys/devonly.crt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/keys/devonly.csr" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/keys/devonly.key" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/keys/devonly.pkcs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/keys/testing-old.p12" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/keys/testing.crt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/keys/testing.key" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/keys/testing.p12" beforeDir="false" afterPath="$PROJECT_DIR$/keys/testing.p12" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/node_builder.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/node_builder.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/tests/register.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/tests/register.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -708,7 +699,7 @@
       <workItem from="1643040364399" duration="17223000" />
       <workItem from="1643485662211" duration="13587000" />
       <workItem from="1643564061488" duration="16216000" />
-      <workItem from="1643649696955" duration="113951000" />
+      <workItem from="1643649696955" duration="120627000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

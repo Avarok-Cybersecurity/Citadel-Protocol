@@ -38,15 +38,11 @@ pub trait QuicEndpointConnector {
             self.endpoint().connect(addr, tls_domain)?
         };
 
-        log::info!("RP0");
 
         let conn = connecting.await?;
-        log::info!("RP1");
         let (mut sink, stream) = conn.connection.open_bi().await?;
-        log::info!("RP2");
         // must send some data before the adjacent node can receive a bidirectional connection
         sink.write(&[]).await?;
-        log::info!("RP3");
 
         Ok((conn, sink, stream))
     }
@@ -63,11 +59,8 @@ pub trait QuicEndpointListener {
     fn next_connection<'a>(&'a mut self) -> Pin<Box<dyn Future<Output=Result<(NewConnection, SendStream, RecvStream), anyhow::Error>> + Send + Sync + 'a>>
         where Self: Sized + Send + Sync {
         Box::pin(async move {
-            log::info!("TT0");
             let connecting = self.listener().next().await.ok_or_else(|| anyhow::Error::msg(QUIC_LISTENER_DIED))?;
-            log::info!("TT1");
             let mut conn = connecting.await?;
-            log::info!("TT2");
             let (sink, stream) = conn.bi_streams.next().await.ok_or_else(|| anyhow::Error::msg("No bidirectional conns"))??;
 
             Ok((conn, sink, stream))
@@ -231,27 +224,60 @@ fn configure_client_secure(server_certs: &[&[u8]]) -> Result<ClientConfig, anyho
     Ok(ClientConfig::with_root_certificates(certs))
 }
 
-/// Returns default server configuration along with its certificate.
-#[allow(clippy::field_reassign_with_default)] // https://github.com/rust-lang/rust-clippy/issues/6527
+
 fn configure_server_self_signed() -> Result<(ServerConfig, Vec<u8>), anyhow::Error> {
     let (cert_der, priv_key) = generate_self_signed_cert()?;
     let priv_key = rustls::PrivateKey(priv_key);
     let cert_chain = vec![rustls::Certificate(cert_der.clone())];
 
-    let server_config = ServerConfig::with_single_cert(cert_chain, priv_key)?;
+    let server_config = quinn::ServerConfig::with_crypto(Arc::new(secure::server_config(cert_chain, priv_key)?));
 
     Ok((server_config, cert_der))
 }
 
 fn configure_server_with_crypto(cert_chain: Vec<rustls::Certificate>, private_key: rustls::PrivateKey) -> Result<ServerConfig, anyhow::Error> {
-    let server_crypto = rustls::ServerConfig::builder()
-        .with_safe_defaults()
-        .with_no_client_auth()
-        .with_single_cert(cert_chain, private_key)?;
-
+    let server_crypto = secure::server_config(cert_chain, private_key)?;
     let server_config = quinn::ServerConfig::with_crypto(Arc::new(server_crypto));
-
     Ok(server_config)
+}
+
+pub fn rustls_client_config_to_quinn_config(cfg: Arc<rustls::ClientConfig>) -> ClientConfig {
+    ClientConfig::new(cfg)
+}
+
+pub mod secure {
+    pub fn client_config(roots: rustls::RootCertStore) -> rustls::ClientConfig {
+        let mut cfg = rustls::ClientConfig::builder()
+            .with_safe_default_cipher_suites()
+            .with_safe_default_kx_groups()
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        cfg.enable_early_data = true;
+        cfg.enable_sni = true;
+        cfg
+    }
+
+    /// Initialize a sane QUIC-compatible TLS server configuration
+    ///
+    /// QUIC requires that TLS 1.3 be enabled, and that the maximum early data size is either 0 or
+    /// `u32::MAX`. Advanced users can use any [`rustls::ServerConfig`] that satisfies these
+    /// requirements.
+    pub fn server_config(
+        cert_chain: Vec<rustls::Certificate>,
+        key: rustls::PrivateKey,
+    ) -> Result<rustls::ServerConfig, anyhow::Error> {
+        let mut cfg = rustls::ServerConfig::builder()
+            .with_safe_default_cipher_suites()
+            .with_safe_default_kx_groups()
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(cert_chain, key)?;
+        cfg.max_early_data_size = u32::MAX;
+        Ok(cfg)
+    }
 }
 
 pub mod insecure {
@@ -282,10 +308,13 @@ pub mod insecure {
     }
 
     pub fn rustls_client_config() -> rustls::ClientConfig {
-        rustls::ClientConfig::builder()
+        let mut cfg = rustls::ClientConfig::builder()
             .with_safe_defaults()
             .with_custom_certificate_verifier(SkipServerVerification::new())
-            .with_no_client_auth()
+            .with_no_client_auth();
+
+        cfg.enable_sni = true;
+        cfg
     }
 
     pub fn configure_client() -> ClientConfig {

@@ -110,16 +110,16 @@ impl HdpServer {
             info!("HdpClient Established")
         }
 
-        let time_tracker = TimeTracker::new();
-        let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager.clone(), time_tracker.clone());
-
-        let nat_type = NatType::identify(bind_addr.map(|r| r.ip()).unwrap_or_else(|| IpAddr::from_str("127.0.0.1").unwrap())).await.ok().unwrap_or_default();
-
         let client_config = if let Some(config) = client_config {
             config
         } else {
             Arc::new(hyxe_nat::tls::create_rustls_client_config(&[]).await.map_err(|err| generic_error(err.to_string()))?)
         };
+
+        let time_tracker = TimeTracker::new();
+        let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager.clone(), time_tracker.clone(), client_config.clone());
+
+        let nat_type = NatType::identify(bind_addr.map(|r| r.ip()).unwrap_or_else(|| IpAddr::from_str("127.0.0.1").unwrap())).await.ok().unwrap_or_default();
 
         let inner = HdpServerInner {
             underlying_proto,
@@ -338,29 +338,27 @@ impl HdpServer {
 
     /// Important: Assumes UDP NAT traversal has concluded. This should ONLY be used for p2p
     /// This takes the local socket AND QuicNode instance
-    pub async fn create_p2p_quic_connect_socket<R: ToSocketAddrs>(quic_endpoint: Endpoint, remote: R, tls_domain: TlsDomain, timeout: Option<Duration>) -> io::Result<GenericNetworkStream> {
+    pub async fn create_p2p_quic_connect_socket<R: ToSocketAddrs>(quic_endpoint: Endpoint, remote: R, tls_domain: TlsDomain, timeout: Option<Duration>, secure_client_config: Arc<ClientConfig>) -> io::Result<GenericNetworkStream> {
         let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
-        Self::quic_p2p_connect_defaults(quic_endpoint, timeout, tls_domain, remote, false).await
+        Self::quic_p2p_connect_defaults(quic_endpoint, timeout, tls_domain, remote, secure_client_config).await
     }
 
     /// - force_use_default_config: if true, this will unconditionally use the default client config already present inside the quic_endpoint parameter
-    pub async fn quic_p2p_connect_defaults(quic_endpoint: Endpoint, timeout: Option<Duration>, domain: TlsDomain, remote: SocketAddr, force_use_default_config: bool) -> io::Result<GenericNetworkStream> {
+    pub async fn quic_p2p_connect_defaults(quic_endpoint: Endpoint, timeout: Option<Duration>, domain: TlsDomain, remote: SocketAddr, secure_client_config: Arc<ClientConfig>) -> io::Result<GenericNetworkStream> {
         log::info!("Connecting to QUIC node {:?}", remote);
         // when using p2p quic, if domain is some, then we will use the default cfg
         let cfg = if domain.is_some() {
-            None
+            hyxe_nat::quic::rustls_client_config_to_quinn_config(secure_client_config)
         } else {
-            if !force_use_default_config {
-                Some(hyxe_nat::quic::insecure::configure_client())
-            } else {
-                None
-            }
+            // if there is no domain specified, assume self-signed (For now)
+            // this is non-blocking since native certs won't be loaded
+            hyxe_nat::quic::insecure::configure_client()
         };
 
         log::info!("Using cfg={:?} to connect to {:?}", cfg, remote);
 
         // we MUST use the connect_biconn_WITH below since we are using the server quic instance to make this outgoing connection
-        let (conn, sink, stream) = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), quic_endpoint.connect_biconn_with(remote, domain.as_ref().map(|r| r.as_str()).unwrap_or(SELF_SIGNED_DOMAIN), cfg)).await?.map_err(generic_error)?;
+        let (conn, sink, stream) = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), quic_endpoint.connect_biconn_with(remote, domain.as_ref().map(|r| r.as_str()).unwrap_or(SELF_SIGNED_DOMAIN), Some(cfg))).await?.map_err(generic_error)?;
         Ok(GenericNetworkStream::Quic(sink, stream, quic_endpoint, Some(conn), remote))
     }
 
@@ -403,12 +401,12 @@ impl HdpServer {
                 } else {
                     // TODO: trusted_certs is empty, which means the system will default to native certs. Allow clients to specify cert chains
                     // TODO: ensure we pass client_config below as well for performance reasons
-                    hyxe_nat::quic::QuicClient::new_verify(udp_socket, &[]).map_err(generic_error)?
+                    tokio::task::spawn_blocking(|| hyxe_nat::quic::QuicClient::new_verify(udp_socket, &[]).map_err(generic_error)).await.map_err(|err| generic_error(err.to_string()))??
                 };
 
                 quic_endpoint.tls_domain_opt = domain.clone();
 
-                Self::quic_p2p_connect_defaults(quic_endpoint.endpoint.clone(), timeout, domain, remote,true).await
+                Self::quic_p2p_connect_defaults(quic_endpoint.endpoint.clone(), timeout, domain, remote,default_client_config.clone()).await
                     .map(|r| (r, Some(quic_endpoint)))
             }
         }
