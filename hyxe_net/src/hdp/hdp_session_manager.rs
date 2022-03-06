@@ -9,8 +9,8 @@ use bytes::BytesMut;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::SecurityLevel;
-use hyxe_nat::hypernode_type::NodeType;
-use hyxe_nat::nat_identification::NatType;
+use hyxe_wire::hypernode_type::NodeType;
+use hyxe_wire::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::external_services::fcm::data_structures::RawExternalPacket;
@@ -38,9 +38,9 @@ use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::kernel::RuntimeFuture;
 use crate::macros::{ContextRequirements, SyncContextRequirements};
 use crate::auth::AuthenticationRequest;
-use hyxe_nat::exports::tokio_rustls::rustls::ClientConfig;
+use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
-use hyxe_nat::exports::tokio_rustls::rustls;
+use hyxe_wire::exports::tokio_rustls::rustls;
 
 define_outer_struct_wrapper!(HdpSessionManager, HdpSessionManagerInner);
 

@@ -1451,42 +1451,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hyxe_nat"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "async-trait-with-sync",
- "async_ip",
- "bincode2",
- "byteorder",
- "bytes",
- "either",
- "env_logger 0.7.1",
- "futures",
- "igd",
- "log",
- "netbeam",
- "openssl",
- "parking_lot",
- "quinn",
- "rand 0.8.4",
- "rcgen",
- "rstest",
- "rustls",
- "rustls-native-certs",
- "rustls-pemfile 0.3.0",
- "serde",
- "socket2",
- "stun",
- "tokio",
- "tokio-rustls",
- "tokio-util",
- "webpki 0.21.4",
- "whoami",
-]
-
-[[package]]
 name = "hyxe_net"
 version = "0.1.0"
 dependencies = [
@@ -1507,8 +1471,8 @@ dependencies = [
  "futures",
  "hyxe_crypt",
  "hyxe_fs",
- "hyxe_nat",
  "hyxe_user",
+ "hyxe_wire",
  "log",
  "netbeam",
  "num 0.2.1",
@@ -1557,6 +1521,42 @@ dependencies = [
  "sqlx",
  "tokio",
  "zerocopy",
+]
+
+[[package]]
+name = "hyxe_wire"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "async-trait-with-sync",
+ "async_ip",
+ "bincode2",
+ "byteorder",
+ "bytes",
+ "either",
+ "env_logger 0.7.1",
+ "futures",
+ "igd",
+ "log",
+ "netbeam",
+ "openssl",
+ "parking_lot",
+ "quinn",
+ "rand 0.8.4",
+ "rcgen",
+ "rstest",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pemfile 0.3.0",
+ "serde",
+ "socket2",
+ "stun",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "webpki 0.21.4",
+ "whoami",
 ]
 
 [[package]]

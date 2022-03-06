@@ -18,9 +18,9 @@ use tokio::task::LocalSet;
 
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::fcm::keys::FcmKeys;
-use hyxe_nat::hypernode_type::NodeType;
-use hyxe_nat::local_firewall_handler::{FirewallProtocol, open_local_firewall_port, remove_firewall_rule};
-use hyxe_nat::nat_identification::NatType;
+use hyxe_wire::hypernode_type::NodeType;
+use hyxe_wire::local_firewall_handler::{FirewallProtocol, open_local_firewall_port, remove_firewall_rule};
+use hyxe_wire::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
@@ -45,16 +45,16 @@ use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal, UdpMode};
 use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
 use crate::kernel::kernel_communicator::{KernelAsyncCallbackHandler, KernelStreamSubscription};
 use crate::kernel::RuntimeFuture;
-use hyxe_nat::quic::{QuicServer, QuicEndpointConnector, SELF_SIGNED_DOMAIN, QuicNode};
+use hyxe_wire::quic::{QuicServer, QuicEndpointConnector, SELF_SIGNED_DOMAIN, QuicNode};
 use crate::hdp::peer::p2p_conn_handler::generic_error;
-use hyxe_nat::exports::Endpoint;
+use hyxe_wire::exports::Endpoint;
 use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::peer::group_channel::GroupChannel;
 use crate::auth::AuthenticationRequest;
 use std::str::FromStr;
-use hyxe_nat::exports::tokio_rustls::rustls::{ServerName, ClientConfig};
+use hyxe_wire::exports::tokio_rustls::rustls::{ServerName, ClientConfig};
 use std::convert::TryFrom;
-use hyxe_nat::tls::client_config_to_tls_connector;
+use hyxe_wire::tls::client_config_to_tls_connector;
 
 /// ports which were opened that must be closed atexit
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
@@ -113,8 +113,8 @@ impl HdpServer {
         let client_config = if let Some(config) = client_config {
             config
         } else {
-            let native_certs = hyxe_nat::tls::load_native_certs_async().await?;
-            Arc::new(hyxe_nat::tls::create_rustls_client_config(&native_certs).map_err(|err| generic_error(err.to_string()))?)
+            let native_certs = hyxe_wire::tls::load_native_certs_async().await?;
+            Arc::new(hyxe_wire::tls::create_rustls_client_config(&native_certs).map_err(|err| generic_error(err.to_string()))?)
         };
 
         let time_tracker = TimeTracker::new();
@@ -273,7 +273,7 @@ impl HdpServer {
     fn bind_defaults(underlying_proto: UnderlyingProtocol, redirect_to_quic: Option<(TlsDomain, bool)>, quic_endpoint_opt: Option<QuicNode>,  bind: SocketAddr) -> io::Result<(GenericNetworkListener, SocketAddr)> {
         match underlying_proto {
             UnderlyingProtocol::Tls(..) | UnderlyingProtocol::Tcp => {
-                hyxe_nat::socket_helpers::get_tcp_listener(bind)
+                hyxe_wire::socket_helpers::get_tcp_listener(bind)
                     .and_then(|listener| {
                         log::info!("Setting up {:?} listener socket on {:?}", &underlying_proto, bind);
                         let bind = listener.local_addr()?;
@@ -300,7 +300,7 @@ impl HdpServer {
                 let mut quic = if let Some(quic) = quic_endpoint_opt {
                     quic
                 } else {
-                    let udp_socket = hyxe_nat::socket_helpers::get_reuse_udp_socket(bind).map_err(generic_error)?;
+                    let udp_socket = hyxe_wire::socket_helpers::get_reuse_udp_socket(bind).map_err(generic_error)?;
                     QuicServer::new(udp_socket, crypto).map_err(generic_error)?
                 };
 
@@ -349,11 +349,11 @@ impl HdpServer {
         log::info!("Connecting to QUIC node {:?}", remote);
         // when using p2p quic, if domain is some, then we will use the default cfg
         let cfg = if domain.is_some() {
-            hyxe_nat::quic::rustls_client_config_to_quinn_config(secure_client_config)
+            hyxe_wire::quic::rustls_client_config_to_quinn_config(secure_client_config)
         } else {
             // if there is no domain specified, assume self-signed (For now)
             // this is non-blocking since native certs won't be loaded
-            hyxe_nat::quic::insecure::configure_client()
+            hyxe_wire::quic::insecure::configure_client()
         };
 
         log::info!("Using cfg={:?} to connect to {:?}", cfg, remote);
@@ -371,7 +371,7 @@ impl HdpServer {
 
     pub async fn c2s_connect_defaults(timeout: Option<Duration>, remote: SocketAddr, default_client_config: &Arc<ClientConfig>) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
         log::info!("C2S connect defaults to {:?}", remote);
-        let mut stream = hyxe_nat::socket_helpers::get_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT)).await.map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
+        let mut stream = hyxe_wire::socket_helpers::get_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT)).await.map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
         let bind_addr = stream.local_addr()?;
         log::info!("C2S Bind addr: {:?}", bind_addr);
         let first_packet = Self::read_first_packet(&mut stream, timeout).await?;
@@ -386,7 +386,7 @@ impl HdpServer {
                 log::info!("Host claims TLS CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", &domain, external_addr, is_self_signed);
 
                 let connector = if is_self_signed {
-                    hyxe_nat::tls::create_client_dangerous_config()
+                    hyxe_wire::tls::create_client_dangerous_config()
                 } else {
                     client_config_to_tls_connector(default_client_config.clone())
                 };
@@ -396,11 +396,11 @@ impl HdpServer {
             }
             FirstPacket::Quic { domain, external_addr, is_self_signed } => {
                 log::info!("Host claims QUIC CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed: {}", &domain, external_addr, is_self_signed);
-                let udp_socket = hyxe_nat::socket_helpers::get_udp_socket(bind_addr).map_err(generic_error)?; // bind to same address as tcp for firewall purposes
+                let udp_socket = hyxe_wire::socket_helpers::get_udp_socket(bind_addr).map_err(generic_error)?; // bind to same address as tcp for firewall purposes
                 let mut quic_endpoint = if is_self_signed {
-                    hyxe_nat::quic::QuicClient::new_no_verify(udp_socket).map_err(generic_error)?
+                    hyxe_wire::quic::QuicClient::new_no_verify(udp_socket).map_err(generic_error)?
                 } else {
-                    hyxe_nat::quic::QuicClient::new_with_config(udp_socket, default_client_config.clone()).map_err(generic_error)?
+                    hyxe_wire::quic::QuicClient::new_with_config(udp_socket, default_client_config.clone()).map_err(generic_error)?
                 };
 
                 quic_endpoint.tls_domain_opt = domain.clone();
