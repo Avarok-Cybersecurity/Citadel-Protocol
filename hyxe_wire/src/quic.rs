@@ -102,12 +102,8 @@ impl Debug for QuicNode {
 
 impl QuicClient {
     /// - trusted_certs: If None, won't verify certs. NOTE: this implies is Some(&[]) is passed, no verification will work.
-    pub fn new(socket: UdpSocket, trusted_certs: Option<&[&[u8]]>) -> Result<QuicNode, anyhow::Error> {
-        if trusted_certs.as_ref().map(|r| r.is_empty()).unwrap_or(false) {
-            log::warn!("Client passed an empty set of trusted certs. Will fallback to native roots")
-        }
-
-        let (endpoint, listener) = make_client_endpoint(socket, trusted_certs)?;
+    pub fn new(socket: UdpSocket, client_config: Option<Arc<rustls::ClientConfig>>) -> Result<QuicNode, anyhow::Error> {
+        let (endpoint, listener) = make_client_endpoint(socket, client_config)?;
         Ok(QuicNode { endpoint, listener, tls_domain_opt: None })
     }
 
@@ -117,8 +113,8 @@ impl QuicClient {
     }
 
     /// Creates a new client that verifies certificates
-    pub fn new_verify(socket: UdpSocket, trusted_certs: &[&[u8]]) -> Result<QuicNode, anyhow::Error> {
-        Self::new(socket, Some(trusted_certs))
+    pub fn new_with_config(socket: UdpSocket, client_config: Arc<rustls::ClientConfig>) -> Result<QuicNode, anyhow::Error> {
+        Self::new(socket, Some(client_config))
     }
 }
 
@@ -159,10 +155,10 @@ fn make_server_endpoint(socket: UdpSocket, crypt: Option<(Vec<Certificate>, Priv
 
 fn make_client_endpoint(
     socket: UdpSocket,
-    server_certs: Option<&[&[u8]]>,
+    client_config: Option<Arc<rustls::ClientConfig>>,
 ) -> Result<(Endpoint, Incoming), anyhow::Error> {
-    let mut client_cfg = match server_certs {
-        Some(certs) => configure_client_secure(certs)?,
+    let mut client_cfg = match client_config {
+        Some(cfg) => quinn::ClientConfig::new(cfg),
         None => insecure::configure_client()
     };
 
@@ -202,26 +198,6 @@ pub fn generate_self_signed_cert() -> Result<(Vec<u8>, Vec<u8>), anyhow::Error> 
     let cert_der = cert.serialize_der()?;
     let priv_key_der = cert.serialize_private_key_der();
     Ok((cert_der, priv_key_der))
-}
-
-
-/// Builds default quinn client config and trusts given certificates.
-///
-/// ## Args
-///
-/// - server_certs: a list of trusted certificates in DER format.
-fn configure_client_secure(server_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
-    if server_certs.is_empty() {
-        log::warn!("Using native roots since no trusted server certs specified");
-        return Ok(ClientConfig::with_native_roots())
-    }
-
-    let mut certs = rustls::RootCertStore::empty();
-    for cert in server_certs {
-        certs.add(&rustls::Certificate(cert.to_vec()))?;
-    }
-
-    Ok(ClientConfig::with_root_certificates(certs))
 }
 
 

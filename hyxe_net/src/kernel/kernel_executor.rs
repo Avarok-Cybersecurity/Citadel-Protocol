@@ -103,7 +103,7 @@ impl<K: NetKernel> KernelExecutor<K> {
             };
 
             reader.try_for_each_concurrent(None, |message: HdpServerResult| async move {
-                log::info!("[KernelExecutor] Received message");
+                log::info!("[KernelExecutor] Received message {:?}", message);
                 match message {
                     HdpServerResult::Shutdown => {
                         log::info!("Kernel received safe shutdown signal");
@@ -130,12 +130,14 @@ impl<K: NetKernel> KernelExecutor<K> {
             }).await
         };
 
-        let res = tokio::try_join!(init, inbound_stream);
+        let exec_res = tokio::try_join!(init, inbound_stream);
 
         log::info!("Calling kernel on_stop, but first awaiting HdpServer for clean shutdown ...");
         tokio::time::timeout(Duration::from_millis(300), shutdown).await;
         log::info!("Kernel confirmed HdpServer has been shut down");
-        kernel.on_stop().await.and(res.map(|_| ()))
+        let stop_res = kernel.on_stop().await;
+        // give precedence to the exection res
+        exec_res.and(stop_res.map(|_| ()))
     }
 
     pub fn account_manager(&self) -> &AccountManager {

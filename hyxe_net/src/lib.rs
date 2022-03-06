@@ -333,6 +333,11 @@ pub mod re_imports {
 
     pub use ez_pqcrypto::build_tag;
     pub use hyxe_nat::hypernode_type::NodeType;
+    pub use hyxe_nat::exports::ClientConfig as RustlsClientConfig;
+    pub use hyxe_nat::quic::insecure;
+    pub use hyxe_nat::exports::openssl;
+    pub use hyxe_nat::exports::rustls_pemfile;
+    pub use hyxe_nat::tls::{create_rustls_client_config, load_native_certs_async, cert_vec_to_secure_client_config};
 }
 
 

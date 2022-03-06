@@ -25,7 +25,7 @@ async fn main() {
     let hole_punched_socket = UdpHolePuncher::new(&NetworkEndpoint::register(RelativeNodeType::Initiator, server_stream).await.unwrap(), Default::default()).await.unwrap();
 
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
-    let (_conn, mut sink, mut stream) = hyxe_nat::quic::QuicClient::new_verify(hole_punched_socket.socket, &[]).unwrap().connect_biconn(hole_punched_socket.addr.natted, "mail.satorisocial.com").await.unwrap();
+    let (_conn, mut sink, mut stream) = hyxe_nat::quic::QuicClient::new_with_config(hole_punched_socket.socket, &[]).unwrap().connect_biconn(hole_punched_socket.addr.natted, "mail.satorisocial.com").await.unwrap();
     log::info!("Successfully obtained QUIC connection ...");
 
     let writer = async move {

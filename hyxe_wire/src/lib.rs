@@ -6,6 +6,8 @@ pub mod exports {
     pub use rustls::{Certificate, PrivateKey};
     pub use tokio_rustls;
     pub use rustls::ClientConfig;
+    pub use openssl;
+    pub use rustls_pemfile;
 }
 
 pub mod ip_addr;
