@@ -21,15 +21,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
-      - name: Maximize build space
-        if: startsWith(matrix.os, 'ubuntu')
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 512
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
       - uses: mirromutth/mysql-action@v1.1
         if: startsWith(matrix.os, 'ubuntu')
         with:
@@ -75,13 +66,9 @@ jobs:
       - run: cargo test --package ez_pqcrypto
       - run: cargo test --package hyxe_crypt
       - run: cargo test --package hyxe_fs
-      - name: clean
-        if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'macos')
-        run: cargo clean
+      - run: cargo clean
       - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing -- --test-threads=1
-      - name: clean
-        if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'macos')
-        run: cargo clean
+      - run: cargo clean
       - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing -- --test-threads=1
       - uses: actions/github-script@v2
         if: failure()
