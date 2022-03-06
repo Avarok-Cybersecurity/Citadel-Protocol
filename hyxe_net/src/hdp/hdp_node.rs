@@ -113,7 +113,8 @@ impl HdpServer {
         let client_config = if let Some(config) = client_config {
             config
         } else {
-            Arc::new(hyxe_nat::tls::create_rustls_client_config(&[]).await.map_err(|err| generic_error(err.to_string()))?)
+            let native_certs = hyxe_nat::tls::load_native_certs_async().await?;
+            Arc::new(hyxe_nat::tls::create_rustls_client_config(&native_certs).map_err(|err| generic_error(err.to_string()))?)
         };
 
         let time_tracker = TimeTracker::new();
@@ -399,9 +400,7 @@ impl HdpServer {
                 let mut quic_endpoint = if is_self_signed {
                     hyxe_nat::quic::QuicClient::new_no_verify(udp_socket).map_err(generic_error)?
                 } else {
-                    // TODO: trusted_certs is empty, which means the system will default to native certs. Allow clients to specify cert chains
-                    // TODO: ensure we pass client_config below as well for performance reasons
-                    tokio::task::spawn_blocking(|| hyxe_nat::quic::QuicClient::new_verify(udp_socket, &[]).map_err(generic_error)).await.map_err(|err| generic_error(err.to_string()))??
+                    hyxe_nat::quic::QuicClient::new_with_config(udp_socket, default_client_config.clone()).map_err(generic_error)?
                 };
 
                 quic_endpoint.tls_domain_opt = domain.clone();

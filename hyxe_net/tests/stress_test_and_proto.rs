@@ -67,15 +67,21 @@ pub mod tests {
         ]
     }
 
+    #[fixture]
+    fn client_config() -> Arc<ClientConfig> {
+        let certs = hyxe_nat::tls::load_native_certs().unwrap();
+        Arc::new(hyxe_nat::tls::cert_vec_to_secure_client_config(&certs).unwrap())
+    }
+
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[tokio::test]
-    async fn test_tcp_or_tls(#[case] addr: SocketAddr, protocols: Vec<UnderlyingProtocol>) -> std::io::Result<()> {
+    async fn test_tcp_or_tls(#[case] addr: SocketAddr,
+                             protocols: Vec<UnderlyingProtocol>,
+                             ref client_config: Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
-
-        let ref client_config = Arc::new(hyxe_nat::tls::create_rustls_client_config(&[]).await.unwrap());
 
         for proto in protocols {
             log::info!("Testing proto {:?}", &proto);
@@ -118,11 +124,11 @@ pub mod tests {
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[tokio::test]
-    async fn test_many_proto_conns(#[case] addr: SocketAddr, protocols: Vec<UnderlyingProtocol>) -> std::io::Result<()> {
+    async fn test_many_proto_conns(#[case] addr: SocketAddr,
+                                   protocols: Vec<UnderlyingProtocol>,
+                                   ref client_config: Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
-
-        let ref client_config = Arc::new(hyxe_nat::tls::create_rustls_client_config(&[]).await.unwrap());
 
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
@@ -390,7 +396,6 @@ pub mod tests {
     }
 
     #[rstest]
-    #[trace]
     fn stress_test_messaging(
         #[values("tcp", "tls", "quic")]
         underlying_proto_arg: &str,
@@ -398,7 +403,8 @@ pub mod tests {
         enx_algorithm: &str,
         #[values("4000")]
         message_count_per_activity: &str,
-        bind_addrs: (SocketAddr, SocketAddr, SocketAddr, SocketAddr)
+        bind_addrs: (SocketAddr, SocketAddr, SocketAddr, SocketAddr),
+        ref client_config: Arc<ClientConfig>
     ) -> Result<(), Box<dyn Error>> {
         setup_log();
         super::utils::deadlock_detector();
@@ -444,12 +450,11 @@ pub mod tests {
         static CLIENT2_USERNAME: &'static str = "nologik2";
         static CLIENT2_PASSWORD: &'static str = "password2";
 
-        let (proposed_credentials_0, proposed_credentials_1, proposed_credentials_2, client_config) = rt.block_on(async move {
+        let (proposed_credentials_0, proposed_credentials_1, proposed_credentials_2) = rt.block_on(async move {
             let p_0 = ProposedCredentials::new_register(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecBuffer::from(CLIENT0_PASSWORD)).await.unwrap();
             let p_1 = ProposedCredentials::new_register(CLIENT1_FULLNAME, CLIENT1_USERNAME, SecBuffer::from(CLIENT1_PASSWORD)).await.unwrap();
             let p_2 = ProposedCredentials::new_register(CLIENT2_FULLNAME, CLIENT2_USERNAME, SecBuffer::from(CLIENT2_PASSWORD)).await.unwrap();
-            let client_config = Arc::new(hyxe_nat::tls::create_rustls_client_config(&[]).await.unwrap());
-            (p_0, p_1, p_2, client_config)
+            (p_0, p_1, p_2)
         });
 
         let init = Instant::now();
