@@ -55,6 +55,8 @@ num_cpus = "1.13.0"
 once_cell = "1.8.0"
 webrtc-util = {version = "0.4.2", optional = true}
 
+#libp2p = { version = "0.43.0", default-features=false, features = ["tcp-tokio", "serde"] }
+
 
 [dev-dependencies]
 env_logger = "0.8.2"

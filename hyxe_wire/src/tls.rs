@@ -16,29 +16,25 @@ pub fn create_client_dangerous_config() -> TlsConnector {
     TlsConnector::from(Arc::new(crate::quic::insecure::rustls_client_config()))
 }
 
-pub async fn create_rustls_client_config(allowed_certs: &[&[u8]]) -> Result<ClientConfig, anyhow::Error> {
-    let root_store = if allowed_certs.is_empty() {
-        let mut root_store = RootCertStore::empty();
-        let natives = load_native_certs().await?;
-        for cert in natives {
-            root_store.add(&cert)?;
-        }
+pub fn create_rustls_client_config<T: AsRef<[u8]>>(allowed_certs: &[T]) -> Result<ClientConfig, anyhow::Error> {
+    cert_vec_to_secure_client_config(&allowed_certs.into_iter().map(|r| rustls::Certificate(r.as_ref().to_vec())).collect())
+}
 
-        root_store
-    } else {
-        let mut certs = rustls::RootCertStore::empty();
-        for cert in allowed_certs {
-            certs.add(&rustls::Certificate(cert.to_vec()))?;
-        }
-        certs
-    };
+pub fn cert_vec_to_secure_client_config(certs: &Vec<Certificate>) -> Result<ClientConfig, anyhow::Error> {
+    if certs.is_empty() {
+        return Err(anyhow::Error::msg("Allowed certs is empty. Load native certs instead"))
+    }
 
-    let default = crate::quic::secure::client_config(root_store);
-    Ok(default)
+    let mut root_store = RootCertStore::empty();
+    for cert in certs {
+        root_store.add(cert)?;
+    }
+
+    Ok(crate::quic::secure::client_config(root_store))
 }
 
 pub async fn create_client_config(allowed_certs: &[&[u8]]) -> Result<TlsConnector, anyhow::Error> {
-    Ok(client_config_to_tls_connector(Arc::new(create_rustls_client_config(allowed_certs).await?)))
+    Ok(client_config_to_tls_connector(Arc::new(create_rustls_client_config(allowed_certs)?)))
 }
 
 pub fn client_config_to_tls_connector(config: Arc<ClientConfig>) -> TlsConnector {
@@ -79,9 +75,13 @@ pub fn create_server_config(pkcs12_der: &[u8], password: &str) -> Result<TLSQUIC
 
 /// This can be an expensive operation, empirically lasting upwards of 200ms on some systems
 /// This should only be called once, preferably at init of the protocol
-pub async fn load_native_certs() -> Result<Vec<Certificate>, Error> {
-    tokio::task::spawn_blocking(|| rustls_native_certs::load_native_certs())
-        .await?
+pub async fn load_native_certs_async() -> Result<Vec<Certificate>, Error> {
+    tokio::task::spawn_blocking(|| load_native_certs()).await?
+}
+
+/// Loads native certs. This is an expensive operation, and should be called once per node
+pub fn load_native_certs() -> Result<Vec<Certificate>, Error> {
+    rustls_native_certs::load_native_certs()
         .map(|r| r.into_iter().map(|cert| Certificate(cert.0)).collect())
 }
 
