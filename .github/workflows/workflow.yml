@@ -17,7 +17,7 @@ jobs:
   proto:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-2019]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
@@ -35,7 +35,7 @@ jobs:
 #          postgres-version: 14
       - name: Install LLVM and Clang
         if: startsWith(matrix.os, 'windows')
-        uses: KyleMayes/install-llvm-action@v1.5.0
+        uses: KyleMayes/install-llvm-action@v1.5.1
         with:
           version: "13.0"
           directory: ${{ runner.temp }}/llvm
@@ -83,13 +83,13 @@ jobs:
   nat:
     strategy:
       matrix:
-        os: [ ubuntu-latest, macos-latest, windows-2019 ]
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
       - name: Install LLVM and Clang
         if: startsWith(matrix.os, 'windows')
-        uses: KyleMayes/install-llvm-action@v1.5.0
+        uses: KyleMayes/install-llvm-action@v1.5.1
         with:
           version: "13.0"
           directory: ${{ runner.temp }}/llvm
@@ -129,22 +129,13 @@ jobs:
   lusna_sdk:
     strategy:
       matrix:
-        os: [ ubuntu-latest, macos-latest, windows-2019 ]
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 100
     steps:
-      - name: Maximize build space
-        if: startsWith(matrix.os, 'ubuntu')
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 512
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
       - name: Install LLVM and Clang
         if: startsWith(matrix.os, 'windows')
-        uses: KyleMayes/install-llvm-action@v1.5.0
+        uses: KyleMayes/install-llvm-action@v1.5.1
         with:
           version: "13.0"
           directory: ${{ runner.temp }}/llvm
