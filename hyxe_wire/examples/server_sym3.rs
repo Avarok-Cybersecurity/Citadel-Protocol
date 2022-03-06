@@ -1,6 +1,6 @@
 use tokio::io::{BufReader, AsyncBufReadExt};
-use hyxe_nat::udp_traversal::udp_hole_puncher::UdpHolePuncher;
-use hyxe_nat::quic::QuicEndpointListener;
+use hyxe_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
+use hyxe_wire::quic::QuicEndpointListener;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::RelativeNodeType;
 
@@ -24,7 +24,7 @@ async fn main() {
     let hole_punched_socket = UdpHolePuncher::new(&NetworkEndpoint::register(RelativeNodeType::Receiver, client_stream).await.unwrap(), Default::default()).await.unwrap();
     log::info!("Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
 
-    let (_conn, mut sink, mut stream) = hyxe_nat::quic::QuicServer::new_from_pkcs_12_der_path(hole_punched_socket.socket, "../keys/testing.p12", "mrmoney10").unwrap().next_connection().await.unwrap();
+    let (_conn, mut sink, mut stream) = hyxe_wire::quic::QuicServer::new_from_pkcs_12_der_path(hole_punched_socket.socket, "../keys/testing.p12", "mrmoney10").unwrap().next_connection().await.unwrap();
     log::info!("Successfully obtained QUIC connection ...");
 
     let writer = async move {
