@@ -22,7 +22,7 @@ fn setup_base_socket(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(
     if reuse {
         socket.set_reuse_address(true)?;
 
-        #[cfg(not(any(target_os = "solaris", target_os = "illumos")))]
+        #[cfg(all(unix, not(any(target_os = "solaris", target_os = "illumos"))))]
             {
                 socket.set_reuse_port(true)?;
             }
