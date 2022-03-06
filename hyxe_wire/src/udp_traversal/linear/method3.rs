@@ -94,8 +94,9 @@ impl Method3 {
             let _ = socket.set_ttl(ttl);
             let _ = sleep.tick().await;
             for endpoint in endpoints {
-                log::info!("Sending TTL={} to {}", ttl, endpoint);
-                socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(unique_id, ttl)).unwrap()), endpoint).await?;
+                let packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(unique_id, ttl)).unwrap());
+                log::info!("Sending TTL={} to {} || {:?}", ttl, endpoint, packet);
+                socket.send_to(&packet, endpoint).await?;
             }
         }
 
