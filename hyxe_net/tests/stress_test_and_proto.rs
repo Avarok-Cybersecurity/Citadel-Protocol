@@ -15,7 +15,7 @@ pub mod tests {
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::fcm::keys::FcmKeys;
     use hyxe_crypt::prelude::SecBuffer;
-    use hyxe_nat::hypernode_type::NodeType;
+    use hyxe_wire::hypernode_type::NodeType;
     use std::time::Duration;
     use std::net::SocketAddr;
     use hyxe_net::prelude::*;
@@ -36,7 +36,7 @@ pub mod tests {
     use futures::stream::FuturesUnordered;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use rand::{SeedableRng, Rng};
-    use hyxe_nat::exports::tokio_rustls::rustls::ClientConfig;
+    use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -69,8 +69,8 @@ pub mod tests {
 
     #[fixture]
     fn client_config() -> Arc<ClientConfig> {
-        let certs = hyxe_nat::tls::load_native_certs().unwrap();
-        Arc::new(hyxe_nat::tls::cert_vec_to_secure_client_config(&certs).unwrap())
+        let certs = hyxe_wire::tls::load_native_certs().unwrap();
+        Arc::new(hyxe_wire::tls::cert_vec_to_secure_client_config(&certs).unwrap())
     }
 
     #[rstest]

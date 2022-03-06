@@ -8,7 +8,7 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::ConstructorOpts;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::prelude::SyncIO;
-use hyxe_nat::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
+use hyxe_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use netbeam::sync::RelativeNodeType;
 
