@@ -1018,7 +1018,7 @@ pub(crate) mod pre_connect {
     use bytes::{BufMut, BytesMut};
     use zerocopy::{I64, U32, U64};
 
-    use hyxe_nat::hypernode_type::NodeType;
+    use hyxe_wire::hypernode_type::NodeType;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
@@ -1034,7 +1034,7 @@ pub(crate) mod pre_connect {
     use hyxe_user::prelude::ConnectProtocol;
     use crate::hdp::hdp_node::ConnectMode;
     use crate::hdp::peer::peer_layer::UdpMode;
-    use hyxe_nat::nat_identification::NatType;
+    use hyxe_wire::nat_identification::NatType;
 
     #[derive(Serialize, Deserialize)]
     pub struct SynPacket<'a> {

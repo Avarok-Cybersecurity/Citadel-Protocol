@@ -1,11 +1,11 @@
 use crate::hdp::hdp_node::TlsDomain;
-use hyxe_nat::exports::{PrivateKey, Certificate};
+use hyxe_wire::exports::{PrivateKey, Certificate};
 use std::path::Path;
 use crate::error::NetworkError;
 use std::net::SocketAddr;
 use std::fmt::Debug;
 use hyxe_user::re_imports::__private::Formatter;
-use hyxe_nat::tls::TLSQUICInterop;
+use hyxe_wire::tls::TLSQUICInterop;
 
 #[derive(Clone)]
 #[allow(variant_size_differences)]
@@ -18,17 +18,17 @@ pub enum UnderlyingProtocol {
 impl UnderlyingProtocol {
     pub fn load_tls<P: AsRef<Path>, T: AsRef<str>, R: Into<String>>(path: P, password: T, domain: R) -> Result<Self, NetworkError> {
         let pkcs_12_der = std::fs::read(path).map_err(|err| NetworkError::Generic(err.to_string()))?;
-        let interop = hyxe_nat::tls::create_server_config(&pkcs_12_der, password.as_ref()).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let interop = hyxe_wire::tls::create_server_config(&pkcs_12_der, password.as_ref()).map_err(|err| NetworkError::Generic(err.to_string()))?;
         Ok(Self::Tls(interop, Some(domain.into()), false))
     }
 
     pub fn load_quic<P: AsRef<Path>, T: AsRef<str>, R: Into<String>>(path: P, password: T, domain: R) -> Result<Self, NetworkError> {
-        let (cert, priv_key) = hyxe_nat::misc::read_pkcs_12_der_to_quinn_keys(path, password.as_ref()).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let (cert, priv_key) = hyxe_wire::misc::read_pkcs_12_der_to_quinn_keys(path, password.as_ref()).map_err(|err| NetworkError::Generic(err.to_string()))?;
         Ok(Self::Quic(Some((cert, priv_key)), Some(domain.into()), false))
     }
 
     pub fn new_tls_self_signed() -> Result<Self, NetworkError> {
-        let interop = hyxe_nat::tls::create_server_self_signed_config().map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let interop = hyxe_wire::tls::create_server_self_signed_config().map_err(|err| NetworkError::Generic(err.to_string()))?;
         Ok(Self::Tls(interop, None, true))
     }
 

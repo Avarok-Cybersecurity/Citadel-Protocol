@@ -1,6 +1,6 @@
 use crate::hdp::hdp_node::Ticket;
 use crate::hdp::hdp_packet_processor::includes::Instant;
-use hyxe_nat::hypernode_type::NodeType;
+use hyxe_wire::hypernode_type::NodeType;
 use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 use tokio::sync::oneshot::{Sender, Receiver, channel};
 use crate::hdp::peer::channel::UdpChannel;

@@ -2,7 +2,7 @@ use serde::{Serialize, Deserialize};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::peer::peer_layer::UdpMode;
 use std::net::SocketAddr;
-use hyxe_nat::nat_identification::NatType;
+use hyxe_wire::nat_identification::NatType;
 use crate::hdp::hdp_node::TlsDomain;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

@@ -10,7 +10,7 @@ use std::task::{Context, Poll};
 use std::pin::Pin;
 use std::ops::DerefMut;
 use std::io::Error;
-use hyxe_nat::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
+use hyxe_wire::exports::tokio_rustls::{server::TlsStream, TlsAcceptor};
 use futures::{Future, TryStreamExt};
 //use tokio_native_tls::native_tls::{Identity, Certificate};
 use std::path::Path;
@@ -18,12 +18,12 @@ use crate::error::NetworkError;
 use crate::hdp::hdp_node::TlsDomain;
 use serde::{Serialize, Deserialize};
 use hyxe_fs::io::SyncIO;
-use hyxe_nat::exports::{SendStream, RecvStream, Endpoint, NewConnection};
-use hyxe_nat::quic::{QuicNode, QuicEndpointListener};
+use hyxe_wire::exports::{SendStream, RecvStream, Endpoint, NewConnection};
+use hyxe_wire::quic::{QuicNode, QuicEndpointListener};
 use crate::hdp::peer::p2p_conn_handler::generic_error;
 use std::fmt::Debug;
 use hyxe_user::re_imports::__private::Formatter;
-use hyxe_nat::tls::TLSQUICInterop;
+use hyxe_wire::tls::TLSQUICInterop;
 
 /// Wraps a stream into a split interface for I/O that safely shuts-down the interface
 /// upon drop
@@ -43,7 +43,7 @@ pub fn safe_split_stream<S: AsyncWrite + AsyncRead + Unpin + ContextRequirements
 #[allow(variant_size_differences)]
 pub enum GenericNetworkStream {
     Tcp(TcpStream),
-    Tls(hyxe_nat::exports::tokio_rustls::TlsStream<TcpStream>),
+    Tls(hyxe_wire::exports::tokio_rustls::TlsStream<TcpStream>),
     // local addr is first addr, remote addr is final addr
     Quic(SendStream, RecvStream, Endpoint, Option<NewConnection>, SocketAddr)
 }
@@ -326,7 +326,7 @@ impl TlsListener {
     #[allow(dead_code)]
     pub fn load_tls_pkcs<P: AsRef<Path>, T: AsRef<str>>(path: P, password: T) -> Result<TLSQUICInterop, NetworkError> {
         let bytes = std::fs::read(path).map_err(|err| NetworkError::Generic(err.to_string()))?;
-        hyxe_nat::tls::create_server_config(&bytes, password.as_ref()).map_err(|err| NetworkError::Generic(err.to_string()))
+        hyxe_wire::tls::create_server_config(&bytes, password.as_ref()).map_err(|err| NetworkError::Generic(err.to_string()))
     }
 }
 
@@ -375,7 +375,7 @@ impl QuicListener {
                         let res = server.next_connection().await.map_err(|err| generic_error(err.to_string()));
                         match res {
                             Err(res) => {
-                                if res.to_string().contains(hyxe_nat::quic::QUIC_LISTENER_DIED) {
+                                if res.to_string().contains(hyxe_wire::quic::QUIC_LISTENER_DIED) {
                                     // terminate by yielding error
                                     yield Err(res)
                                 } else {

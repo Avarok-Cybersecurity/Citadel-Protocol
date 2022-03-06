@@ -16,18 +16,18 @@ use crate::hdp::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::hdp::misc::dual_cell::DualCell;
 use crate::hdp::state_container::StateContainer;
-use hyxe_nat::exports::Endpoint;
+use hyxe_wire::exports::Endpoint;
 use crate::hdp::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
 use futures::TryFutureExt;
-use hyxe_nat::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use hyxe_wire::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use std::fmt::Debug;
 use hyxe_user::re_imports::__private::Formatter;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
-use hyxe_nat::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
+use hyxe_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use netbeam::sync::operations::net_select_ok::NetSelectOkResult;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use hyxe_nat::exports::tokio_rustls::rustls;
+use hyxe_wire::exports::tokio_rustls::rustls;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end

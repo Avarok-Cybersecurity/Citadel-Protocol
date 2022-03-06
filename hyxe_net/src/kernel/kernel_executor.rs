@@ -4,7 +4,7 @@ use futures::TryStreamExt;
 use tokio::runtime::Handle;
 use tokio::task::LocalSet;
 
-use hyxe_nat::hypernode_type::NodeType;
+use hyxe_wire::hypernode_type::NodeType;
 use hyxe_user::account_manager::AccountManager;
 
 use crate::error::NetworkError;
@@ -16,7 +16,7 @@ use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::kernel::kernel::NetKernel;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::RuntimeFuture;
-use hyxe_nat::exports::tokio_rustls::rustls::ClientConfig;
+use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
 
 /// Creates a [KernelExecutor]

@@ -17,9 +17,9 @@ use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, HyperRatchetConstr
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::io::SyncIO;
-use hyxe_nat::hypernode_type::NodeType;
+use hyxe_wire::hypernode_type::NodeType;
 use netbeam::time_tracker::TimeTracker;
-use hyxe_nat::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
+use hyxe_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
@@ -62,12 +62,12 @@ use hyxe_crypt::prelude::ConstructorOpts;
 use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
-use hyxe_nat::nat_identification::NatType;
-use hyxe_nat::exports::{Endpoint, NewConnection};
+use hyxe_wire::nat_identification::NatType;
+use hyxe_wire::exports::{Endpoint, NewConnection};
 use crate::hdp::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 use atomic::Atomic;
 use crate::auth::AuthenticationRequest;
-use hyxe_nat::exports::tokio_rustls::rustls;
+use hyxe_wire::exports::tokio_rustls::rustls;
 
 //use crate::define_struct;
 
