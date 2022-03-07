@@ -95,7 +95,7 @@ impl Method3 {
             let _ = sleep.tick().await;
             for endpoint in endpoints {
                 let packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(unique_id, ttl)).unwrap());
-                log::info!("Sending TTL={} to {} || {:?}", ttl, endpoint, packet);
+                log::info!("Sending TTL={} to {} || {:?}", ttl, endpoint, &packet[..] as &[u8]);
                 socket.send_to(&packet, endpoint).await?;
             }
         }
