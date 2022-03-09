@@ -230,34 +230,6 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
     Ok(nat_type)
 }
 
-/*
-fn get_reuse_udp_socket<T: std::net::ToSocketAddrs>(addr: Option<T>) -> Result<UdpSocket, anyhow::Error> {
-    let addr: SocketAddr = if let Some(addr) = addr {
-        addr.to_socket_addrs()?.next().ok_or(anyhow::Error::msg("No sockets"))?
-    } else {
-        SocketAddr::new(IpAddr::from([0, 0, 0, 0]), 0)
-    };
-
-    #[cfg(all(unix, not(any(target_os = "solaris", target_os = "illumos"))))]
-        {
-            use net2::unix::UnixUdpBuilderExt;
-
-            let builder = net2::UdpBuilder::new_v4()?;
-            Ok(builder.reuse_address(true)?.reuse_port(true)?.bind(addr).and_then(|r| {
-                r.set_nonblocking(true)?;
-                tokio::net::UdpSocket::from_std(r)
-            })?)
-        }
-    #[cfg(not(all(unix, not(any(target_os = "solaris", target_os = "illumos")))))]
-        {
-            let builder = net2::UdpBuilder::new_v4()?;
-            Ok(builder.reuse_address(true)?.bind(addr).and_then(|r| {
-                r.set_nonblocking(true)?;
-                tokio::net::UdpSocket::from_std(r)
-            })?)
-        }
-}*/
-
 #[cfg(test)]
 mod tests {
     use crate::nat_identification::NatType;

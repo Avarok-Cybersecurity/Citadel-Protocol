@@ -1,4 +1,4 @@
-name: All workflows
+name: Validate PR
 on:
   workflow_call:
 
@@ -209,52 +209,3 @@ jobs:
             await github.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
-  docs:
-    needs:
-      - proto
-      - nat
-      - lusna_sdk
-      - coverage
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust:
-          - stable
-    steps:
-      - uses: actions/checkout@v2.4.0
-        with:
-          submodules: true
-
-      - uses: actions-rs/toolchain@v1.0.7
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.rust }}
-          override: true
-
-      - uses: actions-rs/cargo@v1.0.3
-        with:
-          command: doc
-          args: --package lusna_sdk --features webrtc --no-deps
-
-      - name: Deploy documentation
-        if: success()
-        uses: crazy-max/ghaction-github-pages@v2.6.0
-        with:
-          build_dir: target/doc
-          target_branch: gh-pages
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: actions/checkout@v2
-        if: success()
-        with:
-          ref: gh-pages
-      - name: Ensure valid redirection
-        run: |
-          mv ${GITHUB_WORKSPACE}/lusna_sdk ${GITHUB_WORKSPACE}/docs
-          echo "<meta http-equiv=\"refresh\" content=\"0; url=docs\">" > ${GITHUB_WORKSPACE}/index.html
-          git config --global user.name "tbraun96"
-          git config --global user.email "thomas.braun@avarok.net"
-          git add .
-          git commit -m "redirection config"
-          git push

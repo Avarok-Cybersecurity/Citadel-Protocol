@@ -43,6 +43,7 @@ impl ReliableOrderedStreamToTarget for ReliableOrderedCompatStream {
 
     async fn recv(&self) -> std::io::Result<Bytes> {
         // This assumes the payload is stripped from the header and the payload is decrypted
+        // packet is decrypted in hole_punch.rs
         self.from_stream.lock().await.recv().await.ok_or_else(|| generic_error("Inbound ordered reliable stream died"))
     }
 }
