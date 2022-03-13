@@ -112,6 +112,7 @@ impl Method3 {
         let buf = &mut [0u8; 4096];
         log::info!("[Hole-punch] Listening on {:?}", socket.local_addr().unwrap());
         let ref encryptor = EncryptedConfigContainer::default();
+        let mut has_received_syn = false;
         //let mut recv_from_required = None;
         while let Ok((len, peer_external_addr)) = socket.recv_from(buf).await {
             log::info!("[UDP Hole-punch] RECV packet from {:?} | {:?}", &peer_external_addr, &buf[..len]);
@@ -126,6 +127,10 @@ impl Method3 {
 
             match bincode2::deserialize(&packet).map_err(|err| FirewallError::HolePunch(err.to_string())) {
                 Ok(NatPacket::Syn(peer_unique_id, ttl)) => {
+                    if has_received_syn {
+                        continue;
+                    }
+
                     log::info!("RECV SYN");
                     let hole_punched_addr = TargettedSocketAddr::new(*endpoint, peer_external_addr, peer_unique_id);
 
@@ -137,8 +142,12 @@ impl Method3 {
                     for ttl in [20, 60, 120] {
                         let _ = socket.set_ttl(ttl);
                         sleep.tick().await;
-                        socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone())).unwrap()), peer_external_addr).await?;
+                        let ref packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone())).unwrap());
+                        log::info!("[Syn->SynAck] Sending TTL={} to {} || {:?}", ttl, peer_external_addr, &packet[..] as &[u8]);
+                        socket.send_to(packet, peer_external_addr).await?;
                     }
+
+                    has_received_syn = true;
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
