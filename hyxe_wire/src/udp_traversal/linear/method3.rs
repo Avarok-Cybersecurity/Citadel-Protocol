@@ -55,9 +55,11 @@ impl Method3 {
         let ref observed_addrs_on_syn = self.observed_addrs_on_syn;
         let ref syn_observer = self.syn_observer;
 
+        const MILLIS_DELTA: u64 = 40;
+
         let receiver_task = async move {
             // we are only interested in the first receiver to receive a value
-            if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), Self::recv_until(socket, &endpoints[0], encryptor, unique_id, observed_addrs_on_syn, syn_observer)).await.map_err(|err| FirewallError::HolePunch(err.to_string()))? {
+            if let Ok(res) = tokio::time::timeout(Duration::from_millis(2000), Self::recv_until(socket, &endpoints[0], encryptor, unique_id, observed_addrs_on_syn, syn_observer, MILLIS_DELTA)).await.map_err(|err| FirewallError::HolePunch(err.to_string()))? {
                 Ok(res)
             } else {
                 Err(FirewallError::HolePunch("No UDP penetration detected".to_string()))
@@ -66,8 +68,8 @@ impl Method3 {
 
         let sender_task = async move {
             tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
-            Self::send_syn_barrage(2, None, socket, endpoints, encryptor, 40, 5, unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-            Self::send_syn_barrage(120, None, socket, endpoints, encryptor, 20, 5,unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            Self::send_syn_barrage(2, None, socket, endpoints, encryptor, MILLIS_DELTA, 5, unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            Self::send_syn_barrage(120, None, socket, endpoints, encryptor,  MILLIS_DELTA, 5,unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
             Ok(()) as Result<(), FirewallError>
         };
 
@@ -89,6 +91,8 @@ impl Method3 {
         let delta_ttl = delta_ttl.unwrap_or(0);
         let ttls = (0..count).into_iter().map(|idx| ttl_init + (idx*delta_ttl)).collect::<Vec<u32>>();
 
+        let ref encryptor = EncryptedConfigContainer::default();
+
         // fan-out of packets from a singular source to multiple consumers using the ttls specified
         for ttl in ttls {
             let _ = socket.set_ttl(ttl);
@@ -104,10 +108,10 @@ impl Method3 {
     }
 
     // Handles the reception of packets, as well as sending/awaiting for a verification
-    async fn recv_until(socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer, unique_id: &HolePunchID, observed_addrs_on_syn: &Mutex<HashMap<HolePunchID, TargettedSocketAddr>>, syn_observer: &UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<TargettedSocketAddr, FirewallError> {
+    async fn recv_until(socket: &UdpSocket, endpoint: &SocketAddr, encryptor: &EncryptedConfigContainer, unique_id: &HolePunchID, observed_addrs_on_syn: &Mutex<HashMap<HolePunchID, TargettedSocketAddr>>, syn_observer: &UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>, millis_delta: u64) -> Result<TargettedSocketAddr, FirewallError> {
         let buf = &mut [0u8; 4096];
         log::info!("[Hole-punch] Listening on {:?}", socket.local_addr().unwrap());
-
+        let ref encryptor = EncryptedConfigContainer::default();
         //let mut recv_from_required = None;
         while let Ok((len, peer_external_addr)) = socket.recv_from(buf).await {
             log::info!("[UDP Hole-punch] RECV packet from {:?} | {:?}", &peer_external_addr, &buf[..len]);
@@ -129,8 +133,10 @@ impl Method3 {
                     observed_addrs_on_syn.lock().insert(peer_unique_id, hole_punched_addr);
 
                     log::info!("Received TTL={} packet. Awaiting mutual recognition...", ttl);
-                    for _ in 0..3 {
-                        let _ = socket.set_ttl(120);
+                    let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
+                    for ttl in [20, 60, 120] {
+                        let _ = socket.set_ttl(ttl);
+                        sleep.tick().await;
                         socket.send_to(&encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone())).unwrap()), peer_external_addr).await?;
                     }
                 }
