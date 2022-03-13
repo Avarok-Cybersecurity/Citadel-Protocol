@@ -59,18 +59,16 @@ impl NatType {
     }
 
     /// Identifies the NAT which the local node is behind
-    #[cfg(not(feature = "localhost-testing"))]
     pub async fn identify_timeout(timeout: Duration, _local_bind_ip: IpAddr) -> Result<Self, FirewallError> {
-        #[cfg(not(feature = "localhost-testing"))] {
-            tokio::time::timeout(timeout, get_nat_type()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?.map_err(|err| FirewallError::HolePunch(err.to_string()))
-        }
+        tokio::time::timeout(timeout, get_nat_type()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?.map_err(|err| FirewallError::HolePunch(err.to_string()))
     }
 
+    /*
     #[cfg(feature = "localhost-testing")]
     pub async fn identify_timeout(_timeout: Duration, local_bind_ip: IpAddr) -> Result<Self, FirewallError> {
         use std::str::FromStr;
         Ok(Self::EDM(local_bind_ip, Some(IpAddressInfo::localhost()), 0))
-    }
+    }*/
 
     /// Returns the NAT traversal type required to access self and other, respectively
     pub fn traversal_type_required_with(&self, other: &NatType) -> (TraversalTypeRequired, TraversalTypeRequired) {
