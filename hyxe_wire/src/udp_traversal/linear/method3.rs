@@ -96,11 +96,11 @@ impl Method3 {
 
         // fan-out of packets from a singular source to multiple consumers using the ttls specified
         for ttl in ttls {
-            let _ = socket.set_ttl(ttl);
-            let _ = sleep.tick().await;
             for endpoint in endpoints {
+                let _ = sleep.tick().await;
                 let packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(unique_id, ttl)).unwrap());
                 log::info!("Sending TTL={} to {} || {:?}", ttl, endpoint, &packet[..] as &[u8]);
+                let _ = socket.set_ttl(ttl);
                 socket.send_to(&packet, endpoint).await?;
             }
         }
@@ -148,11 +148,11 @@ impl Method3 {
                     log::info!("Received TTL={} packet. Awaiting mutual recognition... (addrs_to_send_to: {:?}", ttl, &addrs_to_send_to);
 
                     for ttl in [20, 60, 120] {
-                        let _ = socket.set_ttl(ttl);
                         for addr in &addrs_to_send_to {
                             sleep.tick().await;
                             let ref packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone())).unwrap());
                             log::info!("[Syn->SynAck] Sending TTL={} to {} || {:?}", ttl, addr, &packet[..] as &[u8]);
+                            let _ = socket.set_ttl(ttl);
                             socket.send_to(packet, addr).await?;
                         }
                     }
