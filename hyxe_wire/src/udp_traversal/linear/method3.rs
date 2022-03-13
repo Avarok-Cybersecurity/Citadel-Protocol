@@ -123,9 +123,9 @@ impl Method3 {
                 }
             };
 
-            let packet: NatPacket = bincode2::deserialize(&packet).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-            match packet {
-                NatPacket::Syn(peer_unique_id, ttl) => {
+
+            match bincode2::deserialize(&packet).map_err(|err| FirewallError::HolePunch(err.to_string())) {
+                Ok(NatPacket::Syn(peer_unique_id, ttl)) => {
                     log::info!("RECV SYN");
                     let hole_punched_addr = TargettedSocketAddr::new(*endpoint, peer_external_addr, peer_unique_id);
 
@@ -142,7 +142,7 @@ impl Method3 {
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
-                NatPacket::SynAck(adjacent_unique_id) => {
+                Ok(NatPacket::SynAck(adjacent_unique_id)) => {
                     log::info!("RECV SYN_ACK");
                     // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
                     let initial_socket = endpoint;
@@ -150,6 +150,10 @@ impl Method3 {
                     log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
 
                     return Ok(hole_punched_addr);
+                }
+
+                Err(err) => {
+                    log::warn!("Unable to deserialize packet {:?} from {:?}: {:?}", &packet[..], peer_external_addr, err);
                 }
             }
         }
