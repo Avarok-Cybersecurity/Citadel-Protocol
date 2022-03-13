@@ -44,7 +44,6 @@ async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedCon
     let ref nat_type = NatType::identify(local_addr.ip()).await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
     log::info!("[driver] Local NAT type: {:?}", &nat_type);
 
-
     let (peer_nat_type, peer_internal_bind_port ) = conn.sync_exchange_payload((nat_type.clone(), internal_bind_port)).await?;
     log::info!("[driver] Synchronized; will now execute dualstack hole-puncher ...");
     DualStackUdpHolePuncher::new(conn.node_type(), encrypted_config_container, &conn.initiate_subscription().await?, local_addr, peer_addr, nat_type, &peer_nat_type, peer_internal_bind_port, 0)?.await
