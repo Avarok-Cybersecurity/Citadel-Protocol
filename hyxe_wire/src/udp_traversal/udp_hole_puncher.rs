@@ -67,7 +67,6 @@ mod tests {
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
-        //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
         log::trace!("TRACE enabled");
         log::info!("INFO enabled");
