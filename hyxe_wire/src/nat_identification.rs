@@ -199,13 +199,19 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
                     return Ok(NatType::EDMRandomIp(vec![addr_ext.ip(), addr2_ext.ip(), addr3_ext.ip()], None));
                 }
 
-                // ips are equal, but ports are unequal (implied by first conditional)
-                let delta0 = i32::abs(addr_ext.port() as i32 - addr_int.port() as i32);
-                let delta1 = i32::abs(addr2_ext.port() as i32 - addr2_int.port() as i32);
-                let delta2 = i32::abs(addr3_ext.port() as i32 - addr3_int.port() as i32);
-                log::info!("Delta0: {} | Delta1: {} | Delta2: {}", delta0, delta1, delta2);
+                let deltas = &mut [addr_ext.port(), addr2_ext.port(), addr3_ext.port()];
+                deltas.sort();
 
-                return if (delta0 == delta1) && (delta1 == delta2) {
+                // ips are equal, but ports are unequal (implied by first conditional)
+                /*let delta0 = i32::abs(addr_ext.port() as i32 - addr_int.port() as i32);
+                let delta1 = i32::abs(addr2_ext.port() as i32 - addr2_int.port() as i32);
+                let delta2 = i32::abs(addr3_ext.port() as i32 - addr3_int.port() as i32);*/
+                let delta0 = i32::abs(deltas[0] as i32 - deltas[1] as i32);
+                let delta1 = i32::abs(deltas[1] as i32 - deltas[2] as i32);
+                //let delta2 = i32::abs(addr3_ext.port() as i32 - addr3_int.port() as i32);
+                log::info!("Delta0: {} | Delta1: {}", delta0, delta1);
+
+                return if delta0 == delta1 {
                     // This means the ports are predictable. Use TCP simultaneous connect on expected ports based on delta. It is expected this data be sent to the peer. The peer will then connect to the socket ip:(LOCAL_BIND_PORT+delta)
                     Ok(NatType::EDM(addr_ext.ip(), None, delta0))
                 } else {
