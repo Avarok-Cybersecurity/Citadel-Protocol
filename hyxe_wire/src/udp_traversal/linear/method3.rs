@@ -77,7 +77,9 @@ impl Method3 {
             Ok(()) as Result<(), FirewallError>
         };
 
-        let (res0, _) = tokio::join!(receiver_task, sender_task);
+        let (res0, res1) = tokio::join!(receiver_task, sender_task);
+
+        log::info!("Hole-punch join result: recv={:?} and send={:?}", res0, res1);
 
         if let Some(default_ttl) = default_ttl {
             socket.set_ttl(default_ttl).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
@@ -143,9 +145,9 @@ impl Method3 {
 
                     let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
 
-                    log::info!("Received TTL={} packet. Awaiting mutual recognition... ", ttl);
+                    log::info!("Received TTL={} packet from {:?}. Awaiting mutual recognition... ", ttl, peer_external_addr);
 
-                    for ttl in [20, 60, 120] {
+                    for ttl in [2, 60, 120] {
                         sleep.tick().await;
                         let ref packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone())).unwrap());
                         log::info!("[Syn->SynAck] Sending TTL={} to {} || {:?}", ttl, peer_external_addr, &packet[..] as &[u8]);
