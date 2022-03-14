@@ -378,13 +378,7 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
 
 /// returns mapping of (remote_id, local_id)
 fn construct_received_ids(received_syns: &HashSet<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Vec<(HolePunchID, HolePunchID, TargettedSocketAddr)> {
-    let mut ret: Vec<(HolePunchID, HolePunchID, TargettedSocketAddr)> = Vec::new();
-
-    for (local_id, remote_id, addr) in received_syns.iter() {
-        ret.push((*local_id, *remote_id, *addr));
-    }
-
-    ret
+    received_syns.iter().copied().collect()
 }
 
 async fn send<R: Serialize, V: ReliableOrderedStreamToTarget>(ref input: R, conn: &V) -> Result<(), anyhow::Error> {
