@@ -59,7 +59,7 @@ impl Method3 {
 
         let ref socket_wrapper = UdpWrapper::new(socket);
 
-        const MILLIS_DELTA: u64 = 40;
+        const MILLIS_DELTA: u64 = 20;
 
         let receiver_task = async move {
             // we are only interested in the first receiver to receive a value
@@ -71,9 +71,9 @@ impl Method3 {
         };
 
         let sender_task = async move {
-            tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
-            Self::send_syn_barrage(2, None, socket_wrapper, endpoints, encryptor, MILLIS_DELTA, 3, unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
-            Self::send_syn_barrage(120, None, socket_wrapper, endpoints, encryptor,  MILLIS_DELTA, 3,unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            //tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
+            Self::send_syn_barrage(2, Some(20), socket_wrapper, endpoints, encryptor, MILLIS_DELTA, 6, unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            //Self::send_syn_barrage(120, None, socket_wrapper, endpoints, encryptor,  MILLIS_DELTA, 3,unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
             Ok(()) as Result<(), FirewallError>
         };
 
@@ -100,7 +100,7 @@ impl Method3 {
 
         let ref encryptor = EncryptedConfigContainer::default();
 
-        // fan-out of packets from a singular source to multiple consumers using the ttls specified
+        // fan-out all packets from a singular source to multiple consumers using the ttls specified
         for ttl in ttls {
             for endpoint in endpoints {
                 let _ = sleep.tick().await;
