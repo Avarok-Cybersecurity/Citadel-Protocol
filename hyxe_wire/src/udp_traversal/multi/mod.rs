@@ -18,7 +18,7 @@ use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
 use crate::udp_traversal::targetted_udp_socket_addr::{TargettedSocketAddr, HolePunchedUdpSocket};
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
-use netbeam::reliable_conn::{ReliableOrderedConnectionToTarget, ReliableOrderedStreamToTarget};
+use netbeam::reliable_conn::ReliableOrderedStreamToTarget;
 use netbeam::sync::RelativeNodeType;
 use crate::error::FirewallError;
 
@@ -217,7 +217,7 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
                                     *locked_in_locally = Some(local_unique_id.clone());
                                     // sent the remote unique ID
                                     std::mem::drop(write);
-                                    send(DualStackCandidate::ResolveLockedIn(peer_id), conn).await?;
+                                    send(DualStackCandidate::ResolveLockedIn(*local_unique_id), conn).await?;
                                     // we send this, then keep looping until getting an appropriate response
                                 }
                             } else {
@@ -343,6 +343,7 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
                 DualStackCandidate::ResolveLockedIn(ref local_unique_id) => {
                     // How did we get here? This side sends a SingleHolePunchSuccess, then, the adjacent side confirms that it also has finished connecting with local_unique_id. It then sends this packet to this node
                     // Both sides have local_unique_id saved locally. The only side that RECEIVES the ResolveLockedIn is the precedence side; it must send an ack back
+                    log::info!("IS this node submitted? {:?} | has_precedence? {}", this_node_submitted, has_precedence);
                     debug_assert!(has_precedence);
 
                     // it is possible that this side already resolved, in which case unwrapping below would yield a panic. Instead, just send an Resolved
@@ -351,7 +352,16 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
                         Ok(())
                     } else {
                         // we finish on local, then send a resolved
-                        let (hole_punched_socket, _hole_puncher) = local_completions.write().await.remove(local_unique_id).unwrap();
+                        let mut local_completions = local_completions.write().await;
+                        log::info!("*** Local_completions: {:?}", &local_completions.keys());
+                        let hole_punched_socket = if let Some((hole_punched_socket, _hole_puncher)) = local_completions.remove(local_unique_id) {
+                            hole_punched_socket
+                        } else {
+                            log::info!("*** This node has not submitted, and {:?} is not completed", local_unique_id);
+                            // if not completed, could be in failures
+                            log::info!("*** in failures? {:?}", local_failures.read().await.keys());
+                            panic!("Report to developers")
+                        };
                         // send the adjacent id to remote per usual
                         send(DualStackCandidate::Resolved(hole_punched_socket.addr.unique_id, None), conn).await?;
                         final_candidate_tx.take().unwrap().send(hole_punched_socket).map_err(|_| anyhow::Error::msg("oneshot send error"))?;
@@ -387,12 +397,6 @@ async fn send<R: Serialize, V: ReliableOrderedStreamToTarget>(ref input: R, conn
 
 async fn receive<T: DeserializeOwned, V: ReliableOrderedStreamToTarget>(conn: &V) -> Result<T, anyhow::Error> {
     Ok(bincode2::deserialize(&conn.recv().await?)?)
-}
-
-#[allow(dead_code)]
-async fn send_then_receive<T: DeserializeOwned, R: Serialize, V: ReliableOrderedConnectionToTarget>(ref input: R, conn: &V) -> Result<T, anyhow::Error> {
-    send(input, conn).await?;
-    receive(conn).await
 }
 
 fn increment_ports(bind_addr_0: SocketAddr, peer_external_addr_0: SocketAddr, peer_internal_addr_0: SocketAddr, bind_addr_1: SocketAddr, peer_external_addr_1: SocketAddr, peer_internal_addr_1: SocketAddr, delta: u16) -> (SocketAddr, SocketAddr, SocketAddr, SocketAddr, SocketAddr, SocketAddr) {
