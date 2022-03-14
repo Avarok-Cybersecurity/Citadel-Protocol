@@ -74,53 +74,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dual_hole_puncher_join() {
+    async fn dual_hole_puncher() {
         setup_log();
 
         let (server_stream, client_stream) = create_streams_with_addrs().await;
 
-        let server = async move { server_stream.clone().net_join(async move {
-                let res = server_stream.begin_udp_hole_punch(Default::default()).await.unwrap();
-                log::info!("Server res: {:?}", res);
-                res
-            }).await
+        let server = async move {
+            let res = server_stream.begin_udp_hole_punch(Default::default()).await;
+            log::info!("Server res: {:?}", res);
+            res.unwrap()
         };
 
-        let client = async move { client_stream.clone().net_join(async move {
-            let res = client_stream.begin_udp_hole_punch(Default::default()).await.unwrap();
+        let client = async move {
+            let res = client_stream.begin_udp_hole_punch(Default::default()).await;
             log::info!("Client res: {:?}", res);
-            res
-        }).await};
+            res.unwrap()
+        };
 
         let server = tokio::spawn(server);
         let client = tokio::spawn(client);
         let (res0, res1) = tokio::join!(server, client);
-        log::info!("JOIN complete!");
+        log::info!("JOIN complete! {:?} | {:?}", res0, res1);
         let (res0, res1) = (res0.unwrap(), res1.unwrap());
-        let (res0, res1) = (res0.unwrap(), res1.unwrap());
-        assert!(res0.value.is_some() && res1.value.is_some());
-    }
-
-    #[tokio::test]
-    async fn dual_hole_puncher_select_ok() {
-        setup_log();
-
-        let (server_stream, client_stream) = create_streams_with_addrs().await;
-
-        let server = async move { server_stream.clone().net_select_ok(async move {
-            server_stream.begin_udp_hole_punch(Default::default()).await
-        }).await};
-
-        let client = async move { client_stream.clone().net_select_ok(async move {
-            client_stream.begin_udp_hole_punch(Default::default()).await
-        }).await};
-
-        let server = tokio::spawn(server);
-        let client = tokio::spawn(client);
-        let (res0, res1) = tokio::join!(server, client);
-        log::info!("SELECT_OK complete!");
-        let (res0, res1) = (res0.unwrap(), res1.unwrap());
-        let (res0, res1) = (res0.unwrap(), res1.unwrap());
-        assert!(res0.result.is_some() || res1.result.is_some());
     }
 }
