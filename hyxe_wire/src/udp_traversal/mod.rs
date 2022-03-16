@@ -52,3 +52,9 @@ impl HolePunchID {
         Self(Uuid::new_v4())
     }
 }
+
+impl Default for HolePunchID {
+    fn default() -> Self {
+        Self::new()
+    }
+}
