@@ -18,7 +18,7 @@ impl TargettedSocketAddr {
     }
 
     pub fn new_invariant(addr: SocketAddr) -> Self {
-        Self { initial: addr, natted: addr, unique_id: HolePunchID(0) }
+        Self { initial: addr, natted: addr, unique_id: HolePunchID::new() }
     }
 
     pub fn ip_translated(&self) -> bool {
@@ -49,4 +49,25 @@ impl Display for TargettedSocketAddr {
 pub struct HolePunchedUdpSocket {
     pub socket: UdpSocket,
     pub addr: TargettedSocketAddr
+}
+
+impl HolePunchedUdpSocket {
+    // After hole-punching, some packets may be sent that need to be flushed
+    // this cleanses the stream
+    pub(crate) fn cleanse(&self) -> std::io::Result<()> {
+        let buf = &mut [0u8; 1024];
+        loop {
+            match self.socket.try_recv(buf) {
+                Ok(_) => {
+                    continue;
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    return Ok(())
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+        }
+    }
 }

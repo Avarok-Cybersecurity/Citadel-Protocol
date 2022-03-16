@@ -160,20 +160,24 @@ pub mod simulator {
         fwd: UnboundedSender<Vec<u8>>
     }
 
-    impl<T: ReliableOrderedConnectionToTarget + 'static> From<T> for NetworkConnSimulator<T> {
-        fn from(inner: T) -> Self {
+    impl<T: ReliableOrderedConnectionToTarget + 'static> NetworkConnSimulator<T> {
+        pub(crate) fn new(min_lag: usize, inner: T) -> Self {
             let inner = Arc::new(inner);
             let inner_fwd = inner.clone();
             let (fwd, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
 
             tokio::task::spawn(async move {
                 while let Some(packet) = rx.recv().await {
-                    let _rnd = {
-                        let mut rng = rand::thread_rng();
-                        rng.gen_range(50..150) // 50 -> 150ms ping
-                    };
+                    if min_lag != 0 {
+                        let rnd = {
+                            let mut rng = rand::thread_rng();
+                            let max = 2*min_lag;
+                            rng.gen_range(min_lag..max) // 50 -> 150ms ping
+                        };
 
-                    //tokio::time::sleep(std::time::Duration::from_millis(_rnd)).await;
+                        tokio::time::sleep(std::time::Duration::from_millis(rnd as u64)).await;
+                    }
+
                     inner_fwd.send_to_peer(&packet).await.unwrap();
                 }
             });
