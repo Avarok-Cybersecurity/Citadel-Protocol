@@ -44,9 +44,11 @@ async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedCon
     let ref nat_type = NatType::identify(local_addr.ip()).await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
     log::info!("[driver] Local NAT type: {:?}", &nat_type);
 
+    let subscription = conn.initiate_subscription().await?;
     let (peer_nat_type, peer_internal_bind_port ) = conn.sync_exchange_payload((nat_type.clone(), internal_bind_port)).await?;
     log::info!("[driver] Synchronized; will now execute dualstack hole-puncher ...");
-    DualStackUdpHolePuncher::new(conn.node_type(), encrypted_config_container, &conn.initiate_subscription().await?, local_addr, peer_addr, nat_type, &peer_nat_type, peer_internal_bind_port, 5)?.await
+    let res = DualStackUdpHolePuncher::new(conn.node_type(), encrypted_config_container, &subscription, local_addr, peer_addr, nat_type, &peer_nat_type, peer_internal_bind_port, 5, conn)?.await;
+    res
 }
 
 pub trait EndpointHolePunchExt {
@@ -62,7 +64,8 @@ impl EndpointHolePunchExt for NetworkEndpoint {
 #[cfg(test)]
 mod tests {
     use crate::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
-    use netbeam::sync::test_utils::create_streams_with_addrs;
+    use netbeam::sync::test_utils::create_streams_with_addrs_and_lag;
+    use rstest::rstest;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -73,11 +76,15 @@ mod tests {
         log::error!("ERROR enabled");
     }
 
+    #[rstest]
+    #[case(0)]
+    #[case(50)]
+    #[case(100)]
     #[tokio::test]
-    async fn dual_hole_puncher() {
+    async fn dual_hole_puncher(#[case] lag: usize) {
         setup_log();
 
-        let (server_stream, client_stream) = create_streams_with_addrs().await;
+        let (server_stream, client_stream) = create_streams_with_addrs_and_lag(lag).await;
 
         let server = async move {
             let res = server_stream.begin_udp_hole_punch(Default::default()).await;
@@ -96,5 +103,16 @@ mod tests {
         let (res0, res1) = tokio::join!(server, client);
         log::info!("JOIN complete! {:?} | {:?}", res0, res1);
         let (res0, res1) = (res0.unwrap(), res1.unwrap());
+
+        let dummy_bytes = b"Hello, world!";
+
+        log::info!("A");
+        res0.socket.send_to(dummy_bytes as &[u8], res0.addr.initial).await.unwrap();
+        log::info!("B");
+        let buf = &mut [0u8; 20];
+        let len = res1.socket.recv(buf).await.unwrap();
+        log::info!("C");
+        assert_eq!(&buf[..len], dummy_bytes);
+        log::info!("D");
     }
 }
