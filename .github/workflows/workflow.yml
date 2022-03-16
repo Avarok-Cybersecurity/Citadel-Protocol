@@ -187,14 +187,10 @@ jobs:
         uses: actions-rs/tarpaulin@v0.1
         with:
           args: '--timeout 3600 --packages lusna_sdk --features=localhost-testing -- --test-threads=1'
-      - uses: codecov/codecov-action@v1.0.2
+      - uses: codecov/codecov-action@v2
         with:
           token: ${{secrets.CODECOV_TOKEN}}
-      - name: Archive code coverage results
-        uses: actions/upload-artifact@v1
-        with:
-          name: code-coverage-report
-          path: cobertura.xml
+          files: cobertura.xml
       - uses: actions/github-script@v2
         if: failure()
         with:
