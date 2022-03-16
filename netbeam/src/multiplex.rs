@@ -12,7 +12,7 @@ use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
 use anyhow::Error;
-use crate::sync::network_application::{PostActionChannel, PreActionChannel};
+use crate::sync::network_application::{PostActionChannel, PreActionChannel, INITIAL_CAPACITY};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicU64, Ordering};
 use async_trait::async_trait;
@@ -24,6 +24,7 @@ pub trait IDGen<Key: MultiplexedConnKey> {
     type Container: Send + Sync;
     fn generate_container() -> Self::Container;
     fn generate_next(container: &Self::Container) -> Self;
+    fn get_proposed_next(container: &Self::Container) -> Key;
 }
 
 impl IDGen<SymmetricConvID> for SymmetricConvID {
@@ -36,6 +37,10 @@ impl IDGen<SymmetricConvID> for SymmetricConvID {
     fn generate_next(container: &Self::Container) -> SymmetricConvID {
         (1 + container.fetch_add(1, Ordering::Relaxed)).into()
     }
+
+    fn get_proposed_next(container: &Self::Container) -> SymmetricConvID {
+        (1 + container.load(Ordering::Relaxed)).into()
+    }
 }
 
 pub struct MultiplexedConn<K: MultiplexedConnKey = SymmetricConvID> {
@@ -44,11 +49,25 @@ pub struct MultiplexedConn<K: MultiplexedConnKey = SymmetricConvID> {
 
 pub struct MultiplexedConnInner<K: MultiplexedConnKey> {
     pub(crate) conn: Arc<dyn ReliableOrderedStreamToTarget>,
-    subscribers: RwLock<HashMap<K, UnboundedSender<Vec<u8>>>>,
+    subscribers: RwLock<HashMap<K, MemorySender>>,
     pre_open_container: PreActionChannel<K>,
     post_close_container: PostActionChannel<K>,
     id_gen: K::Container,
+    current_latest_subscribed: K::Container,
     node_type: RelativeNodeType
+}
+
+pub struct MemorySender {
+    tx: UnboundedSender<Vec<u8>>,
+    pre_reserved_rx: Option<UnboundedReceiver<Vec<u8>>>
+}
+
+impl Deref for MemorySender {
+    type Target = UnboundedSender<Vec<u8>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.tx
+    }
 }
 
 impl<K: MultiplexedConnKey> Deref for MultiplexedConn<K> {
@@ -70,7 +89,20 @@ pub(crate) enum MultiplexedPacket<K: MultiplexedConnKey> {
 
 impl<K: MultiplexedConnKey> MultiplexedConn<K> {
     pub fn new<T: ReliableOrderedStreamToTarget + 'static>(node_type: RelativeNodeType, conn: T) -> Self {
-        Self { inner: Arc::new(MultiplexedConnInner { conn: Arc::new(conn), subscribers: RwLock::new(HashMap::new()), pre_open_container: PreActionChannel::new(), post_close_container: PostActionChannel::new(), id_gen: K::generate_container(), node_type })}
+        let id_gen = K::generate_container();
+        let ids: Vec<K> = (0..INITIAL_CAPACITY).into_iter().map(|_| <K as IDGen<K>>::generate_next(&id_gen)).collect();
+        // the next two lines will generate a list of pre-established bistreams
+        let post_close_container = PostActionChannel::new(&ids);
+        let mut subscribers = HashMap::new();
+
+        for id in ids {
+            let (tx, pre_reserved_rx) = tokio::sync::mpsc::unbounded_channel();
+            subscribers.insert(id, MemorySender { tx, pre_reserved_rx: Some(pre_reserved_rx) });
+        }
+
+        let current_latest_subscribed = K::generate_container();
+
+        Self { inner: Arc::new(MultiplexedConnInner { conn: Arc::new(conn), subscribers: RwLock::new(subscribers), pre_open_container: PreActionChannel::new(), post_close_container, current_latest_subscribed, id_gen, node_type })}
     }
 }
 
@@ -160,7 +192,7 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
         &self.conn
     }
 
-    fn subscriptions(&self) -> &RwLock<HashMap<Self::ID, UnboundedSender<Vec<u8>>>> {
+    fn subscriptions(&self) -> &RwLock<HashMap<Self::ID, MemorySender>> {
         &self.subscribers
     }
 
@@ -188,11 +220,21 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
         self.node_type
     }
 
+    fn get_next_prereserved(&self) -> Option<Self::BorrowedSubscriptionType> {
+        let mut lock = self.subscribers.write();
+        let next_key = K::get_proposed_next(&self.current_latest_subscribed);
+        let pre_reserved_stream = lock.get_mut(&next_key)?;
+        let sub = MultiplexedSubscription { ptr: self, receiver: Some(Mutex::new(pre_reserved_stream.pre_reserved_rx.take()?)), id: next_key };
+        assert_eq!(K::generate_next(&self.current_latest_subscribed), next_key);
+        Some(sub.into())
+    }
+
     fn subscribe(&self, id: Self::ID) -> Self::BorrowedSubscriptionType {
         let mut lock = self.subscribers.write();
         let (tx, receiver) = unbounded_channel();
         let sub = MultiplexedSubscription { ptr: self, receiver: Some(Mutex::new(receiver)), id };
-        let _ = lock.insert(id, tx);
+        assert!(lock.insert(id, MemorySender { tx, pre_reserved_rx: None }).is_none());
+        assert_eq!(K::generate_next(&self.current_latest_subscribed), id);
         // TODO: on GAT stabalization, remove into
         sub.into()
     }

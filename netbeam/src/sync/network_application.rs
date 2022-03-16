@@ -23,6 +23,8 @@ use crate::sync::channel::bi_channel;
 
 pub type NetworkApplication = MultiplexedConn<SymmetricConvID>;
 
+pub(crate) const INITIAL_CAPACITY: usize = 32;
+
 pub struct PreActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
     tx: tokio::sync::mpsc::Sender<K>,
     rx: Mutex<tokio::sync::mpsc::Receiver<K>>
@@ -37,7 +39,7 @@ impl<K: MultiplexedConnKey> PreActionChannel<K> {
 
 pub struct PostActionChannel<K: MultiplexedConnKey = SymmetricConvID> {
     tx: Mutex<HashMap<K, tokio::sync::oneshot::Sender<()>>>,
-    rx: Mutex<HashMap<K, tokio::sync::oneshot::Receiver<()>>>
+    rx: Mutex<HashMap<K, tokio::sync::oneshot::Receiver<()>>>,
 }
 
 impl<K: MultiplexedConnKey> PostActionChannel<K> {
@@ -57,15 +59,20 @@ impl<K: MultiplexedConnKey> PostActionChannel<K> {
 }
 
 impl<K: MultiplexedConnKey> PostActionChannel<K> {
-    pub(crate) fn new() -> Self {
-        let (tx, rx) = (HashMap::new(), HashMap::new());
+    pub(crate) fn new(initial_ids: &Vec<K>) -> Self {
+        let (mut tx, mut rx) = (HashMap::new(), HashMap::new());
+        for id in initial_ids {
+            let (tx_s, rx_s) = tokio::sync::oneshot::channel();
+            tx.insert(*id, tx_s);
+            rx.insert(*id, rx_s);
+        }
+
         Self { tx: Mutex::new(tx), rx: Mutex::new(rx) }
     }
 }
 
 impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
     pub async fn register<T: ReliableOrderedStreamToTarget + 'static>(relative_node_type: RelativeNodeType, t: T) -> Result<Self, anyhow::Error> {
-        // we begin with the receiver as usual since it is the last one to instantiate this
         match relative_node_type {
             RelativeNodeType::Receiver => {
                 t.send_serialized(MultiplexedPacket::<K>::Greeter).await?;
@@ -114,15 +121,6 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
             }
         }
     }
-
-    /*
-    pub fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        self.conn.local_addr()
-    }
-
-    pub fn peer_addr(&self) -> std::io::Result<SocketAddr> {
-        self.conn.peer_addr()
-    }*/
 
     /// Both nodes execute a function, returning once one of the functions gets evaluated
     pub fn net_select<'a, F: Send + 'a, R: Send + 'a>(&'a self, future: F) -> NetSelect<'a, R>
@@ -212,10 +210,13 @@ impl<'a, S: Subscribable<UnderlyingConn=T> + 'a, T: ReliableOrderedStreamToTarge
 
 async fn preaction_sync<'a, S: Subscribable<UnderlyingConn=T, ID = K> + 'a, T: ReliableOrderedStreamToTarget + 'static, K: MultiplexedConnKey>(ptr: &'a S) -> Result<<S as Subscribable>::BorrowedSubscriptionType, anyhow::Error> {
     let mut recv_lock = ptr.pre_action_container().rx.lock().await;
-    //let _post_lock = ptr.post_action_channel.rx.lock().await;
+
+    if let Some(subscription) = ptr.get_next_prereserved() {
+        return Ok(subscription)
+    }
+
     match ptr.node_type() {
         RelativeNodeType::Receiver => {
-
             // generate the subscription to ensure local can begin receiving packet
             let next_id = ptr.get_next_id();
             let subscription = ptr.subscribe(next_id);
@@ -273,7 +274,6 @@ async fn postaction_sync<'a, S: Subscribable<ID=K> + 'a, K: MultiplexedConnKey>(
         RelativeNodeType::Initiator => {
             subscribable.recv_post_close_signal_from_stream(close_id).await?;
             subscribable.send_post_close_signal(close_id).await?;
-
             Ok(())
         }
     }

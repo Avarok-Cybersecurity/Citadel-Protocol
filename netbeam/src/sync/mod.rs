@@ -92,31 +92,35 @@ pub mod test_utils {
         let server = async move {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             tx.send(listener.local_addr().unwrap()).unwrap();
-            NetworkApplication::register(RelativeNodeType::Receiver, NetworkConnSimulator::from(codec(listener.accept().await.unwrap().0))).await.unwrap()
+            NetworkApplication::register(RelativeNodeType::Receiver, NetworkConnSimulator::new(0, codec(listener.accept().await.unwrap().0))).await.unwrap()
         };
 
         let client = async move {
             let addr = rx.await.unwrap();
-            NetworkApplication::register(RelativeNodeType::Initiator, NetworkConnSimulator::from(codec(TcpStream::connect(addr).await.unwrap()))).await.unwrap()
+            NetworkApplication::register(RelativeNodeType::Initiator, NetworkConnSimulator::new(0,codec(TcpStream::connect(addr).await.unwrap()))).await.unwrap()
+        };
+
+        tokio::join!(server, client)
+    }
+
+    pub async fn create_streams_with_addrs_and_lag(min: usize) -> (NetworkEndpoint, NetworkEndpoint) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let server = async move {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            tx.send(listener.local_addr().unwrap()).unwrap();
+            NetworkEndpoint::register(RelativeNodeType::Receiver, NetworkConnSimulator::new(min, codec(listener.accept().await.unwrap().0))).await.unwrap()
+        };
+
+        let client = async move {
+            let addr = rx.await.unwrap();
+            NetworkEndpoint::register(RelativeNodeType::Initiator, NetworkConnSimulator::new(min, codec(TcpStream::connect(addr).await.unwrap()))).await.unwrap()
         };
 
         tokio::join!(server, client)
     }
 
     pub async fn create_streams_with_addrs() -> (NetworkEndpoint, NetworkEndpoint) {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let server = async move {
-            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-            tx.send(listener.local_addr().unwrap()).unwrap();
-            NetworkEndpoint::register(RelativeNodeType::Receiver, NetworkConnSimulator::from(codec(listener.accept().await.unwrap().0))).await.unwrap()
-        };
-
-        let client = async move {
-            let addr = rx.await.unwrap();
-            NetworkEndpoint::register(RelativeNodeType::Initiator, NetworkConnSimulator::from(codec(TcpStream::connect(addr).await.unwrap()))).await.unwrap()
-        };
-
-        tokio::join!(server, client)
+        create_streams_with_addrs_and_lag(0).await
     }
 
     pub fn deadlock_detector() {
@@ -147,7 +151,7 @@ pub mod test_utils {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum RelativeNodeType {
     Initiator,
     Receiver
