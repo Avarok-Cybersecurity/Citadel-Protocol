@@ -115,7 +115,7 @@ jobs:
       - uses: Swatinem/rust-cache@v1
 
       - run: cargo test --package netbeam
-      - run: cargo test --package hyxe_wire -- --test-threads=1
+      - run: cargo test --package hyxe_wire --features=localhost-testing -- --test-threads=1
       - uses: actions/github-script@v2
         if: failure()
         with:
