@@ -196,13 +196,18 @@ impl HolePunchConfig {
         // our internal port does not matter. The peer will predict the ports
         // we bind to. We will open SPREAD * delta ports locally since the peer will expect
         // that many ports to be open
-        let delta = std::cmp::min(delta, 30); // limit overflows when multiplying
+        let delta = Self::check_delta(delta);
         let ports_to_bind_to = std::cmp::max(SPREAD * delta, 1);
         for _ in 0..ports_to_bind_to {
             ret.push(crate::socket_helpers::get_udp_socket(SocketAddr::new(local_bind_addr.ip(), 0))?);
         }
 
         Ok(())
+    }
+
+    fn check_delta(delta: u16) -> u16 {
+        // limit overflows when multiplying
+        std::cmp::min(delta, 30)
     }
 
     fn generate_predict_ports_config(delta: u16, last_external_addr: SocketAddr, bands: &mut Vec<AddrBand>, other_addrs: Option<IpAddressInfo>, peer_declared_internal_port: u16) {
@@ -212,6 +217,7 @@ impl HolePunchConfig {
         // 6 * 30 = 180 possible addresses
         // const SPREAD: u16 = 6;
         // if delta is zero (which would be odd), assume max of 1
+        let delta = Self::check_delta(delta);
         let ports_to_target_count = std::cmp::max(SPREAD * delta, 1);
         // Note: with this type, it does NOT matter "where" the peer is bound to. To *predict* the port,
         // we take the port of the last_external_addr, then, begin incrementing at one above it to
