@@ -234,7 +234,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
 
         let task_inner = async move {
             let hole_punched_socket = app.begin_udp_hole_punch(encrypted_config_container).await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
-            let remote_connect_addr = hole_punched_socket.addr.natted;
+            let remote_connect_addr = hole_punched_socket.addr.receive_address;
             let addr = hole_punched_socket.addr;
             std::mem::drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
             log::info!("~!@ P2P UDP Hole-punch finished @!~");

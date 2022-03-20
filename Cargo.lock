@@ -1538,6 +1538,7 @@ dependencies = [
  "env_logger 0.7.1",
  "futures",
  "igd",
+ "itertools",
  "log",
  "netbeam",
  "openssl",

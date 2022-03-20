@@ -560,7 +560,7 @@ impl HdpSession {
 
                 // we supply the natted ip since it is where we expect to receive packets
                 // whether local is server or not, we should expect to receive packets from natted
-                let hole_punched_socket = addr.natted;
+                let hole_punched_socket = addr.receive_address;
                 let hole_punched_addr_ip = hole_punched_socket.ip();
 
                 let local_bind_addr = udp_conn.local_addr().unwrap();
@@ -1316,9 +1316,9 @@ impl HdpSession {
             // TODO: figure out the logistics of this IP mess for all possible use cases. This works for hyperlan though
             let send_addr = if local_is_server {
                 // if the local is server, we send to the natted ports instead of the initial. It is flip-flopped
-                hole_punched_addr.natted
+                hole_punched_addr.receive_address
             } else {
-                hole_punched_addr.initial
+                hole_punched_addr.send_address
             };
 
             let packet = peer_session_accessor.borrow_hr(None, |hr, _| hdp_packet_crafter::udp::craft_udp_packet(hr, cmd_aux,packet, target_cid, SecurityLevel::LOW))?;

@@ -1,27 +1,24 @@
-use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, SocketAddr};
+use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::pin::Pin;
-use std::str::FromStr;
 use std::task::{Context, Poll};
 
 use futures::{Future, StreamExt};
 use futures::stream::FuturesUnordered;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::RwLock;
+use tokio::sync::mpsc::UnboundedReceiver;
 
-use async_ip::IpAddressInfo;
-
-use crate::nat_identification::NatType;
 use crate::udp_traversal::{HolePunchID, NatTraversalMethod};
-use crate::udp_traversal::targetted_udp_socket_addr::{TargettedSocketAddr, HolePunchedUdpSocket};
+use crate::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
 use crate::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use crate::udp_traversal::linear::SingleUDPHolePuncher;
 use netbeam::reliable_conn::ReliableOrderedStreamToTarget;
 use netbeam::sync::RelativeNodeType;
 use crate::error::FirewallError;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
+use crate::udp_traversal::hole_punch_config::HolePunchConfig;
+use netbeam::sync::subscription::Subscribable;
 
 /// Punches a hole using IPv4/6 addrs. IPv6 is more traversal-friendly since IP-translation between external and internal is not needed (unless the NAT admins are evil)
 ///
@@ -40,46 +37,18 @@ enum DualStackCandidate {
 
 impl<'a> DualStackUdpHolePuncher<'a> {
     /// `peer_internal_port`: Required for determining the internal socket addr
-    pub fn new<T: ReliableOrderedStreamToTarget + 'a>(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, stream: &'a T, conn_local_addr: SocketAddr, conn_peer_addr: SocketAddr, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, breadth: u16, napp: &'a NetworkEndpoint) -> Result<Self, anyhow::Error> {
-        let (syn_observer_tx, syn_observer_rx) = tokio::sync::mpsc::unbounded_channel();
+    pub fn new(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, mut hole_punch_config: HolePunchConfig, napp: &'a NetworkEndpoint) -> Result<Self, anyhow::Error> {
         let mut hole_punchers = Vec::new();
+        let sockets = hole_punch_config.locally_bound_sockets.take().ok_or_else(|| anyhow::Error::msg("sockets already taken"))?;
+        let ref addrs_to_ping: Vec<SocketAddr> = hole_punch_config.into_iter().collect();
 
-        Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn_local_addr, conn_peer_addr, local_nat, peer_nat, peer_internal_port, 0,syn_observer_tx.clone())?;
-
-        if breadth > 1 {
-            for delta in 1..breadth {
-                Self::generate_dual_stack_hole_punchers_with_delta(&mut hole_punchers, relative_node_type, encrypted_config_container.clone(), conn_local_addr, conn_peer_addr, local_nat, peer_nat, peer_internal_port, delta,syn_observer_tx.clone())?;
-            }
-        }
-
-        Ok(Self { future: Box::pin(drive(hole_punchers, stream, relative_node_type, syn_observer_rx, napp)) })
-    }
-
-    fn generate_dual_stack_hole_punchers_with_delta(hole_punchers: &mut Vec<SingleUDPHolePuncher>, relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, conn_local_addr: SocketAddr, conn_peer_addr: SocketAddr, local_nat: &NatType, peer_nat: &NatType, peer_internal_port: u16, delta: u16, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<(), anyhow::Error> {
-        let peer_ip_info = peer_nat.ip_addr_info().ok_or_else(|| anyhow::Error::msg("Peer IP info not loaded"))?;
-        let local_ip_info = local_nat.ip_addr_info().ok_or_else(|| anyhow::Error::msg("Local IP info not loaded"))?;
-
-        let bind_addr_0 = conn_local_addr;
-        let peer_external_addr_0 = conn_peer_addr;
-        let peer_internal_addr_0 = SocketAddr::new(peer_ip_info.internal_ipv4, peer_internal_port);
-
-        let (bind_addr_1, peer_external_addr_1, peer_internal_addr_1) = invert(bind_addr_0, peer_external_addr_0, peer_internal_addr_0, peer_ip_info)?;
-
-        let (bind_addr_0, peer_external_addr_0, peer_internal_addr_0, bind_addr_1, peer_external_addr_1, peer_internal_addr_1) = increment_ports(bind_addr_0, peer_external_addr_0, peer_internal_addr_0, bind_addr_1, peer_external_addr_1, peer_internal_addr_1, delta);
-
-        // As long as there is translation, we will can attempt dual ipv4/6 hole-punching. This requires that the peer has an IPv6 address
-        // also, if THIS node has an IPv6 address, then the adjacent node will attempt to connect to it, so in that case, we will need to bind regardless to ipv6 addrs IF the zeroth hole-puncher is not already ipv6
-        // in other words: if this side has ipv6, or if the other side has ipv6, bind to ipv6 ports
-        if (peer_external_addr_1 != peer_external_addr_0 && peer_internal_addr_1 != peer_external_addr_0 && bind_addr_0 != bind_addr_1) || (bind_addr_0.is_ipv4() && local_ip_info.external_ipv6.is_some()) {
-            let hole_puncher = SingleUDPHolePuncher::new(relative_node_type, encrypted_config_container.clone(), bind_addr_1, peer_external_addr_1, peer_internal_addr_1, HolePunchID::new(), syn_observer.clone())?;
+        // each individual hole puncher fans-out from 1 bound socket to n many peer addrs (determined by addrs_to_ping)
+        for socket in sockets {
+            let hole_puncher = SingleUDPHolePuncher::new(relative_node_type, encrypted_config_container.clone(), socket, addrs_to_ping.clone())?;
             hole_punchers.push(hole_puncher);
         }
 
-        let hole_puncher = SingleUDPHolePuncher::new(relative_node_type, encrypted_config_container, bind_addr_0, peer_external_addr_0, peer_internal_addr_0, HolePunchID::new(), syn_observer)?;
-
-        hole_punchers.push(hole_puncher);
-
-        Ok(())
+        Ok(Self { future: Box::pin(drive(hole_punchers, relative_node_type, napp)) })
     }
 }
 
@@ -91,7 +60,7 @@ impl Future for DualStackUdpHolePuncher<'_> {
     }
 }
 
-async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<SingleUDPHolePuncher>, conn: &'a T, node_type: RelativeNodeType, mut syn_observer_rx: UnboundedReceiver<(HolePunchID, HolePunchID, TargettedSocketAddr)>, app: &NetworkEndpoint) -> Result<HolePunchedUdpSocket, anyhow::Error> {
+async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNodeType, app: &NetworkEndpoint) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     // We use a single mutex to resolve timing/priority conflicts automatically
     // Which ever node FIRST can set the value will "win"
     let value = if node_type == RelativeNodeType::Initiator {
@@ -100,17 +69,18 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
         None
     };
 
+    // initiate a dedicated channel for sending packets for coordination
+    let ref conn = app.initiate_subscription().await?;
+
+    // setup a mutex for handling contentions
     let ref net_mutex = app.mutex::<Option<()>>(value).await?;
 
     let (final_candidate_tx, final_candidate_rx) = tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
     let (reader_done_tx, mut reader_done_rx) = tokio::sync::broadcast::channel::<()>(2);
-    let mut reader_done_rx_2 = reader_done_tx.subscribe();
     let mut reader_done_rx_3 = reader_done_tx.subscribe();
 
     let (ref kill_signal_tx, _kill_signal_rx) = tokio::sync::broadcast::channel(hole_punchers.len());
     let (ref post_rebuild_tx, post_rebuild_rx) = tokio::sync::mpsc::unbounded_channel();
-
-    let ref syns_observed_map: RwLock<HashSet<(HolePunchID, HolePunchID, TargettedSocketAddr)>> = RwLock::new(HashSet::new());
 
     let ref mut final_candidate_tx = parking_lot::Mutex::new(Some(final_candidate_tx));
 
@@ -185,15 +155,6 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
                 }
             }
         }
-    };
-
-
-    let syns_observed = async move {
-        while let Some((local_id, peer_id, addr)) = syn_observer_rx.recv().await {
-            let _ = syns_observed_map.write().await.insert((local_id, peer_id, addr));
-        }
-
-        Ok(reader_done_rx_2.recv().await?) as Result<(), anyhow::Error>
     };
 
     let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
@@ -312,8 +273,7 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
     tokio::select! {
         res0 = sender_reader_combo => res0.map(|_| ())?,
         res1 = done_rx => res1?,
-        res2 = syns_observed => res2?,
-        res3 = futures_executor => res3?
+        res2 = futures_executor => res2?
     };
 
     log::info!("*** ENDING DualStack ***");
@@ -323,65 +283,11 @@ async fn drive<'a, T: ReliableOrderedStreamToTarget + 'a>(hole_punchers: Vec<Sin
 
     Ok(sock)
 }
-//55c2dc29-a881-47a5-9cde-117042e7214c
+
 async fn send<R: Serialize, V: ReliableOrderedStreamToTarget>(ref input: R, conn: &V) -> Result<(), anyhow::Error> {
     Ok(conn.send_to_peer(&bincode2::serialize(input).unwrap()).await?)
 }
 
 async fn receive<T: DeserializeOwned, V: ReliableOrderedStreamToTarget>(conn: &V) -> Result<T, anyhow::Error> {
     Ok(bincode2::deserialize(&conn.recv().await?)?)
-}
-
-fn increment_ports(bind_addr_0: SocketAddr, peer_external_addr_0: SocketAddr, peer_internal_addr_0: SocketAddr, bind_addr_1: SocketAddr, peer_external_addr_1: SocketAddr, peer_internal_addr_1: SocketAddr, delta: u16) -> (SocketAddr, SocketAddr, SocketAddr, SocketAddr, SocketAddr, SocketAddr) {
-    if delta != 0 {
-        (increment_port_inner(bind_addr_0, delta), increment_port_inner(peer_external_addr_0, delta), increment_port_inner(peer_internal_addr_0, delta), increment_port_inner(bind_addr_1, delta), increment_port_inner(peer_external_addr_1, delta), increment_port_inner(peer_internal_addr_1, delta))
-    } else {
-        (bind_addr_0, peer_external_addr_0, peer_internal_addr_0, bind_addr_1, peer_external_addr_1, peer_internal_addr_1)
-    }
-}
-
-// wraps around at 1024 as recommended by research articles, since [0, 1024) are reserved ports for operating systems usually
-fn increment_port_inner(addr: SocketAddr, delta: u16) -> SocketAddr {
-    let init_port = addr.port();
-    let new_port = init_port.wrapping_add(delta);
-    if new_port < 1024 {
-        SocketAddr::new(addr.ip(), 1024 + new_port)
-    } else {
-        SocketAddr::new(addr.ip(), new_port)
-    }
-}
-
-fn invert(bind_addr_0: SocketAddr, peer_external_addr_0: SocketAddr, peer_internal_addr_0: SocketAddr, peer_ip_info: &IpAddressInfo) -> Result<(SocketAddr, SocketAddr, SocketAddr), anyhow::Error> {
-    Ok((invert_bind_addr(bind_addr_0)?, maybe_invert_remote_addr(peer_external_addr_0, peer_ip_info)?, maybe_invert_remote_addr(peer_internal_addr_0, peer_ip_info)?))
-}
-
-fn invert_bind_addr(addr: SocketAddr) -> Result<SocketAddr, anyhow::Error> {
-    if addr.is_ipv4() {
-        if addr.ip().is_loopback() {
-            Ok(SocketAddr::new(IpAddr::from_str("::1")?, addr.port()))
-        } else {
-            Ok(SocketAddr::new(IpAddr::from_str("::")?, addr.port()))
-        }
-    } else {
-        if addr.ip().is_loopback() {
-            Ok(SocketAddr::new(IpAddr::from_str("127.0.0.1")?, addr.port()))
-        } else {
-            Ok(SocketAddr::new(IpAddr::from_str("0.0.0.0")?, addr.port()))
-        }
-    }
-}
-
-fn maybe_invert_remote_addr(addr: SocketAddr, peer_ip_info: &IpAddressInfo) -> Result<SocketAddr, anyhow::Error> {
-    if addr.is_ipv4() {
-        if let Some(ref ipv6) = peer_ip_info.external_ipv6 {
-            // we assume port-preservation mapping between ipv4 and ipv6 (no standardization thereof, yet...)
-            Ok(SocketAddr::new(*ipv6, addr.port()))
-        } else {
-            // no ipv6 implies we won't translate the addr
-            Ok(addr)
-        }
-    } else {
-        // we assume port-preservation mapping between ipv4 and ipv6
-        Ok(SocketAddr::new(peer_ip_info.external_ipv4, addr.port()))
-    }
 }

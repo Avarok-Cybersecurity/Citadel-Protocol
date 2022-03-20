@@ -10,6 +10,7 @@ pub mod targetted_udp_socket_addr;
 pub mod udp_hole_puncher;
 
 pub mod multi;
+mod hole_punch_config;
 
 #[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum NatTraversalMethod {

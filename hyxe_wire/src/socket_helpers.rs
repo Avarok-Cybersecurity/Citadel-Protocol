@@ -1,5 +1,5 @@
 use tokio::net::{UdpSocket, TcpStream, TcpListener};
-use std::net::{SocketAddr, IpAddr};
+use std::net::{SocketAddr, IpAddr, SocketAddrV6};
 use std::time::Duration;
 use socket2::{Domain, Type, Protocol, Socket, SockAddr};
 
@@ -115,7 +115,6 @@ async fn asyncify<F, O>(fx: F) -> Result<O, anyhow::Error>
     Ok(tokio::task::spawn_blocking(move || fx()).await?)
 }
 
-// For unit tests only!
 pub fn is_ipv6_enabled() -> bool {
     // this is a bit hacky, but, should prevent pipelines from failing
     // if runners don't have ipv6 compat
@@ -123,6 +122,14 @@ pub fn is_ipv6_enabled() -> bool {
         sck.local_addr().map(|r| r.is_ipv6()).unwrap_or(false)
     } else {
         false
+    }
+}
+
+// ensures ipv4 addresses are in terms of v6
+pub fn ensure_ipv6(x: SocketAddr) -> SocketAddrV6 {
+    match x {
+        SocketAddr::V6(x) => x,
+        SocketAddr::V4(x) => SocketAddrV6::new(x.ip().to_ipv6_mapped(), x.port(), 0, 0),
     }
 }
 
