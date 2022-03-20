@@ -29,8 +29,13 @@ impl HolePunchConfig {
                first_local_socket: UdpSocket,
                peer_declared_internal_port: u16) -> Result<Self, anyhow::Error> {
 
-        if !local_nat_info.stun_compatible(&peer_nat_info) {
-            return Err(anyhow::Error::msg("This cannot be called if STUN is not compatible"))
+        // if this is not localhost testing, always check
+        // we do not check when doing localhost-testing since we don't want
+        // a runner behind an unpredictable NAT to error out
+        #[cfg(not("localhost-testing"))] {
+            if !local_nat_info.stun_compatible(&peer_nat_info) {
+                return Err(anyhow::Error::msg("This cannot be called if STUN is not compatible"))
+            }
         }
 
         // below is only needed if the peer is behind a random port NAT
@@ -191,6 +196,7 @@ impl HolePunchConfig {
         // our internal port does not matter. The peer will predict the ports
         // we bind to. We will open SPREAD * delta ports locally since the peer will expect
         // that many ports to be open
+        let delta = std::cmp::min(delta, 30); // limit overflows when multiplying
         let ports_to_bind_to = std::cmp::max(SPREAD * delta, 1);
         for _ in 0..ports_to_bind_to {
             ret.push(crate::socket_helpers::get_udp_socket(SocketAddr::new(local_bind_addr.ip(), 0))?);
