@@ -6,42 +6,43 @@ use crate::udp_traversal::HolePunchID;
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct TargettedSocketAddr {
-    // Outbound packets should get sent here
-    pub initial: SocketAddr,
-    pub natted: SocketAddr,
+    // Outbound packets should get sent here. Often, this will be equivalent to "receive_address"
+    //, unless, UPnP is used
+    pub send_address: SocketAddr,
+    pub receive_address: SocketAddr,
     pub unique_id: HolePunchID
 }
 
 impl TargettedSocketAddr {
     pub fn new(initial: SocketAddr, natted: SocketAddr, unique_id: HolePunchID) -> Self {
-        Self { initial, natted, unique_id }
+        Self { send_address: initial, receive_address: natted, unique_id }
     }
 
     pub fn new_invariant(addr: SocketAddr) -> Self {
-        Self { initial: addr, natted: addr, unique_id: HolePunchID::new() }
+        Self { send_address: addr, receive_address: addr, unique_id: HolePunchID::new() }
     }
 
     pub fn ip_translated(&self) -> bool {
-        self.initial.ip() != self.natted.ip()
+        self.send_address.ip() != self.receive_address.ip()
     }
 
     pub fn port_translated(&self) -> bool {
-        self.initial.port() != self.natted.port()
+        self.send_address.port() != self.receive_address.port()
     }
 
     pub fn eq_to(&self, ip_addr: IpAddr, port: u16) -> bool {
-        (ip_addr == self.initial.ip() && port == self.initial.port()) ||
-            (ip_addr == self.natted.ip() && port == self.natted.port())
+        (ip_addr == self.send_address.ip() && port == self.send_address.port()) ||
+            (ip_addr == self.receive_address.ip() && port == self.receive_address.port())
     }
 
     pub fn recv_packet_valid(&self, recv_packet_socket: SocketAddr) -> bool {
-        recv_packet_socket.ip() == self.natted.ip()
+        recv_packet_socket.ip() == self.receive_address.ip()
     }
 }
 
 impl Display for TargettedSocketAddr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "(Original, Natted): {:?} -> {:?}", &self.initial, &self.natted)
+        writeln!(f, "(Original, Natted): {:?} -> {:?}", &self.send_address, &self.receive_address)
     }
 }
 

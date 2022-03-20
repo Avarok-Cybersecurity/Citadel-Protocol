@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
-use std::net::{SocketAddr, IpAddr};
+use std::net::SocketAddr;
 use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -51,7 +51,6 @@ use hyxe_wire::exports::Endpoint;
 use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::peer::group_channel::GroupChannel;
 use crate::auth::AuthenticationRequest;
-use std::str::FromStr;
 use hyxe_wire::exports::tokio_rustls::rustls::{ServerName, ClientConfig};
 use std::convert::TryFrom;
 use hyxe_wire::tls::client_config_to_tls_connector;
@@ -120,7 +119,7 @@ impl HdpServer {
         let time_tracker = TimeTracker::new();
         let session_manager = HdpSessionManager::new(local_node_type, to_kernel.clone(), account_manager.clone(), time_tracker.clone(), client_config.clone());
 
-        let nat_type = NatType::identify(bind_addr.map(|r| r.ip()).unwrap_or_else(|| IpAddr::from_str("127.0.0.1").unwrap())).await.ok().unwrap_or_default();
+        let nat_type = NatType::identify().await.map_err(|err| err.std())?;
 
         let inner = HdpServerInner {
             underlying_proto,
