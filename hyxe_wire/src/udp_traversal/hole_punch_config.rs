@@ -32,7 +32,7 @@ impl HolePunchConfig {
         // if this is not localhost testing, always check
         // we do not check when doing localhost-testing since we don't want
         // a runner behind an unpredictable NAT to error out
-        #[cfg(not("localhost-testing"))] {
+        #[cfg(not(feature = "localhost-testing"))] {
             if !local_nat_info.stun_compatible(&peer_nat_info) {
                 return Err(anyhow::Error::msg("This cannot be called if STUN is not compatible"))
             }
