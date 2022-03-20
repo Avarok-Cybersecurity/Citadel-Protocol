@@ -408,7 +408,7 @@ fn proto_version_out_of_sync(adjacent_proto_version: u64) -> bool {
 
 fn get_raw_udp_interface(socket: HolePunchedUdpSocket) -> UdpSplittableTypes {
     log::info!("Will use Raw UDP for UDP transmission");
-    UdpSplittableTypes::Raw(RawUdpSocketConnector::new(socket.socket, socket.addr.natted))
+    UdpSplittableTypes::Raw(RawUdpSocketConnector::new(socket.socket, socket.addr.receive_address))
 }
 
 fn get_quic_udp_interface(quic_conn: NewConnection, local_addr: SocketAddr) -> UdpSplittableTypes {

@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use either::Either;
 use igd::PortMappingProtocol;
 use tokio::net::UdpSocket;
-use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::Duration;
 
 use crate::error::FirewallError;
@@ -43,36 +42,14 @@ pub struct SingleUDPHolePuncher {
 }
 
 impl SingleUDPHolePuncher {
+    pub fn new(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, local_socket: UdpSocket, peer_addrs_to_ping: Vec<SocketAddr>) -> Result<Self, anyhow::Error> {
+        let local_bind_addr = local_socket.local_addr()?;
+        let unique_id = HolePunchID::new();
+        log::info!("Setting up single-udp hole-puncher. Local bind addr: {:?} | Peer Addrs to ping: {:?} | [id = {:?}]", local_bind_addr, peer_addrs_to_ping, unique_id);
 
-    /// This assumes STUN has already been used. In the case of HYXE networks, since the central server
-    /// proxies information anyways, the holes will only need to be punched when the central server needs
-    /// to communicate with the client through UDP. Client to server UDP works almost guaranteed, but not
-    /// the other way around in the case with carrier grade or symmetric NATs.
-    ///
-    /// `peer_addr`: This should be the addr where the server/client is already connected to (external addr). It is assumed that this already has a hole in the NAT
-    pub fn new_initiator(encrypted_config_container: EncryptedConfigContainer, local_bind_addr: SocketAddr, peer_external_addr: SocketAddr, peer_internal_addr: SocketAddr, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<Self, anyhow::Error> {
-        Self::new(RelativeNodeType::Initiator, encrypted_config_container,  local_bind_addr, peer_external_addr, peer_internal_addr, unique_id, syn_observer)
-    }
+        let method3= Method3::new(relative_node_type, encrypted_config_container, unique_id.clone());
 
-    pub fn new_receiver(encrypted_config_container: EncryptedConfigContainer, local_bind_addr: SocketAddr, peer_external_addr: SocketAddr, peer_internal_addr: SocketAddr, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<Self, anyhow::Error> {
-        Self::new(RelativeNodeType::Receiver,  encrypted_config_container, local_bind_addr, peer_external_addr, peer_internal_addr, unique_id, syn_observer)
-    }
-
-    pub fn new(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, local_bind_addr: SocketAddr, peer_external_addr: SocketAddr, peer_internal_addr: SocketAddr, unique_id: HolePunchID, syn_observer: UnboundedSender<(HolePunchID, HolePunchID, TargettedSocketAddr)>) -> Result<Self, anyhow::Error> {
-        log::info!("Setting up single-udp hole-puncher. Local bind addr: {:?} | Peer External Addr: {:?} | Peer Internal Addr: {:?} [id = {:?}]", local_bind_addr, peer_external_addr, peer_internal_addr, unique_id);
-
-        let method3= Method3::new(relative_node_type, encrypted_config_container, unique_id.clone(), syn_observer);
-        let socket = crate::socket_helpers::get_reuse_udp_socket(local_bind_addr)?;
-        //let external_predicted_addr = peer_external_addr;
-        //let internal_addr = adjacent_peer_nat.internal_ip().ok_or_else(|| anyhow::Error::msg("Peer does not have a valid internal IP"))?;
-
-        let possible_endpoints = if peer_internal_addr == peer_external_addr {
-            vec![peer_external_addr]
-        } else {
-            vec![peer_external_addr, peer_internal_addr]
-        };
-
-        Ok(Self { method3: (false, method3), upnp_handler: (false, None), socket: Some(socket), possible_endpoints, relative_node_type, unique_id })
+        Ok(Self { method3: (false, method3), upnp_handler: (false, None), socket: Some(local_socket), possible_endpoints: peer_addrs_to_ping, relative_node_type, unique_id })
     }
 
     pub fn take_socket(&mut self) -> Option<UdpSocket> {
@@ -159,7 +136,7 @@ impl SingleUDPHolePuncher {
                 let socket = self.socket.take().ok_or_else(|| FirewallError::HolePunch("UDP socket not loaded".to_string()))?;
                 //let bind_addr = socket.local_addr()?;
                 let unique_id = self.unique_id;
-                Ok(HolePunchedUdpSocket { socket, addr: TargettedSocketAddr { initial: self.peer_external_addr(), natted: self.peer_external_addr(), unique_id } })
+                Ok(HolePunchedUdpSocket { socket, addr: TargettedSocketAddr { send_address: self.peer_external_addr(), receive_address: self.peer_external_addr(), unique_id } })
             }
         }
     }
