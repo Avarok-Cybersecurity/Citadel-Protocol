@@ -27,7 +27,7 @@ jobs:
           mysql version: '8.0'
           mysql database: 'db0'
           mysql root password: password
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha02
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha03
       - name: Run user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo test --package hyxe_user --features enterprise
@@ -43,7 +43,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha02
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha03
       - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing -- --test-threads=1
       - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing -- --test-threads=1
 
@@ -54,7 +54,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha02
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha03
       - run: cargo test --package netbeam
       - run: cargo test --package hyxe_wire --features=localhost-testing -- --test-threads=1
 
@@ -65,13 +65,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 100
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha02
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha03
       - run: cargo test --package lusna_sdk --features=localhost-testing -- --test-threads=1
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha02
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha03
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
