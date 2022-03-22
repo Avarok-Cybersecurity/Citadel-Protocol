@@ -12,7 +12,6 @@ env:
   RUST_BACKTRACE: full
   # 20 MiB stack
   RUST_MIN_STACK: 20971520
-  CACHE_ON_FAILURE: true
 
 jobs:
   core_libs:
@@ -28,32 +27,7 @@ jobs:
           mysql version: '8.0'
           mysql database: 'db0'
           mysql root password: password
-      - name: Install LLVM and Clang
-        if: startsWith(matrix.os, 'windows')
-        uses: KyleMayes/install-llvm-action@v1.5.1
-        with:
-          version: "13.0"
-          directory: ${{ runner.temp }}/llvm
-
-      - name: Set LIBCLANG_PATH
-        if: startsWith(matrix.os, 'windows')
-        run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
-
-      - name: Install OpenSSL
-        if: startsWith(matrix.os, 'windows')
-        run: choco install openssl --limit-output
-
-      - name: Set OPENSSL_ROOT_DIR
-        if: startsWith(matrix.os, 'windows')
-        run: echo "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL-Win64" >> $env:GITHUB_ENV
-
-      - name: Set OPENSSL_ROOT_DIR
-        if: startsWith(matrix.os, 'macos')
-        run: echo "OPENSSL_ROOT_DIR=/usr/local/opt/openssl@1.1" >> $GITHUB_ENV
-
-      - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v1
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha02
       - name: Run user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo test --package hyxe_user --features enterprise
@@ -61,16 +35,7 @@ jobs:
       - run: cargo test --package ez_pqcrypto
       - run: cargo test --package hyxe_crypt
       - run: cargo test --package hyxe_fs
-      - uses: actions/github-script@v2
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
+
   proto:
     strategy:
       matrix:
@@ -78,50 +43,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
-      - uses: mirromutth/mysql-action@v1.1
-        if: startsWith(matrix.os, 'ubuntu')
-        with:
-          mysql version: '8.0'
-          mysql database: 'db0'
-          mysql root password: password
-      - name: Install LLVM and Clang
-        if: startsWith(matrix.os, 'windows')
-        uses: KyleMayes/install-llvm-action@v1.5.1
-        with:
-          version: "13.0"
-          directory: ${{ runner.temp }}/llvm
-
-      - name: Set LIBCLANG_PATH
-        if: startsWith(matrix.os, 'windows')
-        run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
-
-      - name: Install OpenSSL
-        if: startsWith(matrix.os, 'windows')
-        run: choco install openssl --limit-output
-
-      - name: Set OPENSSL_ROOT_DIR
-        if: startsWith(matrix.os, 'windows')
-        run: echo "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL-Win64" >> $env:GITHUB_ENV
-
-      - name: Set OPENSSL_ROOT_DIR
-        if: startsWith(matrix.os, 'macos')
-        run: echo "OPENSSL_ROOT_DIR=/usr/local/opt/openssl@1.1" >> $GITHUB_ENV
-        
-      - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v1
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha02
       - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing -- --test-threads=1
       - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing -- --test-threads=1
-      - uses: actions/github-script@v2
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
+
   nat:
     strategy:
       matrix:
@@ -129,45 +54,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - name: Install LLVM and Clang
-        if: startsWith(matrix.os, 'windows')
-        uses: KyleMayes/install-llvm-action@v1.5.1
-        with:
-          version: "13.0"
-          directory: ${{ runner.temp }}/llvm
-
-      - name: Set LIBCLANG_PATH
-        if: startsWith(matrix.os, 'windows')
-        run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
-
-      - name: Install OpenSSL
-        if: startsWith(matrix.os, 'windows')
-        run: choco install openssl --limit-output
-
-      - name: Set OPENSSL_ROOT_DIR
-        if: startsWith(matrix.os, 'windows')
-        run: echo "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL-Win64" >> $env:GITHUB_ENV
-
-      - name: Set OPENSSL_ROOT_DIR
-        if: startsWith(matrix.os, 'macos')
-        run: echo "OPENSSL_ROOT_DIR=/usr/local/opt/openssl@1.1" >> $GITHUB_ENV
-
-      - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v1
-
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha02
       - run: cargo test --package netbeam
       - run: cargo test --package hyxe_wire --features=localhost-testing -- --test-threads=1
-      - uses: actions/github-script@v2
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
+
   lusna_sdk:
     strategy:
       matrix:
@@ -175,54 +65,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 100
     steps:
-      - name: Install LLVM and Clang
-        if: startsWith(matrix.os, 'windows')
-        uses: KyleMayes/install-llvm-action@v1.5.1
-        with:
-          version: "13.0"
-          directory: ${{ runner.temp }}/llvm
-
-      - name: Set LIBCLANG_PATH
-        if: startsWith(matrix.os, 'windows')
-        run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
-
-      - name: Install OpenSSL
-        if: startsWith(matrix.os, 'windows')
-        run: choco install openssl --limit-output
-
-      - name: Set OPENSSL_ROOT_DIR
-        if: startsWith(matrix.os, 'windows')
-        run: echo "OPENSSL_ROOT_DIR=C:/Program Files/OpenSSL-Win64" >> $env:GITHUB_ENV
-
-      - name: Set OPENSSL_ROOT_DIR
-        if: startsWith(matrix.os, 'macos')
-        run: echo "OPENSSL_ROOT_DIR=/usr/local/opt/openssl@1.1" >> $GITHUB_ENV
-
-      - uses: actions/checkout@v2
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v1
-
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha02
       - run: cargo test --package lusna_sdk --features=localhost-testing -- --test-threads=1
-      - uses: actions/github-script@v2
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha02
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
@@ -231,16 +80,6 @@ jobs:
         with:
           token: ${{secrets.CODECOV_TOKEN}}
           files: cobertura.xml
-      - uses: actions/github-script@v2
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
  # scanning:
  #   name: GitGuardian scan
  #   runs-on: ubuntu-latest
