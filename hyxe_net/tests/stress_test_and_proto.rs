@@ -955,7 +955,7 @@ pub mod tests {
                                 }
 
                                 _ => {
-                                    log::error!("Unexpected signal: {:?}", signal);
+                                    log::error!("[QUITTING] Unexpected signal: {:?}", signal);
                                     std::process::exit(-1);
                                 }
                             }
