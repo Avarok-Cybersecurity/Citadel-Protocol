@@ -27,7 +27,7 @@ jobs:
           mysql version: '8.0'
           mysql database: 'db0'
           mysql root password: password
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha03
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - name: Run user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo test --package hyxe_user --features enterprise
@@ -35,7 +35,17 @@ jobs:
       - run: cargo test --package ez_pqcrypto
       - run: cargo test --package hyxe_crypt
       - run: cargo test --package hyxe_fs
-
+      - uses: actions/github-script@v2
+        if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
+          
   proto:
     strategy:
       matrix:
@@ -43,9 +53,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha03
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing -- --test-threads=1
       - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing -- --test-threads=1
+      - uses: actions/github-script@v2
+        if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
 
   nat:
     strategy:
@@ -54,9 +74,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha03
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - run: cargo test --package netbeam
       - run: cargo test --package hyxe_wire --features=localhost-testing -- --test-threads=1
+      - uses: actions/github-script@v2
+        if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
 
   lusna_sdk:
     strategy:
@@ -65,13 +95,23 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 100
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha03
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - run: cargo test --package lusna_sdk --features=localhost-testing -- --test-threads=1
+      - uses: actions/github-script@v2
+        if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha03
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
@@ -80,6 +120,16 @@ jobs:
         with:
           token: ${{secrets.CODECOV_TOKEN}}
           files: cobertura.xml
+      - uses: actions/github-script@v2
+        if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
  # scanning:
  #   name: GitGuardian scan
  #   runs-on: ubuntu-latest
