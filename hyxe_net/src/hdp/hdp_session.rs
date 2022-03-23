@@ -17,9 +17,9 @@ use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, HyperRatchetConstr
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::io::SyncIO;
-use hyxe_nat::hypernode_type::NodeType;
+use hyxe_wire::hypernode_type::NodeType;
 use netbeam::time_tracker::TimeTracker;
-use hyxe_nat::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
+use hyxe_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
@@ -62,11 +62,12 @@ use hyxe_crypt::prelude::ConstructorOpts;
 use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
-use hyxe_nat::nat_identification::NatType;
-use hyxe_nat::exports::{Endpoint, NewConnection};
+use hyxe_wire::nat_identification::NatType;
+use hyxe_wire::exports::{Endpoint, NewConnection};
 use crate::hdp::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 use atomic::Atomic;
 use crate::auth::AuthenticationRequest;
+use hyxe_wire::exports::tokio_rustls::rustls;
 
 //use crate::define_struct;
 
@@ -179,6 +180,7 @@ pub struct HdpSessionInner {
     pub(super) local_nat_type: NatType,
     pub(super) adjacent_nat_type: DualLateInit<Option<NatType>>,
     pub(super) connect_mode: DualRwLock<Option<ConnectMode>>,
+    pub(super) client_config: Arc<rustls::ClientConfig>,
     on_drop: UnboundedSender<()>,
 }
 
@@ -212,7 +214,7 @@ pub enum HdpSessionInitMode {
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, mut fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings, connect_mode: Option<ConnectMode>) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
+    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, mut fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings, connect_mode: Option<ConnectMode>, client_config: Arc<rustls::ClientConfig>) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
         let (cnac, state, implicated_cid) = match &init_mode {
             HdpSessionInitMode::Connect(auth) => {
                 match auth {
@@ -267,6 +269,7 @@ impl HdpSession {
             stopper_tx: stopper_tx.clone().into(),
             queue_handle: DualLateInit::default(),
             fcm_keys,
+            client_config
         };
 
         inner.store_proposed_credentials(proposed_credentials);
@@ -279,7 +282,7 @@ impl HdpSession {
     ///
     /// When this is called, the connection is implied to be in impersonal mode. As such, the calling closure should have a way of incrementing
     /// the provisional ticket.
-    pub(crate) fn new_incoming(on_drop: UnboundedSender<()>, local_nat_type: NatType, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket) -> (tokio::sync::broadcast::Sender<()>, Self) {
+    pub(crate) fn new_incoming(on_drop: UnboundedSender<()>, local_nat_type: NatType, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket, client_config: Arc<rustls::ClientConfig>) -> (tokio::sync::broadcast::Sender<()>, Self) {
         let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
         let state = Arc::new(Atomic::new(SessionState::SocketJustOpened));
 
@@ -314,6 +317,7 @@ impl HdpSession {
             stopper_tx: stopper_tx.clone().into(),
             queue_handle: DualLateInit::default(),
             fcm_keys: None,
+            client_config
         };
 
         (stopper_tx, Self::from(inner))
@@ -556,7 +560,7 @@ impl HdpSession {
 
                 // we supply the natted ip since it is where we expect to receive packets
                 // whether local is server or not, we should expect to receive packets from natted
-                let hole_punched_socket = addr.natted;
+                let hole_punched_socket = addr.receive_address;
                 let hole_punched_addr_ip = hole_punched_socket.ip();
 
                 let local_bind_addr = udp_conn.local_addr().unwrap();
@@ -1312,9 +1316,9 @@ impl HdpSession {
             // TODO: figure out the logistics of this IP mess for all possible use cases. This works for hyperlan though
             let send_addr = if local_is_server {
                 // if the local is server, we send to the natted ports instead of the initial. It is flip-flopped
-                hole_punched_addr.natted
+                hole_punched_addr.receive_address
             } else {
-                hole_punched_addr.initial
+                hole_punched_addr.send_address
             };
 
             let packet = peer_session_accessor.borrow_hr(None, |hr, _| hdp_packet_crafter::udp::craft_udp_packet(hr, cmd_aux,packet, target_cid, SecurityLevel::LOW))?;
@@ -1499,7 +1503,7 @@ impl HdpSessionInner {
 
     pub(crate) fn send_session_dc_signal<T: Into<String>>(&self, ticket: Option<Ticket>, disconnect_success: bool, msg: T) {
         if let Some(tx) = self.dc_signal_sender.take() {
-            let _ = tx.unbounded_send(HdpServerResult::Disconnect(ticket.unwrap_or_else(|| self.kernel_ticket.get()), self.implicated_cid.get().unwrap_or_else(|| self.kernel_ticket.get().0), disconnect_success, None, msg.into()));
+            let _ = tx.unbounded_send(HdpServerResult::Disconnect(ticket.unwrap_or_else(|| self.kernel_ticket.get()), self.implicated_cid.get().map(|r| r as _).unwrap_or_else(|| self.kernel_ticket.get().0), disconnect_success, None, msg.into()));
         }
     }
 

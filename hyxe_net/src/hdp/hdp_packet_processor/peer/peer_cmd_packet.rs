@@ -8,7 +8,7 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::ConstructorOpts;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::prelude::SyncIO;
-use hyxe_nat::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
+use hyxe_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use netbeam::sync::RelativeNodeType;
 
@@ -363,7 +363,8 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                     //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
                                     let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
                                     let quic_endpoint = return_if_none!(session.client_only_quic_endpoint.clone());
-                                    let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, quic_endpoint,  encrypted_config_container);
+                                    let client_config = session.client_config.clone();
+                                    let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, quic_endpoint,  encrypted_config_container, client_config);
                                     let _ = spawn!(hole_punch_future);
 
                                     //let _ = hole_punch_future.await;
@@ -415,8 +416,9 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                     let implicated_cid = session.implicated_cid.clone();
                                     let kernel_tx = session.kernel_tx.clone();
                                     let quic_endpoint = return_if_none!(session.client_only_quic_endpoint.clone());
+                                    let client_config = session.client_config.clone();
 
-                                    let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, quic_endpoint,  encrypted_config_container);
+                                    let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, quic_endpoint,  encrypted_config_container, client_config);
                                     let _ = spawn!(hole_punch_future);
 
                                     //let _ = hole_punch_future.await;

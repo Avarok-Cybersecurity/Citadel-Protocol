@@ -207,7 +207,7 @@ pub(crate) mod do_drill_update {
 
 pub(crate) mod pre_connect {
     use hyxe_crypt::toolset::{Toolset, StaticAuxRatchet};
-    use hyxe_nat::hypernode_type::NodeType;
+    use hyxe_wire::hypernode_type::NodeType;
     use hyxe_user::client_account::ClientNetworkAccount;
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -223,7 +223,7 @@ pub(crate) mod pre_connect {
     use crate::error::NetworkError;
     use crate::hdp::hdp_node::ConnectMode;
     use crate::hdp::peer::peer_layer::UdpMode;
-    use hyxe_nat::nat_identification::NatType;
+    use hyxe_wire::nat_identification::NatType;
     use crate::hdp::hdp_packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;
 
     pub(crate) fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType, SocketAddr), NetworkError> {

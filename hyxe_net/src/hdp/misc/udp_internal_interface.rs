@@ -1,4 +1,4 @@
-use hyxe_nat::exports::{NewConnection, Connection};
+use hyxe_wire::exports::{NewConnection, Connection};
 use bytes::{Bytes, BytesMut};
 use crate::error::NetworkError;
 use std::net::SocketAddr;
@@ -13,7 +13,7 @@ use crate::macros::ContextRequirements;
 use futures::stream::{SplitSink, SplitStream};
 use crate::hdp::peer::p2p_conn_handler::generic_error;
 use crate::functional::PairMap;
-use hyxe_nat::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
+use hyxe_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 
 pub(crate) trait UdpSink: Sink<Bytes, Error=NetworkError> + Unpin + ContextRequirements {}
 impl<T: Sink<Bytes, Error=NetworkError> + Unpin + ContextRequirements> UdpSink for T {}
