@@ -228,7 +228,7 @@ pub enum FcmResult {
     MessageSent { ticket: FcmTicket },
     PostRegisterInvitation { invite: PostRegisterInvitation },
     PostRegisterResponse { response: FcmPostRegisterResponse },
-    Deregistered { requestor_cid: u64, ticket: u64, peer_cid: u64 }
+    Deregistered { requestor_cid: u64, ticket: u128, peer_cid: u64 }
 }
 
 pub struct InstanceParameter<'a> {

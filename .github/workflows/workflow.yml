@@ -45,7 +45,7 @@ jobs:
             await github.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
-          
+
   proto:
     strategy:
       matrix:

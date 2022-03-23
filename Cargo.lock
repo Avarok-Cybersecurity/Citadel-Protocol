@@ -1487,6 +1487,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-util",
+ "uuid 1.0.0-alpha.1",
  "webrtc-util",
  "zerocopy",
 ]
@@ -1556,7 +1557,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-util",
- "uuid",
+ "uuid 0.8.2",
  "webpki 0.21.4",
  "whoami",
 ]
@@ -3223,7 +3224,7 @@ dependencies = [
  "thiserror",
  "tokio-stream",
  "url",
- "uuid",
+ "uuid 0.8.2",
  "whoami",
 ]
 
@@ -3704,6 +3705,16 @@ name = "uuid"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
+dependencies = [
+ "getrandom 0.2.4",
+ "serde",
+]
+
+[[package]]
+name = "uuid"
+version = "1.0.0-alpha.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb3ab47baa004111b323696c6eaa2752e7356f7f77cf6b6dc7a2087368ce1ca4"
 dependencies = [
  "getrandom 0.2.4",
  "serde",

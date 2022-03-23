@@ -14,7 +14,7 @@ use crate::misc::{AccountError, EmptyOptional};
 
 #[derive(Serialize, Deserialize)]
 pub enum InvitationType {
-    PostRegister(FcmPostRegister, String, u64)
+    PostRegister(FcmPostRegister, String, u128)
 }
 
 impl InvitationType {
@@ -36,7 +36,7 @@ pub struct PostRegisterInvitation {
     #[serde(with = "base64_string")]
     pub username: Vec<u8>,
     #[serde(with = "string")]
-    pub ticket: u64,
+    pub ticket: u128,
 }
 /*
 
@@ -59,13 +59,13 @@ pub struct PostRegisterInvitation {
 pub struct FcmPostRegisterResponse {
     pub local_cid: u64,
     pub peer_cid: u64,
-    pub ticket: u64,
+    pub ticket: u128,
     pub accept: bool,
     pub username: String
 }
 
 #[allow(unused_results)]
-pub async fn process(persistence_handler: &PersistenceHandler, post_register_store: &mut HashMap<u64, InvitationType>, kem_state_containers: &mut HashMap<u64, ConstructorType>, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>, local_cid: u64, source_cid: u64, ticket: u64, transfer: FcmPostRegister, username: String) -> Result<FcmProcessorResult, AccountError> {
+pub async fn process(persistence_handler: &PersistenceHandler, post_register_store: &mut HashMap<u64, InvitationType>, kem_state_containers: &mut HashMap<u64, ConstructorType>, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>, local_cid: u64, source_cid: u64, ticket: u128, transfer: FcmPostRegister, username: String) -> Result<FcmProcessorResult, AccountError> {
     log::info!("FCM RECV PEER_POST_REGISTER");
     match &transfer {
         FcmPostRegister::AliceToBobTransfer(_transfer_bytes, _keys, source_cid) => {

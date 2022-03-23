@@ -264,7 +264,7 @@ impl GroupTransmitter {
 pub(crate) mod group {
 
     use bytes::{BufMut, BytesMut};
-    use zerocopy::{I64, U32, U64};
+    use zerocopy::{I64, U32, U64, U128};
 
     use hyxe_crypt::packet_vector::PacketVector;
     use hyxe_crypt::prelude::*;
@@ -291,7 +291,7 @@ pub(crate) mod group {
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER,
             algorithm: is_fast_message,
             security_level: processor.security_level.value(),
-            context_info: U64::new(processor.ticket.0),
+            context_info: U128::new(processor.ticket.0),
             group: U64::new(processor.group_id),
             wave_id: U32::new(processor.object_id),
             session_cid: U64::new(processor.hyper_ratchet_container.base.get_cid()),
@@ -300,23 +300,6 @@ pub(crate) mod group {
             target_cid: U64::new(target_cid)
         };
 
-        /*
-        let mut packet = BytesMut::with_capacity(packet_sizes::GROUP_HEADER_BASE_LEN);
-        header.inscribe_into(&mut packet);
-
-        if processor.is_message {
-            let message = processor.get_unencrypted_oneshot_packet().unwrap();
-            let header = GroupHeader::FastMessage(message, virtual_target, processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice()));
-            header.serialize_into_buf(&mut packet).unwrap();
-        } else {
-            let header = GroupHeader::Standard(processor.group_config.clone(), virtual_target);
-            header.serialize_into_buf(&mut packet).unwrap();
-        }
-
-        // always use the base here, even in FCM case
-        processor.hyper_ratchet_container.base.protect_message_packet(Some(processor.security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-
-        packet*/
         let mut packet = if processor.is_message {
             let mut packet = processor.get_unencrypted_oneshot_packet().unwrap().inner;
             packet.write_header(|buf| Ok(header.inscribe_into_slice(&mut *buf))).unwrap();
@@ -347,7 +330,7 @@ pub(crate) mod group {
             cmd_aux: packet_flags::cmd::aux::group::GROUP_HEADER_ACK,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(ticket.0),
+            context_info: U128::new(ticket.0),
             group: U64::new(group_id),
             wave_id: U32::new(object_id),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -376,7 +359,7 @@ pub(crate) mod group {
             cmd_aux: packet_flags::cmd::aux::group::GROUP_PAYLOAD,
             algorithm: 0,
             security_level: 0, // Irrelevant; supplied by the wave header anyways
-            context_info: U64::new(object_id as u64),
+            context_info: U128::new(object_id as _),
             group: U64::new(coords.group_id),
             wave_id: U32::new(coords.wave_id),
             session_cid: U64::new(scramble_drill.get_cid()),
@@ -402,7 +385,7 @@ pub(crate) mod group {
             cmd_aux: packet_flags::cmd::aux::group::GROUP_WINDOW_TAIL,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(object_id as u64),
+            context_info: U128::new(object_id as _),
             group: U64::new(group_id),
             wave_id: U32::new(*waves_in_window.start()),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -428,7 +411,7 @@ pub(crate) mod group {
             cmd_aux: packet_flags::cmd::aux::group::WAVE_DO_RETRANSMISSION,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(object_id as u64),
+            context_info: U128::new(object_id as _),
             group: U64::new(group_id),
             wave_id: U32::new(wave_id),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -461,7 +444,7 @@ pub(crate) mod group {
             cmd_aux: packet_flags::cmd::aux::group::WAVE_ACK,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(object_id as u64),
+            context_info: U128::new(object_id as _),
             group: U64::new(group_id),
             wave_id: U32::new(wave_id),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -482,7 +465,7 @@ pub(crate) mod group {
 
 pub(crate) mod do_connect {
     use bytes::BytesMut;
-    use zerocopy::{I64, U32, U64};
+    use zerocopy::{I64, U32, U64, U128};
 
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -513,7 +496,7 @@ pub(crate) mod do_connect {
             algorithm: 0,
             security_level: security_level.value(),
             // place username len here to allow the other end to know where to split the payload
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -535,7 +518,7 @@ pub(crate) mod do_connect {
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectFinalStatusPacket<'a> {
         pub mailbox: Option<MailboxTransfer>,
-        pub fcm_packets: Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>,
+        pub fcm_packets: Option<HashMap<u64, BTreeMap<u128, RawExternalPacket>>>,
         pub peers: Vec<(u64, Option<String>, Option<FcmKeys>)>,
         pub post_login_object: ServicesObject,
         #[serde(borrow)]
@@ -543,7 +526,7 @@ pub(crate) mod do_connect {
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, success: bool, mailbox: Option<MailboxTransfer>, fcm_packets: Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>, post_login_object: ServicesObject, message: T, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, success: bool, mailbox: Option<MailboxTransfer>, fcm_packets: Option<HashMap<u64, BTreeMap<u128, RawExternalPacket>>>, post_login_object: ServicesObject, message: T, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
         let payload = DoConnectFinalStatusPacket { mailbox, fcm_packets, peers, message: message.as_ref(), post_login_object };
 
         let cmd_aux = if success {
@@ -557,7 +540,7 @@ pub(crate) mod do_connect {
             cmd_aux,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -578,7 +561,7 @@ pub(crate) mod do_connect {
 
 pub(crate) mod keep_alive {
     use bytes::BytesMut;
-    use zerocopy::{I64, U32, U64};
+    use zerocopy::{I64, U32, U64, U128};
 
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
     use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -591,7 +574,7 @@ pub(crate) mod keep_alive {
             cmd_aux: 0,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -608,7 +591,7 @@ pub(crate) mod keep_alive {
 
 pub(crate) mod do_register {
     use bytes::{BufMut, BytesMut};
-    use zerocopy::{I64, U32, U64};
+    use zerocopy::{I64, U32, U64, U128};
 
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
@@ -640,7 +623,7 @@ pub(crate) mod do_register {
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE0,
             algorithm,
             security_level: 0,
-            context_info: U64::new(potential_cids_alice.len() as u64),
+            context_info: U128::new(potential_cids_alice.len() as _),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(local_nid),
@@ -664,7 +647,7 @@ pub(crate) mod do_register {
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE1,
             algorithm,
             security_level: 0,
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(reserved_true_cid),
             wave_id: U32::new(0),
             session_cid: U64::new(local_nid),
@@ -695,7 +678,7 @@ pub(crate) mod do_register {
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE2,
             algorithm,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(local_nid),
@@ -724,7 +707,7 @@ pub(crate) mod do_register {
             cmd_aux: packet_flags::cmd::aux::do_register::SUCCESS,
             algorithm,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(local_nid),
@@ -752,7 +735,7 @@ pub(crate) mod do_register {
             cmd_aux: packet_flags::cmd::aux::do_register::FAILURE,
             algorithm,
             security_level: 0,
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(local_nid),
@@ -772,7 +755,7 @@ pub(crate) mod do_register {
 /// For creating disconnect packets
 pub mod do_disconnect {
     use bytes::BytesMut;
-    use zerocopy::{I64, U32, U64};
+    use zerocopy::{I64, U32, U64, U128};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
@@ -788,7 +771,7 @@ pub mod do_disconnect {
             cmd_aux: packet_flags::cmd::aux::do_disconnect::STAGE0,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(ticket.0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -811,7 +794,7 @@ pub mod do_disconnect {
             cmd_aux: packet_flags::cmd::aux::do_disconnect::FINAL,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(ticket.0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -829,7 +812,7 @@ pub mod do_disconnect {
 
 pub(crate) mod do_drill_update {
     use bytes::BytesMut;
-    use zerocopy::{I64, U32, U64};
+    use zerocopy::{I64, U32, U64, U128};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags, packet_sizes};
@@ -847,7 +830,7 @@ pub(crate) mod do_drill_update {
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE0,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -876,7 +859,7 @@ pub(crate) mod do_drill_update {
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE1,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -907,7 +890,7 @@ pub(crate) mod do_drill_update {
             cmd_aux: packet_flags::cmd::aux::do_drill_update::TRUNCATE,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -936,7 +919,7 @@ pub(crate) mod do_drill_update {
             cmd_aux: packet_flags::cmd::aux::do_drill_update::TRUNCATE_ACK,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -956,7 +939,7 @@ pub(crate) mod do_drill_update {
 
 pub(crate) mod do_deregister {
     use bytes::BytesMut;
-    use zerocopy::{I64, U32, U64};
+    use zerocopy::{I64, U32, U64, U128};
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
@@ -969,7 +952,7 @@ pub(crate) mod do_deregister {
             cmd_aux: packet_flags::cmd::aux::do_drill_update::STAGE0,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -998,7 +981,7 @@ pub(crate) mod do_deregister {
             cmd_aux,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1016,7 +999,7 @@ pub(crate) mod do_deregister {
 
 pub(crate) mod pre_connect {
     use bytes::{BufMut, BytesMut};
-    use zerocopy::{I64, U32, U64};
+    use zerocopy::{I64, U32, U64, U128};
 
     use hyxe_wire::hypernode_type::NodeType;
 
@@ -1055,7 +1038,7 @@ pub(crate) mod pre_connect {
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(crate::constants::BUILD_VERSION as u64),
             wave_id: U32::new(0),
             session_cid: U64::new(static_aux_hr.get_cid()),
@@ -1086,7 +1069,7 @@ pub(crate) mod pre_connect {
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN_ACK,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(static_aux_hr.get_cid()),
@@ -1117,7 +1100,7 @@ pub(crate) mod pre_connect {
             cmd_aux: packet_flags::cmd::aux::do_preconnect::STAGE0,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1155,7 +1138,7 @@ pub(crate) mod pre_connect {
             cmd_aux,
             algorithm,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1176,7 +1159,7 @@ pub(crate) mod pre_connect {
             cmd_aux: packet_flags::cmd::aux::do_preconnect::BEGIN_CONNECT,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(0),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1217,7 +1200,7 @@ pub(crate) mod pre_connect {
 pub(crate) mod peer_cmd {
     use bytes::BytesMut;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
-    use zerocopy::{U64, U32, I64};
+    use zerocopy::{U64, U32, I64, U128};
     use crate::hdp::hdp_node::Ticket;
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
@@ -1240,7 +1223,7 @@ pub(crate) mod peer_cmd {
             cmd_aux: packet_flags::cmd::aux::peer_cmd::SIGNAL,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(ticket.0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1265,7 +1248,7 @@ pub(crate) mod peer_cmd {
             cmd_aux: packet_flags::cmd::aux::peer_cmd::SIGNAL,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(ticket.0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1292,7 +1275,7 @@ pub(crate) mod peer_cmd {
             cmd_aux: packet_flags::cmd::aux::peer_cmd::CHANNEL,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(ticket.0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1319,7 +1302,7 @@ pub(crate) mod peer_cmd {
             cmd_aux: packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(ticket.0),
+            context_info: U128::new(ticket.0),
             group: U64::new(0),
             wave_id: U32::new(0),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1345,7 +1328,7 @@ pub(crate) mod file {
     use crate::hdp::hdp_node::Ticket;
     use crate::hdp::state_container::VirtualTargetType;
     use crate::hdp::file_transfer::VirtualFileMetadata;
-    use zerocopy::{U64, U32, I64};
+    use zerocopy::{U64, U32, I64, U128};
     use bytes::{BytesMut, BufMut};
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
@@ -1359,7 +1342,7 @@ pub(crate) mod file {
             cmd_aux: packet_flags::cmd::aux::file::FILE_HEADER,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(ticket.0),
+            context_info: U128::new(ticket.0),
             group: U64::new(group_start),
             wave_id: U32::new(serialized_vt.len() as u32),
             session_cid: U64::new(hyper_ratchet.get_cid()),
@@ -1391,7 +1374,7 @@ pub(crate) mod file {
             cmd_aux: packet_flags::cmd::aux::file::FILE_HEADER_ACK,
             algorithm: 0,
             security_level: security_level.value(),
-            context_info: U64::new(ticket.0),
+            context_info: U128::new(ticket.0),
             group: U64::new(success),
             wave_id: U32::new(object_id),
             session_cid: U64::new(hyper_ratchet.get_cid()),

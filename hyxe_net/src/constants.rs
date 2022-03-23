@@ -1,4 +1,5 @@
 use crate::hdp::peer::peer_layer::UdpMode;
+use crate::hdp::hdp_packet::HdpHeader;
 
 pub const BUILD_VERSION: usize = 7463;
 /// by default, the UDP is not initialized
@@ -16,7 +17,7 @@ pub const LAYER3_IPV6_HEADER_BYTE_LEN: usize = 40;
 /// The UDP header len
 pub const UDP_HEADER_BYTE_LEN: usize = 8;
 /// The HDP header len
-pub const HDP_HEADER_BYTE_LEN: usize = 52; // was 44, moved to 52
+pub const HDP_HEADER_BYTE_LEN: usize = std::mem::size_of::<HdpHeader>();
 /// Assuming IPv6, this is the smallest MTU possible
 pub const MTU: usize = 1280;
 /// Total length of a packet's header
