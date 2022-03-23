@@ -1503,7 +1503,7 @@ impl HdpSessionInner {
 
     pub(crate) fn send_session_dc_signal<T: Into<String>>(&self, ticket: Option<Ticket>, disconnect_success: bool, msg: T) {
         if let Some(tx) = self.dc_signal_sender.take() {
-            let _ = tx.unbounded_send(HdpServerResult::Disconnect(ticket.unwrap_or_else(|| self.kernel_ticket.get()), self.implicated_cid.get().unwrap_or_else(|| self.kernel_ticket.get().0), disconnect_success, None, msg.into()));
+            let _ = tx.unbounded_send(HdpServerResult::Disconnect(ticket.unwrap_or_else(|| self.kernel_ticket.get()), self.implicated_cid.get().map(|r| r as _).unwrap_or_else(|| self.kernel_ticket.get().0), disconnect_success, None, msg.into()));
         }
     }
 
