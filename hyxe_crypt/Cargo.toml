@@ -41,7 +41,7 @@ sysinfo = "0.18.2"
 num_cpus = "1.13.0"
 linked-hash-map = "*"
 tokio = { version = "1.10.1", features = ["full"] }
-sha3 = "0.9.1"
+sha3 = "0.10.0"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2.80"
