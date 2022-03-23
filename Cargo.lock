@@ -1488,7 +1488,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "uuid 1.0.0-alpha.1",
- "webrtc-util",
+ "webrtc-util 0.4.3",
  "zerocopy",
 ]
 
@@ -1794,6 +1794,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "md-5"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "658646b21e0b72f7866c7038ab086d3d5e1cd6271f060fd37defb241949d0582"
+dependencies = [
+ "digest 0.10.3",
+]
+
+[[package]]
 name = "memchr"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1904,6 +1913,19 @@ name = "nix"
 version = "0.22.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4916f159ed8e5de0082076562152a76b7a1f64a01fd9d1e0fea002c37624faf"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
+ "memoffset",
+]
+
+[[package]]
+name = "nix"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f866317acbd3a240710c63f065ffb1e4fd466259045ccb504130b7f668f35c6"
 dependencies = [
  "bitflags",
  "cc",
@@ -3204,7 +3226,7 @@ dependencies = [
  "libc",
  "libsqlite3-sys",
  "log",
- "md-5",
+ "md-5 0.9.1",
  "memchr",
  "num-bigint 0.3.3",
  "once_cell",
@@ -3305,22 +3327,21 @@ dependencies = [
 
 [[package]]
 name = "stun"
-version = "0.3.5"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7baeb717b2bcbbbab73ee059f9e0a801c718ddbf9aca75f305f5be937a1b0367"
+checksum = "c7c5e998a0b2bc5fe66e50dff28310f54210155f4d943a6c2b80bbb52fbaf3b0"
 dependencies = [
- "anyhow",
  "base64",
  "crc",
  "lazy_static",
- "md-5",
+ "md-5 0.10.1",
  "rand 0.8.4",
  "ring",
  "subtle",
  "thiserror",
  "tokio",
  "url",
- "webrtc-util",
+ "webrtc-util 0.5.3",
 ]
 
 [[package]]
@@ -3882,11 +3903,33 @@ dependencies = [
  "lazy_static",
  "libc",
  "log",
- "nix",
+ "nix 0.22.3",
  "rand 0.8.4",
  "thiserror",
  "tokio",
  "winapi 0.2.8",
+]
+
+[[package]]
+name = "webrtc-util"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60b69bdea720881eddee50bd969be052ed95f04ccc5a6f684495131afb87e31c"
+dependencies = [
+ "async-trait",
+ "bitflags",
+ "bytes",
+ "cc",
+ "ipnet",
+ "lazy_static",
+ "libc",
+ "log",
+ "nix 0.23.1",
+ "parking_lot",
+ "rand 0.8.4",
+ "thiserror",
+ "tokio",
+ "winapi 0.3.9",
 ]
 
 [[package]]
