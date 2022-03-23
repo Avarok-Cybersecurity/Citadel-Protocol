@@ -212,6 +212,7 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
                         if let None = net_lock.as_ref() {
                             log::info!("*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
                             *net_lock = Some(());
+                            socket.cleanse()?;
                             submit_final_candidate(socket)?;
                             // Hold the mutex to prevent the other side from accessing the data. It will need to end via the other means
                             send(DualStackCandidate::MutexSet(peer_unique_id, local_id), conn).await?;
@@ -252,10 +253,10 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
                     log::info!("*** received MutexSet. Will unconditionally end ...");
                     assert!(loser_value_set.lock().replace((local, remote)).is_none());
                     let hole_punched_socket = assert_rebuild_ready(local, remote).await?;
+                    hole_punched_socket.cleanse()?;
                     submit_final_candidate(hole_punched_socket)?;
                     // return here. The winner must exit last
                     send(DualStackCandidate::WinnerCanEnd, conn).await?;
-
                     return signal_done();
                 },
 
