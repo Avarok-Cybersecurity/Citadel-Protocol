@@ -5,7 +5,6 @@ use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use futures::{Sink, SinkExt, StreamExt};
@@ -584,7 +583,6 @@ pub struct NodeRemote {
 }
 
 struct HdpServerRemoteInner {
-    ticket_counter: AtomicU64,
     callback_handler: KernelAsyncCallbackHandler,
     node_type: NodeType,
     account_manager: AccountManager
@@ -627,7 +625,7 @@ impl NodeRemote {
     /// Creates a new [HdpServerRemote]
     pub(crate) fn new(outbound_send_request_tx: BoundedSender<(HdpServerRequest, Ticket)>, callback_handler: KernelAsyncCallbackHandler, account_manager: AccountManager, node_type: NodeType) -> Self {
         // starts at 1. Ticket 0 is for reserved
-        Self { outbound_send_request_tx, inner: Arc::new(HdpServerRemoteInner { ticket_counter: AtomicU64::new(1), callback_handler, account_manager, node_type }) }
+        Self { outbound_send_request_tx, inner: Arc::new(HdpServerRemoteInner { callback_handler, account_manager, node_type }) }
     }
 
     /// Especially used to keep track of a conversation (b/c a certain ticket number may be expected)
@@ -695,8 +693,10 @@ impl NodeRemote {
         self.outbound_send_request_tx.close().await
     }
 
+    // Note: when two nodes create a ticket, there may be equivalent values
+    // Thus, use UUID's instead
     pub fn get_next_ticket(&self) -> Ticket {
-        self.inner.ticket_counter.fetch_add(1, Ordering::SeqCst).into()
+        uuid::Uuid::new_v4().as_u128().into()
     }
 
     pub fn try_send_with_custom_ticket(&mut self, ticket: Ticket, request: HdpServerRequest) -> Result<(), TrySendError<(HdpServerRequest, Ticket)>> {
@@ -834,7 +834,7 @@ pub enum HdpServerResult {
     /// for group-related events. Implicated cid, ticket, group info
     GroupEvent(u64, Ticket, GroupBroadcast),
     /// vt-cxn-type is optional, because it may have only been a provisional connection
-    Disconnect(Ticket, u64, bool, Option<VirtualConnectionType>, String),
+    Disconnect(Ticket, u128, bool, Option<VirtualConnectionType>, String),
     /// An internal error occured
     InternalServerError(Option<Ticket>, String),
     /// A channel was created, with channel_id = ticket (same as post-connect ticket received)
@@ -879,9 +879,9 @@ impl HdpServerResult {
 
 /// A type sent through the server when a request is made
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-pub struct Ticket(pub u64);
+pub struct Ticket(pub u128);
 
-impl Into<Ticket> for u64 {
+impl Into<Ticket> for u128 {
     fn into(self) -> Ticket {
         Ticket(self)
     }
@@ -889,7 +889,7 @@ impl Into<Ticket> for u64 {
 
 impl Into<Ticket> for usize {
     fn into(self) -> Ticket {
-        Ticket(self as u64)
+        (self as u128).into()
     }
 }
 

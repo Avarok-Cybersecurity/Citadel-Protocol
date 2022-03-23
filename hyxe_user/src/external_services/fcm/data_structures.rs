@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use hyxe_crypt::fcm::fcm_ratchet::FcmAliceToBobTransfer;
 use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
-use zerocopy::{AsBytes, FromBytes, Unaligned, U64, U32, LayoutVerified};
+use zerocopy::{AsBytes, FromBytes, Unaligned, U64, U32, LayoutVerified, U128};
 use bytes::BufMut;
 use byteorder::BigEndian;
 use std::fmt::{Formatter, Debug};
@@ -55,7 +55,7 @@ pub struct FcmHeader {
     pub session_cid: U64<BigEndian>,
     pub target_cid: U64<BigEndian>,
     pub group_id: U64<BigEndian>,
-    pub ticket: U64<BigEndian>,
+    pub ticket: U128<BigEndian>,
     pub object_id: U32<BigEndian>,
     pub ratchet_version: U32<BigEndian>
 }
@@ -65,7 +65,7 @@ impl FcmHeader {
         packet.put_u64(self.session_cid.get());
         packet.put_u64(self.target_cid.get());
         packet.put_u64(self.group_id.get());
-        packet.put_u64(self.ticket.get());
+        packet.put_u128(self.ticket.get());
         packet.put_u32(self.object_id.get());
         packet.put_u32(self.ratchet_version.get());
     }
@@ -82,11 +82,11 @@ pub struct FcmTicket {
     #[serde(with = "string")]
     pub target_cid: u64,
     #[serde(with = "string")]
-    pub ticket: u64
+    pub ticket: u128
 }
 
 impl FcmTicket {
-    pub fn new(source_cid: u64, target_cid: u64, ticket: u64) -> Self {
+    pub fn new(source_cid: u64, target_cid: u64, ticket: u128) -> Self {
         Self { source_cid, target_cid, ticket }
     }
 }
@@ -116,7 +116,7 @@ impl<T: Into<String>> From<T> for RawExternalPacket {
 
 #[derive(Debug)]
 pub struct RawFcmPacketStore {
-    pub inner: HashMap<u64, BTreeMap<u64, RawExternalPacket>>
+    pub inner: HashMap<u64, BTreeMap<u128, RawExternalPacket>>
 }
 
 impl RawFcmPacketStore {
@@ -130,8 +130,8 @@ impl RawFcmPacketStore {
     }
 }
 
-impl From<HashMap<u64, BTreeMap<u64, RawExternalPacket>>> for RawFcmPacketStore {
-    fn from(inner: HashMap<u64, BTreeMap<u64, RawExternalPacket>, RandomState>) -> Self {
+impl From<HashMap<u64, BTreeMap<u128, RawExternalPacket>>> for RawFcmPacketStore {
+    fn from(inner: HashMap<u64, BTreeMap<u128, RawExternalPacket>, RandomState>) -> Self {
         Self { inner }
     }
 }

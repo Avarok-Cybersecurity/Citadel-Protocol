@@ -1,7 +1,7 @@
 //! These crafters return a base64 string representation of the packets, meant to be sent outbound to FCM services
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use crate::external_services::fcm::data_structures::{FcmHeader, FCMPayloadType, FCM_HEADER_BYTES, RawExternalPacket};
-use zerocopy::{U64, U32};
+use zerocopy::{U64, U32, U128};
 use bytes::BytesMut;
 use hyxe_fs::io::SyncIO;
 use serde::Serialize;
@@ -11,12 +11,12 @@ use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransferType;
 use crate::external_services::fcm::kem::FcmPostRegister;
 use hyxe_crypt::prelude::SecBuffer;
 
-pub fn craft_group_header<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u64, message: SecBuffer, alice_to_bob_transfer: Option<AliceToBobTransferType<'_>>) -> Option<RawExternalPacket> {
+pub fn craft_group_header<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u128, message: SecBuffer, alice_to_bob_transfer: Option<AliceToBobTransferType<'_>>) -> Option<RawExternalPacket> {
     let header = FcmHeader {
         session_cid: U64::new(fcm_ratchet.get_cid()),
         target_cid: U64::new(target_cid),
         group_id: U64::new(group_id),
-        ticket: U64::new(ticket),
+        ticket: U128::new(ticket),
         object_id: U32::new(object_id),
         ratchet_version: U32::new(fcm_ratchet.version())
     };
@@ -35,12 +35,12 @@ pub fn craft_group_header<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group
     Some(base64_packet(fcm_ratchet, &header, &payload))
 }
 
-pub fn craft_group_header_ack<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u64, bob_to_alice_transfer: KemTransferStatus) -> RawExternalPacket {
+pub fn craft_group_header_ack<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u128, bob_to_alice_transfer: KemTransferStatus) -> RawExternalPacket {
     let header = FcmHeader {
         session_cid: U64::new(fcm_ratchet.get_cid()),
         target_cid: U64::new(target_cid),
         group_id: U64::new(group_id),
-        ticket: U64::new(ticket),
+        ticket: U128::new(ticket),
         object_id: U32::new(object_id),
         ratchet_version: U32::new(fcm_ratchet.version())
     };
@@ -50,12 +50,12 @@ pub fn craft_group_header_ack<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, g
     base64_packet(fcm_ratchet, &header, &payload)
 }
 
-pub fn craft_truncate<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u64, truncate_vers: Option<u32>) -> RawExternalPacket {
+pub fn craft_truncate<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u128, truncate_vers: Option<u32>) -> RawExternalPacket {
     let header = FcmHeader {
         session_cid: U64::new(fcm_ratchet.get_cid()),
         target_cid: U64::new(target_cid),
         group_id: U64::new(group_id),
-        ticket: U64::new(ticket),
+        ticket: U128::new(ticket),
         object_id: U32::new(object_id),
         ratchet_version: U32::new(fcm_ratchet.version())
     };
@@ -65,12 +65,12 @@ pub fn craft_truncate<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id:
     base64_packet(fcm_ratchet, &header, &payload)
 }
 
-pub fn craft_truncate_ack<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u64, truncate_vers: Option<u32>) -> RawExternalPacket {
+pub fn craft_truncate_ack<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group_id: u64, target_cid: u64, ticket: u128, truncate_vers: Option<u32>) -> RawExternalPacket {
     let header = FcmHeader {
         session_cid: U64::new(fcm_ratchet.get_cid()),
         target_cid: U64::new(target_cid),
         group_id: U64::new(group_id),
-        ticket: U64::new(ticket),
+        ticket: U128::new(ticket),
         object_id: U32::new(object_id),
         ratchet_version: U32::new(fcm_ratchet.version())
     };
@@ -80,12 +80,12 @@ pub fn craft_truncate_ack<Fcm: Ratchet>(fcm_ratchet: &Fcm, object_id: u32, group
     base64_packet(fcm_ratchet, &header, &payload)
 }
 
-pub fn craft_deregistered<Fcm: Ratchet>(fcm_ratchet: &Fcm, target_cid: u64, ticket: u64) -> RawExternalPacket {
+pub fn craft_deregistered<Fcm: Ratchet>(fcm_ratchet: &Fcm, target_cid: u64, ticket: u128) -> RawExternalPacket {
     let header = FcmHeader {
         session_cid: U64::new(fcm_ratchet.get_cid()),
         target_cid: U64::new(target_cid),
         group_id: U64::new(0),
-        ticket: U64::new(ticket),
+        ticket: U128::new(ticket),
         object_id: U32::new(0),
         ratchet_version: U32::new(fcm_ratchet.version())
     };
@@ -96,12 +96,12 @@ pub fn craft_deregistered<Fcm: Ratchet>(fcm_ratchet: &Fcm, target_cid: u64, tick
 }
 
 /// Send from the central node to the edge
-pub fn craft_post_register<R: Ratchet>(base_static_ratchet: &R, ticket: u64, initial_cid: u64, transfer: FcmPostRegister, username: String) -> RawExternalPacket {
+pub fn craft_post_register<R: Ratchet>(base_static_ratchet: &R, ticket: u128, initial_cid: u64, transfer: FcmPostRegister, username: String) -> RawExternalPacket {
     let header = FcmHeader {
         session_cid: U64::new(base_static_ratchet.get_cid()),
         target_cid: U64::new(0), // required to be 0 b/c we want to use the base ratchet at the endpoints
         group_id: U64::new(initial_cid),
-        ticket: U64::new(ticket),
+        ticket: U128::new(ticket),
         object_id: U32::new(0),
         ratchet_version: U32::new(base_static_ratchet.version())
     };
