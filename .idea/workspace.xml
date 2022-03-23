@@ -41,36 +41,24 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change beforePath="$PROJECT_DIR$/.github/workflows/exec.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/exec.yml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.github/workflows/workflow.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/workflow.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/hyxe_wave.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/hyxe_wave.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/examples/client_sym3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/examples/client_sym3.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/examples/server_sym3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/examples/server_sym3.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/error.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/error.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/hypernode_type.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/hypernode_type.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/ip_addr.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/ip_addr.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/local_firewall_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/local_firewall_handler.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/misc.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/misc.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/nat_identification.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/nat_identification.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/quic.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/quic.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/socket_helpers.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/socket_helpers.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/tls.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/tls.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/encrypted_config_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/linear/encrypted_config_container.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/method1.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/linear/method1.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/method3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/linear/method3.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/linear/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/linear/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/multi/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/multi/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/targetted_udp_socket_addr.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/targetted_udp_socket_addr.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/udp_traversal/udp_hole_puncher.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/udp_hole_puncher.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_nat/src/upnp_handler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/upnp_handler.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/tests/primary.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/constants.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/constants.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_node.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_node.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/tests/stress_test_and_proto.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/stress_test_and_proto.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/client_account.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/data_structures.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/data_structures.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_crafter.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/deregister.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/deregister.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/peer_post_register.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/external_services/fcm/fcm_packet_processor/peer_post_register.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -188,11 +176,11 @@
       <recent name="C:\hyxe_wave\hyxe_net\backup" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$/lusna_sdk/src/builder" />
       <recent name="$PROJECT_DIR$" />
       <recent name="$PROJECT_DIR$/hyxe_user/src" />
       <recent name="$PROJECT_DIR$/hyxe_net/src" />
       <recent name="$PROJECT_DIR$/hyxe_user/src/auth" />
-      <recent name="$PROJECT_DIR$/lusna_sdk/src" />
     </key>
     <key name="MoveClassesOrPackagesDialog.RECENTS_KEY">
       <recent name="" />
@@ -219,7 +207,7 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test stress_test_and_proto::tests">
+  <component name="RunManager" selected="Cargo.Test prefabs::client::single_connection::tests::single_connection_passwordless">
     <configuration default="true" type="ArquillianTestNG" factoryName="" nameIsGenerated="true">
       <option name="arquillianRunConfiguration">
         <value>
@@ -286,8 +274,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test misc::tests::test_is_self_signed" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_nat --lib misc::tests::test_is_self_signed -- --exact" />
+    <configuration name="Test nat_identification::tests::test_average_delta_computation" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_wire --lib nat_identification::tests::test_average_delta_computation -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -302,8 +290,8 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test quic::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_nat --lib quic::tests" />
+    <configuration name="Test nat_identification::tests::test_average_delta_computation2" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_wire --lib nat_identification::tests::test_average_delta_computation2 -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -318,8 +306,24 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test quic::tests::test_quic" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_nat --lib quic::tests::test_quic -- --exact" />
+    <configuration name="Test nat_identification::tests::test_nat_traversal_compat" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_wire --lib nat_identification::tests::test_nat_traversal_compat -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="STABLE" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="backtrace" value="FULL" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test prefabs::client::single_connection::tests::single_connection_passwordless" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package lusna_sdk --lib prefabs::client::single_connection::tests::single_connection_passwordless -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -336,22 +340,6 @@
     </configuration>
     <configuration name="Test single_connection::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="command" value="test --package lusna_sdk --lib prefabs::client::single_connection::tests -- --test-threads=1" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="STABLE" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="withSudo" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test stress_test_and_proto::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_net --test stress_test_and_proto tests" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -398,18 +386,16 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test tests::tcp_or_tls (1)" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_net --test stress_test_and_proto tests::tcp_or_tls -- --exact" />
+    <configuration name="Test tests::size" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_crypt --test primary tests::size -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
-      <option name="requiredFeatures" value="false" />
+      <option name="requiredFeatures" value="true" />
       <option name="allFeatures" value="false" />
       <option name="emulateTerminal" value="false" />
       <option name="withSudo" value="false" />
       <option name="backtrace" value="FULL" />
-      <envs>
-        <env name="RUSTFLAGS" value="-g" />
-      </envs>
+      <envs />
       <option name="isRedirectInput" value="false" />
       <option name="redirectInputPath" value="" />
       <method v="2">
@@ -439,19 +425,19 @@
       <item itemvalue="Cargo.Test tests::main (RELEASE)" />
       <item itemvalue="Cargo.Test main - UDP+TLS" />
       <item itemvalue="Cargo.Test single_connection::tests" />
-      <item itemvalue="Cargo.Test tests::tcp_or_tls (1)" />
-      <item itemvalue="Cargo.Test quic::tests" />
-      <item itemvalue="Cargo.Test misc::tests::test_is_self_signed" />
-      <item itemvalue="Cargo.Test quic::tests::test_quic" />
-      <item itemvalue="Cargo.Test stress_test_and_proto::tests" />
+      <item itemvalue="Cargo.Test nat_identification::tests::test_average_delta_computation" />
+      <item itemvalue="Cargo.Test nat_identification::tests::test_average_delta_computation2" />
+      <item itemvalue="Cargo.Test nat_identification::tests::test_nat_traversal_compat" />
+      <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_passwordless" />
+      <item itemvalue="Cargo.Test tests::size" />
     </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Cargo.Test stress_test_and_proto::tests" />
-        <item itemvalue="Cargo.Test tests::tcp_or_tls (1)" />
-        <item itemvalue="Cargo.Test quic::tests" />
-        <item itemvalue="Cargo.Test quic::tests::test_quic" />
-        <item itemvalue="Cargo.Test misc::tests::test_is_self_signed" />
+        <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_passwordless" />
+        <item itemvalue="Cargo.Test tests::size" />
+        <item itemvalue="Cargo.Test nat_identification::tests::test_nat_traversal_compat" />
+        <item itemvalue="Cargo.Test nat_identification::tests::test_average_delta_computation" />
+        <item itemvalue="Cargo.Test nat_identification::tests::test_average_delta_computation2" />
       </list>
     </recent_temporary>
   </component>
@@ -719,7 +705,7 @@
       <workItem from="1643040364399" duration="17223000" />
       <workItem from="1643485662211" duration="13587000" />
       <workItem from="1643564061488" duration="16216000" />
-      <workItem from="1643649696955" duration="93124000" />
+      <workItem from="1643649696955" duration="274325000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>

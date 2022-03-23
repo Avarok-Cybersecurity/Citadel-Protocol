@@ -2,7 +2,7 @@ use serde::{Serialize, Deserialize};
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::peer::peer_layer::UdpMode;
 use std::net::SocketAddr;
-use hyxe_nat::nat_identification::NatType;
+use hyxe_wire::nat_identification::NatType;
 use crate::hdp::hdp_node::TlsDomain;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -40,6 +40,9 @@ impl PeerNatInfo {
     pub fn generate_proper_listener_connect_addr(&self, local_nat_type: &NatType) -> (bool, SocketAddr) {
         //let predicted_addr = self.peer_nat.predict_external_addr_from_local_bind_port(self.peer_unnated_listener_port).map(|r| SocketAddr::new(self.peer_remote_ip, r.port())).unwrap_or_else(|| SocketAddr::new(self.peer_remote_ip, self.peer_unnated_listener_port));
         let predicted_addr = self.peer_remote_addr_visible_from_server;
+        // TODO: This assumes same IP, Port as visible from server. For EDM's w/delta,
+        // we need to *ensure* the dualstack udp hole puncher can already handle deltas
+        // properly
         let needs_turn = !self.peer_nat.stun_compatible(local_nat_type);
         (needs_turn, predicted_addr)
     }

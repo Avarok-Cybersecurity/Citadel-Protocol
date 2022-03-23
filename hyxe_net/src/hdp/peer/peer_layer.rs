@@ -445,7 +445,7 @@ pub enum PeerSignal {
     // For redundant fcm transfers, ensuring no loss of packets when using FCM
     Fcm(FcmTicket, RawExternalPacket),
     // For polling for packets
-    FcmFetch(Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>),
+    FcmFetch(Option<HashMap<u64, BTreeMap<u128, RawExternalPacket>>>),
     // For denoting that reg info changed
     FcmTokenUpdate(FcmKeys)
 }

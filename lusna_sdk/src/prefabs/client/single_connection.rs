@@ -141,9 +141,7 @@ mod tests {
     use std::str::FromStr;
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use rstest::{rstest, fixture};
 
-    #[fixture]
     fn server_info() -> (NodeFuture, SocketAddr) {
         let port = portpicker::pick_unused_port().unwrap();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
@@ -151,14 +149,12 @@ mod tests {
         (server, bind_addr)
     }
 
-    #[rstest]
-    #[trace]
     #[tokio::test]
-    async fn single_connection_registered(server_info: (NodeFuture, SocketAddr)) {
+    async fn single_connection_registered() {
         crate::test_common::setup_log();
 
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
-        let (server, server_addr) = server_info;
+        let (server, server_addr) = server_info();
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
 
@@ -181,13 +177,12 @@ mod tests {
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
     }
 
-    #[rstest]
     #[tokio::test]
-    async fn single_connection_passwordless(server_info: (NodeFuture, SocketAddr)) {
+    async fn single_connection_passwordless() {
         crate::test_common::setup_log();
 
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
-        let (server, server_addr) = server_info;
+        let (server, server_addr) = server_info();
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
 

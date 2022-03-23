@@ -126,7 +126,7 @@ unused_results,
 pub mod prelude {
     pub use hyxe_net::prelude::*;
 
-    pub use crate::node_builder::*;
+    pub use crate::builder::node_builder::*;
     pub use crate::remote_ext::*;
 }
 
@@ -134,6 +134,6 @@ pub mod prelude {
 pub mod remote_ext;
 /// A list of prefabricated kernels designed for common use cases. If a greater degree of control is required for an application, a custom implementation of [NetKernel](crate::prelude::NetKernel) is desirable
 pub mod prefabs;
-mod node_builder;
+mod builder;
 #[doc(hidden)]
 pub(crate) mod test_common;

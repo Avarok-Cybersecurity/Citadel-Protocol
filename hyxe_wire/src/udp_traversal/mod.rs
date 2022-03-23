@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use serde::{Serialize, Deserialize};
+use uuid::Uuid;
 
 /// Linear hole-punching
 pub mod linear;
@@ -9,6 +10,7 @@ pub mod targetted_udp_socket_addr;
 pub mod udp_hole_puncher;
 
 pub mod multi;
+mod hole_punch_config;
 
 #[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum NatTraversalMethod {
@@ -43,12 +45,17 @@ impl NatTraversalMethod {
     }
 }
 
-#[derive(Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Copy, Clone, Default)]
-pub struct HolePunchID(u16);
+#[derive(Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq, Hash, Debug, Copy, Clone)]
+pub struct HolePunchID(Uuid);
 
 impl HolePunchID {
-    pub(crate) fn next(&mut self) -> HolePunchID {
-        *self = Self(self.0.wrapping_add(1));
-        Self(self.0)
+    pub(crate) fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for HolePunchID {
+    fn default() -> Self {
+        Self::new()
     }
 }

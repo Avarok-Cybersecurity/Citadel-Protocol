@@ -332,7 +332,12 @@ pub mod re_imports {
     pub use futures::future::try_join3;
 
     pub use ez_pqcrypto::build_tag;
-    pub use hyxe_nat::hypernode_type::NodeType;
+    pub use hyxe_wire::hypernode_type::NodeType;
+    pub use hyxe_wire::exports::ClientConfig as RustlsClientConfig;
+    pub use hyxe_wire::quic::insecure;
+    pub use hyxe_wire::exports::openssl;
+    pub use hyxe_wire::exports::rustls_pemfile;
+    pub use hyxe_wire::tls::{create_rustls_client_config, load_native_certs_async, cert_vec_to_secure_client_config};
 }
 
 

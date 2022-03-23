@@ -16,7 +16,6 @@ impl ConnAddr for NetworkEndpoint {
     fn local_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.local_addr)
     }
-
     fn peer_addr(&self) -> std::io::Result<SocketAddr> {
         Ok(self.peer_addr)
     }
