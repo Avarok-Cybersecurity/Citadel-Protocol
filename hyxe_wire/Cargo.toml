@@ -39,7 +39,7 @@ rustls-pemfile = "0.3.0"
 rcgen = "0.9.1"
 openssl = { version = "0.10.36", features = ["vendored"] }
 either = "1.6.1"
-tokio-rustls = "0.23.2"
+tokio-rustls = "0.23.3"
 netbeam = { path = "../netbeam", version = "0.1.0" }
 uuid = { version = "0.8.2", features = ["v4", "serde"] }
 
