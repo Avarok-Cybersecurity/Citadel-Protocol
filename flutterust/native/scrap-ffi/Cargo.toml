@@ -6,7 +6,7 @@ edition = "2018"
 
 [lib]
 name = "scrap_ffi"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["staticlib", "cdylib", "cdylib"]
 
 [dependencies]
 ffi_helpers = "0.2"

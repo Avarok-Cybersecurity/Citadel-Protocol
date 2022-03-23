@@ -1,6 +1,6 @@
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use hyxe_nat::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
-use hyxe_nat::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
+use hyxe_wire::udp_traversal::targetted_udp_socket_addr::HolePunchedUdpSocket;
+use hyxe_wire::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use netbeam::sync::RelativeNodeType;
 
 use crate::constants::HOLE_PUNCH_SYNC_TIME_MULTIPLIER;
@@ -15,10 +15,10 @@ use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSende
 
 use super::includes::*;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
-use hyxe_nat::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
+use hyxe_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use std::sync::atomic::Ordering;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
-use hyxe_nat::exports::NewConnection;
+use hyxe_wire::exports::NewConnection;
 
 /// Handles preconnect packets. Handles the NAT traversal
 /// TODO: Cleanup and organize code
@@ -74,7 +74,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                                 // we also need to reserve a local socket addr. Since servers are usually globally-reachable, we assume no IP/port translation
                                 if inner!(session.primary_stream_quic_conn).is_none() {
                                     // we need to reserve a new UDP socket since we can't use the local bind addr if there are multiple udp-requesting connections to this server
-                                    let socket = hyxe_nat::socket_helpers::get_unused_udp_socket_at_bind_ip(session.local_bind_addr.ip())?;
+                                    let socket = hyxe_wire::socket_helpers::get_unused_udp_socket_at_bind_ip(session.local_bind_addr.ip())?;
                                     let port = socket.local_addr()?.port();
                                     state_container.pre_connect_state.unused_local_udp_socket = Some(socket);
                                     Some(port)
@@ -408,7 +408,7 @@ fn proto_version_out_of_sync(adjacent_proto_version: u64) -> bool {
 
 fn get_raw_udp_interface(socket: HolePunchedUdpSocket) -> UdpSplittableTypes {
     log::info!("Will use Raw UDP for UDP transmission");
-    UdpSplittableTypes::Raw(RawUdpSocketConnector::new(socket.socket, socket.addr.natted))
+    UdpSplittableTypes::Raw(RawUdpSocketConnector::new(socket.socket, socket.addr.receive_address))
 }
 
 fn get_quic_udp_interface(quic_conn: NewConnection, local_addr: SocketAddr) -> UdpSplittableTypes {

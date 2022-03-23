@@ -113,7 +113,7 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     pub fcm_invitations: HashMap<u64, InvitationType>,
     /// Only the server should store these values. The first key is the peer cid, the second key is the raw ticket ID, used for organizing proper order
     /// TODO: Consider removing this, as the 2nd version below is newer
-    fcm_packet_store: Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>,
+    fcm_packet_store: Option<HashMap<u64, BTreeMap<u128, RawExternalPacket>>>,
     #[serde(with = "crate::external_services::fcm::data_structures::none")]
     pub(crate) persistence_handler: Option<PersistenceHandler<R, Fcm>>,
     /// RTDB config for client-side communications
@@ -618,7 +618,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
     #[allow(unused_results)]
     /// Returns the FcmPostRegister instance meant to be sent through the ordinary network. Additionally, returns the ticket associated with the transaction
-    pub async fn fcm_prepare_accept_register_as_endpoint(&self, peer_cid: u64, accept: bool) -> Result<(FcmPostRegister, u64), AccountError> {
+    pub async fn fcm_prepare_accept_register_as_endpoint(&self, peer_cid: u64, accept: bool) -> Result<(FcmPostRegister, u128), AccountError> {
         let mut write = self.write();
         let local_cid = write.cid;
 
@@ -720,7 +720,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Sends the request to the FCM server, returns the ticket for the request
-    pub async fn send_message_to_external(&self, service: ExternalService, target_peer_cid: u64, message: SecBuffer, ticket: u64) -> Result<FcmProcessorResult, AccountError> {
+    pub async fn send_message_to_external(&self, service: ExternalService, target_peer_cid: u64, message: SecBuffer, ticket: u128) -> Result<FcmProcessorResult, AccountError> {
         let (ticket, mut sender, packet) = self.prepare_external_service_send_message(service, target_peer_cid, message, ticket).await?;
         sender.send(packet, self.get_cid(), target_peer_cid).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }))
     }
@@ -732,7 +732,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Prepares the requires abstractions needed to send data
-    async fn prepare_external_service_send_message(&self, service: ExternalService, target_peer_cid: u64, message: SecBuffer, ticket_id: u64) -> Result<(FcmTicket, Box<dyn ExternalServiceChannel>, RawExternalPacket), AccountError> {
+    async fn prepare_external_service_send_message(&self, service: ExternalService, target_peer_cid: u64, message: SecBuffer, ticket_id: u128) -> Result<(FcmTicket, Box<dyn ExternalServiceChannel>, RawExternalPacket), AccountError> {
         let mut write = self.write();
         let ClientNetworkAccountInner::<R, Fcm> {
             fcm_crypt_container,
@@ -853,7 +853,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Retrieves the raw packets delivered to this CNAC
-    pub async fn retrieve_raw_fcm_packets(&self) -> Result<Option<HashMap<u64, BTreeMap<u64, RawExternalPacket>>>, AccountError> {
+    pub async fn retrieve_raw_fcm_packets(&self) -> Result<Option<HashMap<u64, BTreeMap<u128, RawExternalPacket>>>, AccountError> {
         let ret = self.write().fcm_packet_store.take();
 
         if ret.is_some() {

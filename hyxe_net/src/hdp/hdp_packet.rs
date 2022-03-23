@@ -2,7 +2,7 @@ use std::io;
 
 use byteorder::{NetworkEndian, WriteBytesExt};
 use bytes::{BufMut, Bytes, BytesMut};
-use zerocopy::{AsBytes, FromBytes, I64, LayoutVerified, U32, U64, Unaligned};
+use zerocopy::{AsBytes, FromBytes, I64, LayoutVerified, U32, U64, Unaligned, U128};
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use std::net::SocketAddr;
@@ -163,8 +163,8 @@ pub struct HdpHeader {
     pub algorithm: u8,
     /// A value [0,4]
     pub security_level: u8,
-    /// Some commands require arguments; the u64 can hold 8 bytes. The type is w.r.t the context
-    pub context_info: U64<NetworkEndian>,
+    /// Some commands require arguments; the u128 can hold 16 bytes
+    pub context_info: U128<NetworkEndian>,
     /// A unique ID given to a subset of a singular object
     pub group: U64<NetworkEndian>,
     /// The wave ID in the sequence
@@ -192,7 +192,7 @@ impl HdpHeader {
         writer.put_u8(self.cmd_aux);
         writer.put_u8(self.algorithm);
         writer.put_u8(self.security_level);
-        writer.put_u64(self.context_info.get());
+        writer.put_u128(self.context_info.get());
         writer.put_u64(self.group.get());
         writer.put_u32(self.wave_id.get());
         writer.put_u64(self.session_cid.get());
@@ -210,7 +210,7 @@ impl HdpHeader {
         writer.write_u8(self.cmd_aux).unwrap();
         writer.write_u8(self.algorithm).unwrap();
         writer.write_u8(self.security_level).unwrap();
-        writer.write_u64::<NetworkEndian>(self.context_info.get()).unwrap();
+        writer.write_u128::<NetworkEndian>(self.context_info.get()).unwrap();
         writer.write_u64::<NetworkEndian>(self.group.get()).unwrap();
         writer.write_u32::<NetworkEndian>(self.wave_id.get()).unwrap();
         writer.write_u64::<NetworkEndian>(self.session_cid.get()).unwrap();

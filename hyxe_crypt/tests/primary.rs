@@ -181,7 +181,7 @@ mod tests {
         let buf = bincode2::deserialize::<SecBuffer>(&serde).unwrap();
 
         assert_eq!(buf.as_ref(), b"Hello, world!");
-        let mut cloned = buf.clone();
+        let cloned = buf.clone();
         let ptr = cloned.as_ref().as_ptr();
         let len = cloned.as_ref().len();
 

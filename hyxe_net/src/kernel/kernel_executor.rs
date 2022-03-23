@@ -4,7 +4,7 @@ use futures::TryStreamExt;
 use tokio::runtime::Handle;
 use tokio::task::LocalSet;
 
-use hyxe_nat::hypernode_type::NodeType;
+use hyxe_wire::hypernode_type::NodeType;
 use hyxe_user::account_manager::AccountManager;
 
 use crate::error::NetworkError;
@@ -16,6 +16,8 @@ use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::kernel::kernel::NetKernel;
 use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::RuntimeFuture;
+use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
+use std::sync::Arc;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
@@ -31,11 +33,11 @@ pub struct KernelExecutor<K: NetKernel> {
 impl<K: NetKernel> KernelExecutor<K> {
     /// Creates a new [KernelExecutor]. Panics if the server cannot start
     /// - underlying_proto: The proto to use for client to server communications
-    pub async fn new(rt: Handle, hypernode_type: NodeType, account_manager: AccountManager, kernel: K, underlying_proto: UnderlyingProtocol) -> Result<Self, NetworkError> {
+    pub async fn new(rt: Handle, hypernode_type: NodeType, account_manager: AccountManager, kernel: K, underlying_proto: UnderlyingProtocol, client_config: Option<Arc<ClientConfig>>) -> Result<Self, NetworkError> {
         let (server_to_kernel_tx, server_to_kernel_rx) = unbounded();
         let (server_shutdown_alerter_tx, server_shutdown_alerter_rx) = tokio::sync::oneshot::channel();
         // After this gets called, the server starts running and we get a remote
-        let (remote, future, localset_opt, callback_handler) = HdpServer::init(hypernode_type, server_to_kernel_tx, account_manager.clone(), server_shutdown_alerter_tx, underlying_proto).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let (remote, future, localset_opt, callback_handler) = HdpServer::init(hypernode_type, server_to_kernel_tx, account_manager.clone(), server_shutdown_alerter_tx, underlying_proto, client_config).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
 
         Ok(Self { shutdown_alerter_rx: Some(server_shutdown_alerter_rx), callback_handler: Some(callback_handler), server_remote: Some(remote), server_to_kernel_rx: Some(server_to_kernel_rx), kernel, context: Some((rt, future, localset_opt)), account_manager })
     }
@@ -101,7 +103,7 @@ impl<K: NetKernel> KernelExecutor<K> {
             };
 
             reader.try_for_each_concurrent(None, |message: HdpServerResult| async move {
-                log::info!("[KernelExecutor] Received message");
+                log::info!("[KernelExecutor] Received message {:?}", message);
                 match message {
                     HdpServerResult::Shutdown => {
                         log::info!("Kernel received safe shutdown signal");
@@ -128,12 +130,14 @@ impl<K: NetKernel> KernelExecutor<K> {
             }).await
         };
 
-        let res = tokio::try_join!(init, inbound_stream);
+        let exec_res = tokio::try_join!(init, inbound_stream);
 
         log::info!("Calling kernel on_stop, but first awaiting HdpServer for clean shutdown ...");
         tokio::time::timeout(Duration::from_millis(300), shutdown).await;
         log::info!("Kernel confirmed HdpServer has been shut down");
-        kernel.on_stop().await.and(res.map(|_| ()))
+        let stop_res = kernel.on_stop().await;
+        // give precedence to the exection res
+        exec_res.and(stop_res.map(|_| ()))
     }
 
     pub fn account_manager(&self) -> &AccountManager {

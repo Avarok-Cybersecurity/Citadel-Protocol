@@ -89,7 +89,7 @@ impl<P: Send + Sync> SyncPacket<P> {
     fn timestamp(self) -> Result<i64, anyhow::Error> {
         match self {
             Self::Ack(ts) => Ok(ts),
-            _ => Err(anyhow::Error::msg("Payload not attched (sync time)"))
+            _ => Err(anyhow::Error::msg("Payload not attached (sync time)"))
         }
     }
 }
