@@ -1567,7 +1567,7 @@ impl StateContainerInner {
         }
     }
 
-    pub(crate) fn process_outbound_broadcast_command(&self, ticket: Ticket, command: GroupBroadcast) -> Result<(), NetworkError> {
+    pub(crate) fn process_outbound_broadcast_command(&self, ticket: Ticket, command: &GroupBroadcast) -> Result<(), NetworkError> {
         if self.state.load(Ordering::Relaxed) != SessionState::Connected {
             return Err(NetworkError::InternalError("Session not connected"));
         }
@@ -1579,7 +1579,7 @@ impl StateContainerInner {
         cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
             let hyper_ratchet = hyper_ratchet_opt.ok_or(NetworkError::InternalError("Hyper ratchet missing"))?;
             let timestamp = self.time_tracker.get_global_time_ns();
-            let packet = match &command {
+            let packet = match command {
                 GroupBroadcast::Create(_) |
                 GroupBroadcast::End(_) |
                 GroupBroadcast::Kick(..) |
@@ -1587,7 +1587,7 @@ impl StateContainerInner {
                 GroupBroadcast::Add(..) |
                 GroupBroadcast::AcceptMembership(_) |
                 GroupBroadcast::LeaveRoom(_) => {
-                    hdp_packet_crafter::peer_cmd::craft_group_message_packet(hyper_ratchet, &command, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
+                    hdp_packet_crafter::peer_cmd::craft_group_message_packet(hyper_ratchet, command, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
                 }
 
                 n => {

@@ -56,7 +56,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
         let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to load header [PGP]") as LayoutVerified<&[u8], HdpHeader>;
         let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess, &state_container, proxy_cid_info), "Unable to get proper HyperRatchet [PGP]");
         let security_level = header.security_level.into();
-        log::info!("[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
+        //log::info!("[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
         match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
             Some((header, mut payload)) => {
                 state_container.meta_expiry_state.on_event_confirmation();
@@ -359,7 +359,7 @@ pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, sess_cnac: &Clien
         // inside the target_cid (that way the packet routes correctly to this node). However, this is problematic here
         // since we use the original implicated CID
         if let Some(vconn) = state_container.active_virtual_connections.get(&original_implicated_cid) {
-            log::info!("[Peer HyperRatchet] v{} from vconn w/ {}", header_drill_vers, original_implicated_cid);
+            //log::info!("[Peer HyperRatchet] v{} from vconn w/ {}", header_drill_vers, original_implicated_cid);
             vconn.borrow_endpoint_hyper_ratchet(Some(header_drill_vers)).cloned()
         } else {
             log::error!("Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);

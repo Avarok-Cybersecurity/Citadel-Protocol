@@ -352,12 +352,12 @@ impl HdpSessionManager {
     }
 
     /// dispatches an outbound command
-    pub fn process_outbound_broadcast_command(&self, ticket: Ticket, implicated_cid: u64, command: GroupBroadcast) -> Result<(), NetworkError> {
+    pub fn process_outbound_broadcast_command(&self, ticket: Ticket, implicated_cid: u64, ref command: GroupBroadcast) -> Result<(), NetworkError> {
         let this = inner!(self);
         if let Some(existing_session) = this.sessions.get(&implicated_cid) {
             inner_mut_state!(existing_session.1.state_container).process_outbound_broadcast_command(ticket, command)
         } else {
-            Err(NetworkError::Generic(format!("Hypernode session for {} does not exist! Not going to handle group broadcast signal ...", implicated_cid)))
+            Err(NetworkError::Generic(format!("Hypernode session for {} does not exist! Not going to handle group broadcast signal {:?} ...", implicated_cid, command)))
         }
     }
 
