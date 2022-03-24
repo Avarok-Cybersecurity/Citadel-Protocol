@@ -41,10 +41,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/hole_punch_config.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/hole_punch_config.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/linear/method3.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/linear/method3.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/netbeam/src/sync/network_application.rs" beforeDir="false" afterPath="$PROJECT_DIR$/netbeam/src/sync/network_application.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/udp_hole_puncher.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/udp_hole_puncher.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -192,7 +189,7 @@
       </set>
     </option>
   </component>
-  <component name="RunManager" selected="Cargo.Test prefabs::client::single_connection::tests::single_connection_passwordless">
+  <component name="RunManager" selected="Cargo.Test udp_traversal::udp_hole_puncher::tests::dual_hole_puncher">
     <configuration default="true" type="ArquillianTestNG" factoryName="" nameIsGenerated="true">
       <option name="arquillianRunConfiguration">
         <value>
@@ -261,22 +258,6 @@
     </configuration>
     <configuration name="Test nat_identification::tests::test_average_delta_computation" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
       <option name="command" value="test --package hyxe_wire --lib nat_identification::tests::test_average_delta_computation -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="STABLE" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="withSudo" value="false" />
-      <option name="backtrace" value="FULL" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test nat_identification::tests::test_average_delta_computation2" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package hyxe_wire --lib nat_identification::tests::test_average_delta_computation2 -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="channel" value="STABLE" />
       <option name="requiredFeatures" value="true" />
@@ -387,6 +368,22 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
+    <configuration name="Test udp_traversal::udp_hole_puncher::tests::dual_hole_puncher" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package hyxe_wire --lib udp_traversal::udp_hole_puncher::tests::dual_hole_puncher -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="channel" value="STABLE" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="backtrace" value="FULL" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
     <configuration default="true" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="command" value="run" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
@@ -411,18 +408,18 @@
       <item itemvalue="Cargo.Test main - UDP+TLS" />
       <item itemvalue="Cargo.Test single_connection::tests" />
       <item itemvalue="Cargo.Test nat_identification::tests::test_average_delta_computation" />
-      <item itemvalue="Cargo.Test nat_identification::tests::test_average_delta_computation2" />
       <item itemvalue="Cargo.Test nat_identification::tests::test_nat_traversal_compat" />
       <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_passwordless" />
       <item itemvalue="Cargo.Test tests::size" />
+      <item itemvalue="Cargo.Test udp_traversal::udp_hole_puncher::tests::dual_hole_puncher" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Cargo.Test udp_traversal::udp_hole_puncher::tests::dual_hole_puncher" />
         <item itemvalue="Cargo.Test prefabs::client::single_connection::tests::single_connection_passwordless" />
         <item itemvalue="Cargo.Test tests::size" />
         <item itemvalue="Cargo.Test nat_identification::tests::test_nat_traversal_compat" />
         <item itemvalue="Cargo.Test nat_identification::tests::test_average_delta_computation" />
-        <item itemvalue="Cargo.Test nat_identification::tests::test_average_delta_computation2" />
       </list>
     </recent_temporary>
   </component>
@@ -690,7 +687,7 @@
       <workItem from="1643040364399" duration="17223000" />
       <workItem from="1643485662211" duration="13587000" />
       <workItem from="1643564061488" duration="16216000" />
-      <workItem from="1643649696955" duration="279611000" />
+      <workItem from="1643649696955" duration="280292000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
