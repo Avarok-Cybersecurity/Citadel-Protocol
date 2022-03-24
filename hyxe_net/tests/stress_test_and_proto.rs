@@ -1091,7 +1091,7 @@ pub mod tests {
                             lock.group_messages_received_client1
                         };
 
-                        log::info!("[Group] {:?} received {} messages", node_type, lock.group_messages_received_client0);
+                        log::info!("[Group] {:?} received {} messages", node_type, cnt);
 
                         if cnt >= count() {
                             log::info!("[Group] {:?} is done receiving messages", node_type);

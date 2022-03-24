@@ -118,6 +118,7 @@ impl Method3 {
         log::info!("[Hole-punch] Listening on {:?}", socket.socket.local_addr().unwrap());
 
         let mut has_received_syn = false;
+        let mut expected_response_addr = None;
         //let mut recv_from_required = None;
         while let Ok((len, peer_external_addr)) = socket.recv_from(buf).await {
             log::info!("[UDP Hole-punch] RECV packet from {:?} | {:?}", &peer_external_addr, &buf[..len]);
@@ -158,6 +159,7 @@ impl Method3 {
                     }
 
                     has_received_syn = true;
+                    expected_response_addr = Some(peer_external_addr);
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
@@ -167,6 +169,19 @@ impl Method3 {
                         log::warn!("RECV hairpin packet; will discard");
                         continue;
                     }
+
+                    if !has_received_syn {
+                        log::warn!("RECV early SYN_ACK. Will discard");
+                        continue;
+                    }
+
+                    let expected_addr = expected_response_addr.clone().unwrap();
+
+                    if peer_external_addr != expected_addr {
+                        log::warn!("RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
+                        continue;
+                    }
+
                     // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
                     let hole_punched_addr = TargettedSocketAddr::new(peer_external_addr, peer_external_addr, adjacent_unique_id);
                     log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
