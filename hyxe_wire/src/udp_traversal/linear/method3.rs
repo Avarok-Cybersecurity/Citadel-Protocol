@@ -98,8 +98,8 @@ impl Method3 {
 
         // fan-out all packets from a singular source to multiple consumers using the ttls specified
         for ttl in ttls {
+            let _ = sleep.tick().await;
             for endpoint in endpoints {
-                let _ = sleep.tick().await;
                 let packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(unique_id, ttl, this_node_type)).unwrap());
                 log::info!("Sending TTL={} to {} || {:?}", ttl, endpoint, &packet[..] as &[u8]);
                 if !socket.send(&packet, *endpoint, Some(ttl)).await? {

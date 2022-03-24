@@ -103,7 +103,6 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
         match deserialized {
             MultiplexedPacket::ApplicationLayer { id, payload } => {
                 let lock = self.subscriptions().read();
-                log::info!("Looking for channel id: {:?} amongst {:?}", id, lock.keys());
                 let channel_tx = lock.get(&id).ok_or_else(|| anyhow::Error::msg("Channel ID does not exist"))?;
                 Ok(channel_tx.send(payload)?)
             }
