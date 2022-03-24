@@ -82,7 +82,7 @@ impl Debug for GroupChannelSendHalf {
 impl GroupChannelSendHalf {
     /// Broadcasts a message to the group
     pub async fn send_message(&self, message: SecBuffer) -> Result<(), NetworkError> {
-        inner_mut_state!(self.state_container).process_outbound_broadcast_command(self.ticket, GroupBroadcast::Message(self.implicated_cid, self.key,  message))?;
+        inner_mut_state!(self.state_container).process_outbound_broadcast_command(self.ticket, &GroupBroadcast::Message(self.implicated_cid, self.key,  message))?;
         // This allows yielding when this function is called in a for loop
         tokio::task::yield_now().await;
         Ok(())
@@ -96,7 +96,7 @@ impl GroupChannelSendHalf {
     /// Kicks a set of peers from the group. User must be owner
     pub fn kick_all<T: Into<Vec<u64>>>(&self, peers: T) -> Result<(), NetworkError> {
         self.permission_gate()?;
-        self.send_group_command(GroupBroadcast::Kick(self.key, peers.into()))
+        self.send_group_command(&GroupBroadcast::Kick(self.key, peers.into()))
     }
 
     /// Invites a single user to the group
@@ -107,10 +107,10 @@ impl GroupChannelSendHalf {
     /// Invites all listed members to the group
     pub fn invite_all<T: Into<Vec<u64>>>(&self, peers: T) -> Result<(), NetworkError> {
         self.permission_gate()?;
-        self.send_group_command(GroupBroadcast::Add(self.key, peers.into()))
+        self.send_group_command(&GroupBroadcast::Add(self.key, peers.into()))
     }
 
-    fn send_group_command(&self, command: GroupBroadcast) -> Result<(), NetworkError> {
+    fn send_group_command(&self, command: &GroupBroadcast) -> Result<(), NetworkError> {
         inner_mut_state!(self.state_container).process_outbound_broadcast_command(self.ticket, command)
     }
 
@@ -147,7 +147,7 @@ impl Stream for GroupChannelRecvHalf {
 
 impl Drop for GroupChannelRecvHalf {
     fn drop(&mut self) {
-        if let Err(err) = inner_mut_state!(self.state_container).process_outbound_broadcast_command(self.ticket, GroupBroadcast::LeaveRoom(self.key)) {
+        if let Err(err) = inner_mut_state!(self.state_container).process_outbound_broadcast_command(self.ticket, &GroupBroadcast::LeaveRoom(self.key)) {
             log::warn!("Drop error: {:?}", err)
         }
     }
