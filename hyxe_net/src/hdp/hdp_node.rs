@@ -298,7 +298,7 @@ impl HdpServer {
                 let mut quic = if let Some(quic) = quic_endpoint_opt {
                     quic
                 } else {
-                    let udp_socket = hyxe_wire::socket_helpers::get_reuse_udp_socket(bind).map_err(generic_error)?;
+                    let udp_socket = hyxe_wire::socket_helpers::get_udp_socket(bind).map_err(generic_error)?;
                     QuicServer::new(udp_socket, crypto).map_err(generic_error)?
                 };
 

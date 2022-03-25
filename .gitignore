@@ -3,3 +3,4 @@
 ./deny.toml
 **/.DS_Store
 /.idea/
+.idea/workspace.xml
