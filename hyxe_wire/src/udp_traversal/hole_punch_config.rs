@@ -52,12 +52,12 @@ impl HolePunchConfig {
                 let ports = vec![direct_addr.port()];
                 let direct_addr_ip = direct_addr.ip();
 
+                Self::generate_alternate_bands_const_ports(&mut bands, direct_addr_ip, other_addrs.clone(), ports.clone());
                 bands.push(AddrBand {
                     necessary_ip: direct_addr_ip,
-                    anticipated_ports: ports.clone()
+                    anticipated_ports: ports
                 });
 
-                Self::generate_alternate_bands_const_ports(&mut bands, direct_addr_ip, other_addrs.clone(), ports);
                 let locally_bound_sockets = Self::generate_local_sockets(&local_nat_info, first_local_socket)?;
 
                 Ok(Self {
@@ -70,13 +70,13 @@ impl HolePunchConfig {
                 let mut bands = Vec::new();
                 // since there is no port translation, we assume the port below
                 let ports = vec![peer_declared_internal_port];
+                Self::generate_alternate_bands_const_ports(&mut bands, *direct_addr, other_addrs.clone(), ports.clone());
                 // we connect to direct_addr:peer_remote_port
                 bands.push(AddrBand {
                     necessary_ip: *direct_addr,
-                    anticipated_ports: ports.clone()
+                    anticipated_ports: ports
                 });
 
-                Self::generate_alternate_bands_const_ports(&mut bands, *direct_addr, other_addrs.clone(), ports);
                 let locally_bound_sockets = Self::generate_local_sockets(&local_nat_info, first_local_socket)?;
 
                 Ok(Self {
@@ -131,16 +131,16 @@ impl HolePunchConfig {
     fn generate_alternate_bands_const_ports(ret: &mut Vec<AddrBand>, direct_addr: IpAddr, other_addrs: Option<IpAddressInfo>, ports: Vec<u16>) {
         log::info!("Will extract addrs from: {:?}", other_addrs);
         if let Some(other_addrs) = other_addrs {
-            if other_addrs.external_ipv4 != direct_addr {
+            if other_addrs.internal_ipv4 != direct_addr {
                 ret.push(AddrBand {
-                    necessary_ip: other_addrs.external_ipv4,
+                    necessary_ip: other_addrs.internal_ipv4,
                     anticipated_ports: ports.clone()
                 });
             }
 
-            if other_addrs.internal_ipv4 != direct_addr {
+            if other_addrs.external_ipv4 != direct_addr {
                 ret.push(AddrBand {
-                    necessary_ip: other_addrs.internal_ipv4,
+                    necessary_ip: other_addrs.external_ipv4,
                     anticipated_ports: ports.clone()
                 });
             }
@@ -226,23 +226,8 @@ impl HolePunchConfig {
         let ending_port = beginning_port.wrapping_add(ports_to_target_count);
         let ports = (beginning_port..ending_port).into_iter().collect::<Vec<u16>>();
 
-        // add the default external band
-        // note: this ASSUMES last_external_addr is ipv4 (which it should be, since the NAT identification
-        // subroutine uses STUNv4
-        bands.push(AddrBand {
-            necessary_ip: last_external_addr.ip(),
-            anticipated_ports: ports.clone()
-        });
-
         // add the default alternate band
         if let Some(other_addrs) = other_addrs {
-            if other_addrs.external_ipv4 != last_external_addr.ip() {
-                bands.push(AddrBand {
-                    necessary_ip: other_addrs.external_ipv4,
-                    anticipated_ports: ports.clone()
-                });
-            }
-
             if other_addrs.internal_ipv4 != last_external_addr.ip() {
                 bands.push(AddrBand {
                     necessary_ip: other_addrs.internal_ipv4,
@@ -251,6 +236,13 @@ impl HolePunchConfig {
                     // prior to sending its information here. This means it must first bind to a new UDP socket
                     // before sending over its information)
                     anticipated_ports: vec![peer_declared_internal_port]
+                });
+            }
+
+            if other_addrs.external_ipv4 != last_external_addr.ip() {
+                bands.push(AddrBand {
+                    necessary_ip: other_addrs.external_ipv4,
+                    anticipated_ports: ports.clone()
                 });
             }
 
@@ -266,6 +258,14 @@ impl HolePunchConfig {
                 }
             }
         }
+
+        // add the default external band
+        // note: this ASSUMES last_external_addr is ipv4 (which it should be, since the NAT identification
+        // subroutine uses STUNv4
+        bands.push(AddrBand {
+            necessary_ip: last_external_addr.ip(),
+            anticipated_ports: ports.clone()
+        });
     }
 }
 
