@@ -31,7 +31,7 @@ pub const MAX_PAYLOAD_SIZE_IPV6: usize = MTU - BASE_HEADER_LEN_IPV6;
 /// the initial reconnect delay
 pub const INITIAL_RECONNECT_LOCKOUT_TIME_NS: i64 = NANOSECONDS_PER_SECOND;
 ///
-pub const KEEP_ALIVE_INTERVAL_MS: u64 = 15000;
+pub const KEEP_ALIVE_INTERVAL_MS: u64 = 60000 * 15; // every 15 minutes
 /// The keep alive max interval
 pub const KEEP_ALIVE_TIMEOUT_NS: i64 = (KEEP_ALIVE_INTERVAL_MS * 3 * 1_000_000) as i64;
 // 1ms = 1 million ns
