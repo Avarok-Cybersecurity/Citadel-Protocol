@@ -1248,6 +1248,8 @@ pub mod tests {
                 broadcast_rx.recv().await.unwrap();
                 broadcast_rx.recv().await.unwrap();
                 *P2P_SENDING_END_TIME.lock() = Some(Instant::now());
+                // hacky fix: don't drop the recieve half since this will kill the session
+                std::mem::forget(stream);
                 res
             };
 
