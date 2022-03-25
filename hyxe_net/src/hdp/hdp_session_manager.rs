@@ -411,7 +411,7 @@ impl HdpSessionManager {
                 let sess = sess.1.clone();
                 sess
             } else {
-                return Err(NetworkError::InternalError("Session not found in session manager"))
+                return Err(NetworkError::msg(format!("Session for {} not found in session manager. Failed to dispatch peer command {:?}", implicated_cid, peer_command)))
             }
         };
 

@@ -246,7 +246,7 @@ impl Drop for PeerChannelRecvHalf {
     fn drop(&mut self) {
         match self.vconn_type {
             VirtualConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid) => {
-                log::info!("[PeerChannelRecvHalf] Dropping. Will maybe set is_alive to false if this is a tcp p2p connection");
+                log::info!("[PeerChannelRecvHalf] Dropping {:?} type. Will maybe set is_alive to false if this is a tcp p2p connection", self.recv_type);
 
                 let command = match self.recv_type {
                     ReceivePortType::OrderedReliable => {
