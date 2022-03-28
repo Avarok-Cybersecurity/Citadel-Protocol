@@ -50,7 +50,7 @@ whoami = "1.2.1"
 env_logger = "0.7.1"
 parking_lot = { version = "0.11.1", features = ["deadlock_detection"] }
 rand = "0.8.4"
-tokio-util = "0.6.7"
+tokio-util = "0.7.1"
 rstest = "0.12.0"
 
 [lib]
