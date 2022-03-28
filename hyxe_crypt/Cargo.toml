@@ -36,7 +36,7 @@ ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=fal
 #fcm = { path = "../fcm-rust", version = "0.8.1" }
 bitvec = "0.17.4"
 serde-big-array = "0.3.0"
-rust-argon2 = "0.8.3"
+rust-argon2 = "1.0.0"
 sysinfo = "0.18.2"
 num_cpus = "1.13.0"
 linked-hash-map = "*"
