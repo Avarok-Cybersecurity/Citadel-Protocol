@@ -1057,7 +1057,7 @@ impl HdpSession {
 
                                     let hyper_ratchet = proper_latest_hyper_ratchet.unwrap();
 
-                                    let mut transmitter = GroupTransmitter::new_from_group_sender(to_primary_stream.clone(), sender, RatchetPacketCrafterContainer::new(hyper_ratchet.clone(), None), object_id, target_cid, ticket, security_level, time_tracker.clone());
+                                    let mut transmitter = GroupTransmitter::new_from_group_sender(to_primary_stream.clone(), sender, RatchetPacketCrafterContainer::new(hyper_ratchet.clone(), None), object_id, ticket, security_level, time_tracker.clone());
                                     // group_id is unique per session
                                     let group_id = transmitter.group_id;
 

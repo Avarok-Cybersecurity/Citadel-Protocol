@@ -159,51 +159,17 @@ impl PeerChannelSendHalf {
         self.is_alive.store(false, Ordering::SeqCst);
     }
 
-    /*
-    /// Attempts to send, returning instantly if blocking would be required to send
-    pub fn try_send(&mut self, message: SecureProtocolPacket) -> Result<(), SecureProtocolPacket> {
-        let args = self.get_args(message);
-        self.tx.try_send(args).map_err(|err| err.into_inner().1)
-    }*/
-
     #[inline]
     fn get_args(&self, packet: SecureProtocolPacket) -> (Ticket, SecureProtocolPacket, VirtualConnectionType, SecurityLevel) {
         (self.channel_id, packet, self.vconn_type, self.security_level)
     }
 }
 
-/*
-impl Sink<SecureProtocolPacket> for PeerChannelSendHalf {
-    type Error = NetworkError;
-
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        if self.is_alive.load(Ordering::SeqCst) {
-            Pin::new(&mut self.tx).poll_ready(cx).map_err(|err| NetworkError::Generic(err.to_string()))
-        } else {
-            Poll::Ready(Err(NetworkError::InternalError("Session closed")))
-        }
-    }
-
-    fn start_send(mut self: Pin<&mut Self>, item: SecureProtocolPacket) -> Result<(), Self::Error> {
-        let channel_id = self.channel_id;
-        let target = self.vconn_type;
-        let security_level = self.security_level;
-
-        Pin::new(&mut self.tx).start_send((channel_id, item, target, security_level)).map_err(|err| NetworkError::Generic(err.to_string()))
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.tx).poll_flush(cx).map_err(|err| NetworkError::Generic(err.to_string()))
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.close();
-        Pin::new(&mut self.tx).poll_close(cx).map_err(|err| NetworkError::Generic(err.to_string()))
-    }
-}*/
-
 impl Unpin for PeerChannelRecvHalf {}
 
+/// A stream interface for receiving secure packets
+/// NOTE: on drop, if this is used for a P2P connection, disconnection
+/// will occur
 pub struct PeerChannelRecvHalf {
     // when the state container removes the vconn, this will get closed
     receiver: UnboundedReceiver<SecBuffer>,

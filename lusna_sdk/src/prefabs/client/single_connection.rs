@@ -121,8 +121,9 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
         };
 
         let connect_success = remote.connect(auth, Default::default(), None, self.udp_mode, None, self.session_security_settings).await?;
+        let conn_type = VirtualTargetType::HyperLANPeerToHyperLANServer(connect_success.cid);
 
-        (handler)(connect_success, ClientServerRemote { inner: remote }).await
+        (handler)(connect_success, ClientServerRemote { inner: remote, conn_type }).await
     }
 
     async fn on_node_event_received(&self, _message: HdpServerResult) -> Result<(), NetworkError> {
@@ -142,7 +143,7 @@ mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    fn server_info() -> (NodeFuture, SocketAddr) {
+    pub fn server_info() -> (NodeFuture, SocketAddr) {
         let port = portpicker::pick_unused_port().unwrap();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
         let server = crate::test_common::default_server_test_node(bind_addr);

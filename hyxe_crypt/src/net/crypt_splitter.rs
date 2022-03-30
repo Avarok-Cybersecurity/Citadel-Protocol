@@ -756,6 +756,12 @@ impl<const N: usize> GroupSenderDevice<N> {
         }
     }
 
+    /// Removes all packets. Should only be called when transmission is done over
+    /// a reliable, ordered channel (TCP, QUIC, etc)
+    pub fn take_all_packets(&mut self) -> Vec<PacketCoordinate> {
+        self.packets_in_ram.drain().map(|(_, v)| v).collect()
+    }
+
     /// clones the receiver config
     pub fn get_receiver_config(&self) -> GroupReceiverConfig {
         self.receiver_config.clone()
