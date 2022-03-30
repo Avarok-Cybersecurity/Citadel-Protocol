@@ -1,5 +1,4 @@
 use bytes::BytesMut;
-use num::Integer;
 
 use hyxe_crypt::drill::SecurityLevel;
 use hyxe_crypt::net::crypt_splitter::{GroupReceiverConfig, GroupSenderDevice};
@@ -7,8 +6,7 @@ use netbeam::time_tracker::TimeTracker;
 
 use crate::constants::HDP_HEADER_BYTE_LEN;
 use crate::hdp::hdp_node::Ticket;
-use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
-use std::ops::RangeInclusive;
+use crate::hdp::outbound_sender::OutboundPrimaryStreamSender;
 use crate::hdp::state_container::VirtualTargetType;
 use crate::error::NetworkError;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
@@ -59,14 +57,10 @@ pub struct GroupTransmitter {
     group_config: GroupReceiverConfig,
     object_id: u32,
     pub group_id: u64,
-    target_cid: u64,
     /// For interfacing with the higher-level kernel
     ticket: Ticket,
     security_level: SecurityLevel,
     bytes_encrypted: usize,
-    /// Denotes the current wave being sent
-    current_wave: usize,
-    packets_sent: usize,
     time_tracker: TimeTracker,
     is_message: bool
 }
@@ -89,7 +83,8 @@ impl<R: Ratchet> RatchetPacketCrafterContainer<R> {
 }
 
 impl GroupTransmitter {
-    pub fn new_from_group_sender(to_primary_stream: OutboundPrimaryStreamSender, group_sender: GroupSenderDevice<HDP_HEADER_BYTE_LEN>, hyper_ratchet: RatchetPacketCrafterContainer, object_id: u32, target_cid: u64, ticket: Ticket, security_level: SecurityLevel, time_tracker: TimeTracker) -> Self {
+    /// Scrambled packets will use this
+    pub fn new_from_group_sender(to_primary_stream: OutboundPrimaryStreamSender, group_sender: GroupSenderDevice<HDP_HEADER_BYTE_LEN>, hyper_ratchet: RatchetPacketCrafterContainer, object_id: u32, ticket: Ticket, security_level: SecurityLevel, time_tracker: TimeTracker) -> Self {
         let cfg = group_sender.get_receiver_config();
         let group_id = cfg.group_id as u64;
         let bytes_encrypted = cfg.plaintext_length;
@@ -102,18 +97,15 @@ impl GroupTransmitter {
             group_config: cfg,
             object_id,
             group_id,
-            target_cid,
             ticket,
             security_level,
             bytes_encrypted,
-            current_wave: 0,
-            packets_sent: 0,
             time_tracker
         }
     }
 
     /// Creates a new stream for a request
-    pub fn new_message(to_primary_stream: OutboundPrimaryStreamSender, object_id: u32, target_cid: u64, hyper_ratchet: RatchetPacketCrafterContainer, input_packet: SecureProtocolPacket, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
+    pub fn new_message(to_primary_stream: OutboundPrimaryStreamSender, object_id: u32, hyper_ratchet: RatchetPacketCrafterContainer, input_packet: SecureProtocolPacket, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
         // Gets the latest drill version by default for this operation
         log::trace!("Will use HyperRatchet v{} to encrypt group {}", hyper_ratchet.base.version(), group_id);
 
@@ -127,22 +119,17 @@ impl GroupTransmitter {
         match res {
             Ok(group_transmitter) => {
                 let group_config: GroupReceiverConfig = group_transmitter.get_receiver_config();
-                let current_wave = 0;
-                let packets_sent = 0;
                 Some(Self {
                     hyper_ratchet_container: hyper_ratchet,
                     is_message: true,
-                    target_cid,
                     object_id,
                     to_primary_stream,
                     group_transmitter,
                     group_config,
                     bytes_encrypted,
                     security_level,
-                    packets_sent,
                     group_id,
                     ticket,
-                    current_wave,
                     time_tracker
                 })
             }
@@ -166,17 +153,6 @@ impl GroupTransmitter {
         group::craft_group_header_packet(self, virtual_target)
     }
 
-    /// Sometimes, we only need a single packet to represent the data. When this happens, we don't scramble
-    /// and instead place the ciphertext into the payload of the GROUP_HEADER
-    #[allow(dead_code)]
-    pub(super) fn get_fast_message_payload(&mut self) -> Option<BytesMut> {
-        if self.group_config.packets_needed == 1  && self.is_message {
-            Some(self.group_transmitter.get_next_packet()?.packet)
-        } else {
-            None
-        }
-    }
-
     pub(super) fn get_unencrypted_oneshot_packet(&mut self) -> Option<SecureProtocolPacket> {
         self.group_transmitter.get_oneshot().map(SecureProtocolPacket::from_inner)
     }
@@ -186,76 +162,20 @@ impl GroupTransmitter {
         self.bytes_encrypted
     }
 
-    #[allow(unused_comparisons)]
-    /// NOTE: This assumes non-FCM types!
-    pub fn transmit_next_window_udp(&mut self, udp_sender: &OutboundUdpSender, wave_window: RangeInclusive<u32>) -> bool {
-        let packets_needed = self.group_config.packets_needed;
-        let security_level = self.security_level;
-        let waves_needed = self.group_config.wave_count;
-        let group_id = self.group_id;
-        let ref hyper_ratchet = self.hyper_ratchet_container.base;
-        let ref time_tracker = self.time_tracker;
-        let target_cid = self.target_cid;
-        let object_id = self.object_id;
-        let ref to_primary_stream = self.to_primary_stream;
-
-        let (last_packets_per_wave, packets_per_wave) = packets_needed.div_mod_floor(&self.group_config.max_packets_per_wave);
-
-        debug_assert!(*wave_window.end() < waves_needed as u32);
-        log::info!("[Q-UDP] Payload packets to send: {} | Waves: {} | Packets per wave: {} | Last packets per wave: {}", packets_needed, waves_needed, packets_per_wave, last_packets_per_wave);
-        let ref mut transmitter = self.group_transmitter;
-        log::info!("Wave window: ({}, {}]", wave_window.start(), wave_window.end());
-
-        let packets_in_window = wave_window.clone().into_iter().map(|wave_id| transmitter.get_packets_in_wave(wave_id)).sum::<usize>();
-        log::info!("[Q-UDP] Packet count in current window: {}", packets_in_window);
-
-        let res = (0..packets_in_window).into_iter().map(|_| transmitter.get_next_packet().unwrap()).try_for_each(|packet| -> Result<(), ()> {
-            // for debugging purposes (the >= 0 part), can easily check WAVE_DO_RETRANSMISSIONS by setting the value to > 0
-            if packet.vector.true_sequence >= 0 {
-                log::info!("[Q-UDP] Sending packet {}", packet.vector.true_sequence);
-                udp_sender.unbounded_send(packet.packet).map_err(|_| ())
-            } else {
-                Ok(())
-            }
-        });
-
-        if res.is_err() {
-            log::error!("Unable to send using UDP. Aborting");
-            return false;
-        }
-
-        let window_tail = group::craft_window_tail(hyper_ratchet, object_id, target_cid, group_id, wave_window.clone(), time_tracker.get_global_time_ns(), security_level);
-        if let Err(_) = to_primary_stream.unbounded_send(window_tail) {
-            log::error!("TCP send failed");
-            return false;
-        }
-
-        log::info!("[Q-UDP] Window ({}, {}] of group {} transmitted", wave_window.start(), wave_window.end(), group_id);
-
-        self.packets_sent += packets_in_window;
-        self.current_wave += (*wave_window.end() - *wave_window.start()) as usize;
-        true
-    }
-
     #[allow(unused_results)]
     pub fn transmit_tcp_file_transfer(&mut self) -> bool {
-        let packets_needed = self.group_config.packets_needed;
         let ref to_primary_stream = self.to_primary_stream;
         log::info!("[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
         let to_primary_stream = to_primary_stream.clone();
-        let packets = self.group_transmitter.get_next_packets(packets_needed);
+        let packets = self.group_transmitter.take_all_packets();
 
-        if let Some(packets) = packets {
-            for packet in packets {
-                if let Err(err) = to_primary_stream.unbounded_send(packet.packet) {
-                    log::error!("[FILE] to_primary_stream died {:?}", err);
-                }
+        for packet in packets {
+            if let Err(err) = to_primary_stream.unbounded_send(packet.packet) {
+                log::error!("[FILE] to_primary_stream died {:?}", err);
             }
-
-            log::info!("Group {} has finished transmission", self.group_id);
-        } else {
-            log::warn!("Packets not present in TCP file transfer");
         }
+
+        log::info!("Group {} has finished transmission", self.group_id);
 
         true
     }
@@ -376,64 +296,6 @@ pub(crate) mod group {
         debug_assert!(remote_port <= scramble_drill.get_multiport_width() as u16);
         buffer.put_u8(src_port as u8);
         buffer.put_u8(remote_port as u8)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn craft_window_tail(hyper_ratchet: &HyperRatchet, object_id: u32, target_cid: u64, group_id: u64, waves_in_window: RangeInclusive<u32>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
-        let header = HdpHeader {
-            cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
-            cmd_aux: packet_flags::cmd::aux::group::GROUP_WINDOW_TAIL,
-            algorithm: 0,
-            security_level: security_level.value(),
-            context_info: U128::new(object_id as _),
-            group: U64::new(group_id),
-            wave_id: U32::new(*waves_in_window.start()),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
-            timestamp: I64::new(timestamp),
-            target_cid: U64::new(target_cid)
-        };
-
-        let mut packet = BytesMut::with_capacity(packet_sizes::GROUP_WINDOW_TAIL_LEN);
-
-        header.inscribe_into(&mut packet);
-        packet.put_u32(*waves_in_window.end()); // + 4 bytes
-
-        hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-        packet
-    }
-
-    /// This is always sent from Bob's side. This a retransmission request packet, and occurs when a timeout for a specific wave occured
-    #[allow(unused_results)]
-    pub(crate) fn craft_wave_do_retransmission(hyper_ratchet: &HyperRatchet, object_id: u32, target_cid: u64, group_id: u64, wave_id: u32, vectors_missing: &Vec<PacketVector>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
-        let header = HdpHeader {
-            cmd_primary: packet_flags::cmd::primary::GROUP_PACKET,
-            cmd_aux: packet_flags::cmd::aux::group::WAVE_DO_RETRANSMISSION,
-            algorithm: 0,
-            security_level: security_level.value(),
-            context_info: U128::new(object_id as _),
-            group: U64::new(group_id),
-            wave_id: U32::new(wave_id),
-            session_cid: U64::new(hyper_ratchet.get_cid()),
-            drill_version: U32::new(hyper_ratchet.version()),
-            timestamp: I64::new(timestamp),
-            target_cid: U64::new(target_cid)
-        };
-
-        // Each vector missing will require a u16+u16, or 4 bytes total
-        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + (vectors_missing.len() * 4));
-        header.inscribe_into(&mut packet);
-
-        for missing_vector in vectors_missing {
-            // The "local port" refers to Alice, not bob. This should have read "source port" to be more clear
-            packet.put_u16(missing_vector.local_port);
-            packet.put_u16(missing_vector.remote_port);
-            log::info!("Added: {} -> {}", missing_vector.local_port, missing_vector.remote_port);
-        }
-
-        hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
-
-        packet
     }
 
     // NOTE: context infos contain the object ID in most of the GROUP packets

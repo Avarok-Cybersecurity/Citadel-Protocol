@@ -316,7 +316,7 @@ pub mod macros {
             match $opt {
                 Some(val) => val,
                 _ => {
-                    log::warn!("[X-03] NoneError: {}", $err);
+                    log::warn!("[X-03] NoneError in file {}:{}: {}", file!(), line!(), $err);
                     return Ok(PrimaryProcessorResult::Void);
                 }
             }

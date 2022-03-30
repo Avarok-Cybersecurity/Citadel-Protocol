@@ -37,6 +37,7 @@ pub mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use rand::{SeedableRng, Rng};
     use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
+    use hyxe_wire::socket_helpers::is_ipv6_enabled;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -82,6 +83,11 @@ pub mod tests {
                              ref client_config: Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
+
+        if !is_ipv6_enabled() && addr.is_ipv6() {
+            log::info!("Skipping ipv6 test since ipv6 is not enabled locally");
+            return Ok(())
+        }
 
         for proto in protocols {
             log::info!("Testing proto {:?}", &proto);
@@ -129,6 +135,11 @@ pub mod tests {
                                    ref client_config: Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
+
+        if !is_ipv6_enabled() && addr.is_ipv6() {
+            log::info!("Skipping ipv6 test since ipv6 is not enabled locally");
+            return Ok(())
+        }
 
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
@@ -1363,10 +1374,10 @@ pub mod tests {
                 {
                     let read = item_container.read();
                     if read.client_server_stress_test_done_as_server && read.client_server_stress_test_done_as_client {
-                        log::info!("[GROUP Stress test] Starting group stress test w/ client2 host [members: client0 & client1]");
+                        let this_cid = read.cnac_client2.as_ref().unwrap().get_cid();
+                        log::info!("[GROUP Stress test] Starting group stress test w/ client2 host [members: client0 & client1] (self: {})", this_cid);
                         let client0_cnac = read.cnac_client0.as_ref().unwrap();
                         let client1_cnac = read.cnac_client1.as_ref().unwrap();
-                        let this_cid = read.cnac_client2.as_ref().unwrap().get_cid();
 
                         let request = HdpServerRequest::GroupBroadcastCommand(this_cid, GroupBroadcast::Create(vec![client0_cnac.get_cid(), client1_cnac.get_cid()]));
                         let mut remote = read.remote_client2.clone().unwrap();
@@ -1378,6 +1389,7 @@ pub mod tests {
                     }
                 }
 
+                // TODO: Replace with broadcast
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
         });

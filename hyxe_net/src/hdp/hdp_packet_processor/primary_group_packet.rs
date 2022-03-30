@@ -31,7 +31,6 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
     let HdpSessionInner {
         time_tracker,
         state_container,
-        to_primary_stream,
         state,
         ..
     } = session.inner.deref();
@@ -57,296 +56,253 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
         let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess, &state_container, proxy_cid_info), "Unable to get proper HyperRatchet [PGP]");
         let security_level = header.security_level.into();
         //log::info!("[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
-        match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
-            Some((header, mut payload)) => {
+        match header.cmd_aux {
+            packet_flags::cmd::aux::group::GROUP_PAYLOAD => {
+                // These packets do not get encrypted with the message key. They get scrambled and encrypted
+                state_container.
                 state_container.meta_expiry_state.on_event_confirmation();
+                Ok(PrimaryProcessorResult::Void)
+            }
 
-                match cmd_aux {
-                    packet_flags::cmd::aux::group::GROUP_HEADER => {
-                        log::info!("RECV GROUP HEADER");
-                        let is_message = header.algorithm == 1;
-                        if is_message {
-                            let (plaintext, transfer) = return_if_none!(validation::group::validate_message(&mut payload), "Bad message packet");
-                            log::info!("Recv FastMessage. version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
-                            // Here, we do not go through all the fiasco like above. We just forward the message to the kernel, then send an ACK
-                            // so that the sending side can be notified of a successful send
-                            let resp_target_cid = get_resp_target_cid_from_header(&header);
-                            log::info!("Resp target cid {} obtained. version {} w/ CID {} (local CID: {})", resp_target_cid, hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
-                            let object_id = header.wave_id.get();
-                            let ticket = header.context_info.get().into();
-                            // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
+            _ => {
+                match validation::aead::validate_custom(&hyper_ratchet, &*header, payload) {
+                    Some((header, mut payload)) => {
+                        state_container.meta_expiry_state.on_event_confirmation();
 
-                            // now, update the keys (if applicable)
-                            let transfer = return_if_none!(attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut state_container.active_virtual_connections, cnac_sess, &hyper_ratchet), "Unable to attempt_kem_as_bob [PGP]");
-
-                            if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
-                                if !state_container.forward_data_to_ordered_channel(original_implicated_cid, header.group.get(), plaintext) {
-                                    log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
-                                    return Ok(PrimaryProcessorResult::Void);
-                                }
-                            } else {
-                                if !state_container.forward_data_to_ordered_channel(0, header.group.get(), plaintext) {
-                                    log::error!("Unable to forward data to c2s channel");
-                                    return Ok(PrimaryProcessorResult::Void);
-                                }
-                            }
-
-                            let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer, security_level);
-                            Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
-                        } else {
-                            let group_header = return_if_none!(validation::group::validate_header(&mut payload), "Bad non-message group header");
-                            match group_header {
-                                GroupHeader::Standard(group_receiver_config, virtual_target) => {
-                                    // First, check to make sure the virtual target can accept
+                        match cmd_aux {
+                            packet_flags::cmd::aux::group::GROUP_HEADER => {
+                                log::info!("RECV GROUP HEADER");
+                                let is_message = header.algorithm == 1;
+                                if is_message {
+                                    let (plaintext, transfer) = return_if_none!(validation::group::validate_message(&mut payload), "Bad message packet");
+                                    log::info!("Recv FastMessage. version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
+                                    // Here, we do not go through all the fiasco like above. We just forward the message to the kernel, then send an ACK
+                                    // so that the sending side can be notified of a successful send
+                                    let resp_target_cid = get_resp_target_cid_from_header(&header);
+                                    log::info!("Resp target cid {} obtained. version {} w/ CID {} (local CID: {})", resp_target_cid, hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
                                     let object_id = header.wave_id.get();
                                     let ticket = header.context_info.get().into();
+                                    // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
 
-                                    //let sess_implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
-                                    //let target_cid_header = header.target_cid.get();
-                                    // for HyperLAN conns, this is true
+                                    // now, update the keys (if applicable)
+                                    let transfer = return_if_none!(attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut state_container.active_virtual_connections, cnac_sess, &hyper_ratchet), "Unable to attempt_kem_as_bob [PGP]");
 
-                                    let resp_target_cid = return_if_none!(get_resp_target_cid(&virtual_target), "Unable to get resp_target_cid [PGP]");
+                                    let target_cid = if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
+                                        original_implicated_cid
+                                    } else {
+                                        0
+                                    };
 
-                                    // the below will return None if not ready to accept
-                                    let initial_wave_window = state_container.on_group_header_received(&header, group_receiver_config, virtual_target);
-                                    if initial_wave_window.is_some() {
-                                        // register group timeout device
-                                        //std::mem::drop(state_container);
-                                        let group_id = header.group.get();
-                                        let peer_cid = header.session_cid.get();
+                                    if !state_container.forward_data_to_ordered_channel(target_cid, header.group.get(), plaintext) {
+                                        log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
+                                        return Ok(PrimaryProcessorResult::Void);
+                                    }
 
-                                        session.queue_handle.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
-                                            let key = GroupKey::new(peer_cid, group_id);
-                                            if let Some(group) = state_container.inbound_groups.get(&key) {
-                                                if group.has_begun {
-                                                    if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
-                                                        if state_container.meta_expiry_state.expired() {
-                                                            log::error!("Inbound group {} has expired; removing for {}.", group_id, peer_cid);
-                                                            if let Some(group) = state_container.inbound_groups.remove(&key) {
-                                                                if group.object_id != 0 {
-                                                                    // belongs to a file. Delete file; stop transmission
-                                                                    let key = FileKey::new(peer_cid, group.object_id);
-                                                                    if let Some(_file) = state_container.inbound_files.remove(&key) {
-                                                                        // stop the stream to the HD
-                                                                        //file.stream_to_hd.close_channel();
-                                                                        log::warn!("File transfer expired");
-                                                                        // TODO: Create file FIN
+                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, None, true, timestamp, transfer, security_level);
+                                    Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
+                                } else {
+                                    let group_header = return_if_none!(validation::group::validate_header(&mut payload), "Bad non-message group header");
+                                    match group_header {
+                                        GroupHeader::Standard(group_receiver_config, virtual_target) => {
+                                            // First, check to make sure the virtual target can accept
+                                            let object_id = header.wave_id.get();
+                                            let ticket = header.context_info.get().into();
+
+                                            //let sess_implicated_cid = session.implicated_cid.load(Ordering::Relaxed)?;
+                                            //let target_cid_header = header.target_cid.get();
+                                            // for HyperLAN conns, this is true
+
+                                            let resp_target_cid = return_if_none!(get_resp_target_cid(&virtual_target), "Unable to get resp_target_cid [PGP]");
+
+                                            // the below will return None if not ready to accept
+                                            let initial_wave_window = state_container.on_group_header_received(&header, group_receiver_config, virtual_target);
+                                            if initial_wave_window.is_some() {
+                                                // register group timeout device
+                                                //std::mem::drop(state_container);
+                                                let group_id = header.group.get();
+                                                let peer_cid = header.session_cid.get();
+
+                                                session.queue_handle.insert_ordinary(group_id as usize, peer_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
+                                                    let key = GroupKey::new(peer_cid, group_id);
+                                                    if let Some(group) = state_container.inbound_groups.get(&key) {
+                                                        if group.has_begun {
+                                                            if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
+                                                                if state_container.meta_expiry_state.expired() {
+                                                                    log::error!("Inbound group {} has expired; removing for {}.", group_id, peer_cid);
+                                                                    if let Some(group) = state_container.inbound_groups.remove(&key) {
+                                                                        if group.object_id != 0 {
+                                                                            // belongs to a file. Delete file; stop transmission
+                                                                            let key = FileKey::new(peer_cid, group.object_id);
+                                                                            if let Some(_file) = state_container.inbound_files.remove(&key) {
+                                                                                // dropping this will automatically drop the future streaming to HD
+                                                                                log::warn!("File transfer expired");
+                                                                                // TODO: Create file FIN
+                                                                            }
+
+                                                                            state_container.file_transfer_handles.remove(&key);
+                                                                        }
                                                                     }
-                                                                }
-                                                            }
 
-                                                            QueueWorkerResult::Complete
+                                                                    QueueWorkerResult::Complete
+                                                                } else {
+                                                                    log::info!("[X-04] Other inbound groups being processed; patiently awaiting group {}", group_id);
+                                                                    QueueWorkerResult::Incomplete
+                                                                }
+                                                            } else {
+                                                                // The inbound group is still receiving, and it hasn't expired. Keep polling
+                                                                QueueWorkerResult::Incomplete
+                                                            }
                                                         } else {
-                                                            log::info!("[X-04] Other inbound groups being processed; patiently awaiting group {}", group_id);
+                                                            // group has not started; previous group is still transferring. Do no interrupt transfer
                                                             QueueWorkerResult::Incomplete
                                                         }
                                                     } else {
-                                                        // The inbound group is still receiving, and it hasn't expired. Keep polling
-                                                        QueueWorkerResult::Incomplete
+                                                        // has been removed, thus is complete
+                                                        QueueWorkerResult::Complete
                                                     }
-                                                } else {
-                                                    // group has not started; previous group is still transferring. Do no interrupt transfer
-                                                    QueueWorkerResult::Incomplete
-                                                }
-                                            } else {
-                                                // has been removed, thus is complete
-                                                QueueWorkerResult::Complete
+                                                });
                                             }
-                                        });
-                                    }
 
-                                    let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, initial_wave_window, false, timestamp, KemTransferStatus::Empty, security_level);
-                                    Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
-                                }
-                            }
-                        }
-                    }
-
-                    packet_flags::cmd::aux::group::GROUP_HEADER_ACK => {
-                        log::info!("RECV GROUP HEADER ACK");
-                        match validation::group::validate_header_ack(&payload) {
-                            Some(GroupHeaderAck::ReadyToReceive { initial_window, transfer, fast_msg }) => {
-                                // we need to begin sending the data
-                                // valid and ready to accept!
-                                let initial_wave_window = if udp_mode == UdpMode::Disabled {
-                                    None
-                                } else {
-                                    initial_window
-                                };
-
-                                let resp_target_cid = get_resp_target_cid_from_header(&header);
-                                let peer_cid = header.session_cid.get();
-                                //let mut state_container = session.state_container.borrow_mut();
-                                let object_id = header.wave_id.get();
-                                let group_id = header.group.get();
-
-                                let target_cid = header.target_cid.get();
-                                let needs_truncate = transfer.requires_truncation();
-
-                                let transfer_occured = transfer.has_some();
-                                let secrecy_mode = return_if_none!(state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone(), "Unable to get secrecy mode [PGP]");
-
-                                if resp_target_cid != C2S_ENCRYPTION_ONLY {
-                                    // If there is a pending disconnect, we need to make sure the session gets dropped until after all packets get processed
-                                    let vconn = return_if_none!(state_container.active_virtual_connections.get(&resp_target_cid), "Vconn not loaded");
-                                    vconn.last_delivered_message_timestamp.store(Some(Instant::now()), Ordering::SeqCst);
-                                }
-
-                                if state_container.on_group_header_ack_received(secrecy_mode, object_id, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg, cnac_sess) {
-                                    //std::mem::drop(state_container);
-                                    log::info!("[Toolset Update] Needs truncation? {:?}", &needs_truncate);
-
-                                    //session.send_to_kernel(HdpServerResult::MessageDelivered(header.context_info.get().into()))?;
-                                    // now, we need to do one last thing. We need to send a truncate packet to atleast allow bob to begin sending packets using the latest HR
-                                    // we need to send a truncate packet. BUT, only if the package was SOME. Just b/c it is some does not mean a truncation is necessary
-                                    if transfer_occured {
-                                        let target_cid = if target_cid != C2S_ENCRYPTION_ONLY { peer_cid } else { C2S_ENCRYPTION_ONLY };
-                                        let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&hyper_ratchet, needs_truncate, target_cid, timestamp, security_level);
-                                        log::info!("About to send TRUNCATE packet to MAYBE remove v {:?} | HR v {} | HR CID {}", needs_truncate, hyper_ratchet.version(), hyper_ratchet.get_cid());
-                                        session.send_to_primary_stream(None, truncate_packet)?;
-                                    }
-
-                                    //std::mem::drop(state_container);
-
-                                    // if a transfer occured, we will get polled once we get an TRUNCATE_ACK. No need to double poll
-                                    if secrecy_mode == SecrecyMode::Perfect {
-                                        log::info!("Polling next in pgp");
-                                        let _ = state_container.poll_next_enqueued(resp_target_cid)?;
-                                    }
-
-                                    Ok(PrimaryProcessorResult::Void)
-
-                                } else {
-                                    if udp_mode == UdpMode::Disabled {
-                                        Ok(PrimaryProcessorResult::EndSession("TCP sockets disconnected"))
-                                    } else {
-                                        Ok(PrimaryProcessorResult::EndSession("UDP sockets disconnected"))
+                                            let group_header_ack = hdp_packet_crafter::group::craft_group_header_ack(&hyper_ratchet, object_id, header.group.get(), resp_target_cid, ticket, initial_wave_window, false, timestamp, KemTransferStatus::Empty, security_level);
+                                            Ok(PrimaryProcessorResult::ReplyToSender(group_header_ack))
+                                        }
                                     }
                                 }
                             }
 
-                            Some(GroupHeaderAck::NotReady { fast_msg }) => {
-                                // valid but not ready to accept.
-                                // Possible reasons: too large, target not valid (e.g., not registered, not connected, etc)
-                                //let mut state_container = session.state_container.borrow_mut();
-                                let group = header.group.get();
-                                let key = GroupKey::new(header.session_cid.get(), group);
-                                if let None = state_container.outbound_transmitters.remove(&key) {
-                                    log::error!("Unable to remove outbound transmitter for group {} (non-existent)", group);
-                                }
-                                //std::mem::drop(state_container);
+                            packet_flags::cmd::aux::group::GROUP_HEADER_ACK => {
+                                log::info!("RECV GROUP HEADER ACK");
+                                match validation::group::validate_header_ack(&payload) {
+                                    Some(GroupHeaderAck::ReadyToReceive { initial_window, transfer, fast_msg }) => {
+                                        // we need to begin sending the data
+                                        // valid and ready to accept!
+                                        let initial_wave_window = if udp_mode == UdpMode::Disabled {
+                                            None
+                                        } else {
+                                            initial_window
+                                        };
 
-                                if !fast_msg {
-                                    let ticket = header.context_info.get();
-                                    log::info!("Header ACK was valid, but the receiving end is not receiving the packet at this time. Clearing local memory ...");
-                                    session.send_to_kernel(HdpServerResult::OutboundRequestRejected(ticket.into(), Some(Vec::from("Adjacent node unable to accept request"))))?;
-                                }
+                                        let resp_target_cid = get_resp_target_cid_from_header(&header);
+                                        let peer_cid = header.session_cid.get();
+                                        //let mut state_container = session.state_container.borrow_mut();
+                                        let group_id = header.group.get();
 
-                                Ok(PrimaryProcessorResult::Void)
-                            }
+                                        let target_cid = header.target_cid.get();
+                                        let needs_truncate = transfer.requires_truncation();
 
-                            None => {
-                                // invalid packet
-                                log::error!("Invalid GROUP HEADER ACK");
-                                Ok(PrimaryProcessorResult::Void)
-                            }
-                        }
-                    }
+                                        let transfer_occured = transfer.has_some();
+                                        let secrecy_mode = return_if_none!(state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone(), "Unable to get secrecy mode [PGP]");
 
-                    // This gets sent by Alice after she sends her window over. It tells this end, Bob, that he can expect to get the packets
-                    // soon. Even though the GROUP_WINDOW_TAIL is sent AFTER the payload packets, it is possible that payload packets arrive
-                    // AFTER the GROUP_WINDOW_TAIL. As such, we must define "soon". If the window is finished upon arrival of the WINDOW_TAIL, no reason waiting. However,
-                    // if the window is not finished ... we wait for a duration equal to twice the ping. We then check again. If the window is
-                    // received, we don't have to do anything since the WAVE_ACKs will automatically be sent back to the sender (the last WAVE_ACK
-                    // will contain the range of the next window). If, however, the window is still not yet done, we assume that packet loss occurred.
-                    // From there, we send a set of DO_WAVE_RETRANSMISSIONS. At that point, nothing more needs to be done from the trigger caused by the
-                    // GROUP_WINDOW_TAIL
-                    //
-                    // Other notes: If the first DO_WAVE_RETRANSMISSIONS don't work, the internal session timer will automatically send the DO_WAVE_RETRANSMISSIONS
-                    // If those fails too, then the group is eventually dropped after the expiration occurs
-                    packet_flags::cmd::aux::group::GROUP_WINDOW_TAIL => {
-                        log::info!("RECV GROUP WINDOW TAIL");
-                        match validation::group::validate_window_tail(&header, &payload) {
-                            Some(waves_in_window) => {
-                                let to_primary_stream = return_if_none!(to_primary_stream.as_ref(), "Unable to get primary stream [PGP]");
-                                match state_container.on_window_tail_received(&hyper_ratchet, session_ref, &header, waves_in_window, &time_tracker, to_primary_stream) {
-                                    true => {
+                                        if resp_target_cid != C2S_ENCRYPTION_ONLY {
+                                            // If there is a pending disconnect, we need to make sure the session gets dropped until after all packets get processed
+                                            let vconn = return_if_none!(state_container.active_virtual_connections.get(&resp_target_cid), "Vconn not loaded");
+                                            vconn.last_delivered_message_timestamp.store(Some(Instant::now()), Ordering::SeqCst);
+                                        }
+
+                                        if state_container.on_group_header_ack_received(secrecy_mode, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg, cnac_sess) {
+                                            //std::mem::drop(state_container);
+                                            log::info!("[Toolset Update] Needs truncation? {:?}", &needs_truncate);
+
+                                            //session.send_to_kernel(HdpServerResult::MessageDelivered(header.context_info.get().into()))?;
+                                            // now, we need to do one last thing. We need to send a truncate packet to atleast allow bob to begin sending packets using the latest HR
+                                            // we need to send a truncate packet. BUT, only if the package was SOME. Just b/c it is some does not mean a truncation is necessary
+                                            if transfer_occured {
+                                                let target_cid = if target_cid != C2S_ENCRYPTION_ONLY { peer_cid } else { C2S_ENCRYPTION_ONLY };
+                                                let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&hyper_ratchet, needs_truncate, target_cid, timestamp, security_level);
+                                                log::info!("About to send TRUNCATE packet to MAYBE remove v {:?} | HR v {} | HR CID {}", needs_truncate, hyper_ratchet.version(), hyper_ratchet.get_cid());
+                                                session.send_to_primary_stream(None, truncate_packet)?;
+                                            }
+
+                                            //std::mem::drop(state_container);
+
+                                            // if a transfer occured, we will get polled once we get an TRUNCATE_ACK. No need to double poll
+                                            if secrecy_mode == SecrecyMode::Perfect {
+                                                log::info!("Polling next in pgp");
+                                                let _ = state_container.poll_next_enqueued(resp_target_cid)?;
+                                            }
+
+                                            Ok(PrimaryProcessorResult::Void)
+
+                                        } else {
+                                            if udp_mode == UdpMode::Disabled {
+                                                Ok(PrimaryProcessorResult::EndSession("TCP sockets disconnected"))
+                                            } else {
+                                                Ok(PrimaryProcessorResult::EndSession("UDP sockets disconnected"))
+                                            }
+                                        }
+                                    }
+
+                                    Some(GroupHeaderAck::NotReady { fast_msg }) => {
+                                        // valid but not ready to accept.
+                                        // Possible reasons: too large, target not valid (e.g., not registered, not connected, etc)
+                                        //let mut state_container = session.state_container.borrow_mut();
+                                        let group = header.group.get();
+                                        let key = GroupKey::new(header.session_cid.get(), group);
+                                        if let None = state_container.outbound_transmitters.remove(&key) {
+                                            log::error!("Unable to remove outbound transmitter for group {} (non-existent)", group);
+                                        }
+                                        //std::mem::drop(state_container);
+
+                                        if !fast_msg {
+                                            let ticket = header.context_info.get();
+                                            log::info!("Header ACK was valid, but the receiving end is not receiving the packet at this time. Clearing local memory ...");
+                                            session.send_to_kernel(HdpServerResult::OutboundRequestRejected(ticket.into(), Some(Vec::from("Adjacent node unable to accept request"))))?;
+                                        }
+
                                         Ok(PrimaryProcessorResult::Void)
                                     }
 
-                                    false => {
+                                    None => {
+                                        // invalid packet
+                                        log::error!("Invalid GROUP HEADER ACK");
                                         Ok(PrimaryProcessorResult::Void)
                                     }
                                 }
                             }
 
-                            None => {
-                                log::info!("Error validating WINDOW TAIL");
-                                Ok(PrimaryProcessorResult::Void)
-                            }
-                        }
-                    }
+                            packet_flags::cmd::aux::group::WAVE_ACK => {
+                                log::info!("RECV WAVE ACK");
+                                match validation::group::validate_wave_ack(&payload) {
+                                    Some(WaveAck { range }) => {
 
-                    // This node is being told to retransmit a set of packets (this node is Alice)
-                    packet_flags::cmd::aux::group::WAVE_DO_RETRANSMISSION => {
-                        log::info!("RECV WAVE DO RETRANSMISSION");
-                        match validation::group::validate_wave_do_retransmission(&payload) {
-                            Ok(_) => {
-                                // The internal session timer will handle the outbound dispatch of packets
-                                // once
-                                state_container.on_wave_do_retransmission_received(&hyper_ratchet, &header, &payload);
-                                Ok(PrimaryProcessorResult::Void)
-                            }
+                                        if range.is_some() {
+                                            log::info!("WAVE_ACK implies window completion");
+                                        }
 
-                            Err(err) => {
-                                log::error!("Error validating WAVE_DO_RETRANSMISSION: {}", err.to_string());
-                                Ok(PrimaryProcessorResult::Void)
-                            }
-                        }
-                    }
+                                        // the window is done. Since this node is the transmitter, we then make a call to begin sending the next wave
+                                        if !state_container.on_wave_ack_received(hyper_ratchet.get_cid(), &header) {
+                                            if udp_mode == UdpMode::Disabled {
+                                                log::error!("There was an error sending the TCP window; Cancelling connection");
+                                            } else {
+                                                log::error!("There was an error sending the UDP window; Cancelling connection");
+                                            }
 
-                    // The
-                    packet_flags::cmd::aux::group::WAVE_ACK => {
-                        log::info!("RECV WAVE ACK");
-                        match validation::group::validate_wave_ack(&payload) {
-                            Some(WaveAck { range }) => {
-
-                                if range.is_some() {
-                                    log::info!("WAVE_ACK implies window completion");
-                                }
-
-                                // the window is done. Since this node is the transmitter, we then make a call to begin sending the next wave
-                                if !state_container.on_wave_ack_received(hyper_ratchet.get_cid(), &header, udp_mode == UdpMode::Disabled, range) {
-                                    if udp_mode == UdpMode::Disabled {
-                                        log::error!("There was an error sending the TCP window; Cancelling connection");
-                                    } else {
-                                        log::error!("There was an error sending the UDP window; Cancelling connection");
+                                            Ok(PrimaryProcessorResult::EndSession("Sockets disconnected"))
+                                        } else {
+                                            log::info!("Successfully sent next window in response to WAVE ACK");
+                                            Ok(PrimaryProcessorResult::Void)
+                                        }
                                     }
 
-                                    Ok(PrimaryProcessorResult::EndSession("Sockets disconnected"))
-                                } else {
-                                    log::info!("Successfully sent next window in response to WAVE ACK");
-                                    Ok(PrimaryProcessorResult::Void)
+                                    None => {
+                                        log::error!("Error validating WAVE_ACK");
+                                        Ok(PrimaryProcessorResult::Void)
+                                    }
                                 }
                             }
 
-                            None => {
-                                log::error!("Error validating WAVE_ACK");
+                            _ => {
+                                log::trace!("Primary port GROUP packet has an invalid auxiliary command. Dropping");
                                 Ok(PrimaryProcessorResult::Void)
                             }
                         }
                     }
 
                     _ => {
-                        log::trace!("Primary port GROUP packet has an invalid auxiliary command. Dropping");
+                        log::warn!("Packet failed AES-GCM validation stage (self node: {})", session.is_server.if_true("server").if_false("client"));
                         Ok(PrimaryProcessorResult::Void)
                     }
                 }
-            }
-
-            _ => {
-                log::warn!("Packet failed AES-GCM validation stage (self node: {})", session.is_server.if_true("server").if_false("client"));
-                Ok(PrimaryProcessorResult::Void)
             }
         }
 }
@@ -391,7 +347,7 @@ pub fn get_resp_target_cid(virtual_target: &VirtualConnectionType) -> Option<u64
 
         _ => {
             log::error!("HyperWAN functionality is not yet implemented");
-            return None;
+            None
         }
     }
 }
