@@ -30,7 +30,7 @@ use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 use crate::constants::{MAX_OUTGOING_UNPROCESSED_REQUESTS, TCP_CONN_TIMEOUT};
 use crate::error::NetworkError;
 use crate::functional::PairMap;
-use crate::hdp::file_transfer::FileTransferStatus;
+use crate::hdp::file_transfer::FileTransferHandle;
 use crate::hdp::hdp_packet_processor::includes::Duration;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode};
@@ -41,7 +41,7 @@ use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
 use crate::hdp::outbound_sender::{BoundedReceiver, BoundedSender, unbounded, UnboundedSender};
 use crate::hdp::peer::channel::{PeerChannel, UdpChannel};
 use crate::hdp::peer::peer_layer::{MailboxTransfer, PeerSignal, UdpMode};
-use crate::hdp::state_container::{FileKey, VirtualConnectionType, VirtualTargetType};
+use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::kernel::kernel_communicator::{KernelAsyncCallbackHandler, KernelStreamSubscription};
 use crate::kernel::RuntimeFuture;
 use hyxe_wire::quic::{QuicServer, QuicEndpointConnector, SELF_SIGNED_DOMAIN, QuicNode};
@@ -819,7 +819,7 @@ pub enum HdpServerResult {
     /// The outbound request was rejected
     OutboundRequestRejected(Ticket, Option<Vec<u8>>),
     /// For file transfers. Implicated CID, Peer/Target CID, object ID
-    FileTransferStatus(u64, FileKey, Ticket, FileTransferStatus),
+    FileTransferHandle(Ticket, FileTransferHandle),
     /// Data has been delivered for implicated cid self.0. The original outbound send request's ticket
     /// will be returned in the delivery, thus enabling higher-level abstractions to listen for data
     /// returns
@@ -861,7 +861,7 @@ impl HdpServerResult {
             HdpServerResult::ConnectSuccess(t,..) => {Some(*t)}
             HdpServerResult::ConnectFail(t, _, _) => {Some(*t)}
             HdpServerResult::OutboundRequestRejected(t, _) => {Some(*t)}
-            HdpServerResult::FileTransferStatus(_, _, t, _) => {Some(*t)}
+            HdpServerResult::FileTransferHandle(t, ..) => {Some(*t)}
             HdpServerResult::MessageDelivery(t, _, _) => {Some(*t)}
             HdpServerResult::MessageDelivered(t) => {Some(*t)}
             HdpServerResult::MailboxDelivery(_, t, _) => {t.clone()}

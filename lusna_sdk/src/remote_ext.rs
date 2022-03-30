@@ -6,7 +6,7 @@ use hyxe_net::auth::AuthenticationRequest;
 use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};
 use crate::remote_ext::results::HyperlanPeer;
 
-mod user_ids {
+pub(crate) mod user_ids {
     use crate::prelude::*;
     use std::ops::{Deref, DerefMut};
 
@@ -99,6 +99,7 @@ pub struct ConnectSuccess {
     pub udp_channel_rx: Option<tokio::sync::oneshot::Receiver<UdpChannel>>,
     /// Contains the Google auth minted at the central server (if the central server enabled it), as well as any other services enabled by the central server
     pub services: ServicesObject,
+    pub cid: u64
 }
 
 /// Contains the elements entailed by a successful registration
@@ -135,7 +136,7 @@ pub trait ProtocolRemoteExt: Remote {
         let connect_request = HdpServerRequest::ConnectToHypernode(auth, connect_mode, fcm_keys, udp_mode, keep_alive_timeout_sec, session_security_settings);
 
         match map_errors(self.send_callback(connect_request).await?)? {
-            HdpServerResult::ConnectSuccess(_,_,_,_,_,_,services,_,channel,udp_channel_rx) => Ok(ConnectSuccess { channel, udp_channel_rx, services }),
+            HdpServerResult::ConnectSuccess(_,cid,_,_,_,_,services,_,channel,udp_channel_rx) => Ok(ConnectSuccess { channel, udp_channel_rx, services, cid }),
             HdpServerResult::ConnectFail(_, _, err) => Err(NetworkError::Generic(err)),
             _ => Err(NetworkError::msg("An unexpected response occurred"))
         }
@@ -224,7 +225,6 @@ fn map_errors(result: HdpServerResult) -> Result<HdpServerResult, NetworkError> 
     match result {
         HdpServerResult::InternalServerError(_, err) => Err(NetworkError::Generic(err)),
         HdpServerResult::PeerEvent(PeerSignal::SignalError(_, err), _) => Err(NetworkError::Generic(err)),
-        HdpServerResult::FileTransferStatus(_, _,_, FileTransferStatus::Fail(err)) => Err(NetworkError::Generic(err)),
         res => Ok(res)
     }
 }
@@ -238,26 +238,27 @@ impl ProtocolRemoteExt for NodeRemote {
 #[async_trait]
 /// Some functions require that a target exists
 pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
-    /// Sends a file with a custom size. The smaller the chunks, the higher the degree of scrambling, but the higher the performance penalty. A chunk size of zero will use the default
+    /// Sends a file with a custom size. The smaller the chunks, the higher the degree of scrambling, but the higher the performance cost. A chunk size of zero will use the default
     async fn send_file_with_custom_chunking<T: Into<PathBuf> + Send>(&mut self, path: T, chunk_size: usize) -> Result<(), NetworkError> {
         let chunk_size = if chunk_size == 0 { None } else { Some(chunk_size) };
         let implicated_cid = self.user().get_implicated_cid();
         let user = *self.user();
         let remote = self.remote();
 
-        let mut stream = remote.send_callback_stream(HdpServerRequest::SendFile(path.into(), chunk_size,implicated_cid, user)).await?;
-
-        while let Some(item) = stream.next().await {
-            match map_errors(item)? {
-                HdpServerResult::FileTransferStatus(_, _, _, FileTransferStatus::TransferComplete) => {
-                    return Ok(())
+        let result = remote.send_callback(HdpServerRequest::SendFile(path.into(), chunk_size,implicated_cid, user)).await?;
+        match map_errors(result)? {
+            HdpServerResult::FileTransferHandle(_ticket, mut handle) => {
+                while let Some(res) = handle.next().await {
+                    if let FileTransferStatus::TransferComplete = res {
+                        return Ok(())
+                    }
                 }
-
-                _ => {}
             }
+
+            res => log::error!("Invalid HdpServerResult for FileTransfer request received: {:?}", res)
         }
 
-        Err(NetworkError::InternalError("Internal kernel stream died"))
+        Err(NetworkError::InternalError("File transfer stream died"))
     }
 
     /// Sends a file to the provided target using the default chunking size
@@ -343,5 +344,92 @@ pub mod results {
     pub struct HyperlanPeer {
         pub cid: u64,
         pub is_online: bool
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+    use crate::builder::node_builder::{NodeBuilder, NodeFuture};
+    use crate::prelude::{ProtocolRemoteTargetExt, NetKernel, NodeRemote, NetworkError, HdpServerResult, FileTransferStatus};
+    use crate::remote_ext::map_errors;
+    use futures::StreamExt;
+    use std::net::SocketAddr;
+    use std::str::FromStr;
+    use crate::prelude::*;
+
+    struct ServerFileTransferKernel;
+
+    #[async_trait]
+    impl NetKernel for ServerFileTransferKernel {
+        fn load_remote(&mut self, _server_remote: NodeRemote) -> Result<(), NetworkError> {
+            Ok(())
+        }
+
+        async fn on_start(&self) -> Result<(), NetworkError> {
+            Ok(())
+        }
+
+        async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+            if let HdpServerResult::FileTransferHandle(_, mut handle) = map_errors(message)? {
+                while let Some(status) = handle.next().await {
+                    match status {
+                        FileTransferStatus::ReceptionComplete => {
+                            log::info!("Server has finished receiving the file!");
+                        }
+
+                        FileTransferStatus::ReceptionBeginning(vfm) => {
+                            assert_eq!(vfm.name, "TheBridge.pdf")
+                        }
+
+                        _ => {}
+                    }
+                }
+            }
+
+            Ok(())
+        }
+
+        async fn on_stop(self) -> Result<(), NetworkError> {
+            Ok(())
+        }
+    }
+
+    pub fn server_info() -> (NodeFuture, SocketAddr) {
+        let port = portpicker::pick_unused_port().unwrap();
+        let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
+        let server = crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel {});
+        (server, bind_addr)
+    }
+
+    #[tokio::test]
+    async fn test_file_transfer() {
+        crate::test_common::setup_log();
+
+        static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
+        let (server, server_addr) = server_info();
+
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(server_addr, |_channel, mut remote| async move {
+            log::info!("***CLIENT LOGIN SUCCESS :: File transfer next ***");
+            remote.send_file_with_custom_chunking("../resources/TheBridge.pdf", 32*1024).await.unwrap();
+            log::info!("***CLIENT FILE TRANSFER SUCCESS***");
+            CLIENT_SUCCESS.store(true, Ordering::Relaxed);
+            stop_tx.send(()).unwrap();
+            Ok(())
+        });
+
+        let client = NodeBuilder::default().build(client_kernel).unwrap();
+
+        let joined = futures::future::try_join(server, client);
+
+        tokio::select! {
+            res0 = joined => { res0.unwrap(); },
+            res1 = stop_rx => { res1.unwrap(); }
+        }
+
+        assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
     }
 }
