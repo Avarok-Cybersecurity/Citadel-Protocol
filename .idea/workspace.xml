@@ -41,28 +41,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change afterPath="$PROJECT_DIR$/hyxe_crypt/src/sync_toggle.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_crypt/src/net/crypt_splitter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/src/net/crypt_splitter.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/file_transfer/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/file_transfer/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_node.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_node.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_crafter.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/primary_group_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_fs/src/file_crypt_scrambler.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/src/file_crypt_scrambler.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/state_container.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/validation.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/tests/stress_test_and_proto.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/stress_test_and_proto.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/multi/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/multi/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/udp_hole_puncher.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/udp_traversal/udp_hole_puncher.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/prefabs/client/single_connection.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/prefabs/client/single_connection.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/prefabs/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/prefabs/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/remote_ext.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/remote_ext.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/test_common.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/test_common.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -708,7 +690,7 @@
       <workItem from="1643040364399" duration="17223000" />
       <workItem from="1643485662211" duration="13587000" />
       <workItem from="1643564061488" duration="16216000" />
-      <workItem from="1643649696955" duration="312727000" />
+      <workItem from="1643649696955" duration="318449000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
