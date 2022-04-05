@@ -940,8 +940,10 @@ impl StateContainerInner {
 
     pub fn on_group_payload_received(&mut self, header: &HdpHeader, payload: Bytes, hr: &HyperRatchet) -> Result<(), NetworkError> {
         let target_cid = header.session_cid.get();
-        let key = GroupKey::new(target_cid, header.group.get());
-        let grc = self.inbound_groups.get_mut(&key).ok_or_else(|| NetworkError::msg(format!("inbound_groups does not contain key for {:?}", key)))?;
+        let group_key = GroupKey::new(target_cid, header.group.get());
+        let grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| NetworkError::msg(format!("inbound_groups does not contain key for {:?}", group_key)))?;
+        let file_key = FileKey::new(target_cid, grc.object_id);
+        let file_container = self.inbound_files.get_mut(&file_key).ok_or_else(|| NetworkError::msg(format!("inbound_files does not contain key for {:?}", file_key)))?;
         let src = *payload.get(0).ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [0]"))?;
         let dest = *payload.get(1).ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [1]"))?;
 
@@ -951,12 +953,23 @@ impl StateContainerInner {
                                                                                        hr.get_scramble_drill()).ok_or_else(|| NetworkError::InvalidRequest("Unable to obtain true_sequence"))?;
 
         match grc.receiver.on_packet_received(header.group.get(), true_sequence, header.wave_id.get(), hr,payload) {
-            GroupReceiverStatus::GROUP_COMPLETE(gc) => {
+            GroupReceiverStatus::GROUP_COMPLETE(gid) => {
+                log::info!("GROUP {} COMPLETE. Total groups: {}", gid, file_container.total_groups);
+                let chunk = grc.receiver.finalize();
+                file_container.stream_to_hd.unbounded_send(chunk).map_err(|err| NetworkError::Generic(err.to_string()))?;
+
+                let _ = self.inbound_groups.remove(&group_key);
+                if gid == file_container.total_groups - 1 {
+                    file_container.
+                }
+            }
+            // common case
+            GroupReceiverStatus::INSERT_SUCCESS | GroupReceiverStatus::WAVE_COMPLETE(..) => {
 
             }
-            GroupReceiverStatus::INVALID_PACKET => {}
-            // common case
-            GroupReceiverStatus::INSERT_SUCCESS => {}
+
+            res => {
+                log::warn!("INVALID GroupReceiverStatus obtained: {:?}", res)
             }
         }
 

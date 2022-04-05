@@ -1014,6 +1014,15 @@ impl HdpSession {
                         }
                     }
 
+                    // TODO: planning/overhaul of file transmission process
+                    // By now, the file container has been created remotely and locally
+                    // We have been signalled to begin polling the group sender
+                    // NOTE: polling the group_sender_rx (eventually) stops polling the
+                    // async crypt scrambler. Up to 5 groups can be enqueued before stopping
+                    // Once 5 groups have enqueued, the only way to continue is if the receiving
+                    // end tells us it finished that group, and, we poll the next() group sender below.
+                    //
+
                     let mut relative_group_id = 0;
                     // while waiting, we likely have a set of GroupSenders to process
                     while let Some(sender) = group_sender_rx.next().await {
@@ -1085,14 +1094,6 @@ impl HdpSession {
                                     (group_id, key)
                                 };
 
-                                // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
-                                // received a signal here
-
-                                if let None = next_gs_alerter_rx.next().await {
-                                    log::warn!("next_gs_alerter: steam ended");
-                                    return;
-                                }
-
                                 let kernel_tx2 = kernel_tx.clone();
 
                                 this.queue_handle.insert_ordinary(group_id as usize, target_cid, GROUP_EXPIRE_TIME_MS, move |state_container| {
@@ -1138,6 +1139,14 @@ impl HdpSession {
                                         QueueWorkerResult::Complete
                                     }
                                 });
+
+                                // When a wave ACK in the previous group comes, if the group is 50% or more done, the group_sender_rx will
+                                // received a signal here
+
+                                if let None = next_gs_alerter_rx.next().await {
+                                    log::warn!("next_gs_alerter: steam ended");
+                                    return;
+                                }
                             }
 
                             Err(err) => {
@@ -1154,41 +1163,6 @@ impl HdpSession {
                 Err(NetworkError::Generic(format!("File `{:?}` not found", file)))
             }
         }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn spawn_message_sender_function(this: HdpSession, mut rx: futures::channel::mpsc::Receiver<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) {
-        let task = async move {
-            let ref this = this;
-            let mut stopper_rx = inner!(this.stopper_tx).subscribe();
-            let ref to_kernel_tx = this.kernel_tx.clone();
-
-            let stopper = async move {
-                stopper_rx.recv().await.map_err(|err| NetworkError::Generic(err.to_string()))
-            };
-
-            let receiver = async move {
-                while let Some((ticket, message, v_target, security_level)) = rx.next().await {
-                    if let Err(err) = this.process_outbound_message(ticket, message, v_target, security_level) {
-                        to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket), err.into_string())).map_err(|err| NetworkError::Generic(err.to_string()))?
-                    }
-                }
-
-                Ok(())
-            };
-
-            tokio::select! {
-                res0 = stopper => res0,
-                res1 = receiver => res1
-            }
-        };
-
-        let _ = spawn!(task);
-    }
-
-    #[allow(unused_results, dead_code)]
-    pub fn process_outbound_message(&self, ticket: Ticket, packet: SecureProtocolPacket, virtual_target: VirtualTargetType, security_level: SecurityLevel) -> Result<(), NetworkError> {
-        inner_mut_state!(self.state_container).process_outbound_message(ticket, packet, virtual_target, security_level, false)
     }
 
     #[allow(unused_results)]
@@ -1236,7 +1210,6 @@ impl HdpSession {
                             }
 
                             // case 2: local just accepted, fcm is enabled. But, signal was not sent via FCM. Instead, was sent via normal network
-                            // TODO: This doesn't make sense. Why is it switching on AliceToBobTransfer, and not BobToAliceTransfer??? ANSWER: check the else statement in hyxewave:[..]/peer.rs. It does not switch-out the transfer type. that must instead be done here (delegation of responsibility as desired)
                             PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, _this_cid)) => {
                                 let target_cid = vconn.get_original_target_cid();
                                 let local_cid = inner.cid;
@@ -1313,16 +1286,8 @@ impl HdpSession {
         let target_cid = peer_session_accessor.get_target_cid();
 
         while let Some((cmd_aux, packet)) = receiver.next().await {
-            // TODO: figure out the logistics of this IP mess for all possible use cases. This works for hyperlan though
-            let send_addr = if local_is_server {
-                // if the local is server, we send to the natted ports instead of the initial. It is flip-flopped
-                hole_punched_addr.receive_address
-            } else {
-                hole_punched_addr.send_address
-            };
-
+            let send_addr = hole_punched_addr.send_address;
             let packet = peer_session_accessor.borrow_hr(None, |hr, _| hdp_packet_crafter::udp::craft_udp_packet(hr, cmd_aux,packet, target_cid, SecurityLevel::LOW))?;
-
             log::trace!("About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);
             sink.send(packet.freeze()).await.map_err(|_| NetworkError::InternalError("UDP sink unable to receive outbound requests"))?;
         }
@@ -1336,8 +1301,6 @@ impl HdpSession {
         if packet.get_length() < HDP_HEADER_BYTE_LEN {
             return Ok(());
         }
-
-        //log::info!("Wave inbound port (original): {}", packet.get_remote_port());
 
         if let Some((header, _)) = packet.parse() {
             // we only process streaming packets
@@ -1474,7 +1437,7 @@ impl HdpSessionInner {
         }
     }
 
-    /// Stops the future from running. This will stop once the periodic checker determines the state is disconnected
+    /// Stops the future from running
     pub fn shutdown(&self) {
         self.state.store(SessionState::Disconnected, Ordering::SeqCst);
         let _ = inner!(self.stopper_tx).send(());
