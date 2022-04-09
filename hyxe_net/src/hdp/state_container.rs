@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
 use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, ConstructorType};
-use crate::hdp::hdp_packet_processor::primary_group_packet::attempt_kem_as_alice_finish;
+use crate::hdp::hdp_packet_processor::primary_group_packet::{attempt_kem_as_alice_finish, get_resp_target_cid_from_header};
 
 use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
@@ -59,6 +59,7 @@ use crate::hdp::misc::dual_late_init::DualLateInit;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::prelude::MessageGroupKey;
 use crate::hdp::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
+use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
 
 impl Debug for StateContainer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -801,6 +802,7 @@ impl StateContainerInner {
         let key = FileKey::new(header.session_cid.get(), metadata.object_id);
         let ticket = header.context_info.get().into();
 
+        // TODO: Add file transfer accept request here. Once local accepts, then begin this subroutine
         if !self.inbound_files.contains_key(&key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
             let name = metadata.name.clone();
@@ -938,42 +940,73 @@ impl StateContainerInner {
         true
     }
 
-    pub fn on_group_payload_received(&mut self, header: &HdpHeader, payload: Bytes, hr: &HyperRatchet) -> Result<(), NetworkError> {
+    pub fn on_group_payload_received(&mut self, header: &HdpHeader, payload: Bytes, hr: &HyperRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
         let target_cid = header.session_cid.get();
-        let group_key = GroupKey::new(target_cid, header.group.get());
+        let group_id = header.group.get();
+        let group_key = GroupKey::new(target_cid, group_id);
         let grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| NetworkError::msg(format!("inbound_groups does not contain key for {:?}", group_key)))?;
         let file_key = FileKey::new(target_cid, grc.object_id);
         let file_container = self.inbound_files.get_mut(&file_key).ok_or_else(|| NetworkError::msg(format!("inbound_files does not contain key for {:?}", file_key)))?;
+        let file_transfer_handle = self.file_transfer_handles.get_mut(&file_key).ok_or_else(|| NetworkError::msg(format!("file_transfer_handle does not contain key for {:?}", file_key)))?;
+
         let src = *payload.get(0).ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [0]"))?;
         let dest = *payload.get(1).ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [1]"))?;
+        let ts = self.time_tracker.get_global_time_ns();
 
         let true_sequence = hyxe_crypt::packet_vector::generate_packet_coordinates_inv(header.wave_id.get(),
                                                                                        src as u16,
                                                                                        dest as u16,
                                                                                        hr.get_scramble_drill()).ok_or_else(|| NetworkError::InvalidRequest("Unable to obtain true_sequence"))?;
 
-        match grc.receiver.on_packet_received(header.group.get(), true_sequence, header.wave_id.get(), hr,payload) {
-            GroupReceiverStatus::GROUP_COMPLETE(gid) => {
-                log::info!("GROUP {} COMPLETE. Total groups: {}", gid, file_container.total_groups);
-                let chunk = grc.receiver.finalize();
+        let mut send_wave_ack = false;
+        let mut complete = false;
+
+        match grc.receiver.on_packet_received(group_id, true_sequence, header.wave_id.get(), hr,payload) {
+            GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
+                log::info!("GROUP {} COMPLETE. Total groups: {}", group_id, file_container.total_groups);
+                let chunk = self.inbound_groups.remove(&group_key).unwrap().receiver.finalize();
                 file_container.stream_to_hd.unbounded_send(chunk).map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                let _ = self.inbound_groups.remove(&group_key);
-                if gid == file_container.total_groups - 1 {
-                    file_container.
-                }
-            }
-            // common case
-            GroupReceiverStatus::INSERT_SUCCESS | GroupReceiverStatus::WAVE_COMPLETE(..) => {
+                send_wave_ack = true;
 
+                let status = if group_id as usize == file_container.total_groups - 1 {
+                    let _ = self.inbound_files.remove(&file_key);
+                    complete = true;
+                    FileTransferStatus::ReceptionComplete
+                } else {
+                    file_container.last_group_finish_time = Instant::now();
+                    // TODO: Compute Mb/s
+                    FileTransferStatus::ReceptionTick(group_id as usize, file_container.total_groups, 0 as f32)
+                    // sending the wave ack will complete the group on the initiator side
+                };
+
+                file_transfer_handle.unbounded_send(status).map_err(|err| NetworkError::Generic(err.to_string()))?;
+            }
+
+            // common case
+            GroupReceiverStatus::INSERT_SUCCESS => {}
+
+            GroupReceiverStatus::WAVE_COMPLETE(..) => {
+                // send wave ACK to update progress on adjacent node
             }
 
             res => {
-                log::warn!("INVALID GroupReceiverStatus obtained: {:?}", res)
+                log::error!("INVALID GroupReceiverStatus obtained: {:?}", res)
             }
         }
 
-        Ok(())
+        if complete {
+            log::info!("Finished receiving file {:?}", file_key);
+            let _ = self.inbound_files.remove(&file_key);
+            let _ = self.file_transfer_handles.remove(&file_key);
+        }
+
+        if send_wave_ack {
+            let wave_ack = hdp_packet_crafter::group::craft_wave_ack(hr, header.context_info.get() as u32, get_resp_target_cid_from_header(header), header.group.get(), header.wave_id.get(), ts, None, header.security_level.into());
+            return Ok(PrimaryProcessorResult::ReplyToSender(wave_ack))
+        }
+
+        Ok(PrimaryProcessorResult::Void)
     }
 
     /// This function is called on Alice's side after Bob sends her a WAVE_ACK.
@@ -1017,14 +1050,15 @@ impl StateContainerInner {
                         FileTransferStatus::TransferComplete
                     };
 
-                    if let Err(err) = tx.unbounded_send(status) {
-                        // TODO: stop file transfer since receiver is not receiving
-                        // TODO: call stop tx on local file transfer stream_to_hd (requires select! on tokio-spawn)
+                    if let Err(err) = tx.unbounded_send(status.clone()) {
                         log::error!("FileTransfer receiver handle cannot be reached {:?}", err);
+                        // drop local async sending subroutines
+                        let _ = self.file_transfer_handles.remove(&file_key);
                     }
 
-                    if status == FileTransferStatus::TransferComplete {
-                        // remove the transmitter
+                    if matches!(status, FileTransferStatus::TransferComplete) {
+                        // remove the transmitter. Dropping will stop related futures
+                        log::info!("FileTransfer is complete!");
                         let _ = self.file_transfer_handles.remove(&file_key);
                     }
                 } else {

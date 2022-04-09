@@ -169,6 +169,7 @@ impl GroupTransmitter {
         let to_primary_stream = to_primary_stream.clone();
         let packets = self.group_transmitter.take_all_packets();
 
+        log::info!("Will transfer {} packets", packets.len());
         for packet in packets {
             if let Err(err) = to_primary_stream.unbounded_send(packet.packet) {
                 log::error!("[FILE] to_primary_stream died {:?}", err);
