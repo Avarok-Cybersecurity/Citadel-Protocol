@@ -2,7 +2,6 @@ use bytes::BytesMut;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
 use futures::task::Context;
-use std::marker::PhantomData;
 use std::io::{BufReader, Read};
 use tokio::macros::support::Pin;
 
@@ -24,6 +23,7 @@ use parking_lot::Mutex;
 pub const MAX_BYTES_PER_GROUP: usize = hyxe_crypt::net::crypt_splitter::MAX_BYTES_PER_GROUP;
 const DEFAULT_BYTES_PER_GROUP: usize = 1024 * 1024 * 3;
 
+/// Generic function for inscribing headers on packets
 pub trait HeaderInscriberFn: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static {}
 impl<T: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static> HeaderInscriberFn for T {}
 

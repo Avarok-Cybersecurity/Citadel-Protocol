@@ -61,10 +61,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
 
-        #[cfg(feature = "localhost-testing")]
-            {
-                let _ = this.purge().await?;
-            }
+        if cfg!(feature = "localhost-testing") || std::env::var("LOCALHOST_TESTING").unwrap_or_default() == "1" {
+            log::info!("Purging home directory since localhost-testing is enabled");
+            let _ = this.purge().await?;
+        }
 
         Ok(this)
     }

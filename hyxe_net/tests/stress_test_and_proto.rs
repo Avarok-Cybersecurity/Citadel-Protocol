@@ -69,6 +69,7 @@ pub mod tests {
     }
 
     #[fixture]
+    #[once]
     fn client_config() -> Arc<ClientConfig> {
         let certs = hyxe_wire::tls::load_native_certs().unwrap();
         Arc::new(hyxe_wire::tls::cert_vec_to_secure_client_config(&certs).unwrap())
@@ -80,7 +81,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_tcp_or_tls(#[case] addr: SocketAddr,
                              protocols: Vec<UnderlyingProtocol>,
-                             ref client_config: Arc<ClientConfig>) -> std::io::Result<()> {
+                             client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
 
@@ -132,7 +133,7 @@ pub mod tests {
     #[tokio::test]
     async fn test_many_proto_conns(#[case] addr: SocketAddr,
                                    protocols: Vec<UnderlyingProtocol>,
-                                   ref client_config: Arc<ClientConfig>) -> std::io::Result<()> {
+                                   client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
 
@@ -415,7 +416,7 @@ pub mod tests {
         #[values("4000")]
         message_count_per_activity: &str,
         bind_addrs: (SocketAddr, SocketAddr, SocketAddr, SocketAddr),
-        ref client_config: Arc<ClientConfig>
+        client_config: &Arc<ClientConfig>
     ) -> Result<(), Box<dyn Error>> {
         setup_log();
         super::utils::deadlock_detector();

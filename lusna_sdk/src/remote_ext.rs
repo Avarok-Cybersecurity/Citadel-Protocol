@@ -249,6 +249,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         match map_errors(result)? {
             HdpServerResult::FileTransferHandle(_ticket, mut handle) => {
                 while let Some(res) = handle.next().await {
+                    log::info!("Client received RES {:?}", res);
                     if let FileTransferStatus::TransferComplete = res {
                         return Ok(())
                     }
@@ -292,7 +293,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     /// Posts a registration request to a peer
-    async fn register_to_peer_custom(&mut self) -> Result<PeerRegisterStatus, NetworkError> {
+    async fn register_to_peer(&mut self) -> Result<PeerRegisterStatus, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
         let peer_target = self.try_as_peer_connection()?;
         // TODO: Get rid of this step. Should be handled by the protocol
@@ -372,6 +373,7 @@ mod tests {
         }
 
         async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+            log::info!("SERVER received {:?}", message);
             if let HdpServerResult::FileTransferHandle(_, mut handle) = map_errors(message)? {
                 while let Some(status) = handle.next().await {
                     match status {
@@ -404,7 +406,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_file_transfer() {
+    async fn test_c2s_file_transfer() {
         crate::test_common::setup_log();
 
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
