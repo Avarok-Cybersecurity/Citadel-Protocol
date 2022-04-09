@@ -20,6 +20,8 @@ pub struct SingleClientServerConnectionKernel<F, Fut> {
     _pd: PhantomData<fn() -> Fut>
 }
 
+
+#[derive(Debug)]
 enum ConnectionType {
     Register { server_addr: SocketAddr, username: String, password: SecBuffer, full_name: String },
     Connect { username: String, password: SecBuffer },

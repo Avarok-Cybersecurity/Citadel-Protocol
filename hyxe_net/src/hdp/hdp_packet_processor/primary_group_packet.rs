@@ -58,10 +58,19 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
         //log::info!("[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
         match header.cmd_aux {
             packet_flags::cmd::aux::group::GROUP_PAYLOAD => {
+                log::info!("RECV GROUP PAYLOAD {:?}", header);
                 // These packets do not get encrypted with the message key. They get scrambled and encrypted
-                state_container.
-                state_container.meta_expiry_state.on_event_confirmation();
-                Ok(PrimaryProcessorResult::Void)
+                match state_container.on_group_payload_received(&*header, payload.freeze(), &hyper_ratchet) {
+                    Ok(res) => {
+                        state_container.meta_expiry_state.on_event_confirmation();
+                        Ok(res)
+                    }
+
+                    Err(err) => {
+                        log::error!("on_group_payload_received error: {:?}", err);
+                        Ok(PrimaryProcessorResult::Void)
+                    }
+                }
             }
 
             _ => {
@@ -94,7 +103,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     };
 
                                     if !state_container.forward_data_to_ordered_channel(target_cid, header.group.get(), plaintext) {
-                                        log::error!("Unable to forward data to channel (peer: {})", original_implicated_cid);
+                                        log::error!("Unable to forward data to channel (peer: {})", target_cid);
                                         return Ok(PrimaryProcessorResult::Void);
                                     }
 
@@ -139,7 +148,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                                                                 // TODO: Create file FIN
                                                                             }
 
-                                                                            state_container.file_transfer_handles.remove(&key);
+                                                                            let _ = state_container.file_transfer_handles.remove(&key);
                                                                         }
                                                                     }
 
@@ -352,7 +361,7 @@ pub fn get_resp_target_cid(virtual_target: &VirtualConnectionType) -> Option<u64
     }
 }
 
-pub fn get_resp_target_cid_from_header(header: &LayoutVerified<&[u8], HdpHeader>) -> u64 {
+pub fn get_resp_target_cid_from_header(header: &HdpHeader) -> u64 {
     if header.target_cid.get() != C2S_ENCRYPTION_ONLY {
         header.session_cid.get()
     } else {

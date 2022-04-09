@@ -31,7 +31,7 @@ use crate::constants::{DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP,
 use crate::error::NetworkError;
 use crate::hdp::file_transfer::VirtualFileMetadata;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
-use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer, SecureProtocolPacket};
+use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 //use futures_codec::Framed;
 use crate::hdp::hdp_packet_processor::{self, PrimaryProcessorResult};
@@ -425,7 +425,7 @@ impl HdpSession {
 
         match res {
             Ok(_) => {
-                log::info!("Done EXECUTING sess");
+                log::info!("Done EXECUTING sess (Ok(())) | cid: {:?} | is_server: {}", this_close.implicated_cid.get(), this_close.is_server);
                 Ok(implicated_cid.get())
             }
 
@@ -556,7 +556,6 @@ impl HdpSession {
                 let this = HdpSession::upgrade_weak(&this_weak).ok_or(NetworkError::InternalError("HdpSession no longer exists"))?;
 
                 let sess = this;
-                let local_is_server = sess.is_server;
 
                 // we supply the natted ip since it is where we expect to receive packets
                 // whether local is server or not, we should expect to receive packets from natted
@@ -633,7 +632,7 @@ impl HdpSession {
                 log::info!("Server established UDP Port {}", local_bind_addr);
 
                 //futures.push();
-                let udp_sender_future = Self::udp_outbound_sender(local_is_server, outbound_sender_rx, addr, writer, accessor);
+                let udp_sender_future = Self::udp_outbound_sender(outbound_sender_rx, addr, writer, accessor);
                 (listener, udp_sender_future, stopper_rx)
             };
 
@@ -1281,7 +1280,7 @@ impl HdpSession {
         Ok(())
     }
 
-    async fn udp_outbound_sender<S: SinkExt<Bytes> + Unpin>(local_is_server: bool, receiver: UnboundedReceiver<(u8, BytesMut)>, hole_punched_addr: TargettedSocketAddr, mut sink: S, peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
+    async fn udp_outbound_sender<S: SinkExt<Bytes> + Unpin>(receiver: UnboundedReceiver<(u8, BytesMut)>, hole_punched_addr: TargettedSocketAddr, mut sink: S, peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
         let mut receiver = tokio_stream::wrappers::UnboundedReceiverStream::new(receiver);
         let target_cid = peer_session_accessor.get_target_cid();
 
