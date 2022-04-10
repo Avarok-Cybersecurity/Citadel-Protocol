@@ -938,7 +938,7 @@ pub mod tests {
 
                                 PeerSignal::PostConnect(vconn, _, resp_opt, p2p_sec_lvl, udp_mode) => {
                                     if let Some(_resp) = resp_opt {
-                                        // TODO
+                                        // no need to handle since we only react to peer channel created
                                     } else {
                                         let accept_post_connect = {
                                             // the receiver is client 1
