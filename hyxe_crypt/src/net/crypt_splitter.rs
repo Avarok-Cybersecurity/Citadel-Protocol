@@ -443,7 +443,6 @@ impl GroupReceiver {
                 *dest_byte = packet_bytes[idx];
             }
 
-
             wave_store.packets_received += 1;
             wave_store.last_packet_recv_time = Some(Instant::now());
             self.packets_received_order.set(true_sequence, true);
@@ -754,6 +753,12 @@ impl<const N: usize> GroupSenderDevice<N> {
         } else {
             Some(items)
         }
+    }
+
+    /// Removes all packets. Should only be called when transmission is done over
+    /// a reliable, ordered channel (TCP, QUIC, etc)
+    pub fn take_all_packets(&mut self) -> Vec<PacketCoordinate> {
+        self.packets_in_ram.drain().map(|(_, v)| v).collect()
     }
 
     /// clones the receiver config

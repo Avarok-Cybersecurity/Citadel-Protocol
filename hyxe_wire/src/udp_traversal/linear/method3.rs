@@ -70,7 +70,7 @@ impl Method3 {
 
         let sender_task = async move {
             //tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
-            Self::send_syn_barrage(4, Some(20), socket_wrapper, endpoints, encryptor, MILLIS_DELTA, 6, unique_id.clone(), this_node_type).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            Self::send_syn_barrage(20, Some(60), socket_wrapper, endpoints, encryptor, MILLIS_DELTA, 2, unique_id.clone(), this_node_type).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
             //Self::send_syn_barrage(120, None, socket_wrapper, endpoints, encryptor,  MILLIS_DELTA, 3,unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
             Ok(()) as Result<(), FirewallError>
         };
