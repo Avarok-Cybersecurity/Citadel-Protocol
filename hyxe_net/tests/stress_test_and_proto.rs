@@ -37,6 +37,7 @@ pub mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use rand::{SeedableRng, Rng};
     use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
+    use hyxe_wire::socket_helpers::is_ipv6_enabled;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -68,6 +69,7 @@ pub mod tests {
     }
 
     #[fixture]
+    #[once]
     fn client_config() -> Arc<ClientConfig> {
         let certs = hyxe_wire::tls::load_native_certs().unwrap();
         Arc::new(hyxe_wire::tls::cert_vec_to_secure_client_config(&certs).unwrap())
@@ -79,9 +81,14 @@ pub mod tests {
     #[tokio::test]
     async fn test_tcp_or_tls(#[case] addr: SocketAddr,
                              protocols: Vec<UnderlyingProtocol>,
-                             ref client_config: Arc<ClientConfig>) -> std::io::Result<()> {
+                             client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
+
+        if !is_ipv6_enabled() && addr.is_ipv6() {
+            log::info!("Skipping ipv6 test since ipv6 is not enabled locally");
+            return Ok(())
+        }
 
         for proto in protocols {
             log::info!("Testing proto {:?}", &proto);
@@ -126,9 +133,14 @@ pub mod tests {
     #[tokio::test]
     async fn test_many_proto_conns(#[case] addr: SocketAddr,
                                    protocols: Vec<UnderlyingProtocol>,
-                                   ref client_config: Arc<ClientConfig>) -> std::io::Result<()> {
+                                   client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
+
+        if !is_ipv6_enabled() && addr.is_ipv6() {
+            log::info!("Skipping ipv6 test since ipv6 is not enabled locally");
+            return Ok(())
+        }
 
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
@@ -404,7 +416,7 @@ pub mod tests {
         #[values("4000")]
         message_count_per_activity: &str,
         bind_addrs: (SocketAddr, SocketAddr, SocketAddr, SocketAddr),
-        ref client_config: Arc<ClientConfig>
+        client_config: &Arc<ClientConfig>
     ) -> Result<(), Box<dyn Error>> {
         setup_log();
         super::utils::deadlock_detector();
@@ -926,7 +938,7 @@ pub mod tests {
 
                                 PeerSignal::PostConnect(vconn, _, resp_opt, p2p_sec_lvl, udp_mode) => {
                                     if let Some(_resp) = resp_opt {
-                                        // TODO
+                                        // no need to handle since we only react to peer channel created
                                     } else {
                                         let accept_post_connect = {
                                             // the receiver is client 1
@@ -1363,10 +1375,10 @@ pub mod tests {
                 {
                     let read = item_container.read();
                     if read.client_server_stress_test_done_as_server && read.client_server_stress_test_done_as_client {
-                        log::info!("[GROUP Stress test] Starting group stress test w/ client2 host [members: client0 & client1]");
+                        let this_cid = read.cnac_client2.as_ref().unwrap().get_cid();
+                        log::info!("[GROUP Stress test] Starting group stress test w/ client2 host [members: client0 & client1] (self: {})", this_cid);
                         let client0_cnac = read.cnac_client0.as_ref().unwrap();
                         let client1_cnac = read.cnac_client1.as_ref().unwrap();
-                        let this_cid = read.cnac_client2.as_ref().unwrap().get_cid();
 
                         let request = HdpServerRequest::GroupBroadcastCommand(this_cid, GroupBroadcast::Create(vec![client0_cnac.get_cid(), client1_cnac.get_cid()]));
                         let mut remote = read.remote_client2.clone().unwrap();
@@ -1378,6 +1390,7 @@ pub mod tests {
                     }
                 }
 
+                // TODO: Replace with broadcast
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
         });

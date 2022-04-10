@@ -37,16 +37,10 @@ pub(crate) mod keep_alive {
 pub(crate) mod group {
     use std::ops::RangeInclusive;
 
-    use byteorder::{BigEndian, ByteOrder};
     use bytes::{Bytes, BytesMut};
-    use zerocopy::LayoutVerified;
 
     use hyxe_crypt::net::crypt_splitter::GroupReceiverConfig;
 
-    //use crate::hdp::file_transfer::MAX_GROUP_PLAINTEXT_LEN;
-    use crate::constants::HDP_HEADER_BYTE_LEN;
-    use crate::error::NetworkError;
-    use crate::hdp::hdp_packet::{HdpHeader, packet_sizes};
     use crate::hdp::state_container::VirtualTargetType;
     use serde::{Serialize, Deserialize};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
@@ -101,31 +95,6 @@ pub(crate) mod group {
     /// Returns None if the packet is invalid. Returns Some(is_ready_to_accept) if the packet is valid
     pub(crate) fn validate_header_ack(payload: &[u8]) -> Option<GroupHeaderAck> {
         GroupHeaderAck::deserialize_from_vector(payload).ok()
-    }
-
-    pub(crate) fn validate_window_tail(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<RangeInclusive<u32>> {
-        if payload.len() != packet_sizes::GROUP_WINDOW_TAIL_LEN - HDP_HEADER_BYTE_LEN {
-            None
-        } else {
-            let start = header.wave_id.get();
-            let end = BigEndian::read_u32(payload);
-            Some(start..=end)
-        }
-    }
-
-    pub(crate) fn validate_wave_do_retransmission(payload: &[u8]) -> Result<(), NetworkError> {
-        // The payload must be greater than 4 bytes
-        // but the protocol does not send an unnecessary WAVE_DO_RETRANSMISSION
-        let payload_len = payload.len();
-        if payload_len < 4 {
-            Err(NetworkError::InvalidPacket("Bad payload size"))
-        } else {
-            if payload_len % 4 != 0 {
-                Err(NetworkError::InvalidPacket("The payload of the packet must be groups of 2 16-bit values (4-byte chunks)"))
-            } else {
-                Ok(())
-            }
-        }
     }
 
     #[derive(Serialize, Deserialize)]
