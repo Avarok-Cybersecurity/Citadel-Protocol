@@ -331,10 +331,19 @@ impl HyperNodePeerLayer {
     pub fn remove_tracked_posting(&self, implicated_cid: u64, ticket: Ticket) -> Option<PeerSignal> {
         let mut this = inner_mut!(self);
         log::info!("Removing tracked posting for {} (ticket: {})", implicated_cid, ticket);
-        let active_postings = this.observed_postings.get_mut(&implicated_cid)?;
-        let active_posting = active_postings.remove(&ticket)?;
-        this.delay_queue.remove(&active_posting.key);
-        Some(active_posting.signal)
+        if let Some(active_postings) = this.observed_postings.get_mut(&implicated_cid) {
+            if let Some(active_posting) = active_postings.remove(&ticket) {
+                log::info!("Successfully removed tracked posting {} (ticket: {})", implicated_cid, ticket);
+                this.delay_queue.remove(&active_posting.key);
+                Some(active_posting.signal)
+            } else {
+                log::warn!("Tracked posting for {} (ticket: {}) does not exist since key for ticket does not exist", implicated_cid, ticket);
+                None
+            }
+        } else {
+            log::warn!("Tracked posting for {} (ticket: {}) does not exist since key for cid does not exist", implicated_cid, ticket);
+            None
+        }
     }
 
     // Single-thread note: re-entrancy is okay since we can hold multiple borrow at once, but not multiple borrow_muts
