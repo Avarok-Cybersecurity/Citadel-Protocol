@@ -89,6 +89,7 @@ impl<K: NetKernel> KernelExecutor<K> {
         // Load the remote into the kernel
         kernel.load_remote(hdp_server_remote.clone())?;
 
+        let (ref clean_stop_tx, mut clean_stop_rx) = tokio::sync::mpsc::channel::<()>(1);
         let ref kernel_ref = kernel;
 
         let init = async move {
@@ -107,6 +108,7 @@ impl<K: NetKernel> KernelExecutor<K> {
                 match message {
                     HdpServerResult::Shutdown => {
                         log::info!("Kernel received safe shutdown signal");
+                        let _ = clean_stop_tx.send(()).await;
                         Ok(())
                     }
 
@@ -130,7 +132,12 @@ impl<K: NetKernel> KernelExecutor<K> {
             }).await
         };
 
-        let exec_res = tokio::try_join!(init, inbound_stream);
+        let base_execution = futures::future::try_join(init, inbound_stream);
+
+        let exec_res = tokio::select! {
+            base_res = base_execution => base_res.map(|_| ()),
+            _stopper = clean_stop_rx.recv() => Ok(())
+        };
 
         log::info!("Calling kernel on_stop, but first awaiting HdpServer for clean shutdown ...");
         tokio::time::timeout(Duration::from_millis(300), shutdown).await;
