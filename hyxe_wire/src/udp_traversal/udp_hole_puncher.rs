@@ -157,7 +157,7 @@ mod tests {
         log::info!("A");
         res0.socket.send_to(dummy_bytes as &[u8], res0.addr.send_address).await.unwrap();
         log::info!("B");
-        let buf = &mut [0u8; 20];
+        let buf = &mut [0u8; 4096];
         let (len, _addr) = res1.socket.recv_from(buf).await.unwrap();
         //assert_eq!(res1.addr.receive_address, addr);
         log::info!("C");
