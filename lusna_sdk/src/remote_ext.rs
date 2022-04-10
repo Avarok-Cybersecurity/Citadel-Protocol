@@ -376,17 +376,20 @@ mod tests {
         async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
             log::info!("SERVER received {:?}", message);
             if let HdpServerResult::FileTransferHandle(_, mut handle) = map_errors(message)? {
+                let mut path = None;
                 while let Some(status) = handle.next().await {
                     match status {
                         FileTransferStatus::ReceptionComplete => {
                             log::info!("Server has finished receiving the file!");
                             SERVER_SUCCESS.store(true, Ordering::Relaxed);
+                            let cmp = include_bytes!("../../resources/TheBridge.pdf");
+                            let streamed_data = tokio::fs::read(path.clone().unwrap()).await.unwrap();
+                            assert_eq!(cmp, streamed_data.as_slice(), "Original data and streamed data does not match");
                             self.0.clone().unwrap().shutdown().await?;
                         }
 
-                        FileTransferStatus::ReceptionBeginning(_path, vfm) => {
-                            // TODO: add PathBuf in ReceptionBeginning status
-                            // TODO: assert bytes equal
+                        FileTransferStatus::ReceptionBeginning(file_path, vfm) => {
+                            path = Some(file_path);
                             assert_eq!(vfm.name, "TheBridge.pdf")
                         }
 

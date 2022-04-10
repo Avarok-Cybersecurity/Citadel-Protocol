@@ -145,7 +145,8 @@ pub(crate) struct InboundFileTransfer {
     pub ticket: Ticket,
     pub virtual_target: VirtualTargetType,
     pub metadata: VirtualFileMetadata,
-    pub stream_to_hd: UnboundedSender<Vec<u8>>
+    pub stream_to_hd: UnboundedSender<Vec<u8>>,
+    pub reception_complete_tx: tokio::sync::oneshot::Sender<()>
 }
 
 #[allow(dead_code)]
@@ -813,6 +814,27 @@ impl StateContainerInner {
             if let Ok(file) = std::fs::File::create(&save_location) {
                 let file = tokio::fs::File::from_std(file);
                 log::info!("Will stream virtual file to: {:?}", &save_location);
+                let (reception_complete_tx, success_receiving_rx) = tokio::sync::oneshot::channel::<()>();
+                let entry = InboundFileTransfer {
+                    last_group_finish_time: Instant::now(),
+                    last_group_window_len: 0,
+                    object_id: metadata.object_id,
+                    total_groups: metadata.group_count,
+                    ticket,
+                    groups_rendered: 0,
+                    virtual_target,
+                    metadata: metadata.clone(),
+                    reception_complete_tx,
+                    stream_to_hd
+                };
+
+                self.inbound_files.insert(key, entry);
+                let (handle, tx_status) = FileTransferHandle::new(header.session_cid.get(), header.target_cid.get(), FileTransferOrientation::Receiver);
+                let _ = tx_status.unbounded_send(FileTransferStatus::ReceptionBeginning(save_location, metadata));
+                self.file_transfer_handles.insert(key, tx_status.clone());
+                // finally, alert the kernel (receiver)
+                let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferHandle(ticket, handle));
+
                 // now that the InboundFileTransfer is loaded, we just need to spawn the async task that takes the results and streams it to the HD.
                 // This is safe since no mutation/reading on the state container or session takes place. This only streams to the hard drive without interrupting
                 // the HdpServer's single thread. This will end once a None signal is sent through
@@ -827,6 +849,17 @@ impl StateContainerInner {
                     match writer.shutdown().await {
                         Ok(()) => {
                             log::info!("Successfully synced file to HD");
+                            let status = match success_receiving_rx.await {
+                                Ok(_) => {
+                                    FileTransferStatus::ReceptionComplete
+                                }
+
+                                Err(_) => {
+                                    FileTransferStatus::Fail(format!("An unknown error occurred while receiving file"))
+                                }
+                            };
+
+                            let _ = tx_status.unbounded_send(status);
                         },
                         Err(err) => {
                             log::error!("Unable to shut down streamer: {}", err);
@@ -836,24 +869,6 @@ impl StateContainerInner {
 
                 spawn!(stream_to_hd_task);
 
-                let entry = InboundFileTransfer {
-                    last_group_finish_time: Instant::now(),
-                    last_group_window_len: 0,
-                    object_id: metadata.object_id,
-                    total_groups: metadata.group_count,
-                    ticket,
-                    groups_rendered: 0,
-                    virtual_target,
-                    metadata: metadata.clone(),
-                    stream_to_hd
-                };
-
-                self.inbound_files.insert(key, entry);
-                let (handle, tx) = FileTransferHandle::new(header.session_cid.get(), header.target_cid.get(), FileTransferOrientation::Receiver);
-                let _ = tx.unbounded_send(FileTransferStatus::ReceptionBeginning(save_location, metadata));
-                self.file_transfer_handles.insert(key, tx);
-                // finally, alert the kernel (receiver)
-                let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferHandle(ticket, handle));
                 true
             } else {
                 log::error!("Unable to obtain file handle to {:?}", &save_location);
@@ -971,18 +986,19 @@ impl StateContainerInner {
 
                 send_wave_ack = true;
 
-                let status = if group_id as usize == file_container.total_groups - 1 {
-                    let _ = self.inbound_files.remove(&file_key);
+                if group_id as usize == file_container.total_groups - 1 {
                     complete = true;
-                    FileTransferStatus::ReceptionComplete
+                    let file_container = self.inbound_files.remove(&file_key).unwrap();
+                    // status of reception complete now located where the streaming to HD completes
+                    // we need only take the sender and send a signal to prove that we finished correctly here
+                    file_container.reception_complete_tx.send(()).map_err(|_| NetworkError::msg("reception_complete_tx err"))?;
                 } else {
                     file_container.last_group_finish_time = Instant::now();
                     // TODO: Compute Mb/s
-                    FileTransferStatus::ReceptionTick(group_id as usize, file_container.total_groups, 0 as f32)
+                    let status = FileTransferStatus::ReceptionTick(group_id as usize, file_container.total_groups, 0 as f32);
                     // sending the wave ack will complete the group on the initiator side
-                };
-
-                file_transfer_handle.unbounded_send(status).map_err(|err| NetworkError::Generic(err.to_string()))?;
+                    file_transfer_handle.unbounded_send(status).map_err(|err| NetworkError::Generic(err.to_string()))?;
+                }
             }
 
             // common case
