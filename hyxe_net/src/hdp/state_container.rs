@@ -60,6 +60,7 @@ use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::prelude::MessageGroupKey;
 use crate::hdp::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
 use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
+use std::path::PathBuf;
 
 impl Debug for StateContainer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -808,9 +809,10 @@ impl StateContainerInner {
             let name = metadata.name.clone();
             let save_location = dirs.inner.read().hyxe_virtual_dir.clone();
             let save_location = format!("{}{}", save_location, name);
+            let save_location = PathBuf::from(save_location);
             if let Ok(file) = std::fs::File::create(&save_location) {
                 let file = tokio::fs::File::from_std(file);
-                log::info!("Will stream virtual file to: {}", &save_location);
+                log::info!("Will stream virtual file to: {:?}", &save_location);
                 // now that the InboundFileTransfer is loaded, we just need to spawn the async task that takes the results and streams it to the HD.
                 // This is safe since no mutation/reading on the state container or session takes place. This only streams to the hard drive without interrupting
                 // the HdpServer's single thread. This will end once a None signal is sent through
@@ -848,13 +850,13 @@ impl StateContainerInner {
 
                 self.inbound_files.insert(key, entry);
                 let (handle, tx) = FileTransferHandle::new(header.session_cid.get(), header.target_cid.get(), FileTransferOrientation::Receiver);
-                let _ = tx.unbounded_send(FileTransferStatus::ReceptionBeginning(metadata));
+                let _ = tx.unbounded_send(FileTransferStatus::ReceptionBeginning(save_location, metadata));
                 self.file_transfer_handles.insert(key, tx);
                 // finally, alert the kernel (receiver)
                 let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferHandle(ticket, handle));
                 true
             } else {
-                log::error!("Unable to obtain file handle to {}", &save_location);
+                log::error!("Unable to obtain file handle to {:?}", &save_location);
                 false
             }
         } else {
@@ -961,7 +963,7 @@ impl StateContainerInner {
         let mut send_wave_ack = false;
         let mut complete = false;
 
-        match grc.receiver.on_packet_received(group_id, true_sequence, header.wave_id.get(), hr,payload) {
+        match grc.receiver.on_packet_received(group_id, true_sequence, header.wave_id.get(), hr,&payload[2..]) {
             GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
                 log::info!("GROUP {} COMPLETE. Total groups: {}", group_id, file_container.total_groups);
                 let chunk = self.inbound_groups.remove(&group_key).unwrap().receiver.finalize();

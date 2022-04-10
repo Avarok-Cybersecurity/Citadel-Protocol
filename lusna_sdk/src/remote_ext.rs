@@ -360,11 +360,12 @@ mod tests {
     use std::str::FromStr;
     use crate::prelude::*;
 
-    struct ServerFileTransferKernel;
+    struct ServerFileTransferKernel(Option<NodeRemote>);
 
     #[async_trait]
     impl NetKernel for ServerFileTransferKernel {
-        fn load_remote(&mut self, _server_remote: NodeRemote) -> Result<(), NetworkError> {
+        fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError> {
+            self.0 = Some(node_remote);
             Ok(())
         }
 
@@ -379,9 +380,13 @@ mod tests {
                     match status {
                         FileTransferStatus::ReceptionComplete => {
                             log::info!("Server has finished receiving the file!");
+                            SERVER_SUCCESS.store(true, Ordering::Relaxed);
+                            self.0.clone().unwrap().shutdown().await?;
                         }
 
-                        FileTransferStatus::ReceptionBeginning(vfm) => {
+                        FileTransferStatus::ReceptionBeginning(_path, vfm) => {
+                            // TODO: add PathBuf in ReceptionBeginning status
+                            // TODO: assert bytes equal
                             assert_eq!(vfm.name, "TheBridge.pdf")
                         }
 
@@ -401,9 +406,11 @@ mod tests {
     pub fn server_info() -> (NodeFuture, SocketAddr) {
         let port = portpicker::pick_unused_port().unwrap();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-        let server = crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel {});
+        let server = crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel(None));
         (server, bind_addr)
     }
+
+    static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
 
     #[tokio::test]
     async fn test_c2s_file_transfer() {
@@ -412,26 +419,21 @@ mod tests {
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         let (server, server_addr) = server_info();
 
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(server_addr, |_channel, mut remote| async move {
             log::info!("***CLIENT LOGIN SUCCESS :: File transfer next ***");
             remote.send_file_with_custom_chunking("../resources/TheBridge.pdf", 32*1024).await.unwrap();
             log::info!("***CLIENT FILE TRANSFER SUCCESS***");
             CLIENT_SUCCESS.store(true, Ordering::Relaxed);
-            stop_tx.send(()).unwrap();
-            Ok(())
+            remote.shutdown_kernel().await
         });
 
         let client = NodeBuilder::default().build(client_kernel).unwrap();
 
         let joined = futures::future::try_join(server, client);
 
-        tokio::select! {
-            res0 = joined => { res0.unwrap(); },
-            res1 = stop_rx => { res1.unwrap(); }
-        }
+        let _ = joined.await.unwrap();
 
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
+        assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
     }
 }

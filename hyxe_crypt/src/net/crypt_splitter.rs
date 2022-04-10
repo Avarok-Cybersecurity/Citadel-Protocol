@@ -443,7 +443,6 @@ impl GroupReceiver {
                 *dest_byte = packet_bytes[idx];
             }
 
-
             wave_store.packets_received += 1;
             wave_store.last_packet_recv_time = Some(Instant::now());
             self.packets_received_order.set(true_sequence, true);

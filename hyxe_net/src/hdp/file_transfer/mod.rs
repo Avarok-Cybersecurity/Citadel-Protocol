@@ -5,6 +5,7 @@ use crate::hdp::outbound_sender::{unbounded, UnboundedSender, UnboundedReceiver}
 use futures::Stream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VirtualFileMetadata {
@@ -68,7 +69,7 @@ pub enum FileTransferOrientation {
 #[allow(variant_size_differences)]
 pub enum FileTransferStatus {
     TransferBeginning,
-    ReceptionBeginning(VirtualFileMetadata),
+    ReceptionBeginning(PathBuf, VirtualFileMetadata),
     // relative group_id, total groups, Mb/s
     TransferTick(usize, usize, f32),
     ReceptionTick(usize, usize, f32),
@@ -101,7 +102,7 @@ impl std::fmt::Display for FileTransferStatus {
                 write!(f, "Transfer beginning")
             }
 
-            FileTransferStatus::ReceptionBeginning(vfm) => {
+            FileTransferStatus::ReceptionBeginning(_, vfm) => {
                 write!(f, "Download for object {} beginning | Total size: {} bytes | Name: {}", vfm.object_id, vfm.plaintext_length, vfm.name)
             }
 
