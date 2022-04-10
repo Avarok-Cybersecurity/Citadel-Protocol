@@ -121,7 +121,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         self.get_local_nac().save_to_local_fs()?;
 
-        // At this point,
         Ok(cnac)
     }
 
