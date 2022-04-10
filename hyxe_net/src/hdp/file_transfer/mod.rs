@@ -1,6 +1,11 @@
 use serde::{Serialize, Deserialize};
 use std::fmt::Formatter;
 use hyxe_fs::io::SyncIO;
+use crate::hdp::outbound_sender::{unbounded, UnboundedSender, UnboundedReceiver};
+use futures::Stream;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VirtualFileMetadata {
@@ -22,11 +27,49 @@ impl VirtualFileMetadata {
     }
 }
 
+/// Used to keep track of file transfer progress for either
+/// sender or receiver orientation
+#[derive(Debug)]
+pub struct FileTransferHandle {
+    inner: UnboundedReceiver<FileTransferStatus>,
+    pub source: u64,
+    pub receiver: u64,
+    pub orientation: FileTransferOrientation
+}
+
+impl Stream for FileTransferHandle {
+    type Item = FileTransferStatus;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_recv(cx)
+    }
+}
+
+impl FileTransferHandle {
+    pub fn new(source: u64, receiver: u64, orientation: FileTransferOrientation) -> (Self, UnboundedSender<FileTransferStatus>) {
+        let (tx, inner) = unbounded();
+
+        let this = Self {
+            inner,
+            source,
+            receiver,
+            orientation
+        };
+
+        (this, tx)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FileTransferOrientation {
+    Receiver, Sender
+}
+
 #[derive(Debug, Clone)]
 #[allow(variant_size_differences)]
 pub enum FileTransferStatus {
     TransferBeginning,
-    ReceptionBeginning(VirtualFileMetadata),
+    ReceptionBeginning(PathBuf, VirtualFileMetadata),
     // relative group_id, total groups, Mb/s
     TransferTick(usize, usize, f32),
     ReceptionTick(usize, usize, f32),
@@ -59,7 +102,7 @@ impl std::fmt::Display for FileTransferStatus {
                 write!(f, "Transfer beginning")
             }
 
-            FileTransferStatus::ReceptionBeginning(vfm) => {
+            FileTransferStatus::ReceptionBeginning(_, vfm) => {
                 write!(f, "Download for object {} beginning | Total size: {} bytes | Name: {}", vfm.object_id, vfm.plaintext_length, vfm.name)
             }
 
