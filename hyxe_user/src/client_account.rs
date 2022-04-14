@@ -119,7 +119,9 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     /// RTDB config for client-side communications
     pub client_rtdb_config: Option<RtdbClientConfig>,
     /// For storing critical ID information for this CNAC
-    pub auth_store: DeclaredAuthenticationMode
+    pub auth_store: DeclaredAuthenticationMode,
+    /// peer id -> key -> bytes
+    pub byte_map: HashMap<u64, HashMap<String, Vec<u8>>>
 }
 
 /// A thread-safe handle for sharing data across threads and applications
@@ -141,8 +143,6 @@ struct MetaInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
 
 impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Note: This should ONLY be called from a server node.
-    ///
-    /// `client_nac`: This is required because it allows the server to keep track of the IP in the case [PINNED_IP_MODE] is engaged
     #[allow(unused_results)]
     pub async fn new(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount<R, Fcm>, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
         info!("Creating CNAC w/valid cid: {:?}", valid_cid);
@@ -164,10 +164,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let fcm_crypt_container = HashMap::with_capacity(0);
         let kem_state_containers = HashMap::with_capacity(0);
         let fcm_invitations = HashMap::with_capacity(0);
+        let byte_map = HashMap::with_capacity(0);
         let fcm_packet_store = None;
         let client_rtdb_config = None;
 
-        let inner = ClientNetworkAccountInner::<R, Fcm> { client_rtdb_config, fcm_packet_store, fcm_invitations, kem_state_containers, fcm_crypt_container, persistence_handler, creation_date, cid: valid_cid, auth_store, adjacent_nac, is_local_personal: is_personal, mutuals, local_save_path, crypt_container };
+        let inner = ClientNetworkAccountInner::<R, Fcm> { client_rtdb_config, fcm_packet_store, fcm_invitations, kem_state_containers, fcm_crypt_container, persistence_handler, creation_date, cid: valid_cid, auth_store, adjacent_nac, is_local_personal: is_personal, mutuals, local_save_path, crypt_container, byte_map };
         let this = Self::from(inner);
 
         this.save().await?;
@@ -209,7 +210,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         }
     }
 
-    /// Towards the end of the registration phase, the [ClientNetworkAccountInner] gets transmitted to Alice.
+    /// Towards the end of the registration phase, the [`ClientNetworkAccountInner`] gets transmitted to Alice.
     pub async fn new_from_network_personal(valid_cid: u64, hyper_ratchet: R, auth_store: DeclaredAuthenticationMode, adjacent_nac: NetworkAccount<R, Fcm>, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
         const IS_PERSONAL: bool = true;
 
