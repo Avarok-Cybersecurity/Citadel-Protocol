@@ -21,7 +21,7 @@ pub mod mysql_backend;
 pub mod filesystem_backend;
 
 /// Used when constructing the account manager
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum BackendType {
     /// Synchronization will occur on the filesystem
     Filesystem,
@@ -66,7 +66,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// This should be run for handling any types of underlying connect operations
     async fn connect(&mut self, directory_store: &DirectoryStore) -> Result<(), AccountError>;
     /// This is called once the PersistenceHandler is loaded
-    fn post_connect(&self, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<(), AccountError>;
+    async fn post_connect(&self, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<(), AccountError>;
     /// Determines if connected or not
     async fn is_connected(&self) -> Result<bool, AccountError>;
     /// Saves the entire cnac to the DB
@@ -152,7 +152,8 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<Option<Vec<u8>>, AccountError>;
     /// Stores a value in the byte map, either creating or overwriting any pre-existing value
     async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError>;
-    async fn get_byte_map_values_by_needle(&self, implicated_cid: u64, peer_cid: u64, needle: &str) -> Result<Vec<Vec<u8>>, AccountError>;
+    /// Obtains a list of K,V pairs such that `needle` is a subset of the K value
+    async fn get_byte_map_values_by_needle(&self, implicated_cid: u64, peer_cid: u64, needle: &str) -> Result<HashMap<String, Vec<u8>>, AccountError>;
     /// Stores the CNAC inside the hashmap, if possible (may be no-op on database)
     fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>);
     /// Determines if a remote db is used

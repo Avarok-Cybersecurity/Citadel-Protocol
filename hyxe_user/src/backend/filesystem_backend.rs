@@ -36,11 +36,17 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok(())
     }
 
-    fn post_connect(&self, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<(), AccountError> {
+    async fn post_connect(&self, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<(), AccountError> {
         // We must share the persistence handler to the local nac AND all cnacs
         self.local_nac().store_persistence_handler(persistence_handler);
         self.local_nac().save_to_local_fs()?;
         self.read_map().values().for_each(|cnac| cnac.store_persistence_handler(persistence_handler));
+
+        // To not get accounts mixed up between tests
+        if cfg!(feature = "localhost-testing") || std::env::var("LOCALHOST_TESTING").unwrap_or_default() == "1" {
+            log::info!("Purging home directory since localhost-testing is enabled");
+            let _ = self.purge().await?;
+        }
 
         Ok(())
     }
@@ -286,7 +292,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     async fn get_byte_map_values_by_needle(&self, implicated_cid: u64, peer_cid: u64, needle: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let cnac = self.get_cnac(implicated_cid)?;
         let mut lock = cnac.write();
-        let map = lock.byte_map.entry(peer_cid).or_default().iter().filter(|(k, _)| k.as_str().contains(needle)).cloned().collect::<HashMap<String, Vec<u8>>>();
+        let map = lock.byte_map.entry(peer_cid).or_default().iter().filter(|(k, _)| k.as_str().contains(needle)).map(|r|(r.0.clone(), r.1.clone())).collect::<HashMap<String, Vec<u8>>>();
         Ok(map)
     }
 
