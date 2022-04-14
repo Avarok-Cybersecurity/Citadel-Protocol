@@ -5,12 +5,12 @@ use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
 use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, ConstructorType};
-use crate::hdp::hdp_packet_processor::primary_group_packet::attempt_kem_as_alice_finish;
+use crate::hdp::hdp_packet_processor::primary_group_packet::{attempt_kem_as_alice_finish, get_resp_target_cid_from_header};
 
 use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
 
-use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig};
+use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig, GroupReceiverStatus};
 use netbeam::time_tracker::TimeTracker;
 use hyxe_user::client_account::ClientNetworkAccount;
 
@@ -18,7 +18,7 @@ use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_
 use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::{GroupTransmitter, SecureProtocolPacket, RatchetPacketCrafterContainer};
-use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr, HdpSession};
+use crate::hdp::hdp_packet_processor::includes::{Instant, SocketAddr, HdpSession};
 use crate::hdp::hdp_node::{HdpServerResult, Ticket, NodeRemote, SecrecyMode};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
@@ -31,7 +31,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::hdp::peer::channel::{PeerChannel, UdpChannel};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
-use crate::hdp::file_transfer::{VirtualFileMetadata, FileTransferStatus};
+use crate::hdp::file_transfer::{VirtualFileMetadata, FileTransferStatus, FileTransferHandle, FileTransferOrientation};
 use tokio::io::{BufWriter, AsyncWriteExt};
 use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
@@ -59,6 +59,8 @@ use crate::hdp::misc::dual_late_init::DualLateInit;
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::prelude::MessageGroupKey;
 use crate::hdp::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
+use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
+use std::path::PathBuf;
 
 impl Debug for StateContainer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -93,6 +95,7 @@ pub struct StateContainerInner {
     pub(super) updates_in_progress: HashMap<u64, Arc<AtomicBool>>,
     pub(super) inbound_files: HashMap<FileKey, InboundFileTransfer>,
     pub(super) outbound_files: HashMap<FileKey, OutboundFileTransfer>,
+    pub(super) file_transfer_handles: HashMap<FileKey, UnboundedSender<FileTransferStatus>>,
     pub(super) inbound_groups: HashMap<GroupKey, GroupReceiverContainer>,
     pub(super) outbound_transmitters: HashMap<GroupKey, OutboundTransmitterContainer>,
     pub(super) peer_kem_states: HashMap<u64, PeerKemStateContainer>,
@@ -142,7 +145,8 @@ pub(crate) struct InboundFileTransfer {
     pub ticket: Ticket,
     pub virtual_target: VirtualTargetType,
     pub metadata: VirtualFileMetadata,
-    pub stream_to_hd: UnboundedSender<Vec<u8>>
+    pub stream_to_hd: UnboundedSender<Vec<u8>>,
+    pub reception_complete_tx: tokio::sync::oneshot::Sender<()>
 }
 
 #[allow(dead_code)]
@@ -409,12 +413,11 @@ pub(crate) struct OutboundTransmitterContainer {
     // that enqueues the next group
     object_notifier: Option<UnboundedSender<()>>,
     waves_in_current_window: usize,
-    wave_acks_in_window_received: usize,
-    enqueued_next_range: Option<RangeInclusive<u32>>,
     group_plaintext_length: usize,
     transmission_start_time: Instant,
     parent_object_total_groups: usize,
     relative_group_id: u32,
+    #[allow(dead_code)]
     ticket: Ticket,
     pub has_begun: bool
 }
@@ -425,34 +428,7 @@ impl OutboundTransmitterContainer {
         let transmission_start_time = Instant::now();
         let has_begun = false;
 
-        Self { ratchet_constructor, has_begun, relative_group_id, ticket, parent_object_total_groups, transmission_start_time, group_plaintext_length, object_notifier, burst_transmitter, waves_in_current_window: 0, wave_acks_in_window_received: 0, enqueued_next_range: None }
-    }
-
-    /// returns Some if the window finished transmitting
-    pub fn on_wave_ack_received(&mut self, waves_in_next_window: Option<RangeInclusive<u32>>) -> Option<RangeInclusive<u32>> {
-        self.wave_acks_in_window_received += 1;
-        if self.wave_acks_in_window_received != self.waves_in_current_window {
-            // it is possible that this WAVE_ACK had a range inscribed in it, but arrived earlier than the other wave acks.
-            // in this case, store the range for later without affecting the waves_in_current_window value
-            if let Some(waves_in_next_window) = waves_in_next_window {
-                self.enqueued_next_range = Some(waves_in_next_window);
-            }
-
-            None
-        } else {
-            self.wave_acks_in_window_received = 0;
-            // update the waves expected in the next window
-            if let Some(waves_in_next_window) = waves_in_next_window {
-                // this means this WAVE_ACK arrived in good order
-                self.waves_in_current_window = waves_in_next_window.clone().count();
-                Some(waves_in_next_window)
-            } else {
-                // this means that this WAVE_ACK didn't come with the range, however, by necessity a previous ack had to (or panic)
-                let waves_in_next_window = self.enqueued_next_range.take().unwrap();
-                self.waves_in_current_window = waves_in_next_window.clone().count();
-                Some(waves_in_next_window)
-            }
-        }
+        Self { ratchet_constructor, has_begun, relative_group_id, ticket, parent_object_total_groups, transmission_start_time, group_plaintext_length, object_notifier, burst_transmitter, waves_in_current_window: 0 }
     }
 }
 
@@ -479,61 +455,12 @@ impl GroupReceiverContainer {
     pub fn new(object_id: u32, receiver: GroupReceiver, virtual_target: VirtualTargetType, security_level: SecurityLevel, ticket: Ticket) -> Self {
         Self { has_begun: false, object_id, security_level, virtual_target, receiver, ticket, current_window: 0..=0, waves_in_window_finished: 0, last_window_size: 0, window_drift: 0, next_window_size: 1, max_window_size: 0 }
     }
-
-    /// Returns Some(next_window) if the window is finished
-    /// Called by: Bob(receiver).
-    /// Called when: right before sending a WAVE_ACK
-    #[allow(dead_code)]
-    pub fn on_wave_finished(&mut self) -> Option<RangeInclusive<u32>> {
-        // increase the next window size by 1
-        self.waves_in_window_finished += 1;
-        self.next_window_size += 1;
-        if self.waves_in_window_finished != self.current_window.clone().count() {
-            None
-        } else {
-            self.waves_in_window_finished = 0;
-            Some(self.update_current_window())
-        }
-    }
-
-    /// Called by Bob prior to sending a DO_RETRANSMISSION. This updates the next window size
-    pub fn on_retransmission_needed(&mut self) {
-        if self.next_window_size > self.max_window_size {
-            self.max_window_size = self.next_window_size;
-        }
-        // if the next size is 1, this will remain 1
-        //self.next_window_size = self.next_window_size.div_ceil(&2);
-        //self.next_window_size = self.next_window_size * 0.95;
-        let last_next_window_size = self.next_window_size;
-        // cut by 50%
-        self.next_window_size = std::cmp::max((self.next_window_size as f32 / 2.0f32) as usize, 1);
-        log::warn!("Decreased anticipated window size from {} to {}", last_next_window_size, self.next_window_size);
-    }
-
-    /// This should ONLY be called once the waves_in_window_finished equals the waves in the current window
-    /// (i.e., the window finished)
-    #[allow(dead_code)]
-    pub fn update_current_window(&mut self) -> RangeInclusive<u32> {
-        let last_window_size = self.current_window.clone().count();
-        // to take into account any retransmission necessary
-        let next_length = self.next_window_size;
-        let start = *self.current_window.end() + 1;
-        // the RHS needs to be -1 ... if n=2 waves, then k=1 is the max
-        let end = std::cmp::min(start + next_length as u32, (self.receiver.get_wave_count() - 1 ) as u32);
-        self.last_window_size = last_window_size;
-        self.current_window = start..=end;
-        self.window_drift = self.current_window.clone().count() as isize - self.last_window_size as isize;
-        log::info!("Sliding window range update: {}..={} | Drift: {}", start, end, self.window_drift);
-        log::info!("Sliding window | last window: {} | current window: {}", self.last_window_size, next_length);
-        start..=end
-    }
 }
 
 impl StateContainerInner {
     /// Creates a new container
     pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: NodeRemote, keep_alive_timeout_ns: i64, state: Arc<Atomic<SessionState>>, cnac: Option<ClientNetworkAccount>, time_tracker: TimeTracker, session_security_settings: Option<SessionSecuritySettings>, is_server: bool, transfer_stats: TransferStats, udp_mode: UdpMode) -> StateContainer {
-        let inner = Self { group_channels: Default::default(), udp_mode, transfer_stats, queue_handle: Default::default(), is_server, session_security_settings, time_tracker, cnac, updates_in_progress: HashMap::new(), hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), ratchet_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
-        //StateContainer { inner: DualRwLock::from(inner) }
+        let inner = Self { file_transfer_handles: HashMap::new(), group_channels: Default::default(), udp_mode, transfer_stats, queue_handle: Default::default(), is_server, session_security_settings, time_tracker, cnac, updates_in_progress: HashMap::new(), hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), ratchet_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
         StateContainer { inner: Arc::new(parking_lot::RwLock::new(inner)) }
     }
 
@@ -771,17 +698,6 @@ impl StateContainerInner {
         log::info!("Vconn {} -> {} established", connection_type.get_implicated_cid(), target_cid);
     }
 
-    /// Determines whether to use the default primary stream or the direct p2p primary stream
-    pub fn get_direct_p2p_primary_stream(active_virtual_connections: &HashMap<u64, VirtualConnection>, target_cid: u64) -> Option<&OutboundPrimaryStreamSender> {
-        if target_cid != 0 {
-            let endpoint_container = active_virtual_connections.get(&target_cid)?;
-            let container = endpoint_container.endpoint_container.as_ref()?;
-            container.direct_p2p_remote.as_ref().map(|res| &res.p2p_primary_stream)
-        } else {
-            None
-        }
-    }
-
     pub fn get_peer_session_crypto(active_virtual_connections: &mut HashMap<u64, VirtualConnection>, peer_cid: u64) -> Option<&mut PeerSessionCrypto> {
         Some(&mut active_virtual_connections.get_mut(&peer_cid)?.endpoint_container.as_mut()?.endpoint_crypto)
     }
@@ -888,18 +804,41 @@ impl StateContainerInner {
         let key = FileKey::new(header.session_cid.get(), metadata.object_id);
         let ticket = header.context_info.get().into();
 
+        // TODO: Add file transfer accept request here. Once local accepts, then begin this subroutine
         if !self.inbound_files.contains_key(&key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
             let name = metadata.name.clone();
             let save_location = dirs.inner.read().hyxe_virtual_dir.clone();
             let save_location = format!("{}{}", save_location, name);
+            let save_location = PathBuf::from(save_location);
             if let Ok(file) = std::fs::File::create(&save_location) {
                 let file = tokio::fs::File::from_std(file);
-                log::info!("Will stream virtual file to: {}", &save_location);
+                log::info!("Will stream virtual file to: {:?}", &save_location);
+                let (reception_complete_tx, success_receiving_rx) = tokio::sync::oneshot::channel::<()>();
+                let entry = InboundFileTransfer {
+                    last_group_finish_time: Instant::now(),
+                    last_group_window_len: 0,
+                    object_id: metadata.object_id,
+                    total_groups: metadata.group_count,
+                    ticket,
+                    groups_rendered: 0,
+                    virtual_target,
+                    metadata: metadata.clone(),
+                    reception_complete_tx,
+                    stream_to_hd
+                };
+
+                self.inbound_files.insert(key, entry);
+                let (handle, tx_status) = FileTransferHandle::new(header.session_cid.get(), header.target_cid.get(), FileTransferOrientation::Receiver);
+                let _ = tx_status.unbounded_send(FileTransferStatus::ReceptionBeginning(save_location, metadata));
+                self.file_transfer_handles.insert(key, tx_status.clone());
+                // finally, alert the kernel (receiver)
+                let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferHandle(ticket, handle));
+
                 // now that the InboundFileTransfer is loaded, we just need to spawn the async task that takes the results and streams it to the HD.
                 // This is safe since no mutation/reading on the state container or session takes place. This only streams to the hard drive without interrupting
                 // the HdpServer's single thread. This will end once a None signal is sent through
-                tokio::spawn(async move {
+                let stream_to_hd_task = async move {
                     let mut writer = BufWriter::new(file);
                     let mut reader = tokio_util::io::StreamReader::new(tokio_stream::wrappers::UnboundedReceiverStream::new(stream_to_hd_rx).map(|r| Ok(std::io::Cursor::new(r)) as Result<std::io::Cursor<Vec<u8>>, std::io::Error>));
 
@@ -910,32 +849,29 @@ impl StateContainerInner {
                     match writer.shutdown().await {
                         Ok(()) => {
                             log::info!("Successfully synced file to HD");
+                            let status = match success_receiving_rx.await {
+                                Ok(_) => {
+                                    FileTransferStatus::ReceptionComplete
+                                }
+
+                                Err(_) => {
+                                    FileTransferStatus::Fail(format!("An unknown error occurred while receiving file"))
+                                }
+                            };
+
+                            let _ = tx_status.unbounded_send(status);
                         },
                         Err(err) => {
                             log::error!("Unable to shut down streamer: {}", err);
                         },
                     };
-                });
-
-                let entry = InboundFileTransfer {
-                    last_group_finish_time: Instant::now(),
-                    last_group_window_len: 0,
-                    object_id: metadata.object_id,
-                    total_groups: metadata.group_count,
-                    ticket,
-                    groups_rendered: 0,
-                    virtual_target,
-                    metadata: metadata.clone(),
-                    stream_to_hd
                 };
 
-                self.inbound_files.insert(key, entry);
-                // finally, alert the kernel (receiver)
-                let status = FileTransferStatus::ReceptionBeginning(metadata);
-                let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferStatus(header.target_cid.get(), key, ticket, status));
+                spawn!(stream_to_hd_task);
+
                 true
             } else {
-                log::error!("Unable to obtain file handle to {}", &save_location);
+                log::error!("Unable to obtain file handle to {:?}", &save_location);
                 false
             }
         } else {
@@ -945,14 +881,14 @@ impl StateContainerInner {
     }
 
     pub fn on_file_header_ack_received(&mut self, success: bool, implicated_cid: u64, ticket: Ticket, object_id: u32, v_target: VirtualTargetType) -> Option<()>{
-        let key = match v_target {
-            VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, _target_cid) => {
+        let (key, receiver_cid) = match v_target {
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                 // since the order hasn't flipped yet, get the implicated cid
-                FileKey::new(implicated_cid, object_id)
+                (FileKey::new(implicated_cid, object_id), target_cid)
             }
 
             VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid) =>{
-                FileKey::new(implicated_cid, object_id)
+                (FileKey::new(implicated_cid, object_id), 0)
             }
 
             _ => {
@@ -966,8 +902,11 @@ impl StateContainerInner {
             if let Some(file_transfer) = self.outbound_files.get_mut(&key) {
                 // start the async task pulling from the async cryptscrambler
                 file_transfer.start.take()?.send(true).ok()?;
+                let (handle, tx) = FileTransferHandle::new(implicated_cid, receiver_cid, FileTransferOrientation::Sender);
+                tx.unbounded_send(FileTransferStatus::TransferBeginning).ok()?;
+                let _ = self.file_transfer_handles.insert(key, tx);
                 // alert the kernel that file transfer has begun
-                self.kernel_tx.unbounded_send(HdpServerResult::FileTransferStatus(implicated_cid, key, ticket, FileTransferStatus::TransferBeginning)).ok()?;
+                self.kernel_tx.unbounded_send(HdpServerResult::FileTransferHandle(ticket, handle)).ok()?;
             } else {
                 log::error!("Attempted to obtain OutboundFileTransfer for {:?}, but it didn't exist", key);
             }
@@ -993,7 +932,7 @@ impl StateContainerInner {
     /// NOTE! object ID is in wave_id for header ACKS
     /// NOTE: If object id != 0, then this header ack belongs to a file transfer and must thus be transmitted via TCP
     #[allow(unused_results)]
-    pub fn on_group_header_ack_received(&mut self, base_session_secrecy_mode: SecrecyMode, object_id: u32, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool, cnac_sess: &ClientNetworkAccount) -> bool {
+    pub fn on_group_header_ack_received(&mut self, base_session_secrecy_mode: SecrecyMode, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool, cnac_sess: &ClientNetworkAccount) -> bool {
         let key = GroupKey::new(peer_cid, group_id);
 
         if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
@@ -1009,22 +948,8 @@ impl StateContainerInner {
             }
 
             outbound_container.waves_in_current_window = next_window.clone().unwrap_or(0..=0).count();
-            if object_id != 0 || next_window.is_none() {
-                // file-transfer, or TCP only mode since next_window is none. Use TCP
-                return outbound_container.burst_transmitter.transmit_tcp_file_transfer();
-            } else {
-                // message. Use MQ-UDP
-                if let Some(udp_sender) = self.udp_primary_outbound_tx.as_ref() {
-                    return if let Some(next_window) = next_window {
-                        Self::transmit_window_udp(udp_sender, &mut outbound_container.burst_transmitter, next_window)
-                    } else {
-                        log::error!("MQ-UDP was signalled to be used, but the next window was not provided. Invalid request");
-                        false
-                    }
-                } else {
-                    log::error!("MQ-UDP sender does not exist, yet, the request called for its existence");
-                }
-            }
+            // file-transfer, or TCP only mode since next_window is none. Use TCP
+            return outbound_container.burst_transmitter.transmit_tcp_file_transfer();
         } else {
             log::error!("Outbound transmitter for {:?} does not exist", key);
         }
@@ -1032,96 +957,74 @@ impl StateContainerInner {
         true
     }
 
-    /// Ensure that the packet has already been verified before using this function.
-    ///
-    /// At the end of every wave, a WAVE_TAIL is sent. This is used to verify successful transmission of each
-    /// wave form
-    ///
-    /// This may return a WAVE_DO_RETRANSMISSION packet if there are missing packets
-    ///
-    /// Returns true if the sending process was a success, false otherwise
-    ///
-    /// safety: DO NOT borrow_mut the state container unless inside the spawn_local, otherwise a BorrowMutError will occur
-    pub fn on_window_tail_received(&mut self, hyper_ratchet: &HyperRatchet, session_ref: &HdpSession, header: &LayoutVerified<&[u8], HdpHeader>, waves: RangeInclusive<u32>, time_tracker: &TimeTracker, to_primary_stream_orig: &OutboundPrimaryStreamSender) -> bool {
-        let group = header.group.get();
-        let object_id = header.context_info.get() as u32;
-        let security_level = header.security_level.into();
-        let Self {
-            active_virtual_connections,
-            ..
-        } = self;
+    pub fn on_group_payload_received(&mut self, header: &HdpHeader, payload: Bytes, hr: &HyperRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
+        let target_cid = header.session_cid.get();
+        let group_id = header.group.get();
+        let group_key = GroupKey::new(target_cid, group_id);
+        let grc = self.inbound_groups.get_mut(&group_key).ok_or_else(|| NetworkError::msg(format!("inbound_groups does not contain key for {:?}", group_key)))?;
+        let file_key = FileKey::new(target_cid, grc.object_id);
+        let file_container = self.inbound_files.get_mut(&file_key).ok_or_else(|| NetworkError::msg(format!("inbound_files does not contain key for {:?}", file_key)))?;
+        let file_transfer_handle = self.file_transfer_handles.get_mut(&file_key).ok_or_else(|| NetworkError::msg(format!("file_transfer_handle does not contain key for {:?}", file_key)))?;
 
-        // When receiving the WINDOW_TAIL, we are the recipient. When we need to figure out the target_cid
-        // we need to look at the header. Since proxied packets don't have their header changed throughout their flight
-        // through the HyperLAN, the target_cid is just the header's original cid (for proxied packet). However, for
-        // non-proxied packets, we use ZERO for the target_cid. To determine if the packet was proxied or not, just
-        // check the header:
-        let (resp_target_cid, to_primary_stream_preferred) = if header.target_cid.get() != 0 {
-            // this is thus a proxied packet that has reached its destination
-            (header.session_cid.get(), Self::get_direct_p2p_primary_stream(active_virtual_connections, header.target_cid.get()).cloned())
-        } else {
-            (0, Some(to_primary_stream_orig.clone()))
-        };
+        let src = *payload.get(0).ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [0]"))?;
+        let dest = *payload.get(1).ok_or_else(|| NetworkError::InvalidRequest("Bad payload packet [1]"))?;
+        let ts = self.time_tracker.get_global_time_ns();
 
-        let to_primary_stream = to_primary_stream_preferred.unwrap_or_else(|| to_primary_stream_orig.clone());
+        let true_sequence = hyxe_crypt::packet_vector::generate_packet_coordinates_inv(header.wave_id.get(),
+                                                                                       src as u16,
+                                                                                       dest as u16,
+                                                                                       hr.get_scramble_drill()).ok_or_else(|| NetworkError::InvalidRequest("Unable to obtain true_sequence"))?;
 
-        // the key's target is always going to be where the packet came from
-        let key = GroupKey::new(header.session_cid.get(), group);
-        if let Some(group_receiver) = self.inbound_groups.get_mut(&key) {
-            let timestamp = time_tracker.get_global_time_ns();
-            // when testing on localhost, there might be a negative ping.
-            let ping = i64::abs(timestamp - header.timestamp.get());
-            let wait_time = ping * 2;
+        let mut send_wave_ack = false;
+        let mut complete = false;
 
-            let missing_packets = waves.clone().into_iter().filter_map(|wave_id| group_receiver.receiver.get_missing_count_in_wave(wave_id)).sum::<usize>();
-            if missing_packets != 0 {
-                log::warn!("Missing packet in window (before wait): {}", missing_packets);
-                // clone these items to allow them to live for 'static when moved into the closure below
-                let session_ref = session_ref.state_container.clone();
-                let hyper_ratchet = hyper_ratchet.clone();
-                let time_tracker = time_tracker.clone();
+        match grc.receiver.on_packet_received(group_id, true_sequence, header.wave_id.get(), hr,&payload[2..]) {
+            GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
+                log::info!("GROUP {} COMPLETE. Total groups: {}", group_id, file_container.total_groups);
+                let chunk = self.inbound_groups.remove(&group_key).unwrap().receiver.finalize();
+                file_container.stream_to_hd.unbounded_send(chunk).map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                // Before doing anything, spawn a task to wait for completion
+                send_wave_ack = true;
 
-                let _ = spawn!(async move {
-                    let wait_time = Duration::from_nanos(wait_time as u64);
-                    log::trace!("ASYNC task waiting for {} nanos = {} millis", wait_time.as_nanos(), wait_time.as_millis());
-                    tokio::time::sleep(wait_time).await;
-                    // now, we can safely use the state container
-                    let mut state_container = inner_mut_state!(session_ref);
-                    if let Some(group_receiver) = state_container.inbound_groups.get_mut(&key) {
-
-                        // since we are missing packets, decrease the next window.
-                        // NOTE: Since this is the receiver, this node is responsible for setting the window size. As such, call the below function
-                        // to adjust for network latency
-                        let timestamp = time_tracker.get_global_time_ns();
-                        let send_success = waves.clone().into_iter().filter_map(|wave_id_to_check| group_receiver.receiver.get_retransmission_vectors_for(wave_id_to_check, group, &hyper_ratchet))
-                            .map(|packet_vectors| crate::hdp::hdp_packet_crafter::group::craft_wave_do_retransmission(&hyper_ratchet, object_id, resp_target_cid, group, packet_vectors[0].wave_id, &packet_vectors, timestamp, security_level))
-                            .try_for_each(|packet| {
-                                //log::warn!("Sending DO_RETRANSMISSION packet");
-                                to_primary_stream.unbounded_send(packet)
-                            }).is_ok();
-
-                        group_receiver.on_retransmission_needed();
-                        if send_success {
-                            log::info!("Success sending DO_WAVE_RETRANSMISSION packets");
-                        } else {
-                            log::error!("Error sending DO_WAVE_RETRANSMISSION packets");
-                        }
-                    } else {
-                        log::info!("Since waiting, the entire group finished. Ending async task");
-                    }
-                });
-
-                true
-            } else {
-                log::warn!("Window tail received, but all waves appear to be cleared. WAVE ACKS will ensure the continuation of flow");
-                true
+                if group_id as usize == file_container.total_groups - 1 {
+                    complete = true;
+                    let file_container = self.inbound_files.remove(&file_key).unwrap();
+                    // status of reception complete now located where the streaming to HD completes
+                    // we need only take the sender and send a signal to prove that we finished correctly here
+                    file_container.reception_complete_tx.send(()).map_err(|_| NetworkError::msg("reception_complete_tx err"))?;
+                } else {
+                    file_container.last_group_finish_time = Instant::now();
+                    // TODO: Compute Mb/s
+                    let status = FileTransferStatus::ReceptionTick(group_id as usize, file_container.total_groups, 0 as f32);
+                    // sending the wave ack will complete the group on the initiator side
+                    file_transfer_handle.unbounded_send(status).map_err(|err| NetworkError::Generic(err.to_string()))?;
+                }
             }
-        } else {
-            log::info!("Group receiver for group {} does not exist (could be finished)", group);
-            true
+
+            // common case
+            GroupReceiverStatus::INSERT_SUCCESS => {}
+
+            GroupReceiverStatus::WAVE_COMPLETE(..) => {
+                // send wave ACK to update progress on adjacent node
+            }
+
+            res => {
+                log::error!("INVALID GroupReceiverStatus obtained: {:?}", res)
+            }
         }
+
+        if complete {
+            log::info!("Finished receiving file {:?}", file_key);
+            let _ = self.inbound_files.remove(&file_key);
+            let _ = self.file_transfer_handles.remove(&file_key);
+        }
+
+        if send_wave_ack {
+            let wave_ack = hdp_packet_crafter::group::craft_wave_ack(hr, header.context_info.get() as u32, get_resp_target_cid_from_header(header), header.group.get(), header.wave_id.get(), ts, None, header.security_level.into());
+            return Ok(PrimaryProcessorResult::ReplyToSender(wave_ack))
+        }
+
+        Ok(PrimaryProcessorResult::Void)
     }
 
     /// This function is called on Alice's side after Bob sends her a WAVE_ACK.
@@ -1130,7 +1033,7 @@ impl StateContainerInner {
     /// of the number of waves ACK'ed. Once the number of waves ACK'ed equals the window size, this function
     /// also re-engages the transmitter
     #[allow(unused_results)]
-    pub fn on_wave_ack_received(&mut self, implicated_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, tcp_only: bool, waves_in_next_window: Option<RangeInclusive<u32>>) -> bool {
+    pub fn on_wave_ack_received(&mut self, _implicated_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>) -> bool {
         let object_id = header.context_info.get();
         let group = header.group.get();
         let wave_id = header.wave_id.get();
@@ -1138,80 +1041,63 @@ impl StateContainerInner {
         let key = GroupKey::new(target_cid, group);
         let mut delete_group = false;
 
-        if object_id != 0 {
-            // file transfer
-            if let Some(transmitter_container) = self.outbound_transmitters.get_mut(&key) {
-                // we set has_begun here instead of the transmit_tcp, simply because we want the first wave to ACK
-                transmitter_container.has_begun = true;
-                let ref mut transmitter = transmitter_container.burst_transmitter.group_transmitter;
-                let relative_group_id = transmitter_container.relative_group_id;
-                if transmitter.on_wave_tail_ack_received(wave_id) {
-                    // Group is finished. Delete it
-                    let elapsed_sec = transmitter_container.transmission_start_time.elapsed().as_secs_f32();
-                    let rate_mb_per_s = (transmitter_container.group_plaintext_length as f32 / 1_000_000f32)/elapsed_sec;
-                    log::info!("Transmitter received final wave ack. Alerting local node to continue transmission of next group");
-                    // if there is n=1 waves, then the below must be ran. The other use of object notifier in this function only applies for multiple waves
-                    if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
-                        let _ = next_group_notifier.unbounded_send(());
-                        // alert kernel (transmitter side)
-                        log::warn!("Notified object sender to begin sending the next group");
-                    }
-                    let file_key = FileKey::new(target_cid, object_id as u32);
-                    let ticket = transmitter_container.ticket;
-                    //println!("{}/{}", relative_group_id, transmitter_container.parent_object_total_groups);
-                    if relative_group_id as usize != transmitter_container.parent_object_total_groups - 1 {
-                        let status = FileTransferStatus::TransferTick(relative_group_id as usize, transmitter_container.parent_object_total_groups, rate_mb_per_s);
-                        let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferStatus(implicated_cid, file_key, ticket, status));
-                    } else {
-                        let status = FileTransferStatus::TransferComplete;
-                        let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferStatus(implicated_cid, file_key, ticket, status));
-                    }
-                    delete_group = true;
+        // file transfer
+        if let Some(transmitter_container) = self.outbound_transmitters.get_mut(&key) {
+            // we set has_begun here instead of the transmit_tcp, simply because we want the first wave to ACK
+            transmitter_container.has_begun = true;
+            let ref mut transmitter = transmitter_container.burst_transmitter.group_transmitter;
+            let relative_group_id = transmitter_container.relative_group_id;
+            if transmitter.on_wave_tail_ack_received(wave_id) {
+                // Group is finished. Delete it
+                let elapsed_sec = transmitter_container.transmission_start_time.elapsed().as_secs_f32();
+                let rate_mb_per_s = (transmitter_container.group_plaintext_length as f32 / 1_000_000f32)/elapsed_sec;
+                log::info!("Transmitter received final wave ack. Alerting local node to continue transmission of next group");
+                // if there is n=1 waves, then the below must be ran. The other use of object notifier in this function only applies for multiple waves
+                if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
+                    let _ = next_group_notifier.unbounded_send(());
+                    // alert kernel (transmitter side)
+                    log::warn!("Notified object sender to begin sending the next group");
                 }
 
-                // TODO: The problem with premature loading is that the next group loaded may expire while the current is still transferring
-                // even though the next GROUP_HEADER is sent out concurrent to this group transferring. Since file transfers use TCP, the TCP
-                // stack may not get to it until after this group is done transferring. By the time that happens, the group on the sender side
-                // may have expired. Thus, in order to fix this, we should designate a flag `has_begun`, similar to the receiving side
-                if transmitter.is_atleast_fifty_percent_done() {
-                    if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
-                        let _ = next_group_notifier.unbounded_send(());
-                        log::warn!("Notified object sender to begin sending the next group");
+                let file_key = FileKey::new(target_cid, object_id as u32);
+
+                if let Some(tx) = self.file_transfer_handles.get(&file_key) {
+                    let status = if relative_group_id as usize != transmitter_container.parent_object_total_groups - 1 {
+                        FileTransferStatus::TransferTick(relative_group_id as usize, transmitter_container.parent_object_total_groups, rate_mb_per_s)
+                    } else {
+                        FileTransferStatus::TransferComplete
+                    };
+
+                    if let Err(err) = tx.unbounded_send(status.clone()) {
+                        log::error!("FileTransfer receiver handle cannot be reached {:?}", err);
+                        // drop local async sending subroutines
+                        let _ = self.file_transfer_handles.remove(&file_key);
                     }
+
+                    if matches!(status, FileTransferStatus::TransferComplete) {
+                        // remove the transmitter. Dropping will stop related futures
+                        log::info!("FileTransfer is complete!");
+                        let _ = self.file_transfer_handles.remove(&file_key);
+                    }
+                } else {
+                    log::error!("Unable to find FileTransferHandle for {:?}", file_key);
                 }
-            } else {
-                log::error!("File-transfer for object {} does not map to a transmitter container", object_id);
+
+                delete_group = true;
+            }
+
+            // TODO: The problem with premature loading is that the next group loaded may expire while the current is still transferring
+            // even though the next GROUP_HEADER is sent out concurrent to this group transferring. Since file transfers use TCP, the TCP
+            // stack may not get to it until after this group is done transferring. By the time that happens, the group on the sender side
+            // may have expired. Thus, in order to fix this, we should designate a flag `has_begun`, similar to the receiving side
+            if transmitter.is_atleast_fifty_percent_done() {
+                if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
+                    let _ = next_group_notifier.unbounded_send(());
+                    log::warn!("Notified object sender to begin sending the next group");
+                }
             }
         } else {
-            // message
-            if let Some(transmitter_container) = self.outbound_transmitters.get_mut(&key) {
-                transmitter_container.has_begun = true;
-                let ref mut transmitter = transmitter_container.burst_transmitter.group_transmitter;
-                if transmitter.on_wave_tail_ack_received(wave_id) {
-                    // Group is finished. Delete it
-                    delete_group = true;
-                }
-
-                if transmitter.is_atleast_fifty_percent_done() {
-                    if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
-                        let _ = next_group_notifier.unbounded_send(());
-                        log::warn!("Notified object sender to begin sending the next group");
-                    }
-                }
-
-                //std::mem::drop(transmitter);
-
-                // if we are deleting the group, no need to resume transmission (or, no need for tcp_only mode either)
-                if !tcp_only && !delete_group {
-                    if let Some(waves_in_next_window) = transmitter_container.on_wave_ack_received(waves_in_next_window) {
-                        // window finished. Begin transmission of next window
-                        let udp_sender = self.udp_primary_outbound_tx.as_ref().unwrap();
-                        return Self::transmit_window_udp(udp_sender, &mut transmitter_container.burst_transmitter, waves_in_next_window);
-                    }
-                }
-            } else {
-                log::error!("Transmitter for group {} does not exist!", group);
-            }
+            log::error!("File-transfer for object {} does not map to a transmitter container", object_id);
         }
 
         if delete_group {
@@ -1220,39 +1106,6 @@ impl StateContainerInner {
         }
 
         true
-    }
-
-    /// `waves_in_window`: if None, assuming tcp_only mode
-    fn transmit_window_udp(udp_sender: &OutboundUdpSender, sender: &mut GroupTransmitter, waves_in_window: RangeInclusive<u32>) -> bool {
-        sender.transmit_next_window_udp(udp_sender, waves_in_window)
-    }
-
-    /// This function will split up the payload appropriately and ensure that the values are valid. If valid, then
-    /// it will place a resend request into the internal queue which gets checked by `check_system`
-    ///
-    /// When a do_retransmission packet is received, the window size is implied to get cut in half (done on Bob's end)
-    #[allow(unused_results)]
-    pub fn on_wave_do_retransmission_received(&mut self, hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) {
-        let group_id = header.group.get();
-        let key = GroupKey::new(header.session_cid.get(), group_id);
-
-        if let Some(sender) = self.outbound_transmitters.get_mut(&key) {
-            let ref mut sender = sender.burst_transmitter.group_transmitter;
-            let wave_id = header.wave_id.get();
-            if let Some(missing_packets) = sender.on_do_wave_retransmission_received(hyper_ratchet, wave_id, payload) {
-                log::info!("{} packets are missing from wave {} of group {}", missing_packets.len(), wave_id, group_id);
-                // missing packets exist, thus continue to process
-                let iter = missing_packets.into_iter();
-                let udp_sender = self.udp_primary_outbound_tx.as_ref().unwrap();
-                for missing_packet in iter {
-                    let _ = udp_sender.unbounded_send(missing_packet.packet);
-                }
-            } else {
-                log::info!("Invalid WAVE_DO_RETRANSMISSION from wave {} of group {}", wave_id, group_id);
-            }
-        } else {
-            log::error!("A WAVE_DO_TRANSMISSION was received that has no corresponding sender. No return packet needed");
-        }
     }
 
     /// This should be ran periodically by the session timer
@@ -1315,17 +1168,16 @@ impl StateContainerInner {
     }
 
     fn enqueue_packet(&mut self, target_cid: u64, ticket: Ticket, packet: SecureProtocolPacket, target: VirtualTargetType, security_level: SecurityLevel) {
-        if !self.enqueued_packets.contains_key(&target_cid) {
-            let _ = self.enqueued_packets.insert(target_cid, VecDeque::new());
-        }
-
-        let queue = self.enqueued_packets.get_mut(&target_cid).unwrap();
-        queue.push_back((ticket, packet, target, security_level));
+        self.enqueued_packets
+            .entry(target_cid)
+            .or_insert_with(|| VecDeque::new())
+            .push_back((ticket, packet, target, security_level))
     }
 
     fn has_enqueued(&self, target_cid: u64) -> bool {
         self.enqueued_packets.get(&target_cid).map(|r| r.front().is_some()).unwrap_or(false)
     }
+
 
     #[allow(unused_results)]
     pub(crate) fn process_outbound_message(&mut self, ticket: Ticket, packet: SecureProtocolPacket, virtual_target: VirtualTargetType, security_level: SecurityLevel, called_from_poll: bool) -> Result<(), NetworkError> {
@@ -1386,7 +1238,7 @@ impl StateContainerInner {
                     match result {
                         Either::Left((alice_constructor, latest_hyper_ratchet, group_id, packet)) => {
                             let to_primary_stream = this.get_primary_stream().cloned().unwrap();
-                            (GroupTransmitter::new_message(to_primary_stream, OBJECT_SINGLETON, C2S_ENCRYPTION_ONLY, RatchetPacketCrafterContainer::new(latest_hyper_ratchet, alice_constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid)
+                            (GroupTransmitter::new_message(to_primary_stream, OBJECT_SINGLETON, RatchetPacketCrafterContainer::new(latest_hyper_ratchet, alice_constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, implicated_cid)
                         }
 
                         Either::Right(packet) => {
@@ -1416,7 +1268,7 @@ impl StateContainerInner {
                             match secrecy_mode {
                                 SecrecyMode::BestEffort => {
                                     let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
-                                    (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON, target_cid, RatchetPacketCrafterContainer::new(latest_usable_ratchet, constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
+                                    (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON, RatchetPacketCrafterContainer::new(latest_usable_ratchet, constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
                                 }
 
                                 SecrecyMode::Perfect => {
@@ -1424,7 +1276,7 @@ impl StateContainerInner {
                                     if constructor.is_some() {
                                         let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
                                         log::info!("[Perfect] will send group {}", group_id);
-                                        (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON, target_cid, RatchetPacketCrafterContainer::new(latest_usable_ratchet, constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
+                                        (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON,RatchetPacketCrafterContainer::new(latest_usable_ratchet, constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
                                     } else {
                                         //assert!(!called_from_poll);
                                         // Being called from poll should only happen when a packet needs to be sent, and is ready to be sent. Further, being called from the poll adds a lock ensuring it gets sent

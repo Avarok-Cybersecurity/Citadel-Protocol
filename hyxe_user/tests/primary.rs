@@ -9,38 +9,40 @@ mod tests {
     use dirs2::home_dir;
     use hyxe_crypt::hyper_ratchet::constructor::{BobToAliceTransferType, HyperRatchetConstructor};
     use hyxe_crypt::fcm::fcm_ratchet::{FcmRatchet, FcmRatchetConstructor};
-    use hyxe_user::backend::BackendType;
+    use hyxe_user::backend::{BackendType, PersistenceHandler};
     use rand::random;
     use hyxe_crypt::prelude::{SecBuffer, ConstructorOpts};
     use tokio::net::TcpListener;
     use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
     use tokio::sync::Mutex;
     use hyxe_user::auth::proposed_credentials::ProposedCredentials;
+    use futures::Future;
+    use rstest::{rstest, fixture};
+    use hyxe_user::misc::AccountError;
+    use std::sync::Arc;
 
     static TEST_MUTEX: Mutex<()> = Mutex::const_new(());
 
+    #[derive(Clone)]
     struct TestContainer {
         server_acc_mgr: AccountManager,
         client_acc_mgr: AccountManager,
         #[allow(dead_code)]
         // hold the tcp listeners for the duration of the test to ensure no re-binding during parallel tests
-        tcp_listeners: (TcpListener, TcpListener)
+        tcp_listeners: Arc<(TcpListener, TcpListener)>
     }
 
     impl TestContainer {
-        pub async fn new() -> Self {
+        pub async fn new(server_backend: BackendType, client_backend: BackendType) -> Self {
             let server_bind = TcpListener::bind((IpAddr::from_str("127.0.0.1").unwrap(), 0)).await.unwrap();
             let client_bind = TcpListener::bind((IpAddr::from_str("127.0.0.1").unwrap(), 0)).await.unwrap();
-            let server_acc_mgr = acc_mgr(server_bind.local_addr().unwrap(), backend_server()).await;
-            let client_acc_mgr = acc_mgr(client_bind.local_addr().unwrap(), backend_client()).await;
-
-            server_acc_mgr.purge().await.unwrap();
-            client_acc_mgr.purge().await.unwrap();
+            let server_acc_mgr = acc_mgr(server_bind.local_addr().unwrap(), server_backend).await;
+            let client_acc_mgr = acc_mgr(client_bind.local_addr().unwrap(), client_backend).await;
 
             Self {
                 server_acc_mgr,
                 client_acc_mgr,
-                tcp_listeners: (server_bind, client_bind)
+                tcp_listeners: Arc::new((server_bind, client_bind))
             }
         }
 
@@ -76,48 +78,90 @@ mod tests {
         log::error!("ERROR enabled");
     }
 
-    #[cfg(feature = "enterprise")]
-    fn backend_server() -> BackendType {
-        match std::env::var("TESTING_SQL_SERVER_ADDR") {
-            Ok(addr) => {
-                log::info!("Testing SQL ADDR: {}", addr);
-                //BackendType::sql("mysql://nologik:mrmoney10@localhost/hyxewave")
-                BackendType::sql(addr)
-            }
+    fn get_possible_backend(env: &str, ty: &str) -> Vec<BackendType> {
+        let mut backends = vec![BackendType::Filesystem];
+        #[cfg(feature = "enterprise")] {
+            match std::env::var(&env) {
+                Ok(addr) => {
+                    log::info!("Testing SQL ADDR ({}): {}", ty, addr);
+                    backends.push(BackendType::sql(addr))
+                }
 
-            _ => {
-                log::error!("Make sure TESTING_SQL_SERVER_ADDR is set in the environment");
-                std::process::exit(1)
+                _ => {
+                    log::error!("Make sure {} is set in the environment", env);
+                    std::process::exit(1)
+                }
             }
         }
+
+        backends
     }
 
-    #[cfg(not(feature = "enterprise"))]
-    fn backend_server() -> BackendType {
-        BackendType::Filesystem
+    fn client_backends() -> Vec<BackendType> {
+        get_possible_backend("TESTING_SQL_SERVER_ADDR_CLIENT", "Client")
     }
 
-    fn backend_client() -> BackendType {
-        BackendType::Filesystem
+    fn server_backends() -> Vec<BackendType> {
+        get_possible_backend("TESTING_SQL_SERVER_ADDR_SERVER", "Server")
     }
 
-    #[tokio::test]
-    async fn setup_account_managers() {
-        setup_log();
-        let _lock = TEST_MUTEX.lock().await;
-        let test = TestContainer::new().await;
-        test.deinit().await;
-    }
-
-    #[tokio::test]
-    async fn serde_cnac() {
+    async fn test_harness<T, F>(mut t: T) -> Result<(), AccountError>
+        where T: FnMut(TestContainer, PersistenceHandler, PersistenceHandler) -> F,
+        F: Future<Output=Result<(), AccountError>> {
         setup_log();
         let _lock = TEST_MUTEX.lock().await;
 
-        let test_container = TestContainer::new().await;
-        let (_client, _server) = test_container.create_cnac("nologik", "mrmoney10", "Thomas P Braun").await;
+        let client_backends = client_backends();
+        let server_backends = server_backends();
 
-        test_container.deinit().await;
+        for client_backend in &client_backends {
+            for server_backend in &server_backends {
+                log::info!("Trying combination: client={:?} w/ server={:?}", client_backend, server_backend);
+                let container = TestContainer::new(server_backend.clone(), client_backend.clone()).await;
+                let (pers_cl, pers_se) = (container.client_acc_mgr.get_persistence_handler().clone(), container.server_acc_mgr.get_persistence_handler().clone());
+                let res = (t)(container.clone(), pers_cl, pers_se).await;
+                container.deinit().await;
+                res?;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn setup_account_managers() -> Result<(), AccountError> {
+        test_harness(|_, _, _| async move { Ok(()) }).await
+    }
+
+    #[tokio::test]
+    async fn test_cnac_creation() -> Result<(), AccountError> {
+        test_harness(|container, _, _| async move {
+            let (client, server) = container.create_cnac("nologik", "password", "Thomas P Braun").await;
+            let lock_server = server.write();
+            let lock_client = client.write();
+
+            assert_eq!(lock_server.is_local_personal, false);
+            assert_eq!(lock_client.is_local_personal, true);
+            assert_eq!(lock_client.auth_store.username(), "nologik");
+            assert_eq!(lock_server.auth_store.username(), "nologik");
+            assert_eq!(lock_client.auth_store.full_name(), "Thomas P Braun");
+            assert_eq!(lock_server.auth_store.full_name(), "Thomas P Braun");
+            Ok(())
+        }).await
+    }
+
+    #[tokio::test]
+    async fn test_byte_map() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, server) = container.create_cnac("nologik", "password", "Thomas P Braun").await;
+            let dummy = Vec::from("Hello, world!");
+            assert!(pers_cl.store_byte_map_value(client.get_cid(), 0821, "thekey", dummy.clone()).await.unwrap().is_none());
+            assert_eq!(pers_cl.get_byte_map_value(client.get_cid(), 0821, "thekey").await.unwrap().unwrap(), dummy.clone());
+            assert_eq!(pers_cl.get_byte_map_values_by_needle(client.get_cid(), 0821, "the").await.unwrap().remove("thekey").unwrap(), dummy.clone());
+            assert_eq!(pers_cl.remove_byte_map_value(client.get_cid(), 0821, "thekey").await.unwrap().unwrap(), dummy.clone());
+            assert!(pers_cl.remove_byte_map_value(client.get_cid(), 0821, "thekey").await.unwrap().is_none());
+            Ok(())
+        }).await
     }
 
     /*

@@ -17,7 +17,12 @@ pub fn setup_log() {
 
 #[allow(dead_code)]
 pub fn default_server_test_node(bind_addr: SocketAddr) -> NodeFuture {
+    server_test_node(bind_addr, EmptyKernel::default())
+}
+
+#[allow(dead_code)]
+pub fn server_test_node(bind_addr: SocketAddr, kernel: impl NetKernel) -> NodeFuture {
     NodeBuilder::default()
         .with_node_type(NodeType::Server(bind_addr))
-        .build(EmptyKernel::default()).unwrap()
+        .build(kernel).unwrap()
 }

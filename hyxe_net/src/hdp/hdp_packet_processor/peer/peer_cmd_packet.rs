@@ -752,6 +752,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
         PeerSignal::PostConnect(peer_conn_type, _ticket_opt, peer_response, endpoint_security_level, udp_enabled) => {
             match peer_conn_type {
                 PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
+                    // TODO: Change timeouts. Create a better timeout system, in general
                     const TIMEOUT: Duration = Duration::from_secs(60 * 60);
                     if let Some(peer_response) = peer_response {
                         // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
@@ -1050,7 +1051,7 @@ async fn route_signal_and_register_ticket_forwards(signal: PeerSignal, timeout: 
 fn route_signal_response(signal: PeerSignal, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: HdpSession, sess_hyper_ratchet: &HyperRatchet, on_route_finished: impl FnOnce(&HdpSession, &HdpSession, PeerSignal), security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let sess_mgr = session.session_manager.clone();
     let sess_mgr = inner!(sess_mgr);
-    log::info!("impl: {} | target: {}", implicated_cid, target_cid);
+    log::info!("Routing signal {:?} | impl: {} | target: {}", signal, implicated_cid, target_cid);
 
     let res = sess_mgr.route_signal_response_primary(implicated_cid, target_cid, ticket, move |peer_hyper_ratchet| {
         hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, ticket, timestamp, security_level)
@@ -1070,6 +1071,7 @@ fn route_signal_response(signal: PeerSignal, implicated_cid: u64, target_cid: u6
         }
 
         Err(err) => {
+            log::warn!("Unable to route signal! {:?}", err);
             reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp, security_level)
         }
     }

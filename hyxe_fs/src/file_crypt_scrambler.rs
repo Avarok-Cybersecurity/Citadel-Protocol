@@ -2,7 +2,6 @@ use bytes::BytesMut;
 use tokio::sync::mpsc::Sender as GroupChanneler;
 use tokio::sync::oneshot::Receiver;
 use futures::task::Context;
-use std::marker::PhantomData;
 use std::io::{BufReader, Read};
 use tokio::macros::support::Pin;
 
@@ -20,11 +19,13 @@ use futures::Future;
 use std::sync::Arc;
 use parking_lot::Mutex;
 
-/// The max file size is 100Mb (1024 bytes per Kb, 1024 kb per Mb, times 100)
-pub const MAX_FILE_SIZE: usize = 1024 * 1024 * 100;
 /// 3Mb per group
 pub const MAX_BYTES_PER_GROUP: usize = hyxe_crypt::net::crypt_splitter::MAX_BYTES_PER_GROUP;
 const DEFAULT_BYTES_PER_GROUP: usize = 1024 * 1024 * 3;
+
+/// Generic function for inscribing headers on packets
+pub trait HeaderInscriberFn: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static {}
+impl<T: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static> HeaderInscriberFn for T {}
 
 /// As the networking protocol receives ACKs from the packets it gets from the sender, it should call the waker that this function sends through `waker_sender` once
 /// it is close to finishing the group (depending on speed).
@@ -35,7 +36,7 @@ const DEFAULT_BYTES_PER_GROUP: usize = 1024 * 1024 * 3;
 ///
 /// This is ran on a separate thread on the threadpool. Returns the number of bytes and number of groups
 #[allow(unused_results)]
-pub fn scramble_encrypt_file<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, const N: usize>(std_file: std::fs::File, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<Result<GroupSenderDevice<N>, FsError<String>>>, stop: Receiver<()>, security_level: SecurityLevel, hyper_ratchet: HyperRatchet, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), FsError<String>> {
+pub fn scramble_encrypt_file<F: HeaderInscriberFn, const N: usize>(std_file: std::fs::File, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<Result<GroupSenderDevice<N>, FsError<String>>>, stop: Receiver<()>, security_level: SecurityLevel, hyper_ratchet: HyperRatchet, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), FsError<String>> {
     let metadata = std_file.metadata().map_err(|err| FsError::IoError(err.to_string()))?;
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
     if !metadata.is_file() {
@@ -49,7 +50,7 @@ pub fn scramble_encrypt_file<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMu
     let file_len = metadata.len() as usize;
     let total_groups = num::Integer::div_ceil(&file_len, &max_bytes_per_group);
 
-    println!("\n\rWill parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, file_len, (file_len as f32)/(1024f32*1024f32), total_groups);
+    log::info!("Will parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, file_len, (file_len as f32)/(1024f32*1024f32), total_groups);
     let reader = BufReader::with_capacity(std::cmp::min(file_len, max_bytes_per_group), std_file);
 
     let buffer = Arc::new(Mutex::new(vec![0u8; std::cmp::min(file_len, max_bytes_per_group)]));
@@ -69,8 +70,7 @@ pub fn scramble_encrypt_file<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMu
         read_cursor: 0,
         header_inscriber: Arc::new(header_inscriber),
         poll_amt: 0,
-        cur_task: None,
-        _pd: Default::default(),
+        cur_task: None
     };
 
     tokio::task::spawn(async move {
@@ -91,7 +91,7 @@ async fn stopper(stop: Receiver<()>) -> Result<(), FsError<String>> {
     stop.await.map_err(|err| FsError::Generic(err.to_string()))
 }
 
-async fn file_streamer<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, R: Read, const N: usize>(group_sender: GroupChanneler<Result<GroupSenderDevice<N>, FsError<String>>>, mut file_scrambler: AsyncCryptScrambler<'_, F, R, N>) -> Result<(), FsError<String>> {
+async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(group_sender: GroupChanneler<Result<GroupSenderDevice<N>, FsError<String>>>, mut file_scrambler: AsyncCryptScrambler<F, R, N>) -> Result<(), FsError<String>> {
     while let Some(val) = file_scrambler.next().await {
         group_sender.send(Ok(val)).await.map_err(|err| FsError::Generic(err.to_string()))?;
     }
@@ -100,7 +100,7 @@ async fn file_streamer<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + S
 }
 
 #[allow(dead_code)]
-struct AsyncCryptScrambler<'a, F: Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static, R: Read, const N: usize> {
+struct AsyncCryptScrambler<F: HeaderInscriberFn, R: Read, const N: usize> {
     reader: BufReader<R>,
     hyper_ratchet: HyperRatchet,
     security_level: SecurityLevel,
@@ -116,11 +116,10 @@ struct AsyncCryptScrambler<'a, F: Fn(&'a PacketVector, &'a Drill, u32, u64, &'a 
     poll_amt: usize,
     buffer: Arc<Mutex<Vec<u8>>>,
     header_inscriber: Arc<F>,
-    cur_task: Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>,
-    _pd: PhantomData<&'a ()>,
+    cur_task: Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>
 }
 
-impl<'a, F: Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static, R: Read, const N: usize> AsyncCryptScrambler<'a, F, R, N> {
+impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N> {
     fn poll_task(groups_rendered: &mut usize, read_cursor: &mut usize, poll_amt: usize, cur_task: &mut Option<JoinHandle<Result<GroupSenderDevice<N>, CryptError<String>>>>, cx: &mut Context<'_>) -> Poll<Option<GroupSenderDevice<N>>> {
         let res: Result<Result<GroupSenderDevice<N>, CryptError<String>>, JoinError> = futures::ready!(Pin::new(cur_task.as_mut().unwrap()).poll(cx));
         return if let Ok(Ok(sender)) = res {
@@ -135,9 +134,9 @@ impl<'a, F: Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send +
     }
 }
 
-impl<'a, F: Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static, R: Read, const N: usize> Unpin for AsyncCryptScrambler<'a, F, R, N> {}
+impl<'a, F: HeaderInscriberFn, R: Read, const N: usize> Unpin for AsyncCryptScrambler<F, R, N> {}
 
-impl<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, R: Read, const N: usize> AsyncCryptScrambler<'_, F, R, N> {
+impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N> {
     fn poll_scramble_next_group(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<GroupSenderDevice<N>>> {
         let Self {
             hyper_ratchet,
@@ -201,7 +200,7 @@ impl<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'stat
     }
 }
 
-impl<F: Fn(&PacketVector, &Drill, u32, u64, &mut BytesMut) + Send + Sync + 'static, R: Read, const N: usize> Stream for AsyncCryptScrambler<'_, F, R, N> {
+impl<F: HeaderInscriberFn, R: Read, const N: usize> Stream for AsyncCryptScrambler<F, R, N> {
     type Item = GroupSenderDevice<N>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
