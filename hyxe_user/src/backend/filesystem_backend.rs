@@ -252,16 +252,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok(cnac.get_hyperlan_peers(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
     }
 
-    /*
-    async fn get_hyperlan_peers_with_fcm_keys_as_client(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<(MutualPeer, Option<FcmKeys>)>, AccountError> {
-        if peers.is_empty() {
-            return Ok(Vec::new())
-        }
-
-        let cnac = self.get_cnac(implicated_cid)?;
-        Ok(cnac.get_hyperlan_peers_with_fcm_keys(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
-    }*/
-
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError> {
         let cnac = self.get_cnac(implicated_cid)?;
         Ok(cnac.get_hyperlan_peer_by_username(username))
@@ -273,6 +263,31 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError> {
         Ok(cnac.synchronize_hyperlan_peer_list(peers))
+    }
+
+    async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<Option<Vec<u8>>, AccountError> {
+        let cnac = self.get_cnac(implicated_cid)?;
+        let mut lock = cnac.write();
+        Ok(lock.byte_map.entry(peer_cid).or_default().get(key).cloned())
+    }
+
+    async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<Option<Vec<u8>>, AccountError> {
+        let cnac = self.get_cnac(implicated_cid)?;
+        let mut lock = cnac.write();
+        Ok(lock.byte_map.entry(peer_cid).or_default().remove(key))
+    }
+
+    async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError> {
+        let cnac = self.get_cnac(implicated_cid)?;
+        let mut lock = cnac.write();
+        Ok(lock.byte_map.entry(peer_cid).or_default().insert(key.to_string(), value))
+    }
+
+    async fn get_byte_map_values_by_needle(&self, implicated_cid: u64, peer_cid: u64, needle: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
+        let cnac = self.get_cnac(implicated_cid)?;
+        let mut lock = cnac.write();
+        let map = lock.byte_map.entry(peer_cid).or_default().iter().filter(|(k, _)| k.as_str().contains(needle)).cloned().collect::<HashMap<String, Vec<u8>>>();
+        Ok(map)
     }
 
     fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) {
