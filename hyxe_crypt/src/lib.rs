@@ -53,3 +53,5 @@ pub mod fcm;
 pub mod argon;
 /// For secure byte handling
 pub mod secure_buffer;
+///
+pub mod sync_toggle;

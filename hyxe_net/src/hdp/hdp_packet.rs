@@ -34,12 +34,8 @@ pub(crate) mod packet_flags {
                 pub(crate) const GROUP_HEADER_ACK: u8 = 1;
                 /// The payload packet in a group (the "bulk" of the data)
                 pub(crate) const GROUP_PAYLOAD: u8 = 2;
-                /// This is sent after each wave is dispatched
-                pub(crate) const GROUP_WINDOW_TAIL: u8 = 3;
-                /// For requesting a re-transmission
-                pub(crate) const WAVE_DO_RETRANSMISSION: u8 = 4;
                 /// Bob sends this to Alice once he reconstructs a wave. This allows alice to free memory on her side
-                pub(crate) const WAVE_ACK: u8 = 5;
+                pub(crate) const WAVE_ACK: u8 = 3;
             }
 
             pub(crate) mod do_connect {
@@ -135,8 +131,6 @@ pub(crate) mod packet_sizes {
     /// Group packets
     pub(crate) const GROUP_HEADER_BASE_LEN: usize = HDP_HEADER_BYTE_LEN + 1;
     pub(crate) const GROUP_HEADER_ACK_LEN: usize = HDP_HEADER_BYTE_LEN + 1 + 1 + 4 + 4;
-    /// + 16 bytes for an 8-byte, 4-byte security parameter, and the end of the window
-    pub(crate) const GROUP_WINDOW_TAIL_LEN: usize = HDP_HEADER_BYTE_LEN + 4;
 
     pub(crate) mod do_drill_update {
         use crate::constants::HDP_HEADER_BYTE_LEN;

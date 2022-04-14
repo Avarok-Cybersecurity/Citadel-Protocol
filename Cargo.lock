@@ -1509,6 +1509,7 @@ dependencies = [
  "openssl",
  "parking_lot",
  "rand 0.7.3",
+ "rstest",
  "serde",
  "serde_bytes",
  "serde_json",

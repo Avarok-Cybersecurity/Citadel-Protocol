@@ -57,14 +57,9 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             }
         };
 
-        persistence_handler.post_connect(&persistence_handler)?;
+        persistence_handler.post_connect(&persistence_handler).await?;
 
         let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
-
-        #[cfg(feature = "localhost-testing")]
-            {
-                let _ = this.purge().await?;
-            }
 
         Ok(this)
     }
@@ -121,7 +116,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         self.get_local_nac().save_to_local_fs()?;
 
-        // At this point,
         Ok(cnac)
     }
 

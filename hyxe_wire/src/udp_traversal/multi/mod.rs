@@ -49,6 +49,8 @@ impl<'a> DualStackUdpHolePuncher<'a> {
             hole_punchers.push(hole_puncher);
         }
 
+        // TODO: Setup concurrent UPnP AND NAT-PMP async https://docs.rs/natpmp/latest/natpmp/struct.NatpmpAsync.html
+
         Ok(Self { future: Box::pin(drive(hole_punchers, relative_node_type, napp)) })
     }
 }
