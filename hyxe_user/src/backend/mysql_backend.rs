@@ -680,10 +680,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_byte_map_values_by_needle(&self, implicated_cid: u64, peer_cid: u64, needle: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let ref conn = self.get_conn().await?;
-        let rows: Vec<AnyRow> = sqlx::query(self.format(format!("SELECT id, bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id LIKE ?")).as_str())
+        let rows: Vec<AnyRow> = sqlx::query(self.format(format!("SELECT id, bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id LIKE '%{}%'", needle)).as_str())
             .bind(implicated_cid.to_string())
             .bind(peer_cid.to_string())
-            .bind(needle)
             .fetch_all(conn).await?;
 
         let mut ret = HashMap::new();
