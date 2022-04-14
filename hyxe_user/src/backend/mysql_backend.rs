@@ -93,9 +93,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         // we no longer use bool due to postgresql bug with t/f not being mapped properly
         let cmd = format!("CREATE TABLE IF NOT EXISTS cnacs(cid VARCHAR(20) NOT NULL, is_personal BOOL, fcm_addr TEXT, fcm_api_key TEXT, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin {}, PRIMARY KEY (cid))", MAX_USERNAME_LENGTH, bin_type);
         let cmd2 = format!("CREATE TABLE IF NOT EXISTS peers(peer_cid VARCHAR(20), username VARCHAR({}), cid VARCHAR(20), CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)", MAX_USERNAME_LENGTH);
+        let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid VARCHAR(20), peer_cid VARCHAR(20), key TEXT, bin TEXT, CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
 
         // The following commands below allow us to remove entries and automatically remove corresponding values
-        let cmd3 = match self.variant {
+        let cmd4 = match self.variant {
             SqlVariant::MySQL => {
                 let _ = conn.execute("DROP TRIGGER IF EXISTS post_cid_delete").await?;
 
@@ -119,11 +120,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             }
         };
 
+        // TODO: Create trigger for byte_map
+
         {
-            let _query0 = sqlx::query(&cmd).execute(&conn).await?;
-            let _query1 = sqlx::query(&cmd2).execute(&conn).await?;
-            // we must use conn directly to not run into problems with prepared statement
-            let _query3 = conn.execute(cmd3).await?;
+            let _joined = futures::future::try_join4(conn.execute(&*cmd), conn.execute(&*cmd2), conn.execute(&*cmd3), conn.execute(&*cmd4)).await?;
         }
 
 
@@ -623,6 +623,69 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         }
 
         Ok(false)
+    }
+
+    async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<Option<Vec<u8>>, AccountError> {
+        let ref conn = self.get_conn().await?;
+        let row: AnyRow = sqlx::query(self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND key = ? LIMIT 1").as_str())
+            .bind(implicated_cid.to_string())
+            .bind(peer_cid.to_string())
+            .bind(key)
+            .fetch_one(conn).await?;
+
+        match row.try_get::<String, _>("bin") {
+            Ok(val) => {
+                Ok(Some(base64::decode(val)?))
+            }
+
+            _ => Ok(None)
+        }
+    }
+
+    async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<Option<Vec<u8>>, AccountError> {
+        // TODO: Optimize this into a single step
+        if let Some(value) = self.get_byte_map_value(implicated_cid, peer_cid, key).await? {
+            let ref conn = self.get_conn().await?;
+            let _ = sqlx::query(self.format("DELETE FROM bytemap WHERE cid = ? AND peer_cid = ? AND key = ?").as_str())
+                .bind(implicated_cid.to_string())
+                .bind(peer_cid.to_string())
+                .bind(key)
+                .execute(conn).await?;
+            Ok(Some(value))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError> {
+        let ref conn = self.get_conn().await?;
+        let bytes_base64 = base64::encode(value);
+        let _query = sqlx::query(self.format("INSERT INTO bytemap (cid, peer_cid, key, bin) VALUES (?, ?, ?, ?)").as_str())
+            .bind(implicated_cid.to_string())
+            .bind(peer_cid.to_string())
+            .bind(key)
+            .bind(bytes_base64)
+            .execute(conn).await?;
+        // TODO: optimize this step to return any previous value
+        Ok(None)
+    }
+
+    async fn get_byte_map_values_by_needle(&self, implicated_cid: u64, peer_cid: u64, needle: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
+        let ref conn = self.get_conn().await?;
+        let rows: Vec<AnyRow> = sqlx::query(self.format(format!("SELECT key, bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND key LIKE '%{}%'", needle)).as_str())
+            .bind(implicated_cid.to_string())
+            .bind(peer_cid.to_string())
+            .fetch_all(conn).await?;
+
+        let mut ret = HashMap::new();
+        for row in rows {
+            let bin = row.try_get::<String, _>("bin")?;
+            let key = row.try_get::<String, _>("key")?;
+            let bin = base64::decode(bin)?;
+            let _ = ret.insert(key, bin);
+        }
+
+        Ok(ret)
     }
 
     fn store_cnac(&self, _cnac: ClientNetworkAccount<R, Fcm>) {}

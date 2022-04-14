@@ -146,6 +146,13 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError>;
     /// Synchronizes the list locally. Returns true if needs to be saved
     async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError>;
+    /// Returns a vector of bytes from the byte map
+    async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<Option<Vec<u8>>, AccountError>;
+    /// Removes a value from the byte map, returning the previous value
+    async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<Option<Vec<u8>>, AccountError>;
+    /// Stores a value in the byte map, either creating or overwriting any pre-existing value
+    async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError>;
+    async fn get_byte_map_values_by_needle(&self, implicated_cid: u64, peer_cid: u64, needle: &str) -> Result<Vec<Vec<u8>>, AccountError>;
     /// Stores the CNAC inside the hashmap, if possible (may be no-op on database)
     fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>);
     /// Determines if a remote db is used
@@ -154,11 +161,6 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>>;
     /// Returns the local nac
     fn local_nac(&self) -> &NetworkAccount<R, Fcm>;
-    /*#[allow(unused_results, unused_must_use)]
-    /// spawns to thread pool
-    fn spawn_save_task_to_threadpool(self: Arc<Self>, cnac: ClientNetworkAccount<R, Fcm>) where Self: 'static {
-        tokio::task::spawn(async move { self.save_cnac(cnac).await; });
-    }*/
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations
