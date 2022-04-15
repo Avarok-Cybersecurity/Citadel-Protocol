@@ -109,7 +109,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let cmd = format!("CREATE TABLE IF NOT EXISTS cnacs(cid VARCHAR(20) NOT NULL, is_personal BOOL, fcm_addr TEXT, fcm_api_key TEXT, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin {}, PRIMARY KEY (cid))", MAX_USERNAME_LENGTH, bin_type);
         let cmd2 = format!("CREATE TABLE IF NOT EXISTS peers(peer_cid VARCHAR(20), username VARCHAR({}), cid VARCHAR(20), CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)", MAX_USERNAME_LENGTH);
         //let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid VARCHAR(20) NOT NULL, peer_cid VARCHAR(20), key TEXT, bin TEXT, CONSTRAINT fk_cid FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)");
-        let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid VARCHAR(20) NOT NULL, peer_cid VARCHAR(20), id TEXT, bin {}, CONSTRAINT fk_cid2 FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)", bin_type);
+        let cmd3 = format!("CREATE TABLE IF NOT EXISTS bytemap(cid VARCHAR(20) NOT NULL, peer_cid VARCHAR(20), id TEXT, sub_id TEXT, bin {}, CONSTRAINT fk_cid2 FOREIGN KEY (cid) REFERENCES cnacs(cid) ON DELETE CASCADE)", bin_type);
 
         // The following commands below allow us to remove entries and automatically remove corresponding values
         let cmd4 = match self.variant {
@@ -667,12 +667,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         Ok(false)
     }
 
-    async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<Option<Vec<u8>>, AccountError> {
+    async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
         let ref conn = self.get_conn().await?;
-        let row: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? LIMIT 1").as_str())
+        let row: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ? LIMIT 1").as_str())
             .bind(implicated_cid.to_string())
             .bind(peer_cid.to_string())
             .bind(key)
+            .bind(sub_key)
             .fetch_optional(conn).await?;
 
         if let Some(row) = row {
@@ -688,14 +689,15 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         }
     }
 
-    async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<Option<Vec<u8>>, AccountError> {
+    async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
         // TODO: Optimize this into a single step
-        if let Some(value) = self.get_byte_map_value(implicated_cid, peer_cid, key).await? {
+        if let Some(value) = self.get_byte_map_value(implicated_cid, peer_cid, key, sub_key).await? {
             let ref conn = self.get_conn().await?;
-            let _ = sqlx::query(self.format("DELETE FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ?").as_str())
+            let _ = sqlx::query(self.format("DELETE FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ?").as_str())
                 .bind(implicated_cid.to_string())
                 .bind(peer_cid.to_string())
                 .bind(key)
+                .bind(sub_key)
                 .execute(conn).await?;
 
             Ok(Some(value))
@@ -704,35 +706,50 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         }
     }
 
-    async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError> {
+    async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError> {
         let ref conn = self.get_conn().await?;
         let bytes_base64 = base64::encode(value);
-        let _query = sqlx::query(self.format("INSERT INTO bytemap (cid, peer_cid, id, bin) VALUES (?, ?, ?, ?)").as_str())
+        let _query = sqlx::query(self.format("INSERT INTO bytemap (cid, peer_cid, id, sub_id, bin) VALUES (?, ?, ?, ?, ?)").as_str())
             .bind(implicated_cid.to_string())
             .bind(peer_cid.to_string())
             .bind(key)
+            .bind(sub_key)
             .bind(bytes_base64)
             .execute(conn).await?;
         // TODO: optimize this step to return any previous value
         Ok(None)
     }
 
-    async fn get_byte_map_values_by_needle(&self, implicated_cid: u64, peer_cid: u64, needle: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
+    async fn get_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let ref conn = self.get_conn().await?;
-        let rows: Vec<AnyRow> = sqlx::query(self.format(format!("SELECT id, bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id LIKE '%{}%'", needle)).as_str())
+        let rows: Vec<AnyRow> = sqlx::query(self.format("SELECT sub_id, bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ?").as_str())
             .bind(implicated_cid.to_string())
             .bind(peer_cid.to_string())
+            .bind(key)
             .fetch_all(conn).await?;
 
         let mut ret = HashMap::new();
         for row in rows {
             let bin = row.try_get::<String, _>("bin")?;
-            let key = row.try_get::<String, _>("id")?;
+            let key = row.try_get::<String, _>("sub_id")?;
             let bin = base64::decode(bin)?;
             let _ = ret.insert(key, bin);
         }
 
         Ok(ret)
+    }
+
+    async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
+        let values = self.get_byte_map_values_by_key(implicated_cid, peer_cid, key).await?;
+        let ref conn = self.get_conn().await?;
+
+        let _ = sqlx::query(self.format("DELETE FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ?").as_str())
+            .bind(implicated_cid.to_string())
+            .bind(peer_cid.to_string())
+            .bind(key)
+            .execute(conn).await?;
+
+        Ok(values)
     }
 
     fn store_cnac(&self, _cnac: ClientNetworkAccount<R, Fcm>) {}
