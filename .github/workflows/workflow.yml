@@ -32,6 +32,7 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: mysql -u root -p password -e "CREATE DATABASE hyxewave2;"
       - name: Setup Postgres database (1)
+        if: startsWith(matrix.os, 'ubuntu')
         uses: Daniel-Marynicz/postgresql-action@master
         with:
           postgres_image_tag: latest
@@ -41,7 +42,7 @@ jobs:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - name: Run user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo test --package hyxe_user --features enterprise
+        run: cargo test --package hyxe_user --features enterprise,localhost-testing
       #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
       - run: cargo test --package ez_pqcrypto
       - run: cargo test --package hyxe_crypt
