@@ -22,15 +22,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
-      - uses: mirromutth/mysql-action@v1.1
+      - uses: shogo82148/actions-setup-mysql@v1
         if: startsWith(matrix.os, 'ubuntu')
         with:
-          mysql version: '8.0'
-          mysql database: 'hyxewave'
-          mysql root password: password
-      - name: add mysql database
-        if: startsWith(matrix.os, 'ubuntu')
-        run: mysql -u root -p password -e "CREATE DATABASE hyxewave2;"
+          mysql-version: '8.0'
+          root-password: 'password'
+      - run: mysql -uroot -h127.0.0.1 -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
       - name: Setup Postgres database (1)
         if: startsWith(matrix.os, 'ubuntu')
         uses: Daniel-Marynicz/postgresql-action@master
