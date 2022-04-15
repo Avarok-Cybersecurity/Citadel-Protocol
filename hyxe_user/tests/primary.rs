@@ -78,13 +78,15 @@ mod tests {
         log::error!("ERROR enabled");
     }
 
-    fn get_possible_backend(env: &str, ty: &str) -> Vec<BackendType> {
+    fn get_possible_backends(env: &str, ty: &str) -> Vec<BackendType> {
         let mut backends = vec![BackendType::Filesystem];
         #[cfg(feature = "enterprise")] {
             match std::env::var(&env) {
                 Ok(addr) => {
-                    log::info!("Testing SQL ADDR ({}): {}", ty, addr);
-                    backends.push(BackendType::sql(addr))
+                    for addr in  addr.split(",") {
+                        log::info!("Testing SQL ADDR ({}): {}", ty, addr);
+                        backends.push(BackendType::sql(addr))
+                    }
                 }
 
                 _ => {
@@ -98,11 +100,11 @@ mod tests {
     }
 
     fn client_backends() -> Vec<BackendType> {
-        get_possible_backend("TESTING_SQL_SERVER_ADDR_CLIENT", "Client")
+        get_possible_backends("TESTING_SQL_SERVER_ADDR_CLIENT", "Client")
     }
 
     fn server_backends() -> Vec<BackendType> {
-        get_possible_backend("TESTING_SQL_SERVER_ADDR_SERVER", "Server")
+        get_possible_backends("TESTING_SQL_SERVER_ADDR_SERVER", "Server")
     }
 
     async fn test_harness<T, F>(mut t: T) -> Result<(), AccountError>
@@ -129,7 +131,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn setup_account_managers() -> Result<(), AccountError> {
+    async fn test_setup_account_managers() -> Result<(), AccountError> {
         test_harness(|_, _, _| async move { Ok(()) }).await
     }
 
