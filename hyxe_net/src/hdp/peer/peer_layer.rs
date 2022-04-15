@@ -305,25 +305,20 @@ impl HyperNodePeerLayer {
     /// by the HyperLAN client's side, this should work out
     #[allow(unused_results)]
     pub fn insert_tracked_posting(&self, implicated_cid: u64, timeout: Duration, ticket: Ticket, signal: PeerSignal, on_timeout: impl FnOnce(PeerSignal) + SyncContextRequirements) {
-        let this_ref = self.clone();
-        let future = async move {
-            let mut this = inner_mut!(this_ref);
-            let delay_key = this.delay_queue
-                .insert((implicated_cid, ticket), timeout);
-            log::info!("Creating TrackedPosting {} (Ticket: {})", implicated_cid, ticket);
+        let mut this = inner_mut!(self);
+        let delay_key = this.delay_queue
+            .insert((implicated_cid, ticket), timeout);
+        log::info!("Creating TrackedPosting {} (Ticket: {})", implicated_cid, ticket);
 
-            if let Some(map) = this.observed_postings.get_mut(&implicated_cid) {
-                let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
-                map.insert(ticket, tracked_posting);
+        if let Some(map) = this.observed_postings.get_mut(&implicated_cid) {
+            let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
+            map.insert(ticket, tracked_posting);
 
-                std::mem::drop(this);
-                this_ref.wake();
-            } else {
-                log::error!("Unable to find implicated_cid in observed_posting. Bad init state?");
-            }
-        };
-
-        spawn!(future);
+            std::mem::drop(this);
+            self.wake();
+        } else {
+            log::error!("Unable to find implicated_cid in observed_posting. Bad init state?");
+        }
     }
 
     /// Removes a [TrackedPosting] from the internal queue, and returns the signal
