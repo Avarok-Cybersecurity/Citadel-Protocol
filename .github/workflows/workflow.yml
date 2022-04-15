@@ -8,7 +8,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  TESTING_SQL_SERVER_ADDR: "mysql://root:password@localhost/db0"
+  TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave"
+  TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2"
   RUST_BACKTRACE: full
   # 20 MiB stack
   RUST_MIN_STACK: 20971520
@@ -25,8 +26,17 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         with:
           mysql version: '8.0'
-          mysql database: 'db0'
+          mysql database: 'hyxewave'
           mysql root password: password
+      - name: add mysql database
+        run: mysql -u root -p password -e "CREATE DATABASE hyxewave2;"
+      - name: Setup Postgres database (1)
+        uses: Daniel-Marynicz/postgresql-action@master
+        with:
+          postgres_image_tag: latest
+          app_user: nologik
+          app_user_password: password
+          app_db: hyxewave hyxewave2
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - name: Run user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
