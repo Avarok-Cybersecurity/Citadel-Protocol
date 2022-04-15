@@ -8,8 +8,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/tmp/hyxewave.db"
-  TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/tmp/hyxewave2.db"
+  TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db"
+  TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db"
   RUST_BACKTRACE: full
   # 20 MiB stack
   RUST_MIN_STACK: 20971520
@@ -32,7 +32,7 @@ jobs:
         run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
       - name: Add sqlite databases
         if: startsWith(matrix.os, 'ubuntu')
-        run: touch /home/runner/tmp/hyxewave.db && touch /home/runner/tmp/hyxewave2.db
+        run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
       - name: Setup Postgres database (1)
         if: startsWith(matrix.os, 'ubuntu')
         uses: Daniel-Marynicz/postgresql-action@master
