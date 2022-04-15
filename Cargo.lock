@@ -1504,6 +1504,7 @@ dependencies = [
  "hyxe_crypt",
  "hyxe_fs",
  "jwt",
+ "lazy_static",
  "log",
  "multimap",
  "openssl",
