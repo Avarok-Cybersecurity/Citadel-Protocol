@@ -1476,7 +1476,7 @@ impl HdpSessionInner {
 
 impl Drop for HdpSessionInner {
     fn drop(&mut self) {
-        log::info!("*** Dropping HdpSession ***");
+        log::info!("*** Dropping HdpSession {:?} ***", self.implicated_cid.get());
         if let Err(_) = self.on_drop.unbounded_send(()) {
             //log::error!("Unable to cleanly alert node that session ended: {:?}", err);
         }

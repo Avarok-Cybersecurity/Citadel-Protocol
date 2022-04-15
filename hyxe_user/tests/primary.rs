@@ -21,6 +21,7 @@ mod tests {
     use hyxe_user::misc::AccountError;
     use std::sync::Arc;
     use hyxe_user::prelude::MutualPeer;
+    use std::collections::HashMap;
 
     static TEST_MUTEX: Mutex<()> = Mutex::const_new(());
 
@@ -193,17 +194,48 @@ mod tests {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let dummy = Vec::from("Hello, world!");
-            assert!(pers_cl.store_byte_map_value(client.get_cid(), 0821, "thekey", dummy.clone()).await.unwrap().is_none());
-            assert_eq!(pers_cl.get_byte_map_value(client.get_cid(), 0821, "thekey").await.unwrap().unwrap(), dummy.clone());
-            assert_eq!(pers_cl.get_byte_map_values_by_needle(client.get_cid(), 0821, "the").await.unwrap().remove("thekey").unwrap(), dummy.clone());
-            assert_eq!(pers_cl.remove_byte_map_value(client.get_cid(), 0821, "thekey").await.unwrap().unwrap(), dummy.clone());
-            assert!(pers_cl.remove_byte_map_value(client.get_cid(), 0821, "thekey").await.unwrap().is_none());
+            assert!(pers_cl.store_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key", dummy.clone()).await.unwrap().is_none());
+            assert_eq!(pers_cl.get_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key").await.unwrap().unwrap(), dummy.clone());
+            assert_eq!(pers_cl.get_byte_map_values_by_key(client.get_cid(), 1234, "thekey").await.unwrap().remove("sub_key").unwrap(), dummy.clone());
+            assert_eq!(pers_cl.remove_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key").await.unwrap().unwrap(), dummy.clone());
+            assert!(pers_cl.remove_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key").await.unwrap().is_none());
 
-            assert!(pers_se.store_byte_map_value(server.get_cid(), 0821, "helloworld", dummy.clone()).await.unwrap().is_none());
-            assert_eq!(pers_se.get_byte_map_value(server.get_cid(), 0821, "helloworld").await.unwrap().unwrap(), dummy.clone());
-            assert_eq!(pers_se.get_byte_map_values_by_needle(server.get_cid(), 0821, "world").await.unwrap().remove("helloworld").unwrap(), dummy.clone());
-            assert_eq!(pers_se.remove_byte_map_value(server.get_cid(), 0821, "helloworld").await.unwrap().unwrap(), dummy.clone());
-            assert!(pers_se.remove_byte_map_value(server.get_cid(), 0821, "helloworld").await.unwrap().is_none());
+            assert!(pers_se.store_byte_map_value(server.get_cid(), 1234, "helloworld", "sub_key", dummy.clone()).await.unwrap().is_none());
+            assert_eq!(pers_se.get_byte_map_value(server.get_cid(), 1234, "helloworld","sub_key").await.unwrap().unwrap(), dummy.clone());
+            assert_eq!(pers_se.get_byte_map_values_by_key(server.get_cid(), 1234, "helloworld").await.unwrap().remove("sub_key").unwrap(), dummy.clone());
+            assert_eq!(pers_se.remove_byte_map_value(server.get_cid(), 1234, "helloworld", "sub_key").await.unwrap().unwrap(), dummy.clone());
+            assert!(pers_se.remove_byte_map_value(server.get_cid(), 1234, "helloworld", "sub_key").await.unwrap().is_none());
+            Ok(())
+        }).await
+    }
+
+    #[tokio::test]
+    async fn test_byte_map2() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            let dummy = Vec::from("Hello, world!");
+            assert!(pers_cl.store_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key1", dummy.clone()).await.unwrap().is_none());
+            assert!(pers_cl.store_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key2", dummy.clone()).await.unwrap().is_none());
+            assert!(pers_cl.store_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key3", dummy.clone()).await.unwrap().is_none());
+            assert!(pers_cl.store_byte_map_value(client.get_cid(), 1234, "unrelated", "sub_key4", dummy.clone()).await.unwrap().is_none());
+
+            let map = pers_cl.get_byte_map_values_by_key(client.get_cid(), 1234, "thekey").await.unwrap();
+            assert!(map.contains_key("sub_key1"));
+            assert!(map.contains_key("sub_key2"));
+            assert!(map.contains_key("sub_key3"));
+            assert_eq!(map.len(), 3);
+
+            for val in map.values() {
+                assert_eq!(val.as_slice(), dummy.as_slice());
+            }
+
+            let del_map = pers_cl.remove_byte_map_values_by_key(client.get_cid(), 1234, "thekey").await.unwrap();
+            assert_eq!(del_map, map);
+
+            assert_eq!(pers_cl.get_byte_map_value(client.get_cid(), 1234, "unrelated", "sub_key4").await.unwrap().unwrap(), dummy.clone());
+            let del_map2 = pers_cl.remove_byte_map_values_by_key(client.get_cid(), 1234, "thekey").await.unwrap();
+            assert_eq!(del_map2, HashMap::new());
+
             Ok(())
         }).await
     }

@@ -120,8 +120,8 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     pub client_rtdb_config: Option<RtdbClientConfig>,
     /// For storing critical ID information for this CNAC
     pub auth_store: DeclaredAuthenticationMode,
-    /// peer id -> key -> bytes
-    pub byte_map: HashMap<u64, HashMap<String, Vec<u8>>>
+    /// peer id -> key -> sub_key -> bytes
+    pub byte_map: HashMap<u64, HashMap<String, HashMap<String, Vec<u8>>>>
 }
 
 /// A thread-safe handle for sharing data across threads and applications
