@@ -131,11 +131,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         // TODO: Create trigger for byte_map
 
-        {
-            let _joined = futures::future::try_join4(conn.execute(&*cmd), conn.execute(&*cmd2), conn.execute(&*cmd3), conn.execute(&*cmd4)).await?;
-        }
+        let joined: String = [cmd, cmd2, cmd3, cmd4.to_string()].join(";");
 
-        let _result = conn.execute("SELECT * FROM cnacs").await?;
+        let _result = conn.execute(&*joined).await?;
 
 
         self.local_nac = Some(load_node_nac(directory_store)?);
@@ -635,18 +633,22 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<Option<Vec<u8>>, AccountError> {
         let ref conn = self.get_conn().await?;
-        let row: AnyRow = sqlx::query(self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? LIMIT 1").as_str())
+        let row: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? LIMIT 1").as_str())
             .bind(implicated_cid.to_string())
             .bind(peer_cid.to_string())
             .bind(key)
-            .fetch_one(conn).await?;
+            .fetch_optional(conn).await?;
 
-        match row.try_get::<String, _>("bin") {
-            Ok(val) => {
-                Ok(Some(base64::decode(val)?))
+        if let Some(row) = row {
+            match row.try_get::<String, _>("bin") {
+                Ok(val) => {
+                    Ok(Some(base64::decode(val)?))
+                }
+
+                _ => Ok(None)
             }
-
-            _ => Ok(None)
+        } else {
+            Ok(None)
         }
     }
 
@@ -659,6 +661,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
                 .bind(peer_cid.to_string())
                 .bind(key)
                 .execute(conn).await?;
+
             Ok(Some(value))
         } else {
             Ok(None)
@@ -688,7 +691,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let mut ret = HashMap::new();
         for row in rows {
             let bin = row.try_get::<String, _>("bin")?;
-            let key = row.try_get::<String, _>("key")?;
+            let key = row.try_get::<String, _>("id")?;
             let bin = base64::decode(bin)?;
             let _ = ret.insert(key, bin);
         }
