@@ -59,6 +59,7 @@ pub struct SqlConnectionOptions {
 impl Into<AnyPoolOptions> for &'_ SqlConnectionOptions {
     fn into(self) -> AnyPoolOptions {
         let mut ret = AnyPoolOptions::default();
+
         if let Some(max_connections) = self.max_connections {
             ret = ret.max_connections(max_connections as _);
         }
@@ -73,6 +74,12 @@ impl Into<AnyPoolOptions> for &'_ SqlConnectionOptions {
 
         ret = ret.idle_timeout(self.idle_timeout);
         ret = ret.max_lifetime(self.max_lifetime);
+
+        if cfg!(feature = "localhost-testing") || std::env::var("LOCALHOST_TESTING").unwrap_or_default() == "1" {
+            log::info!("Reducing connection pool");
+            ret = ret.max_connections(1);
+            ret = ret.max_lifetime(Duration::from_secs(60));
+        }
 
         ret
     }
