@@ -194,16 +194,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         Ok(())
     }
 
-    async fn get_cnac_by_cid(&self, cid: u64, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
+    async fn get_cnac_by_cid(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         let ref conn = self.get_conn().await?;
         let query: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(cid.to_string()).fetch_optional(conn).await?;
-        self.row_to_cnac(query, persistence_handler)
+        self.row_to_cnac(query)
     }
 
-    async fn get_client_by_username(&self, username: &str, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
+    async fn get_client_by_username(&self, username: &str) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         let ref conn = self.get_conn().await?;
         let query: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM cnacs WHERE username = ? LIMIT 1").as_str()).bind(username).fetch_optional(conn).await?;
-        self.row_to_cnac(query, persistence_handler)
+        self.row_to_cnac(query)
     }
 
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError> {
@@ -318,14 +318,20 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             }
         };
 
-        let query: AnyRow = sqlx::query(cmd.as_str()).fetch_one(conn).await?;
+        let query: Option<AnyRow> = sqlx::query(cmd.as_str()).fetch_optional(conn).await?;
 
-        if let Ok(val) = query.try_get::<String, _>("cid") {
-            let available_cid = u64::from_str(&val)?;
-            Ok(Some(available_cid))
-        } else {
-            Ok(None)
+        match query {
+            Some(val) => {
+                if let Ok(val) = val.try_get::<String, _>("cid") {
+                    let available_cid = u64::from_str(&val)?;
+                    return Ok(Some(available_cid))
+                }
+            }
+
+            _ => {}
         }
+
+        Ok(None)
     }
 
     async fn username_exists(&self, username: &str) -> Result<bool, AccountError> {
@@ -415,21 +421,29 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
         let ref conn = self.get_conn().await?;
         let mut tx = conn.begin().await?;
-        let row: AnyRow = sqlx::query(self.format("SELECT username FROM peers WHERE peer_cid = ? AND cid = ?").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).fetch_one(tx.deref_mut()).await?;
-        let peer_username: String = row.try_get("username")?;
-        let _query = sqlx::query(self.format("DELETE FROM peers WHERE peer_cid = ? AND cid = ?").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).execute(tx.deref_mut()).await?;
-        tx.commit().await?;
+        let row: Option<AnyRow> = sqlx::query(self.format("SELECT username FROM peers WHERE peer_cid = ? AND cid = ?").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).fetch_optional(tx.deref_mut()).await?;
 
-        Ok(Some(MutualPeer { cid: peer_cid, parent_icid: HYPERLAN_IDX, username: Some(peer_username) }))
+        if let Some(row) = row {
+            let peer_username: String = row.try_get("username")?;
+            let _query = sqlx::query(self.format("DELETE FROM peers WHERE peer_cid = ? AND cid = ?").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).execute(tx.deref_mut()).await?;
+            tx.commit().await?;
+            Ok(Some(MutualPeer { cid: peer_cid, parent_icid: HYPERLAN_IDX, username: Some(peer_username) }))
+        } else {
+            Ok(None)
+        }
     }
 
     // In the server, we search the cnacs table
     async fn get_fcm_keys_for_as_server(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError> {
         if self.hyperlan_peer_exists(implicated_cid, peer_cid).await? {
             let ref conn = self.get_conn().await?;
-            let query: AnyRow = sqlx::query(self.format("SELECT fcm_addr, fcm_api_key FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(peer_cid.to_string()).fetch_one(conn).await?;
+            let query: Option<AnyRow> = sqlx::query(self.format("SELECT fcm_addr, fcm_api_key FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(peer_cid.to_string()).fetch_optional(conn).await?;
 
-            Ok(self.maybe_get_fcm_keys(query))
+            if let Some(query) = query {
+                Ok(self.maybe_get_fcm_keys(query))
+            } else {
+                Ok(None)
+            }
         } else {
             Err(AccountError::Generic("Clients not mutually-registered".to_string()))
         }
@@ -450,12 +464,17 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn get_client_metadata(&self, implicated_cid: u64) -> Result<Option<CNACMetadata>, AccountError> {
         let ref conn = self.get_conn().await?;
         // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, fcm_addr TEXT, fcm_api_key TEXT, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
-        let query: AnyRow = sqlx::query(self.format("SELECT is_personal, username, full_name, creation_date FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).fetch_one(conn).await?;
-        let is_personal = self.get_bool(&query, "is_personal")?;
-        let username = query.try_get("username")?;
-        let full_name = query.try_get("full_name")?;
-        let creation_date = query.try_get("creation_date")?;
-        Ok(Some(CNACMetadata { cid: implicated_cid, is_personal, username, full_name, creation_date }))
+        let query: Option<AnyRow> = sqlx::query(self.format("SELECT is_personal, username, full_name, creation_date FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).fetch_optional(conn).await?;
+
+        if let Some(query) = query {
+            let is_personal = self.get_bool(&query, "is_personal")?;
+            let username = query.try_get("username")?;
+            let full_name = query.try_get("full_name")?;
+            let creation_date = query.try_get("creation_date")?;
+            Ok(Some(CNACMetadata { cid: implicated_cid, is_personal, username, full_name, creation_date }))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_clients_metadata(&self, limit: Option<i32>) -> Result<Vec<CNACMetadata>, AccountError> {
@@ -482,15 +501,20 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_hyperlan_peer_by_cid(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
         let ref conn = self.get_conn().await?;
-        let query: AnyRow = sqlx::query(self.format("SELECT username FROM peers WHERE cid = ? AND peer_cid = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).bind(peer_cid.to_string()).fetch_one(conn).await?;
-        match query.try_get::<String, _>("username") {
-            Ok(username) => {
-                Ok(Some(MutualPeer { username: Some(username), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
-            }
+        let query: Option<AnyRow> = sqlx::query(self.format("SELECT username FROM peers WHERE cid = ? AND peer_cid = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).bind(peer_cid.to_string()).fetch_optional(conn).await?;
 
-            _ => {
-                Ok(None)
+        if let Some(query) = query {
+            match query.try_get::<String, _>("username") {
+                Ok(username) => {
+                    Ok(Some(MutualPeer { username: Some(username), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
+                }
+
+                _ => {
+                    Ok(None)
+                }
             }
+        } else {
+            Ok(None)
         }
     }
 
@@ -574,16 +598,21 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError> {
         let ref conn = self.get_conn().await?;
-        let query: AnyRow = sqlx::query(self.format("SELECT peer_cid FROM peers WHERE cid = ? AND username = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).bind(username).fetch_one(conn).await?;
-        match query.try_get::<String, _>("peer_cid") {
-            Ok(username) => {
-                let peer_cid = u64::from_str(username.as_str())?;
-                Ok(Some(MutualPeer { username: Some(username.to_string()), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
-            }
+        let query: Option<AnyRow> = sqlx::query(self.format("SELECT peer_cid FROM peers WHERE cid = ? AND username = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).bind(username).fetch_optional(conn).await?;
 
-            _ => {
-                Ok(None)
+        if let Some(query) = query {
+            match query.try_get::<String, _>("peer_cid") {
+                Ok(username) => {
+                    let peer_cid = u64::from_str(username.as_str())?;
+                    Ok(Some(MutualPeer { username: Some(username.to_string()), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
+                }
+
+                _ => {
+                    Ok(None)
+                }
             }
+        } else {
+            Ok(None)
         }
     }
 
@@ -729,13 +758,14 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
         Ok(opts.connect(&self.url).await?)
     }
 
-    fn row_to_cnac(&self, query: Option<AnyRow>, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
+    fn row_to_cnac(&self, query: Option<AnyRow>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         if let Some(row) = query {
             let bin: String = row.try_get("bin")?;
             log::info!("[CNAC-Load] Base64 len: {} | sample: {:?} -> {:?}", bin.len(), &bin.as_str()[..10], &bin.as_str()[(bin.len() - 10)..]);
             let bin = base64::decode(bin)?;
             let cnac_inner = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_owned_vector(bin)?;
-            Ok(Some(ClientNetworkAccount::load_safe(cnac_inner, None, Some(persistence_handler.clone()))?))
+            let pers = self.local_nac.as_ref().unwrap().persistence_handler().unwrap();
+            Ok(Some(ClientNetworkAccount::load_safe(cnac_inner, None, Some(pers))?))
         } else {
             Ok(None)
         }

@@ -20,6 +20,7 @@ mod tests {
     use rstest::{rstest, fixture};
     use hyxe_user::misc::AccountError;
     use std::sync::Arc;
+    use hyxe_user::prelude::MutualPeer;
 
     static TEST_MUTEX: Mutex<()> = Mutex::const_new(());
 
@@ -29,7 +30,7 @@ mod tests {
         client_acc_mgr: AccountManager,
         #[allow(dead_code)]
         // hold the tcp listeners for the duration of the test to ensure no re-binding during parallel tests
-        tcp_listeners: Arc<(TcpListener, TcpListener)>
+        tcp_listeners: Arc<Mutex<Vec<TcpListener>>>
     }
 
     impl TestContainer {
@@ -42,7 +43,7 @@ mod tests {
             Self {
                 server_acc_mgr,
                 client_acc_mgr,
-                tcp_listeners: Arc::new((server_bind, client_bind))
+                tcp_listeners: Arc::new(Mutex::new(vec![server_bind, client_bind]))
             }
         }
 
@@ -54,6 +55,28 @@ mod tests {
             let client_vers = self.client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), client_nac, None).await.unwrap();
 
             (client_vers, server_vers)
+        }
+
+        pub async fn create_peer_cnac(&self, username: &str, password: &str, full_name: &str, peer_backend: BackendType) -> (ClientNetworkAccount, TestContainer) {
+            // we assume same server node
+            let server_acc_mgr = self.server_acc_mgr.clone();
+            let client_bind = TcpListener::bind((IpAddr::from_str("127.0.0.1").unwrap(), 0)).await.unwrap();
+            let client_acc_mgr = acc_mgr(client_bind.local_addr().unwrap(), peer_backend).await;
+
+            self.tcp_listeners.lock().await.push(client_bind);
+            let client_nac = client_acc_mgr.get_local_nac().clone();
+            let cid = random::<u64>();
+            let (client_hr, server_hr) = gen(cid, 0, None);
+
+            let _server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(cid, client_nac.clone(), ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), server_hr, None).await.unwrap();
+            let client_vers = client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), client_nac, None).await.unwrap();
+            let client_test_container = TestContainer {
+                server_acc_mgr,
+                client_acc_mgr,
+                tcp_listeners: self.tcp_listeners.clone()
+            };
+
+            (client_vers, client_test_container)
         }
 
         async fn deinit(self) {
@@ -135,19 +158,32 @@ mod tests {
         test_harness(|_, _, _| async move { Ok(()) }).await
     }
 
+    const USERNAME: &'static str = "nologik";
+    const PASSWORD: &'static str = "password";
+    const FULL_NAME: &'static str = "Sir John Doe";
+
+    lazy_static::lazy_static! {
+        pub static ref PEERS: Vec<(String, String, String)> = {
+            ["alpha", "beta", "charlie", "echo", "delta", "epsilon", "foxtrot"]
+            .iter().map(|base| (format!("{}.username", base), format!("{}.password", base), format!("{}.full_name", base)))
+            .collect()
+        };
+    }
+
     #[tokio::test]
     async fn test_cnac_creation() -> Result<(), AccountError> {
         test_harness(|container, _, _| async move {
-            let (client, server) = container.create_cnac("nologik", "password", "Thomas P Braun").await;
+            let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let lock_server = server.write();
             let lock_client = client.write();
 
             assert_eq!(lock_server.is_local_personal, false);
             assert_eq!(lock_client.is_local_personal, true);
-            assert_eq!(lock_client.auth_store.username(), "nologik");
-            assert_eq!(lock_server.auth_store.username(), "nologik");
-            assert_eq!(lock_client.auth_store.full_name(), "Thomas P Braun");
-            assert_eq!(lock_server.auth_store.full_name(), "Thomas P Braun");
+            assert_eq!(lock_client.auth_store.username(), USERNAME);
+            assert_eq!(lock_server.auth_store.username(), USERNAME);
+            assert_eq!(lock_client.auth_store.full_name(), FULL_NAME);
+            assert_eq!(lock_server.auth_store.full_name(), FULL_NAME);
+            assert_eq!(lock_server.cid, lock_server.cid);
             Ok(())
         }).await
     }
@@ -155,16 +191,299 @@ mod tests {
     #[tokio::test]
     async fn test_byte_map() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
-            let (client, server) = container.create_cnac("nologik", "password", "Thomas P Braun").await;
+            let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let dummy = Vec::from("Hello, world!");
             assert!(pers_cl.store_byte_map_value(client.get_cid(), 0821, "thekey", dummy.clone()).await.unwrap().is_none());
             assert_eq!(pers_cl.get_byte_map_value(client.get_cid(), 0821, "thekey").await.unwrap().unwrap(), dummy.clone());
             assert_eq!(pers_cl.get_byte_map_values_by_needle(client.get_cid(), 0821, "the").await.unwrap().remove("thekey").unwrap(), dummy.clone());
             assert_eq!(pers_cl.remove_byte_map_value(client.get_cid(), 0821, "thekey").await.unwrap().unwrap(), dummy.clone());
             assert!(pers_cl.remove_byte_map_value(client.get_cid(), 0821, "thekey").await.unwrap().is_none());
+
+            assert!(pers_se.store_byte_map_value(server.get_cid(), 0821, "helloworld", dummy.clone()).await.unwrap().is_none());
+            assert_eq!(pers_se.get_byte_map_value(server.get_cid(), 0821, "helloworld").await.unwrap().unwrap(), dummy.clone());
+            assert_eq!(pers_se.get_byte_map_values_by_needle(server.get_cid(), 0821, "world").await.unwrap().remove("helloworld").unwrap(), dummy.clone());
+            assert_eq!(pers_se.remove_byte_map_value(server.get_cid(), 0821, "helloworld").await.unwrap().unwrap(), dummy.clone());
+            assert!(pers_se.remove_byte_map_value(server.get_cid(), 0821, "helloworld").await.unwrap().is_none());
             Ok(())
         }).await
     }
+
+    #[tokio::test]
+    async fn test_serialization_of_cnac() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            let cl2 = pers_cl.get_client_by_username(USERNAME).await?.unwrap();
+            let se2 = pers_se.get_client_by_username(USERNAME).await?.unwrap();
+            assert_eq!(client.get_cid(), cl2.get_cid());
+            assert_eq!(server.get_cid(), se2.get_cid());
+            let lock_server = se2.write();
+            let lock_client = cl2.write();
+
+            assert_eq!(lock_server.is_local_personal, false);
+            assert_eq!(lock_client.is_local_personal, true);
+            assert_eq!(lock_client.auth_store.username(), USERNAME);
+            assert_eq!(lock_server.auth_store.username(), USERNAME);
+            assert_eq!(lock_client.auth_store.full_name(), FULL_NAME);
+            assert_eq!(lock_server.auth_store.full_name(), FULL_NAME);
+            assert_eq!(lock_server.cid, lock_server.cid);
+            Ok(())
+        }).await
+    }
+
+    #[tokio::test]
+    async fn test_delete_cnac_by_cid() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            pers_cl.delete_cnac_by_cid(client.get_cid()).await?;
+            pers_se.delete_cnac_by_cid(server.get_cid()).await?;
+
+            assert!(pers_cl.get_cnac_by_cid(client.get_cid()).await?.is_none());
+            assert!(pers_se.get_cnac_by_cid(server.get_cid()).await?.is_none());
+            Ok(())
+        }).await
+    }
+
+    #[tokio::test]
+    async fn test_register_p2p() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            let peer = PEERS.get(0).unwrap();
+            let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+            let ref peer_pers = peer_container.client_acc_mgr.get_persistence_handler().clone();
+            register_peers(&pers_cl,
+                           client.get_cid(),
+                           USERNAME,
+                           peer_pers,
+            peer_cnac.get_cid(),
+                peer.1.as_str(),
+                &pers_se
+            ).await;
+
+            assert_eq!(peer_pers.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                parent_icid: 0,
+                cid: client.get_cid(),
+                username: Some(USERNAME.to_string())
+            });
+
+            assert_eq!(pers_cl.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                parent_icid: 0,
+                cid: peer_cnac.get_cid(),
+                username: Some(peer.1.to_string())
+            });
+
+            assert_eq!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                parent_icid: 0,
+                cid: peer_cnac.get_cid(),
+                username: Some(peer.1.to_string())
+            });
+
+            assert_eq!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                parent_icid: 0,
+                cid: client.get_cid(),
+                username: Some(USERNAME.to_string())
+            });
+
+            peer_container.client_acc_mgr.purge_home_directory().await?;
+            Ok(())
+        }).await
+    }
+
+    #[tokio::test]
+    async fn test_deregister_p2p() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            let peer = PEERS.get(0).unwrap();
+            let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+            let ref peer_pers = peer_container.client_acc_mgr.get_persistence_handler().clone();
+            register_peers(&pers_cl,
+                           client.get_cid(),
+                           USERNAME,
+                           peer_pers,
+                           peer_cnac.get_cid(),
+                           peer.1.as_str(),
+                           &pers_se
+            ).await;
+
+            deregister_peers(&pers_cl,
+                           client.get_cid(),
+                           peer_pers,
+                           peer_cnac.get_cid(),
+                           &pers_se
+            ).await;
+
+            assert!(peer_pers.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().is_none());
+            assert!(pers_cl.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().is_none());
+            assert!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().is_none());
+            assert!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().is_none());
+
+
+            peer_container.client_acc_mgr.purge_home_directory().await?;
+            Ok(())
+        }).await
+    }
+
+    #[tokio::test]
+    async fn test_deregister_client_from_server() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            let peer = PEERS.get(0).unwrap();
+            let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+            let ref peer_pers = peer_container.client_acc_mgr.get_persistence_handler().clone();
+            register_peers(&pers_cl,
+                           client.get_cid(),
+                           USERNAME,
+                           peer_pers,
+                           peer_cnac.get_cid(),
+                           peer.1.as_str(),
+                           &pers_se
+            ).await;
+
+            deregister_client_from_server(&pers_cl, client.get_cid(), &pers_se).await;
+
+            assert!(pers_cl.get_cnac_by_cid(client.get_cid()).await.unwrap().is_none());
+            assert!(pers_se.get_cnac_by_cid(client.get_cid()).await.unwrap().is_none());
+            assert!(pers_se.get_cnac_by_cid(peer_cnac.get_cid()).await.unwrap().is_some());
+            assert!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().is_none());
+
+            peer_container.client_acc_mgr.purge_home_directory().await?;
+            Ok(())
+        }).await
+    }
+
+    #[tokio::test]
+    async fn test_register_p2p_many() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            for peer in PEERS.iter() {
+                let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+                let ref peer_pers = peer_container.client_acc_mgr.get_persistence_handler().clone();
+                register_peers(&pers_cl,
+                               client.get_cid(),
+                               USERNAME,
+                               peer_pers,
+                               peer_cnac.get_cid(),
+                               peer.1.as_str(),
+                               &pers_se
+                ).await;
+
+                assert_eq!(peer_pers.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: client.get_cid(),
+                    username: Some(USERNAME.to_string())
+                });
+
+                assert_eq!(pers_cl.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: peer_cnac.get_cid(),
+                    username: Some(peer.1.to_string())
+                });
+
+                assert_eq!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: peer_cnac.get_cid(),
+                    username: Some(peer.1.to_string())
+                });
+
+                assert_eq!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: client.get_cid(),
+                    username: Some(USERNAME.to_string())
+                });
+
+                peer_container.client_acc_mgr.purge_home_directory().await?;
+            }
+
+            Ok(())
+        }).await
+    }
+
+    #[tokio::test]
+    async fn test_register_p2p_many_list() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            let mut peer_containers = vec![];
+
+            for peer in PEERS.iter() {
+                let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+                let ref peer_pers = peer_container.client_acc_mgr.get_persistence_handler().clone();
+                register_peers(&pers_cl,
+                               client.get_cid(),
+                               USERNAME,
+                               peer_pers,
+                               peer_cnac.get_cid(),
+                               peer.1.as_str(),
+                               &pers_se
+                ).await;
+
+                assert_eq!(peer_pers.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: client.get_cid(),
+                    username: Some(USERNAME.to_string())
+                });
+
+                assert_eq!(pers_cl.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: peer_cnac.get_cid(),
+                    username: Some(peer.1.to_string())
+                });
+
+                assert_eq!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: peer_cnac.get_cid(),
+                    username: Some(peer.1.to_string())
+                });
+
+                assert_eq!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: client.get_cid(),
+                    username: Some(USERNAME.to_string())
+                });
+
+                peer_containers.push(peer_container);
+            }
+
+            let client_peers = pers_cl.get_hyperlan_peer_list(client.get_cid()).await.unwrap().unwrap();
+            assert_eq!(client_peers.len(), PEERS.len());
+
+            for peer_container in peer_containers {
+                peer_container.client_acc_mgr.purge_home_directory().await?;
+            }
+
+            Ok(())
+        }).await
+    }
+
+    async fn register_peers(peer0_pers: &PersistenceHandler, peer0_cid: u64, peer0_username: &str, peer1_pers: &PersistenceHandler, peer1_cid: u64, peer1_username: &str, server_pers: &PersistenceHandler) {
+        peer0_pers.register_p2p_as_client(peer0_cid, peer1_cid, peer1_username.to_string()).await.unwrap();
+        peer1_pers.register_p2p_as_client(peer1_cid, peer0_cid, peer0_username.to_string()).await.unwrap();
+        server_pers.register_p2p_as_server(peer0_cid, peer1_cid).await.unwrap();
+    }
+
+    async fn deregister_peers(peer0_pers: &PersistenceHandler, peer0_cid: u64, peer1_pers: &PersistenceHandler, peer1_cid: u64, server_pers: &PersistenceHandler) {
+        peer0_pers.deregister_p2p_as_client(peer0_cid, peer1_cid).await.unwrap();
+        peer1_pers.deregister_p2p_as_client(peer1_cid, peer0_cid).await.unwrap();
+        server_pers.deregister_p2p_as_server(peer0_cid, peer1_cid).await.unwrap();
+    }
+
+    async fn deregister_client_from_server(pers_cl: &PersistenceHandler, client_cid: u64, server_pers: &PersistenceHandler) {
+        pers_cl.delete_cnac_by_cid(client_cid).await.unwrap();
+        server_pers.delete_cnac_by_cid(client_cid).await.unwrap();
+    }
+
+    /*
+    #[tokio::test]
+    async fn test_register_p2p() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            let peer = container.server_acc_mgr.
+            pers_cl.delete_cnac_by_cid(client.get_cid()).await?;
+            pers_se.delete_cnac_by_cid(server.get_cid()).await?;
+
+            assert!(pers_cl.get_cnac_by_cid(client.get_cid()).await?.is_none());
+            assert!(pers_se.get_cnac_by_cid(server.get_cid()).await?.is_none());
+            Ok(())
+        }).await
+    }*/
 
     /*
     #[tokio::test]
