@@ -29,7 +29,7 @@ jobs:
           root-password: 'password'
       - name: Add mysql databases
         if: startsWith(matrix.os, 'ubuntu')
-        run: mysql -uroot -h127.0.0.1 -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
+        run: mysql -uroot -h127.0.0.1 -p password -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
       - name: Setup Postgres database (1)
         if: startsWith(matrix.os, 'ubuntu')
         uses: Daniel-Marynicz/postgresql-action@master
