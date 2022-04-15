@@ -29,6 +29,7 @@ jobs:
           mysql database: 'hyxewave'
           mysql root password: password
       - name: add mysql database
+        if: startsWith(matrix.os, 'ubuntu')
         run: mysql -u root -p password -e "CREATE DATABASE hyxewave2;"
       - name: Setup Postgres database (1)
         uses: Daniel-Marynicz/postgresql-action@master
