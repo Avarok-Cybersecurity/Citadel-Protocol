@@ -137,6 +137,9 @@ pub mod tests {
         setup_log();
         deadlock_detector();
 
+        let port = portpicker::pick_unused_port().unwrap();
+        let addr = SocketAddr::new(addr.ip(), port);
+
         if !is_ipv6_enabled() && addr.is_ipv6() {
             log::info!("Skipping ipv6 test since ipv6 is not enabled locally");
             return Ok(())
@@ -144,9 +147,8 @@ pub mod tests {
 
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
-            let mut rng = rand::rngs::StdRng::from_entropy();
-            // give sleep to give time for conns to "respirate"
-            tokio::time::sleep(Duration::from_millis(rng.gen_range(10, 50))).await;
+            // give sleep to give time for conns to drop
+            tokio::time::sleep(Duration::from_millis(100)).await;
             log::info!("Testing proto {:?}", &proto);
             let ref cnt = AtomicUsize::new(0);
 
