@@ -228,7 +228,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
                                                     ref state_container: StateContainer, security_level: SecurityLevel, ref app: NetworkEndpoint, quic_endpoint: Endpoint, encrypted_config_container: EncryptedConfigContainer, client_config: Arc<rustls::ClientConfig>) -> std::io::Result<()> {
 
     let mut other_side_secure_connection = false;
-    let is_initiator = app.is_initiator();
+    let _is_initiator = app.is_initiator();
 
     let process = async move {
         tokio::time::sleep_until(sync_time).await;
