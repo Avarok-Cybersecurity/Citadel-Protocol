@@ -869,7 +869,6 @@ pub(crate) mod pre_connect {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{HdpHeader, packet_flags};
     use crate::hdp::hdp_packet::packet_flags::payload_identifiers;
-    use crate::hdp::hdp_packet_processor::includes::SocketAddr;
     use hyxe_crypt::toolset::StaticAuxRatchet;
     use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
@@ -891,11 +890,10 @@ pub(crate) mod pre_connect {
         pub connect_mode: ConnectMode,
         pub nat_type: NatType,
         pub udp_mode: UdpMode,
-        pub peer_listener_internal_addr: SocketAddr,
         pub keep_alive_timeout: i64
     }
 
-    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, nat_type: NatType, udp_mode: UdpMode, peer_listener_internal_addr: SocketAddr, timestamp: i64, keep_alive_timeout: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol, connect_mode: ConnectMode) -> BytesMut {
+    pub(crate) fn craft_syn(static_aux_hr: &StaticAuxRatchet, transfer: AliceToBobTransfer<'_>, nat_type: NatType, udp_mode: UdpMode, timestamp: i64, keep_alive_timeout: i64, security_level: SecurityLevel, session_security_settings: SessionSecuritySettings, peer_only_connect_protocol: ConnectProtocol, connect_mode: ConnectMode) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_PRE_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_preconnect::SYN,
@@ -913,7 +911,7 @@ pub(crate) mod pre_connect {
         let mut packet  = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         header.inscribe_into(&mut packet);
 
-        SynPacket { transfer, session_security_settings, peer_only_connect_protocol, connect_mode, udp_mode, keep_alive_timeout, nat_type, peer_listener_internal_addr }.serialize_into_buf(&mut packet).unwrap();
+        SynPacket { transfer, session_security_settings, peer_only_connect_protocol, connect_mode, udp_mode, keep_alive_timeout, nat_type }.serialize_into_buf(&mut packet).unwrap();
 
         static_aux_hr.protect_message_packet(Some(security_level),HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
         packet

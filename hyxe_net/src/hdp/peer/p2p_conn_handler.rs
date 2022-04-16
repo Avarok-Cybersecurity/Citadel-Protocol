@@ -7,7 +7,7 @@ use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::hdp::hdp_packet_processor::includes::{Duration, hdp_packet_crafter, Instant, SocketAddr};
 use crate::hdp::hdp_node::{HdpServer, HdpServerResult, Ticket};
-use crate::hdp::hdp_session::{HdpSession, SessionState};
+use crate::hdp::hdp_session::HdpSession;
 use crate::hdp::misc;
 use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
 use crate::hdp::outbound_sender::{OutboundPrimaryStreamReceiver, unbounded, UnboundedSender};
@@ -16,18 +16,15 @@ use crate::hdp::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use crate::hdp::misc::dual_cell::DualCell;
 use crate::hdp::state_container::StateContainer;
-use hyxe_wire::exports::Endpoint;
 use crate::hdp::misc::udp_internal_interface::{QuicUdpSocketConnector, UdpSplittableTypes};
-use futures::TryFutureExt;
 use hyxe_wire::udp_traversal::linear::encrypted_config_container::EncryptedConfigContainer;
 use std::fmt::Debug;
 use hyxe_user::re_imports::__private::Formatter;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use hyxe_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
-use netbeam::sync::operations::net_select_ok::NetSelectOkResult;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use hyxe_wire::exports::tokio_rustls::rustls;
+use crate::prelude::UnderlyingProtocol;
 
 pub struct DirectP2PRemote {
     // immediately causes connection to end
@@ -66,7 +63,13 @@ impl Drop for DirectP2PRemote {
     }
 }
 
-pub async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session: HdpSession) -> Result<(), NetworkError> {
+async fn setup_listener_non_initiator(local_bind_addr: SocketAddr, remote_addr: SocketAddr, session: HdpSession) -> Result<(), NetworkError> {
+    // TODO: use custom self-signed
+    let (listener, _) = HdpServer::create_listen_socket(UnderlyingProtocol::new_quic_self_signed(), None, None, local_bind_addr)?;
+    p2p_conn_handler(listener, session, remote_addr).await
+}
+
+async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session: HdpSession, necessary_remote_addr: SocketAddr) -> Result<(), NetworkError> {
     let kernel_tx = session.kernel_tx.clone();
     let implicated_cid = session.implicated_cid.clone();
     let ref weak = session.as_weak();
@@ -75,18 +78,19 @@ pub async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session:
 
     log::info!("[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
 
+    // loop until we get the right peer
     loop {
         match p2p_listener.next().await {
             Some(Ok((p2p_stream, _))) => {
                 let session = HdpSession::upgrade_weak(weak).ok_or(NetworkError::InternalError("HdpSession dropped"))?;
-                if session.state.load(Ordering::Relaxed) != SessionState::Connected {
-                    log::warn!("Blocked an eager p2p connection (session state not yet connected)");
+
+                if p2p_stream.peer_addr()?.ip() != necessary_remote_addr.ip() {
+                    log::warn!("Blocked p2p connection from {:?} since IP does not match {:?}", p2p_stream, necessary_remote_addr);
                     continue;
                 }
 
-                if let Err(err) = handle_p2p_stream(p2p_stream,implicated_cid.clone(), session.clone(), kernel_tx.clone(), true) {
-                    log::error!("[P2P-stream] Unable to handle P2P stream: {:?}", err);
-                }
+                let _ = handle_p2p_stream(p2p_stream,implicated_cid, session, kernel_tx, true)?;
+                return Ok(())
             }
 
             Some(Err(err)) => {
@@ -181,23 +185,15 @@ fn handle_p2p_stream(mut p2p_stream: GenericNetworkStream, implicated_cid: DualC
             res2 = stopper_future => res2
         };
 
-        if let Err(err) = res {
+        if let Err(err) = &res {
             log::info!("[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
         }
 
         log::info!("[P2P-stream] Dropping tri-joined future");
-        Ok(())
+        res
     };
 
-    sess.p2p_session_tx.as_ref().unwrap().unbounded_send(Box::pin(future)).map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))?;
-
-    //let _ = spawn!(future);
-
-    // send the packet, if necessary
-    /*
-    if let Some(zero) = packet_opt {
-        p2p_primary_stream_tx.unbounded_send(zero).map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))?;
-    }*/
+    let _ = spawn!(future);
 
     Ok((p2p_primary_stream_tx, post_conn_loaded_rx))
 }
@@ -225,73 +221,61 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 
 /// Both sides need to begin this process at `sync_time`
 pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, ref session: HdpSession, peer_nat_info: PeerNatInfo, implicated_cid: DualCell<Option<u64>>, ref kernel_tx: UnboundedSender<HdpServerResult>, channel_signal: HdpServerResult, sync_time: Instant,
-                                                    ref state_container: StateContainer, security_level: SecurityLevel, ref app: NetworkEndpoint, quic_endpoint: Endpoint, encrypted_config_container: EncryptedConfigContainer, client_config: Arc<rustls::ClientConfig>) -> std::io::Result<()> {
+                                                    ref state_container: StateContainer, security_level: SecurityLevel, ref app: NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer, client_config: Arc<rustls::ClientConfig>) -> std::io::Result<()> {
 
-    let mut other_side_secure_connection = false;
-    let _is_initiator = app.is_initiator();
+    let is_initiator = app.is_initiator();
 
     let process = async move {
         tokio::time::sleep_until(sync_time).await;
 
-        let task_inner = async move {
-            let hole_punched_socket = app.begin_udp_hole_punch(encrypted_config_container).await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
-            let remote_connect_addr = hole_punched_socket.addr.receive_address;
-            let addr = hole_punched_socket.addr;
+
+        let hole_punched_socket = app.begin_udp_hole_punch(encrypted_config_container).await.map_err(generic_error)?;
+        let remote_connect_addr = hole_punched_socket.addr.receive_address;
+        let addr = hole_punched_socket.addr;
+        let local_addr = hole_punched_socket.socket.local_addr()?;
+        log::info!("~!@ P2P UDP Hole-punch finished @!~ | is initiator: {}", is_initiator);
+
+        app.sync().await.map_err(generic_error)?;
+        // if local is NOT initiator, we setup a listener at the socket
+        // if local IS the initiator, then start connecting. It should work
+        if is_initiator {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let socket = hole_punched_socket.socket;
+            let quic_endpoint = hyxe_wire::quic::QuicClient::new_with_config(socket, client_config.clone()).map_err(generic_error)?;
+            let res = HdpServer::quic_p2p_connect_defaults(quic_endpoint.endpoint, None, peer_nat_info.tls_domain, remote_connect_addr, client_config).await
+                .and_then(move |r| Ok((r, addr))).map_err(generic_error);
+
+            log::info!("~!@ P2P UDP Hole-punch + QUIC finished. Res: {} @!~", res.is_ok());
+            let (mut p2p_stream, hole_punched_addr) = res.map_err(generic_error)?;
+            let expected_peer_cid = peer_connection_type.get_original_target_cid();
+            let v_conn = peer_connection_type.as_virtual_connection();
+
+            log::info!("[P2P-stream] SUCCESS Hole Punching. Setting up direct p2p session ...");
+            let peer_endpoint_addr = p2p_stream.peer_addr()?;
+            let local_addr = p2p_stream.local_addr()?;
+            let quic_conn = p2p_stream.take_quic_connection().ok_or_else(|| generic_error("P2P Stream did not have QUIC connection loaded"))?;
+            let udp_conn = QuicUdpSocketConnector::new(quic_conn, local_addr);
+
+            handle_p2p_stream(p2p_stream, implicated_cid, session.clone(), kernel_tx.clone(), false)
+                .and_then(move |(p2p_outbound_stream, post_conn_loaded_rx)| {
+                    // This node obtained a stream. However, this doesn't mean we get to keep it.
+                    // if the other node didn't get its own connection, then this node keeps its connection.
+                    // if the other node did get its own connection, then that means both this node and the other
+                    // node managed to traverse the NAT. Since we only want one TCP connection, we need to determine
+                    // which node keeps its connection. In that case, the side that is the "initiator" gets to keep
+                    // its connection
+                    log::warn!("[P2P-stream/client] Success connecting to {:?}", peer_endpoint_addr);
+
+                    HdpSession::udp_socket_loader(session.clone(), v_conn, UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, Some(post_conn_loaded_rx.unwrap()));
+                    let success_signal = PeerSignal::Kem(peer_connection_type, KeyExchangeProcess::HolePunchEstablished);
+                    send_hole_punch_packet(session, success_signal, state_container, ticket, expected_peer_cid, Some(&p2p_outbound_stream), security_level)
+                })
+        } else {
+            log::info!("Non-initiator will begin listening immediately");
             std::mem::drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
-            log::info!("~!@ P2P UDP Hole-punch finished @!~");
-            Ok(HdpServer::create_p2p_quic_connect_socket(quic_endpoint, remote_connect_addr, peer_nat_info.tls_domain, None, client_config)
-                .and_then(move |r| async move { Ok((r, addr)) }).map_err(anyhow::Error::new))
-        };
-
-
-        let task = app.net_select_ok(task_inner).map_err(|err| generic_error(err));
-
-        // now, wait for the first successful future
-        let res: NetSelectOkResult<_> = tokio::time::timeout(Duration::from_millis(3000), task).await.map_err(|_| generic_error("Deadline for TCP hole puncher elapsed"))??;
-        log::info!("~!@ P2P UDP Hole-punch + QUIC finished. Res: {} @!~", res.result.is_some());
-        // TODO: handle global failure (implies TURN routing already)
-        let expected_peer_cid = peer_connection_type.get_original_target_cid();
-        let v_conn = peer_connection_type.as_virtual_connection();
-
-        // only ONE will setup the connection. Even if the adjacent side was Ok, it will get overwritten
-        match res.result {
-            Some(future) => {
-                let (mut p2p_stream, hole_punched_addr) = future.await.map_err(|err| generic_error(err.to_string()))?;
-                log::info!("[P2P-stream] SUCCESS Hole Punching. Setting up direct p2p session ...");
-                let peer_endpoint_addr = p2p_stream.peer_addr()?;
-                let local_addr = p2p_stream.local_addr()?;
-                let quic_conn = p2p_stream.take_quic_connection().ok_or_else(|| generic_error("P2P Stream did not have QUIC connection loaded"))?;
-                let udp_conn = QuicUdpSocketConnector::new(quic_conn, local_addr);
-
-                handle_p2p_stream(p2p_stream, implicated_cid, session.clone(), kernel_tx.clone(), false)
-                    .and_then(move |(p2p_outbound_stream, post_conn_loaded_rx)| {
-                        // This node obtained a stream. However, this doesn't mean we get to keep it.
-                        // if the other node didn't get its own connection, then this node keeps its connection.
-                        // if the other node did get its own connection, then that means both this node and the other
-                        // node managed to traverse the NAT. Since we only want one TCP connection, we need to determine
-                        // which node keeps its connection. In that case, the side that is the "initiator" gets to keep
-                        // its connection
-                        log::warn!("[P2P-stream/client] Success connecting to {:?}", peer_endpoint_addr);
-
-                        HdpSession::udp_socket_loader(session.clone(), v_conn, UdpSplittableTypes::QUIC(udp_conn), hole_punched_addr, ticket, Some(post_conn_loaded_rx.unwrap()));
-                        let success_signal = PeerSignal::Kem(peer_connection_type, KeyExchangeProcess::HolePunchEstablished);
-                        send_hole_punch_packet(session, success_signal, state_container, ticket, expected_peer_cid, Some(&p2p_outbound_stream), security_level)
-                    })
-            }
-
-            None => {
-                // Since this node gets no stream, it doesn't matter if we're the initiator or not. We discard the connection,
-                // and alert the other side so that it may keep its connection (if established)
-                log::warn!("Hole-punching using this QUIC stream did not occur. Sending failure packet");
-                let fail_signal = PeerSignal::Kem(peer_connection_type, KeyExchangeProcess::HolePunchFailed);
-                send_hole_punch_packet(session, fail_signal, state_container, ticket, expected_peer_cid, None, security_level)
-                    .and_then(|_| Err(std::io::Error::new(std::io::ErrorKind::Other, if res.global_failure() {
-                        "could not hole punch"
-                    } else {
-                        other_side_secure_connection = true;
-                        "Other side secured connection"
-                    })))
-            }
+            setup_listener_non_initiator(local_addr, remote_connect_addr, session.clone())
+                .await
+                .map_err(|err|generic_error(format!("Non-initiator was unable to secure connection despite hole-punching success: {:?}", err)))
         }
     };
 
@@ -299,10 +283,10 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
         log::warn!("[Hole-punch/Err] {:?}", err);
     }
 
-    // in the case other side secured the connection, local will automatically get a channel via the p2p inbound processor
-    if !other_side_secure_connection {
-        kernel_tx.unbounded_send(channel_signal).map_err(|_| generic_error("Unable to send signal to kernel"))?;
-    }
+    log::info!("Sending channel to kernel");
+    // TODO: Early send IF NAT traversal determined not to be possible, or ...
+    // early send anyways, and, upgrade the p2p channel in the state container automatically
+    kernel_tx.unbounded_send(channel_signal).map_err(|_| generic_error("Unable to send signal to kernel"))?;
 
     Ok(())
 }

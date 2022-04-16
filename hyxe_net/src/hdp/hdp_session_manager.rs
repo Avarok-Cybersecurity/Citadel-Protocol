@@ -27,7 +27,7 @@ use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, Gr
 use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
 use crate::hdp::hdp_node::{ConnectMode, HdpServer, NodeRemote, HdpServerResult, Ticket};
 use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode};
-use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
+use crate::hdp::misc::net::GenericNetworkStream;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
@@ -127,10 +127,10 @@ impl HdpSessionManager {
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
     pub async fn initiate_connection(&self, local_node_type: NodeType, local_nat_type: NatType, init_mode: HdpSessionInitMode, ticket: Ticket, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, udp_mode: Option<UdpMode>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings, default_client_config: &Arc<ClientConfig>) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
-        let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
+        let (session_manager, new_session, peer_addr, primary_stream) = {
             let session_manager_clone = self.clone();
 
-            let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode, proposed_credentials, peer_layer) = {
+            let (remote, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode, proposed_credentials, peer_layer) = {
                 let (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, proposed_credentials, peer_layer) = {
                     let (peer_addr, cnac, proposed_credentials) = {
                         match &init_mode {
@@ -187,13 +187,11 @@ impl HdpSessionManager {
 
                 let peer_only_connect_mode = ConnectProtocol::Quic(listener_underlying_proto.maybe_get_identity());
 
-                // We must now create a TcpStream towards the peer
-                //let local_bind_addr = local_bind_addr_for_primary_stream.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?.next().unwrap() as SocketAddr;
-                // NOTE! From now own, we are using QUIC for p2p streams for NAT traversal reasons. No more TCP hole punching
-                let (p2p_listener, primary_stream) = HdpServer::create_session_transport_init(listener_underlying_proto.into_quic(), peer_addr, default_client_config).await
+                // create conn to peer
+                let primary_stream = HdpServer::create_session_transport_init(peer_addr, default_client_config).await
                     .map_err(|err| NetworkError::SocketError(err.to_string()))?;
                 let local_bind_addr = primary_stream.local_addr().map_err(|err| NetworkError::Generic(err.to_string()))?;
-                (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode, proposed_credentials, peer_layer)
+                (remote, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode, proposed_credentials, peer_layer)
             };
 
             //let peer_only_connect_mode = match listener_underlying_proto { UnderlyingProtocol::Tcp => ConnectProtocol::Tcp, UnderlyingProtocol::Tls(_, domain) => ConnectProtocol::Tls(domain) };
@@ -202,18 +200,18 @@ impl HdpSessionManager {
 
             inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
 
-            (session_manager_clone, new_session, peer_addr, p2p_listener, primary_stream)
+            (session_manager_clone, new_session, peer_addr, primary_stream)
         };
 
 
-        Ok(Box::pin(Self::execute_session_with_safe_shutdown(session_manager, new_session, peer_addr, Some(p2p_listener), primary_stream)))
+        Ok(Box::pin(Self::execute_session_with_safe_shutdown(session_manager, new_session, peer_addr, primary_stream)))
     }
 
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
     /// TODO: Make this code less hacky, and make the removal process cleaner. Use RAII on HdpSessionInner?
-    async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, p2p_listener: Option<GenericNetworkListener>, tcp_stream: GenericNetworkStream) -> Result<(), NetworkError> {
+    async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, tcp_stream: GenericNetworkStream) -> Result<(), NetworkError> {
         log::info!("Beginning pre-execution of session");
-        match new_session.execute(p2p_listener, tcp_stream, peer_addr).await {
+        match new_session.execute(tcp_stream, peer_addr).await {
             Ok(cid_opt) | Err((_, cid_opt)) => {
                 if let Some(cid) = cid_opt {
                     //log::info!("[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
@@ -354,7 +352,7 @@ impl HdpSessionManager {
 
         // Note: Must send TICKET on finish
         //self.insert_provisional_expiration(peer_addr, provisional_ticket);
-        let session = Self::execute_session_with_safe_shutdown(this_dc, new_session,peer_addr, None, primary_stream);
+        let session = Self::execute_session_with_safe_shutdown(this_dc, new_session,peer_addr, primary_stream);
 
         Ok(Box::pin(session))
     }
