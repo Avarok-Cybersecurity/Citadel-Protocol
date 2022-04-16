@@ -85,7 +85,7 @@ impl HdpSessionManager {
             clean_shutdown_tracker_tx,
             clean_shutdown_tracker: Some(clean_shutdown_tracker_rx),
             fcm_post_registrations: Default::default(),
-            hypernode_peer_layer: Default::default(),
+            hypernode_peer_layer: HyperNodePeerLayer::new(account_manager.get_persistence_handler().clone()),
             server_remote: None,
             local_node_type,
             sessions: HashMap::new(),
@@ -130,8 +130,8 @@ impl HdpSessionManager {
         let (session_manager, new_session, peer_addr, p2p_listener, primary_stream) = {
             let session_manager_clone = self.clone();
 
-            let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode, proposed_credentials) = {
-                let (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, proposed_credentials) = {
+            let (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode, proposed_credentials, peer_layer) = {
+                let (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, proposed_credentials, peer_layer) = {
                     let (peer_addr, cnac, proposed_credentials) = {
                         match &init_mode {
                             HdpSessionInitMode::Register(peer_addr, proposed_credentials) => (*peer_addr, None, proposed_credentials.clone()),
@@ -168,6 +168,7 @@ impl HdpSessionManager {
                     let kernel_tx = this.kernel_tx.clone();
                     let account_manager = this.account_manager.clone();
                     let tt = this.time_tracker.clone();
+                    let peer_layer = this.hypernode_peer_layer.clone();
 
 
                     if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
@@ -181,7 +182,7 @@ impl HdpSessionManager {
                         }
                     }
 
-                    (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, proposed_credentials)
+                    (remote, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, proposed_credentials, peer_layer)
                 };
 
                 let peer_only_connect_mode = ConnectProtocol::Quic(listener_underlying_proto.maybe_get_identity());
@@ -192,12 +193,12 @@ impl HdpSessionManager {
                 let (p2p_listener, primary_stream) = HdpServer::create_session_transport_init(listener_underlying_proto.into_quic(), peer_addr, default_client_config).await
                     .map_err(|err| NetworkError::SocketError(err.to_string()))?;
                 let local_bind_addr = primary_stream.local_addr().map_err(|err| NetworkError::Generic(err.to_string()))?;
-                (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode, proposed_credentials)
+                (remote, p2p_listener, primary_stream, local_bind_addr, kernel_tx, account_manager, tt, on_drop, peer_addr, cnac, peer_only_connect_mode, proposed_credentials, peer_layer)
             };
 
             //let peer_only_connect_mode = match listener_underlying_proto { UnderlyingProtocol::Tcp => ConnectProtocol::Tcp, UnderlyingProtocol::Tls(_, domain) => ConnectProtocol::Tls(domain) };
 
-            let (stopper, new_session) = HdpSession::new(init_mode, local_nat_type, peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, udp_mode.unwrap_or(UDP_MODE), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings, connect_mode, default_client_config.clone())?;
+            let (stopper, new_session) = HdpSession::new(init_mode, local_nat_type, peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, udp_mode.unwrap_or(UDP_MODE), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings, connect_mode, default_client_config.clone(), peer_layer)?;
 
             inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
 
@@ -229,6 +230,8 @@ impl HdpSessionManager {
         // the final step is to take all virtual conns inside the session, and remove them from other sessions
         let sess = new_session;
 
+        let pers = sess.account_manager.get_persistence_handler().clone();
+        let peer_layer = sess_mgr.hypernode_peer_layer.clone();
         let mut state_container = inner_mut_state!(sess.state_container);
 
         if let Some(cnac) = state_container.cnac.as_ref() {
@@ -243,10 +246,9 @@ impl HdpSessionManager {
 
             if cnac.passwordless() {
                 // delete
-                let pers = sess.account_manager.get_persistence_handler().clone();
                 let cnac = cnac.clone();
                 let task = async move {
-                    let _ = pers.delete_cnac(cnac);
+                    pers.delete_cnac(cnac).await
                 };
                 let _ = spawn!(task);
                 log::info!("Deleting passwordless CNAC ...");
@@ -260,7 +262,12 @@ impl HdpSessionManager {
             // if this is the case, ignore safe-shutdown of the session since no possible vconns
             // exist
             if let Some(implicated_cid) = sess.implicated_cid.get() {
-                sess_mgr.hypernode_peer_layer.on_session_shutdown(implicated_cid);
+                let task = async move {
+                    peer_layer.on_session_shutdown(implicated_cid).await
+                };
+
+                let _ = spawn!(task);
+
                 let timestamp = sess.time_tracker.get_global_time_ns();
                 let security_level = state_container.session_security_settings.clone().map(|r| r.security_level).unwrap_or(SecurityLevel::LOW);
 
@@ -325,6 +332,7 @@ impl HdpSessionManager {
         let on_drop = this.clean_shutdown_tracker_tx.clone();
         let remote = this.server_remote.clone().unwrap();
         let client_config = this.client_config.clone();
+        let peer_layer = this.hypernode_peer_layer.clone();
 
         if let Some((init_time, ..)) = this.provisional_connections.get(&peer_addr) {
             if init_time.elapsed() > DO_CONNECT_EXPIRE_TIME_MS {
@@ -340,7 +348,7 @@ impl HdpSessionManager {
         let provisional_ticket = Ticket(this.incoming_cxn_count as _);
         this.incoming_cxn_count += 1;
 
-        let (stopper, new_session) = HdpSession::new_incoming(on_drop, local_nat_type, remote, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket, client_config);
+        let (stopper, new_session) = HdpSession::new_incoming(on_drop, local_nat_type, remote, local_bind_addr, local_node_type, this.kernel_tx.clone(), self.clone(), this.account_manager.clone(), this.time_tracker.clone(), peer_addr.clone(), provisional_ticket, client_config, peer_layer);
         this.provisional_connections.insert(peer_addr.clone(), (Instant::now(), stopper, new_session.clone()));
         std::mem::drop(this);
 
@@ -585,61 +593,70 @@ impl HdpSessionManager {
 
     /// Removes the supplied peers from the group. Each peer that is successfully removed will receive a group disconnect signal
     /// This will additionally alert each remaining member
-    pub fn kick_from_message_group(&self, mode: GroupMemberAlterMode, implicated_cid: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, peers: Vec<u64>, security_level: SecurityLevel) -> bool {
-        let this = inner!(self);
-        match this.hypernode_peer_layer.remove_peers_from_message_group(key, peers) {
+    pub async fn kick_from_message_group(&self, mode: GroupMemberAlterMode, implicated_cid: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, peers: Vec<u64>, security_level: SecurityLevel) -> Result<bool, NetworkError> {
+        let peer_layer = {
+            inner!(self).hypernode_peer_layer.clone()
+        };
+
+        let mut to_broadcast_dc = vec![];
+        let mut to_broadcast_left = vec![];
+        let dc_signal = GroupBroadcast::Disconnected(key);
+
+        let left_signal = match peer_layer.remove_peers_from_message_group(key, peers) {
             Ok((peers_removed, peers_remaining)) => {
                 log::info!("Peers removed: {:?}", &peers_removed);
                 // We only notify the members when kicking, not leaving
-                if mode != GroupMemberAlterMode::Leave {
+                if mode == GroupMemberAlterMode::Kick {
                     // notify all the peers removed
-                    let signal = GroupBroadcast::Disconnected(key);
                     for peer in &peers_removed {
                         if *peer != implicated_cid {
-                            if let Err(err) = this.send_group_broadcast_signal_to(timestamp, ticket, *peer, false, signal.clone(), security_level) {
-                                log::warn!("Unable to send group broadcast signal from {} to {}: {}", key.cid, peer, err);
-                            }
+                            to_broadcast_dc.push(*peer);
                         }
                     }
                 }
 
-                let signal = GroupBroadcast::MemberStateChanged(key, MemberState::LeftGroup(peers_removed));
                 for peer in peers_remaining {
                     if peer != implicated_cid {
-                        if let Err(err) = this.send_group_broadcast_signal_to(timestamp, ticket, peer, false, signal.clone(), security_level) {
-                            log::warn!("Unable to send group broadcast signal from {} to {}: {}", key.cid, peer, err);
-                        }
+                        to_broadcast_left.push(peer);
                     }
                 }
 
-                true
+                GroupBroadcast::MemberStateChanged(key, MemberState::LeftGroup(peers_removed))
             }
 
             Err(_) => {
                 log::error!("Unable to kick peers from message group");
-                false
+                return Ok(false)
             }
-        }
+        };
+
+        // if we get here, dispatch any messages
+        let len = to_broadcast_dc.len();
+        let peers_and_statuses_dc = to_broadcast_dc.into_iter().zip(std::iter::repeat(true).take(len));
+        let _ = self.send_group_broadcast_signal_to(timestamp, ticket, peers_and_statuses_dc, true, dc_signal, security_level).await.map_err(|err| NetworkError::Generic(err))?;
+
+        let len = to_broadcast_left.len();
+        let peers_and_statuses_left = to_broadcast_left.into_iter().zip(std::iter::repeat(true).take(len));
+        let _ = self.send_group_broadcast_signal_to(timestamp, ticket, peers_and_statuses_left, true, left_signal, security_level).await.map_err(|err| NetworkError::Generic(err))?;
+
+
+        Ok(true)
     }
 
     /// Broadcasts a message to a target group
     /// Note: uses mail_if_offline: true. This allows a member to disconnect, but to still receive messages later-on
-    pub fn broadcast_signal_to_group(&self, implicated_cid: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, signal: GroupBroadcast, security_level: SecurityLevel) -> bool {
-        let this = inner!(self);
-        if let Some(peers_to_broadcast_to) = this.hypernode_peer_layer.get_peers_in_message_group(key) {
-            for peer in peers_to_broadcast_to {
-                // we only broadcast to the peers not equal to the calling one
-                if peer != implicated_cid {
-                    let signal = signal.clone();
-                    if let Err(err) = this.send_group_broadcast_signal_to(timestamp, ticket, peer, true, signal, security_level) {
-                        log::warn!("Unable to send group broadcast signal from {} to {}: {}", key.cid, peer, err);
-                    }
-                }
-            }
+    pub async fn broadcast_signal_to_group(&self, implicated_cid: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, signal: GroupBroadcast, security_level: SecurityLevel) -> Result<bool, String> {
+        let peer_layer = {
+            inner!(self).hypernode_peer_layer.clone()
+        };
 
-            true
+        if let Some(peers_to_broadcast_to) = peer_layer.get_peers_in_message_group(key) {
+            let can_broadcast = peers_to_broadcast_to.iter().map(|peer| *peer != implicated_cid).collect::<Vec<bool>>();
+            let peers_and_statuses = peers_to_broadcast_to.into_iter().zip(can_broadcast);
+            let _ = self.send_group_broadcast_signal_to(timestamp, ticket, peers_and_statuses, true, signal, security_level).await?;
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -667,9 +684,12 @@ impl HdpSessionManager {
     }
 
     /// Ensures the mailbox and tracked event queue are loaded into the [PeerLayer]
-    pub fn register_session_with_peer_layer(&self, implicated_cid: u64) -> Option<MailboxTransfer> {
-        let mut this = inner_mut!(self);
-        this.hypernode_peer_layer.register_peer(implicated_cid)
+    pub async fn register_session_with_peer_layer(&self, implicated_cid: u64) -> Result<Option<MailboxTransfer>, NetworkError> {
+        let peer_layer = {
+            inner!(self).hypernode_peer_layer.clone()
+        };
+
+        peer_layer.register_peer(implicated_cid).await
     }
 
     /// Removes a virtual connection `implicated_cid` from `peer_cid`
@@ -717,19 +737,20 @@ impl HdpSessionManager {
         }
 
         let account_manager = {
-            let this = inner!(self);
-
-            let account_manager = this.account_manager.clone();
-            std::mem::drop(this);
-            account_manager
+            inner!(self).account_manager.clone()
         };
 
         if account_manager.hyperlan_cid_is_registered(target_cid).await.map_err(|err| err.into_string())? {
-            let this = inner!(self);
+            let (sess, peer_layer) = {
+                let this = inner!(self);
+                let sess = this.sessions.get(&target_cid).map(|r| r.1.clone());
+                let peer_layer = this.hypernode_peer_layer.clone();
+                (sess, peer_layer)
+            };
+
             // get the target cid's session
-            if let Some(sess) = this.sessions.get(&target_cid) {
-                this.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout);
-                let ref sess_ref = sess.1;
+            if let Some(ref sess_ref) = sess {
+                peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout);
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
                 let ref peer_cnac = inner_state!(sess_ref.state_container).cnac.clone().ok_or_else(|| String::from("Peer CNAC not loaded"))?;
 
@@ -745,12 +766,8 @@ impl HdpSessionManager {
             } else {
                 // session is not active, but user is registered (thus offline). Setup return ticket tracker on implicated_cid
                 // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: FCM route alternative, if available
-                this.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal.clone(), on_timeout);
-                if this.hypernode_peer_layer.try_add_mailbox(target_cid, signal) {
-                    Ok(())
-                } else {
-                    Err(format!("Peer {} is offline. Furthermore, that peer's mailbox is not accepting signals at this time", target_cid))
-                }
+                peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal.clone(), on_timeout);
+                peer_layer.try_add_mailbox(target_cid, signal).await.map_err(|err| err.into_string())
             }
         } else {
             Err(format!("CID {} is not registered locally", target_cid))
@@ -778,6 +795,48 @@ impl HdpSessionManager {
 
         log::info!("All sessions dropped");
         Ok(())
+    }
+
+    /// Sends a [GroupBroadcast] message to `peer_cid`. Ensures the target is mutual before sending
+    /// `mail_if_offline`: Deposits mail if the target is offline
+    /// NOTE: it is the duty of the calling closure to ensure that the [MessageGroup] exists!
+    /// NOTE: This does not check to see if the two peers can send to each other. That is up to the caller to ensure that
+    ///
+    pub async fn send_group_broadcast_signal_to(&self, timestamp: i64, ticket: Ticket, peers_and_statuses: impl Iterator<Item=(u64, bool)>, mail_if_offline: bool, signal: GroupBroadcast, security_level: SecurityLevel) -> Result<(Vec<u64>, Vec<u64>), String> {
+        let mut peers_failed = Vec::new();
+        let mut peers_okay = Vec::new();
+        let mut to_mail = Vec::new();
+
+        let peer_layer = {
+            let this = inner!(self);
+            for (peer, is_registered) in peers_and_statuses {
+                if is_registered {
+                    if this.send_signal_to_peer_direct(peer, |peer_hyper_ratchet| {
+                        super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
+                    }).is_err() {
+                        // on error, try adding to mailbox
+                        if mail_if_offline {
+                            to_mail.push(peer);
+                        }
+                    } else {
+                        // okay
+                        peers_okay.push(peer);
+                    }
+                } else {
+                    peers_failed.push(peer);
+                }
+            }
+
+            this.hypernode_peer_layer.clone()
+        };
+
+        // TODO: optimize this into a single operation
+        for peer in to_mail {
+            peer_layer.try_add_mailbox(peer, PeerSignal::BroadcastConnected(signal.clone())).await.map_err(|err| err.into_string())?;
+            peers_okay.push(peer);
+        }
+
+        Ok((peers_okay, peers_failed))
     }
 }
 
@@ -844,25 +903,5 @@ impl HdpSessionManagerInner {
         } else {
             Err(NetworkError::Generic(format!("unable to find peer sess {}", target_cid)))
         }
-    }
-
-    /// Sends a [GroupBroadcast] message to `peer_cid`. Ensures the target is mutual before sending
-    /// `mail_if_offline`: Deposits mail if the target is offline
-    /// NOTE: it is the duty of the calling closure to ensure that the [MessageGroup] exists!
-    /// NOTE: This does not check to see if the two peers can send to each other. That is up to the caller to ensure that
-    ///
-    pub async fn send_group_broadcast_signal_to(&self, timestamp: i64, ticket: Ticket, peer_cid: u64, mail_if_offline: bool, signal: GroupBroadcast, security_level: SecurityLevel) -> Result<(), String> {
-        if self.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
-            super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
-        }).is_err() {
-            if mail_if_offline {
-                // TODO: Fcm send
-                if self.hypernode_peer_layer.try_add_mailbox(peer_cid, PeerSignal::BroadcastConnected(signal)).await.is_err() {
-                        log::warn!("Unable to add broadcast signal to mailbox")
-                }
-            }
-        }
-
-        Ok(())
     }
 }
