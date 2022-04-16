@@ -93,7 +93,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         GroupBroadcast::Message(username, key, message) => {
             if session.is_server {
                 // The message will need to be broadcasted to every member in the group
-                let success = session.session_manager.broadcast_signal_to_group(implicated_cid, timestamp, ticket, key, GroupBroadcast::Message(username, key, message), security_level);
+                let success = session.session_manager.broadcast_signal_to_group(implicated_cid, timestamp, ticket, key, GroupBroadcast::Message(username, key, message), security_level).await.unwrap_or(false);
                 let resp = GroupBroadcast::MessageResponse(key, success);
                 let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &resp, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
                 Ok(PrimaryProcessorResult::ReplyToSender(packet))
@@ -108,17 +108,14 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         }
 
         GroupBroadcast::AcceptMembership(key) => {
-            // the server receives this
-            // TODO: Optimize the unnecessary borrow-drop-borrow pattern of the SessionManager
-            let sess_mgr = inner!(session.session_manager);
-            let success = sess_mgr.hypernode_peer_layer.upgrade_peer_in_group(key, implicated_cid);
+
+            let success = session.hypernode_peer_layer.upgrade_peer_in_group(key, implicated_cid);
             if !success {
                 log::warn!("Unable to upgrade peer {} for {:?}", implicated_cid, key);
             } else {
                 // send broadcast to all group members
-                std::mem::drop(sess_mgr);
                 let entered = vec![implicated_cid];
-                if !session.session_manager.broadcast_signal_to_group(implicated_cid, timestamp, ticket, key, GroupBroadcast::MemberStateChanged(key, MemberState::EnteredGroup(entered)), security_level) {
+                if !session.session_manager.broadcast_signal_to_group(implicated_cid, timestamp, ticket, key, GroupBroadcast::MemberStateChanged(key, MemberState::EnteredGroup(entered)), security_level).await.unwrap_or(false) {
                     log::warn!("Unable to broadcast member acceptance to group {}", key);
                 }
                 log::info!("Successfully upgraded {} for {:?}", implicated_cid, key);
@@ -139,7 +136,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
 
         GroupBroadcast::LeaveRoom(key) => {
             // TODO: If the user leaving the room is the message group owner, then leave
-            let success = session.session_manager.kick_from_message_group(GroupMemberAlterMode::Leave, implicated_cid, timestamp, ticket, key, vec![implicated_cid], security_level);
+            let success = session.session_manager.kick_from_message_group(GroupMemberAlterMode::Leave, implicated_cid, timestamp, ticket, key, vec![implicated_cid], security_level).await.ok().unwrap_or(false);
             let message = if success { format!("Successfully removed peer {} from room {}:{}", implicated_cid, key.cid, key.mgid) } else { format!("Unable to remove peer {} from room {}:{}", implicated_cid, key.cid, key.mgid) };
             let signal = GroupBroadcast::LeaveRoomResponse(key, success, message);
             let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
@@ -161,28 +158,14 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
             // send invitation
             let persistence_handler = session.account_manager.get_persistence_handler().clone();
             let sess_mgr = session.session_manager.clone();
-            std::mem::drop(session);
+            let ref peer_layer = session.hypernode_peer_layer;
             let peer_statuses = persistence_handler.hyperlan_peers_are_mutuals(implicated_cid, &peers).await?;
-            let sess_mgr = inner!(sess_mgr);
-            if sess_mgr.hypernode_peer_layer.message_group_exists(key) {
-                let mut peers_failed = Vec::new();
-                let mut peers_okay = Vec::new();
-                for (peer, is_registered) in peers.iter().zip(peer_statuses) {
-                    if is_registered {
-                        if let Err(err) = sess_mgr.send_group_broadcast_signal_to(timestamp, ticket, *peer, true, GroupBroadcast::Invitation(key), security_level) {
-                            log::warn!("Unable to send group broadcast from {} to {}: {}", implicated_cid, peer, err);
-                            peers_failed.push(*peer);
-                        } else {
-                            peers_okay.push(*peer);
-                        }
-                    } else {
-                        log::warn!("Peer {} is not registered to {}", peer, implicated_cid);
-                        peers_failed.push(*peer);
-                    }
-                }
+
+            if peer_layer.message_group_exists(key) {
+                let (peers_okay, peers_failed) = sess_mgr.send_group_broadcast_signal_to(timestamp, ticket, peers.iter().cloned().zip(peer_statuses.clone()), true, GroupBroadcast::Invitation(key), security_level).await.map_err(|err| NetworkError::Generic(err))?;
 
                 if peers_okay.len() != 0 {
-                    sess_mgr.hypernode_peer_layer.add_pending_peers_to_group(key, peers_okay);
+                    peer_layer.add_pending_peers_to_group(key, peers_okay);
                     std::mem::drop(sess_mgr);
                 }
 
@@ -205,7 +188,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
 
         GroupBroadcast::Kick(key, peers) => {
             return_if_none!(permission_gate(implicated_cid, key), "Permission denied");
-            let success = session.session_manager.kick_from_message_group(GroupMemberAlterMode::Kick, implicated_cid, timestamp, ticket, key, peers, security_level);
+            let success = session.session_manager.kick_from_message_group(GroupMemberAlterMode::Kick, implicated_cid, timestamp, ticket, key, peers, security_level).await.ok().unwrap_or(false);
             let resp = GroupBroadcast::KickResponse(key, success);
             let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &resp, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
             Ok(PrimaryProcessorResult::ReplyToSender(packet))

@@ -57,14 +57,9 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             }
         };
 
-        persistence_handler.post_connect(&persistence_handler)?;
+        persistence_handler.post_connect(&persistence_handler).await?;
 
         let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
-
-        if cfg!(feature = "localhost-testing") || std::env::var("LOCALHOST_TESTING").unwrap_or_default() == "1" {
-            log::info!("Purging home directory since localhost-testing is enabled");
-            let _ = this.purge().await?;
-        }
 
         Ok(this)
     }
@@ -137,7 +132,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
     /// Returns the CNAC with the supplied CID
     pub async fn get_client_by_cid(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        self.persistence_handler.get_cnac_by_cid(cid, &self.persistence_handler).await
+        self.persistence_handler.get_cnac_by_cid(cid).await
     }
 
     /// Gets username by CID
@@ -148,7 +143,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// Returns the first username detected. This is not advised to use, because overlapping usernames are entirely possible.
     /// Instead, use get_client_by_cid, as the cid is unique unlike the cid
     pub async fn get_client_by_username<T: AsRef<str>>(&self, username: T) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        self.persistence_handler.get_client_by_username(username.as_ref(), &self.persistence_handler).await
+        self.persistence_handler.get_client_by_username(username.as_ref()).await
     }
 
     /// Allows a function to visit each value without cloning. This will be a no-op if probing a database, since that would be horribly performant

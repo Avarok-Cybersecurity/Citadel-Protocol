@@ -21,7 +21,7 @@ pub mod mysql_backend;
 pub mod filesystem_backend;
 
 /// Used when constructing the account manager
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum BackendType {
     /// Synchronization will occur on the filesystem
     Filesystem,
@@ -66,15 +66,15 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// This should be run for handling any types of underlying connect operations
     async fn connect(&mut self, directory_store: &DirectoryStore) -> Result<(), AccountError>;
     /// This is called once the PersistenceHandler is loaded
-    fn post_connect(&self, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<(), AccountError>;
+    async fn post_connect(&self, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<(), AccountError>;
     /// Determines if connected or not
     async fn is_connected(&self) -> Result<bool, AccountError>;
     /// Saves the entire cnac to the DB
     async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError>;
     /// Find a CNAC by cid
-    async fn get_cnac_by_cid(&self, cid: u64, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError>;
+    async fn get_cnac_by_cid(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError>;
     /// Gets the client by username
-    async fn get_client_by_username(&self, username: &str, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError>;
+    async fn get_client_by_username(&self, username: &str) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError>;
     /// Determines if a CID is registered
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError>;
     /// deletes a CNAC
@@ -137,7 +137,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
             return Ok(Vec::new())
         }
 
-        let cnac = self.get_cnac_by_cid(implicated_cid, &self.local_nac().persistence_handler().unwrap()).await?.ok_or(AccountError::ClientNonExists(implicated_cid))?;
+        let cnac = self.get_cnac_by_cid(implicated_cid).await?.ok_or(AccountError::ClientNonExists(implicated_cid))?;
         Ok(cnac.get_hyperlan_peers_with_fcm_keys(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
     }
     /// Gets hyperland peer by username
@@ -146,6 +146,16 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError>;
     /// Synchronizes the list locally. Returns true if needs to be saved
     async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError>;
+    /// Returns a vector of bytes from the byte map
+    async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError>;
+    /// Removes a value from the byte map, returning the previous value
+    async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError>;
+    /// Stores a value in the byte map, either creating or overwriting any pre-existing value
+    async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError>;
+    /// Obtains a list of K,V pairs such that they reside inside `key`
+    async fn get_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError>;
+    /// Obtains a list of K,V pairs such that `needle` is a subset of the K value
+    async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError>;
     /// Stores the CNAC inside the hashmap, if possible (may be no-op on database)
     fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>);
     /// Determines if a remote db is used
@@ -154,11 +164,6 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>>;
     /// Returns the local nac
     fn local_nac(&self) -> &NetworkAccount<R, Fcm>;
-    /*#[allow(unused_results, unused_must_use)]
-    /// spawns to thread pool
-    fn spawn_save_task_to_threadpool(self: Arc<Self>, cnac: ClientNetworkAccount<R, Fcm>) where Self: 'static {
-        tokio::task::spawn(async move { self.save_cnac(cnac).await; });
-    }*/
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations

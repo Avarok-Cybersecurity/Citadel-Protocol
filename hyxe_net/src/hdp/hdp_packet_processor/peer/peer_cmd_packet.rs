@@ -341,7 +341,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         // now that the virtual connection is created on this end, we need to do the same to the other end
                                         let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage2(sync_time_ns, None));
 
-                                        let hole_punch_compat_stream = ReliableOrderedCompatStream::new(return_if_none!(session.to_primary_stream.clone()), &mut *state_container, bob_nat_info.peer_remote_addr_visible_from_server, return_if_none!(session.implicated_user_p2p_internal_listener_addr.clone()), peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
+                                        let hole_punch_compat_stream = ReliableOrderedCompatStream::new(return_if_none!(session.to_primary_stream.clone()), &mut *state_container,peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
                                         std::mem::drop(state_container);
                                         let encrypted_config_container = generate_hole_punch_crypt_container(endpoint_hyper_ratchet, SecurityLevel::LOW, peer_cid);
 
@@ -362,9 +362,8 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                     let app = NetworkEndpoint::register(RelativeNodeType::Initiator, hole_punch_compat_stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
                                     //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
                                     let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
-                                    let quic_endpoint = return_if_none!(session.client_only_quic_endpoint.clone());
                                     let client_config = session.client_config.clone();
-                                    let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, quic_endpoint,  encrypted_config_container, client_config);
+                                    let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, encrypted_config_container, client_config);
                                     let _ = spawn!(hole_punch_future);
 
                                     //let _ = hole_punch_future.await;
@@ -402,7 +401,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         // We can now send the channel to the kernel, where TURN traversal is immediantly available.
                                         // however, STUN-like traversal will proceed in the background
                                         //state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
-                                        let hole_punch_compat_stream = ReliableOrderedCompatStream::new(return_if_none!(session.to_primary_stream.clone()), &mut *state_container, alice_nat_info.peer_remote_addr_visible_from_server, return_if_none!(session.implicated_user_p2p_internal_listener_addr.clone()), peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
+                                        let hole_punch_compat_stream = ReliableOrderedCompatStream::new(return_if_none!(session.to_primary_stream.clone()), &mut *state_container, peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
                                         (hole_punch_compat_stream, channel, udp_rx_opt, endpoint_security_level, endpoint_hyper_ratchet)
                                     };
 
@@ -415,10 +414,9 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                     // session: HdpSession, expected_peer_cid: u64, peer_endpoint_addr: SocketAddr, implicated_cid: Arc<Atomic<Option<u64>>>, kernel_tx: UnboundedSender<HdpServerResult>, sync_time: Instant
                                     let implicated_cid = session.implicated_cid.clone();
                                     let kernel_tx = session.kernel_tx.clone();
-                                    let quic_endpoint = return_if_none!(session.client_only_quic_endpoint.clone());
                                     let client_config = session.client_config.clone();
 
-                                    let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, quic_endpoint,  encrypted_config_container, client_config);
+                                    let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app,   encrypted_config_container, client_config);
                                     let _ = spawn!(hole_punch_future);
 
                                     //let _ = hole_punch_future.await;
@@ -569,13 +567,11 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             // this gives peer A the socket of peer B and vice versa
 
             let peer_nat = return_if_none!(session.adjacent_nat_type.clone(), "Adjacent NAT type not loaded");
-            let peer_internal_listener_addr = return_if_none!(session.implicated_user_p2p_internal_listener_addr.clone(), "Peer internal listener addr not loaded");
             let peer_remote_addr_visible_from_server = session.remote_peer;
             let tls_domain = return_if_none!(session.peer_only_connect_protocol.get(), "Peer only connect protocol not loaded").get_domain();
 
             let peer_nat_info = PeerNatInfo {
                 peer_remote_addr_visible_from_server,
-                peer_internal_listener_addr,
                 peer_nat,
                 tls_domain
             };

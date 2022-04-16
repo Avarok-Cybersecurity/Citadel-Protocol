@@ -8,29 +8,44 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  TESTING_SQL_SERVER_ADDR: "mysql://root:password@localhost/db0"
   RUST_BACKTRACE: full
   # 20 MiB stack
   RUST_MIN_STACK: 20971520
 
 jobs:
   core_libs:
+    env:
+      TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db"
+      TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db"
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
-      - uses: mirromutth/mysql-action@v1.1
+      - uses: shogo82148/actions-setup-mysql@v1
         if: startsWith(matrix.os, 'ubuntu')
         with:
-          mysql version: '8.0'
-          mysql database: 'db0'
-          mysql root password: password
+          mysql-version: '8.0'
+          root-password: 'password'
+      - name: Add mysql databases
+        if: startsWith(matrix.os, 'ubuntu')
+        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
+      - name: Add sqlite databases
+        if: startsWith(matrix.os, 'ubuntu')
+        run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
+      - name: Setup Postgres database (1)
+        if: startsWith(matrix.os, 'ubuntu')
+        uses: Daniel-Marynicz/postgresql-action@master
+        with:
+          postgres_image_tag: latest
+          app_user: nologik
+          app_user_password: password
+          app_db: hyxewave hyxewave2
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - name: Run user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo test --package hyxe_user --features enterprise
+        run: cargo test --package hyxe_user --features enterprise,localhost-testing -- --test-threads=1
       #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
       - run: cargo test --package ez_pqcrypto
       - run: cargo test --package hyxe_crypt
@@ -115,7 +130,7 @@ jobs:
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--timeout 3600 --packages lusna_sdk --features=localhost-testing -- --test-threads=1'
+          args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=localhost-testing -- --test-threads=1'
       - uses: codecov/codecov-action@v2
         with:
           token: ${{secrets.CODECOV_TOKEN}}

@@ -44,6 +44,7 @@ impl<'a> DualStackUdpHolePuncher<'a> {
 
         // each individual hole puncher fans-out from 1 bound socket to n many peer addrs (determined by addrs_to_ping)
         for socket in sockets {
+            // TODO: ensure only *some* of the addrs in addrs_to_ping get passed (MAX 2)
             let hole_puncher = SingleUDPHolePuncher::new(relative_node_type, encrypted_config_container.clone(), socket, addrs_to_ping.clone())?;
             hole_punchers.push(hole_puncher);
         }
