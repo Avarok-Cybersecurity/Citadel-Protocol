@@ -15,6 +15,7 @@ use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use serde::{Serialize, Deserialize};
 use hyxe_fs::prelude::SyncIO;
 use crate::macros::SyncContextRequirements;
+use itertools::Itertools;
 
 #[cfg(feature = "multi-threaded")]
 use futures::task::AtomicWaker;
@@ -29,16 +30,18 @@ use uuid::Uuid;
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
 impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
 
-#[derive(Default)]
 /// When HyperLAN client A needs to send a POST_REGISTER signal to HyperLAN client B (who is disconnected),
 /// the request needs to stay in memory until either the peer joins OR HyperLAN client A disconnects. Hence the need for this layer
 pub struct HyperNodePeerLayerInner {
-    pub(crate) persistence_handler: PersistenceHandler,
     // When a signal is routed to the target destination, the server needs to keep track of the state while awaiting
+    pub(crate) persistence_handler: PersistenceHandler,
     pub(crate) observed_postings: HashMap<u64, HashMap<Ticket, TrackedPosting>>,
-    pub(crate) message_groups: HashMap<u64, (u8, HashMap<u8, MessageGroup>)>,
+    pub(crate) message_groups: HashMap<u64, HashMap<u128, MessageGroup>>,
     delay_queue: DelayQueue<(u64, Ticket)>
 }
+
+// message group byte map key layout:
+// implicated cid = implicated cid -> key = (u128."concurrent" OR u128."pending") -> u64 (peer cid)
 
 const MAILBOX: &'static str = "mailbox";
 
@@ -72,9 +75,25 @@ impl TrackedPosting {
 
 
 impl HyperNodePeerLayer {
+    pub fn new(persistence_handler: PersistenceHandler) -> Self {
+        let inner = HyperNodePeerLayerInner { delay_queue: DelayQueue::new(), persistence_handler, message_groups: HashMap::new(), observed_postings: HashMap::new() };
+        #[cfg(feature = "multi-threaded")]
+            {
+                let waker = std::sync::Arc::new(AtomicWaker::new());
+                let inner = std::sync::Arc::new(parking_lot::RwLock::new(inner));
+                Self { inner, waker }
+            }
+
+        #[cfg(not(feature = "multi-threaded"))]
+            {
+                let waker = std::rc::Rc::new(std::cell::RefCell::new(None));
+                let inner = std::rc::Rc::new(std::cell::RefCell::new(inner));
+                Self { inner, waker }
+            }
+    }
     #[allow(unused_results)]
     /// This should be called during the DO_CONNECT phase
-    pub async fn register_peer(&mut self, cid: u64) -> Result<Option<MailboxTransfer>, NetworkError> {
+    pub async fn register_peer(&self, cid: u64) -> Result<Option<MailboxTransfer>, NetworkError> {
         let pers = {
             let mut this = inner_mut!(self);
 
@@ -86,7 +105,7 @@ impl HyperNodePeerLayer {
 
             if !this.message_groups.contains_key(&cid) {
                 log::info!("Adding message group hashmap for {}", cid);
-                this.message_groups.insert(cid, (0, HashMap::new()));
+                this.message_groups.insert(cid, HashMap::new());
             }
 
             this.persistence_handler.clone()
@@ -96,7 +115,7 @@ impl HyperNodePeerLayer {
         let items = pers.remove_byte_map_values_by_key(cid, 0, MAILBOX).await?;
         if items.len() != 0 {
             log::info!("Returning enqueued mailbox items for {}", cid);
-            Ok(Some(MailboxTransfer::from(items.into_values().collect())))
+            Ok(Some(MailboxTransfer::from(items.into_values().map(PeerSignal::deserialize_from_owned_vector).try_collect::<PeerSignal, Vec<PeerSignal>, _>().map_err(|err| NetworkError::Generic(err.to_string()))?)))
         } else {
             Ok(None)
         }
@@ -120,9 +139,9 @@ impl HyperNodePeerLayer {
     #[allow(unused_results)]
     pub fn create_new_message_group(&self, implicated_cid: u64, initial_peers: &Vec<u64>) -> Option<MessageGroupKey> {
         let mut this = inner_mut!(self);
-        let (next_idx, map) = this.message_groups.get_mut(&implicated_cid)?;
-        let mgid = *next_idx;
-        if mgid != 255 {
+        let map = this.message_groups.get_mut(&implicated_cid)?;
+        let mgid = Uuid::new_v4().as_u128();
+        if map.len() <= u8::MAX as usize {
             if !map.contains_key(&mgid) {
                 let mut message_group = MessageGroup { concurrent_peers: HashMap::new(), pending_peers: HashMap::with_capacity(initial_peers.len()) };
                 // insert peers into the pending_peers map to allow/process AcceptMembership signals
@@ -135,8 +154,6 @@ impl HyperNodePeerLayer {
                 message_group.concurrent_peers.insert(implicated_cid, MessageGroupPeer { peer_cid: implicated_cid });
 
                 map.insert(mgid, message_group);
-                // increment so the next call to this function returns a valid entry
-                *next_idx = (*next_idx).saturating_add(1);
                 Some(MessageGroupKey {cid: implicated_cid, mgid})
             } else {
                 None
@@ -150,14 +167,14 @@ impl HyperNodePeerLayer {
     /// removes a [MessageGroup]
     pub fn remove_message_group(&self, key: MessageGroupKey) -> Option<MessageGroup> {
         let mut this = inner_mut!(self);
-        let (_idx, map) = this.message_groups.get_mut(&key.cid)?;
+        let map = this.message_groups.get_mut(&key.cid)?;
         map.remove(&key.mgid)
     }
 
     #[allow(unused_results)]
     pub fn add_pending_peers_to_group(&self, key: MessageGroupKey, peers: Vec<u64>) {
         let mut this = inner_mut!(self);
-        if let Some((_idx, map)) = this.message_groups.get_mut(&key.cid) {
+        if let Some(map) = this.message_groups.get_mut(&key.cid) {
             if let Some(entry) = map.get_mut(&key.mgid) {
                 for peer_cid in peers {
                     let insert = MessageGroupPeer { peer_cid };
@@ -173,7 +190,7 @@ impl HyperNodePeerLayer {
     // Upgrades a peer from pending to concurrent (enabled reception of broadcasts)
     pub fn upgrade_peer_in_group(&self, key: MessageGroupKey, peer_cid: u64) -> bool {
         let mut this = inner_mut!(self);
-        if let Some((_idx, map)) = this.message_groups.get_mut(&key.cid) {
+        if let Some(map) = this.message_groups.get_mut(&key.cid) {
             if let Some(entry) = map.get_mut(&key.mgid) {
                 if let Some(peer) = entry.pending_peers.remove(&peer_cid) {
                     entry.concurrent_peers.insert(peer_cid, peer);
@@ -188,7 +205,7 @@ impl HyperNodePeerLayer {
     /// Determines if the [MessageGroupKey] maps to a [MessageGroup]
     pub fn message_group_exists(&self, key: MessageGroupKey) -> bool {
         let this = inner!(self);
-        if let Some((_idx, map)) = this.message_groups.get(&key.cid) {
+        if let Some(map) = this.message_groups.get(&key.cid) {
             map.contains_key(&key.mgid)
         } else {
             false
@@ -198,7 +215,7 @@ impl HyperNodePeerLayer {
     /// Returns the set of peers in a [MessageGroup]
     pub fn get_peers_in_message_group(&self, key: MessageGroupKey) -> Option<Vec<u64>> {
         let this = inner!(self);
-        let (_idx, map) = this.message_groups.get(&key.cid)?;
+        let map = this.message_groups.get(&key.cid)?;
         let message_group = map.get(&key.mgid)?;
         let peers = message_group.concurrent_peers.keys().cloned().collect::<Vec<u64>>();
         if peers.is_empty() {
@@ -211,7 +228,7 @@ impl HyperNodePeerLayer {
     /// Removes the provided peers from the group. Returns a set of peers that were removed successfully, as well as the remaining peers
     pub fn remove_peers_from_message_group(&self, key: MessageGroupKey, mut peers: Vec<u64>) -> Result<(Vec<u64>, Vec<u64>), ()> {
         let mut this = inner_mut!(self);
-        let (_idx, map) = this.message_groups.get_mut(&key.cid).ok_or(())?;
+        let map = this.message_groups.get_mut(&key.cid).ok_or(())?;
         let message_group = map.get_mut(&key.mgid).ok_or(())?;
         //let mut peers_removed = Vec::new();
         // Keep all the peers that were not removed. I.e., if the remove operation returns None
@@ -508,26 +525,6 @@ impl Into<Vec<u8>> for PeerSignal {
         self.serialize_to_vector().unwrap()
     }
 }
-
-impl Default for HyperNodePeerLayer {
-    fn default() -> Self {
-        let inner = HyperNodePeerLayerInner { delay_queue: DelayQueue::new(), ..Default::default() };
-        #[cfg(feature = "multi-threaded")]
-            {
-                let waker = std::sync::Arc::new(AtomicWaker::new());
-                let inner = std::sync::Arc::new(parking_lot::RwLock::new(inner));
-                Self { inner, waker }
-            }
-
-        #[cfg(not(feature = "multi-threaded"))]
-            {
-                let waker = std::rc::Rc::new(std::cell::RefCell::new(None));
-                let inner = std::rc::Rc::new(std::cell::RefCell::new(inner));
-                Self { inner, waker }
-            }
-    }
-}
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum MailboxTransfer {

@@ -36,12 +36,11 @@ pub(crate) struct MessageGroupPeer {
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MessageGroupKey {
     pub cid: u64,
-    // max 256 message groups per cid
-    pub mgid: u8
+    pub mgid: u128
 }
 
 impl MessageGroupKey {
-    pub fn new(cid: u64, mgid: u8) -> Self {
+    pub fn new(cid: u64, mgid: u128) -> Self {
         Self { cid, mgid }
     }
 }

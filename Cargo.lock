@@ -1467,6 +1467,7 @@ dependencies = [
  "hyxe_fs",
  "hyxe_user",
  "hyxe_wire",
+ "itertools",
  "log",
  "netbeam",
  "num 0.2.1",
