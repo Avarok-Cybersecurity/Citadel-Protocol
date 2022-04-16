@@ -16,6 +16,11 @@ pub fn create_client_dangerous_config() -> TlsConnector {
     TlsConnector::from(Arc::new(crate::quic::insecure::rustls_client_config()))
 }
 
+pub async fn create_client_self_signed_config() -> Result<ClientConfig, anyhow::Error> {
+    let native_certs = load_native_certs_async().await?;
+    create_rustls_client_config(&native_certs)
+}
+
 pub fn create_rustls_client_config<T: AsRef<[u8]>>(allowed_certs: &[T]) -> Result<ClientConfig, anyhow::Error> {
     cert_vec_to_secure_client_config(&allowed_certs.into_iter().map(|r| rustls::Certificate(r.as_ref().to_vec())).collect())
 }
