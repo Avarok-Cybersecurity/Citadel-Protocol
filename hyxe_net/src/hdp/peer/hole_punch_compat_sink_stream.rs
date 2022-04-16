@@ -8,6 +8,7 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::drill::SecurityLevel;
 use async_trait::async_trait;
 use crate::hdp::peer::p2p_conn_handler::generic_error;
+use std::str::FromStr;
 
 pub(crate) struct ReliableOrderedCompatStream {
     to_primary_stream: OutboundPrimaryStreamSender,
@@ -23,13 +24,15 @@ impl ReliableOrderedCompatStream {
     /// For C2S, using this is straight forward (set target_cid to 0)
     /// For P2P, using this is not as straight forward. This will use the central node for routing packets. As such, the target_cid must be set to the peers to enable routing. Additionally, this will need to use the p2p ratchet. This implies that
     /// BOTH nodes must already have the ratchets loaded
-    pub(crate) fn new(to_primary_stream: OutboundPrimaryStreamSender, state_container: &mut StateContainerInner, peer_external_addr: SocketAddr, local_bind_addr: SocketAddr, target_cid: u64, hr: HyperRatchet, security_level: SecurityLevel) -> Self {
+    pub(crate) fn new(to_primary_stream: OutboundPrimaryStreamSender, state_container: &mut StateContainerInner, target_cid: u64, hr: HyperRatchet, security_level: SecurityLevel) -> Self {
         let (from_stream_tx, from_stream_rx) = tokio::sync::mpsc::unbounded_channel();
 
         // insert from_stream_tx into state container so that the protocol can deliver packets to the hole puncher
         // NOTE: The protocol must strip the header when passing packets to the from_stream function!
         let _ = state_container.hole_puncher_pipes.insert(target_cid, from_stream_tx);
-
+        // NOTE: this is hacky. We don't actually need real addrs here since this is used for hole punching
+        let peer_external_addr = SocketAddr::from_str("1.2.3.4:1234").unwrap();
+        let local_bind_addr = SocketAddr::from_str("0.0.0.0:1234").unwrap();
         Self { to_primary_stream, from_stream: Mutex::new(from_stream_rx), peer_external_addr, local_bind_addr, hr, security_level, target_cid }
     }
 }

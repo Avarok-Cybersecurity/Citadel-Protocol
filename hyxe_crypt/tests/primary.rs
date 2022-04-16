@@ -168,11 +168,13 @@ mod tests {
         std::mem::drop(val);
         // check to see if the values are zeroed
         let slice = unsafe { &*std::ptr::slice_from_raw_parts(ptr, len) };
-        assert_eq!(slice, &[0, 0]);
+
+        #[cfg(not(target_os = "linux"))] {
+            assert_eq!(slice, &[0, 0]);
+        }
     }
 
     #[test]
-    #[cfg(not(target_os = "linux"))]
     fn secbytes() {
         setup_log();
         let buf = SecBuffer::from("Hello, world!");
@@ -193,7 +195,9 @@ mod tests {
         std::mem::drop(cloned);
 
         let slice = unsafe { &*std::ptr::slice_from_raw_parts(ptr, len) };
-        assert_eq!(slice, &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        #[cfg(not(target_os = "linux"))] {
+            assert_eq!(slice, &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        }
     }
 
     #[test]

@@ -181,7 +181,6 @@ pub(crate) mod pre_connect {
 
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use crate::hdp::hdp_packet::{packet_sizes, HdpPacket};
-    use crate::hdp::hdp_packet_processor::includes::SocketAddr;
     use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
     use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
     use crate::hdp::hdp_packet_crafter::pre_connect::{SynPacket, PreConnectStage0};
@@ -195,7 +194,7 @@ pub(crate) mod pre_connect {
     use hyxe_wire::nat_identification::NatType;
     use crate::hdp::hdp_packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;
 
-    pub(crate) fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType, SocketAddr), NetworkError> {
+    pub(crate) fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType), NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
@@ -218,7 +217,6 @@ pub(crate) mod pre_connect {
 
         let session_security_settings = transfer.session_security_settings;
         let peer_only_connect_mode = transfer.peer_only_connect_protocol;
-        let peer_listener_internal_addr = transfer.peer_listener_internal_addr;
         let nat_type = transfer.nat_type;
         let udp_mode = transfer.udp_mode;
         let kat = transfer.keep_alive_timeout;
@@ -233,7 +231,7 @@ pub(crate) mod pre_connect {
         let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_hyper_ratchet));
 
         cnac.replace_toolset(toolset);
-        Ok((static_auxiliary_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type, peer_listener_internal_addr))
+        Ok((static_auxiliary_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type))
     }
 
     /// This returns an error if the packet is maliciously invalid (e.g., due to a false packet)

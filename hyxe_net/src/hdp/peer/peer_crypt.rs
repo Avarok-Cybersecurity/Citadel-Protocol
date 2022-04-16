@@ -29,7 +29,6 @@ pub enum KeyExchangeProcess {
 pub struct PeerNatInfo {
     // This is the location of the listener for the other peer as obtained by the central server
     pub peer_remote_addr_visible_from_server: SocketAddr,
-    pub peer_internal_listener_addr: SocketAddr,
     pub peer_nat: NatType,
     pub tls_domain: TlsDomain
 }
