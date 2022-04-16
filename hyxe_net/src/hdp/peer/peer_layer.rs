@@ -1,9 +1,8 @@
-use std::collections::{VecDeque, HashMap, BTreeMap};
+use std::collections::{HashMap, BTreeMap};
 use crate::hdp::file_transfer::VirtualFileMetadata;
 use crate::hdp::hdp_node::Ticket;
 use tokio::time::error::Error;
 use tokio_util::time::{delay_queue, delay_queue::DelayQueue};
-use crate::constants::PEER_EVENT_MAILBOX_SIZE;
 use crate::error::NetworkError;
 use std::pin::Pin;
 use futures::task::{Context, Poll};
@@ -24,6 +23,8 @@ use hyxe_user::external_services::fcm::data_structures::{RawExternalPacket, FcmT
 use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::state_container::VirtualConnectionType;
+use hyxe_user::backend::PersistenceHandler;
+use uuid::Uuid;
 
 pub trait PeerLayerTimeoutFunction: FnOnce(PeerSignal) + SyncContextRequirements {}
 impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction for T {}
@@ -32,12 +33,14 @@ impl<T: FnOnce(PeerSignal) + SyncContextRequirements> PeerLayerTimeoutFunction f
 /// When HyperLAN client A needs to send a POST_REGISTER signal to HyperLAN client B (who is disconnected),
 /// the request needs to stay in memory until either the peer joins OR HyperLAN client A disconnects. Hence the need for this layer
 pub struct HyperNodePeerLayerInner {
-    pub(crate) mailbox: HashMap<u64, VecDeque<PeerSignal>>,
+    pub(crate) persistence_handler: PersistenceHandler,
     // When a signal is routed to the target destination, the server needs to keep track of the state while awaiting
     pub(crate) observed_postings: HashMap<u64, HashMap<Ticket, TrackedPosting>>,
     pub(crate) message_groups: HashMap<u64, (u8, HashMap<u8, MessageGroup>)>,
     delay_queue: DelayQueue<(u64, Ticket)>
 }
+
+const MAILBOX: &'static str = "mailbox";
 
 #[cfg(feature = "multi-threaded")]
 #[derive(Clone)]
@@ -71,51 +74,46 @@ impl TrackedPosting {
 impl HyperNodePeerLayer {
     #[allow(unused_results)]
     /// This should be called during the DO_CONNECT phase
-    pub fn register_peer(&mut self, cid: u64, clear_if_existing: bool) -> Option<MailboxTransfer>{
-        let mut this = inner_mut!(self);
-        // Add unconditionally, replacing any previous items
-        if clear_if_existing {
-            log::info!("Force adding mailbox for {}", cid);
-            this.mailbox.insert(cid, VecDeque::with_capacity(PEER_EVENT_MAILBOX_SIZE));
-            this.observed_postings.insert(cid, HashMap::new());
-            this.message_groups.insert(cid, (0, HashMap::new()));
-            return None;
-        }
+    pub async fn register_peer(&mut self, cid: u64) -> Result<Option<MailboxTransfer>, NetworkError> {
+        let pers = {
+            let mut this = inner_mut!(self);
 
-        // Otherwise, add only if it doesn't already exist
-        if !this.observed_postings.contains_key(&cid) {
-            log::info!("Adding observed postings handler for {}", cid);
-            this.observed_postings.insert(cid, HashMap::new());
-        }
-
-        if !this.message_groups.contains_key(&cid) {
-            log::info!("Adding message group hashmap for {}", cid);
-            this.message_groups.insert(cid, (0, HashMap::new()));
-        }
-
-        if !this.mailbox.contains_key(&cid) {
-            log::info!("Adding mailbox for {}", cid);
-            this.mailbox.insert(cid, VecDeque::with_capacity(PEER_EVENT_MAILBOX_SIZE));
-            None
-        } else {
-            // drain mailbox, return to user (means there was mail to view)
-            let items = this.mailbox.get_mut(&cid).unwrap().drain(..).collect::<Vec<PeerSignal>>();
-            if items.len() != 0 {
-                log::info!("Returning enqueued mailbox items for {}", cid);
-                Some(MailboxTransfer::from(items))
-            } else {
-                None
+            // Otherwise, add only if it doesn't already exist
+            if !this.observed_postings.contains_key(&cid) {
+                log::info!("Adding observed postings handler for {}", cid);
+                this.observed_postings.insert(cid, HashMap::new());
             }
+
+            if !this.message_groups.contains_key(&cid) {
+                log::info!("Adding message group hashmap for {}", cid);
+                this.message_groups.insert(cid, (0, HashMap::new()));
+            }
+
+            this.persistence_handler.clone()
+        };
+
+        // drain mailbox, return to user (means there was mail to view)
+        let items = pers.remove_byte_map_values_by_key(cid, 0, MAILBOX).await?;
+        if items.len() != 0 {
+            log::info!("Returning enqueued mailbox items for {}", cid);
+            Ok(Some(MailboxTransfer::from(items.into_values().collect())))
+        } else {
+            Ok(None)
         }
     }
 
     /// Cleans up the internal entries
     #[allow(unused_results)]
-    pub fn on_session_shutdown(&self, implicated_cid: u64) {
-        let mut this = inner_mut!(self);
-        this.mailbox.remove(&implicated_cid);
-        this.message_groups.remove(&implicated_cid);
-        this.observed_postings.remove(&implicated_cid);
+    pub async fn on_session_shutdown(&self, implicated_cid: u64) -> Result<(), NetworkError> {
+        let pers = {
+            let mut this = inner_mut!(self);
+            this.message_groups.remove(&implicated_cid);
+            this.observed_postings.remove(&implicated_cid);
+            this.persistence_handler.clone()
+        };
+
+        let _ = pers.remove_byte_map_values_by_key(implicated_cid, 0, MAILBOX).await?;
+        Ok(())
     }
 
     /// Creates a new [MessageGroup]. Returns the key upon completion
@@ -232,71 +230,16 @@ impl HyperNodePeerLayer {
     /// `add_queue_if_non_existing`: Creates an event queue if non-existing (useful if target not connected yet)
     /// `target_cid`: Should be the destination
     #[allow(unused_results)]
-    pub fn try_add_mailbox(&self, add_queue_if_non_existing: bool, target_cid: u64, signal: PeerSignal) -> bool {
-        let mut this = inner_mut!(self);
-        if let Some(queue) = this.mailbox.get_mut(&target_cid) {
-            if queue.len() > PEER_EVENT_MAILBOX_SIZE {
-                false
-            } else {
-                queue.push_back(signal);
-                true
-            }
-        } else {
-            if add_queue_if_non_existing {
-                let mut queue = VecDeque::with_capacity(PEER_EVENT_MAILBOX_SIZE);
-                queue.push_back(signal);
-                this.mailbox.insert(target_cid, queue);
-                true
-            } else {
-                false
-            }
-        }
-    }
+    pub async fn try_add_mailbox(&self, target_cid: u64, signal: PeerSignal) -> Result<(), NetworkError> {
+        let pers = {
+            inner!(self).persistence_handler.clone()
+        };
 
-    /// Returns the next event in the queue. Returns None if the queue does not exist
-    /// OR if there are no more events
-    #[allow(dead_code)]
-    pub fn get_next_mailbox_item(&self, target_cid: u64) -> Option<PeerSignal> {
-        let mut this = inner_mut!(self);
-        if let Some(queue) = this.mailbox.get_mut(&target_cid) {
-            queue.pop_front()
-        } else {
-            None
-        }
-    }
+        let serialized = signal.serialize_to_vector().map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let sub_key = Uuid::new_v4().to_string();
 
-    /// Returns ALL enqueued events
-    #[allow(dead_code)]
-    pub fn get_mailbox_items(&self, target_cid: u64) -> Option<Vec<PeerSignal>> {
-        let mut this = inner_mut!(self);
-        if let Some(queue) = this.mailbox.get_mut(&target_cid) {
-            if queue.len() != 0 {
-                Some(queue.drain(..).collect::<Vec<PeerSignal>>())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Same as get_events, but doesn't allocate a new vector; it applies the provided function instead.
-    /// This function returns the number of signals processed
-    #[allow(dead_code)]
-    pub fn enter_mailbox<E: ToString, F: Fn(PeerSignal) -> Result<(), E>>(&self, target_cid: u64, fx: F) -> Result<Option<usize>, NetworkError>{
-        let mut this = inner_mut!(self);
-        if let Some(queue) = this.mailbox.get_mut(&target_cid) {
-            let len = queue.len();
-            if len != 0 {
-                queue.drain(..).try_for_each(|signal| fx(signal))
-                    .map_err(|err| NetworkError::Generic(err.to_string()))
-                    .and_then(|_| Ok(Some(len)))
-            } else {
-                Ok(None)
-            }
-        } else {
-            Ok(None)
-        }
+        let _ = pers.store_byte_map_value(target_cid, 0, MAILBOX, &sub_key, serialized).await?;
+        Ok(())
     }
 
     /// An observed posting is associated with the `implicated_cid`

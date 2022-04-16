@@ -624,7 +624,6 @@ impl HdpSessionManager {
 
     /// Broadcasts a message to a target group
     /// Note: uses mail_if_offline: true. This allows a member to disconnect, but to still receive messages later-on
-    /// In the future, a SQL server should be used to store these messages, as they may get pretty lengthy
     pub fn broadcast_signal_to_group(&self, implicated_cid: u64, timestamp: i64, ticket: Ticket, key: MessageGroupKey, signal: GroupBroadcast, security_level: SecurityLevel) -> bool {
         let this = inner!(self);
         if let Some(peers_to_broadcast_to) = this.hypernode_peer_layer.get_peers_in_message_group(key) {
@@ -670,7 +669,7 @@ impl HdpSessionManager {
     /// Ensures the mailbox and tracked event queue are loaded into the [PeerLayer]
     pub fn register_session_with_peer_layer(&self, implicated_cid: u64) -> Option<MailboxTransfer> {
         let mut this = inner_mut!(self);
-        this.hypernode_peer_layer.register_peer(implicated_cid, false)
+        this.hypernode_peer_layer.register_peer(implicated_cid)
     }
 
     /// Removes a virtual connection `implicated_cid` from `peer_cid`
@@ -747,7 +746,7 @@ impl HdpSessionManager {
                 // session is not active, but user is registered (thus offline). Setup return ticket tracker on implicated_cid
                 // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: FCM route alternative, if available
                 this.hypernode_peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal.clone(), on_timeout);
-                if this.hypernode_peer_layer.try_add_mailbox(true, target_cid, signal) {
+                if this.hypernode_peer_layer.try_add_mailbox(target_cid, signal) {
                     Ok(())
                 } else {
                     Err(format!("Peer {} is offline. Furthermore, that peer's mailbox is not accepting signals at this time", target_cid))
@@ -852,13 +851,13 @@ impl HdpSessionManagerInner {
     /// NOTE: it is the duty of the calling closure to ensure that the [MessageGroup] exists!
     /// NOTE: This does not check to see if the two peers can send to each other. That is up to the caller to ensure that
     ///
-    pub fn send_group_broadcast_signal_to(&self, timestamp: i64, ticket: Ticket, peer_cid: u64, mail_if_offline: bool, signal: GroupBroadcast, security_level: SecurityLevel) -> Result<(), String> {
+    pub async fn send_group_broadcast_signal_to(&self, timestamp: i64, ticket: Ticket, peer_cid: u64, mail_if_offline: bool, signal: GroupBroadcast, security_level: SecurityLevel) -> Result<(), String> {
         if self.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
             super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
         }).is_err() {
             if mail_if_offline {
                 // TODO: Fcm send
-                if !self.hypernode_peer_layer.try_add_mailbox(true, peer_cid, PeerSignal::BroadcastConnected(signal)) {
+                if self.hypernode_peer_layer.try_add_mailbox(peer_cid, PeerSignal::BroadcastConnected(signal)).await.is_err() {
                         log::warn!("Unable to add broadcast signal to mailbox")
                 }
             }
