@@ -169,7 +169,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
                 let mut peers_okay = Vec::new();
                 for (peer, is_registered) in peers.iter().zip(peer_statuses) {
                     if is_registered {
-                        if let Err(err) = sess_mgr.send_group_broadcast_signal_to(timestamp, ticket, *peer, true, GroupBroadcast::Invitation(key), security_level) {
+                        if let Err(err) = sess_mgr.send_group_broadcast_signal_to(timestamp, ticket, *peer, true, GroupBroadcast::Invitation(key), security_level).await {
                             log::warn!("Unable to send group broadcast from {} to {}: {}", implicated_cid, peer, err);
                             peers_failed.push(*peer);
                         } else {

@@ -80,8 +80,6 @@ pub const DRILL_UPDATE_FREQUENCY_DIVINE_BASE: u64 = 1 * 480 * 1_000_000_000;
 /// this is applied to the ping. If the ping is 200ms, the a multiplier of 2.0 will mean that in 200*2.0 = 400ms,
 /// the hole-punching process will begin
 pub const HOLE_PUNCH_SYNC_TIME_MULTIPLIER: f64 = 2.0f64;
-/// The maximum number of signals per peer mailbox
-pub const PEER_EVENT_MAILBOX_SIZE: usize = 50;
 ///
 pub const TIMED_TICKET_LIFETIME: std::time::Duration = std::time::Duration::from_secs(30);
 /// the preconnect + connect stage will be limited by this duration
