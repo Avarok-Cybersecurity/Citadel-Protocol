@@ -41,7 +41,7 @@ use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::misc;
 use crate::hdp::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};
 use crate::hdp::misc::dual_rwlock::DualRwLock;
-use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
+use crate::hdp::misc::net::GenericNetworkStream;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 //use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender, channel, TrySendError};
 use crate::hdp::outbound_sender::{channel, SendError, unbounded, UnboundedReceiver, UnboundedSender};
@@ -63,7 +63,7 @@ use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use hyxe_wire::nat_identification::NatType;
-use hyxe_wire::exports::{Endpoint, NewConnection};
+use hyxe_wire::exports::NewConnection;
 use crate::hdp::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 use atomic::Atomic;
 use crate::auth::AuthenticationRequest;
@@ -157,12 +157,9 @@ pub struct HdpSessionInner {
     // Sends results directly to the kernel
     pub(super) kernel_tx: UnboundedSender<HdpServerResult>,
     pub(super) to_primary_stream: DualLateInit<Option<OutboundPrimaryStreamSender>>,
-    pub(super) p2p_session_tx: DualLateInit<Option<UnboundedSender<Pin<Box<dyn RuntimeFuture>>>>>,
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
     pub(super) session_manager: HdpSessionManager,
     pub(super) state: Arc<Atomic<SessionState>>,
-    pub(super) implicated_user_p2p_internal_listener_addr: DualLateInit<Option<SocketAddr>>,
-    pub(super) client_only_quic_endpoint: DualLateInit<Option<Endpoint>>,
     pub(super) state_container: StateContainer,
     pub(super) account_manager: AccountManager,
     pub(super) time_tracker: TimeTracker,
@@ -245,11 +242,8 @@ impl HdpSession {
             hypernode_peer_layer,
             connect_mode: DualRwLock::from(connect_mode),
             primary_stream_quic_conn: DualRwLock::from(None),
-            implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
-            client_only_quic_endpoint: DualLateInit::default(),
             local_nat_type,
             adjacent_nat_type: DualLateInit::default(),
-            p2p_session_tx: DualLateInit::default(),
             do_static_hr_refresh_atexit: true.into(),
             dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
             peer_only_connect_protocol: Some(peer_only_connect_proto).into(),
@@ -294,11 +288,8 @@ impl HdpSession {
             hypernode_peer_layer,
             connect_mode: DualRwLock::from(None),
             primary_stream_quic_conn: DualRwLock::from(None),
-            implicated_user_p2p_internal_listener_addr: DualLateInit::default(),
-            client_only_quic_endpoint: DualLateInit::default(),
             local_nat_type,
             adjacent_nat_type: DualLateInit::default(),
-            p2p_session_tx: DualLateInit::default(),
             do_static_hr_refresh_atexit: true.into(),
             dc_signal_sender: DualRwLock::from(Some(kernel_tx.clone())),
             peer_only_connect_protocol: None.into(),
@@ -331,13 +322,12 @@ impl HdpSession {
     ///
     /// `tcp_stream`: this goes to the adjacent HyperNode
     /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
-    pub async fn execute(&self, p2p_listener: Option<GenericNetworkListener>, mut primary_stream: GenericNetworkStream, peer_addr: SocketAddr) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
+    pub async fn execute(&self, mut primary_stream: GenericNetworkStream, peer_addr: SocketAddr) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
         log::info!("HdpSession is executing ...");
         let this = self.clone();
         let this_outbound = self.clone();
         let this_inbound = self.clone();
         let this_queue_worker = self.clone();
-        let this_p2p_listener = self.clone();
         let this_close = self.clone();
 
         let (session_future, handle_zero_state, implicated_cid) = {
@@ -348,21 +338,11 @@ impl HdpSession {
             let primary_outbound_tx = OutboundPrimaryStreamSender::from(primary_outbound_tx);
             let primary_outbound_rx = OutboundPrimaryStreamReceiver::from(primary_outbound_rx);
 
-            let (p2p_session_tx, p2p_session_rx) = unbounded();
-
-            if let Some(ref p2p_listener) = p2p_listener {
-                // We can unwrap below since, by default, p2p always uses QUIC
-                this.client_only_quic_endpoint.set_once(Some(p2p_listener.quic_endpoint().unwrap()));
-                this.implicated_user_p2p_internal_listener_addr.set_once(Some(p2p_listener.local_addr().map_err(|err| (NetworkError::Generic(err.to_string()), None))?))
-            }
-
             // if the primary stream uses QUIC, load this inside for both client and server
             if let Some(quic_conn) = quic_conn_opt {
                 *inner_mut!(this.primary_stream_quic_conn) = Some(quic_conn);
             }
 
-            let p2p_listener = p2p_listener.map(|r| (r, p2p_session_rx));
-            this.p2p_session_tx.set_once(Some(p2p_session_tx));
 
             //let (obfuscator, packet_opt) = HeaderObfuscator::new(this.is_server);
             //let sess_id = this_ref.kernel_ticket;
@@ -385,25 +365,13 @@ impl HdpSession {
             let stopper_future = Self::stopper(stopper);
             let handle_zero_state = Self::handle_zero_state(None, persistence_handler, primary_outbound_tx.clone(), this_outbound, this.state.load(Ordering::SeqCst), timestamp, local_nid, cnac_opt);
 
-            let session_future = if let Some((p2p_listener, p2p_session_rx)) = p2p_listener {
-                spawn_handle!(async move {
-                            tokio::select! {
-                                res0 = writer_future => res0,
-                                res1 = reader_future => res1,
-                                res2 = stopper_future => res2,
-                                res3 = crate::hdp::peer::p2p_conn_handler::p2p_conn_handler(p2p_listener, this_p2p_listener) => res3,
-                                res4 = Self::session_future_receiver(p2p_session_rx) => res4
-                            }
-                        })
-            } else {
-                spawn_handle!(async move {
+            let session_future = spawn_handle!(async move {
                             tokio::select! {
                                 res0 = writer_future => res0,
                                 res1 = reader_future => res1,
                                 res2 = stopper_future => res2
                             }
-                        })
-            };
+                        });
 
             //let session_future = futures::future::try_join4(writer_future, reader_future, timer_future, socket_loader_future);
 
@@ -518,7 +486,6 @@ impl HdpSession {
         let mut state_container = inner_mut_state!(session_ref.state_container);
 
         let udp_mode = state_container.udp_mode;
-        let local_peer_listener_addr = session_ref.implicated_user_p2p_internal_listener_addr.clone().ok_or(NetworkError::InternalError("Local listener port not loaded"))?;
         let timestamp = session_ref.time_tracker.get_global_time_ns();
         let session_security_settings = state_container.session_security_settings.clone().unwrap();
         let peer_only_connect_mode = session_ref.peer_only_connect_protocol.get().unwrap();
@@ -538,7 +505,7 @@ impl HdpSession {
         }
 
         // NEXT STEP: check preconnect, and update internal security-level recv side to the security level found in transfer to ensure all future packages are at that security-level
-        let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, nat_type, udp_mode, local_peer_listener_addr, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode, connect_mode);
+        let syn = hdp_packet_crafter::pre_connect::craft_syn(static_aux_hr, transfer, nat_type, udp_mode, timestamp, state_container.keep_alive_timeout_ns, max_usable_level, session_security_settings, peer_only_connect_mode, connect_mode);
 
         state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SYN_ACK;
         state_container.pre_connect_state.constructor = Some(alice_constructor);

@@ -317,9 +317,9 @@ impl HdpServer {
     /// The remote is usually the central server. Then the P2P listener binds to it to allow NATs to keep the hole punched
     ///
     /// It is expected that the listener_underlying_proto is QUIC here since this is called for p2p connections!
-    pub(crate) async fn create_session_transport_init<R: ToSocketAddrs>(listener_underlying_proto: UnderlyingProtocol, remote: R, default_client_config: &Arc<ClientConfig>) -> io::Result<(GenericNetworkListener, GenericNetworkStream)> {
+    pub(crate) async fn create_session_transport_init<R: ToSocketAddrs>(remote: R, default_client_config: &Arc<ClientConfig>) -> io::Result<GenericNetworkStream> {
         // We start by creating a client to server connection
-        let (stream, quic_endpoint_generated_during_connect) = Self::create_c2s_connect_socket(remote, None, default_client_config).await?;
+        let (stream, _quic_endpoint_generated_during_connect) = Self::create_c2s_connect_socket(remote, None, default_client_config).await?;
         // We bind to the addr from the source socket_addr the stream has reserved for NAT traversal purposes
         // NOTE! We CANNOT bind to this address otherwise there will be overlapping TCP connections from the SO_REUSEADDR, causing stream CORRUPTION under high traffic loads. This was proven to exist from stress-testing this protocol
         // Wait ... maybe not? Jul 22 2021
@@ -327,12 +327,12 @@ impl HdpServer {
         let stream_bind_addr = stream.local_addr()?;
 
         // we then bind a listener to the same local addr as the connection to the central server. The central server just needs to share the external addr with each peer to know where to connect
-        let (p2p_listener, _bind_addr) = Self::bind_defaults(listener_underlying_proto, None,quic_endpoint_generated_during_connect, SocketAddr::new(stream_bind_addr.ip(), stream_bind_addr.port()))?;
+        //let (p2p_listener, _bind_addr) = Self::bind_defaults(listener_underlying_proto, None,quic_endpoint_generated_during_connect, SocketAddr::new(stream_bind_addr.ip(), stream_bind_addr.port()))?;
 
         Self::open_tcp_port(stream_bind_addr.port());
 
         log::info!("[Client] Finished connecting to server {} w/ proto {:?}", stream.peer_addr()?, &stream);
-        Ok((p2p_listener, stream))
+        Ok(stream)
     }
 
     /// Important: Assumes UDP NAT traversal has concluded. This should ONLY be used for p2p
