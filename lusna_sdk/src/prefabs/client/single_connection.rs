@@ -22,7 +22,7 @@ pub struct SingleClientServerConnectionKernel<F, Fut> {
 
 
 #[derive(Debug)]
-enum ConnectionType {
+pub(crate) enum ConnectionType {
     Register { server_addr: SocketAddr, username: String, password: SecBuffer, full_name: String },
     Connect { username: String, password: SecBuffer },
     Passwordless { server_addr: SocketAddr }
