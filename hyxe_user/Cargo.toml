@@ -45,7 +45,7 @@ bstr = "0.2.15"
 serde_bytes = "0.11.5"
 zerocopy = "0.5.0"
 byteorder = "1.4.2"
-sqlx = { version = "0.5.7", features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
+sqlx = { version = "0.5.11", features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
 firebase-rtdb = { path = "../firebase-rtdb", version = "0.1.0" }
 jwt = { version = "0.14.0", features = ["openssl"] }
 openssl = { version = "0.10.36", features = ["vendored"] }
@@ -55,6 +55,8 @@ openssl = { version = "0.10.36", features = ["vendored"] }
 tokio = { version = "1.10.1", features = ["macros"] }
 env_logger = "0.8.2"
 dirs2 = "3.0.1"
+rstest = "0.12.0"
+lazy_static = "1.4.0"
 
 ez_pqcrypto = { version = "0.1.1", path = "../ez_pqcrypto" }
 

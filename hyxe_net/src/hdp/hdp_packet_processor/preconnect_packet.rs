@@ -49,9 +49,8 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                     let header_if_err_occurs = header.clone();
 
                     match validation::pre_connect::validate_syn(&cnac, packet, &session.session_manager) {
-                        Ok((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type, peer_listener_internal_addr)) => {
+                        Ok((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type)) => {
                             session.adjacent_nat_type.set_once(Some(nat_type));
-                            session.implicated_user_p2p_internal_listener_addr.set_once(Some(peer_listener_internal_addr));
                             // since the SYN's been validated, the CNACs toolset has been updated
                             let new_session_sec_lvl = transfer.security_level;
 
@@ -119,7 +118,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                         // cnac should already be loaded locally
                         let alice_constructor = return_if_none!(state_container.pre_connect_state.constructor.take(), "Alice constructor not loaded");
 
-                        if let Some((new_hyper_ratchet, nat_type, server_udp_port_opt)) = validation::pre_connect::validate_syn_ack(cnac, alice_constructor, packet) {
+                        if let Some((new_hyper_ratchet, nat_type, _server_udp_port_opt)) = validation::pre_connect::validate_syn_ack(cnac, alice_constructor, packet) {
                             // The toolset, at this point, has already been updated. The CNAC can be used to
                             //let ref drill = cnac.get_drill_blocking(None)?;
                             session.adjacent_nat_type.set_once(Some(nat_type.clone()));
@@ -127,9 +126,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                             let local_node_type = session.local_node_type;
                             let timestamp = session.time_tracker.get_global_time_ns();
                             //let local_bind_addr = session.local_bind_addr.ip();
-                            let local_bind_addr = session.local_bind_addr;
                             //let local_bind_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
-                            let server_external_addr = session.remote_peer;
 
                             if state_container.udp_mode == UdpMode::Disabled {
                                 let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
@@ -142,16 +139,12 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                                 return send_success_as_initiator(get_quic_udp_interface(quic_conn, session.local_bind_addr), &new_hyper_ratchet, session, security_level, cnac, &mut *state_container);
                             }
 
-                            // we assume there is no translation in IP/Port for this server
-                            let servers_udp_port = server_udp_port_opt.unwrap();
-                            let server_udp_addr = SocketAddr::from((server_external_addr.ip(), servers_udp_port));
-
                             let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
                             let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
                             to_primary_stream.unbounded_send(stage0_preconnect_packet)?;
 
                             //let hole_puncher = SingleUDPHolePuncher::new_initiator(session.local_nat_type.clone(), generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW), nat_type, local_bind_addr, server_external_addr, server_internal_addr).ok()?;
-                            let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, server_udp_addr, local_bind_addr, C2S_ENCRYPTION_ONLY, new_hyper_ratchet.clone(), security_level);
+                            let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, C2S_ENCRYPTION_ONLY, new_hyper_ratchet.clone(), security_level);
                             (stream, new_hyper_ratchet)
                         } else {
                             log::error!("Invalid SYN_ACK");
@@ -208,14 +201,12 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                             } // .. otherwise, continue logic below to punch a hole through the firewall
 
                             // At this point, UDP mode is enabled and we aren't using QUIC.
-                            let reserved_socket = state_container.pre_connect_state.unused_local_udp_socket.take().unwrap();
+                            std::mem::drop(state_container.pre_connect_state.unused_local_udp_socket.take());
 
-                            let _local_node_type = session.local_node_type;
-                            let peer_addr = session.remote_peer;
                             //let _peer_internal_addr = session.implicated_user_p2p_internal_listener_addr.clone()?;
                             let to_primary_stream = return_if_none!(session.to_primary_stream.clone(), "Primary stream not loaded");
 
-                            let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, peer_addr, reserved_socket.local_addr()?, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
+                            let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
                             stream
                         } else {
                             log::error!("Unable to validate stage 0 packet");

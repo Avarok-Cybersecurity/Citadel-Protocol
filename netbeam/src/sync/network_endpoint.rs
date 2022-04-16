@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use crate::reliable_conn::{ReliableOrderedConnectionToTarget, ConnAddr};
 use crate::sync::RelativeNodeType;
 use std::ops::Deref;
+use crate::sync::subscription::Subscribable;
 
 /// A network application endowed with socket addrs
 #[derive(Clone)]
@@ -34,6 +35,10 @@ impl NetworkEndpoint {
         let (local_addr, peer_addr) = (conn.local_addr()?, conn.peer_addr()?);
         let endpoint = NetworkApplication::register(relative_node_type, conn).await?;
         Ok(Self { endpoint, local_addr, peer_addr })
+    }
+
+    pub fn is_initiator(&self) -> bool {
+        self.node_type() == RelativeNodeType::Initiator
     }
 }
 
