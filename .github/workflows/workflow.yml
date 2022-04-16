@@ -8,14 +8,15 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db"
-  TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db"
   RUST_BACKTRACE: full
   # 20 MiB stack
   RUST_MIN_STACK: 20971520
 
 jobs:
   core_libs:
+    env:
+      TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db"
+      TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db"
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-2019]
