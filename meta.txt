@@ -1,1 +1,1 @@
-pub const BUILD_VERSION: usize = 8508;
+pub const BUILD_VERSION: usize = 8522;
