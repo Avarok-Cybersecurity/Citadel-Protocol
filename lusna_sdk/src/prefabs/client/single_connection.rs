@@ -140,17 +140,9 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
 #[cfg(test)]
 mod tests {
     use crate::prelude::*;
-    use std::net::SocketAddr;
-    use std::str::FromStr;
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use std::sync::atomic::{AtomicBool, Ordering};
-
-    pub fn server_info() -> (NodeFuture, SocketAddr) {
-        let port = portpicker::pick_unused_port().unwrap();
-        let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-        let server = crate::test_common::default_server_test_node(bind_addr);
-        (server, bind_addr)
-    }
+    use crate::test_common::server_info;
 
     #[tokio::test]
     async fn single_connection_registered() {

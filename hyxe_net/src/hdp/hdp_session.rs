@@ -1157,7 +1157,7 @@ impl HdpSession {
                                 PeerSignal::DisconnectUDP(v_conn)
                             }
                             // case 1: user just initiated a post-register request that has Fcm enabled
-                            PeerSignal::PostRegister(vconn, a, b, c, FcmPostRegister::Enable) => {
+                            PeerSignal::PostRegister(vconn, a, b, c,d, FcmPostRegister::Enable) => {
                                 let target_cid = vconn.get_original_target_cid();
                                 log::info!("[FCM] client {} requested FCM post-register with {}", inner.cid, target_cid);
 
@@ -1175,11 +1175,11 @@ impl HdpSession {
                                 }
 
                                 do_save = true;
-                                PeerSignal::PostRegister(vconn, a, b, c, fcm_post_register)
+                                PeerSignal::PostRegister(vconn, a, b, c, d,fcm_post_register)
                             }
 
                             // case 2: local just accepted, fcm is enabled. But, signal was not sent via FCM. Instead, was sent via normal network
-                            PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, _this_cid)) => {
+                            PeerSignal::PostRegister(vconn, a, b, ticket, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, _this_cid)) => {
                                 let target_cid = vconn.get_original_target_cid();
                                 let local_cid = inner.cid;
                                 log::info!("[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
@@ -1196,7 +1196,7 @@ impl HdpSession {
                                 inner.fcm_crypt_container.insert(target_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, peer_fcm_keys)); // local is NOT initiator in this case
                                 do_save = true;
 
-                                PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), fcm_post_register)
+                                PeerSignal::PostRegister(vconn, a, b, ticket,Some(PeerResponse::Accept(Some(c))), fcm_post_register)
                             }
 
                             n => {
