@@ -46,7 +46,6 @@ fn setup_bind(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(), anyh
 
 
 async fn setup_connect(connect_addr: SocketAddr, socket: Socket, timeout: Duration, reuse: bool) -> Result<TcpStream, anyhow::Error> {
-    // TODO: Consider whether to pass connect_addr or bind ... socket.set_only_v6 may cause errors on some platforms
     setup_base_socket(connect_addr, &socket, reuse)?;
     let socket = tokio::net::TcpSocket::from_std_stream(socket.into());
     Ok(tokio::time::timeout(timeout, socket.connect(connect_addr)).await??)

@@ -591,7 +591,7 @@ struct HdpServerRemoteInner {
 #[async_trait::async_trait]
 pub trait Remote: Clone + Send {
     async fn send(&mut self, request: HdpServerRequest) -> Result<Ticket, NetworkError>;
-    async fn send_callback_stream(&mut self, request: HdpServerRequest) -> Result<KernelStreamSubscription, NetworkError>;
+    async fn send_callback_subscription(&mut self, request: HdpServerRequest) -> Result<KernelStreamSubscription, NetworkError>;
     async fn send_callback(&mut self, request: HdpServerRequest) -> Result<HdpServerResult, NetworkError>;
     fn account_manager(&self) -> &AccountManager;
 }
@@ -602,8 +602,8 @@ impl Remote for NodeRemote {
         NodeRemote::send(self, request).await
     }
 
-    async fn send_callback_stream(&mut self, request: HdpServerRequest) -> Result<KernelStreamSubscription, NetworkError> {
-        NodeRemote::send_callback_stream(self, request).await
+    async fn send_callback_subscription(&mut self, request: HdpServerRequest) -> Result<KernelStreamSubscription, NetworkError> {
+        NodeRemote::send_callback_subscription(self, request).await
     }
 
     async fn send_callback(&mut self, request: HdpServerRequest) -> Result<HdpServerResult, NetworkError> {
@@ -656,7 +656,7 @@ impl NodeRemote {
     }
 
     /// Returns an error if the ticket is already registered for a stream-callback
-    pub(crate) async fn send_callback_stream_custom_ticket(&mut self, request: HdpServerRequest, ticket: Ticket) -> Result<KernelStreamSubscription, NetworkError> {
+    pub(crate) async fn send_callback_subcription_custom_ticket(&mut self, request: HdpServerRequest, ticket: Ticket) -> Result<KernelStreamSubscription, NetworkError> {
         let rx = self.inner.callback_handler.register_stream(ticket)?;
         match self.send_with_custom_ticket(ticket, request).await {
             Ok(_) => {
@@ -671,9 +671,9 @@ impl NodeRemote {
     }
 
     /// Convenience method for sending and awaiting for a response for the related ticket
-    pub async fn send_callback_stream(&mut self, request: HdpServerRequest) -> Result<KernelStreamSubscription, NetworkError> {
+    pub async fn send_callback_subscription(&mut self, request: HdpServerRequest) -> Result<KernelStreamSubscription, NetworkError> {
         let ticket = self.get_next_ticket();
-        self.send_callback_stream_custom_ticket(request, ticket).await
+        self.send_callback_subcription_custom_ticket(request, ticket).await
     }
 
     /// Convenience method for sending and awaiting for a response for the related ticket

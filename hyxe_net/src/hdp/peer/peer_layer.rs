@@ -380,7 +380,7 @@ impl futures::Future for HyperNodePeerLayer {
 #[allow(variant_size_differences)]
 pub enum PeerSignal {
     // implicated_cid, icid (0 if hyperlan), target_cid (0 if all), use fcm
-    PostRegister(PeerConnectionType, Username, Option<Ticket>, Option<PeerResponse>, FcmPostRegister),
+    PostRegister(PeerConnectionType, Username, Option<Username>, Option<Ticket>, Option<PeerResponse>, FcmPostRegister),
     // implicated_cid, icid, target_cid, use_fcm
     Deregister(PeerConnectionType, bool),
     // implicated_cid, icid, target_cid, udp enabled

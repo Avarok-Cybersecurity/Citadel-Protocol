@@ -14,14 +14,16 @@ pub(crate) mod user_ids {
     /// A reference to a user identifier
     pub struct SymmetricIdentifierHandleRef<'a> {
         pub(crate) user: VirtualTargetType,
-        pub(crate) remote: &'a mut NodeRemote
+        pub(crate) remote: &'a mut NodeRemote,
+        pub(crate) target_username: Option<String>
     }
 
     impl SymmetricIdentifierHandleRef<'_> {
-        pub fn owned(&self) -> SymmetricIdentifierHandle {
+        pub fn into_owned(self) -> SymmetricIdentifierHandle {
             SymmetricIdentifierHandle {
                 user: self.user,
-                remote: self.remote.clone()
+                remote: self.remote.clone(),
+                target_username: self.target_username
             }
         }
     }
@@ -30,12 +32,14 @@ pub(crate) mod user_ids {
     /// A convenience structure for executing commands that depend on a specific registered user
     pub struct SymmetricIdentifierHandle {
         user: VirtualTargetType,
-        remote: NodeRemote
+        remote: NodeRemote,
+        target_username: Option<String>
     }
 
     pub trait TargetLockedRemote {
         fn user(&self) -> &VirtualTargetType;
         fn remote(&mut self) -> &mut NodeRemote;
+        fn target_username(&self) -> Option<&String>;
     }
 
     impl TargetLockedRemote for SymmetricIdentifierHandleRef<'_> {
@@ -45,6 +49,7 @@ pub(crate) mod user_ids {
         fn remote(&mut self) -> &mut NodeRemote {
             self.remote
         }
+        fn target_username(&self) -> Option<&String> { self.target_username.as_ref() }
     }
 
     impl TargetLockedRemote for SymmetricIdentifierHandle {
@@ -54,11 +59,12 @@ pub(crate) mod user_ids {
         fn remote(&mut self) -> &mut NodeRemote {
             &mut self.remote
         }
+        fn target_username(&self) -> Option<&String> { self.target_username.as_ref() }
     }
 
     impl From<SymmetricIdentifierHandleRef<'_>> for SymmetricIdentifierHandle {
         fn from(this: SymmetricIdentifierHandleRef<'_>) -> Self {
-            this.owned()
+            this.into_owned()
         }
     }
 
@@ -151,23 +157,30 @@ pub trait ProtocolRemoteExt: Remote {
     /// Creates a valid target identifier used to make protocol requests. Raw user IDs or usernames can be used
     /// ```
     /// use hyxe_net::prelude::*;
-    /// remote.find_target("alice", "bob").await?.send_file("/path/to/file.pdf").await?;
-    /// // or: remote.find_target(1234, "bob").await? [...]
+    /// remote.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await?;
+    /// // or: remote.find_target(1234, "my_peer").await? [...]
     /// ```
     async fn find_target<T: Into<UserIdentifier> + Send, R: Into<UserIdentifier> + Send>(&mut self, local_user: T, peer: R) -> Result<SymmetricIdentifierHandleRef<'_>, NetworkError> {
         let account_manager = self.account_manager();
         account_manager.find_target_information(local_user, peer).await?.map(move |(cid, peer)| if peer.parent_icid != 0 {
-            SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperWANPeer(cid, peer.parent_icid, peer.cid), remote: self.remote_ref_mut() }
+            SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperWANPeer(cid, peer.parent_icid, peer.cid), remote: self.remote_ref_mut(), target_username: None }
         } else {
-            SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperLANPeer(cid, peer.cid), remote: self.remote_ref_mut() }
+            SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperLANPeer(cid, peer.cid), remote: self.remote_ref_mut(), target_username: None }
         }).ok_or_else(|| NetworkError::msg("Target pair not found"))
     }
 
     /// Creates a proposed target from the valid local user to an unregistered peer in the network. Used when creating registration requests for peers.
     /// Currently only supports HyperLAN <-> HyperLAN peer connections
-    async fn propose_target<T: Into<UserIdentifier> + Send>(&mut self, local_user: T, peer_cid: u64) -> Result<SymmetricIdentifierHandleRef<'_>, NetworkError> {
+    async fn propose_target<T: Into<UserIdentifier> + Send, P: Into<UserIdentifier> + Send>(&mut self, local_user: T, peer: P) -> Result<SymmetricIdentifierHandleRef<'_>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
-        Ok(SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), remote: self.remote_ref_mut() })
+        match peer.into() {
+            UserIdentifier::ID(peer_cid) => {
+                Ok(SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), remote: self.remote_ref_mut(), target_username: None })
+            }
+            UserIdentifier::Username(uname) => {
+                Ok(SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperLANPeer(local_cid, 0), remote: self.remote_ref_mut(), target_username: Some(uname) })
+            }
+        }
     }
 
     /// Returns a list of hyperlan peers on the network for local_user. May or may not be registered to the user. To get a list of registered users to local_user, run [`Self::get_hyperlan_mutual_peers`]
@@ -176,7 +189,7 @@ pub trait ProtocolRemoteExt: Remote {
         let local_cid = self.get_implicated_cid(local_user).await?;
         let command = HdpServerRequest::PeerCommand(local_cid, PeerSignal::GetRegisteredPeers(HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid), None, limit.map(|r| r as i32)));
 
-        let mut stream = self.send_callback_stream(command).await?;
+        let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
@@ -196,7 +209,7 @@ pub trait ProtocolRemoteExt: Remote {
         let local_cid = self.get_implicated_cid(local_user).await?;
         let command = HdpServerRequest::PeerCommand(local_cid, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid), None));
 
-        let mut stream = self.send_callback_stream(command).await?;
+        let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
@@ -272,7 +285,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let implicated_cid = self.user().get_implicated_cid();
         let peer_target = self.try_as_peer_connection()?;
 
-        let mut stream = self.remote().send_callback_stream(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostConnect(peer_target, None, None, session_security_settings, udp_mode))).await?;
+        let mut stream = self.remote().send_callback_subscription(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostConnect(peer_target, None, None, session_security_settings, udp_mode))).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
@@ -298,12 +311,13 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let peer_target = self.try_as_peer_connection()?;
         // TODO: Get rid of this step. Should be handled by the protocol
         let local_username = self.remote().account_manager().get_username_by_cid(implicated_cid).await?.ok_or_else(||NetworkError::msg("Unable to find username for local user"))?;
+        let peer_username_opt = self.target_username().cloned();
 
-        let mut stream = self.remote().send_callback_stream(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostRegister(peer_target, local_username, None, None, FcmPostRegister::Disable))).await?;
+        let mut stream = self.remote().send_callback_subscription(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostRegister(peer_target, local_username, peer_username_opt,None, None, FcmPostRegister::Disable))).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
-                HdpServerResult::PeerEvent(PeerSignal::PostRegister(_, _,_,Some(resp), ..), _) => {
+                HdpServerResult::PeerEvent(PeerSignal::PostRegister(_, _,_,_,Some(resp), ..), _) => {
                     match resp {
                         PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
                         PeerResponse::Decline => return Ok(PeerRegisterStatus::Declined),

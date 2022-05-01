@@ -901,7 +901,7 @@ pub mod tests {
 
                         HdpServerResult::PeerEvent(signal, ticket) => {
                             match signal {
-                                PeerSignal::PostRegister(vconn, _peer_username, _, resp_opt, fcm) => {
+                                PeerSignal::PostRegister(vconn, _peer_username, _,_, resp_opt, fcm) => {
                                     if let Some(resp) = resp_opt {
                                         match resp {
                                             PeerResponse::Accept(_) => {
@@ -930,7 +930,7 @@ pub mod tests {
 
                                             let this_cid = this_cnac.get_cid();
                                             let this_username = this_cnac.get_username();
-                                            HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostRegister(vconn.reverse(), this_username, Some(ticket), Some(PeerResponse::Accept(None)), fcm))
+                                            HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostRegister(vconn.reverse(), this_username, None,Some(ticket), Some(PeerResponse::Accept(None)), fcm))
                                         };
 
                                         self.remote.clone().unwrap().send_with_custom_ticket(ticket, accept_post_register).await.unwrap();
@@ -1341,7 +1341,7 @@ pub mod tests {
             let client2_username = client2_cnac.get_username();
             let requests = write.queued_requests_client2.clone().unwrap();
             let fcm = enable_fcm.then(|| FcmPostRegister::Enable).unwrap_or(FcmPostRegister::Disable);
-            let post_register_request = HdpServerRequest::PeerCommand(client2_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client2_id, target_cid), client2_username, None, None, fcm));
+            let post_register_request = HdpServerRequest::PeerCommand(client2_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client2_id, target_cid), client2_username, None, None, None, fcm));
 
             let mut remote_client2 = write.remote_client2.clone().unwrap();
             std::mem::drop(write);
@@ -1424,7 +1424,7 @@ pub mod tests {
             let client0_username = client0_cnac.get_username();
             let requests = write.queued_requests_client0.clone().unwrap();
             let fcm = enable_fcm.then(|| FcmPostRegister::Enable).unwrap_or(FcmPostRegister::Disable);
-            let post_register_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), client0_username, None, None, fcm));
+            let post_register_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), client0_username, None,None, None, fcm));
 
             let mut remote_client0 = write.remote_client0.clone().unwrap();
             std::mem::drop(write);

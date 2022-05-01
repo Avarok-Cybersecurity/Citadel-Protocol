@@ -1766,6 +1766,7 @@ dependencies = [
  "env_logger 0.9.0",
  "futures",
  "hyxe_net",
+ "lazy_static",
  "log",
  "parking_lot",
  "portpicker",
