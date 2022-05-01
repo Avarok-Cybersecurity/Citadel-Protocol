@@ -726,8 +726,26 @@ impl HdpSessionManager {
         }
     }
 
+    #[allow(dead_code)]
+    fn route_packet_to(&self, target_cid: u64, packet: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), String> {
+        let lock = inner!(self);
+        let (_, sess_ref) = lock.sessions.get(&target_cid).ok_or_else(|| format!("Target cid {} does not exist (route err)", target_cid))?;
+        let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
+        let ref peer_cnac = inner_state!(sess_ref.state_container).cnac.clone().ok_or_else(|| String::from("Peer CNAC not loaded"))?;
+
+        peer_cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
+            if let Some(peer_latest_hyper_ratchet) = hyper_ratchet_opt {
+                log::info!("Routing packet through primary stream -> {}", target_cid);
+                let packet = packet(peer_latest_hyper_ratchet);
+                peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
+            } else {
+                Err(format!("Unable to acquire peer drill for {}", target_cid))
+            }
+        })
+    }
+
     /// Stores the `signal` inside the internal timed-queue for `implicated_cid`, and then sends `packet` to `target_cid`.
-/// After `timeout`, the closure `on_timeout` is executed
+    /// After `timeout`, the closure `on_timeout` is executed
     #[inline]
     pub async fn route_signal_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
         if implicated_cid == target_cid {

@@ -35,7 +35,23 @@
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/ez_pqcrypto/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/build.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/build.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_node.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_node.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hyxe_net/tests/stress_test_and_proto.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/tests/stress_test_and_proto.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_user/src/hypernode_account.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/src/hypernode_account.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hyxe_wire/src/socket_helpers.rs" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/src/socket_helpers.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_sdk/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/prefabs/client/peer_connection.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/prefabs/client/peer_connection.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/prefabs/client/single_connection.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/prefabs/client/single_connection.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/prefabs/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/prefabs/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/remote_ext.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/remote_ext.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/lusna_sdk/src/test_common.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/src/test_common.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/meta.txt" beforeDir="false" afterPath="$PROJECT_DIR$/meta.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -80,18 +96,26 @@
   <component name="HighlightingSettingsPerFile">
     <setting file="file://$PROJECT_DIR$/hyxe_user/src/client_account.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/.github/dependabot.yml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/hyxe_net/src/hdp/hdp_packet_processor/peer/peer_cmd_packet.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/hyxe_net/src/hdp/hdp_session_manager.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/netbeam/Cargo.toml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/lusna_sdk/src/prefabs/client/peer_connection.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/.github/workflows/workflow.yml" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/netbeam/src/sync/network_endpoint.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/hyxe_user/src/hypernode_account.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_user/src/backend/mod.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_user/src/backend/filesystem_backend.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_user/src/backend/mysql_backend.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/hyxe_net/src/hdp/peer/peer_layer.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_user/src/network_account.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/netbeam/src/lib.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/netbeam/src/reliable_conn.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_user/tests/primary.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/hyxe_net/src/hdp/hdp_node.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/lusna_sdk/Cargo.toml" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_net/tests/stress_test_and_proto.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_user/Cargo.toml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/lusna_sdk/src/remote_ext.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_user/src/account_manager.rs" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/hyxe_net/src/hdp/peer/channel.rs" root0="FORCE_HIGHLIGHTING" />
   </component>
