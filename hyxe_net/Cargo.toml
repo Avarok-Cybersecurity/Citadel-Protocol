@@ -63,7 +63,7 @@ itertools = "0.10.3"
 env_logger = "0.8.2"
 parking_lot = { version = "0.11.1", features = ["deadlock_detection"] }
 async-recursion = "0.3.2"
-clap = "2.33.3"
+clap = "3.1.15"
 portpicker = "0.1.1"
 dirs2 = "3.0.1"
 rstest = "0.12.0"
