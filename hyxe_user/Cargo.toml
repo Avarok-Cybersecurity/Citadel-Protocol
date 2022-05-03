@@ -38,7 +38,7 @@ log = { version = "0.4.8", features = ["max_level_trace", "release_max_level_err
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }
 fcm = { version ="0.9.1", default-features=false, features = ["vendored-tls"] }
-serde_json = "1.0.62"
+serde_json = "1.0.81"
 base64 = "0.13.0"
 bytes = "1.0.1"
 bstr = "0.2.15"
