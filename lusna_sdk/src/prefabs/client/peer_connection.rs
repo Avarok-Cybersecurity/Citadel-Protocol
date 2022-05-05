@@ -7,7 +7,6 @@ use std::net::SocketAddr;
 use crate::prefabs::ClientServerRemote;
 use hyxe_net::re_imports::async_trait;
 use futures::stream::FuturesUnordered;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
@@ -125,7 +124,7 @@ async fn on_server_connect_success<F, Fut>(connect_success: ConnectSuccess, cls_
     let implicated_cid = connect_success.cid;
     let mut peers_already_registered = vec![];
 
-    //TODO: Add internal protocol logic for when two peers try connecting at same time
+    wait_for_peers().await;
 
     for peer in &peers_to_connect {
         // TODO: optimize this into a single operation
@@ -146,7 +145,7 @@ async fn on_server_connect_success<F, Fut>(connect_success: ConnectSuccess, cls_
             } else {
                 // do both register + connect
                 // TODO: optimize peer registration + connection in one go
-                let mut handle = remote.propose_target(implicated_cid, peer_to_connect).await?;
+                let mut handle = remote.propose_target(implicated_cid, peer_to_connect.clone()).await?;
                 let _reg_success = handle.register_to_peer().await?;
                 handle.connect_to_peer().await
             }
@@ -160,31 +159,40 @@ async fn on_server_connect_success<F, Fut>(connect_success: ConnectSuccess, cls_
     (f)(results, cls_remote).await
 }
 
-static TEST_FLAG: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+async fn wait_for_peers() {
+    let barrier = {
+        TEST_BARRIER.lock().clone()
+    };
 
-lazy_static::lazy_static! {
-    static ref TEST_BARRIER: Option<TestBarrier> = None;
+    if let Some(test_barrier) = barrier {
+        // wait for all peers to reach this point in the code
+        test_barrier.wait().await;
+    }
 }
+
+#[cfg(not(test))]
+async fn wait_for_peers() {}
+
+#[cfg(test)]
+static TEST_BARRIER: parking_lot::Mutex<Option<TestBarrier>> = parking_lot::const_mutex(None);
 
 #[derive(Clone)]
 struct TestBarrier {
-    inner: Option<Arc<tokio::sync::Barrier>>
+    inner: Arc<tokio::sync::Barrier>
 }
 
 impl TestBarrier {
-    pub fn new(count: usize) -> Self {
-        if TEST_FLAG.load(Ordering::SeqCst) {
-            let barrier = tokio::sync::Barrier::new(count);
-            Self { inner: Some(Arc::new(barrier)) }
-        } else {
-            Self { inner: None }
-        }
+    #[cfg(test)]
+    pub fn setup(count: usize) {
+        assert!(TEST_BARRIER.lock().replace(Self::new(count)).is_none())
+    }
+    fn new(count: usize) -> Self {
+        Self { inner: Arc::new(tokio::sync::Barrier::new(count)) }
     }
 
     pub async fn wait(&self) {
-        if let Some(barrier) = self.inner.as_ref() {
-            let _ = barrier.wait().await;
-        }
+        let _ = self.inner.wait().await;
     }
 }
 
@@ -196,32 +204,38 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
     use crate::test_common::{PEERS, server_info};
     use rstest::rstest;
-    use crate::prefabs::client::peer_connection::{PeerConnectionKernel, TEST_FLAG};
+    use crate::prefabs::client::peer_connection::{PeerConnectionKernel, TestBarrier};
     use futures::stream::FuturesUnordered;
     use futures::TryStreamExt;
 
     #[rstest]
     #[tokio::test]
-    #[case(3)]
+    #[case(2)]
     async fn peer_to_peer_connect(#[case] peer_count: usize) {
         crate::test_common::setup_log();
-        TEST_FLAG.store(true, Ordering::Relaxed);
+        TestBarrier::setup(peer_count);
 
         static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
-        let total_peers = (0..peer_count).into_iter().map(|idx| PEERS.get(idx).unwrap().1.clone()).collect::<Vec<String>>();
+        let total_peers = (0..peer_count).into_iter().map(|idx| PEERS.get(idx).unwrap().0.clone()).collect::<Vec<String>>();
         
         for idx in 0..peer_count {
             let (username, password, full_name) = PEERS.get(idx).unwrap();
-            let peers = total_peers.clone().into_iter().filter(|r| r != username).map(|r| UserIdentifier::Username(r)).collect::<Vec<UserIdentifier>>();
+            let peers = total_peers.clone().into_iter().filter(|r| r != username).map(UserIdentifier::Username).collect::<Vec<UserIdentifier>>();
             let username = username.clone();
 
-            let client_kernel = PeerConnectionKernel::new_register_defaults(full_name.as_str(), username.clone().as_str(), password.as_str(), peers, server_addr, |channel,remote| async move {
-                log::info!("***CLIENT {} TEST SUCCESS***", username);
-                let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
-                remote.shutdown_kernel().await
+            let client_kernel = PeerConnectionKernel::new_register_defaults(full_name.as_str(), username.clone().as_str(), password.as_str(), peers, server_addr, |results,remote| async move {
+                let success = results.iter().all(|r| r.is_ok());
+                log::info!("***PEER {} CONNECT RESULT: {}***", username, success);
+                if success {
+                    let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                    remote.shutdown_kernel().await
+                } else {
+                    log::error!("Peer connect failed: {:?}", results);
+                    Err(NetworkError::msg(format!("Connect failed: {:?}", results)))
+                }
             });
 
             let client1 = NodeBuilder::default().build(client_kernel).unwrap();

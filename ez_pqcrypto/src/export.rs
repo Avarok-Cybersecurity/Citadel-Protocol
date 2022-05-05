@@ -21,7 +21,7 @@ pub(crate) mod custom_serde {
     impl Serialize for KeyStore {
         fn serialize<S>(&self, s: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
             S: Serializer {
-            let intermediate_form = KeyStoreIntermediate { alice_key: self.alice_key.clone(), bob_key: self.bob_key.clone(), enx: self.encryption_algorithm };
+            let intermediate_form = KeyStoreIntermediate { alice_key: self.alice_key, bob_key: self.bob_key, enx: self.encryption_algorithm };
             KeyStoreIntermediate::serialize(&intermediate_form, s)
         }
     }

@@ -71,7 +71,7 @@ pub async fn process(persistence_handler: &PersistenceHandler, post_register_sto
         FcmPostRegister::AliceToBobTransfer(_transfer_bytes, _keys, source_cid) => {
             // store inside cnac
             let peer_cid = *source_cid;
-            if let Some(_) = post_register_store.insert(*source_cid, InvitationType::PostRegister(transfer, username.clone(), ticket)) {
+            if post_register_store.insert(*source_cid, InvitationType::PostRegister(transfer, username.clone(), ticket)).is_some() {
                 log::warn!("Overwrote pre-existing invite request. Previous is thus invalidated");
             }
 

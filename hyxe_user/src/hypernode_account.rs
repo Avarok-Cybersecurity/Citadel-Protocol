@@ -3,9 +3,9 @@ use crate::prelude::{ClientNetworkAccount, MutualPeer};
 use crate::misc::AccountError;
 
 /// The file extension for (H)yper(N)ode(A)ccounts (every node has one)
-pub const NAC_SERIALIZED_EXTENSION: &'static str = "hna";
+pub const NAC_SERIALIZED_EXTENSION: &str = "hna";
 /// The file extension for CNACs only
-pub const CNAC_SERIALIZED_EXTENSION: &'static str = "hca";
+pub const CNAC_SERIALIZED_EXTENSION: &str = "hca";
 
 /// For obtaniing data from a HyperNode account
 pub trait HyperNodeAccountInformation {
