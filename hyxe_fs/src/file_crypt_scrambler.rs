@@ -40,7 +40,7 @@ pub fn scramble_encrypt_file<F: HeaderInscriberFn, const N: usize>(std_file: std
     let metadata = std_file.metadata().map_err(|err| FsError::IoError(err.to_string()))?;
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
     if !metadata.is_file() {
-        return Err(FsError::IoError(format!("Supplied entry is not a file")));
+        return Err(FsError::IoError("Supplied entry is not a file".to_string()));
     }
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {
@@ -188,7 +188,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
 
                 *cur_task = Some(task);
                 *poll_amt = poll_len;
-                return Self::poll_task(groups_rendered,read_cursor,*poll_amt, cur_task, cx);
+                Self::poll_task(groups_rendered,read_cursor,*poll_amt, cur_task, cx)
             } else {
                 log::error!("Error polling exact amt {}", poll_len);
                 Poll::Ready(None)

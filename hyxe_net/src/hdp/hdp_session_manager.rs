@@ -756,6 +756,7 @@ impl HdpSessionManager {
             inner!(self).account_manager.clone()
         };
 
+        log::info!("Checking if {} is registered locally ... {:?}", target_cid, signal);
         if account_manager.hyperlan_cid_is_registered(target_cid).await.map_err(|err| err.into_string())? {
             let (sess, peer_layer) = {
                 let this = inner!(self);

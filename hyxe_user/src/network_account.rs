@@ -143,12 +143,12 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     pub fn register_cid_filesystem<T: Into<String>>(&self, cid: u64, username: T) -> Result<(), AccountError>{
         let mut write = self.write();
         let cids_registered = &mut write.cids_registered;
-        if cids_registered.contains_key(&cid) {
+        if let std::collections::hash_map::Entry::Vacant(e) = cids_registered.entry(cid) {
+            e.insert(username.into());
+            Ok(())
+        } else {
             log::error!("Overwrote pre-existing account that lingered in the NID list. Report to developers");
             Err(AccountError::ClientExists(cid))
-        } else {
-            cids_registered.insert(cid, username.into());
-            Ok(())
         }
     }
 
@@ -193,8 +193,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
         let cnac = ClientNetworkAccount::<R, Fcm>::new(reserved_cid, false, nac_other.unwrap_or_else(|| self.clone()), auth_store, base_hyper_ratchet, persistence_handler.clone(), fcm_keys).await?;
 
         // So long as the CNAC creation succeeded, we can confidently add the CID into the config
-        persistence_handler.register_cid_in_nac(reserved_cid, &username).await
-            .and_then(|_| Ok(cnac))
+        persistence_handler.register_cid_in_nac(reserved_cid, &username).await.map(|_| cnac)
     }
 
     /// Returns the IP address which belongs to the NID enclosed herein.

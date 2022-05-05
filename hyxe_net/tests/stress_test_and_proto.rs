@@ -150,7 +150,7 @@ pub mod tests {
             // give sleep to give time for conns to drop
             tokio::time::sleep(Duration::from_millis(100)).await;
             log::info!("Testing proto {:?}", &proto);
-            let ref cnt = AtomicUsize::new(0);
+            let cnt = &AtomicUsize::new(0);
 
             let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,addr).unwrap();
             log::info!("Bind/connect addr: {:?}", addr);
@@ -268,7 +268,7 @@ pub mod tests {
     impl<'a> InputExtractionSource<'a> {
         fn value_of(&self, key: &str) -> Option<&'_ str> {
             match self {
-                Self::UnitTest(map) => map.get(key).map(|r| *r),
+                Self::UnitTest(map) => map.get(key).copied(),
                 Self::Console(matches) => matches.value_of(key)
             }
         }
@@ -362,16 +362,16 @@ pub mod tests {
     }
 
     fn count() -> usize {
-        COUNT.lock().clone().unwrap()
+        (*COUNT.lock()).unwrap()
     }
-    fn secrecy_mode() -> SecrecyMode { SECRECY_MODE.lock().clone().unwrap() }
-    fn session_security_level() -> SecurityLevel { SESSION_SECURITY_LEVEL.lock().clone().unwrap() }
-    fn p2p_security_level() -> SecurityLevel { P2P_SECURITY_LEVEL.lock().clone().unwrap() }
-    fn timeout_cnt_ms() -> usize { TIMEOUT_CNT_MS.lock().clone().unwrap() }
-    fn rand_message_len() -> usize { RAND_MESSAGE_LEN.lock().clone().unwrap() }
-    fn encryption_algorithm() -> EncryptionAlgorithm { ENCRYPTION_ALGORITHM.lock().clone().unwrap() }
-    fn kem_algorithm() -> KemAlgorithm { KEM_ALGORITHM.lock().clone().unwrap() }
-    fn udp_mode() -> UdpMode { UDP_MODE.lock().clone().unwrap() }
+    fn secrecy_mode() -> SecrecyMode { (*SECRECY_MODE.lock()).unwrap() }
+    fn session_security_level() -> SecurityLevel { (*SESSION_SECURITY_LEVEL.lock()).unwrap() }
+    fn p2p_security_level() -> SecurityLevel { (*P2P_SECURITY_LEVEL.lock()).unwrap() }
+    fn timeout_cnt_ms() -> usize { (*TIMEOUT_CNT_MS.lock()).unwrap() }
+    fn rand_message_len() -> usize { (*RAND_MESSAGE_LEN.lock()).unwrap() }
+    fn encryption_algorithm() -> EncryptionAlgorithm { (*ENCRYPTION_ALGORITHM.lock()).unwrap() }
+    fn kem_algorithm() -> KemAlgorithm { (*KEM_ALGORITHM.lock()).unwrap() }
+    fn udp_mode() -> UdpMode { (*UDP_MODE.lock()).unwrap() }
 
     pub static SECRECY_MODE: parking_lot::Mutex<Option<SecrecyMode>> = const_mutex(None);
     pub static SESSION_SECURITY_LEVEL: parking_lot::Mutex<Option<SecurityLevel>> = const_mutex(None);
@@ -452,17 +452,17 @@ pub mod tests {
 
         let default_security_settings = SessionSecuritySettingsBuilder::default().with_secrecy_mode(secrecy_mode()).with_security_level(session_security_level()).with_crypto_params(params).build();
 
-        static CLIENT0_FULLNAME: &'static str = "Thomas P Braun (test)";
-        static CLIENT0_USERNAME: &'static str = "nologik";
-        static CLIENT0_PASSWORD: &'static str = "password0";
+        static CLIENT0_FULLNAME: &str = "Thomas P Braun (test)";
+        static CLIENT0_USERNAME: &str = "nologik";
+        static CLIENT0_PASSWORD: &str = "password0";
 
-        static CLIENT1_FULLNAME: &'static str = "Thomas P Braun I (test)";
-        static CLIENT1_USERNAME: &'static str = "nologik1";
-        static CLIENT1_PASSWORD: &'static str = "password1";
+        static CLIENT1_FULLNAME: &str = "Thomas P Braun I (test)";
+        static CLIENT1_USERNAME: &str = "nologik1";
+        static CLIENT1_PASSWORD: &str = "password1";
 
-        static CLIENT2_FULLNAME: &'static str = "Thomas P Braun II (test)";
-        static CLIENT2_USERNAME: &'static str = "nologik2";
-        static CLIENT2_PASSWORD: &'static str = "password2";
+        static CLIENT2_FULLNAME: &str = "Thomas P Braun II (test)";
+        static CLIENT2_USERNAME: &str = "nologik2";
+        static CLIENT2_PASSWORD: &str = "password2";
 
         let (proposed_credentials_0, proposed_credentials_1, proposed_credentials_2) = rt.block_on(async move {
             let p_0 = ProposedCredentials::new_register(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecBuffer::from(CLIENT0_PASSWORD)).await.unwrap();
@@ -1087,7 +1087,7 @@ pub mod tests {
     pub fn handle_group_channel(remote: NodeRemote, node_type: TestNodeType, test_container: Arc<RwLock<TestContainer>>, requests: Arc<Mutex<HashSet<Ticket>>>, channel: GroupChannel) {
         tokio::task::spawn(async move {
             let (sink, mut stream) = channel.split();
-            let ref mut sink = Some(sink);
+            let sink = &mut Some(sink);
 
             while let Some(evt) = stream.next().await {
                 match evt {

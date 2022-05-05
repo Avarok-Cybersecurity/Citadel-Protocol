@@ -40,6 +40,7 @@ pub(crate) mod user_ids {
         fn user(&self) -> &VirtualTargetType;
         fn remote(&mut self) -> &mut NodeRemote;
         fn target_username(&self) -> Option<&String>;
+        fn user_mut(&mut self) -> &mut VirtualTargetType;
     }
 
     impl TargetLockedRemote for SymmetricIdentifierHandleRef<'_> {
@@ -50,6 +51,10 @@ pub(crate) mod user_ids {
             self.remote
         }
         fn target_username(&self) -> Option<&String> { self.target_username.as_ref() }
+
+        fn user_mut(&mut self) -> &mut VirtualTargetType {
+            &mut self.user
+        }
     }
 
     impl TargetLockedRemote for SymmetricIdentifierHandle {
@@ -60,6 +65,10 @@ pub(crate) mod user_ids {
             &mut self.remote
         }
         fn target_username(&self) -> Option<&String> { self.target_username.as_ref() }
+
+        fn user_mut(&mut self) -> &mut VirtualTargetType {
+            &mut self.user
+        }
     }
 
     impl From<SymmetricIdentifierHandleRef<'_>> for SymmetricIdentifierHandle {
@@ -118,12 +127,10 @@ pub trait ProtocolRemoteExt: Remote {
     /// Returns a ticket which is used to uniquely identify the request in the protocol
     async fn register<T: std::net::ToSocketAddrs + Send, R: Into<String> + Send, V: Into<String> + Send, K: Into<SecBuffer> + Send>(&mut self, addr: T, full_name: R, username: V, proposed_password: K, fcm_keys: Option<FcmKeys>, default_security_settings: SessionSecuritySettings) -> Result<RegisterSuccess, NetworkError> {
         let creds = ProposedCredentials::new_register(full_name, username, proposed_password.into()).await?;
-        let register_request = HdpServerRequest::RegisterToHypernode(addr.to_socket_addrs()?.next().ok_or_else(|| NetworkError::InternalError("Invalid socket addr"))?, creds, fcm_keys, default_security_settings);
+        let register_request = HdpServerRequest::RegisterToHypernode(addr.to_socket_addrs()?.next().ok_or(NetworkError::InternalError("Invalid socket addr"))?, creds, fcm_keys, default_security_settings);
 
-        match self.send_callback(register_request).await? {
+        match map_errors(self.send_callback(register_request).await?)? {
             HdpServerResult::RegisterOkay(..) => Ok(RegisterSuccess {}),
-            HdpServerResult::RegisterFailure(_, err) => Err(NetworkError::Generic(err)),
-            HdpServerResult::InternalServerError(_, err) => Err(NetworkError::Generic(err)),
             _ => Err(NetworkError::msg("An unexpected response occurred"))
         }
     }
@@ -230,7 +237,7 @@ pub trait ProtocolRemoteExt: Remote {
     #[doc(hidden)]
     async fn get_implicated_cid<T: Into<UserIdentifier> + Send>(&mut self, local_user: T) -> Result<u64, NetworkError> {
         let account_manager = self.account_manager();
-        Ok(account_manager.find_local_user_information(local_user).await?.ok_or_else(|| NetworkError::InvalidRequest("User does not exist"))?)
+        Ok(account_manager.find_local_user_information(local_user).await?.ok_or(NetworkError::InvalidRequest("User does not exist"))?)
     }
 }
 
@@ -283,7 +290,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Connects to the peer with custom settings
     async fn connect_to_peer_custom(&mut self, session_security_settings: SessionSecuritySettings, udp_mode: UdpMode) -> Result<PeerConnectSuccess, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
-        let peer_target = self.try_as_peer_connection()?;
+        let peer_target = self.try_as_peer_connection().await?;
 
         let mut stream = self.remote().send_callback_subscription(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostConnect(peer_target, None, None, session_security_settings, udp_mode))).await?;
 
@@ -291,6 +298,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
             match map_errors(status)? {
                 HdpServerResult::PeerChannelCreated(_, channel, udp_rx_opt) => {
                     return Ok(PeerConnectSuccess { channel, udp_rx_opt })
+                }
+
+                HdpServerResult::PeerEvent(PeerSignal::PostConnect(_,_,Some(PeerResponse::Decline), ..), ..) => {
+                    return Err(NetworkError::msg("Peer declined to connect"))
                 }
 
                 _ => {}
@@ -308,7 +319,7 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Posts a registration request to a peer
     async fn register_to_peer(&mut self) -> Result<PeerRegisterStatus, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
-        let peer_target = self.try_as_peer_connection()?;
+        let peer_target = self.try_as_peer_connection().await?;
         // TODO: Get rid of this step. Should be handled by the protocol
         let local_username = self.remote().account_manager().get_username_by_cid(implicated_cid).await?.ok_or_else(||NetworkError::msg("Unable to find username for local user"))?;
         let peer_username_opt = self.target_username().cloned();
@@ -334,8 +345,26 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     #[doc(hidden)]
-    fn try_as_peer_connection(&self) -> Result<PeerConnectionType, NetworkError> {
-        self.user().try_as_peer_connection().ok_or_else(|| NetworkError::InvalidRequest("Target is not a peer"))
+    async fn try_as_peer_connection(&mut self) -> Result<PeerConnectionType, NetworkError> {
+        let verified_return = |user: &VirtualTargetType| {
+            user.try_as_peer_connection().ok_or(NetworkError::InvalidRequest("Target is not a peer"))
+        };
+
+        if self.user().get_target_cid() == 0 {
+            // in this case, the user re-used a remote locked to a registration target
+            // where the username was provided, but the cid was 0 (unknown).
+            let peer_username = self.target_username().ok_or_else(|| NetworkError::msg("target_cid=0, yet, no username was provided"))?.clone();
+            let implicated_cid = self.user().get_implicated_cid();
+            let peer_cid = self.remote().account_manager().find_target_information(implicated_cid, peer_username).await
+                .map_err(|err| NetworkError::Generic(err.into_string()))?
+                .map(|r| r.1.cid)
+                .unwrap_or(0);
+
+            self.user_mut().set_target_cid(peer_cid);
+            verified_return(self.user())
+        } else {
+            verified_return(self.user())
+        }
     }
 }
 
@@ -345,6 +374,7 @@ pub mod results {
     use crate::prelude::{PeerChannel, UdpChannel};
     use tokio::sync::oneshot::Receiver;
 
+    #[derive(Debug)]
     pub struct PeerConnectSuccess {
         pub channel: PeerChannel,
         pub udp_rx_opt: Option<Receiver<UdpChannel>>

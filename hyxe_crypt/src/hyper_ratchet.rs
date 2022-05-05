@@ -766,10 +766,10 @@ pub mod constructor {
 
             let scramble_bob_ct = self.scramble.pqc.get_ciphertext().ok()?.to_vec();
             // now, generate the serialized bytes
-            let ref nonce_msg = self.nonce_message;
-            let ref nonce_scramble = self.nonce_scramble;
+            let nonce_msg = &self.nonce_message;
+            let nonce_scramble = &self.nonce_scramble;
 
-            let encrypted_msg_drills: Vec<Vec<u8>> = self.message.inner.iter().filter_map(|inner| Some(inner.pqc.encrypt(inner.drill.as_ref()?.serialize_to_vec().ok()?, nonce_msg).ok()?)).collect();
+            let encrypted_msg_drills: Vec<Vec<u8>> = self.message.inner.iter().filter_map(|inner| inner.pqc.encrypt(inner.drill.as_ref()?.serialize_to_vec().ok()?, nonce_msg).ok()).collect();
             if encrypted_msg_drills.len() != expected_count {
                 return None;
             }
@@ -790,7 +790,7 @@ pub mod constructor {
         /// Returns Some(()) if process succeeded
         pub fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
             if let BobToAliceTransferType::Default(transfer) = transfer {
-                let ref nonce_msg = self.nonce_message;
+                let nonce_msg = &self.nonce_message;
 
                 for (idx, container) in self.message.inner.iter_mut().enumerate() {
                     container.pqc.alice_on_receive_ciphertext(&transfer.msg_bob_cts[idx][..]).ok()?;
@@ -803,7 +803,7 @@ pub mod constructor {
                 }
 
 
-                let ref nonce_scramble = self.nonce_scramble;
+                let nonce_scramble = &self.nonce_scramble;
                 self.scramble.pqc.alice_on_receive_ciphertext(&transfer.scramble_bob_ct[..]).ok()?;
                 // do the same as above
                 let decrypted_scramble_drill = self.scramble.pqc.decrypt(&transfer.encrypted_scramble_drill[..], nonce_scramble).ok()?;

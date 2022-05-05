@@ -644,21 +644,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
 
                             _ => {
                                 // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
-                                let decline = match &peer_response { PeerResponse::Decline => true, _ => false };
-
-                                route_signal_response(PeerSignal::PostRegister(peer_conn_type, username.clone(), None,Some(ticket), Some(peer_response), fcm), implicated_cid, target_cid, timestamp, ticket, session.clone(), &sess_hyper_ratchet,
-                                                      |this_sess, _peer_sess, _original_tracked_posting| {
-                                                          if !decline {
-                                                              let account_manager = this_sess.account_manager.clone();
-                                                              let task = async move {
-                                                                  if let Err(err) = account_manager.register_hyperlan_p2p_as_server(implicated_cid, target_cid).await {
-                                                                      log::error!("Unable to register hyperlan p2p at server: {:?}", err);
-                                                                  }
-                                                              };
-
-                                                              let _ = tokio::task::spawn(task);
-                                                          }
-                                                      }, security_level)
+                                super::server::post_register::handle_response_phase(peer_conn_type, username, peer_response, ticket, fcm, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level)
                             }
                         }
                     } else {
@@ -701,9 +687,16 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
 
                             _ => {
                                 // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase). No FCM
-                                let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
-                                let sess_mgr = session.session_manager.clone();
-                                route_signal_and_register_ticket_forwards(PeerSignal::PostRegister(peer_conn_type, username, None,Some(ticket), None, fcm), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr, &sess_hyper_ratchet, security_level).await
+                                // NOTE: we MUST redefine peer_conn_type since it may be overwritten if only a username is given
+                                let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid);
+                                if let Some(ticket) = session.hypernode_peer_layer.check_simultaneous_register(implicated_cid, target_cid) {
+                                    log::info!("Simultaneous register detected! Simulating implicated_cid={} sent an accept_register to target={}", implicated_cid, target_cid);
+                                    super::server::post_register::handle_response_phase(peer_conn_type, username.clone(), PeerResponse::Accept(Some(username)), ticket, fcm, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level)
+                                } else {
+                                    let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
+                                    let sess_mgr = session.session_manager.clone();
+                                    route_signal_and_register_ticket_forwards(PeerSignal::PostRegister(peer_conn_type, username, None,Some(ticket), None, fcm), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr, &sess_hyper_ratchet, security_level).await
+                                }
                             }
                         }
                     }
@@ -765,37 +758,19 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                     // TODO: Change timeouts. Create a better timeout system, in general
                     const TIMEOUT: Duration = Duration::from_secs(60 * 60);
                     if let Some(peer_response) = peer_response {
-                        // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
-                        route_signal_response(PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(peer_response), endpoint_security_level, udp_enabled), implicated_cid, target_cid, timestamp, ticket, session.clone(), &sess_hyper_ratchet,
-                                              |this_sess, peer_sess, _original_tracked_posting| {
-                                                  // when the route finishes, we need to update both sessions to allow high-level message-passing
-                                                  // In other words, forge a virtual connection
-                                                  // In order for routing of packets to be fast, we need to get the direct handles of the stream
-                                                  // placed into the state_containers
-                                                  if let Some(this_tcp_sender) = this_sess.to_primary_stream.clone() {
-                                                      if let Some(peer_tcp_sender) = peer_sess.to_primary_stream.clone() {
-                                                          let mut this_sess_state_container = inner_mut_state!(this_sess.state_container);
-                                                          let mut peer_sess_state_container = inner_mut_state!(peer_sess.state_container);
-
-                                                          // The UDP senders may not exist (e.g., TCP only mode)
-                                                          let this_udp_sender = this_sess_state_container.udp_primary_outbound_tx.clone();
-                                                          let peer_udp_sender = peer_sess_state_container.udp_primary_outbound_tx.clone();
-                                                          // rel to this local sess, the key = target_cid, then (implicated_cid, target_cid)
-                                                          let virtual_conn_relative_to_this = VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid);
-                                                          let virtual_conn_relative_to_peer = VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
-                                                          this_sess_state_container.insert_new_virtual_connection_as_server(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender);
-                                                          peer_sess_state_container.insert_new_virtual_connection_as_server(implicated_cid, virtual_conn_relative_to_peer, this_udp_sender, this_tcp_sender);
-                                                          log::info!("Virtual connection between {} <-> {} forged", implicated_cid, target_cid);
-                                                          // TODO: Ensure that, upon disconnect, the the corresponding entry gets dropped in the connection table of not the dropped peer
-                                                      }
-                                                  }
-                                              }, security_level)
+                        super::server::post_connect::handle_response_phase(peer_conn_type, ticket, peer_response, endpoint_security_level, udp_enabled, implicated_cid, target_cid, timestamp, sess_ref, &sess_hyper_ratchet, security_level)
                     } else {
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
                         let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
                         let sess_mgr = session.session_manager.clone();
-
-                        route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level, udp_enabled), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr,  &sess_hyper_ratchet, security_level).await
+                        if let Some(ticket) = session.hypernode_peer_layer.check_simultaneous_connect(implicated_cid, target_cid) {
+                            log::info!("Simultaneous connect detected! Simulating implicated_cid={} sent an accept_connect to target={}", implicated_cid, target_cid);
+                            // we simulate an acceptance PeerSignal and call this function
+                            // recursively to trigger the already-present local workflow at the server
+                            super::server::post_connect::handle_response_phase(peer_conn_type, ticket, PeerResponse::Accept(None), endpoint_security_level, udp_enabled, implicated_cid, target_cid, timestamp, sess_ref, &sess_hyper_ratchet, security_level)
+                        } else {
+                            route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level, udp_enabled), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr,  &sess_hyper_ratchet, security_level).await
+                        }
                     }
                 }
 
@@ -1032,7 +1007,7 @@ fn construct_error_signal<E: ToString>(err: E, hyper_ratchet: &HyperRatchet, tic
     hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, err_signal, ticket, timestamp, security_level)
 }
 
-async fn route_signal_and_register_ticket_forwards(signal: PeerSignal, timeout: Duration, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, to_primary_stream: &OutboundPrimaryStreamSender, sess_mgr: &HdpSessionManager, sess_hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+pub(crate) async fn route_signal_and_register_ticket_forwards(signal: PeerSignal, timeout: Duration, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, to_primary_stream: &OutboundPrimaryStreamSender, sess_mgr: &HdpSessionManager, sess_hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let sess_hyper_ratchet_2 = sess_hyper_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
@@ -1057,7 +1032,7 @@ async fn route_signal_and_register_ticket_forwards(signal: PeerSignal, timeout: 
 }
 
 // returns (true, status) if the process was a success, or (false, success) otherwise
-fn route_signal_response(signal: PeerSignal, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: HdpSession, sess_hyper_ratchet: &HyperRatchet, on_route_finished: impl FnOnce(&HdpSession, &HdpSession, PeerSignal), security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+pub(crate) fn route_signal_response(signal: PeerSignal, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, session: HdpSession, sess_hyper_ratchet: &HyperRatchet, on_route_finished: impl FnOnce(&HdpSession, &HdpSession, PeerSignal), security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let sess_mgr = session.session_manager.clone();
     let sess_mgr = inner!(sess_mgr);
     log::info!("Routing signal {:?} | impl: {} | target: {}", signal, implicated_cid, target_cid);

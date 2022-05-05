@@ -68,7 +68,7 @@ pub trait QuicEndpointListener {
     }
 }
 
-pub const QUIC_LISTENER_DIED: &'static str = "No QUIC connections available";
+pub const QUIC_LISTENER_DIED: &str = "No QUIC connections available";
 
 impl QuicEndpointListener for Incoming {
     fn listener(&mut self) -> &mut Incoming {
@@ -188,7 +188,7 @@ fn load_hole_punch_friendly_quic_transport_config<'a>(cfg: Either<&'a mut Server
     }
 }
 
-pub const SELF_SIGNED_DOMAIN: &'static str = "localhost";
+pub const SELF_SIGNED_DOMAIN: &str = "localhost";
 
 /// returns the (cert, priv_key) der bytes
 ///
@@ -323,11 +323,9 @@ mod tests {
     #[tokio::test]
     async fn test_quic(#[case] addr: SocketAddr) -> std::io::Result<()> {
         setup_log();
-        if addr.is_ipv6() {
-            if !is_ipv6_enabled() {
-                log::info!("Skipping IPv6 test since IPv6 is not enabled");
-                return Ok(())
-            }
+        if addr.is_ipv6() && !is_ipv6_enabled() {
+            log::info!("Skipping IPv6 test since IPv6 is not enabled");
+            return Ok(())
         }
         let mut server = QuicServer::new_self_signed(tokio::net::UdpSocket::bind(addr).await?).unwrap();
         let client_bind_addr = SocketAddr::from((addr.ip(), 0));

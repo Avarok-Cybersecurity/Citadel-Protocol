@@ -17,7 +17,7 @@ mod tests {
     use tokio::sync::Mutex;
     use hyxe_user::auth::proposed_credentials::ProposedCredentials;
     use futures::Future;
-    use rstest::{rstest, fixture};
+    
     use hyxe_user::misc::AccountError;
     use std::sync::Arc;
     use hyxe_user::prelude::MutualPeer;
@@ -107,7 +107,7 @@ mod tests {
         #[cfg(feature = "enterprise")] {
             match std::env::var(&env) {
                 Ok(addr) => {
-                    for addr in  addr.split(",") {
+                    for addr in  addr.split(',') {
                         log::info!("Testing SQL ADDR ({}): {}", ty, addr);
                         backends.push(BackendType::sql(addr))
                     }
@@ -159,9 +159,9 @@ mod tests {
         test_harness(|_, _, _| async move { Ok(()) }).await
     }
 
-    const USERNAME: &'static str = "nologik";
-    const PASSWORD: &'static str = "password";
-    const FULL_NAME: &'static str = "Sir John Doe";
+    const USERNAME: &str = "nologik";
+    const PASSWORD: &str = "password";
+    const FULL_NAME: &str = "Sir John Doe";
 
     lazy_static::lazy_static! {
         pub static ref PEERS: Vec<(String, String, String)> = {
@@ -211,8 +211,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_byte_map2() -> Result<(), AccountError> {
-        test_harness(|container, pers_cl, pers_se| async move {
-            let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+        test_harness(|container, pers_cl, _pers_se| async move {
+            let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let dummy = Vec::from("Hello, world!");
             assert!(pers_cl.store_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key1", dummy.clone()).await.unwrap().is_none());
             assert!(pers_cl.store_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key2", dummy.clone()).await.unwrap().is_none());
@@ -281,7 +281,7 @@ mod tests {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let peer = PEERS.get(0).unwrap();
             let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
-            let ref peer_pers = peer_container.client_acc_mgr.get_persistence_handler().clone();
+            let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
             register_peers(&pers_cl,
                            client.get_cid(),
                            USERNAME,
@@ -326,7 +326,7 @@ mod tests {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let peer = PEERS.get(0).unwrap();
             let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
-            let ref peer_pers = peer_container.client_acc_mgr.get_persistence_handler().clone();
+            let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
             register_peers(&pers_cl,
                            client.get_cid(),
                            USERNAME,
@@ -360,7 +360,7 @@ mod tests {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let peer = PEERS.get(0).unwrap();
             let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
-            let ref peer_pers = peer_container.client_acc_mgr.get_persistence_handler().clone();
+            let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
             register_peers(&pers_cl,
                            client.get_cid(),
                            USERNAME,
@@ -388,7 +388,7 @@ mod tests {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             for peer in PEERS.iter() {
                 let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
-                let ref peer_pers = peer_container.client_acc_mgr.get_persistence_handler().clone();
+                let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
                 register_peers(&pers_cl,
                                client.get_cid(),
                                USERNAME,
@@ -437,7 +437,7 @@ mod tests {
 
             for peer in PEERS.iter() {
                 let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
-                let ref peer_pers = peer_container.client_acc_mgr.get_persistence_handler().clone();
+                let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
                 register_peers(&pers_cl,
                                client.get_cid(),
                                USERNAME,

@@ -352,7 +352,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     pub(crate) fn get_hyperlan_peer_list(&self) -> Option<Vec<u64>> {
         let this = self.read();
         let hyperlan_peers = this.mutuals.get_vec(&HYPERLAN_IDX)?;
-        Some(hyperlan_peers.into_iter().map(|peer| peer.cid).collect::<Vec<u64>>())
+        Some(hyperlan_peers.iter().map(|peer| peer.cid).collect::<Vec<u64>>())
     }
 
     /// Returns a set of hyperlan peers
@@ -360,7 +360,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let this = self.read();
         let hyperlan_peers = this.mutuals.get_vec(&HYPERLAN_IDX)?;
 
-        Some(hyperlan_peers.into_iter()
+        Some(hyperlan_peers.iter()
             .map(|peer| {
                 if let Some(fcm_crypt_container) = this.fcm_crypt_container.get(&peer.cid) {
                     if let Some(keys) = fcm_crypt_container.fcm_keys.clone() {
@@ -377,7 +377,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     pub(crate) fn get_hyperwan_peer_list(&self, icid: u64) -> Option<Vec<u64>> {
         let this = self.read();
         let hyperwan_peers = this.mutuals.get_vec(&icid)?;
-        Some(hyperwan_peers.into_iter().map(|peer| peer.cid).collect::<Vec<u64>>())
+        Some(hyperwan_peers.iter().map(|peer| peer.cid).collect::<Vec<u64>>())
     }
 
     /// Gets the desired HyperLAN peer by CID (clones)
@@ -391,7 +391,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     pub(crate) fn get_hyperlan_peers(&self, peers: &Vec<u64>) -> Option<Vec<MutualPeer>> {
         let read = self.read();
         let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
-        Some(peers.into_iter().filter_map(|peer_wanted| hyperlan_peers.into_iter().find(|peer| peer.cid == *peer_wanted).cloned()).collect())
+        Some(peers.iter().filter_map(|peer_wanted| hyperlan_peers.iter().find(|peer| peer.cid == *peer_wanted).cloned()).collect())
     }
 
     /// Returns the wanted peers with fcm keys, if existent
@@ -408,7 +408,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             }
         }
 
-        Some(peers.into_iter().zip(fcm_keys.into_iter()).filter_map(|peer_wanted| {
+        Some(peers.iter().zip(fcm_keys.into_iter()).filter_map(|peer_wanted| {
             if let Some(peer) = hyperlan_peers.iter().find(|peer| peer.cid == *peer_wanted.0) {
                 Some((peer.clone(), peer_wanted.1))
             } else {
@@ -544,7 +544,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         if let Some(hyperlan_peers) = mutuals.get_vec_mut(&HYPERLAN_IDX) {
             for (peer_cid, _username, fcm_keys) in &peers {
                 if let Some(fcm_keys) = fcm_keys {
-                    if let Some(fcm_crypt_container) = fcm_crypt_container.get_mut(&peer_cid) {
+                    if let Some(fcm_crypt_container) = fcm_crypt_container.get_mut(peer_cid) {
                         fcm_crypt_container.fcm_keys = Some(fcm_keys.clone());
                     } else {
                         log::warn!("Attempted to synchronize peer list, but local's state is corrupt (fcm)");
@@ -761,7 +761,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             }
         };
 
-        let ref ratchet = crypt_container.get_hyper_ratchet(None).unwrap().clone();
+        let ratchet = &crypt_container.get_hyper_ratchet(None).unwrap().clone();
         let object_id = crypt_container.get_and_increment_object_id();
         let group_id = crypt_container.get_and_increment_group_id();
 
@@ -836,9 +836,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
             let map = write.fcm_packet_store.as_mut().unwrap();
 
-            if !map.contains_key(&ticket.source_cid) {
-                map.insert(ticket.source_cid, BTreeMap::new());
-            }
+            map.entry(ticket.source_cid).or_insert_with(BTreeMap::new);
 
             let peer_store = map.get_mut(&ticket.source_cid).unwrap();
             if peer_store.contains_key(&ticket.ticket) {

@@ -164,7 +164,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
             Box::new(BINDING_REQUEST)
         ])?;
 
-        let ref msg = msg;
+        let msg = &msg;
 
         let futures_unordered = FuturesUnordered::new();
 
@@ -180,7 +180,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
 
                 let mut client = ClientBuilder::new().with_conn(conn.clone()).build()?;
 
-                client.send(&msg, Some(Arc::new(handler_tx))).await?;
+                client.send(msg, Some(Arc::new(handler_tx))).await?;
 
                 if let Some(event) = handler_rx.recv().await {
                     match event.event_body {
@@ -232,7 +232,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
                 }
 
                 let deltas = &mut [addr_ext.port(), addr2_ext.port(), addr3_ext.port()];
-                deltas.sort();
+                deltas.sort_unstable();
 
                 let delta0 = i32::abs(deltas[0] as i32 - deltas[1] as i32);
                 let delta1 = i32::abs(deltas[1] as i32 - deltas[2] as i32);
@@ -241,13 +241,13 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
                 let highest_latest_port = deltas[2];
                 let highest_last_addr = SocketAddr::new(addr_ext.ip(), highest_latest_port);
 
-                return if delta0 == delta1 {
+                if delta0 == delta1 {
                     // This means the ports are predictable. Use TCP simultaneous connect on expected ports based on delta. It is expected this data be sent to the peer. The peer will then connect to the socket ip:(LOCAL_BIND_PORT+delta)
                     Ok(NatType::EDM(highest_last_addr, None, delta0, is_ipv6_allowed))
                 } else {
                     // the IP's are equal, but, the ports are not predictable; use TURN
                     Ok(NatType::EDMRandomPort(highest_last_addr, None, vec![addr_ext.port(), addr2_ext.port(), addr3_ext.port()], is_ipv6_allowed))
-                };
+                }
             }
 
             _ => {
@@ -308,12 +308,12 @@ mod tests {
     fn test_nat_traversal_compat() {
         let dummy_addr = SocketAddr::from_str("127.0.0.1:1234").unwrap();
 
-        let ref eim = NatType::EIM(dummy_addr, None, true);
-        let ref edm = NatType::EDM(dummy_addr, None, 1, true);
-        let ref port_preserved = NatType::PortPreserved(dummy_addr.ip(), None, true);
-        let ref random_port_compat = NatType::EDMRandomPort(dummy_addr, None, vec![10, 20, 30, 40], true);
-        let ref random_port_bad = NatType::EDMRandomPort(dummy_addr, None, vec![40, 80, 120], true);
-        let ref random_ip = NatType::EDMRandomIp(vec![dummy_addr.ip()], None, true);
+        let eim = &NatType::EIM(dummy_addr, None, true);
+        let edm = &NatType::EDM(dummy_addr, None, 1, true);
+        let port_preserved = &NatType::PortPreserved(dummy_addr.ip(), None, true);
+        let random_port_compat = &NatType::EDMRandomPort(dummy_addr, None, vec![10, 20, 30, 40], true);
+        let random_port_bad = &NatType::EDMRandomPort(dummy_addr, None, vec![40, 80, 120], true);
+        let random_ip = &NatType::EDMRandomIp(vec![dummy_addr.ip()], None, true);
 
         // Start with EIM
         inner_nat_traversal_compat(eim, eim, true);

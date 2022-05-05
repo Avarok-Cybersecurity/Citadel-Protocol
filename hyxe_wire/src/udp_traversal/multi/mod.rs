@@ -40,7 +40,7 @@ impl<'a> DualStackUdpHolePuncher<'a> {
     pub fn new(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, mut hole_punch_config: HolePunchConfig, napp: &'a NetworkEndpoint) -> Result<Self, anyhow::Error> {
         let mut hole_punchers = Vec::new();
         let sockets = hole_punch_config.locally_bound_sockets.take().ok_or_else(|| anyhow::Error::msg("sockets already taken"))?;
-        let ref addrs_to_ping: Vec<SocketAddr> = hole_punch_config.into_iter().collect();
+        let addrs_to_ping: &Vec<SocketAddr> = &hole_punch_config.into_iter().collect();
 
         // each individual hole puncher fans-out from 1 bound socket to n many peer addrs (determined by addrs_to_ping)
         for socket in sockets {
@@ -73,10 +73,10 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
     };
 
     // initiate a dedicated channel for sending packets for coordination
-    let ref conn = app.initiate_subscription().await?;
+    let conn = &(app.initiate_subscription().await?);
 
     // setup a mutex for handling contentions
-    let ref net_mutex = app.mutex::<Option<()>>(value).await?;
+    let net_mutex = &(app.mutex::<Option<()>>(value).await?);
 
     let (final_candidate_tx, final_candidate_rx) = tokio::sync::oneshot::channel::<HolePunchedUdpSocket>();
     let (reader_done_tx, mut reader_done_rx) = tokio::sync::broadcast::channel::<()>(2);
@@ -85,22 +85,22 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
     let (ref kill_signal_tx, _kill_signal_rx) = tokio::sync::broadcast::channel(hole_punchers.len());
     let (ref post_rebuild_tx, post_rebuild_rx) = tokio::sync::mpsc::unbounded_channel();
 
-    let ref mut final_candidate_tx = parking_lot::Mutex::new(Some(final_candidate_tx));
+    let final_candidate_tx = &mut parking_lot::Mutex::new(Some(final_candidate_tx));
 
 
-    let ref submit_final_candidate = |candidate: HolePunchedUdpSocket| -> Result<(), anyhow::Error> {
+    let submit_final_candidate = &(|candidate: HolePunchedUdpSocket| -> Result<(), anyhow::Error> {
         let tx = final_candidate_tx.lock().take().ok_or_else(|| anyhow::Error::msg("submit_final_candidate has already been called"))?;
         tx.send(candidate).map_err(|_| anyhow::Error::msg("Unable to submit final candidate"))
-    };
+    });
 
     struct RebuildReadyContainer {
         local_failures: HashMap<HolePunchID, SingleUDPHolePuncher>,
         post_rebuild_rx: Option<UnboundedReceiver<Option<HolePunchedUdpSocket>>>
     }
 
-    let ref rebuilder = tokio::sync::Mutex::new( RebuildReadyContainer { local_failures: HashMap::new(), post_rebuild_rx: Some(post_rebuild_rx) } );
+    let rebuilder = &tokio::sync::Mutex::new( RebuildReadyContainer { local_failures: HashMap::new(), post_rebuild_rx: Some(post_rebuild_rx) } );
 
-    let ref loser_value_set = parking_lot::Mutex::new(None);
+    let loser_value_set = &parking_lot::Mutex::new(None);
 
     let mut futures = FuturesUnordered::new();
     for (kill_switch_rx, mut hole_puncher) in hole_punchers.into_iter().map(|r| (kill_signal_tx.subscribe(), r)) {
@@ -110,8 +110,8 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
         });
     }
 
-    let ref current_enqueued = tokio::sync::Mutex::new(None);
-    let ref finished_count = parking_lot::Mutex::new(0);
+    let current_enqueued = &tokio::sync::Mutex::new(None);
+    let finished_count = &parking_lot::Mutex::new(0);
     let hole_puncher_count = futures.len();
 
     // This is called to scan currently-running tasks to terminate, and, returning the rebuilt
@@ -191,7 +191,7 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
                     let peer_unique_id = socket.addr.unique_id;
                     let local_id = hole_puncher.get_unique_id();
 
-                    if let Some((pre_local, pre_remote)) = loser_value_set.lock().clone() {
+                    if let Some((pre_local, pre_remote)) = *loser_value_set.lock() {
                         log::info!("*** Local did not win, and, already received a MutexSet: ({:?}, {:?})", pre_local, pre_remote);
                         if local_id == pre_local && peer_unique_id == pre_remote {
                             log::info!("*** Local did not win, and, is currently waiting for the current value! (returning)");
@@ -212,7 +212,7 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
                     let mut net_lock = net_mutex.lock().await?;
 
                     if let Some(socket) = current_enqueued.lock().await.take() {
-                        if let None = net_lock.as_ref() {
+                        if net_lock.as_ref().is_none() {
                             log::info!("*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
                             *net_lock = Some(());
                             socket.cleanse()?;

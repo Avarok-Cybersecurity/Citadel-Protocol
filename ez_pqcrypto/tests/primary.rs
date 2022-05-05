@@ -77,7 +77,7 @@ mod tests {
         assert_ne!(eve_ss, bob_ss);
 
         let plaintext = b"Hello, world!";
-        let ref nonce = Vec::from_iter(0..(encryption_algorithm.nonce_len()) as u8);
+        let nonce = &Vec::from_iter(0..(encryption_algorithm.nonce_len()) as u8);
 
         let mut ciphertext = alice_container.encrypt(plaintext, nonce).unwrap();
         let mut ptr = &mut ciphertext[..];
