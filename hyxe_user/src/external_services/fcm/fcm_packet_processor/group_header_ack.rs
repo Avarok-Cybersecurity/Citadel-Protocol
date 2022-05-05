@@ -19,11 +19,11 @@ pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter
     let next_ratchet: Option<&Fcm> = match bob_to_alice_transfer {
         KemTransferStatus::Some(transfer, ..) => {
             if let Some(ConstructorType::Fcm(mut constructor)) = constructors.remove(&peer_cid) {
-                if let None = constructor.stage1_alice(&transfer) {
+                if constructor.stage1_alice(&transfer).is_none() {
                     return Err(AccountError::msg("Unable to construct hyper ratchet"))
                 }
 
-                if let Err(_) = endpoint_crypto.update_sync_safe(constructor, true, local_cid) {
+                if endpoint_crypto.update_sync_safe(constructor, true, local_cid).is_err() {
                     return Err(AccountError::msg("Unable to update container (X-01b)"))
                 }
 

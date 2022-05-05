@@ -364,6 +364,17 @@ impl VirtualConnectionType {
             _ => None
         }
     }
+
+    pub fn set_target_cid(&mut self, target_cid: u64) {
+        match self {
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid) |
+            VirtualConnectionType::HyperLANPeerToHyperWANPeer(_, _, peer_cid) => {
+                *peer_cid = target_cid
+            }
+
+            _ => {}
+        }
+    }
 }
 
 impl Display for VirtualConnectionType {

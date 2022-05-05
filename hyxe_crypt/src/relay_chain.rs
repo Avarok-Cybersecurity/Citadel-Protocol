@@ -113,9 +113,9 @@ use crate::endpoint_crypto_container::PeerSessionCrypto;
 #[cfg(debug_assertions)]
 impl<R: Ratchet> FromIterator<PeerSessionCrypto<R>> for CryptoRelayChain<R> {
     fn from_iter<T: IntoIterator<Item=PeerSessionCrypto<R>>>(iter: T) -> Self {
-        let mut iter = iter.into_iter();
+        let iter = iter.into_iter();
         let mut this = CryptoRelayChain { links: LinkedHashMap::new(), target_cid_list: None };
-        while let Some(val) = iter.next() {
+        for val in iter {
             if let Some(_) = this.links.insert(val.toolset.cid, val) {
 
             }

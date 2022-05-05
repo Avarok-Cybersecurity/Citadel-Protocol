@@ -90,7 +90,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn connect(&mut self, directory_store: &DirectoryStore) -> Result<(), AccountError> {
         let conn = self.generate_conn().await?;
 
-        if !self.opts.car_mode.clone().unwrap_or(CAR_MODE_DEFAULT) {
+        if !self.opts.car_mode.unwrap_or(CAR_MODE_DEFAULT) {
             self.conn =  Some(conn.clone());
         }
 
@@ -155,12 +155,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn is_connected(&self) -> Result<bool, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         Ok(!conn.is_closed())
     }
 
     async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         // The issue: at endpoints, mutuals are being saved inside CNAC, but not the database. We see here that mutuals are not synced to database
         let serded = base64::encode(cnac.generate_proper_bytes()?);
         log::info!("[CNAC-Sync] Base64 len: {} | sample: {:?} -> {:?}", serded.len(), &serded.as_str()[..10], &serded.as_str()[(serded.len() - 10)..]);
@@ -202,19 +202,19 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn get_cnac_by_cid(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(cid.to_string()).fetch_optional(conn).await?;
         self.row_to_cnac(query)
     }
 
     async fn get_client_by_username(&self, username: &str) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM cnacs WHERE username = ? LIMIT 1").as_str()).bind(username).fetch_optional(conn).await?;
         self.row_to_cnac(query)
     }
 
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query = sqlx::query(self.format("SELECT cid FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(cid.to_string()).fetch_all(conn).await?;
         Ok(query.len() == 1)
     }
@@ -224,7 +224,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: AnyQueryResult = sqlx::query(self.format("DELETE FROM cnacs WHERE cid = ?").as_str()).bind(cid.to_string()).execute(conn).await?;
         if query.rows_affected() != 0 { Ok(()) } else { Err(AccountError::ClientNonExists(cid)) }
     }
@@ -236,7 +236,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn purge(&self) -> Result<usize, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         //let query: AnyQueryResult = sqlx::query("DELETE FROM cnacs").execute(conn).await?;
         let _query: AnyQueryResult = sqlx::query("DROP TABLE IF EXISTS peers").execute(conn).await?;
         let _query: AnyQueryResult = sqlx::query("DROP TABLE IF EXISTS bytemap").execute(conn).await?;
@@ -245,7 +245,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn client_count(&self) -> Result<usize, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: AnyRow = sqlx::query("SELECT COUNT(*) as count FROM cnacs").fetch_one(conn).await?;
         Ok(query.get::<i64, _>("count") as usize)
     }
@@ -255,7 +255,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn client_only_generate_possible_cids(&self) -> Result<Vec<u64>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         // cids are stored in the DB, not below, and as such, we call this function just to get a rand list
         let mut possible_cids = self.local_nac.as_ref().map(|r| r.client_only_generate_possible_cids()).ok_or_else(|| AccountError::Generic("Local NAC not loaded".into()))?;
         let len = possible_cids.len();
@@ -298,7 +298,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn find_first_valid_cid(&self, possible_cids: &Vec<u64>) -> Result<Option<u64>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
 
         let len = possible_cids.len();
 
@@ -342,7 +342,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn username_exists(&self, username: &str) -> Result<bool, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: AnyRow = sqlx::query(self.format("SELECT COUNT(1) as count FROM cnacs where username = ?").as_str()).bind(username).fetch_one(conn).await?;
         Ok(query.get::<i64, _>("count") == 1)
     }
@@ -353,7 +353,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn get_registered_impersonal_cids(&self, limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let cmd = limit.map(|limit| format!("SELECT cid FROM cnacs WHERE is_personal = ? LIMIT {}", limit)).unwrap_or_else(|| "SELECT cid FROM cnacs WHERE is_personal = ?".to_string());
         let query: Vec<AnyRow> = sqlx::query(self.format(cmd).as_str()).bind(false).fetch_all(conn).await?;
         let ret: Vec<u64> = query.into_iter().filter_map(|r| r.try_get::<String,_>("cid").ok()).filter_map(|r| u64::from_str(&r).ok()).collect();
@@ -366,7 +366,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: Option<AnyRow> = sqlx::query(self.format("SELECT username FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(cid.to_string()).fetch_optional(conn).await?;
         if let Some(row) = query {
             Ok(Some(row.try_get::<String, _>("username").unwrap()))
@@ -376,7 +376,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn get_cid_by_username(&self, username: &str) -> Result<Option<u64>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
 
         let query: Option<AnyRow> = sqlx::query(self.format("SELECT cid FROM cnacs WHERE username = ? LIMIT 1").as_str()).bind(username).fetch_optional(conn).await?;
         if let Some(row) = query {
@@ -387,7 +387,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn delete_client_by_username(&self, username: &str) -> Result<(), AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
 
         let query: AnyQueryResult = sqlx::query(self.format("DELETE FROM cnacs WHERE username = ?").as_str()).bind(username).execute(conn).await?;
         if query.rows_affected() != 0 { Ok(()) } else { Err(AccountError::Generic("Client does not exist".into())) }
@@ -395,7 +395,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     // We want to also update the CNACs involved
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let cid0 = cid0.to_string();
         let cid1 = cid1.to_string();
 
@@ -409,14 +409,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     // We must update the CNAC && the sql database
     async fn register_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64, peer_username: String) -> Result<(), AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         log::info!("Registering p2p ({} <-> {}) as client", implicated_cid, peer_cid);
         let _query = sqlx::query(self.format("INSERT INTO peers (peer_cid, cid, username) VALUES (?, ?, ?)").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).bind(peer_username).execute(conn).await?;
         Ok(())
     }
 
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let cid0 = cid0.to_string();
         let cid1 = cid1.to_string();
 
@@ -426,7 +426,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let mut tx = conn.begin().await?;
         let row: Option<AnyRow> = sqlx::query(self.format("SELECT username FROM peers WHERE peer_cid = ? AND cid = ?").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).fetch_optional(tx.deref_mut()).await?;
 
@@ -443,7 +443,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     // In the server, we search the cnacs table
     async fn get_fcm_keys_for_as_server(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError> {
         if self.hyperlan_peer_exists(implicated_cid, peer_cid).await? {
-            let ref conn = self.get_conn().await?;
+            let conn = &(self.get_conn().await?);
             let query: Option<AnyRow> = sqlx::query(self.format("SELECT fcm_addr, fcm_api_key FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(peer_cid.to_string()).fetch_optional(conn).await?;
 
             if let Some(query) = query {
@@ -462,14 +462,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: Vec<AnyRow> = sqlx::query(self.format("SELECT peer_cid FROM peers WHERE cid = ?").as_str()).bind(implicated_cid.to_string()).fetch_all(conn).await?;
         let map = query.into_iter().filter_map(|row| row.try_get::<String, _>("peer_cid").ok()).filter_map(|val| u64::from_str(val.as_str()).ok()).collect::<Vec<u64>>();
         if map.is_empty() { Ok(None) } else { Ok(Some(map)) }
     }
 
     async fn get_client_metadata(&self, implicated_cid: u64) -> Result<Option<CNACMetadata>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, fcm_addr TEXT, fcm_api_key TEXT, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
         let query: Option<AnyRow> = sqlx::query(self.format("SELECT is_personal, username, full_name, creation_date FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).fetch_optional(conn).await?;
 
@@ -485,7 +485,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn get_clients_metadata(&self, limit: Option<i32>) -> Result<Vec<CNACMetadata>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         // cnacs(cid VARCHAR(20) NOT NULL, is_connected BOOL, is_personal BOOL, fcm_addr TEXT, fcm_api_key TEXT, username VARCHAR({}) UNIQUE, full_name TEXT, creation_date TEXT, bin LONGTEXT, PRIMARY KEY (cid)
         let query = if let Some(limit) = limit {
              format!("SELECT cid, is_personal, username, full_name, creation_date FROM cnacs LIMIT {}", limit)
@@ -507,7 +507,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn get_hyperlan_peer_by_cid(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: Option<AnyRow> = sqlx::query(self.format("SELECT username FROM peers WHERE cid = ? AND peer_cid = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).bind(peer_cid.to_string()).fetch_optional(conn).await?;
 
         if let Some(query) = query {
@@ -526,7 +526,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn hyperlan_peer_exists(&self, implicated_cid: u64, peer_cid: u64) -> Result<bool, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: AnyRow = sqlx::query(self.format("SELECT COUNT(*) as count FROM peers WHERE peer_cid = ? AND cid = ? LIMIT 1").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).fetch_one(conn).await?;
 
         Ok(query.try_get::<i64, _>("count").unwrap_or(-1) == 1)
@@ -537,7 +537,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             return Ok(Vec::new())
         }
 
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let limit = peers.len();
 
         let insert = self.construct_arg_insert_any(peers);
@@ -549,7 +549,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let results = query.into_iter().filter_map(|r| r.try_get::<String, _>("peer_cid").ok())
             .filter_map(|v| u64::from_str(v.as_str()).ok()).collect::<Vec<u64>>();
 
-        Ok(peers.into_iter().map(|cid| results.iter().any(|peer_cid| *cid == *peer_cid)).collect())
+        Ok(peers.iter().map(|cid| results.iter().any(|peer_cid| *cid == *peer_cid)).collect())
     }
 
     async fn get_hyperlan_peers(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<MutualPeer>, AccountError> {
@@ -557,7 +557,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             return Ok(Vec::new())
         }
 
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let limit = peers.len();
 
         let insert = self.construct_arg_insert_any(peers);
@@ -604,14 +604,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }*/
 
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: Option<AnyRow> = sqlx::query(self.format("SELECT peer_cid FROM peers WHERE cid = ? AND username = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).bind(username).fetch_optional(conn).await?;
 
         if let Some(query) = query {
             match query.try_get::<String, _>("peer_cid") {
                 Ok(username) => {
                     let peer_cid = u64::from_str(username.as_str())?;
-                    Ok(Some(MutualPeer { username: Some(username.to_string()), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
+                    Ok(Some(MutualPeer { username: Some(username), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
                 }
 
                 _ => {
@@ -625,7 +625,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     // since server, we get the FCM keys from the cnacs table
     async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let query: Vec<AnyRow> = sqlx::query(self.format("SELECT peers.peer_cid, peers.username, cnacs.fcm_addr, cnacs.fcm_api_key FROM cnacs INNER JOIN peers ON cnacs.cid = peers.cid WHERE peers.cid = ?").as_str()).bind(implicated_cid.to_string()).fetch_all(conn).await?;
         let mut ret = Vec::with_capacity(query.len());
 
@@ -647,8 +647,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     // We always return false here, since there's no need for manual saving
     async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError> {
         log::info!("Synchronizing peer list for {}", cnac.get_cid());
-        if peers.len() != 0 {
-            let ref conn = self.get_conn().await?;
+        if !peers.is_empty() {
+            let conn = &(self.get_conn().await?);
 
             let mut tx = conn.begin().await?;
             let implicated_cid = cnac.get_cid().to_string();
@@ -668,7 +668,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let row: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ? LIMIT 1").as_str())
             .bind(implicated_cid.to_string())
             .bind(peer_cid.to_string())
@@ -692,7 +692,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
         // TODO: Optimize this into a single step
         if let Some(value) = self.get_byte_map_value(implicated_cid, peer_cid, key, sub_key).await? {
-            let ref conn = self.get_conn().await?;
+            let conn = &(self.get_conn().await?);
             let _ = sqlx::query(self.format("DELETE FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ?").as_str())
                 .bind(implicated_cid.to_string())
                 .bind(peer_cid.to_string())
@@ -707,7 +707,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let bytes_base64 = base64::encode(value);
         let _query = sqlx::query(self.format("INSERT INTO bytemap (cid, peer_cid, id, sub_id, bin) VALUES (?, ?, ?, ?, ?)").as_str())
             .bind(implicated_cid.to_string())
@@ -721,7 +721,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn get_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
         let rows: Vec<AnyRow> = sqlx::query(self.format("SELECT sub_id, bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ?").as_str())
             .bind(implicated_cid.to_string())
             .bind(peer_cid.to_string())
@@ -741,7 +741,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let values = self.get_byte_map_values_by_key(implicated_cid, peer_cid, key).await?;
-        let ref conn = self.get_conn().await?;
+        let conn = &(self.get_conn().await?);
 
         let _ = sqlx::query(self.format("DELETE FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ?").as_str())
             .bind(implicated_cid.to_string())
@@ -769,7 +769,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
 impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
     async fn get_conn(&self) -> Result<AnyPool, AccountError> {
-        if self.opts.car_mode.clone().unwrap_or(CAR_MODE_DEFAULT) {
+        if self.opts.car_mode.unwrap_or(CAR_MODE_DEFAULT) {
             self.generate_conn().await
         } else {
             self.conn.clone().ok_or(AccountError::Generic("Connection not loaded".to_string()))

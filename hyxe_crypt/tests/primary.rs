@@ -29,7 +29,7 @@ mod tests {
     async fn argon_autotuner() {
         setup_log();
         let start_time = Instant::now();
-        let final_cfg = calculate_optimal_argon_params(500 as _, Some(32), None).await.unwrap();
+        let final_cfg = calculate_optimal_argon_params(500_u16, Some(32), None).await.unwrap();
         log::info!("DONE. Elapsed time: {:?}", start_time.elapsed());
         log::info!("{:?}", final_cfg)
     }
@@ -58,7 +58,7 @@ mod tests {
                             ArgonStatus::HashSuccess(hashed_password_v2) => {
                                 //assert_eq!(hashed_password_v2.as_ref(), server_recv.as_ref());
                                 // client sends to server to verify
-                                match AsyncArgon::verify(SecBuffer::from(hashed_password_v2), server_argon_container.clone()).await.unwrap() {
+                                match AsyncArgon::verify(hashed_password_v2, server_argon_container.clone()).await.unwrap() {
                                     ArgonStatus::VerificationSuccess => {
                                         log::info!("Verification success!");
                                         return;
@@ -282,7 +282,7 @@ mod tests {
             let res = toolset.update_from(gen::<R>(0,x, security_level).0).unwrap();
             match res {
                 UpdateStatus::Committed { .. } => {
-                    assert!(x + 1 <= MAX_HYPER_RATCHETS_IN_MEMORY as u32);
+                    assert!(x < MAX_HYPER_RATCHETS_IN_MEMORY as u32);
                     assert_eq!(0, toolset.get_oldest_hyper_ratchet_version());
                     assert_eq!(x, toolset.get_most_recent_hyper_ratchet_version());
                 }
@@ -297,7 +297,7 @@ mod tests {
         }
 
         for x in 0..COUNT {
-            if let Ok(_) = toolset.deregister_oldest_hyper_ratchet(x) {
+            if toolset.deregister_oldest_hyper_ratchet(x).is_ok() {
                 assert_eq!(x + 1, toolset.get_oldest_hyper_ratchet_version());
             } else {
                 assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY);
@@ -383,7 +383,7 @@ mod tests {
         println!("Ratchet created. Creating PQC");
 
         // do 1000 for real tests on linux
-        for x in 0..(1500 as usize) {
+        for x in 0..1500_usize {
             data.put_u8((x % 256) as u8);
             let input_data = &data[..=x];
 

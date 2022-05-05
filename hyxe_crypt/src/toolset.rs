@@ -129,7 +129,7 @@ impl<R: Ratchet> Toolset<R> {
     #[allow(unused_results)]
     pub fn deregister_oldest_hyper_ratchet(&mut self, version: u32) -> Result<(), CryptError> {
         if self.map.len() <= MAX_HYPER_RATCHETS_IN_MEMORY {
-            return Err(CryptError::DrillUpdateError(format!("Cannot call for deregistration unless the map len is maxed out")))
+            return Err(CryptError::DrillUpdateError("Cannot call for deregistration unless the map len is maxed out".to_string()))
         }
 
         let oldest = self.get_oldest_hyper_ratchet_version();

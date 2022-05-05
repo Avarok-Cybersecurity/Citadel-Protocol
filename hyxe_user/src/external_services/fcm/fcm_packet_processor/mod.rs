@@ -104,7 +104,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
             log::info!("[FCM] Successfully validated packet. Parsing payload ...");
             let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
 
-            let ref fcm_client = match send_service_type { ExternalService::Fcm => Some(Arc::new(Client::new())), _ => None };
+            let fcm_client = &(match send_service_type { ExternalService::Fcm => Some(Arc::new(Client::new())), _ => None });
             let svc_params = InstanceParameter { client: fcm_client.as_ref(), service_type: send_service_type, rtdb_client_cfg: client_rtdb_config.as_ref() };
 
             match payload {

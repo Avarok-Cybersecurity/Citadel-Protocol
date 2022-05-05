@@ -47,7 +47,7 @@ impl SingleUDPHolePuncher {
         let unique_id = HolePunchID::new();
         log::info!("Setting up single-udp hole-puncher. Local bind addr: {:?} | Peer Addrs to ping: {:?} | [id = {:?}]", local_bind_addr, peer_addrs_to_ping, unique_id);
 
-        let method3= Method3::new(relative_node_type, encrypted_config_container, unique_id.clone());
+        let method3= Method3::new(relative_node_type, encrypted_config_container, unique_id);
 
         Ok(Self { method3: (false, method3), upnp_handler: (false, None), socket: Some(local_socket), possible_endpoints: peer_addrs_to_ping, relative_node_type, unique_id })
     }
@@ -93,10 +93,8 @@ impl SingleUDPHolePuncher {
                 let kill_listener = async move {
                     if let Ok((local_id, peer_id)) = kill_switch.recv().await {
                         log::info!("[Kill Listener] Received signal. {:?} must == {:?} || {:?}", local_id, this_local_id, peer_id);
-                        if local_id == this_local_id {
-                            if this.has_remote_id_synd(peer_id) {
-                                return Some((local_id, peer_id))
-                            }
+                        if local_id == this_local_id && this.has_remote_id_synd(peer_id) {
+                            return Some((local_id, peer_id))
                         }
                     }
 
@@ -142,7 +140,7 @@ impl SingleUDPHolePuncher {
     }
 
     fn peer_external_addr(&self) -> SocketAddr {
-        self.possible_endpoints[0].clone()
+        self.possible_endpoints[0]
     }
 
     #[allow(dead_code)]

@@ -22,7 +22,7 @@ pub fn load_node_nac<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore)
         if let Ok(nac) = NetworkAccount::<R, Fcm>::new(directory_store) {
             Ok(nac)
         } else {
-            Err(AccountError::Generic(format!("[NAC-Loader] Unable to start application. Unable to create this node's NetworkAccount.\nError Message: {}", err.to_string())))
+            Err(AccountError::Generic(format!("[NAC-Loader] Unable to start application. Unable to create this node's NetworkAccount.\nError Message: {}", err)))
         }
     };
 

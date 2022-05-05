@@ -301,6 +301,47 @@ impl HyperNodePeerLayer {
         }
     }
 
+    /// Determines if `peer_cid` is already attempting to register to `implicated_cid`
+    /// Returns the target's ticket for their corresponding request
+    pub fn check_simultaneous_register(&self, implicated_cid: u64, peer_cid: u64) -> Option<Ticket> {
+        let mut this = inner_mut!(self);
+        let peer_map = this.observed_postings.get_mut(&peer_cid)?;peer_map
+            .iter()
+            // PeerConnectionType, Username, Option<Username>, Option<Ticket>, Option<PeerResponse>, FcmPostRegister
+            .find(|(_, posting)| if let PeerSignal::PostRegister(conn, _, _, _, None, _) = &posting.signal {
+                log::info!("Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
+                if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
+                    // TODO: b is 0 since username is provided. Make server replace b with actual cid before storing tracked proposal
+                    *b == implicated_cid
+                } else {
+                    false
+                }
+            } else {
+                false
+            })
+            .map(|(ticket, _)| *ticket)
+    }
+
+    /// Determines if `peer_cid` is already attempting to connect to `implicated_cid`
+    /// Returns the target's ticket and signal for their corresponding request
+    pub fn check_simultaneous_connect(&self, implicated_cid: u64, peer_cid: u64) -> Option<Ticket> {
+        let mut this = inner_mut!(self);
+        let peer_map = this.observed_postings.get_mut(&peer_cid)?;
+
+        peer_map
+            .iter()
+            .find(|(_, posting)| if let PeerSignal::PostConnect(conn, _, _, _, _) = &posting.signal {
+                if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
+                    *b == implicated_cid
+                } else {
+                    false
+                }
+            } else {
+                false
+            })
+            .map(|(ticket, _)| *ticket)
+    }
+
     // Single-thread note: re-entrancy is okay since we can hold multiple borrow at once, but not multiple borrow_muts
     fn register_waker(&self, waker: &futures::task::Waker) {
         #[cfg(feature = "multi-threaded")]

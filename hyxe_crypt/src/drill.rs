@@ -64,17 +64,17 @@ impl Drill {
         }
 
         Self::download_raw_3d_array()
-            .and_then(|bytes| {
+            .map(|bytes| {
                 let port_mappings = create_port_mapping();
-                let drill = Drill {
+                
+
+                Drill {
                     algorithm,
                     version,
                     cid,
                     entropy: bytes,
                     scramble_mappings: port_mappings
-                };
-
-                Ok(drill)
+                }
             })
     }
 
@@ -179,13 +179,13 @@ impl Drill {
     /// Protects an already constructed packet in-place. This guarantees that replay attacks cannot happen
     /// Ordered delivery of packets is mandatory
     pub fn protect_packet<T: EzBuffer>(&self, quantum_container: &PostQuantumContainer, header_len_bytes: usize, full_packet: &mut T) -> Result<(), CryptError<String>> {
-        let ref nonce = self.get_aes_gcm_nonce(0);
+        let nonce = &self.get_aes_gcm_nonce(0);
         quantum_container.protect_packet_in_place(header_len_bytes, full_packet, nonce).map_err(|err| CryptError::Encrypt(err.to_string()))
     }
 
     /// Unlike `protect_packet`, the returned object does NOT contain the header. The returned Bytes only contains the ciphertext
     pub fn validate_packet_in_place_split<H: AsRef<[u8]>, T: EzBuffer>(&self, quantum_container: &PostQuantumContainer, header: H, payload: &mut T) -> Result<(), CryptError<String>> {
-        let ref nonce = self.get_aes_gcm_nonce(0);
+        let nonce = &self.get_aes_gcm_nonce(0);
         let header = header.as_ref();
         quantum_container.validate_packet_in_place(header, payload, nonce).map_err(|err| CryptError::Encrypt(err.to_string()))
     }

@@ -73,17 +73,17 @@ impl HyxeFile {
             return Err(FsError::Generic("Invalid HyperRatchet CID".to_string()));
         }
 
-        static_hyper_ratchet.encrypt(bytes.as_ref()).and_then(|new_encrypted_bytes| {
+        static_hyper_ratchet.encrypt(bytes.as_ref()).map(|new_encrypted_bytes| {
             self.security_level_drilled = security_level;
             self.drill_version = static_hyper_ratchet.version();
             let _ = self.set_metadata(DATE_UPDATED, get_present_formatted_timestamp());
             if retrieve {
                 let ret = self.data_encrypted_bytes.clone();
                 self.data_encrypted_bytes = Some(new_encrypted_bytes);
-                Ok(ret)
+                ret
             } else {
                 self.data_encrypted_bytes = Some(new_encrypted_bytes);
-                Ok(None)
+                None
             }
         }).map_err(|err| FsError::Generic(err.to_string()))
     }
@@ -95,12 +95,12 @@ impl HyxeFile {
             return Err(FsError::Generic("Invalid CID".to_string()));
         }
 
-        if let None = self.data_encrypted_bytes.borrow() {
-            static_hyper_ratchet.encrypt(bytes.as_ref()).and_then(|new_encrypted_bytes| {
+        if self.data_encrypted_bytes.borrow().is_none() {
+            static_hyper_ratchet.encrypt(bytes.as_ref()).map(|new_encrypted_bytes| {
                 self.data_encrypted_bytes = Some(new_encrypted_bytes);
                 self.security_level_drilled = security_level;
                 self.drill_version = static_hyper_ratchet.version();
-                Ok(())
+                
             }).map_err(|err| FsError::Generic(err.to_string()))
         } else {
             Err(FsError::Generic("You cannot drill the contents if there is data currently! Use redrill_contents instead".to_string()))
@@ -114,18 +114,14 @@ impl HyxeFile {
     pub async fn save_locally(&self, dirs: &DirectoryStore) -> Result<PathBuf, FsError<String>> where Self: AsyncIO {
         let real_file_path = get_pathbuf(format!("{}{}.{}", dirs.inner.read().hyxe_virtual_dir.as_str(), generate_random_string(HYXE_FILE_OBFUSCATED_LEN), HYXE_FILE_EXT));
         log::info!("[HyxeFile] Saving {} to {}", &self.file_name, real_file_path.to_str().unwrap());
-        self.async_serialize_to_local_fs(&real_file_path).await
-            .and_then(|_| {
-                Ok(real_file_path)
-            })
+        self.async_serialize_to_local_fs(&real_file_path).await.map(|_| real_file_path)
     }
 
     /// Saves the file without blocking
     pub fn save_locally_blocking(&self, dirs: &DirectoryStore) -> Result<PathBuf, FsError<String>> where Self: SyncIO {
         let real_file_path = get_pathbuf(format!("{}{}.{}", dirs.inner.read().hyxe_virtual_dir.as_str(), generate_random_string(HYXE_FILE_OBFUSCATED_LEN), HYXE_FILE_EXT));
         log::info!("[HyxeFile] Saving {} to {}", &self.file_name, real_file_path.to_str().unwrap());
-        SyncIO::serialize_to_local_fs(self, &real_file_path)
-            .and_then(|_| Ok(real_file_path))
+        SyncIO::serialize_to_local_fs(self, &real_file_path).map(|_| real_file_path)
     }
 
     /// Decrypts the data, but does not mutate the underlying data type. This returns an error if [1] the encryption fails, or; [2] if the drill version
@@ -144,9 +140,7 @@ impl HyxeFile {
         }
 
         if let Some(bytes) = self.data_encrypted_bytes.borrow() {
-            static_hyper_ratchet.decrypt(bytes).and_then(|decrypted_bytes| {
-                Ok(decrypted_bytes)
-            }).map_err(|err| FsError::Generic(err.to_string()))
+            static_hyper_ratchet.decrypt(bytes).map_err(|err| FsError::Generic(err.to_string()))
         } else {
             Err(FsError::Generic("You cannot redrill the contents if there are none currently! Use drill_contents instead".to_string()))
         }
@@ -170,10 +164,7 @@ impl HyxeFile {
     /// Returns the drill version used to drill-shut.
     /// Returns None if data is not currently drilled
     pub fn get_active_drill_version(&self) -> Option<u32> {
-        match self.data_encrypted_bytes.as_ref() {
-            Some(_) => Some(self.drill_version),
-            None => None
-        }
+        self.data_encrypted_bytes.as_ref().map(|_| self.drill_version)
     }
 }
 

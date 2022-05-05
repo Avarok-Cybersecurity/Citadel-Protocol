@@ -91,7 +91,7 @@ impl ProposedCredentials {
 
     pub(crate) fn into_auth_store(self, cid: u64) -> DeclaredAuthenticationMode {
         match self {
-            Self::Disabled => DeclaredAuthenticationMode::Passwordless { username: format!("authless.{}", cid), full_name: format!("authless.client") },
+            Self::Disabled => DeclaredAuthenticationMode::Passwordless { username: format!("authless.{}", cid), full_name: "authless.client".to_string() },
             Self::Enabled { username, full_name, clientside_only_registration_settings, .. } => DeclaredAuthenticationMode::Argon { username, full_name, argon: ArgonContainerType::Client(clientside_only_registration_settings.unwrap_or_default().into()) }
         }
     }
@@ -166,7 +166,7 @@ impl ProposedCredentials {
             }
 
             _ => {
-                return Err(AccountError::Generic("Account does not have password loaded; account is personal".to_string()))
+                Err(AccountError::Generic("Account does not have password loaded; account is personal".to_string()))
             }
         }
     }

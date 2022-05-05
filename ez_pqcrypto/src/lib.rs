@@ -137,7 +137,7 @@ impl PostQuantumContainer {
     }
 
     fn get_symmetric_key(encryption_algorithm: EncryptionAlgorithm, ss: &[u8], previous_chain: Option<&RecursiveChain>) -> Result<(RecursiveChain, KeyStore), Error> {
-        let (chain, alice_key, bob_key) = if let Some(ref prev) = previous_chain {
+        let (chain, alice_key, bob_key) = if let Some(prev) = previous_chain {
             // prev = C_n
             // If a previous key, S_n, existed, we calculate S_(n+1)' = KDF(C_n || S_(n+1))
             let mut hasher_temp = sha3::Sha3_512::new();
@@ -151,8 +151,8 @@ impl PostQuantumContainer {
             debug_assert_eq!(temp_alice_key.len(), 32);
             debug_assert_eq!(temp_bob_key.len(), 32);
 
-            hasher_alice.update(&prev.alice.iter().zip(temp_alice_key.into_iter()).map(|(r1, r2)| *r1 ^ *r2).collect::<Vec<u8>>()[..]);
-            hasher_bob.update(&prev.bob.iter().zip(temp_bob_key.into_iter()).map(|(r1, r2)| *r1 ^ *r2).collect::<Vec<u8>>()[..]);
+            hasher_alice.update(&prev.alice.iter().zip(temp_alice_key.iter()).map(|(r1, r2)| *r1 ^ *r2).collect::<Vec<u8>>()[..]);
+            hasher_bob.update(&prev.bob.iter().zip(temp_bob_key.iter()).map(|(r1, r2)| *r1 ^ *r2).collect::<Vec<u8>>()[..]);
 
             let alice_key = hasher_alice.finalize();
             let bob_key = hasher_bob.finalize();
@@ -162,13 +162,13 @@ impl PostQuantumContainer {
             hasher.update(&alice_key.into_iter().zip(bob_key.into_iter()).map(|(r1, r2)| r1 ^ r2).collect::<Vec<u8>>()[..]);
             let chain = hasher.finalize();
 
-            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, false).ok_or_else(|| Error::InvalidLength)?;
+            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, false).ok_or(Error::InvalidLength)?;
 
             //log::info!("Alice, Bob keys: {:?} || {:?}", alice_key, bob_key);
 
-            let alice_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(alice_key.as_slice().into_iter().cloned()).ok_or(Error::InvalidLength)?;
+            let alice_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(alice_key.as_slice().iter().cloned()).ok_or(Error::InvalidLength)?;
 
-            let bob_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(bob_key.as_slice().into_iter().cloned()).ok_or(Error::InvalidLength)?;
+            let bob_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(bob_key.as_slice().iter().cloned()).ok_or(Error::InvalidLength)?;
 
             (chain, alice_key, bob_key)
         } else {
@@ -179,13 +179,13 @@ impl PostQuantumContainer {
             let (alice_key, bob_key) = temp_key.as_slice().split_at(32);
 
             let mut hasher = sha3::Sha3_256::new();
-            hasher.update(&alice_key.into_iter().zip(bob_key.into_iter()).map(|(r1, r2)| *r1 ^ *r2).collect::<Vec<u8>>()[..]);
+            hasher.update(&alice_key.iter().zip(bob_key.iter()).map(|(r1, r2)| *r1 ^ *r2).collect::<Vec<u8>>()[..]);
             let chain = hasher.finalize();
-            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, true).ok_or_else(|| Error::InvalidLength)?;
+            let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, true).ok_or(Error::InvalidLength)?;
 
-            let alice_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(alice_key.into_iter().cloned()).ok_or(Error::InvalidLength)?;
+            let alice_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(alice_key.iter().cloned()).ok_or(Error::InvalidLength)?;
 
-            let bob_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(bob_key.into_iter().cloned()).ok_or(Error::InvalidLength)?;
+            let bob_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(bob_key.iter().cloned()).ok_or(Error::InvalidLength)?;
 
             (chain, alice_key, bob_key)
         };
@@ -315,7 +315,7 @@ impl PostQuantumContainer {
         payload.put_u64(self.anti_replay_attack.get_next_pid());
         let payload_len = payload.len();
 
-        let mut in_place_payload = InPlaceBuffer::new(&mut payload, 0..payload_len).ok_or_else(|| EzError::Generic("Bad window range"))?;
+        let mut in_place_payload = InPlaceBuffer::new(&mut payload, 0..payload_len).ok_or(EzError::Generic("Bad window range"))?;
         if let Some(aes_gcm_key) = self.get_encryption_key() {
             aes_gcm_key.encrypt_in_place(nonce, header.subset(0..header_len), &mut in_place_payload).map_err(|_| EzError::AesGcmEncryptionFailure)?;
             header.unsplit(payload);
@@ -331,7 +331,7 @@ impl PostQuantumContainer {
         let header = header.as_ref();
         let payload_len = payload.len();
 
-        let mut in_place_payload = InPlaceBuffer::new(payload, 0..payload_len).ok_or_else(|| EzError::Generic("Bad window range"))?;
+        let mut in_place_payload = InPlaceBuffer::new(payload, 0..payload_len).ok_or(EzError::Generic("Bad window range"))?;
         if let Some(aes_gcm_key) = self.get_decryption_key() {
             aes_gcm_key.decrypt_in_place(nonce, header, &mut in_place_payload).map_err(|_| EzError::AesGcmDecryptionFailure)
                 .and_then(|_| {
