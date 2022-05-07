@@ -1160,17 +1160,14 @@ impl StateContainerInner {
                     let _ = self.enqueued_packets.insert(target_cid, VecDeque::new());
                 }
 
-                if let Some(queue) = self.enqueued_packets.get_mut(&target_cid) {
-                    log::info!("Queue has: {} items", queue.len());
-                    // since we have a mutable lock on the session, no other attempts will happen. We can safely pop the front of the queue and rest assured that it won't be denied a send this time
-                    if let Some((ticket, packet, virtual_target, security_level)) = queue.pop_front() {
-                        //std::mem::drop(enqueued);
-                        return self.process_outbound_message(ticket, packet, virtual_target, security_level, true).map(|_| true);
-                    } else {
-                        log::info!("NO packets enqueued for target {}", target_cid);
-                    }
+                let queue = self.enqueued_packets.entry(target_cid).or_default();
+                log::info!("Queue has: {} items", queue.len());
+                // since we have a mutable lock on the session, no other attempts will happen. We can safely pop the front of the queue and rest assured that it won't be denied a send this time
+                if let Some((ticket, packet, virtual_target, security_level)) = queue.pop_front() {
+                    //std::mem::drop(enqueued);
+                    return self.process_outbound_message(ticket, packet, virtual_target, security_level, true).map(|_| true);
                 } else {
-                    log::info!("Enqueued packets queue not present");
+                    log::info!("NO packets enqueued for target {}", target_cid);
                 }
             }
         }
@@ -1181,7 +1178,7 @@ impl StateContainerInner {
     fn enqueue_packet(&mut self, target_cid: u64, ticket: Ticket, packet: SecureProtocolPacket, target: VirtualTargetType, security_level: SecurityLevel) {
         self.enqueued_packets
             .entry(target_cid)
-            .or_insert_with(|| VecDeque::new())
+            .or_default()
             .push_back((ticket, packet, target, security_level))
     }
 
