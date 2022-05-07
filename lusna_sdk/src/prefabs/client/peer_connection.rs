@@ -147,6 +147,7 @@ async fn on_server_connect_success<F, Fut>(connect_success: ConnectSuccess, cls_
                 // TODO: optimize peer registration + connection in one go
                 let mut handle = remote.propose_target(implicated_cid, peer_to_connect.clone()).await?;
                 let _reg_success = handle.register_to_peer().await?;
+                log::info!("Peer {:?} registered || success -> now connecting", peer_to_connect);
                 handle.connect_to_peer().await
             }
         };
@@ -204,7 +205,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
     use crate::test_common::{PEERS, server_info};
     use rstest::rstest;
-    use crate::prefabs::client::peer_connection::{PeerConnectionKernel, TestBarrier};
+    use crate::prefabs::client::peer_connection::{PeerConnectionKernel, TestBarrier, wait_for_peers};
     use futures::stream::FuturesUnordered;
     use futures::TryStreamExt;
 
@@ -231,6 +232,7 @@ mod tests {
                 log::info!("***PEER {} CONNECT RESULT: {}***", username, success);
                 if success {
                     let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                    wait_for_peers().await;
                     remote.shutdown_kernel().await
                 } else {
                     log::error!("Peer connect failed: {:?}", results);

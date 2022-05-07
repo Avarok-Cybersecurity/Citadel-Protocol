@@ -79,6 +79,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                         }
 
                         PeerSignal::Disconnect(vconn, resp) => {
+                            // below line is confusing. The logic is answered in the server block for PeerSignal::Disconnect
                             let target = resp.as_ref().map(|_| vconn.get_original_implicated_cid()).unwrap_or(vconn.get_original_target_cid());
                             let state_container = inner_state!(session.state_container);
                             if let Some(v_conn) = state_container.active_virtual_connections.get(&target) {
@@ -94,10 +95,14 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                     loop {
                                         if let Some(ts) = last_packet.load(Ordering::SeqCst) {
                                             if ts.elapsed() > Duration::from_millis(1500) {
-                                                break;
+                                                if inner_mut_state!(state_container_ref).enqueued_packets.entry(target).or_default().is_empty() {
+                                                    break;
+                                                }
                                             }
                                         } else {
-                                            break;
+                                            if inner_mut_state!(state_container_ref).enqueued_packets.entry(target).or_default().is_empty() {
+                                                break;
+                                            }
                                         }
 
                                         tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -689,9 +694,20 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                                 // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase). No FCM
                                 // NOTE: we MUST redefine peer_conn_type since it may be overwritten if only a username is given
                                 let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid);
-                                if let Some(ticket) = session.hypernode_peer_layer.check_simultaneous_register(implicated_cid, target_cid) {
+                                if let Some(ticket_new) = session.hypernode_peer_layer.check_simultaneous_register(implicated_cid, target_cid) {
                                     log::info!("Simultaneous register detected! Simulating implicated_cid={} sent an accept_register to target={}", implicated_cid, target_cid);
-                                    super::server::post_register::handle_response_phase(peer_conn_type, username.clone(), PeerResponse::Accept(Some(username)), ticket, fcm, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level)
+                                    // route signal to peer
+                                    let _ = super::server::post_register::handle_response_phase(peer_conn_type, username.clone(), PeerResponse::Accept(Some(username)), ticket_new, fcm, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level)?;
+                                    // rebound accept packet
+                                    let username = session.account_manager.get_username_by_cid(target_cid).await?;
+                                    let accept = PeerResponse::Accept(username.clone());
+                                    // TODO: get rid of multiple username fields ... wtf?
+                                    // we have to flip the ordering for here alone since the endpoint handler for this signal expects do
+                                    let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
+                                    let cmd = PeerSignal::PostRegister(peer_conn_type, username.clone().unwrap_or_default(), username, Some(ticket), Some(accept), FcmPostRegister::Disable);
+
+                                    let rebound_accept = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, cmd, ticket, timestamp, security_level);
+                                    Ok(PrimaryProcessorResult::ReplyToSender(rebound_accept))
                                 } else {
                                     let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
                                     let sess_mgr = session.session_manager.clone();
@@ -767,6 +783,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                             log::info!("Simultaneous connect detected! Simulating implicated_cid={} sent an accept_connect to target={}", implicated_cid, target_cid);
                             // we simulate an acceptance PeerSignal and call this function
                             // recursively to trigger the already-present local workflow at the server
+                            // TODO: Ensure ticket compatibility
                             super::server::post_connect::handle_response_phase(peer_conn_type, ticket, PeerResponse::Accept(None), endpoint_security_level, udp_enabled, implicated_cid, target_cid, timestamp, sess_ref, &sess_hyper_ratchet, security_level)
                         } else {
                             route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level, udp_enabled), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr,  &sess_hyper_ratchet, security_level).await
@@ -786,7 +803,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                 PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                     let state_container = inner_state!(session.state_container);
                     if let Some(v_conn) = state_container.active_virtual_connections.get(&target_cid) {
-                        v_conn.is_active.store(false, Ordering::SeqCst); //prevent further messages from being sent from this node
                         // ... but, we still want any messages already sent to be processed
 
                         let last_packet = v_conn.last_delivered_message_timestamp.clone();
@@ -797,6 +813,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         std::mem::drop(state_container);
 
                         let task = async move {
+                            // note: this is w.r.t the server.
                             loop {
                                 if let Some(ts) = last_packet.load(Ordering::SeqCst) {
                                     if ts.elapsed() > Duration::from_millis(1500) {
@@ -812,7 +829,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                             log::info!("[Peer Vconn @ Server] No packets received in the last 1500ms; will drop the virtual connection cleanly");
                             // once we're done waiting for packets to stop showing up, we can remove the container to end the underlying TCP stream
                             let mut state_container = inner_mut_state!(state_container_ref);
-                            let _ = state_container.active_virtual_connections.remove(&target_cid);
+                            let _ = state_container.active_virtual_connections.remove(&target_cid).map(|v_conn| v_conn.is_active.store(false, Ordering::SeqCst));
 
                             let resp = Some(resp.unwrap_or(PeerResponse::Disconnected(format!("Peer {} closed the virtual connection to {}", implicated_cid, target_cid))));
                             let signal_to_peer = PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid), resp);
