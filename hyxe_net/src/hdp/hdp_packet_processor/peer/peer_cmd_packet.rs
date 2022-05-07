@@ -28,6 +28,7 @@ use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, 
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
+use hyxe_wire::hypernode_type::NodeType::Peer;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
@@ -779,12 +780,18 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
                         let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
                         let sess_mgr = session.session_manager.clone();
-                        if let Some(ticket) = session.hypernode_peer_layer.check_simultaneous_connect(implicated_cid, target_cid) {
+                        if let Some(ticket_new) = session.hypernode_peer_layer.check_simultaneous_connect(implicated_cid, target_cid) {
                             log::info!("Simultaneous connect detected! Simulating implicated_cid={} sent an accept_connect to target={}", implicated_cid, target_cid);
                             // we simulate an acceptance PeerSignal and call this function
                             // recursively to trigger the already-present local workflow at the server
                             // TODO: Ensure ticket compatibility
-                            super::server::post_connect::handle_response_phase(peer_conn_type, ticket, PeerResponse::Accept(None), endpoint_security_level, udp_enabled, implicated_cid, target_cid, timestamp, sess_ref, &sess_hyper_ratchet, security_level)
+                            let _ = super::server::post_connect::handle_response_phase(peer_conn_type, ticket_new, PeerResponse::Accept(None), endpoint_security_level, udp_enabled, implicated_cid, target_cid, timestamp, sess_ref, &sess_hyper_ratchet, security_level)?;
+                            let accept_connect = PeerResponse::Accept(None);
+                            // we have to flip the ordering for here alone since the endpoint handler for this signal expects do
+                            let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
+                            let signal = PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(accept_connect), endpoint_security_level, udp_enabled);
+                            let rebound_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, signal, ticket, timestamp, security_level);
+                            PrimaryProcessorResult::ReplyToSender(rebound_packet)
                         } else {
                             route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level, udp_enabled), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr,  &sess_hyper_ratchet, security_level).await
                         }
