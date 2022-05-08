@@ -793,12 +793,12 @@ pub mod constructor {
                 let nonce_msg = &self.nonce_message;
 
                 for (idx, container) in self.message.inner.iter_mut().enumerate() {
-                    container.pqc.alice_on_receive_ciphertext(&transfer.msg_bob_cts[idx][..]).ok()?;
+                    container.pqc.alice_on_receive_ciphertext(&transfer.msg_bob_cts.get(idx)?[..]).ok()?;
                 }
 
                 for (idx, container) in self.message.inner.iter_mut().enumerate() {
                     // now, using the message pqc, decrypt the message drill
-                    let decrypted_msg_drill = container.pqc.decrypt(&transfer.encrypted_msg_drills[idx][..], nonce_msg).ok()?;
+                    let decrypted_msg_drill = container.pqc.decrypt(&transfer.encrypted_msg_drills.get(idx)?[..], nonce_msg).ok()?;
                     container.drill = Some(Drill::deserialize_from(&decrypted_msg_drill[..]).ok()?);
                 }
 

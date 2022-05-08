@@ -28,7 +28,6 @@ use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, 
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
-use hyxe_wire::hypernode_type::NodeType::Peer;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
@@ -319,7 +318,9 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         let session_security_settings = kem_state.session_security_settings;
                                         let security_level = session_security_settings.security_level;
                                         let mut alice_constructor = return_if_none!(kem_state.constructor.take());
-                                        return_if_none!(alice_constructor.stage1_alice(&BobToAliceTransferType::Default(return_if_none!(BobToAliceTransfer::deserialize_from(transfer)))));
+                                        let deser = return_if_none!(BobToAliceTransfer::deserialize_from(transfer), "bad deser");
+                                        // TODO: make sure both arent Bob
+                                        alice_constructor.stage1_alice(&BobToAliceTransferType::Default(deser)).ok_or_else(|| NetworkError::InvalidPacket("stage 1 alice failed"))?;
                                         let hyper_ratchet = return_if_none!(alice_constructor.finish_with_custom_cid(this_cid));
                                         let endpoint_hyper_ratchet = hyper_ratchet.clone();
                                         let endpoint_security_level = endpoint_hyper_ratchet.get_default_security_level();
@@ -791,7 +792,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                             let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
                             let signal = PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(accept_connect), endpoint_security_level, udp_enabled);
                             let rebound_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, signal, ticket, timestamp, security_level);
-                            PrimaryProcessorResult::ReplyToSender(rebound_packet)
+                            Ok(PrimaryProcessorResult::ReplyToSender(rebound_packet))
                         } else {
                             route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level, udp_enabled), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr,  &sess_hyper_ratchet, security_level).await
                         }
