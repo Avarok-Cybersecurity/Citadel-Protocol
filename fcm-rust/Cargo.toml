@@ -22,7 +22,7 @@ futures = "0.3"
 hyper = { version = "0.14", features = ["http1", "stream"] }
 hyper-tls = { version = "0.5", features = ["vendored"] }
 http = "0.2"
-chrono = "0.4"
+chrono = "0.4.19"
 log = "0.4"
 
 [dev-dependencies]
