@@ -122,11 +122,12 @@ jobs:
             await github.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
-  coverage:
+  cargo_deny_and_coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - run: cargo install --locked cargo-deny && cargo deny check All
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
