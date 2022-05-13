@@ -101,6 +101,7 @@ impl<F, Fut> PeerConnectionKernel<F, Fut>
 
     /// Creates a new authless connection with custom arguments
     pub fn new_passwordless(server_addr: SocketAddr, peers: Vec<UserIdentifier>, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
+        // TODO: figure out passwordless usernames for ez peer connection
         let server_conn_kernel = SingleClientServerConnectionKernel::new_passwordless(server_addr, udp_mode, session_security_settings,  |connect_success, remote| async move {
             on_server_connect_success(connect_success, remote, on_channel_received, peers).await
         });
@@ -186,7 +187,7 @@ struct TestBarrier {
 impl TestBarrier {
     #[cfg(test)]
     pub fn setup(count: usize) {
-        assert!(TEST_BARRIER.lock().replace(Self::new(count)).is_none())
+        let _ = TEST_BARRIER.lock().replace(Self::new(count));
     }
     fn new(count: usize) -> Self {
         Self { inner: Arc::new(tokio::sync::Barrier::new(count)) }
@@ -210,13 +211,16 @@ mod tests {
     use futures::TryStreamExt;
 
     #[rstest]
-    #[tokio::test]
     #[case(2)]
+    #[case(3)]
+    #[tokio::test]
     async fn peer_to_peer_connect(#[case] peer_count: usize) {
+        assert!(peer_count > 1);
         crate::test_common::setup_log();
         TestBarrier::setup(peer_count);
 
         static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
+        CLIENT_SUCCESS.store(0, Ordering::Relaxed);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
