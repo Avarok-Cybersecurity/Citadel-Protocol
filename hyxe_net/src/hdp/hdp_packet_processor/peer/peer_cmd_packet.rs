@@ -310,7 +310,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                     log::info!("RECV STAGE 1 PEER KEM");
                                     //let security_level = session.security_level;
 
-                                    let (hole_punch_compat_stream, channel, udp_rx_opt, sync_instant, endpoint_security_level, encrypted_config_container) = {
+                                    let (hole_punch_compat_stream, channel, udp_rx_opt, sync_instant, endpoint_security_level, encrypted_config_container, ticket_for_chan) = {
                                         let mut state_container = inner_mut_state!(session.state_container);
                                         let peer_cid = conn.get_original_implicated_cid();
                                         let this_cid = conn.get_original_target_cid();
@@ -319,7 +319,6 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         let security_level = session_security_settings.security_level;
                                         let mut alice_constructor = return_if_none!(kem_state.constructor.take());
                                         let deser = return_if_none!(BobToAliceTransfer::deserialize_from(transfer), "bad deser");
-                                        // TODO: make sure both arent Bob
                                         alice_constructor.stage1_alice(&BobToAliceTransferType::Default(deser)).ok_or_else(|| NetworkError::InvalidPacket("stage 1 alice failed"))?;
                                         let hyper_ratchet = return_if_none!(alice_constructor.finish_with_custom_cid(this_cid));
                                         let endpoint_hyper_ratchet = hyper_ratchet.clone();
@@ -349,6 +348,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         let signal = PeerSignal::Kem(conn.reverse(), KeyExchangeProcess::Stage2(sync_time_ns, None));
 
                                         let hole_punch_compat_stream = ReliableOrderedCompatStream::new(return_if_none!(session.to_primary_stream.clone()), &mut *state_container,peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
+                                        let ticket_for_chan = state_container.outgoing_peer_connect_attempts.remove(&peer_cid);
                                         std::mem::drop(state_container);
                                         let encrypted_config_container = generate_hole_punch_crypt_container(endpoint_hyper_ratchet, SecurityLevel::LOW, peer_cid);
 
@@ -360,7 +360,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         // now, fire-up the hole-punch future
                                         session.send_to_primary_stream(None, stage2_kem_packet)?;
 
-                                        (hole_punch_compat_stream, channel, udp_rx_opt, sync_instant, endpoint_security_level, encrypted_config_container)
+                                        (hole_punch_compat_stream, channel, udp_rx_opt, sync_instant, endpoint_security_level, encrypted_config_container, ticket_for_chan)
                                     };
 
                                     let implicated_cid = session.implicated_cid.clone();
@@ -368,7 +368,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                     // must send packet before registering app, otherwise, registration will fail
                                     let app = NetworkEndpoint::register(RelativeNodeType::Initiator, hole_punch_compat_stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
                                     //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
-                                    let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
+                                    let channel_signal = HdpServerResult::PeerChannelCreated(ticket_for_chan.unwrap_or(ticket), channel, udp_rx_opt);
                                     let client_config = session.client_config.clone();
                                     let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, session.state_container.clone(), endpoint_security_level, app, encrypted_config_container, client_config);
                                     let _ = spawn!(hole_punch_future);
@@ -384,7 +384,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                     let peer_cid = conn.get_original_implicated_cid();
                                     let this_cid = conn.get_original_target_cid();
                                     //let security_level = session.security_level;
-                                    let (hole_punch_compat_stream, channel, udp_rx_opt, endpoint_security_level, endpoint_hyper_ratchet) = {
+                                    let (hole_punch_compat_stream, channel, udp_rx_opt, endpoint_security_level, endpoint_hyper_ratchet, ticket_for_chan) = {
                                         let mut state_container = inner_mut_state!(session.state_container);
                                         let kem = return_if_none!(state_container.peer_kem_states.get_mut(&peer_cid));
                                         let session_security_settings = kem.session_security_settings;
@@ -408,13 +408,14 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         // We can now send the channel to the kernel, where TURN traversal is immediantly available.
                                         // however, STUN-like traversal will proceed in the background
                                         //state_container.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
+                                        let ticket_for_chan = state_container.outgoing_peer_connect_attempts.remove(&peer_cid);
                                         let hole_punch_compat_stream = ReliableOrderedCompatStream::new(return_if_none!(session.to_primary_stream.clone()), &mut *state_container, peer_cid, endpoint_hyper_ratchet.clone(), endpoint_security_level);
-                                        (hole_punch_compat_stream, channel, udp_rx_opt, endpoint_security_level, endpoint_hyper_ratchet)
+                                        (hole_punch_compat_stream, channel, udp_rx_opt, endpoint_security_level, endpoint_hyper_ratchet, ticket_for_chan)
                                     };
 
                                     let app = NetworkEndpoint::register(RelativeNodeType::Receiver, hole_punch_compat_stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
                                     let encrypted_config_container = generate_hole_punch_crypt_container(endpoint_hyper_ratchet, SecurityLevel::LOW, peer_cid);
-                                    let channel_signal = HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt);
+                                    let channel_signal = HdpServerResult::PeerChannelCreated(ticket_for_chan.unwrap_or(ticket), channel, udp_rx_opt);
                                     let diff = Duration::from_nanos(i64::abs(timestamp - *sync_time_ns) as u64);
                                     let sync_instant = Instant::now() + diff;
 
@@ -783,16 +784,12 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         let sess_mgr = session.session_manager.clone();
                         if let Some(ticket_new) = session.hypernode_peer_layer.check_simultaneous_connect(implicated_cid, target_cid) {
                             log::info!("Simultaneous connect detected! Simulating implicated_cid={} sent an accept_connect to target={}", implicated_cid, target_cid);
-                            // we simulate an acceptance PeerSignal and call this function
-                            // recursively to trigger the already-present local workflow at the server
-                            // TODO: Ensure ticket compatibility
+                            log::info!("Simultaneous connect: first_ticket: {} | sender expected ticket: {}", ticket_new, ticket);
+                            // NOTE: Packet will rebound to sender, then, sender will locally send
+                            // packet to the peer who first attempted a connect request
                             let _ = super::server::post_connect::handle_response_phase(peer_conn_type, ticket_new, PeerResponse::Accept(None), endpoint_security_level, udp_enabled, implicated_cid, target_cid, timestamp, sess_ref, &sess_hyper_ratchet, security_level)?;
-                            let accept_connect = PeerResponse::Accept(None);
-                            // we have to flip the ordering for here alone since the endpoint handler for this signal expects do
-                            let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
-                            let signal = PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(accept_connect), endpoint_security_level, udp_enabled);
-                            let rebound_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, signal, ticket, timestamp, security_level);
-                            Ok(PrimaryProcessorResult::ReplyToSender(rebound_packet))
+                            // TODO: ticket mapping/joining
+                            Ok(PrimaryProcessorResult::Void)
                         } else {
                             route_signal_and_register_ticket_forwards(PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level, udp_enabled), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr,  &sess_hyper_ratchet, security_level).await
                         }

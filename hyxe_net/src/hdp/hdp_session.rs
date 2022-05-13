@@ -1199,6 +1199,16 @@ impl HdpSession {
                                 PeerSignal::PostRegister(vconn, a, b, ticket,Some(PeerResponse::Accept(Some(c))), fcm_post_register)
                             }
 
+                            PeerSignal::PostConnect(a, b, None, d, e) => {
+                                if state_container.outgoing_peer_connect_attempts.contains_key(&a.get_original_target_cid()) {
+                                    log::warn!("{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
+                                }
+
+                                // in case the ticket gets mapped during simultaneous_connect, store locally
+                                let _ = state_container.outgoing_peer_connect_attempts.insert(a.get_original_target_cid(), ticket);
+                                PeerSignal::PostConnect(a, b, None, d, e)
+                            }
+
                             n => {
                                 n
                             }
