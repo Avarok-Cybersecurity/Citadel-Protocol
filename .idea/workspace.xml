@@ -34,19 +34,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="0501a0c8-9cbe-42c6-af13-f5bb287722a6" name="Default Changelist" comment="Added hyxe-net test framework, cleaned up some bugs, cleaned-up the server/kernel shutdown process">
-      <change afterPath="$PROJECT_DIR$/LICENSE-COMMERCIAL-USE.pdf" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/LICENSE-TRIAL.pdf" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tutorials/license_info.webp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/deny.toml" beforeDir="false" afterPath="$PROJECT_DIR$/deny.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/fcm-rust/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/fcm-rust/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_crypt/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_crypt/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_fs/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_fs/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_net/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_net/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_user/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_user/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hyxe_wire/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/hyxe_wire/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lusna_sdk/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/lusna_sdk/Cargo.toml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -711,7 +699,7 @@
       <workItem from="1643485662211" duration="13587000" />
       <workItem from="1643564061488" duration="16216000" />
       <workItem from="1643649696955" duration="284754000" />
-      <workItem from="1651936875482" duration="19381000" />
+      <workItem from="1651936875482" duration="20376000" />
     </task>
     <task id="LOCAL-00001" summary="Progress on hyxe_user">
       <created>1566433001738</created>
