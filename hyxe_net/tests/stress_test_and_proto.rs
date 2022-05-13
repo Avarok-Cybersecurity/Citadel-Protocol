@@ -137,9 +137,6 @@ pub mod tests {
         setup_log();
         deadlock_detector();
 
-        let port = portpicker::pick_unused_port().unwrap();
-        let addr = SocketAddr::new(addr.ip(), port);
-
         if !is_ipv6_enabled() && addr.is_ipv6() {
             log::info!("Skipping ipv6 test since ipv6 is not enabled locally");
             return Ok(())

@@ -486,8 +486,7 @@ impl HdpSessionManager {
     pub fn clear_provisional_session(&self, addr: &SocketAddr) {
         //log::info!("Attempting to clear provisional session ...");
         if inner_mut!(self).provisional_connections.remove(addr).is_none() {
-            //log::info!("Attempted to remove a connection that wasn't provisional. Check the program logic ...");
-            return;
+            log::warn!("Attempted to remove a connection {:?} that wasn't provisional", addr);
         }
     }
 
