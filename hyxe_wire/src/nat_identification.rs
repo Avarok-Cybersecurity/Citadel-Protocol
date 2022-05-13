@@ -220,7 +220,8 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
 
                 // if the external IPs translated during the process, this is bad news
                 if (addr_ext.ip() != addr2_ext.ip()) || (addr2_ext.ip() != addr3_ext.ip()) {
-                    // this is the worst nat type since ip's are unpredictable. Just use TURN
+                    // this is the worst nat type since ip's are unpredictable. Just use TURN if other is random IP,
+                    // unless, the other has a predictable addr
                     return Ok(NatType::EDMRandomIp(vec![addr_ext.ip(), addr2_ext.ip(), addr3_ext.ip()], None, is_ipv6_allowed));
                 }
 
