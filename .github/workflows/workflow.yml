@@ -66,11 +66,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 80
+    timeout-minutes: 50
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing -- --test-threads=1
-      - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing -- --test-threads=1
+      - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
+      - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
       - uses: actions/github-script@v2
         if: failure()
         with:
@@ -87,7 +87,7 @@ jobs:
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-2019 ]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - run: cargo test --package netbeam
