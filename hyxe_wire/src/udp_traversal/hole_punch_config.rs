@@ -47,7 +47,7 @@ impl HolePunchConfig {
                 let mut bands = Vec::new();
                 // Below assumes the addr port is exactly whatever the server saw it as.
                 // NOTE: since a QUIC connection may be established, using up the UDP port,
-                // it is necessaru that *before* the peer sends their info to this node, the port
+                // it is necessary that *before* the peer sends their info to this node, the port
                 // is accurately reflected in this direct addr
                 let ports = vec![direct_addr.port()];
                 let direct_addr_ip = direct_addr.ip();
@@ -108,17 +108,30 @@ impl HolePunchConfig {
                 })
             }
 
-            NatType::EDMRandomIp(..) => {
+            NatType::EDMRandomIp(_, _addr, _is_v6_allowed) => {
                 // Thanks to the preceeding logic, if we get here, we know the local node has a predictable address
                 // evidently, the peer does not, however, this does not matter.
                 // The packets we send likely will not make contact with the peer. However, once the peer
                 // contacts us, we can then send a packet back to them. The peer will send packets to us at
                 // the addr implicated by the first local socket. Thus, we keep the current socket, and,
                 // create an empty send band
-                Ok(Self {
-                    bands: vec![],
-                    locally_bound_sockets: Some(vec![first_local_socket])
-                })
+
+                // NOTE: the above assertion about the local node having a predictable addr
+                // may not be true in localhost-testing mode. In the case we are in localhost-testing
+                // mode, AND, both 'nodes' are behind an unpredictable NAT, simply connect to the internal
+                // addr
+                if cfg!(feature = "localhost-testing") {
+                    log::info!("Simulating peer has port preserved config");
+                    // pretend the peer NAT has a PortPreserved config
+                    let direct_addr = _addr.clone().ok_or_else(||anyhow::Error::msg("unable to simulate PortPreserved config"))?;
+                    let simulated_peer_nat = NatType::PortPreserved(direct_addr.internal_ipv4, Some(direct_addr), *_is_v6_allowed);
+                    Self::new(local_nat_info, &simulated_peer_nat, first_local_socket, peer_declared_internal_port)
+                } else {
+                    Ok(Self {
+                        bands: vec![],
+                        locally_bound_sockets: Some(vec![first_local_socket])
+                    })
+                }
             }
 
             _ => {
