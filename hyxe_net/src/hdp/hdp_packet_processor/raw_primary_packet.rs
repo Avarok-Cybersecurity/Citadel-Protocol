@@ -126,7 +126,7 @@ pub(crate) fn check_proxy(this_implicated_cid: Option<u64>, cmd_primary: u8, cmd
                             #[cfg(all(feature = "localhost-testing", feature = "localhost-testing-assert-no-proxy"))]
                                 {
                                     if cmd_primary == packet_flags::cmd::primary::GROUP_PACKET && cmd_aux == packet_flags::cmd::aux::group::GROUP_HEADER {
-                                        log::error!("***Did not expect packet to be proxied via feature flag***");
+                                        log::error!("***Did not expect packet to be proxied via feature flag*** | local is server: {}", session.is_server);
                                         std::process::exit(1)
                                     }
                                 }
