@@ -27,6 +27,16 @@ impl UnderlyingProtocol {
         Ok(Self::Quic(Some((cert, priv_key)), Some(domain.into()), false))
     }
 
+    pub fn load_tls_from_bytes<P: AsRef<[u8]>, T: AsRef<str>, R: Into<String>>(pkcs_12_der: P, password: T, domain: R) -> Result<Self, NetworkError> {
+        let interop = hyxe_wire::tls::create_server_config(pkcs_12_der.as_ref(), password.as_ref()).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        Ok(Self::Tls(interop, Some(domain.into()), false))
+    }
+
+    pub fn load_quic_from_bytes<P: AsRef<[u8]>, T: AsRef<str>, R: Into<String>>(pkcs_12_der: P, password: T, domain: R) -> Result<Self, NetworkError> {
+        let (cert, priv_key) = hyxe_wire::misc::pkcs12_to_quinn_keys(pkcs_12_der.as_ref(), password.as_ref()).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        Ok(Self::Quic(Some((cert, priv_key)), Some(domain.into()), false))
+    }
+
     pub fn new_tls_self_signed() -> Result<Self, NetworkError> {
         let interop = hyxe_wire::tls::create_server_self_signed_config().map_err(|err| NetworkError::Generic(err.to_string()))?;
         Ok(Self::Tls(interop, None, true))

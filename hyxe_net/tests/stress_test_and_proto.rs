@@ -38,6 +38,7 @@ pub mod tests {
     use rand::{SeedableRng, Rng};
     use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
     use hyxe_wire::socket_helpers::is_ipv6_enabled;
+    use itertools::Itertools;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -58,13 +59,17 @@ pub mod tests {
     }
 
     #[fixture]
+    #[once]
     fn protocols() -> Vec<UnderlyingProtocol> {
+        use std::io::Read;
+        let pkcs_12_der = ureq::get("https://thomaspbraun.com/dev_certificate.p12").call().unwrap().into_reader().bytes().try_collect::<u8, Vec<u8>, _>().unwrap();
+
         vec![
             UnderlyingProtocol::Tcp,
             UnderlyingProtocol::new_tls_self_signed().unwrap(),
             UnderlyingProtocol::new_quic_self_signed(),
-            UnderlyingProtocol::load_tls("../keys/testing.p12", "password", "thomaspbraun.com").unwrap(),
-            UnderlyingProtocol::load_quic("../keys/testing.p12", "password", "thomaspbraun.com").unwrap()
+            UnderlyingProtocol::load_tls_from_bytes(&pkcs_12_der, "password", "thomaspbraun.com").unwrap(),
+            UnderlyingProtocol::load_quic_from_bytes(&pkcs_12_der, "password", "thomaspbraun.com").unwrap()
         ]
     }
 
@@ -80,7 +85,7 @@ pub mod tests {
     #[case("[::1]:0")]
     #[tokio::test]
     async fn test_tcp_or_tls(#[case] addr: SocketAddr,
-                             protocols: Vec<UnderlyingProtocol>,
+                             protocols: &Vec<UnderlyingProtocol>,
                              client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
@@ -93,7 +98,7 @@ pub mod tests {
         for proto in protocols {
             log::info!("Testing proto {:?}", &proto);
 
-            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,addr).unwrap();
+            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto.clone(),addr).unwrap();
             log::info!("Bind/connect addr: {:?}", addr);
 
             let server = async move {
@@ -132,7 +137,7 @@ pub mod tests {
     #[case("[::1]:0")]
     #[tokio::test]
     async fn test_many_proto_conns(#[case] addr: SocketAddr,
-                                   protocols: Vec<UnderlyingProtocol>,
+                                   protocols: &Vec<UnderlyingProtocol>,
                                    client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
@@ -149,7 +154,7 @@ pub mod tests {
             log::info!("Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
-            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,addr).unwrap();
+            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto.clone(),addr).unwrap();
             log::info!("Bind/connect addr: {:?}", addr);
 
             let server = async move {
