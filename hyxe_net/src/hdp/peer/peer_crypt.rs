@@ -13,14 +13,6 @@ pub enum KeyExchangeProcess {
     Stage1(Vec<u8>, Option<PeerNatInfo>),
     // Alice sends a sync time over. Server takes care of external addr
     Stage2(i64, Option<PeerNatInfo>),
-    // Sends a signal to the other side validating that it established a connection
-    // However, the other side must thereafter receiving prove that it's who they claim it is
-    // to prevent MITM attacks
-    HolePunchEstablished,
-    // once the adjacent side confirms that they are who they claim they are, then the local node
-    // can update its endpoint container to allow exhange of information
-    // the bool determines whether or not the connection was upgraded
-    HolePunchEstablishedVerified(bool),
     // The hole-punch failed
     HolePunchFailed
 }
