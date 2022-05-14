@@ -108,7 +108,9 @@ confidence-threshold = 0.8
 exceptions = [
     # we do not use synchronous processing, thus, do not use
     # attohttpc
-    { allow = ["MPL-2.0"], name = "attohttpc", version = "*" }
+    { allow = ["MPL-2.0"], name = "attohttpc", version = "*" },
+    # this is for testing only, which is not part of the SDK
+    { allow = ["MPL-2.0"], name = "webpki-roots", version = "*" }
 ]
 
 # Some crates don't have (easily) machine readable licensing information,
