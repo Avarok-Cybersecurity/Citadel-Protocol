@@ -104,7 +104,7 @@ mod tests {
 
     fn get_possible_backends(env: &str, ty: &str) -> Vec<BackendType> {
         let mut backends = vec![BackendType::Filesystem];
-        #[cfg(feature = "enterprise")] {
+        if cfg!(feature = "enterprise") {
             match std::env::var(&env) {
                 Ok(addr) => {
                     for addr in  addr.split(',') {
