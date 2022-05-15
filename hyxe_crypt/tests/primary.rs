@@ -41,7 +41,7 @@ mod tests {
         // Client config should be a weaker version that the server version, since the client doesn't actually store the password on their own device. Still, if login time can in total be kept under 2s, then it's good
         let client_config = ArgonSettings::new_gen_salt("Thomas P Braun".as_bytes().to_vec(), 8, 32,1024*64, 4, vec![0,1,2,3,4,5,6,7,8,9,0]);
         // client hashes their password
-        match AsyncArgon::hash(SecBuffer::from("mrmoney10"), client_config.clone()).await.unwrap() {
+        match AsyncArgon::hash(SecBuffer::from("password"), client_config.clone()).await.unwrap() {
             ArgonStatus::HashSuccess(hashed_password) => {
                 log::info!("Hash success!");
                 // now, the client stores the config in their CNAC to be able to hash again in the future. Next, client sends the hashed password through an encrypted stream to the server
@@ -54,7 +54,7 @@ mod tests {
                         // The server saves this hashed output to the backend. Then, if a client wants to login, they have to hash their password
                         let server_argon_container = ServerArgonContainer::new(server_config, hashed_password_x2.clone());
 
-                        match AsyncArgon::hash(SecBuffer::from("mrmoney10"), client_config.clone()).await.unwrap() {
+                        match AsyncArgon::hash(SecBuffer::from("password"), client_config.clone()).await.unwrap() {
                             ArgonStatus::HashSuccess(hashed_password_v2) => {
                                 //assert_eq!(hashed_password_v2.as_ref(), server_recv.as_ref());
                                 // client sends to server to verify
