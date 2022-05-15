@@ -446,6 +446,7 @@ impl HdpSession {
                 let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), 0, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
+                log::info!("Running stage0 alice");
                 let transfer = alice_constructor.stage0_alice();
 
                 let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(session_security_settings.crypto_params.into(), timestamp, local_nid, transfer, potential_cids_alice, passwordless);

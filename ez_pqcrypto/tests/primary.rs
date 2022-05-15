@@ -7,7 +7,7 @@ mod tests {
     use ez_pqcrypto::PostQuantumContainer;
     use ez_pqcrypto::bytes_in_place::EzBuffer;
     use ez_pqcrypto::replay_attack_container::unordered::HISTORY_LEN;
-    use ez_pqcrypto::algorithm_dictionary::{KemAlgorithm, EncryptionAlgorithm, ALGORITHM_COUNT};
+    use ez_pqcrypto::algorithm_dictionary::{KemAlgorithm, EncryptionAlgorithm, KEM_ALGORITHM_COUNT};
     use enum_primitive::FromPrimitive;
     use std::iter::FromIterator;
     use std::convert::TryFrom;
@@ -280,10 +280,10 @@ mod tests {
     #[test]
     fn test_all_kems() {
         setup_log();
-        for algorithm in 0..ALGORITHM_COUNT {
-            println!("About to test {}", algorithm);
-            run(algorithm as u8, EncryptionAlgorithm::AES_GCM_256_SIV).unwrap();
-            run(algorithm as u8, EncryptionAlgorithm::Xchacha20Poly_1305).unwrap();
+        for algorithm in 0..KEM_ALGORITHM_COUNT {
+            log::info!("About to test {:?}", KemAlgorithm::try_from(algorithm).unwrap());
+            run(algorithm, EncryptionAlgorithm::AES_GCM_256_SIV).unwrap();
+            run(algorithm, EncryptionAlgorithm::Xchacha20Poly_1305).unwrap();
         }
     }
 
