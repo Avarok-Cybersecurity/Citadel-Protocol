@@ -648,10 +648,10 @@ impl HdpSessionManager {
         };
 
         if let Some(peers_to_broadcast_to) = peer_layer.get_peers_in_message_group(key) {
-            let can_broadcast = peers_to_broadcast_to.iter().map(|peer| *peer != implicated_cid).collect::<Vec<bool>>();
-            let peers_and_statuses = peers_to_broadcast_to.into_iter().zip(can_broadcast);
-            let _ = self.send_group_broadcast_signal_to(timestamp, ticket, peers_and_statuses, true, signal, security_level).await?;
-            Ok(true)
+            let broadcastees = peers_to_broadcast_to.iter().filter(|peer| **peer != implicated_cid).map(|r| (*r, true));
+            log::info!("[Server/Group] peers_and_statuses: {:?}", broadcastees);
+            let (_success, failed) = self.send_group_broadcast_signal_to(timestamp, ticket, broadcastees, true, signal, security_level).await?;
+            Ok(failed.is_empty())
         } else {
             Ok(false)
         }

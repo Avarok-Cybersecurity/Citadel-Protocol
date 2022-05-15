@@ -82,9 +82,7 @@ impl Debug for GroupChannelSendHalf {
 impl GroupChannelSendHalf {
     /// Broadcasts a message to the group
     pub async fn send_message(&self, message: SecBuffer) -> Result<(), NetworkError> {
-        inner_mut_state!(self.state_container).process_outbound_broadcast_command(self.ticket, &GroupBroadcast::Message(self.implicated_cid, self.key,  message))?;
-        // This allows yielding when this function is called in a for loop
-        tokio::task::yield_now().await;
+        self.send_group_command(&GroupBroadcast::Message(self.implicated_cid, self.key,  message))?;
         Ok(())
     }
 

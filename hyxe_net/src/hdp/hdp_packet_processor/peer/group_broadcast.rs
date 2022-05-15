@@ -92,13 +92,14 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
 
         GroupBroadcast::Message(username, key, message) => {
             if session.is_server {
+                log::info!("[Group/Server] Received message {:?}", message);
                 // The message will need to be broadcasted to every member in the group
                 let success = session.session_manager.broadcast_signal_to_group(implicated_cid, timestamp, ticket, key, GroupBroadcast::Message(username, key, message), security_level).await.unwrap_or(false);
                 let resp = GroupBroadcast::MessageResponse(key, success);
                 let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &resp, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
                 Ok(PrimaryProcessorResult::ReplyToSender(packet))
             } else {
-                // send to kernel
+                // send to kernel/channel
                 forward_signal(&session, ticket, Some(key),GroupBroadcast::Message(username, key, message))
             }
         }
