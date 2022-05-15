@@ -10,7 +10,7 @@ mod tests {
     use hyxe_crypt::net::crypt_splitter::{scramble_encrypt_group, GroupReceiver, par_scramble_encrypt_group};
     use std::time::Instant;
     use hyxe_crypt::argon::argon_container::{ArgonSettings, AsyncArgon, ArgonStatus, ServerArgonContainer};
-    use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm, ALGORITHM_COUNT, CryptoParameters};
+    use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm, KEM_ALGORITHM_COUNT, CryptoParameters};
     use std::convert::TryFrom;
     use hyxe_crypt::argon::autotuner::calculate_optimal_argon_params;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn hyper_ratchets() {
         setup_log();
-        for x in 0u8..ALGORITHM_COUNT {
+        for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
                 hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
                 hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), false);
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn hyper_ratchets_fcm() {
         setup_log();
-        for x in 0u8..ALGORITHM_COUNT {
+        for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
                 hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), true);
                 hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), true);
