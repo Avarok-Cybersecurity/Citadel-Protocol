@@ -175,13 +175,12 @@ impl Method3 {
                         continue;
                     }
 
-                    let _expected_addr = expected_response_addr.unwrap();
+                    let expected_addr = expected_response_addr.unwrap();
 
-                    /*
                     if peer_external_addr != expected_addr {
                         log::warn!("RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
                         continue;
-                    }*/
+                    }
 
                     // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
                     let hole_punched_addr = TargettedSocketAddr::new(peer_external_addr, peer_external_addr, adjacent_unique_id);
