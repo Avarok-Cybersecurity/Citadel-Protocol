@@ -172,11 +172,13 @@ impl HolePunchConfig {
     // `first_local_socket` is needed since it contains information vital for the adjacent node to connect,
     // especially if behind the same LAN. For maximum likelihood of NAT traversal, it is recommended that if
     // ipv6_is_enabled, the first_local_socket is also v6
-    fn generate_local_sockets(local_nat_info: &NatType, first_local_socket: UdpSocket) -> Result<Vec<UdpSocket>, anyhow::Error> {
+    fn generate_local_sockets(_local_nat_info: &NatType, first_local_socket: UdpSocket) -> Result<Vec<UdpSocket>, anyhow::Error> {
         // one addr will bind on 0.0.0.0 (or [::]), and the other on 127.0.0.1 (or [::1])
-        let local_bind_addr = first_local_socket.local_addr()?;
-        let mut ret = vec![first_local_socket];
+        let _local_bind_addr = first_local_socket.local_addr()?;
+        let ret = vec![first_local_socket];
 
+        // NOTE: We only bind to a single addr now, since that's all that's needed
+        /*
         match local_nat_info {
             NatType::EIM(..) | NatType::PortPreserved(..) => {
                 // we alter nothing
@@ -200,11 +202,12 @@ impl HolePunchConfig {
             _ => {
                 return Err(anyhow::Error::msg("This function should not be called since one or more of the peers cannot be reached via STUN-like traversal"))
             }
-        }
+        }*/
 
         Ok(ret)
     }
 
+    #[allow(dead_code)]
     fn generate_bind_for_delta_config(ret: &mut Vec<UdpSocket>, delta: u16, local_bind_addr: SocketAddr) -> Result<(), anyhow::Error> {
         // our internal port does not matter. The peer will predict the ports
         // we bind to. We will open SPREAD * delta ports locally since the peer will expect
