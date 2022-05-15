@@ -102,25 +102,29 @@ mod tests {
         log::error!("ERROR enabled");
     }
 
+    #[cfg(feature = "enterprise")]
     fn get_possible_backends(env: &str, ty: &str) -> Vec<BackendType> {
         let mut backends = vec![BackendType::Filesystem];
-        if cfg!(feature = "enterprise") {
-            match std::env::var(&env) {
-                Ok(addr) => {
-                    for addr in  addr.split(',') {
-                        log::info!("Testing SQL ADDR ({}): {}", ty, addr);
-                        backends.push(BackendType::sql(addr))
-                    }
-                }
 
-                _ => {
-                    log::error!("Make sure {} is set in the environment", env);
-                    std::process::exit(1)
+        match std::env::var(&env) {
+            Ok(addr) => {
+                for addr in  addr.split(',') {
+                    log::info!("Testing SQL ADDR ({}): {}", ty, addr);
+                    backends.push(BackendType::sql(addr))
                 }
+            }
+            _ => {
+                log::error!("Make sure {} is set in the environment", env);
+                std::process::exit(1)
             }
         }
 
         backends
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    fn get_possible_backends(_env: &str, _ty: &str) -> Vec<BackendType> {
+        vec![BackendType::Filesystem]
     }
 
     fn client_backends() -> Vec<BackendType> {
