@@ -1129,11 +1129,6 @@ impl StateContainerInner {
                     return Ok(false);
                 }
 
-                //let mut enqueued = inner_mut!(self.enqueued_packets);
-                if !self.enqueued_packets.contains_key(&target_cid) {
-                    let _ = self.enqueued_packets.insert(target_cid, VecDeque::new());
-                }
-
                 let queue = self.enqueued_packets.entry(target_cid).or_default();
                 log::info!("Queue has: {} items", queue.len());
                 // since we have a mutable lock on the session, no other attempts will happen. We can safely pop the front of the queue and rest assured that it won't be denied a send this time
@@ -1241,7 +1236,15 @@ impl StateContainerInner {
                     if let Some(vconn) = this.active_virtual_connections.get_mut(&target_cid) {
                         if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
                             //let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
-                            let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| default_primary_stream);
+                            let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| {
+                                log::info!("Reverting to primary stream since p2p conn not loaded");
+                                if cfg!(feature = "localhost-testing-assert-no-proxy") {
+                                    log::error!("*** Feature flag asserted no proxying, yet, message requires proxy ***");
+                                    std::process::exit(1);
+                                }
+
+                                default_primary_stream
+                            });
                             //let to_primary_stream_preferred = this.to_primary_stream.clone().unwrap();
                             let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap().clone();
                             latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
@@ -1264,7 +1267,7 @@ impl StateContainerInner {
                                         // Being called from poll should only happen when a packet needs to be sent, and is ready to be sent. Further, being called from the poll adds a lock ensuring it gets sent
                                         if called_from_poll {
                                             log::error!("Should not happen (CFP). {:?}", endpoint_container.endpoint_crypto.lock_set_by_alice.clone());
-                                            std::process::exit(-1); // for dev purposes
+                                            std::process::exit(1); // for dev purposes
                                         }
 
                                         //std::mem::drop(state_container);
