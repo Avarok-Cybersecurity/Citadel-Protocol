@@ -151,15 +151,15 @@ impl Method3 {
 
                     log::info!("Received TTL={} packet from {:?}. Awaiting mutual recognition... ", ttl, peer_external_addr);
 
+                    has_received_syn = true;
+                    expected_response_addr = Some(peer_external_addr);
+
                     for ttl in [4, 60, 120] {
                         sleep.tick().await;
                         let packet = &encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(*unique_id, this_node_type)).unwrap());
                         log::info!("[Syn->SynAck] Sending TTL={} to {} || {:?}", ttl, peer_external_addr, &packet[..] as &[u8]);
                         socket.send(packet, peer_external_addr, Some(ttl)).await?;
                     }
-
-                    has_received_syn = true;
-                    expected_response_addr = Some(peer_external_addr);
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
@@ -175,12 +175,13 @@ impl Method3 {
                         continue;
                     }
 
-                    let expected_addr = expected_response_addr.unwrap();
+                    let _expected_addr = expected_response_addr.unwrap();
 
+                    /*
                     if peer_external_addr != expected_addr {
                         log::warn!("RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
                         continue;
-                    }
+                    }*/
 
                     // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
                     let hole_punched_addr = TargettedSocketAddr::new(peer_external_addr, peer_external_addr, adjacent_unique_id);
