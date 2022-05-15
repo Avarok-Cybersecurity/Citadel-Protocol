@@ -8,7 +8,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use crate::algorithm_dictionary::{KemAlgorithm, CryptoParameters, EncryptionAlgorithm};
 use serde::{Serialize, Deserialize};
-use crate::function_pointers::{ALICE_FP, BOB_FP};
 use crate::encryption::AeadModule;
 use sha3::Digest;
 use crate::constructor_opts::{ConstructorOpts, RecursiveChain};
@@ -27,7 +26,7 @@ pub type AntiReplayAttackContainer = crate::replay_attack_container::unordered::
 
 pub mod prelude {
     pub use oqs::Error;
-    pub use crate::{PQNode, PostQuantumContainer, PostQuantumType, algorithm_dictionary};
+    pub use crate::{PQNode, PostQuantumContainer, PostQuantumKem, algorithm_dictionary};
 }
 
 pub const LARGEST_NONCE_LEN: usize = 24;
@@ -76,7 +75,7 @@ pub const fn get_approx_bytes_per_container() -> usize {
 #[derive(Serialize, Deserialize)]
 pub struct PostQuantumContainer {
     pub params: CryptoParameters,
-    pub(crate) data: Box<dyn PostQuantumType>,
+    pub(crate) data: PostQuantumKem,
     // the first pqc won't have a chain
     pub(crate) chain: Option<RecursiveChain>,
     pub(crate) anti_replay_attack: AntiReplayAttackContainer,
@@ -115,6 +114,7 @@ impl PostQuantumContainer {
         let previous_symmetric_key = opts.chain;
         let data = Self::get_new_alice(params.kem_algorithm)?;
         let aes_gcm_key = None;
+        log::info!("Success creating new ALICE container");
 
         Ok(Self { params, data, chain: previous_symmetric_key, shared_secret: aes_gcm_key, anti_replay_attack: AntiReplayAttackContainer::default(), node: PQNode::Alice })
     }
@@ -393,13 +393,13 @@ impl PostQuantumContainer {
     }
 
     /// This, for now, only gets FIRESABER
-    fn get_new_alice(kem_algorithm: KemAlgorithm) -> Result<Box<dyn PostQuantumType>, Error> {
-        ALICE_FP[kem_algorithm as u8 as usize]()
+    fn get_new_alice(kem_algorithm: KemAlgorithm) -> Result<PostQuantumKem, Error> {
+        PostQuantumKem::new_alice(kem_algorithm.into())
     }
 
     /// This, for now, only gets FIRESABER
-    fn get_new_bob(kem_algorithm: KemAlgorithm, public_key: &[u8]) -> Result<Box<dyn PostQuantumType>, Error> {
-        BOB_FP[kem_algorithm as u8 as usize](public_key)
+    fn get_new_bob(kem_algorithm: KemAlgorithm, public_key: &[u8]) -> Result<PostQuantumKem, Error> {
+        PostQuantumKem::new_bob(public_key, kem_algorithm.into())
     }
 }
 
@@ -419,6 +419,9 @@ pub mod algorithm_dictionary {
     use std::ops::Add;
     use crate::{AES_GCM_NONCE_LENGTH_BYTES, CHA_CHA_NONCE_LENGTH_BYTES};
     use strum::ParseError;
+    use strum::EnumCount;
+
+    pub const KEM_ALGORITHM_COUNT: u8 = KemAlgorithm::COUNT as u8;
 
     #[derive(Default, Serialize, Deserialize, Copy, Clone, Debug)]
     pub struct CryptoParameters {
@@ -439,13 +442,13 @@ pub mod algorithm_dictionary {
             match value {
                 x if x >= EncryptionAlgorithm::AES_GCM_256_SIV.into() && x < EncryptionAlgorithm::Xchacha20Poly_1305.into() => {
                     let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
-                    let kem_algorithm = (x % ALGORITHM_COUNT).try_into()?;
+                    let kem_algorithm = (x % KEM_ALGORITHM_COUNT).try_into()?;
                     Ok(Self { encryption_algorithm, kem_algorithm })
                 }
 
-                x if x >= EncryptionAlgorithm::Xchacha20Poly_1305.into() && x < (2 * ALGORITHM_COUNT) => {
+                x if x >= EncryptionAlgorithm::Xchacha20Poly_1305.into() && x < (2 * KEM_ALGORITHM_COUNT) => {
                     let encryption_algorithm = EncryptionAlgorithm::Xchacha20Poly_1305;
-                    let kem_algorithm = (x % ALGORITHM_COUNT).try_into()?;
+                    let kem_algorithm = (x % KEM_ALGORITHM_COUNT).try_into()?;
                     Ok(Self { encryption_algorithm, kem_algorithm })
                 }
 
@@ -473,7 +476,7 @@ pub mod algorithm_dictionary {
     enum_from_primitive! {
         #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
         pub enum EncryptionAlgorithm {
-            AES_GCM_256_SIV = 0, Xchacha20Poly_1305 = ALGORITHM_COUNT as isize
+            AES_GCM_256_SIV = 0, Xchacha20Poly_1305 = KEM_ALGORITHM_COUNT as isize
         }
     }
 
@@ -510,10 +513,8 @@ pub mod algorithm_dictionary {
         }
     }
 
-    pub const ALGORITHM_COUNT: u8 = 10 + 8;
-
     enum_from_primitive! {
-        #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, strum::EnumString, strum::EnumIter)]
+        #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, strum::EnumString, strum::EnumIter, strum::EnumCount)]
         pub enum KemAlgorithm {
             #[strum(ascii_case_insensitive)]
             Lightsaber = 0,
@@ -528,14 +529,13 @@ pub mod algorithm_dictionary {
             #[strum(ascii_case_insensitive)]
             Kyber1024_90s = 5,
             #[strum(ascii_case_insensitive)]
-            Ntruhps2048509 = 6,
+            NtruHps2048509 = 6,
             #[strum(ascii_case_insensitive)]
-            Ntruhps2048677 = 7,
+            NtruHps2048677 = 7,
             #[strum(ascii_case_insensitive)]
-            Ntruhps4096821 = 8,
+            NtruHps4096821 = 8,
             #[strum(ascii_case_insensitive)]
-            Ntruhrss701 = 9,
-
+            NtruHrss701 = 9,
             #[strum(ascii_case_insensitive)]
             SikeP434 = 10,
             #[strum(ascii_case_insensitive)]
@@ -557,10 +557,8 @@ pub mod algorithm_dictionary {
 
     impl KemAlgorithm {
         pub fn list() -> Vec<KemAlgorithm> {
-            vec![KemAlgorithm::Lightsaber, KemAlgorithm::Saber, KemAlgorithm::Firesaber,
-            KemAlgorithm::Kyber512_90s, KemAlgorithm::Kyber768_90s, KemAlgorithm::Kyber1024_90s,
-            KemAlgorithm::Ntruhps2048509, KemAlgorithm::Ntruhps2048677, KemAlgorithm::Ntruhps4096821, KemAlgorithm::Ntruhrss701,
-            KemAlgorithm::SikeP434, KemAlgorithm::SikeP434Compressed, KemAlgorithm::SikeP503, KemAlgorithm::SikeP503Compressed, KemAlgorithm::SikeP610, KemAlgorithm::SikeP610Compressed, KemAlgorithm::SikeP751, KemAlgorithm::SikeP751Compressed]
+            use strum::IntoEnumIterator;
+            KemAlgorithm::iter().collect()
         }
 
         pub fn try_from_str<R: AsRef<str>>(t: R) -> Result<Self, ParseError> {
@@ -582,6 +580,31 @@ pub mod algorithm_dictionary {
         }
     }
 
+    impl From<KemAlgorithm> for oqs::kem::Algorithm {
+        fn from(val: KemAlgorithm) -> Self {
+            match val {
+                KemAlgorithm::Lightsaber => oqs::kem::Algorithm::Lightsaber,
+                KemAlgorithm::Saber => oqs::kem::Algorithm::Saber,
+                KemAlgorithm::Firesaber => oqs::kem::Algorithm::Firesaber,
+                KemAlgorithm::Kyber512_90s => oqs::kem::Algorithm::Kyber512_90s,
+                KemAlgorithm::Kyber768_90s => oqs::kem::Algorithm::Kyber768_90s,
+                KemAlgorithm::Kyber1024_90s => oqs::kem::Algorithm::Kyber1024_90s,
+                KemAlgorithm::NtruHps2048509 => oqs::kem::Algorithm::NtruHps2048509,
+                KemAlgorithm::NtruHps2048677 => oqs::kem::Algorithm::NtruHps2048677,
+                KemAlgorithm::NtruHps4096821 => oqs::kem::Algorithm::NtruHps4096821,
+                KemAlgorithm::NtruHrss701 => oqs::kem::Algorithm::NtruHrss701,
+                KemAlgorithm::SikeP434 => oqs::kem::Algorithm::SikeP434,
+                KemAlgorithm::SikeP434Compressed => oqs::kem::Algorithm::SikeP434Compressed,
+                KemAlgorithm::SikeP503 => oqs::kem::Algorithm::SikeP503,
+                KemAlgorithm::SikeP503Compressed => oqs::kem::Algorithm::SikeP503Compressed,
+                KemAlgorithm::SikeP610 => oqs::kem::Algorithm::SikeP610,
+                KemAlgorithm::SikeP610Compressed => oqs::kem::Algorithm::SikeP610Compressed,
+                KemAlgorithm::SikeP751 => oqs::kem::Algorithm::SikeP751,
+                KemAlgorithm::SikeP751Compressed => oqs::kem::Algorithm::SikeP751Compressed,
+            }
+        }
+    }
+
     impl Into<u8> for KemAlgorithm {
         fn into(self) -> u8 {
             self as u8
@@ -593,218 +616,93 @@ pub mod algorithm_dictionary {
             KemAlgorithm::Firesaber
         }
     }
-
 }
 
-/// Used to get different algorithm types dynamically
-#[typetag::serde(tag = "type")]
-pub trait PostQuantumType: Send + Sync {
-    /// Creates a new self for the initiating node
-    fn new_alice() -> Result<Self, Error> where Self: Sized;
-    /// Creates a new self for the receiving node
-    fn new_bob(public_key: &[u8]) -> Result<Self, Error> where Self: Sized;
-    /// Internally creates shared key after bob sends a response back to Alice
-    fn alice_on_receive_ciphertext(&mut self, ciphertext: &[u8]) -> Result<(), Error>;
-    /// Gets the public key
-    fn get_public_key(&self) -> &[u8];
-    /// Gets the secret key (If node is Alice type)
-    fn get_secret_key(&self) -> Result<&[u8], Error>;
-    /// Gets the ciphertext
-    fn get_ciphertext(&self) -> Result<&[u8], Error>;
-    /// Gets the shared secret
-    fn get_shared_secret(&self) -> Result<&[u8], Error>;
+#[derive(Serialize, Deserialize)]
+pub struct PostQuantumKem {
+    /// The public key. Both Alice and Bob get this
+    public_key: oqs::kem::PublicKey,
+    /// Only Alice gets this one
+    secret_key: Option<oqs::kem::SecretKey>,
+    /// Both Bob and Alice get this one
+    ciphertext: Option<oqs::kem::Ciphertext>,
+    /// Both Alice and Bob get this (at the end)
+    shared_secret: Option<oqs::kem::SharedSecret>,
+    /// the kem algorithm
+    kem_alg: oqs::kem::Algorithm
 }
 
-macro_rules! create_struct {
-    ($variant:expr, $struct_name:ident) => {
-        /// Auto generated
-        #[derive(Serialize, Deserialize)]
-        pub(crate) struct $struct_name {
-            /// The public key. Both Alice and Bob get this
-            public_key: oqs::kem::PublicKey,
-            /// Only Alice gets this one
-            secret_key: Option<oqs::kem::SecretKey>,
-            /// Both Bob and Alice get this one
-            ciphertext: Option<oqs::kem::Ciphertext>,
-            /// Both Alice and Bob get this (at the end)
-            shared_secret: Option<oqs::kem::SharedSecret>
-        }
-
-        #[typetag::serde]
-        impl PostQuantumType for $struct_name {
-            fn new_alice() -> Result<Self, Error> {
-                let kem_alg = oqs::kem::Kem::new($variant)?;
-                let (public_key, secret_key) = kem_alg.keypair()?;
-                let ciphertext = None;
-                let shared_secret = None;
-                let secret_key = Some(secret_key.to_owned());
-                Ok(Self { public_key: public_key.to_owned(), secret_key, ciphertext, shared_secret })
-            }
-
-            fn new_bob(public_key: &[u8]) -> Result<Self, Error> {
-                let kem_alg = oqs::kem::Kem::new($variant)?;
-                let public_key = kem_alg.public_key_from_bytes(public_key).ok_or(Error::InvalidLength)?.to_owned();
-                let (ciphertext, shared_secret) = kem_alg.encapsulate(&public_key)?;
-                let secret_key = None;
-                let shared_secret = Some(shared_secret.to_owned());
-                let ciphertext = Some(ciphertext.to_owned());
-                Ok(Self { public_key, secret_key, ciphertext, shared_secret })
-            }
-
-            fn alice_on_receive_ciphertext(&mut self, ciphertext: &[u8]) -> Result<(), Error> {
-                // These functions should only be called once upon response back from Bob
-                debug_assert!(self.shared_secret.is_none());
-                debug_assert!(self.ciphertext.is_none());
-                debug_assert!(self.secret_key.is_some());
-
-                let kem_alg = oqs::kem::Kem::new($variant)?;
-
-                let ciphertext = kem_alg.ciphertext_from_bytes(ciphertext).ok_or(Error::InvalidLength)?.to_owned();
-
-                if let Some(secret_key) = self.secret_key.as_ref() {
-                    let shared_secret = kem_alg.decapsulate(secret_key, &ciphertext)?.to_owned();
-                    self.ciphertext = Some(ciphertext);
-                    self.shared_secret = Some(shared_secret);
-                    Ok(())
-                } else {
-                    Err(oqs::Error::Error)
-                }
-            }
-
-            fn get_public_key(&self) -> &[u8] {
-                oqs::kem::PublicKey::as_ref(&self.public_key)
-            }
-
-            fn get_secret_key(&self) -> Result<&[u8], Error> {
-                if let Some(secret_key) = self.secret_key.as_ref() {
-                    Ok(oqs::kem::SecretKey::as_ref(secret_key))
-                } else {
-                    Err(get_generic_error("Unable to get secret key"))
-                }
-            }
-
-            fn get_ciphertext(&self) -> Result<&[u8], Error> {
-                if let Some(ciphertext) = self.ciphertext.as_ref() {
-                    Ok(oqs::kem::Ciphertext::as_ref(ciphertext))
-                } else {
-                    Err(get_generic_error("Unable to get ciphertext"))
-                }
-            }
-
-            fn get_shared_secret(&self) -> Result<&[u8], Error> {
-                if let Some(shared_secret) = self.shared_secret.as_ref() {
-                    Ok(oqs::kem::SharedSecret::as_ref(shared_secret))
-                } else {
-                    Err(get_generic_error("Unable to get secret key"))
-                }
-            }
-        }
-    };
-}
-
-pub(crate) mod function_pointers {
-    use crate::PostQuantumType;
-    use crate::algorithm_dictionary::ALGORITHM_COUNT;
-    use oqs::Error;
-
-    macro_rules! box_alice {
-    ($constructor:expr) => {{
-        #[inline(never)]
-        fn alice_box_fn() -> Result<Box<dyn PostQuantumType>, Error> {
-            Ok(Box::new(($constructor)()?))
-        }
-
-        alice_box_fn
-    }};
-}
-
-    macro_rules! box_bob {
-    ($constructor:expr) => {{
-        #[inline(never)]
-        fn bob_box_fn(arr: &[u8]) -> Result<Box<dyn PostQuantumType>, Error> {
-            Ok(Box::new(($constructor)(arr)?))
-        }
-
-        bob_box_fn
-    }};
-}
-
-    pub(crate) static ALICE_FP: [fn() -> Result<Box<dyn PostQuantumType>, Error>; ALGORITHM_COUNT as usize] = [
-        box_alice!(crate::post_quantum_structs::LightsaberContainer::new_alice),
-        box_alice!(crate::post_quantum_structs::SaberContainer::new_alice),
-        box_alice!(crate::post_quantum_structs::FiresaberContainer::new_alice),
-        box_alice!(crate::post_quantum_structs::Kyber512_90sContainer::new_alice),
-        box_alice!(crate::post_quantum_structs::Kyber768_90sContainer::new_alice),
-        box_alice!(crate::post_quantum_structs::Kyber1024_90sContainer::new_alice),
-        box_alice!(crate::post_quantum_structs::Ntru_hps_2048_509Container::new_alice),
-        box_alice!(crate::post_quantum_structs::Ntru_hps_2048_677Container::new_alice),
-        box_alice!(crate::post_quantum_structs::Ntru_hps_4096_821Container::new_alice),
-        box_alice!(crate::post_quantum_structs::Ntru_hrss_701Container::new_alice),
-
-        box_alice!(crate::post_quantum_structs::SikeP434_Container::new_alice),
-        box_alice!(crate::post_quantum_structs::SikeP434Compressed_Container::new_alice),
-        box_alice!(crate::post_quantum_structs::SikeP503_Container::new_alice),
-        box_alice!(crate::post_quantum_structs::SikeP503Compressed_Container::new_alice),
-        box_alice!(crate::post_quantum_structs::SikeP610_Container::new_alice),
-        box_alice!(crate::post_quantum_structs::SikeP610Compressed_Container::new_alice),
-        box_alice!(crate::post_quantum_structs::SikeP751_Container::new_alice),
-        box_alice!(crate::post_quantum_structs::SikeP751Compressed_Container::new_alice),
-    ];
-
-    pub(crate) static BOB_FP: [fn(&[u8]) -> Result<Box<dyn PostQuantumType>, Error>; ALGORITHM_COUNT as usize] = [
-        box_bob!(crate::post_quantum_structs::LightsaberContainer::new_bob),
-        box_bob!(crate::post_quantum_structs::SaberContainer::new_bob),
-        box_bob!(crate::post_quantum_structs::FiresaberContainer::new_bob),
-        box_bob!(crate::post_quantum_structs::Kyber512_90sContainer::new_bob),
-        box_bob!(crate::post_quantum_structs::Kyber768_90sContainer::new_bob),
-        box_bob!(crate::post_quantum_structs::Kyber1024_90sContainer::new_bob),
-        box_bob!(crate::post_quantum_structs::Ntru_hps_2048_509Container::new_bob),
-        box_bob!(crate::post_quantum_structs::Ntru_hps_2048_677Container::new_bob),
-        box_bob!(crate::post_quantum_structs::Ntru_hps_4096_821Container::new_bob),
-        box_bob!(crate::post_quantum_structs::Ntru_hrss_701Container::new_bob),
-
-        box_bob!(crate::post_quantum_structs::SikeP434_Container::new_bob),
-        box_bob!(crate::post_quantum_structs::SikeP434Compressed_Container::new_bob),
-        box_bob!(crate::post_quantum_structs::SikeP503_Container::new_bob),
-        box_bob!(crate::post_quantum_structs::SikeP503Compressed_Container::new_bob),
-        box_bob!(crate::post_quantum_structs::SikeP610_Container::new_bob),
-        box_bob!(crate::post_quantum_structs::SikeP610Compressed_Container::new_bob),
-        box_bob!(crate::post_quantum_structs::SikeP751_Container::new_bob),
-        box_bob!(crate::post_quantum_structs::SikeP751Compressed_Container::new_bob),
-    ];
-}
-
-/// A set of auto generated structs corresponding to one of many possible encryption schemes
-pub(crate) mod post_quantum_structs {
-    use oqs::Error;
-    use super::PostQuantumType;
-    use serde::{Serialize, Deserialize};
-
-    fn get_generic_error(_text: &'static str) -> Error {
-        Error::Error
+impl PostQuantumKem {
+    fn new_alice(algorithm: oqs::kem::Algorithm) -> Result<Self, Error> {
+        let kem_alg = oqs::kem::Kem::new(algorithm)?;
+        let (public_key, secret_key) = kem_alg.keypair()?;
+        let ciphertext = None;
+        let shared_secret = None;
+        let secret_key = Some(secret_key.to_owned());
+        Ok(Self { public_key: public_key.to_owned(), secret_key, ciphertext, shared_secret, kem_alg: algorithm })
     }
 
-    create_struct!(oqs::kem::Algorithm::Lightsaber, LightsaberContainer);
-    create_struct!(oqs::kem::Algorithm::Saber, SaberContainer);
-    create_struct!(oqs::kem::Algorithm::Firesaber, FiresaberContainer);
+    fn new_bob(public_key: &[u8], algorithm: oqs::kem::Algorithm) -> Result<Self, Error> {
+        let kem_alg = oqs::kem::Kem::new(algorithm)?;
+        let public_key = kem_alg.public_key_from_bytes(public_key).ok_or(Error::InvalidLength)?.to_owned();
+        let (ciphertext, shared_secret) = kem_alg.encapsulate(&public_key)?;
+        let secret_key = None;
+        let shared_secret = Some(shared_secret.to_owned());
+        let ciphertext = Some(ciphertext.to_owned());
+        Ok(Self { public_key, secret_key, ciphertext, shared_secret, kem_alg: algorithm })
+    }
 
-    create_struct!(oqs::kem::Algorithm::Kyber512_90s, Kyber512_90sContainer);
-    create_struct!(oqs::kem::Algorithm::Kyber768_90s, Kyber768_90sContainer);
-    create_struct!(oqs::kem::Algorithm::Kyber1024_90s, Kyber1024_90sContainer);
+    fn alice_on_receive_ciphertext(&mut self, ciphertext: &[u8]) -> Result<(), Error> {
+        // These functions should only be called once upon response back from Bob
+        debug_assert!(self.shared_secret.is_none());
+        debug_assert!(self.ciphertext.is_none());
+        debug_assert!(self.secret_key.is_some());
 
-    create_struct!(oqs::kem::Algorithm::NtruHps2048509, Ntru_hps_2048_509Container);
-    create_struct!(oqs::kem::Algorithm::NtruHps2048677, Ntru_hps_2048_677Container);
-    create_struct!(oqs::kem::Algorithm::NtruHps4096821, Ntru_hps_4096_821Container);
-    create_struct!(oqs::kem::Algorithm::NtruHrss701, Ntru_hrss_701Container);
+        let kem_alg = oqs::kem::Kem::new(self.kem_alg)?;
 
-    create_struct!(oqs::kem::Algorithm::SikeP434, SikeP434_Container);
-    create_struct!(oqs::kem::Algorithm::SikeP434Compressed, SikeP434Compressed_Container);
-    create_struct!(oqs::kem::Algorithm::SikeP503, SikeP503_Container);
-    create_struct!(oqs::kem::Algorithm::SikeP503Compressed, SikeP503Compressed_Container);
-    create_struct!(oqs::kem::Algorithm::SikeP610, SikeP610_Container);
-    create_struct!(oqs::kem::Algorithm::SikeP610Compressed, SikeP610Compressed_Container);
-    create_struct!(oqs::kem::Algorithm::SikeP751, SikeP751_Container);
-    create_struct!(oqs::kem::Algorithm::SikeP751Compressed, SikeP751Compressed_Container);
+        let ciphertext = kem_alg.ciphertext_from_bytes(ciphertext).ok_or(Error::InvalidLength)?.to_owned();
+
+        if let Some(secret_key) = self.secret_key.as_ref() {
+            let shared_secret = kem_alg.decapsulate(secret_key, &ciphertext)?.to_owned();
+            self.ciphertext = Some(ciphertext);
+            self.shared_secret = Some(shared_secret);
+            Ok(())
+        } else {
+            Err(oqs::Error::Error)
+        }
+    }
+
+    fn get_public_key(&self) -> &[u8] {
+        oqs::kem::PublicKey::as_ref(&self.public_key)
+    }
+
+    fn get_secret_key(&self) -> Result<&[u8], Error> {
+        if let Some(secret_key) = self.secret_key.as_ref() {
+            Ok(oqs::kem::SecretKey::as_ref(secret_key))
+        } else {
+            Err(get_generic_error("Unable to get secret key"))
+        }
+    }
+
+    fn get_ciphertext(&self) -> Result<&[u8], Error> {
+        if let Some(ciphertext) = self.ciphertext.as_ref() {
+            Ok(oqs::kem::Ciphertext::as_ref(ciphertext))
+        } else {
+            Err(get_generic_error("Unable to get ciphertext"))
+        }
+    }
+
+    fn get_shared_secret(&self) -> Result<&[u8], Error> {
+        if let Some(shared_secret) = self.shared_secret.as_ref() {
+            Ok(oqs::kem::SharedSecret::as_ref(shared_secret))
+        } else {
+            Err(get_generic_error("Unable to get secret key"))
+        }
+    }
+}
+
+fn get_generic_error(_text: &'static str) -> Error {
+    Error::Error
 }
 
 impl Debug for PostQuantumContainer {
