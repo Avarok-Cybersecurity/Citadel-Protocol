@@ -18,7 +18,7 @@ async-trait = "0.1.51"
 parking_lot = "0.11.1"
 bincode2 = "2.0.1"
 serde = { version = "1.0.127", features = ["derive"] }
-anyhow = "1.0.42"
+anyhow = "1.0.57"
 tokio-util = { version = "0.6.7", features = ["codec"] }
 rand = "0.8.4"
 async-stream = "0.3.2"
