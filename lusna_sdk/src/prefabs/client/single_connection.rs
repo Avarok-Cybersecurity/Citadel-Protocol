@@ -7,6 +7,7 @@ use std::net::SocketAddr;
 use futures::Future;
 use std::marker::PhantomData;
 use hyxe_net::auth::AuthenticationRequest;
+use uuid::Uuid;
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
 /// This kernel will only allow outbound communication for the provided account
@@ -25,7 +26,7 @@ pub struct SingleClientServerConnectionKernel<F, Fut> {
 pub(crate) enum ConnectionType {
     Register { server_addr: SocketAddr, username: String, password: SecBuffer, full_name: String },
     Connect { username: String, password: SecBuffer },
-    Passwordless { server_addr: SocketAddr }
+    Passwordless { uuid: Uuid, server_addr: SocketAddr }
 }
 
 impl<F, Fut> SingleClientServerConnectionKernel<F, Fut>
@@ -69,11 +70,11 @@ impl<F, Fut> SingleClientServerConnectionKernel<F, Fut>
     }
 
     /// Creates a new authless connection with custom arguments
-    pub fn new_passwordless(server_addr: SocketAddr, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
+    pub fn new_passwordless(uuid: Uuid, server_addr: SocketAddr, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
         Self {
             handler: Mutex::new(Some(on_channel_received)),
             udp_mode,
-            auth_info: Mutex::new(Some(ConnectionType::Passwordless { server_addr })),
+            auth_info: Mutex::new(Some(ConnectionType::Passwordless { uuid, server_addr })),
             session_security_settings,
             remote: None,
             _pd: Default::default()
@@ -81,8 +82,8 @@ impl<F, Fut> SingleClientServerConnectionKernel<F, Fut>
     }
 
     /// Creates a new authless connection with default arguments
-    pub fn new_passwordless_defaults(server_addr: SocketAddr, on_channel_received: F) -> Self {
-        Self::new_passwordless(server_addr, Default::default(), Default::default(), on_channel_received)
+    pub fn new_passwordless_defaults(uuid: Uuid, server_addr: SocketAddr, on_channel_received: F) -> Self {
+        Self::new_passwordless(uuid, server_addr, Default::default(), Default::default(), on_channel_received)
     }
 
 }
@@ -117,8 +118,8 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
                 AuthenticationRequest::credentialed(username, password)
             }
 
-            ConnectionType::Passwordless { server_addr } => {
-                AuthenticationRequest::passwordless(server_addr)
+            ConnectionType::Passwordless { uuid , server_addr } => {
+                AuthenticationRequest::passwordless(uuid, server_addr)
             }
         };
 
@@ -143,6 +144,7 @@ mod tests {
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use std::sync::atomic::{AtomicBool, Ordering};
     use crate::test_common::server_info;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn single_connection_registered() {
@@ -180,8 +182,9 @@ mod tests {
         let (server, server_addr) = server_info();
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(server_addr, |_channel, _remote| async move {
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(uuid, server_addr, |_channel, _remote| async move {
             log::info!("***CLIENT TEST SUCCESS***");
             //_remote.inner.find_target("", "").await.unwrap().connect_to_peer().await.unwrap();
             CLIENT_SUCCESS.store(true, Ordering::Relaxed);

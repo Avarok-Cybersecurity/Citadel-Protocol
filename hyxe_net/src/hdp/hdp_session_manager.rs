@@ -138,8 +138,8 @@ impl HdpSessionManager {
 
                             HdpSessionInitMode::Connect(auth_request) => {
                                 match auth_request {
-                                    AuthenticationRequest::Passwordless { server_addr } => {
-                                        (*server_addr, None, ProposedCredentials::passwordless())
+                                    AuthenticationRequest::Passwordless { server_addr, username } => {
+                                        (*server_addr, None, ProposedCredentials::passwordless(username.clone()))
                                     }
 
                                     AuthenticationRequest::Credentialed { id, password } => {
