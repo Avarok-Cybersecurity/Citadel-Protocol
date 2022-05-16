@@ -73,7 +73,7 @@ impl ReliableOrderedStreamToTarget for TcpStream {
                     continue;
                 }
                 Err(e) => {
-                    return Err(e.into());
+                    return Err(e);
                 }
             }
         }
@@ -96,7 +96,7 @@ impl ReliableOrderedStreamToTarget for TcpStream {
                     continue;
                 }
                 Err(e) => {
-                    return Err(e.into());
+                    return Err(e);
                 }
             }
         }

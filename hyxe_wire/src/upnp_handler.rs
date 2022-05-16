@@ -22,19 +22,19 @@ impl UPnPHandler {
             ..Default::default()
         };
 
-        let local_ip_address = get_local_ip().await.ok_or_else(||FirewallError::LocalIPAddrFail)?;
+        let local_ip_address = get_local_ip().await.ok_or(FirewallError::LocalIPAddrFail)?;
 
         if local_ip_address.is_ipv6() {
             return Err(FirewallError::UPNP("Detected LAN IPv6. Not yet implemented".to_string()))
         }
 
-        let local_ip_address = Ipv4Addr::from_str(local_ip_address.to_string().as_str()).or_else(|_| Err(FirewallError::LocalIPAddrFail))?;
+        let local_ip_address = Ipv4Addr::from_str(local_ip_address.to_string().as_str()).map_err(|_| FirewallError::LocalIPAddrFail)?;
 
         igd::aio::search_gateway(options).await
             .map_err(|err| FirewallError::UPNP(err.to_string()))
-            .and_then(|gateway| {
-                let this = Self {local_ip_address, gateway};
-                Ok(this)
+            .map(|gateway| {
+                
+                Self {local_ip_address, gateway}
             })
     }
 

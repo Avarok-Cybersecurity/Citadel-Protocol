@@ -29,8 +29,8 @@ impl AccountError {
     /// Consumes self and returns the underlying error message
     pub fn into_string(self) -> String {
         match self {
-            AccountError::IoError(e) => e.into(),
-            AccountError::Generic(e) => e.into(),
+            AccountError::IoError(e) => e,
+            AccountError::Generic(e) => e,
             AccountError::InvalidUsername => "Invalid username".to_string(),
             AccountError::InvalidPassword => "Invalid password".to_string(),
             AccountError::ClientExists(cid) => format!("Client {} already exists", cid),

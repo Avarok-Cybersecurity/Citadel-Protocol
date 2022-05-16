@@ -240,7 +240,7 @@ impl<K: MultiplexedConnKey + 'static> Subscribable for MultiplexedConn<K> {
     }
 
     fn owned_subscription(&self, id: Self::ID) -> Self::SubscriptionType {
-        self.subscribe(id).into()
+        self.subscribe(id)
     }
 
     fn get_next_id(&self) -> Self::ID {
@@ -287,14 +287,14 @@ mod tests {
 
         let server = tokio::spawn(async move {
             // get one substream from the input stream
-            let next_stream: OwnedMultiplexedSubscription = server_stream.initiate_subscription().await.unwrap().into();
+            let next_stream: OwnedMultiplexedSubscription = server_stream.initiate_subscription().await.unwrap();
             next_stream.send_serialized(Packet(idx)).await.unwrap();
             rx.await.unwrap();
             next_stream.multiplex::<SymmetricConvID>().await.unwrap()
         });
 
         let client = tokio::spawn(async move {
-            let next_stream: OwnedMultiplexedSubscription = client_stream.initiate_subscription().await.unwrap().into();
+            let next_stream: OwnedMultiplexedSubscription = client_stream.initiate_subscription().await.unwrap();
             let val = next_stream.recv_serialized::<Packet>().await.unwrap();
             assert_eq!(val.0, idx);
             tx.send(()).unwrap();
@@ -305,14 +305,14 @@ mod tests {
 
         let server1 = tokio::spawn(async move {
             // get one substream from the input stream
-            let next_stream: OwnedMultiplexedSubscription = server_stream0.initiate_subscription().await.unwrap().into();
+            let next_stream: OwnedMultiplexedSubscription = server_stream0.initiate_subscription().await.unwrap();
             next_stream.send_serialized(Packet(idx+10)).await.unwrap();
             rx1.await.unwrap();
             next_stream.multiplex::<SymmetricConvID>().await.unwrap()
         });
 
         let client1 = tokio::spawn(async move {
-            let next_stream: OwnedMultiplexedSubscription = client_stream0.initiate_subscription().await.unwrap().into();
+            let next_stream: OwnedMultiplexedSubscription = client_stream0.initiate_subscription().await.unwrap();
             let val = next_stream.recv_serialized::<Packet>().await.unwrap();
             assert_eq!(val.0, idx + 10);
             tx1.send(()).unwrap();
