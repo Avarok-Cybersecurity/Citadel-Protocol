@@ -33,7 +33,7 @@ bytes = "1.1.0"
 parking_lot = { version = "0.11.2", features = ["serde"], optional = true }
 log = { version = "0.4.14", features = ["std", "max_level_info", "release_max_level_info"] }
 strum = { version = "0.23.0", features = ["derive"] }
-sha3 = "0.10.0"
+sha3 = "0.10.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 oqs = { git = "https://github.com/open-quantum-safe/liboqs-rust.git", default-features = false, features = ["std", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
