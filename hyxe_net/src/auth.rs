@@ -1,5 +1,6 @@
 use crate::prelude::{SecBuffer, UserIdentifier};
 use std::net::SocketAddr;
+use uuid::Uuid;
 
 /// Arguments for connecting to a node
 #[derive(Debug, Clone)]
@@ -7,7 +8,7 @@ pub enum AuthenticationRequest {
     /// Credentials used for the connection
     Credentialed { id: UserIdentifier, password: SecBuffer },
     /// No credentials/one-time connection
-    Passwordless { server_addr: SocketAddr }
+    Passwordless { username: String, server_addr: SocketAddr }
 }
 
 impl AuthenticationRequest {
@@ -17,7 +18,8 @@ impl AuthenticationRequest {
     }
 
     /// No credentials will be used for login, only a one-time device-dependent cryptographic bundle
-    pub const fn passwordless(server_addr: SocketAddr) -> Self {
-        Self::Passwordless { server_addr }
+    pub fn passwordless(uuid: Uuid, server_addr: SocketAddr) -> Self {
+        // TODO: derive from public key ?
+        Self::Passwordless { username: uuid.to_string(), server_addr }
     }
 }

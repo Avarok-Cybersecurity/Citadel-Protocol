@@ -47,7 +47,6 @@ use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::hdp_session::SessionState;
 use crate::hdp::misc::ordered_channel::OrderedChannel;
 use bytes::Bytes;
-use crate::hdp::misc::udp_internal_interface::QuicUdpSocketConnector;
 use crate::error::NetworkError;
 use atomic::Atomic;
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
@@ -99,10 +98,12 @@ pub struct StateContainerInner {
     pub(super) inbound_groups: HashMap<GroupKey, GroupReceiverContainer>,
     pub(super) outbound_transmitters: HashMap<GroupKey, OutboundTransmitterContainer>,
     pub(super) peer_kem_states: HashMap<u64, PeerKemStateContainer>,
+    // u64 is peer id, ticket is the local original ticket (ticket may
+    // transform if a simultaneous connect)
+    pub(super) outgoing_peer_connect_attempts: HashMap<u64, Ticket>,
     pub(super) udp_primary_outbound_tx: Option<OutboundUdpSender>,
     pub(super) kernel_tx: UnboundedSender<HdpServerResult>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection>,
-    pub(super) provisional_direct_p2p_conns: HashMap<SocketAddr, DirectP2PRemote>,
     pub(super) c2s_channel_container: Option<C2SChannelContainer>,
     pub(crate) keep_alive_timeout_ns: i64,
     pub(crate) state: Arc<Atomic<SessionState>>,
@@ -364,6 +365,17 @@ impl VirtualConnectionType {
             _ => None
         }
     }
+
+    pub fn set_target_cid(&mut self, target_cid: u64) {
+        match self {
+            VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid) |
+            VirtualConnectionType::HyperLANPeerToHyperWANPeer(_, _, peer_cid) => {
+                *peer_cid = target_cid
+            }
+
+            _ => {}
+        }
+    }
 }
 
 impl Display for VirtualConnectionType {
@@ -460,7 +472,7 @@ impl GroupReceiverContainer {
 impl StateContainerInner {
     /// Creates a new container
     pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: NodeRemote, keep_alive_timeout_ns: i64, state: Arc<Atomic<SessionState>>, cnac: Option<ClientNetworkAccount>, time_tracker: TimeTracker, session_security_settings: Option<SessionSecuritySettings>, is_server: bool, transfer_stats: TransferStats, udp_mode: UdpMode) -> StateContainer {
-        let inner = Self { file_transfer_handles: HashMap::new(), group_channels: Default::default(), udp_mode, transfer_stats, queue_handle: Default::default(), is_server, session_security_settings, time_tracker, cnac, updates_in_progress: HashMap::new(), hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), ratchet_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new(), provisional_direct_p2p_conns: HashMap::new() };
+        let inner = Self { outgoing_peer_connect_attempts: Default::default(), file_transfer_handles: HashMap::new(), group_channels: Default::default(), udp_mode, transfer_stats, queue_handle: Default::default(), is_server, session_security_settings, time_tracker, cnac, updates_in_progress: HashMap::new(), hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), ratchet_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new() };
         StateContainer { inner: Arc::new(parking_lot::RwLock::new(inner)) }
     }
 
@@ -570,48 +582,21 @@ impl StateContainerInner {
         self.active_virtual_connections.clear();
     }
 
-    /// Returns true if the remote was loaded, false if there's already a connection from the addr
-    /// being loaded
-    /// - force: should only be called if the provisional remote being loaded is ensured to be the conn that will be used
-    pub fn load_provisional_direct_p2p_remote(&mut self, addr: SocketAddr, remote: DirectP2PRemote, force: bool) -> bool {
-        if !self.provisional_direct_p2p_conns.contains_key(&addr) || force {
-            let _ = self.provisional_direct_p2p_conns.insert(addr, remote);
-            true
-        } else {
-            false
-        }
-    }
-
     /// In order for the upgrade to work, the peer_addr must be reflective of the peer_addr present when
     /// receiving the packet. As such, the direct p2p-stream MUST have sent the packet
-    pub(crate) fn upgrade_provisional_direct_p2p_connection(&mut self, peer_addr: SocketAddr, peer_cid: u64, possible_verified_conn: Option<SocketAddr>) -> Result<Option<QuicUdpSocketConnector>, NetworkError> {
-        if let Some(mut provisional) = self.provisional_direct_p2p_conns.remove(&peer_addr) {
-            if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
-                if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
-                    log::info!("UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
-                    let on_connection_upgraded = provisional.on_connection_upgraded.take();
-                    let quic_connector = provisional.quic_connector.take();
+    pub(crate) fn insert_direct_p2p_connection(&mut self, provisional: DirectP2PRemote, peer_cid: u64) -> Result<(), NetworkError> {
+        if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
+            if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
+                log::info!("UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
+                // By setting the below value, all outbound packets will use
+                // this direct conn over the proxied TURN-like connection
+                vconn.sender = Some((None, provisional.p2p_primary_stream.clone())); // setting this will allow the UDP stream to be upgraded too
 
-                    vconn.sender = Some((None, provisional.p2p_primary_stream.clone())); // setting this will allow the UDP stream to be upgraded too
-
-                    if let Some(_) = endpoint_container.direct_p2p_remote.replace(provisional) {
-                        log::warn!("Dropped previous p2p remote during upgrade process");
-                    }
-
-                    // now, we need to check to see if we need to drop an older conn
-                    if let Some(previous_conn) = possible_verified_conn {
-                        if let Some(_) = self.provisional_direct_p2p_conns.remove(&previous_conn) {
-                            log::info!("Dropped previous conn due to initiator preference");
-                        }
-                    }
-
-                    if let Some(post_conn_upgrade) = on_connection_upgraded {
-                        // This will allow the P2P channel to finish loading the UDP subsystem
-                        let _ = post_conn_upgrade.send(());
-                    }
-
-                    return Ok(quic_connector);
+                if let Some(_) = endpoint_container.direct_p2p_remote.replace(provisional) {
+                    log::warn!("Dropped previous p2p remote during upgrade process");
                 }
+
+                return Ok(());
             }
         }
 
@@ -1144,22 +1129,14 @@ impl StateContainerInner {
                     return Ok(false);
                 }
 
-                //let mut enqueued = inner_mut!(self.enqueued_packets);
-                if !self.enqueued_packets.contains_key(&target_cid) {
-                    let _ = self.enqueued_packets.insert(target_cid, VecDeque::new());
-                }
-
-                if let Some(queue) = self.enqueued_packets.get_mut(&target_cid) {
-                    log::info!("Queue has: {} items", queue.len());
-                    // since we have a mutable lock on the session, no other attempts will happen. We can safely pop the front of the queue and rest assured that it won't be denied a send this time
-                    if let Some((ticket, packet, virtual_target, security_level)) = queue.pop_front() {
-                        //std::mem::drop(enqueued);
-                        return self.process_outbound_message(ticket, packet, virtual_target, security_level, true).map(|_| true);
-                    } else {
-                        log::info!("NO packets enqueued for target {}", target_cid);
-                    }
+                let queue = self.enqueued_packets.entry(target_cid).or_default();
+                log::info!("Queue has: {} items", queue.len());
+                // since we have a mutable lock on the session, no other attempts will happen. We can safely pop the front of the queue and rest assured that it won't be denied a send this time
+                if let Some((ticket, packet, virtual_target, security_level)) = queue.pop_front() {
+                    //std::mem::drop(enqueued);
+                    return self.process_outbound_message(ticket, packet, virtual_target, security_level, true).map(|_| true);
                 } else {
-                    log::info!("Enqueued packets queue not present");
+                    log::info!("NO packets enqueued for target {}", target_cid);
                 }
             }
         }
@@ -1170,7 +1147,7 @@ impl StateContainerInner {
     fn enqueue_packet(&mut self, target_cid: u64, ticket: Ticket, packet: SecureProtocolPacket, target: VirtualTargetType, security_level: SecurityLevel) {
         self.enqueued_packets
             .entry(target_cid)
-            .or_insert_with(|| VecDeque::new())
+            .or_default()
             .push_back((ticket, packet, target, security_level))
     }
 
@@ -1259,7 +1236,15 @@ impl StateContainerInner {
                     if let Some(vconn) = this.active_virtual_connections.get_mut(&target_cid) {
                         if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
                             //let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
-                            let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| default_primary_stream);
+                            let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| {
+                                log::info!("Reverting to primary stream since p2p conn not loaded");
+                                if cfg!(feature = "localhost-testing-assert-no-proxy") {
+                                    log::error!("*** Feature flag asserted no proxying, yet, message requires proxy ***");
+                                    std::process::exit(1);
+                                }
+
+                                default_primary_stream
+                            });
                             //let to_primary_stream_preferred = this.to_primary_stream.clone().unwrap();
                             let latest_usable_ratchet = endpoint_container.endpoint_crypto.get_hyper_ratchet(None).unwrap().clone();
                             latest_usable_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_usable_ratchet.get_default_security_level())))?;
@@ -1282,7 +1267,7 @@ impl StateContainerInner {
                                         // Being called from poll should only happen when a packet needs to be sent, and is ready to be sent. Further, being called from the poll adds a lock ensuring it gets sent
                                         if called_from_poll {
                                             log::error!("Should not happen (CFP). {:?}", endpoint_container.endpoint_crypto.lock_set_by_alice.clone());
-                                            std::process::exit(-1); // for dev purposes
+                                            std::process::exit(1); // for dev purposes
                                         }
 
                                         //std::mem::drop(state_container);

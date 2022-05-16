@@ -2,11 +2,12 @@
 name = "lusna_sdk"
 version = "0.1.0"
 edition = "2018"
+license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["enterprise"]
+default = ["plus"]
 standard = ["hyxe_net/single-threaded"]
 plus = ["hyxe_net/multi-threaded"]
 enterprise-lite = ["hyxe_net/single-threaded", "hyxe_net/enterprise"]
@@ -19,11 +20,13 @@ localhost-testing-assert-no-proxy = ["hyxe_net/localhost-testing-assert-no-proxy
 
 [dependencies]
 hyxe_net = { path = "../hyxe_net", default-features = false }
-tokio = { version = "1.15.0", features = ["full"] }
+tokio = { version = "1.18.0", features = ["full"] }
 futures = "0.3.19"
 parking_lot = "0.11.2"
 log = { version = "0.4.14", features = ["std", "max_level_info", "release_max_level_info"] }
 env_logger = "0.9.0"
+lazy_static = "1.4.0"
+uuid = { version = "1.0.0", features = ["v4"] }
 
 [dev-dependencies]
 parking_lot = { version = "0.11.2", features = ["deadlock_detection"] }

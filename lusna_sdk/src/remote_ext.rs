@@ -14,14 +14,16 @@ pub(crate) mod user_ids {
     /// A reference to a user identifier
     pub struct SymmetricIdentifierHandleRef<'a> {
         pub(crate) user: VirtualTargetType,
-        pub(crate) remote: &'a mut NodeRemote
+        pub(crate) remote: &'a mut NodeRemote,
+        pub(crate) target_username: Option<String>
     }
 
     impl SymmetricIdentifierHandleRef<'_> {
-        pub fn owned(&self) -> SymmetricIdentifierHandle {
+        pub fn into_owned(self) -> SymmetricIdentifierHandle {
             SymmetricIdentifierHandle {
                 user: self.user,
-                remote: self.remote.clone()
+                remote: self.remote.clone(),
+                target_username: self.target_username
             }
         }
     }
@@ -30,12 +32,15 @@ pub(crate) mod user_ids {
     /// A convenience structure for executing commands that depend on a specific registered user
     pub struct SymmetricIdentifierHandle {
         user: VirtualTargetType,
-        remote: NodeRemote
+        remote: NodeRemote,
+        target_username: Option<String>
     }
 
     pub trait TargetLockedRemote {
         fn user(&self) -> &VirtualTargetType;
         fn remote(&mut self) -> &mut NodeRemote;
+        fn target_username(&self) -> Option<&String>;
+        fn user_mut(&mut self) -> &mut VirtualTargetType;
     }
 
     impl TargetLockedRemote for SymmetricIdentifierHandleRef<'_> {
@@ -44,6 +49,11 @@ pub(crate) mod user_ids {
         }
         fn remote(&mut self) -> &mut NodeRemote {
             self.remote
+        }
+        fn target_username(&self) -> Option<&String> { self.target_username.as_ref() }
+
+        fn user_mut(&mut self) -> &mut VirtualTargetType {
+            &mut self.user
         }
     }
 
@@ -54,11 +64,16 @@ pub(crate) mod user_ids {
         fn remote(&mut self) -> &mut NodeRemote {
             &mut self.remote
         }
+        fn target_username(&self) -> Option<&String> { self.target_username.as_ref() }
+
+        fn user_mut(&mut self) -> &mut VirtualTargetType {
+            &mut self.user
+        }
     }
 
     impl From<SymmetricIdentifierHandleRef<'_>> for SymmetricIdentifierHandle {
         fn from(this: SymmetricIdentifierHandleRef<'_>) -> Self {
-            this.owned()
+            this.into_owned()
         }
     }
 
@@ -112,12 +127,10 @@ pub trait ProtocolRemoteExt: Remote {
     /// Returns a ticket which is used to uniquely identify the request in the protocol
     async fn register<T: std::net::ToSocketAddrs + Send, R: Into<String> + Send, V: Into<String> + Send, K: Into<SecBuffer> + Send>(&mut self, addr: T, full_name: R, username: V, proposed_password: K, fcm_keys: Option<FcmKeys>, default_security_settings: SessionSecuritySettings) -> Result<RegisterSuccess, NetworkError> {
         let creds = ProposedCredentials::new_register(full_name, username, proposed_password.into()).await?;
-        let register_request = HdpServerRequest::RegisterToHypernode(addr.to_socket_addrs()?.next().ok_or_else(|| NetworkError::InternalError("Invalid socket addr"))?, creds, fcm_keys, default_security_settings);
+        let register_request = HdpServerRequest::RegisterToHypernode(addr.to_socket_addrs()?.next().ok_or(NetworkError::InternalError("Invalid socket addr"))?, creds, fcm_keys, default_security_settings);
 
-        match self.send_callback(register_request).await? {
+        match map_errors(self.send_callback(register_request).await?)? {
             HdpServerResult::RegisterOkay(..) => Ok(RegisterSuccess {}),
-            HdpServerResult::RegisterFailure(_, err) => Err(NetworkError::Generic(err)),
-            HdpServerResult::InternalServerError(_, err) => Err(NetworkError::Generic(err)),
             _ => Err(NetworkError::msg("An unexpected response occurred"))
         }
     }
@@ -151,23 +164,30 @@ pub trait ProtocolRemoteExt: Remote {
     /// Creates a valid target identifier used to make protocol requests. Raw user IDs or usernames can be used
     /// ```
     /// use hyxe_net::prelude::*;
-    /// remote.find_target("alice", "bob").await?.send_file("/path/to/file.pdf").await?;
-    /// // or: remote.find_target(1234, "bob").await? [...]
+    /// remote.find_target("my_account", "my_peer").await?.send_file("/path/to/file.pdf").await?;
+    /// // or: remote.find_target(1234, "my_peer").await? [...]
     /// ```
     async fn find_target<T: Into<UserIdentifier> + Send, R: Into<UserIdentifier> + Send>(&mut self, local_user: T, peer: R) -> Result<SymmetricIdentifierHandleRef<'_>, NetworkError> {
         let account_manager = self.account_manager();
         account_manager.find_target_information(local_user, peer).await?.map(move |(cid, peer)| if peer.parent_icid != 0 {
-            SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperWANPeer(cid, peer.parent_icid, peer.cid), remote: self.remote_ref_mut() }
+            SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperWANPeer(cid, peer.parent_icid, peer.cid), remote: self.remote_ref_mut(), target_username: None }
         } else {
-            SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperLANPeer(cid, peer.cid), remote: self.remote_ref_mut() }
+            SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperLANPeer(cid, peer.cid), remote: self.remote_ref_mut(), target_username: None }
         }).ok_or_else(|| NetworkError::msg("Target pair not found"))
     }
 
     /// Creates a proposed target from the valid local user to an unregistered peer in the network. Used when creating registration requests for peers.
     /// Currently only supports HyperLAN <-> HyperLAN peer connections
-    async fn propose_target<T: Into<UserIdentifier> + Send>(&mut self, local_user: T, peer_cid: u64) -> Result<SymmetricIdentifierHandleRef<'_>, NetworkError> {
+    async fn propose_target<T: Into<UserIdentifier> + Send, P: Into<UserIdentifier> + Send>(&mut self, local_user: T, peer: P) -> Result<SymmetricIdentifierHandleRef<'_>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
-        Ok(SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), remote: self.remote_ref_mut() })
+        match peer.into() {
+            UserIdentifier::ID(peer_cid) => {
+                Ok(SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), remote: self.remote_ref_mut(), target_username: None })
+            }
+            UserIdentifier::Username(uname) => {
+                Ok(SymmetricIdentifierHandleRef { user: VirtualTargetType::HyperLANPeerToHyperLANPeer(local_cid, 0), remote: self.remote_ref_mut(), target_username: Some(uname) })
+            }
+        }
     }
 
     /// Returns a list of hyperlan peers on the network for local_user. May or may not be registered to the user. To get a list of registered users to local_user, run [`Self::get_hyperlan_mutual_peers`]
@@ -176,7 +196,7 @@ pub trait ProtocolRemoteExt: Remote {
         let local_cid = self.get_implicated_cid(local_user).await?;
         let command = HdpServerRequest::PeerCommand(local_cid, PeerSignal::GetRegisteredPeers(HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid), None, limit.map(|r| r as i32)));
 
-        let mut stream = self.send_callback_stream(command).await?;
+        let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
@@ -196,7 +216,7 @@ pub trait ProtocolRemoteExt: Remote {
         let local_cid = self.get_implicated_cid(local_user).await?;
         let command = HdpServerRequest::PeerCommand(local_cid, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid), None));
 
-        let mut stream = self.send_callback_stream(command).await?;
+        let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
@@ -217,7 +237,7 @@ pub trait ProtocolRemoteExt: Remote {
     #[doc(hidden)]
     async fn get_implicated_cid<T: Into<UserIdentifier> + Send>(&mut self, local_user: T) -> Result<u64, NetworkError> {
         let account_manager = self.account_manager();
-        Ok(account_manager.find_local_user_information(local_user).await?.ok_or_else(|| NetworkError::InvalidRequest("User does not exist"))?)
+        Ok(account_manager.find_local_user_information(local_user).await?.ok_or(NetworkError::InvalidRequest("User does not exist"))?)
     }
 }
 
@@ -270,14 +290,18 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Connects to the peer with custom settings
     async fn connect_to_peer_custom(&mut self, session_security_settings: SessionSecuritySettings, udp_mode: UdpMode) -> Result<PeerConnectSuccess, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
-        let peer_target = self.try_as_peer_connection()?;
+        let peer_target = self.try_as_peer_connection().await?;
 
-        let mut stream = self.remote().send_callback_stream(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostConnect(peer_target, None, None, session_security_settings, udp_mode))).await?;
+        let mut stream = self.remote().send_callback_subscription(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostConnect(peer_target, None, None, session_security_settings, udp_mode))).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
                 HdpServerResult::PeerChannelCreated(_, channel, udp_rx_opt) => {
                     return Ok(PeerConnectSuccess { channel, udp_rx_opt })
+                }
+
+                HdpServerResult::PeerEvent(PeerSignal::PostConnect(_,_,Some(PeerResponse::Decline), ..), ..) => {
+                    return Err(NetworkError::msg("Peer declined to connect"))
                 }
 
                 _ => {}
@@ -295,15 +319,16 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     /// Posts a registration request to a peer
     async fn register_to_peer(&mut self) -> Result<PeerRegisterStatus, NetworkError> {
         let implicated_cid = self.user().get_implicated_cid();
-        let peer_target = self.try_as_peer_connection()?;
+        let peer_target = self.try_as_peer_connection().await?;
         // TODO: Get rid of this step. Should be handled by the protocol
         let local_username = self.remote().account_manager().get_username_by_cid(implicated_cid).await?.ok_or_else(||NetworkError::msg("Unable to find username for local user"))?;
+        let peer_username_opt = self.target_username().cloned();
 
-        let mut stream = self.remote().send_callback_stream(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostRegister(peer_target, local_username, None, None, FcmPostRegister::Disable))).await?;
+        let mut stream = self.remote().send_callback_subscription(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostRegister(peer_target, local_username, peer_username_opt,None, None, FcmPostRegister::Disable))).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
-                HdpServerResult::PeerEvent(PeerSignal::PostRegister(_, _,_,Some(resp), ..), _) => {
+                HdpServerResult::PeerEvent(PeerSignal::PostRegister(_, _,_,_,Some(resp), ..), _) => {
                     match resp {
                         PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
                         PeerResponse::Decline => return Ok(PeerRegisterStatus::Declined),
@@ -320,8 +345,26 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
     }
 
     #[doc(hidden)]
-    fn try_as_peer_connection(&self) -> Result<PeerConnectionType, NetworkError> {
-        self.user().try_as_peer_connection().ok_or_else(|| NetworkError::InvalidRequest("Target is not a peer"))
+    async fn try_as_peer_connection(&mut self) -> Result<PeerConnectionType, NetworkError> {
+        let verified_return = |user: &VirtualTargetType| {
+            user.try_as_peer_connection().ok_or(NetworkError::InvalidRequest("Target is not a peer"))
+        };
+
+        if self.user().get_target_cid() == 0 {
+            // in this case, the user re-used a remote locked to a registration target
+            // where the username was provided, but the cid was 0 (unknown).
+            let peer_username = self.target_username().ok_or_else(|| NetworkError::msg("target_cid=0, yet, no username was provided"))?.clone();
+            let implicated_cid = self.user().get_implicated_cid();
+            let peer_cid = self.remote().account_manager().find_target_information(implicated_cid, peer_username).await
+                .map_err(|err| NetworkError::Generic(err.into_string()))?
+                .map(|r| r.1.cid)
+                .unwrap_or(0);
+
+            self.user_mut().set_target_cid(peer_cid);
+            verified_return(self.user())
+        } else {
+            verified_return(self.user())
+        }
     }
 }
 
@@ -331,6 +374,7 @@ pub mod results {
     use crate::prelude::{PeerChannel, UdpChannel};
     use tokio::sync::oneshot::Receiver;
 
+    #[derive(Debug)]
     pub struct PeerConnectSuccess {
         pub channel: PeerChannel,
         pub udp_rx_opt: Option<Receiver<UdpChannel>>
@@ -359,6 +403,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use crate::prelude::*;
+    use uuid::Uuid;
 
     struct ServerFileTransferKernel(Option<NodeRemote>);
 
@@ -421,8 +466,9 @@ mod tests {
 
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         let (server, server_addr) = server_info();
+        let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(server_addr, |_channel, mut remote| async move {
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(uuid, server_addr, |_channel, mut remote| async move {
             log::info!("***CLIENT LOGIN SUCCESS :: File transfer next ***");
             remote.send_file_with_custom_chunking("../resources/TheBridge.pdf", 32*1024).await.unwrap();
             log::info!("***CLIENT FILE TRANSFER SUCCESS***");

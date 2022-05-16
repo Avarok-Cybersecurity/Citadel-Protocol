@@ -67,7 +67,7 @@ impl State {
 async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnKey, Conn: ReliableOrderedStreamToTarget + 'static, F, T, E>(conn: &S, local_node_type: RelativeNodeType, future: F) -> Result<NetTryJoinResult<T, E>, anyhow::Error>
     where
         F: Future<Output=Result<T, E>> {
-    let ref conn = conn.initiate_subscription().await?;
+    let conn = &(conn.initiate_subscription().await?);
     log::info!("NET_TRY_JOIN started conv={:?} for {:?}", conn.id(), local_node_type);
     let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -77,7 +77,7 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
     }
 
     let local_state = LocalState { local_state: State::Pending, ret_value: None };
-    let ref local_state_ref = Mutex::new(local_state);
+    let local_state_ref = &Mutex::new(local_state);
 
     let has_preference = local_node_type == RelativeNodeType::Initiator;
 
@@ -255,7 +255,8 @@ mod tests {
     }
 
     async fn dummy_function() -> Result<(), &'static str> {
-        Ok(tokio::time::sleep(Duration::from_millis(50)).await)
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        Ok(())
     }
 
     async fn dummy_function_err() -> Result<(), &'static str> {

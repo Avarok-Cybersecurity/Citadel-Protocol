@@ -38,6 +38,7 @@ pub mod tests {
     use rand::{SeedableRng, Rng};
     use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
     use hyxe_wire::socket_helpers::is_ipv6_enabled;
+    use itertools::Itertools;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -58,13 +59,17 @@ pub mod tests {
     }
 
     #[fixture]
+    #[once]
     fn protocols() -> Vec<UnderlyingProtocol> {
+        use std::io::Read;
+        let pkcs_12_der = ureq::get("https://thomaspbraun.com/dev_certificate.p12").call().unwrap().into_reader().bytes().try_collect::<u8, Vec<u8>, _>().unwrap();
+
         vec![
             UnderlyingProtocol::Tcp,
             UnderlyingProtocol::new_tls_self_signed().unwrap(),
             UnderlyingProtocol::new_quic_self_signed(),
-            UnderlyingProtocol::load_tls("../keys/testing.p12", "password", "thomaspbraun.com").unwrap(),
-            UnderlyingProtocol::load_quic("../keys/testing.p12", "password", "thomaspbraun.com").unwrap()
+            UnderlyingProtocol::load_tls_from_bytes(&pkcs_12_der, "password", "thomaspbraun.com").unwrap(),
+            UnderlyingProtocol::load_quic_from_bytes(&pkcs_12_der, "password", "thomaspbraun.com").unwrap()
         ]
     }
 
@@ -80,7 +85,7 @@ pub mod tests {
     #[case("[::1]:0")]
     #[tokio::test]
     async fn test_tcp_or_tls(#[case] addr: SocketAddr,
-                             protocols: Vec<UnderlyingProtocol>,
+                             protocols: &Vec<UnderlyingProtocol>,
                              client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
@@ -93,7 +98,7 @@ pub mod tests {
         for proto in protocols {
             log::info!("Testing proto {:?}", &proto);
 
-            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,addr).unwrap();
+            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto.clone(),addr).unwrap();
             log::info!("Bind/connect addr: {:?}", addr);
 
             let server = async move {
@@ -132,7 +137,7 @@ pub mod tests {
     #[case("[::1]:0")]
     #[tokio::test]
     async fn test_many_proto_conns(#[case] addr: SocketAddr,
-                                   protocols: Vec<UnderlyingProtocol>,
+                                   protocols: &Vec<UnderlyingProtocol>,
                                    client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
         setup_log();
         deadlock_detector();
@@ -144,13 +149,12 @@ pub mod tests {
 
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
-            let mut rng = rand::rngs::StdRng::from_entropy();
-            // give sleep to give time for conns to "respirate"
-            tokio::time::sleep(Duration::from_millis(rng.gen_range(10, 50))).await;
+            // give sleep to give time for conns to drop
+            tokio::time::sleep(Duration::from_millis(100)).await;
             log::info!("Testing proto {:?}", &proto);
-            let ref cnt = AtomicUsize::new(0);
+            let cnt = &AtomicUsize::new(0);
 
-            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto,addr).unwrap();
+            let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto.clone(),addr).unwrap();
             log::info!("Bind/connect addr: {:?}", addr);
 
             let server = async move {
@@ -266,7 +270,7 @@ pub mod tests {
     impl<'a> InputExtractionSource<'a> {
         fn value_of(&self, key: &str) -> Option<&'_ str> {
             match self {
-                Self::UnitTest(map) => map.get(key).map(|r| *r),
+                Self::UnitTest(map) => map.get(key).copied(),
                 Self::Console(matches) => matches.value_of(key)
             }
         }
@@ -360,16 +364,16 @@ pub mod tests {
     }
 
     fn count() -> usize {
-        COUNT.lock().clone().unwrap()
+        (*COUNT.lock()).unwrap()
     }
-    fn secrecy_mode() -> SecrecyMode { SECRECY_MODE.lock().clone().unwrap() }
-    fn session_security_level() -> SecurityLevel { SESSION_SECURITY_LEVEL.lock().clone().unwrap() }
-    fn p2p_security_level() -> SecurityLevel { P2P_SECURITY_LEVEL.lock().clone().unwrap() }
-    fn timeout_cnt_ms() -> usize { TIMEOUT_CNT_MS.lock().clone().unwrap() }
-    fn rand_message_len() -> usize { RAND_MESSAGE_LEN.lock().clone().unwrap() }
-    fn encryption_algorithm() -> EncryptionAlgorithm { ENCRYPTION_ALGORITHM.lock().clone().unwrap() }
-    fn kem_algorithm() -> KemAlgorithm { KEM_ALGORITHM.lock().clone().unwrap() }
-    fn udp_mode() -> UdpMode { UDP_MODE.lock().clone().unwrap() }
+    fn secrecy_mode() -> SecrecyMode { (*SECRECY_MODE.lock()).unwrap() }
+    fn session_security_level() -> SecurityLevel { (*SESSION_SECURITY_LEVEL.lock()).unwrap() }
+    fn p2p_security_level() -> SecurityLevel { (*P2P_SECURITY_LEVEL.lock()).unwrap() }
+    fn timeout_cnt_ms() -> usize { (*TIMEOUT_CNT_MS.lock()).unwrap() }
+    fn rand_message_len() -> usize { (*RAND_MESSAGE_LEN.lock()).unwrap() }
+    fn encryption_algorithm() -> EncryptionAlgorithm { (*ENCRYPTION_ALGORITHM.lock()).unwrap() }
+    fn kem_algorithm() -> KemAlgorithm { (*KEM_ALGORITHM.lock()).unwrap() }
+    fn udp_mode() -> UdpMode { (*UDP_MODE.lock()).unwrap() }
 
     pub static SECRECY_MODE: parking_lot::Mutex<Option<SecrecyMode>> = const_mutex(None);
     pub static SESSION_SECURITY_LEVEL: parking_lot::Mutex<Option<SecurityLevel>> = const_mutex(None);
@@ -450,17 +454,17 @@ pub mod tests {
 
         let default_security_settings = SessionSecuritySettingsBuilder::default().with_secrecy_mode(secrecy_mode()).with_security_level(session_security_level()).with_crypto_params(params).build();
 
-        static CLIENT0_FULLNAME: &'static str = "Thomas P Braun (test)";
-        static CLIENT0_USERNAME: &'static str = "nologik";
-        static CLIENT0_PASSWORD: &'static str = "password0";
+        static CLIENT0_FULLNAME: &str = "Thomas P Braun (test)";
+        static CLIENT0_USERNAME: &str = "nologik";
+        static CLIENT0_PASSWORD: &str = "password0";
 
-        static CLIENT1_FULLNAME: &'static str = "Thomas P Braun I (test)";
-        static CLIENT1_USERNAME: &'static str = "nologik1";
-        static CLIENT1_PASSWORD: &'static str = "password1";
+        static CLIENT1_FULLNAME: &str = "Thomas P Braun I (test)";
+        static CLIENT1_USERNAME: &str = "nologik1";
+        static CLIENT1_PASSWORD: &str = "password1";
 
-        static CLIENT2_FULLNAME: &'static str = "Thomas P Braun II (test)";
-        static CLIENT2_USERNAME: &'static str = "nologik2";
-        static CLIENT2_PASSWORD: &'static str = "password2";
+        static CLIENT2_FULLNAME: &str = "Thomas P Braun II (test)";
+        static CLIENT2_USERNAME: &str = "nologik2";
+        static CLIENT2_PASSWORD: &str = "password2";
 
         let (proposed_credentials_0, proposed_credentials_1, proposed_credentials_2) = rt.block_on(async move {
             let p_0 = ProposedCredentials::new_register(CLIENT0_FULLNAME, CLIENT0_USERNAME, SecBuffer::from(CLIENT0_PASSWORD)).await.unwrap();
@@ -899,7 +903,7 @@ pub mod tests {
 
                         HdpServerResult::PeerEvent(signal, ticket) => {
                             match signal {
-                                PeerSignal::PostRegister(vconn, _peer_username, _, resp_opt, fcm) => {
+                                PeerSignal::PostRegister(vconn, _peer_username, _,_, resp_opt, fcm) => {
                                     if let Some(resp) = resp_opt {
                                         match resp {
                                             PeerResponse::Accept(_) => {
@@ -928,7 +932,7 @@ pub mod tests {
 
                                             let this_cid = this_cnac.get_cid();
                                             let this_username = this_cnac.get_username();
-                                            HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostRegister(vconn.reverse(), this_username, Some(ticket), Some(PeerResponse::Accept(None)), fcm))
+                                            HdpServerRequest::PeerCommand(this_cid, PeerSignal::PostRegister(vconn.reverse(), this_username, None,Some(ticket), Some(PeerResponse::Accept(None)), fcm))
                                         };
 
                                         self.remote.clone().unwrap().send_with_custom_ticket(ticket, accept_post_register).await.unwrap();
@@ -1085,7 +1089,7 @@ pub mod tests {
     pub fn handle_group_channel(remote: NodeRemote, node_type: TestNodeType, test_container: Arc<RwLock<TestContainer>>, requests: Arc<Mutex<HashSet<Ticket>>>, channel: GroupChannel) {
         tokio::task::spawn(async move {
             let (sink, mut stream) = channel.split();
-            let ref mut sink = Some(sink);
+            let sink = &mut Some(sink);
 
             while let Some(evt) = stream.next().await {
                 match evt {
@@ -1339,7 +1343,7 @@ pub mod tests {
             let client2_username = client2_cnac.get_username();
             let requests = write.queued_requests_client2.clone().unwrap();
             let fcm = enable_fcm.then(|| FcmPostRegister::Enable).unwrap_or(FcmPostRegister::Disable);
-            let post_register_request = HdpServerRequest::PeerCommand(client2_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client2_id, target_cid), client2_username, None, None, fcm));
+            let post_register_request = HdpServerRequest::PeerCommand(client2_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client2_id, target_cid), client2_username, None, None, None, fcm));
 
             let mut remote_client2 = write.remote_client2.clone().unwrap();
             std::mem::drop(write);
@@ -1422,7 +1426,7 @@ pub mod tests {
             let client0_username = client0_cnac.get_username();
             let requests = write.queued_requests_client0.clone().unwrap();
             let fcm = enable_fcm.then(|| FcmPostRegister::Enable).unwrap_or(FcmPostRegister::Disable);
-            let post_register_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), client0_username, None, None, fcm));
+            let post_register_request = HdpServerRequest::PeerCommand(client0_id, PeerSignal::PostRegister(PeerConnectionType::HyperLANPeerToHyperLANPeer(client0_id, target_cid), client0_username, None,None, None, fcm));
 
             let mut remote_client0 = write.remote_client0.clone().unwrap();
             std::mem::drop(write);

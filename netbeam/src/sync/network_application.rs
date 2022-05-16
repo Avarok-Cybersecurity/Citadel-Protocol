@@ -90,7 +90,7 @@ impl<K: MultiplexedConnKey + 'static> MultiplexedConn<K> {
         tokio::task::spawn(async move {
             while let Ok(ref packet) = conn_task.conn.recv().await {
                 if let Err(err) = conn_task.forward_packet(packet).await {
-                    log::warn!("Error forwarding packet: {:?}", err.to_string());
+                    log::warn!("Unable to forward packet: {:?}", err);
                 }
             }
         });

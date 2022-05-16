@@ -39,21 +39,21 @@ impl RecursiveChain {
         let bob = bob.as_ref();
 
         if chain.len() != 32 || alice.len() != 32 || bob.len() != 32 {
-            return None;
+            None
         } else {
             let mut chain_ret: [u8; 32] = [0u8; 32];
             let mut alice_ret: [u8; 32] = [0u8; 32];
             let mut bob_ret: [u8; 32] = [0u8; 32];
 
-            for (idx, val) in chain.into_iter().enumerate() {
+            for (idx, val) in chain.iter().enumerate() {
                 chain_ret[idx] = *val;
             }
 
-            for (idx, val) in alice.into_iter().enumerate() {
+            for (idx, val) in alice.iter().enumerate() {
                 alice_ret[idx] = *val;
             }
 
-            for (idx, val) in bob.into_iter().enumerate() {
+            for (idx, val) in bob.iter().enumerate() {
                 bob_ret[idx] = *val;
             }
 

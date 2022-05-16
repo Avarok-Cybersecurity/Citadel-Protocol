@@ -11,7 +11,7 @@ use crate::misc::AccountError;
 #[allow(unused_results)]
 pub fn process(peer_cid: u64, local_cid: u64, ticket: u128, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>) -> Result<FcmProcessorResult, AccountError> {
     log::info!("FCM RECV DEREGISTER");
-    if let None = fcm_crypt_container.remove(&peer_cid) {
+    if fcm_crypt_container.remove(&peer_cid).is_none() {
         log::warn!("[Deregister] Unable to remove fcm crypt container");
     }
 
