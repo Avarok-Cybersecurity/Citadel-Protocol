@@ -20,7 +20,7 @@ bincode2 = "2.0.1"
 serde = { version = "1.0.127", features = ["derive"] }
 anyhow = "1.0.57"
 tokio-util = { version = "0.6.7", features = ["codec"] }
-rand = "0.8.4"
+rand = "0.8.5"
 async-stream = "0.3.2"
 
 log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }

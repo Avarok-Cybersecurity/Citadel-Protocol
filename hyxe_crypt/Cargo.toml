@@ -29,7 +29,7 @@ zerocopy = "0.5.0"
 byteorder = "1.3.2"
 bytes = { version = "^1.0.1", features = ["serde"] }
 num-integer = "0.1.43"
-rand = "0.7.0"
+rand = "0.8.5"
 rayon = "1.5.1"
 arrayvec = { version = "0.7.0", features = ["serde"] }
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
