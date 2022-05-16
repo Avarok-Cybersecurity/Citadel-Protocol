@@ -131,7 +131,7 @@ jobs:
         uses: actions-rs/tarpaulin@v0.1
         with:
           args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=localhost-testing -- --test-threads=1'
-      - uses: codecov/codecov-action@v2
+      - uses: codecov/codecov-action@v3
         with:
           token: ${{secrets.CODECOV_TOKEN}}
           files: cobertura.xml
