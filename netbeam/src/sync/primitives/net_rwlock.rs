@@ -39,7 +39,7 @@ impl<T: NetObject, S: Subscribable + 'static> NetRwLock<T, S> {
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
         let (active_to_bg_tx, active_to_bg_rx) = tokio::sync::mpsc::channel(1);
 
-        let this = Self { shared: Arc::new(Mutex::new((initial_value, active_to_bg_tx.clone()))), channel: Arc::new(channel), stop_tx: Some(stop_tx), local_active_read_lock: Arc::new(parking_lot::RwLock::new(None)), active_to_bg_signalled: active_to_bg_tx.clone() };
+        let this = Self { shared: Arc::new(Mutex::new((initial_value, active_to_bg_tx.clone()))), channel: Arc::new(channel), stop_tx: Some(stop_tx), local_active_read_lock: Arc::new(parking_lot::RwLock::new(None)), active_to_bg_signalled: active_to_bg_tx };
 
         let shared_state = this.shared.clone();
         let local_read_lock = this.local_active_read_lock.clone();
@@ -158,7 +158,7 @@ pub(crate) mod read {
         type Target = T;
 
         fn deref(&self) -> &Self::Target {
-            &self.inner.as_ref().unwrap().deref()
+            self.inner.as_ref().unwrap().deref()
         }
     }
 
@@ -566,15 +566,10 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(cha
                             let lock_holder = yield_lock::<S, T>(&channel, lock_holder).await?; // return on error
 
                             // we must also manually free the read lock IF needs be
-                            if lock_type == LockType::Read {
-                                if lock_holder.arc_strong_count().unwrap() == 2 {
-                                    // this implies local did NOT try to get a read lock from the read lock already present here. We can clear local;
-                                    *read_lock_local.write() = None;
-                                    std::mem::drop(lock_holder); // now, there are zero locks local
-                                }
-                                // else : local DID try to acquire a lock, in which case since remote now has received confirmation of its read lock being dropped, two things:
-                                // if local tries to acquire another read lock, it will instantly be acquired from local
-                                // if remote tries to acquire another read lock, it will have to ask again
+                            if lock_type == LockType::Read && lock_holder.arc_strong_count().unwrap() == 2 {
+                                // this implies local did NOT try to get a read lock from the read lock already present here. We can clear local;
+                                *read_lock_local.write() = None;
+                                std::mem::drop(lock_holder); // now, there are zero locks local
                             }
                         }
 
@@ -617,7 +612,7 @@ async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(lock_type: 
     log::info!("{:?} acquired local lock", rwlock.channel.node_type());
 
 
-    let ref conn = rwlock.channel;
+    let conn = &rwlock.channel;
 
     let local_request_time = TimeTracker::new().get_global_time_ns();
     conn.send_serialized(UpdatePacket::TryAcquire(local_request_time, lock_type)).await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
@@ -720,7 +715,7 @@ async fn acquire_lock<T: NetObject, S: Subscribable + 'static, R, F>(lock_type: 
                     }
 
                     log::info!("[KTZZ] {:?} yield_lock", conn.node_type());
-                    owned_local_lock = yield_lock::<S, T>(&conn, owned_local_lock).await?;
+                    owned_local_lock = yield_lock::<S, T>(conn, owned_local_lock).await?;
                     // the next time a conflict happens, the local node will win unconditionally since its time is lesser than the next possible adjacent request time
                     // transform only if local wins
                     if owned_local_lock.lock_type() != lock_type {
@@ -799,7 +794,7 @@ mod tests {
         let client_ref = server_ref.clone();
 
         let server = tokio::spawn(async move {
-            let ref rwlock = server_stream.rwlock(Some(init_value)).await.unwrap();
+            let rwlock = &server_stream.rwlock(Some(init_value)).await.unwrap();
             log::info!("Success establishing rwlock on server");
             client_done_rx.await.unwrap();
             let guard = rwlock.write().await.unwrap();
@@ -821,7 +816,7 @@ mod tests {
         });
 
         let client = tokio::spawn(async move {
-            let ref rwlock = client_stream.rwlock::<u64>(None).await.unwrap();
+            let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
             log::info!("Success establishing rwlock on client");
             let mut guard = rwlock.write().await.unwrap();
             log::info!("Client has successfully established a rwlock write lock");
@@ -843,7 +838,7 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        (r0.unwrap(), r1.unwrap());
+        r0.unwrap();r1.unwrap();
     }
 
     #[tokio::test]
@@ -865,7 +860,7 @@ mod tests {
         let client_ref = server_ref.clone();
 
         let server = tokio::spawn(async move {
-            let ref rwlock = server_stream.rwlock(Some(init_value)).await.unwrap();
+            let rwlock = &server_stream.rwlock(Some(init_value)).await.unwrap();
             log::info!("Success establishing rwlock on server");
             client_done_rx.await.unwrap();
             let guard = rwlock.write().await.unwrap();
@@ -890,7 +885,7 @@ mod tests {
         });
 
         let client = tokio::spawn(async move {
-            let ref rwlock = client_stream.rwlock::<u64>(None).await.unwrap();
+            let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
             log::info!("Success establishing rwlock on client");
             let mut guard = rwlock.write().await.unwrap();
             log::info!("Client has successfully established a rwlock write lock");
@@ -916,7 +911,7 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        (r0.unwrap(), r1.unwrap());
+        r0.unwrap();r1.unwrap();
     }
 
     #[tokio::test]
@@ -930,7 +925,7 @@ mod tests {
         let (client_done_tx, client_done_rx) = tokio::sync::oneshot::channel::<()>();
 
         let server = tokio::spawn(async move {
-            let ref rwlock = server_stream.rwlock::<u64>(Some(1000)).await.unwrap();
+            let rwlock = &server_stream.rwlock::<u64>(Some(1000)).await.unwrap();
             log::info!("Success establishing rwlock on server");
 
             let mut reads = Vec::new();
@@ -947,7 +942,7 @@ mod tests {
         });
 
         let client = tokio::spawn(async move {
-            let ref rwlock = client_stream.rwlock::<u64>(None).await.unwrap();
+            let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
             log::info!("Success establishing rwlock on client");
             let mut reads = Vec::new();
 
@@ -966,7 +961,7 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        (r0.unwrap(), r1.unwrap());
+        r0.unwrap();r1.unwrap();
     }
 
     #[tokio::test]
@@ -987,7 +982,7 @@ mod tests {
         let client_ref = server_ref.clone();
 
         let server = tokio::spawn(async move {
-            let ref rwlock = server_stream.rwlock::<u64>(Some(1000)).await.unwrap();
+            let rwlock = &server_stream.rwlock::<u64>(Some(1000)).await.unwrap();
             log::info!("Success establishing rwlock on server");
 
             let mut reads = Vec::new();
@@ -1011,7 +1006,7 @@ mod tests {
         });
 
         let client = tokio::spawn(async move {
-            let ref rwlock = client_stream.rwlock::<u64>(None).await.unwrap();
+            let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
             log::info!("Success establishing rwlock on client");
             let mut reads = Vec::new();
 
@@ -1037,7 +1032,7 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        (r0.unwrap(), r1.unwrap());
+        r0.unwrap();r1.unwrap();
     }
 
     #[tokio::test]
@@ -1057,7 +1052,7 @@ mod tests {
         let client_ref = server_ref.clone();
 
         let server = tokio::spawn(async move {
-            let ref rwlock = server_stream.rwlock::<u64>(Some(0)).await.unwrap();
+            let rwlock = &server_stream.rwlock::<u64>(Some(0)).await.unwrap();
             log::info!("Success establishing rwlock on server");
             init_tx.send(()).unwrap();
             init2_rx.await.unwrap();
@@ -1086,7 +1081,7 @@ mod tests {
         });
 
         let client = tokio::spawn(async move {
-            let ref rwlock = client_stream.rwlock::<u64>(None).await.unwrap();
+            let rwlock = &client_stream.rwlock::<u64>(None).await.unwrap();
             log::info!("Success establishing rwlock on client");
             init_rx.await.unwrap();
             init2_tx.send(()).unwrap();
@@ -1115,6 +1110,6 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        (r0.unwrap(), r1.unwrap());
+        r0.unwrap();r1.unwrap();
     }
 }

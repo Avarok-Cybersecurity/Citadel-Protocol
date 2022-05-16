@@ -138,8 +138,8 @@ impl HdpSessionManager {
 
                             HdpSessionInitMode::Connect(auth_request) => {
                                 match auth_request {
-                                    AuthenticationRequest::Passwordless { server_addr } => {
-                                        (*server_addr, None, ProposedCredentials::passwordless())
+                                    AuthenticationRequest::Passwordless { server_addr, username } => {
+                                        (*server_addr, None, ProposedCredentials::passwordless(username.clone()))
                                     }
 
                                     AuthenticationRequest::Credentialed { id, password } => {
@@ -486,8 +486,7 @@ impl HdpSessionManager {
     pub fn clear_provisional_session(&self, addr: &SocketAddr) {
         //log::info!("Attempting to clear provisional session ...");
         if inner_mut!(self).provisional_connections.remove(addr).is_none() {
-            //log::info!("Attempted to remove a connection that wasn't provisional. Check the program logic ...");
-            return;
+            log::warn!("Attempted to remove a connection {:?} that wasn't provisional", addr);
         }
     }
 
@@ -649,10 +648,10 @@ impl HdpSessionManager {
         };
 
         if let Some(peers_to_broadcast_to) = peer_layer.get_peers_in_message_group(key) {
-            let can_broadcast = peers_to_broadcast_to.iter().map(|peer| *peer != implicated_cid).collect::<Vec<bool>>();
-            let peers_and_statuses = peers_to_broadcast_to.into_iter().zip(can_broadcast);
-            let _ = self.send_group_broadcast_signal_to(timestamp, ticket, peers_and_statuses, true, signal, security_level).await?;
-            Ok(true)
+            let broadcastees = peers_to_broadcast_to.iter().filter(|peer| **peer != implicated_cid).map(|r| (*r, true));
+            log::info!("[Server/Group] peers_and_statuses: {:?}", broadcastees);
+            let (_success, failed) = self.send_group_broadcast_signal_to(timestamp, ticket, broadcastees, true, signal, security_level).await?;
+            Ok(failed.is_empty())
         } else {
             Ok(false)
         }
@@ -726,8 +725,26 @@ impl HdpSessionManager {
         }
     }
 
+    #[allow(dead_code)]
+    fn route_packet_to(&self, target_cid: u64, packet: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), String> {
+        let lock = inner!(self);
+        let (_, sess_ref) = lock.sessions.get(&target_cid).ok_or_else(|| format!("Target cid {} does not exist (route err)", target_cid))?;
+        let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
+        let ref peer_cnac = inner_state!(sess_ref.state_container).cnac.clone().ok_or_else(|| String::from("Peer CNAC not loaded"))?;
+
+        peer_cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
+            if let Some(peer_latest_hyper_ratchet) = hyper_ratchet_opt {
+                log::info!("Routing packet through primary stream -> {}", target_cid);
+                let packet = packet(peer_latest_hyper_ratchet);
+                peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
+            } else {
+                Err(format!("Unable to acquire peer drill for {}", target_cid))
+            }
+        })
+    }
+
     /// Stores the `signal` inside the internal timed-queue for `implicated_cid`, and then sends `packet` to `target_cid`.
-/// After `timeout`, the closure `on_timeout` is executed
+    /// After `timeout`, the closure `on_timeout` is executed
     #[inline]
     pub async fn route_signal_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
         if implicated_cid == target_cid {
@@ -738,6 +755,7 @@ impl HdpSessionManager {
             inner!(self).account_manager.clone()
         };
 
+        log::info!("Checking if {} is registered locally ... {:?}", target_cid, signal);
         if account_manager.hyperlan_cid_is_registered(target_cid).await.map_err(|err| err.into_string())? {
             let (sess, peer_layer) = {
                 let this = inner!(self);

@@ -11,7 +11,7 @@ fn default_routine() {
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("default", |b| b.iter(|| default_routine()));
+    c.bench_function("default", |b| b.iter(default_routine));
 }
 
 criterion_group!(benches, criterion_benchmark);

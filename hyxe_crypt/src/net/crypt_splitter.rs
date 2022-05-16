@@ -64,7 +64,7 @@ pub fn calculate_nonce_version(a: usize, b: u64) -> usize {
 pub fn generate_scrambler_metadata<T: AsRef<[u8]>>(msg_drill: &Drill, plain_text: T, header_size_bytes: usize, security_level: SecurityLevel, group_id: u64, starting_max_packet_size: usize) -> Result<GroupReceiverConfig, CryptError<String>> {
     let plain_text = plain_text.as_ref();
 
-    if plain_text.len() == 0 {
+    if plain_text.is_empty() {
         return Err(CryptError::Encrypt("Empty input".to_string()))
     }
 
@@ -433,7 +433,7 @@ impl GroupReceiver {
             let wave_store = wave_store.unwrap();
 
             let insert_index = Self::get_ciphertext_insertion_range(true_sequence, self.max_packets_per_wave, self.packets_needed, self.last_payload_size, self.max_payload_size, wave_store);
-            let dest_bytes = &mut wave_store.ciphertext_buffer[insert_index.clone()];
+            let dest_bytes = &mut wave_store.ciphertext_buffer[insert_index];
             //let packet_bytes = packet.bytes();
             let packet_bytes = packet;
 
@@ -747,7 +747,7 @@ impl<const N: usize> GroupSenderDevice<N> {
         let start = self.packets_sent;
         let end = start + count;
         let items = (start..end).into_iter().map(|idx| self.packets_in_ram.get(&idx).cloned())
-            .filter_map(|res| res).collect::<Vec<PacketCoordinate>>();
+            .flatten().collect::<Vec<PacketCoordinate>>();
         if items.len() != count {
             None
         } else {

@@ -244,11 +244,11 @@ pub fn check_permissions() {
             println!("Output: {}", &buf);
 
             if buf.contains("password for") {
-                eprintln!("Please run this program as sudo. I.e., sudo {}", std::env::args().collect::<Vec<String>>()[0].to_string());
+                eprintln!("Please run this program as sudo. I.e., sudo {}", std::env::args().collect::<Vec<String>>()[0]);
                 std::process::exit(-1);
             }
 
-            if buf.len() == 0 {
+            if buf.is_empty() {
                 return;
             }
 

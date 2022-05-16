@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Thomas Braun <tbraun96@gmail.com>"]
 edition = "2018"
 workspace = "../"
-license = "MIT"
+license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -49,6 +49,7 @@ sqlx = { version = "0.5.11", features = ["all-databases", "runtime-tokio-native-
 firebase-rtdb = { path = "../firebase-rtdb", version = "0.1.0" }
 jwt = { version = "0.14.0", features = ["openssl"] }
 openssl = { version = "0.10.36", features = ["vendored"] }
+uuid = { version = "1.0.0", features = ["v4"] }
 
 [dev-dependencies]
 #tokio = { version = "^0.2.22", features = ["full"] }

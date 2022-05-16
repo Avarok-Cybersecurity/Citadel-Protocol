@@ -223,6 +223,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                                             Ok(PrimaryProcessorResult::Void)
                                         } else {
                                             // Finally, alert the higher-level kernel about the success
+                                            session.session_manager.clear_provisional_session(&remote_addr);
                                             kernel_tx.unbounded_send(HdpServerResult::RegisterOkay(reg_ticket.get(), new_cnac, success_message))?;
                                             Ok(PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: Success)"))
                                         }

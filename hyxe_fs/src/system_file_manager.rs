@@ -69,7 +69,7 @@ pub fn write<D: Sized + Serialize, P: AsRef<Path>>(object: &D, path: P) -> Resul
     std::fs::File::create(path)
         .map_err(|err| FsError::IoError(err.to_string()))
         .and_then(|file| {
-            let ref mut buf_writer = std::io::BufWriter::new(file);
+            let buf_writer = &mut std::io::BufWriter::new(file);
             // change: use BufWriter, as it's "50x" faster https://stackoverflow.com/questions/49983101/serialization-of-large-struct-to-disk-with-serde-and-bincode-is-slow?noredirect=1&lq=1
             bincode_config().serialize_into(buf_writer, object).map_err(|err| FsError::IoError(err.to_string()))
         })
@@ -95,8 +95,7 @@ pub async fn async_write<D: Sync + Serialize, P: AsRef<Path>>(object: &D, path: 
 
 /// Creates an empty file, overwriting if already existent
 pub async fn create_file<P: AsRef<Path>>(path: P) -> Result<(), FsError<String>> {
-    tokio::fs::File::create(path).await
-        .and_then(|_| Ok(()))
+    tokio::fs::File::create(path).await.map(|_| ())
         .map_err(|err| FsError::IoError(err.to_string()))
 }
 

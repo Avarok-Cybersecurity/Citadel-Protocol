@@ -66,7 +66,7 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
         let (active_to_bg_tx, active_to_bg_rx) = tokio::sync::mpsc::channel::<()>(1);
 
-        let this = Self { app: Arc::new(conn), shared_state: Arc::new(Mutex::new((t, active_to_bg_tx.clone()))), stop_tx: Some(stop_tx), bg_stop_signaller: active_to_bg_tx.clone() };
+        let this = Self { app: Arc::new(conn), shared_state: Arc::new(Mutex::new((t, active_to_bg_tx.clone()))), stop_tx: Some(stop_tx), bg_stop_signaller: active_to_bg_tx };
 
         let shared_state = this.shared_state.clone();
         let channel = this.app.clone();
@@ -287,7 +287,7 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex
     log::info!("{:?} acquired local lock", mutex.node_type());
 
 
-    let ref conn = mutex.app;
+    let conn = &mutex.app;
 
     let local_request_time = TimeTracker::new().get_global_time_ns();
     conn.send_serialized(UpdatePacket::TryAcquire(local_request_time)).await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
@@ -320,7 +320,7 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex
                 if remote_request_time <= local_request_time {
                     // remote gets the lock. We send the local value first. Then, we must continue looping
                     // yield the lock
-                    owned_local_lock = yield_lock::<S, T>(&conn, owned_local_lock).await?;
+                    owned_local_lock = yield_lock::<S, T>(conn, owned_local_lock).await?;
                     // the next time a conflict happens, the local node will win unconditionally since its time is lesser than the next possible adjacent request time
                 } else {
                     // we requested before the remote node; tell the remote node we took the value
@@ -452,7 +452,7 @@ mod tests {
         let client_ref = server_ref.clone();
 
         let server = tokio::spawn(async move {
-            let ref mutex = server_stream.mutex(Some(init_value)).await.unwrap();
+            let mutex = &server_stream.mutex(Some(init_value)).await.unwrap();
             log::info!("Success establishing mutex on server");
             client_done_rx.await.unwrap();
             let guard = mutex.lock().await.unwrap();
@@ -474,7 +474,7 @@ mod tests {
         });
 
         let client = tokio::spawn(async move {
-            let ref mutex = client_stream.mutex::<u64>(None).await.unwrap();
+            let mutex = &client_stream.mutex::<u64>(None).await.unwrap();
             log::info!("Success establishing mutex on client");
             let mut guard = mutex.lock().await.unwrap();
             log::info!("Client has successfully established a mutex lock");
@@ -496,6 +496,6 @@ mod tests {
         });
 
         let (r0, r1) = tokio::join!(server, client);
-        (r0.unwrap(), r1.unwrap());
+        r0.unwrap();r1.unwrap();
     }
 }

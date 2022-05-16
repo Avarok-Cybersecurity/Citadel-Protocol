@@ -9,6 +9,7 @@ use crate::server_misc_settings::ServerMiscSettings;
 
 /// When creating credentials, this is required
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(variant_size_differences)]
 pub enum ProposedCredentials {
     /// Denotes that credentials will be used
     Enabled {
@@ -24,7 +25,9 @@ pub enum ProposedCredentials {
     },
 
     /// Denotes that credentials will not be used (passwordless)
-    Disabled
+    Disabled {
+        username: String
+    }
 }
 
 // Clientside impls
@@ -38,8 +41,8 @@ impl ProposedCredentials {
     }
 
     /// Generates an empty skeleton for authless mode
-    pub const fn passwordless() -> Self {
-        Self::Disabled
+    pub const fn passwordless(username: String) -> Self {
+        Self::Disabled { username }
     }
 
     /// Generates the proper registration credentials. Trims the username, password, and full name, removing any whitespace from the ends. Should only be called client-side
@@ -80,7 +83,7 @@ impl ProposedCredentials {
     pub fn decompose(self) -> (String, SecBuffer, String, Option<ArgonSettings>) {
         match self {
             Self::Enabled { username, password_hashed, full_name, clientside_only_registration_settings } => (username, password_hashed, full_name, clientside_only_registration_settings),
-            Self::Disabled => (String::new(), SecBuffer::empty(), String::new(), None)
+            Self::Disabled { username } => (username, SecBuffer::empty(), String::new(), None)
         }
     }
 
@@ -89,9 +92,9 @@ impl ProposedCredentials {
         openssl::sha::sha256(password_raw.as_ref()).into()
     }
 
-    pub(crate) fn into_auth_store(self, cid: u64) -> DeclaredAuthenticationMode {
+    pub(crate) fn into_auth_store(self, _cid: u64) -> DeclaredAuthenticationMode {
         match self {
-            Self::Disabled => DeclaredAuthenticationMode::Passwordless { username: format!("authless.{}", cid), full_name: format!("authless.client") },
+            Self::Disabled { username } => DeclaredAuthenticationMode::Passwordless { username, full_name: "authless.client".to_string() },
             Self::Enabled { username, full_name, clientside_only_registration_settings, .. } => DeclaredAuthenticationMode::Argon { username, full_name, argon: ArgonContainerType::Client(clientside_only_registration_settings.unwrap_or_default().into()) }
         }
     }
@@ -99,7 +102,7 @@ impl ProposedCredentials {
     /// Returns true if passwordless
     pub fn is_passwordless(&self) -> bool {
         match self {
-            Self::Disabled => true,
+            Self::Disabled { .. } => true,
             _ => false
         }
     }
@@ -110,7 +113,7 @@ impl ProposedCredentials {
     /// Called when the server registers the client-provided credentials
     pub async fn derive_server_container(self, server_argon_settings: &ArgonSettings, cid: u64, server_misc_settings: &ServerMiscSettings) -> Result<DeclaredAuthenticationMode, AccountError> {
         match self {
-            Self::Disabled => {
+            Self::Disabled { .. } => {
                 if server_misc_settings.allow_passwordless {
                     Ok(self.into_auth_store(cid))
                 } else {
@@ -166,7 +169,7 @@ impl ProposedCredentials {
             }
 
             _ => {
-                return Err(AccountError::Generic("Account does not have password loaded; account is personal".to_string()))
+                Err(AccountError::Generic("Account does not have password loaded; account is personal".to_string()))
             }
         }
     }
@@ -174,7 +177,7 @@ impl ProposedCredentials {
     /// Compares usernames for equality
     pub fn compare_username(&self, other: &[u8]) -> bool {
         match self {
-            Self::Disabled => true,
+            Self::Disabled { username } |
             Self::Enabled { username, .. } => username.as_bytes() == other
         }
     }

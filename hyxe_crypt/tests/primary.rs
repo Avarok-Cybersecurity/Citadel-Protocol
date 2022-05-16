@@ -10,7 +10,7 @@ mod tests {
     use hyxe_crypt::net::crypt_splitter::{scramble_encrypt_group, GroupReceiver, par_scramble_encrypt_group};
     use std::time::Instant;
     use hyxe_crypt::argon::argon_container::{ArgonSettings, AsyncArgon, ArgonStatus, ServerArgonContainer};
-    use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm, ALGORITHM_COUNT, CryptoParameters};
+    use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm, KEM_ALGORITHM_COUNT, CryptoParameters};
     use std::convert::TryFrom;
     use hyxe_crypt::argon::autotuner::calculate_optimal_argon_params;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
@@ -29,7 +29,7 @@ mod tests {
     async fn argon_autotuner() {
         setup_log();
         let start_time = Instant::now();
-        let final_cfg = calculate_optimal_argon_params(500 as _, Some(32), None).await.unwrap();
+        let final_cfg = calculate_optimal_argon_params(500_u16, Some(32), None).await.unwrap();
         log::info!("DONE. Elapsed time: {:?}", start_time.elapsed());
         log::info!("{:?}", final_cfg)
     }
@@ -41,7 +41,7 @@ mod tests {
         // Client config should be a weaker version that the server version, since the client doesn't actually store the password on their own device. Still, if login time can in total be kept under 2s, then it's good
         let client_config = ArgonSettings::new_gen_salt("Thomas P Braun".as_bytes().to_vec(), 8, 32,1024*64, 4, vec![0,1,2,3,4,5,6,7,8,9,0]);
         // client hashes their password
-        match AsyncArgon::hash(SecBuffer::from("mrmoney10"), client_config.clone()).await.unwrap() {
+        match AsyncArgon::hash(SecBuffer::from("password"), client_config.clone()).await.unwrap() {
             ArgonStatus::HashSuccess(hashed_password) => {
                 log::info!("Hash success!");
                 // now, the client stores the config in their CNAC to be able to hash again in the future. Next, client sends the hashed password through an encrypted stream to the server
@@ -54,11 +54,11 @@ mod tests {
                         // The server saves this hashed output to the backend. Then, if a client wants to login, they have to hash their password
                         let server_argon_container = ServerArgonContainer::new(server_config, hashed_password_x2.clone());
 
-                        match AsyncArgon::hash(SecBuffer::from("mrmoney10"), client_config.clone()).await.unwrap() {
+                        match AsyncArgon::hash(SecBuffer::from("password"), client_config.clone()).await.unwrap() {
                             ArgonStatus::HashSuccess(hashed_password_v2) => {
                                 //assert_eq!(hashed_password_v2.as_ref(), server_recv.as_ref());
                                 // client sends to server to verify
-                                match AsyncArgon::verify(SecBuffer::from(hashed_password_v2), server_argon_container.clone()).await.unwrap() {
+                                match AsyncArgon::verify(hashed_password_v2, server_argon_container.clone()).await.unwrap() {
                                     ArgonStatus::VerificationSuccess => {
                                         log::info!("Verification success!");
                                         return;
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn hyper_ratchets() {
         setup_log();
-        for x in 0u8..ALGORITHM_COUNT {
+        for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
                 hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
                 hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), false);
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn hyper_ratchets_fcm() {
         setup_log();
-        for x in 0u8..ALGORITHM_COUNT {
+        for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
                 hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), true);
                 hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), true);
@@ -282,7 +282,7 @@ mod tests {
             let res = toolset.update_from(gen::<R>(0,x, security_level).0).unwrap();
             match res {
                 UpdateStatus::Committed { .. } => {
-                    assert!(x + 1 <= MAX_HYPER_RATCHETS_IN_MEMORY as u32);
+                    assert!(x < MAX_HYPER_RATCHETS_IN_MEMORY as u32);
                     assert_eq!(0, toolset.get_oldest_hyper_ratchet_version());
                     assert_eq!(x, toolset.get_most_recent_hyper_ratchet_version());
                 }
@@ -297,7 +297,7 @@ mod tests {
         }
 
         for x in 0..COUNT {
-            if let Ok(_) = toolset.deregister_oldest_hyper_ratchet(x) {
+            if toolset.deregister_oldest_hyper_ratchet(x).is_ok() {
                 assert_eq!(x + 1, toolset.get_oldest_hyper_ratchet_version());
             } else {
                 assert_eq!(toolset.len(), MAX_HYPER_RATCHETS_IN_MEMORY);
@@ -383,7 +383,7 @@ mod tests {
         println!("Ratchet created. Creating PQC");
 
         // do 1000 for real tests on linux
-        for x in 0..(1500 as usize) {
+        for x in 0..1500_usize {
             data.put_u8((x % 256) as u8);
             let input_data = &data[..=x];
 

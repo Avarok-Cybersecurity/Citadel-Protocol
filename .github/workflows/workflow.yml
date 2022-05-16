@@ -66,11 +66,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 80
+    timeout-minutes: 50
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing -- --test-threads=1
-      - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing -- --test-threads=1
+      - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
+      - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
       - uses: actions/github-script@v2
         if: failure()
         with:
@@ -87,7 +87,7 @@ jobs:
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-2019 ]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - run: cargo test --package netbeam
@@ -122,16 +122,17 @@ jobs:
             await github.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
-  coverage:
+  cargo_deny_and_coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - run: cargo install --locked cargo-deny && cargo deny check All
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
           args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=localhost-testing -- --test-threads=1'
-      - uses: codecov/codecov-action@v2
+      - uses: codecov/codecov-action@v3
         with:
           token: ${{secrets.CODECOV_TOKEN}}
           files: cobertura.xml

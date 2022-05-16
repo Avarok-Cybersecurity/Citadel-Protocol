@@ -162,9 +162,18 @@ mod tests {
     #[test]
     fn secure_packet() {
         let mut packet = SecureMessagePacket::<4>::new().unwrap();
-        packet.write_payload(10, |slice| Ok(slice.fill(9))).unwrap();
-        packet.write_header(|header| Ok(header.fill(3))).unwrap();
-        let mut output = packet.write_payload_extension(5, |ext| Ok(ext.fill(4))).unwrap();
+        packet.write_payload(10, |slice| {
+            slice.fill(9);
+            Ok(())
+        }).unwrap();
+        packet.write_header(|header| {
+            header.fill(3);
+            Ok(())
+        }).unwrap();
+        let mut output = packet.write_payload_extension(5, |ext| {
+            ext.fill(4);
+            Ok(())
+        }).unwrap();
         let header = output.split_to(4);
         let (payload, payload_ext) = SecureMessagePacket::<4>::decompose_payload_raw(&mut output).unwrap();
         assert_eq!(header, &vec![3,3,3,3]);
