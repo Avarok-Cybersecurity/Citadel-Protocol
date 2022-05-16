@@ -1622,6 +1622,7 @@ dependencies = [
  "serde_millis",
  "sqlx",
  "tokio",
+ "uuid 1.0.0",
  "zerocopy",
 ]
 
@@ -1877,6 +1878,7 @@ dependencies = [
  "portpicker",
  "rstest",
  "tokio",
+ "uuid 1.0.0",
 ]
 
 [[package]]

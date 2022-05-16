@@ -8,6 +8,7 @@ use crate::prefabs::ClientServerRemote;
 use hyxe_net::re_imports::async_trait;
 use futures::stream::FuturesUnordered;
 use std::sync::Arc;
+use uuid::Uuid;
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
 /// This kernel will only allow outbound communication for the provided account
@@ -100,9 +101,8 @@ impl<F, Fut> PeerConnectionKernel<F, Fut>
     }
 
     /// Creates a new authless connection with custom arguments
-    pub fn new_passwordless(server_addr: SocketAddr, peers: Vec<UserIdentifier>, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
-        // TODO: figure out passwordless usernames for ez peer connection
-        let server_conn_kernel = SingleClientServerConnectionKernel::new_passwordless(server_addr, udp_mode, session_security_settings,  |connect_success, remote| async move {
+    pub fn new_passwordless(uuid: Uuid, server_addr: SocketAddr, peers: Vec<UserIdentifier>, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
+        let server_conn_kernel = SingleClientServerConnectionKernel::new_passwordless(uuid, server_addr, udp_mode, session_security_settings,  |connect_success, remote| async move {
             on_server_connect_success(connect_success, remote, on_channel_received, peers).await
         });
 
@@ -113,8 +113,8 @@ impl<F, Fut> PeerConnectionKernel<F, Fut>
     }
 
     /// Creates a new authless connection with default arguments
-    pub fn new_passwordless_defaults(server_addr: SocketAddr, peers: Vec<UserIdentifier>, on_channel_received: F) -> Self {
-        Self::new_passwordless(server_addr, peers, Default::default(), Default::default(), on_channel_received)
+    pub fn new_passwordless_defaults(uuid: Uuid, server_addr: SocketAddr, peers: Vec<UserIdentifier>, on_channel_received: F) -> Self {
+        Self::new_passwordless(uuid, server_addr, peers, Default::default(), Default::default(), on_channel_received)
     }
 }
 
@@ -202,13 +202,13 @@ impl TestBarrier {
 #[cfg(test)]
 mod tests {
     use crate::prelude::*;
-    use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use std::sync::atomic::{AtomicBool, Ordering, AtomicUsize};
+    use std::sync::atomic::{Ordering, AtomicUsize};
     use crate::test_common::{PEERS, server_info};
     use rstest::rstest;
     use crate::prefabs::client::peer_connection::{PeerConnectionKernel, TestBarrier, wait_for_peers};
     use futures::stream::FuturesUnordered;
     use futures::TryStreamExt;
+    use uuid::Uuid;
 
     #[rstest]
     #[case(2)]
@@ -256,32 +256,48 @@ mod tests {
         assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), peer_count);
     }
 
+    #[rstest]
+    #[case(2)]
+    #[case(3)]
     #[tokio::test]
-    async fn single_connection_passwordless() {
+    async fn peer_to_peer_connect_passwordless(#[case] peer_count: usize) {
+        assert!(peer_count > 1);
         crate::test_common::setup_log();
+        TestBarrier::setup(peer_count);
 
-        static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
+        static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
+        CLIENT_SUCCESS.store(0, Ordering::Relaxed);
         let (server, server_addr) = server_info();
 
-        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let client_kernels = FuturesUnordered::new();
+        let total_peers = (0..peer_count).into_iter().map(|_| Uuid::new_v4()).collect::<Vec<Uuid>>();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(server_addr, |_channel, _remote| async move {
-            log::info!("***CLIENT TEST SUCCESS***");
-            //_remote.inner.find_target("", "").await.unwrap().connect_to_peer().await.unwrap();
-            CLIENT_SUCCESS.store(true, Ordering::Relaxed);
-            stop_tx.send(()).unwrap();
-            Ok(())
-        });
+        for idx in 0..peer_count {
+            let uuid = total_peers.get(idx).cloned().unwrap();
+            let peers = total_peers.clone().into_iter().filter(|r| r != &uuid).map(UserIdentifier::from).collect::<Vec<UserIdentifier>>();
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(uuid, server_addr, peers, move |results,remote| async move {
+                let success = results.iter().all(|r| r.is_ok());
+                log::info!("***PEER {} CONNECT RESULT: {}***", uuid, success);
+                if success {
+                    let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                    wait_for_peers().await;
+                    remote.shutdown_kernel().await
+                } else {
+                    log::error!("Peer connect failed: {:?}", results);
+                    Err(NetworkError::msg(format!("Connect failed: {:?}", results)))
+                }
+            });
 
-        let joined = futures::future::try_join(server, client);
-
-        tokio::select! {
-            res0 = joined => { res0.unwrap(); },
-            res1 = stop_rx => { res1.unwrap(); }
+            let client1 = NodeBuilder::default().build(client_kernel).unwrap();
+            client_kernels.push(client1);
         }
 
-        assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
+        let clients = Box::pin(async move {
+            client_kernels.try_collect::<()>().await.map(|_| ())
+        });
+
+        assert!(futures::future::try_select(server, clients).await.is_ok());
+        assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), peer_count);
     }
 }
