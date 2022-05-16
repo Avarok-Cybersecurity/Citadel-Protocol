@@ -87,7 +87,7 @@ impl<T: Send + Sync, R: Send + Sync> TrackedCallbackChannel<T, R> {
 
     pub async fn reply(&self, payload: TrackedCallbackChannelPayload<R, T>) -> Result<(), TrackedCallbackError<R>> {
         let sender = {
-            self.inner.map.lock().remove(&payload.id).ok_or_else(|| TrackedCallbackError::InternalError("Mapping does not exist for id"))?
+            self.inner.map.lock().remove(&payload.id).ok_or(TrackedCallbackError::InternalError("Mapping does not exist for id"))?
         };
 
         sender.send(payload.payload).map_err(|err| TrackedCallbackError::SendError(err))

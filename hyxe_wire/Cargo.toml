@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Thomas Braun <tbraun96@gmail.com>"]
 edition = "2018"
 workspace = ".."
-license = "MIT"
+license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,7 +14,7 @@ localhost-testing = []
 [dependencies]
 igd = { version = "^0.12.0", features = ["aio"] }
 #tokio = { version = "^0.2.22", features = ["macros", "rt-util", "time", "net"] }
-tokio = "1.16.1"
+tokio = "1.18.2"
 futures = "0.3.16"
 async-trait = "0.1.36"
 async-trait-with-sync = "0.1.36"
@@ -25,7 +25,7 @@ parking_lot = "0.11.1"
 stun = "0.4.2"
 #socket2 = "0.4.1"
 socket2 = { version = "0.4.4", features = ["all"] }
-anyhow = "1.0.42"
+anyhow = "1.0.57"
 serde = { version = "1.0.126", features = ["derive"] }
 log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
 bincode2 = "2.0.1"

@@ -19,13 +19,8 @@ default = ["unordered"]
 unordered = ["parking_lot"]
 
 [dependencies]
-#pqcrypto-traits = { version = "0.3.3" }
-#pqcrypto-saber = { version = "^0.1.7", features = ["serialization"] }
-#pqcrypto-kyber = { version = "^0.7.1", features = ["serialization"] }
-#pqcrypto-ntru = { version = "^0.5.4", features = ["serialization"] }
 generic-array = { version = "0.14.5", features = ["serde"]}
 lazy_static = "1.4.0"
-oqs = { version = "0.7.1", default-features = false, features = ["std", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
 enum_primitive = "0.1.1"
 serde = { version = "1.0.135", features = ["derive"] }
 #serde_traitobject = "0.2.7"
@@ -39,6 +34,12 @@ parking_lot = { version = "0.11.2", features = ["serde"], optional = true }
 log = { version = "0.4.14", features = ["std", "max_level_info", "release_max_level_info"] }
 strum = { version = "0.23.0", features = ["derive"] }
 sha3 = "0.10.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oqs = { version = "0.7.0", default-features = false, features = ["std", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+oqs = { version = "0.7.0", default-features = false, features = ["non_portable", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
 
 [dev-dependencies]
 rand = "0.8.4"

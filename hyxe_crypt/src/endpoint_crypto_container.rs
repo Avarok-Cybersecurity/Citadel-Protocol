@@ -119,7 +119,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     /// Providing "false" will unconditionally unlock the ratchet
     pub fn maybe_unlock(&mut self, requires_locked_by_alice: bool) -> Option<&R> {
         if requires_locked_by_alice {
-            if self.lock_set_by_alice.clone().unwrap_or(false) {
+            if self.lock_set_by_alice.unwrap_or(false) {
                 if !self.update_in_progress.fetch_nand(true, Ordering::SeqCst) {
                     log::error!("Expected update_in_progress to be true");
                 }
@@ -167,7 +167,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         let set_lock = move |this: &mut Self| {
             this.update_in_progress.store(true, Ordering::SeqCst);
             this.lock_set_by_alice = Some(true);
-            Some(this.get_hyper_ratchet(None)?.next_alice_constructor()?)
+            this.get_hyper_ratchet(None)?.next_alice_constructor()
         };
 
         if force {
