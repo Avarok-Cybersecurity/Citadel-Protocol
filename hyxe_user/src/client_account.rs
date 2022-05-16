@@ -260,7 +260,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
           let read = self.read();
             match &read.auth_store {
                 DeclaredAuthenticationMode::Argon { argon, full_name, username } => (argon.settings().clone(), full_name.clone(), username.clone()),
-                DeclaredAuthenticationMode::Passwordless { .. } => return Ok(ProposedCredentials::passwordless())
+                DeclaredAuthenticationMode::Passwordless { username, .. } => return Ok(ProposedCredentials::passwordless(username.clone()))
             }
         };
 

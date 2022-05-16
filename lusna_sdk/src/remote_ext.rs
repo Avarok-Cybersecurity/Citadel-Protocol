@@ -403,6 +403,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use crate::prelude::*;
+    use uuid::Uuid;
 
     struct ServerFileTransferKernel(Option<NodeRemote>);
 
@@ -465,8 +466,9 @@ mod tests {
 
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         let (server, server_addr) = server_info();
+        let uuid = Uuid::new_v4();
 
-        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(server_addr, |_channel, mut remote| async move {
+        let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(uuid, server_addr, |_channel, mut remote| async move {
             log::info!("***CLIENT LOGIN SUCCESS :: File transfer next ***");
             remote.send_file_with_custom_chunking("../resources/TheBridge.pdf", 32*1024).await.unwrap();
             log::info!("***CLIENT FILE TRANSFER SUCCESS***");

@@ -1,6 +1,7 @@
 use crate::account_manager::AccountManager;
 use crate::prelude::{ClientNetworkAccount, MutualPeer};
 use crate::misc::AccountError;
+use uuid::Uuid;
 
 /// The file extension for (H)yper(N)ode(A)ccounts (every node has one)
 pub const NAC_SERIALIZED_EXTENSION: &str = "hna";
@@ -59,5 +60,11 @@ impl From<&str> for UserIdentifier {
 impl From<u64> for UserIdentifier {
     fn from(cid: u64) -> Self {
         Self::ID(cid)
+    }
+}
+
+impl From<Uuid> for UserIdentifier {
+    fn from(uuid: Uuid) -> Self {
+        Self::Username(uuid.to_string())
     }
 }
