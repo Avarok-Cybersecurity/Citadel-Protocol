@@ -22,7 +22,7 @@ pub async fn create_client_self_signed_config() -> Result<ClientConfig, anyhow::
 }
 
 pub fn create_rustls_client_config<T: AsRef<[u8]>>(allowed_certs: &[T]) -> Result<ClientConfig, anyhow::Error> {
-    cert_vec_to_secure_client_config(&allowed_certs.into_iter().map(|r| rustls::Certificate(r.as_ref().to_vec())).collect())
+    cert_vec_to_secure_client_config(&allowed_certs.iter().map(|r| rustls::Certificate(r.as_ref().to_vec())).collect())
 }
 
 pub fn cert_vec_to_secure_client_config(certs: &Vec<Certificate>) -> Result<ClientConfig, anyhow::Error> {
@@ -81,7 +81,7 @@ pub fn create_server_config(pkcs12_der: &[u8], password: &str) -> Result<TLSQUIC
 /// This can be an expensive operation, empirically lasting upwards of 200ms on some systems
 /// This should only be called once, preferably at init of the protocol
 pub async fn load_native_certs_async() -> Result<Vec<Certificate>, Error> {
-    tokio::task::spawn_blocking(|| load_native_certs()).await?
+    tokio::task::spawn_blocking(load_native_certs).await?
 }
 
 /// Loads native certs. This is an expensive operation, and should be called once per node

@@ -446,6 +446,7 @@ impl HdpSession {
                 let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), 0, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
+                log::info!("Running stage0 alice");
                 let transfer = alice_constructor.stage0_alice();
 
                 let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(session_security_settings.crypto_params.into(), timestamp, local_nid, transfer, potential_cids_alice, passwordless);
@@ -1157,7 +1158,7 @@ impl HdpSession {
                                 PeerSignal::DisconnectUDP(v_conn)
                             }
                             // case 1: user just initiated a post-register request that has Fcm enabled
-                            PeerSignal::PostRegister(vconn, a, b, c, FcmPostRegister::Enable) => {
+                            PeerSignal::PostRegister(vconn, a, b, c,d, FcmPostRegister::Enable) => {
                                 let target_cid = vconn.get_original_target_cid();
                                 log::info!("[FCM] client {} requested FCM post-register with {}", inner.cid, target_cid);
 
@@ -1175,11 +1176,11 @@ impl HdpSession {
                                 }
 
                                 do_save = true;
-                                PeerSignal::PostRegister(vconn, a, b, c, fcm_post_register)
+                                PeerSignal::PostRegister(vconn, a, b, c, d,fcm_post_register)
                             }
 
                             // case 2: local just accepted, fcm is enabled. But, signal was not sent via FCM. Instead, was sent via normal network
-                            PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, _this_cid)) => {
+                            PeerSignal::PostRegister(vconn, a, b, ticket, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, _this_cid)) => {
                                 let target_cid = vconn.get_original_target_cid();
                                 let local_cid = inner.cid;
                                 log::info!("[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
@@ -1196,7 +1197,17 @@ impl HdpSession {
                                 inner.fcm_crypt_container.insert(target_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, peer_fcm_keys)); // local is NOT initiator in this case
                                 do_save = true;
 
-                                PeerSignal::PostRegister(vconn, a, b, Some(PeerResponse::Accept(Some(c))), fcm_post_register)
+                                PeerSignal::PostRegister(vconn, a, b, ticket,Some(PeerResponse::Accept(Some(c))), fcm_post_register)
+                            }
+
+                            PeerSignal::PostConnect(a, b, None, d, e) => {
+                                if state_container.outgoing_peer_connect_attempts.contains_key(&a.get_original_target_cid()) {
+                                    log::warn!("{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
+                                }
+
+                                // in case the ticket gets mapped during simultaneous_connect, store locally
+                                let _ = state_container.outgoing_peer_connect_attempts.insert(a.get_original_target_cid(), ticket);
+                                PeerSignal::PostConnect(a, b, None, d, e)
                             }
 
                             n => {

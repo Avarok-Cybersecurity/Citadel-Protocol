@@ -82,7 +82,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
         let mut map = self.write_map();
-        let cnac = map.remove(&cid).ok_or(AccountError::ClientNonExists(cid))?.clone();
+        let cnac = map.remove(&cid).ok_or(AccountError::ClientNonExists(cid))?;
         self.delete_removed_cnac(cnac, map)
     }
 
@@ -198,7 +198,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;
         let cnac1 = read.get(&cid1).ok_or(AccountError::ClientNonExists(cid1))?;
 
-        cnac0.deregister_hyperlan_p2p_as_server_filesystem(&cnac1)?;
+        cnac0.deregister_hyperlan_p2p_as_server_filesystem(cnac1)?;
 
         Ok(())
     }
@@ -304,7 +304,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     }
 
     fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) {
-        if let Some(cnac) = self.write_map().insert(cnac.get_id(), cnac.clone()) {
+        if let Some(cnac) = self.write_map().insert(cnac.get_id(), cnac) {
             log::error!("Overwrote pre-existing account {} in the CNAC map. Please report to developers", cnac.get_id());
         } else {
             log::info!("Successfully added client to FilesystemBackend Hashmap");
@@ -352,7 +352,7 @@ impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
             for peer in peers {
                 let peer_cid = peer.cid;
                 if let Some(mutual) = write.get(&peer_cid) {
-                    if let Some(_) = mutual.remove_hyperlan_peer(cid) {
+                    if mutual.remove_hyperlan_peer(cid).is_some() {
                         mutual.spawn_save_task_on_threadpool();
                     }
                 }

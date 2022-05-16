@@ -1103,6 +1103,7 @@ pub(crate) mod peer_cmd {
         packet
     }
 
+    #[allow(dead_code)]
     pub(crate) fn craft_peer_signal_endpoint<T: SyncIO + Serialize>(hyper_ratchet: &HyperRatchet, peer_command: T, ticket: Ticket, timestamp: i64, target_cid: u64, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::PEER_CMD,

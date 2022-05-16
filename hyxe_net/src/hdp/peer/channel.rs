@@ -33,8 +33,7 @@ impl PeerChannel {
             vconn_type,
             implicated_cid,
             channel_id,
-            security_level,
-            is_alive: is_alive.clone()
+            security_level
         };
 
         let recv_half = PeerChannelRecvHalf {
@@ -123,9 +122,7 @@ pub struct PeerChannelSendHalf {
     implicated_cid: u64,
     vconn_type: VirtualConnectionType,
     channel_id: Ticket,
-    security_level: SecurityLevel,
-    // When the associated virtual conn drops, this gets flipped off, and hence, data won't be sent anymore
-    is_alive: Arc<AtomicBool>
+    security_level: SecurityLevel
 }
 
 impl Debug for PeerChannelSendHalf {
@@ -141,22 +138,14 @@ impl PeerChannelSendHalf {
 
     /// Sends a message using the sink interface
     pub async fn send_message(&mut self, message: SecureProtocolPacket) -> Result<(), NetworkError> {
-        /*use futures::SinkExt;
-        self.send(message).await*/
         let (ticket, message, v_conn, security_level) = self.get_args(message);
         inner_mut_state!(self.state_container).process_outbound_message(ticket, message, v_conn, security_level, false)?;
-        //tokio::task::yield_now().await;
         Ok(())
     }
 
     /// used to identify this channel in the network
     pub fn channel_id(&self) -> Ticket {
         self.channel_id
-    }
-
-    #[allow(dead_code)]
-    fn close(&self) {
-        self.is_alive.store(false, Ordering::SeqCst);
     }
 
     #[inline]

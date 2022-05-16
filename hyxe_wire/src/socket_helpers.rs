@@ -46,7 +46,6 @@ fn setup_bind(addr: SocketAddr, socket: &Socket, reuse: bool) -> Result<(), anyh
 
 
 async fn setup_connect(connect_addr: SocketAddr, socket: Socket, timeout: Duration, reuse: bool) -> Result<TcpStream, anyhow::Error> {
-    // TODO: Consider whether to pass connect_addr or bind ... socket.set_only_v6 may cause errors on some platforms
     setup_base_socket(connect_addr, &socket, reuse)?;
     let socket = tokio::net::TcpSocket::from_std_stream(socket.into());
     Ok(tokio::time::timeout(timeout, socket.connect(connect_addr)).await??)
@@ -112,7 +111,7 @@ async fn asyncify<F, O>(fx: F) -> Result<O, anyhow::Error>
     where F: FnOnce() -> O,
             F: Send + 'static,
             O: Send + 'static {
-    Ok(tokio::task::spawn_blocking(move || fx()).await?)
+    Ok(tokio::task::spawn_blocking(fx).await?)
 }
 
 pub fn is_ipv6_enabled() -> bool {
@@ -162,11 +161,9 @@ mod tests {
     #[tokio::test]
     async fn test_tcp(#[case] addr: SocketAddr) -> std::io::Result<()> {
         setup_log();
-        if addr.is_ipv6() {
-            if !is_ipv6_enabled() {
-                log::info!("Skipping IPv6 test since IPv6 is not enabled");
-                return Ok(())
-            }
+        if addr.is_ipv6() && !is_ipv6_enabled() {
+            log::info!("Skipping IPv6 test since IPv6 is not enabled");
+            return Ok(())
         }
         let server = get_tcp_listener(addr).unwrap();
         let addr = server.local_addr().unwrap();
@@ -196,11 +193,9 @@ mod tests {
     #[tokio::test]
     async fn test_udp(#[case] addr: SocketAddr) -> Result<(), anyhow::Error> {
         setup_log();
-        if addr.is_ipv6() {
-            if !is_ipv6_enabled() {
-                log::info!("Skipping IPv6 test since IPv6 is not enabled");
-                return Ok(())
-            }
+        if addr.is_ipv6() && !is_ipv6_enabled() {
+            log::info!("Skipping IPv6 test since IPv6 is not enabled");
+            return Ok(())
         }
         let server = get_udp_socket(addr).unwrap();
         let addr = server.local_addr().unwrap();

@@ -54,6 +54,7 @@ impl SessionQueueWorkerHandle {
     }
 
     /// A conveniant way to check on a task once sometime in the future
+    #[allow(dead_code)]
     pub fn insert_oneshot(&self, call_in: Duration, on_call: impl Fn(&mut dyn ExpectedInnerTargetMut<StateContainerInner>) + Send + 'static) {
         self.insert_reserved(None, call_in, move |sess| {
             (on_call)(sess);

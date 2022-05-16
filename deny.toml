@@ -18,13 +18,12 @@
 # dependencies not shared by any other crates, would be ignored, as the target
 # list here is effectively saying which targets you are building for.
 targets = [
-    # The triple can be any string, but only the target triples built in to
-    # rustc (as of 1.40) can be checked against actual config expressions
-    #{ triple = "x86_64-unknown-linux-musl" },
-    # You can also specify which target_features you promise are enabled for a
-    # particular target. target_features are currently not validated against
-    # the actual valid features supported by the target architecture.
-    #{ triple = "wasm32-unknown-unknown", features = ["atomics"] },
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "x86_64-unknown-linux-musl" },
+    { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "x86_64-pc-windows-msvc" },
 ]
 
 # This section is considered when running `cargo deny check advisories`
@@ -48,7 +47,7 @@ notice = "warn"
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
 ignore = [
-    #"RUSTSEC-0000-0000",
+    #"RUSTSEC-2020-0071", # the fcm->chrono->time crate
 ]
 # Threshold for security vulnerabilities, any vulnerability with a CVSS score
 # lower than the range specified will be ignored. Note that ignored advisories
@@ -70,9 +69,14 @@ unlicensed = "deny"
 # See https://spdx.org/licenses/ for list of possible licenses
 # [possible values: any SPDX 3.11 short identifier (+ optional exception)].
 allow = [
-    #"MIT",
-    #"Apache-2.0",
-    #"Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "Apache-2.0",
+    "Unlicense",
+    "ISC",
+    "CC0-1.0",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "OpenSSL"
 ]
 # List of explictly disallowed licenses
 # See https://spdx.org/licenses/ for list of possible licenses
@@ -81,7 +85,7 @@ deny = [
     #"Nokia",
 ]
 # Lint level for licenses considered copyleft
-copyleft = "warn"
+copyleft = "deny"
 # Blanket approval or denial for OSI-approved or FSF Free/Libre licenses
 # * both - The license will be approved if it is both OSI-approved *AND* FSF
 # * either - The license will be approved if it is either OSI-approved *OR* FSF
@@ -102,30 +106,86 @@ confidence-threshold = 0.8
 # Allow 1 or more licenses on a per-crate basis, so that particular licenses
 # aren't accepted for every possible crate as with the normal allow list
 exceptions = [
-    # Each entry is the crate and version constraint, and its specific allow
-    # list
-    #{ allow = ["Zlib"], name = "adler32", version = "*" },
+    # we do not use synchronous processing, thus, do not use
+    # attohttpc
+    { allow = ["MPL-2.0"], name = "attohttpc", version = "*" },
+    # this is for testing only, which is not part of the SDK
+    { allow = ["MPL-2.0"], name = "webpki-roots", version = "*" }
 ]
 
 # Some crates don't have (easily) machine readable licensing information,
 # adding a clarification entry for it allows you to manually specify the
 # licensing information
-#[[licenses.clarify]]
+[[licenses.clarify]]
 # The name of the crate the clarification applies to
-#name = "ring"
+name = "ring"
 # The optional version constraint for the crate
-#version = "*"
+version = "*"
 # The SPDX expression for the license requirements of the crate
-#expression = "MIT AND ISC AND OpenSSL"
+expression = "MIT AND ISC AND OpenSSL"
 # One or more files in the crate's source used as the "source of truth" for
 # the license expression. If the contents match, the clarification will be used
 # when running the license check, otherwise the clarification will be ignored
 # and the crate will be checked normally, which may produce warnings or errors
 # depending on the rest of your configuration
-#license-files = [
+license-files = [
     # Each entry is a crate relative path, and the (opaque) hash of its contents
-    #{ path = "LICENSE", hash = 0xbd0eed23 }
-#]
+    { path = "LICENSE", hash = 0xbd0eed23 }
+]
+
+[[licenses.clarify]]
+name = "hyxe_fs"
+expression = "MIT AND ISC AND OpenSSL"
+version = "*"
+license-files = [
+    # Each entry is a crate relative path, and the (opaque) hash of its contents
+    { path = "LICENSE-COMMERCIAL-USE.pdf", hash = 0xd0897add }
+]
+
+[[licenses.clarify]]
+name = "hyxe_wire"
+expression = "MIT AND ISC AND OpenSSL"
+version = "*"
+license-files = [
+    # Each entry is a crate relative path, and the (opaque) hash of its contents
+    { path = "LICENSE-COMMERCIAL-USE.pdf", hash = 0xd0897add }
+]
+
+[[licenses.clarify]]
+name = "hyxe_user"
+expression = "MIT AND ISC AND OpenSSL"
+version = "*"
+license-files = [
+    # Each entry is a crate relative path, and the (opaque) hash of its contents
+    { path = "LICENSE-COMMERCIAL-USE.pdf", hash = 0xd0897add }
+]
+
+[[licenses.clarify]]
+name = "hyxe_crypt"
+expression = "MIT AND ISC AND OpenSSL"
+version = "*"
+license-files = [
+    # Each entry is a crate relative path, and the (opaque) hash of its contents
+    { path = "LICENSE-COMMERCIAL-USE.pdf", hash = 0xd0897add }
+]
+
+[[licenses.clarify]]
+name = "hyxe_net"
+expression = "MIT AND ISC AND OpenSSL"
+version = "*"
+license-files = [
+    # Each entry is a crate relative path, and the (opaque) hash of its contents
+    { path = "LICENSE-COMMERCIAL-USE.pdf", hash = 0xd0897add }
+]
+
+[[licenses.clarify]]
+name = "lusna_sdk"
+expression = "MIT AND ISC AND OpenSSL"
+version = "*"
+license-files = [
+    # Each entry is a crate relative path, and the (opaque) hash of its contents
+    { path = "LICENSE-COMMERCIAL-USE.pdf", hash = 0xd0897add }
+]
 
 [licenses.private]
 # If true, ignores workspace crates that aren't published, or are only
