@@ -36,10 +36,10 @@ strum = { version = "0.23.0", features = ["derive"] }
 sha3 = "0.10.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-oqs = { version = "0.7.0", default-features = false, features = ["std", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
+oqs = { git = "https://github.com/open-quantum-safe/liboqs-rust.git", default-features = false, features = ["std", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-oqs = { version = "0.7.0", default-features = false, features = ["non_portable", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
+oqs = { git = "https://github.com/open-quantum-safe/liboqs-rust.git", default-features = false, features = ["non_portable", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
 
 [dev-dependencies]
 rand = "0.8.4"
