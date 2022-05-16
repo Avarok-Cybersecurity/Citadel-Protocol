@@ -26,7 +26,7 @@ use num_integer::Integer;
 /// The true sequence should just be the exact order of the data without any consideration of sequence nor wave-ID
 pub fn generate_packet_vector(true_sequence: usize,  group_id: u64, drill: &Drill) -> PacketVector {
     // To get the wave_id, we must floor divide the true sequence by the port range. The remainder is the sequence
-    let ref port_range = drill.get_multiport_width();
+    let port_range = &drill.get_multiport_width();
     let (true_wave_id, relative_sequence) = true_sequence.div_mod_floor(port_range);
     // To scramble the true values, we get their corresponding values in the drill
     let (local_port, remote_port) = *drill.scramble_mappings.get(relative_sequence).unwrap();

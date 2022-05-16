@@ -33,7 +33,7 @@ impl HolePunchConfig {
         // we do not check when doing localhost-testing since we don't want
         // a runner behind an unpredictable NAT to error out
         #[cfg(not(feature = "localhost-testing"))] {
-            if !local_nat_info.stun_compatible(&peer_nat_info) {
+            if !local_nat_info.stun_compatible(peer_nat_info) {
                 return Err(anyhow::Error::msg("This cannot be called if STUN is not compatible"))
             }
         }
@@ -47,7 +47,7 @@ impl HolePunchConfig {
                 let mut bands = Vec::new();
                 // Below assumes the addr port is exactly whatever the server saw it as.
                 // NOTE: since a QUIC connection may be established, using up the UDP port,
-                // it is necessaru that *before* the peer sends their info to this node, the port
+                // it is necessary that *before* the peer sends their info to this node, the port
                 // is accurately reflected in this direct addr
                 let ports = vec![direct_addr.port()];
                 let direct_addr_ip = direct_addr.ip();
@@ -58,7 +58,7 @@ impl HolePunchConfig {
                     anticipated_ports: ports
                 });
 
-                let locally_bound_sockets = Self::generate_local_sockets(&local_nat_info, first_local_socket)?;
+                let locally_bound_sockets = Self::generate_local_sockets(local_nat_info, first_local_socket)?;
 
                 Ok(Self {
                     bands,
@@ -77,7 +77,7 @@ impl HolePunchConfig {
                     anticipated_ports: ports
                 });
 
-                let locally_bound_sockets = Self::generate_local_sockets(&local_nat_info, first_local_socket)?;
+                let locally_bound_sockets = Self::generate_local_sockets(local_nat_info, first_local_socket)?;
 
                 Ok(Self {
                     bands,
@@ -88,7 +88,7 @@ impl HolePunchConfig {
             NatType::EDM(last_external_addr, other_addrs, delta, _) => {
                 let mut bands = Vec::new();
                 Self::generate_predict_ports_config(*delta as _, *last_external_addr, &mut bands, other_addrs.clone(), peer_declared_internal_port);
-                let locally_bound_sockets = Self::generate_local_sockets(&local_nat_info, first_local_socket)?;
+                let locally_bound_sockets = Self::generate_local_sockets(local_nat_info, first_local_socket)?;
 
                 Ok(Self {
                     bands,
@@ -100,7 +100,7 @@ impl HolePunchConfig {
                 let mut bands = Vec::new();
                 let delta = peer_average_delta_opt.ok_or_else(||anyhow::Error::msg("Expected acceptable average delta"))?;
                 Self::generate_predict_ports_config(delta, *last_external_addr, &mut bands, other_addrs.clone(), peer_declared_internal_port);
-                let locally_bound_sockets = Self::generate_local_sockets(&local_nat_info, first_local_socket)?;
+                let locally_bound_sockets = Self::generate_local_sockets(local_nat_info, first_local_socket)?;
 
                 Ok(Self {
                     bands,
@@ -108,21 +108,34 @@ impl HolePunchConfig {
                 })
             }
 
-            NatType::EDMRandomIp(.., _) => {
+            NatType::EDMRandomIp(_, _addr, _is_v6_allowed) => {
                 // Thanks to the preceeding logic, if we get here, we know the local node has a predictable address
                 // evidently, the peer does not, however, this does not matter.
                 // The packets we send likely will not make contact with the peer. However, once the peer
                 // contacts us, we can then send a packet back to them. The peer will send packets to us at
                 // the addr implicated by the first local socket. Thus, we keep the current socket, and,
                 // create an empty send band
-                Ok(Self {
-                    bands: vec![],
-                    locally_bound_sockets: Some(vec![first_local_socket])
-                })
+
+                // NOTE: the above assertion about the local node having a predictable addr
+                // may not be true in localhost-testing mode. In the case we are in localhost-testing
+                // mode, AND, both 'nodes' are behind an unpredictable NAT, simply connect to the internal
+                // addr
+                if cfg!(feature = "localhost-testing") {
+                    log::info!("Simulating peer has port preserved config");
+                    // pretend the peer NAT has a PortPreserved config
+                    let direct_addr = _addr.clone().ok_or_else(||anyhow::Error::msg("unable to simulate PortPreserved config"))?;
+                    let simulated_peer_nat = NatType::PortPreserved(direct_addr.internal_ipv4, Some(direct_addr), *_is_v6_allowed);
+                    Self::new(local_nat_info, &simulated_peer_nat, first_local_socket, peer_declared_internal_port)
+                } else {
+                    Ok(Self {
+                        bands: vec![],
+                        locally_bound_sockets: Some(vec![first_local_socket])
+                    })
+                }
             }
 
             _ => {
-                return Err(anyhow::Error::msg("This function should not be called since one or more of the peers cannot be reached via STUN-like traversal"))
+                Err(anyhow::Error::msg("This function should not be called since one or more of the peers cannot be reached via STUN-like traversal"))
             }
         }
     }
@@ -159,11 +172,13 @@ impl HolePunchConfig {
     // `first_local_socket` is needed since it contains information vital for the adjacent node to connect,
     // especially if behind the same LAN. For maximum likelihood of NAT traversal, it is recommended that if
     // ipv6_is_enabled, the first_local_socket is also v6
-    fn generate_local_sockets(local_nat_info: &NatType, first_local_socket: UdpSocket) -> Result<Vec<UdpSocket>, anyhow::Error> {
+    fn generate_local_sockets(_local_nat_info: &NatType, first_local_socket: UdpSocket) -> Result<Vec<UdpSocket>, anyhow::Error> {
         // one addr will bind on 0.0.0.0 (or [::]), and the other on 127.0.0.1 (or [::1])
-        let local_bind_addr = first_local_socket.local_addr()?;
-        let mut ret = vec![first_local_socket];
+        let _local_bind_addr = first_local_socket.local_addr()?;
+        let ret = vec![first_local_socket];
 
+        // NOTE: We only bind to a single addr now, since that's all that's needed
+        /*
         match local_nat_info {
             NatType::EIM(..) | NatType::PortPreserved(..) => {
                 // we alter nothing
@@ -187,11 +202,12 @@ impl HolePunchConfig {
             _ => {
                 return Err(anyhow::Error::msg("This function should not be called since one or more of the peers cannot be reached via STUN-like traversal"))
             }
-        }
+        }*/
 
         Ok(ret)
     }
 
+    #[allow(dead_code)]
     fn generate_bind_for_delta_config(ret: &mut Vec<UdpSocket>, delta: u16, local_bind_addr: SocketAddr) -> Result<(), anyhow::Error> {
         // our internal port does not matter. The peer will predict the ports
         // we bind to. We will open SPREAD * delta ports locally since the peer will expect
@@ -264,7 +280,7 @@ impl HolePunchConfig {
         // subroutine uses STUNv4
         bands.push(AddrBand {
             necessary_ip: last_external_addr.ip(),
-            anticipated_ports: ports.clone()
+            anticipated_ports: ports
         });
     }
 }
@@ -283,7 +299,7 @@ impl IntoIterator for HolePunchConfig {
         let mut ret = vec![];
 
         for band in self.bands.iter_mut() {
-            while let Some(next) = band.next() {
+            for next in band.by_ref() {
                 ret.push(next);
             }
         }

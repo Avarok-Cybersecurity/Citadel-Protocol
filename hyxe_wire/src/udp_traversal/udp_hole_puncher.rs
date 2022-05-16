@@ -39,12 +39,12 @@ impl Future for UdpHolePuncher<'_> {
 }
 
 async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    let ref local_nat_type = NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?;
+    let local_nat_type = &(NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?);
 
     // exchange information
-    let ref stream = conn.initiate_subscription().await?;
+    let stream = &(conn.initiate_subscription().await?);
     stream.send_serialized(local_nat_type).await?;
-    let ref peer_nat_type = stream.recv_serialized::<NatType>().await?;
+    let peer_nat_type = &(stream.recv_serialized::<NatType>().await?);
 
     log::info!("[driver] Local NAT type: {:?}", local_nat_type);
     let local_initial_socket = get_optimal_bind_socket(local_nat_type, peer_nat_type)?;
@@ -56,7 +56,7 @@ async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedCon
 
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
     // connections (e.g., no conflicts with the primary stream existing in conn)
-    let hole_punch_config = HolePunchConfig::new(local_nat_type, &peer_nat_type, local_initial_socket, peer_internal_bind_port)?;
+    let hole_punch_config = HolePunchConfig::new(local_nat_type, peer_nat_type, local_initial_socket, peer_internal_bind_port)?;
     log::info!("[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
     let res = DualStackUdpHolePuncher::new(conn.node_type(), encrypted_config_container, hole_punch_config, conn)?.await;
     res

@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Thomas Braun <tbraun96@gmail.com>"]
 edition = "2018"
 workspace = "../"
+license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 [features]
 default = ["multi-threaded"]
@@ -66,6 +67,7 @@ async-recursion = "0.3.2"
 clap = "2.33.3"
 portpicker = "0.1.1"
 dirs2 = "3.0.1"
+ureq = "2.4.0"
 rstest = "0.12.0"
 
 [lib]

@@ -1,11 +1,12 @@
 use crate::account_manager::AccountManager;
-use crate::prelude::ClientNetworkAccount;
+use crate::prelude::{ClientNetworkAccount, MutualPeer};
 use crate::misc::AccountError;
+use uuid::Uuid;
 
-/// The file extension for (H)yper(N)ode(A)ccounts (server/client NAC)
-pub const NAC_SERIALIZED_EXTENSION: &'static str = "hna";
-/// The file extension for (H)yper(N)ode(A)ccounts (CNAC only)
-pub const CNAC_SERIALIZED_EXTENSION: &'static str = "hca";
+/// The file extension for (H)yper(N)ode(A)ccounts (every node has one)
+pub const NAC_SERIALIZED_EXTENSION: &str = "hna";
+/// The file extension for CNACs only
+pub const CNAC_SERIALIZED_EXTENSION: &str = "hca";
 
 /// For obtaniing data from a HyperNode account
 pub trait HyperNodeAccountInformation {
@@ -30,6 +31,18 @@ impl UserIdentifier {
             Self::Username(uname) => account_manager.get_client_by_username(uname).await
         }
     }
+
+    /// Performs a search for the current peer given the `implicated_cid`
+    pub async fn search_peer(&self, implicated_cid: u64, account_manager: &AccountManager) -> Result<Option<MutualPeer>, AccountError> {
+        match self {
+            UserIdentifier::ID(cid) => {
+                account_manager.get_persistence_handler().get_hyperlan_peer_by_cid(implicated_cid,*cid).await
+            }
+            UserIdentifier::Username(name) => {
+                account_manager.get_persistence_handler().get_hyperlan_peer_by_username(implicated_cid, name.as_str()).await
+            }
+        }
+    }
 }
 
 impl From<String> for UserIdentifier {
@@ -47,5 +60,11 @@ impl From<&str> for UserIdentifier {
 impl From<u64> for UserIdentifier {
     fn from(cid: u64) -> Self {
         Self::ID(cid)
+    }
+}
+
+impl From<Uuid> for UserIdentifier {
+    fn from(uuid: Uuid) -> Self {
+        Self::Username(uuid.to_string())
     }
 }

@@ -101,7 +101,7 @@ async fn synchronize<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedC
         Fx: FnOnce(P) -> F,
         Fx: Send {
 
-    let ref conn = conn.initiate_subscription().await?;
+    let conn = &(conn.initiate_subscription().await?);
     let tt = TimeTracker::new();
 
     match relative_node_type {

@@ -6,7 +6,7 @@ use crate::io::FsError;
 use std::path::PathBuf;
 
 /// Home directory
-pub const BASE_NAME: &'static str = ".lusna";
+pub const BASE_NAME: &str = ".lusna";
 /// The total length of each saved file's name
 pub const HYXE_FILE_OBFUSCATED_LEN: usize = 50;
 
@@ -66,7 +66,7 @@ fn setup_directory_w_bind_addr(bind_addr: &str, nac_serialized_extension: &'stat
     let home = if let Some(mut home) = home_dir {
         #[cfg(not(target_os = "windows"))]
             {
-                if !home.ends_with("/") {
+                if !home.ends_with('/') {
                     home.push('/');
                 }
             }
@@ -91,7 +91,7 @@ fn setup_directory_w_bind_addr(bind_addr: &str, nac_serialized_extension: &'stat
         hyxe_nac_dir_personal: append_to_path(home.clone(), "accounts/personal/"),
         hyxe_server_dir: hyxe_server_dir.clone(),
         hyxe_config_dir: append_to_path(home.clone(), "config/"),
-        hyxe_virtual_dir: append_to_path(home.clone(), "virtual/"),
+        hyxe_virtual_dir: append_to_path(home, "virtual/"),
         nac_node_default_store_location:  hyxe_server_dir + "default_server." + nac_serialized_extension
     };
 

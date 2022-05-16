@@ -48,14 +48,14 @@ impl Method3 {
     async fn execute_either(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<TargettedSocketAddr, FirewallError> {
         let default_ttl = socket.ttl().ok();
         log::info!("Default TTL: {:?}", default_ttl);
-        let ref unique_id = self.unique_id.clone();
+        let unique_id = &self.unique_id.clone();
         let this_node_type = self.this_node_type;
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
         // 400ms window
-        let ref encryptor = self.encrypted_config;
-        let ref observed_addrs_on_syn = self.observed_addrs_on_syn;
+        let encryptor = &self.encrypted_config;
+        let observed_addrs_on_syn = &self.observed_addrs_on_syn;
 
-        let ref socket_wrapper = UdpWrapper::new(socket);
+        let socket_wrapper = &UdpWrapper::new(socket);
 
         const MILLIS_DELTA: u64 = 20;
 
@@ -70,7 +70,7 @@ impl Method3 {
 
         let sender_task = async move {
             //tokio::time::sleep(Duration::from_millis(10)).await; // wait to allow time for the joined receiver task to execute
-            Self::send_syn_barrage(20, Some(60), socket_wrapper, endpoints, encryptor, MILLIS_DELTA, 2, unique_id.clone(), this_node_type).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
+            Self::send_syn_barrage(20, Some(60), socket_wrapper, endpoints, encryptor, MILLIS_DELTA, 2, *unique_id, this_node_type).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
             //Self::send_syn_barrage(120, None, socket_wrapper, endpoints, encryptor,  MILLIS_DELTA, 3,unique_id.clone()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?;
             Ok(()) as Result<(), FirewallError>
         };
@@ -151,15 +151,15 @@ impl Method3 {
 
                     log::info!("Received TTL={} packet from {:?}. Awaiting mutual recognition... ", ttl, peer_external_addr);
 
+                    has_received_syn = true;
+                    expected_response_addr = Some(peer_external_addr);
+
                     for ttl in [4, 60, 120] {
                         sleep.tick().await;
-                        let ref packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(unique_id.clone(), this_node_type)).unwrap());
+                        let packet = &encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(*unique_id, this_node_type)).unwrap());
                         log::info!("[Syn->SynAck] Sending TTL={} to {} || {:?}", ttl, peer_external_addr, &packet[..] as &[u8]);
                         socket.send(packet, peer_external_addr, Some(ttl)).await?;
                     }
-
-                    has_received_syn = true;
-                    expected_response_addr = Some(peer_external_addr);
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
@@ -175,7 +175,7 @@ impl Method3 {
                         continue;
                     }
 
-                    let expected_addr = expected_response_addr.clone().unwrap();
+                    let expected_addr = expected_response_addr.unwrap();
 
                     if peer_external_addr != expected_addr {
                         log::warn!("RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
