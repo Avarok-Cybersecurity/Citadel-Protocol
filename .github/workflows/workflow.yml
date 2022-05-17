@@ -122,6 +122,36 @@ jobs:
             await github.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
+  valgrind:
+    name: valgrind secmem
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y valgrind
+      # Compile tests
+      - name: cargo build secmem_bytes_test
+        run: cargo build --bin secmem_bytes_test
+      # Run with valgrind
+      - name: Run valgrind secmem_bytes
+        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
+      - name: cargo build secmem_string_test
+        run: cargo build --bin secmem_string_test
+      # Run with valgrind
+      - name: Run valgrind secmem_string
+        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
+      - uses: actions/github-script@v2
+        if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
   cargo_deny_and_coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
