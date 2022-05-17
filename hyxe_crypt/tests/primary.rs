@@ -161,11 +161,6 @@ mod tests {
         let retrieved = bincode2::deserialize::<SecString>(&serde).unwrap().into_buffer();
         // at this point, basic should have dropped, but the memory should not have been zeroed out
         assert_eq!(retrieved, "hey");
-
-        let ptr = val.as_ptr();
-        let len = val.len();
-        // drop val to zero-out the memory
-        std::mem::drop(val);
     }
 
     #[test]
@@ -186,9 +181,6 @@ mod tests {
         let retrieved = buf.into_buffer();
 
         assert_eq!(&*retrieved, b"Hello, world!");
-        assert_eq!(&*retrieved, cloned.as_ref());
-
-        std::mem::drop(cloned);
     }
 
     #[test]
