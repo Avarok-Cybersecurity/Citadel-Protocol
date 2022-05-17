@@ -133,6 +133,7 @@ impl PostQuantumContainer {
 
         let aes_gcm_key = Some(aes_gcm_key);
 
+        log::info!("Success creating new BOB container");
         Ok(Self { chain: Some(chain), params, shared_secret: aes_gcm_key, data, anti_replay_attack: AntiReplayAttackContainer::default(), node: PQNode::Bob })
     }
 
