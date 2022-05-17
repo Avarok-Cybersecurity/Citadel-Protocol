@@ -166,12 +166,6 @@ mod tests {
         let len = val.len();
         // drop val to zero-out the memory
         std::mem::drop(val);
-        // check to see if the values are zeroed
-        let slice = unsafe { &*std::ptr::slice_from_raw_parts(ptr, len) };
-
-        #[cfg(not(target_os = "linux"))] {
-            assert_eq!(slice, &[0, 0]);
-        }
     }
 
     #[test]
@@ -186,18 +180,15 @@ mod tests {
         let cloned = buf.clone();
         let ptr = cloned.as_ref().as_ptr();
         let len = cloned.as_ref().len();
+        let ptr_slice = unsafe { std::slice::from_raw_parts(ptr, len) };
 
+        assert_eq!(cloned.as_ref(), ptr_slice);
         let retrieved = buf.into_buffer();
 
         assert_eq!(&*retrieved, b"Hello, world!");
         assert_eq!(&*retrieved, cloned.as_ref());
 
         std::mem::drop(cloned);
-
-        let slice = unsafe { &*std::ptr::slice_from_raw_parts(ptr, len) };
-        #[cfg(not(target_os = "linux"))] {
-            assert_eq!(slice, &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-        }
     }
 
     #[test]
