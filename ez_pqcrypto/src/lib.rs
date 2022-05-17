@@ -640,8 +640,8 @@ impl PostQuantumKem {
         let (public_key, secret_key) = kem_alg.keypair()?;
         let ciphertext = None;
         let shared_secret = None;
-        let secret_key = Some(secret_key.to_owned());
-        Ok(Self { public_key: public_key.to_owned(), secret_key, ciphertext, shared_secret, kem_alg: algorithm })
+        let secret_key = Some(secret_key);
+        Ok(Self { public_key, secret_key, ciphertext, shared_secret, kem_alg: algorithm })
     }
 
     fn new_bob(public_key: &[u8], algorithm: oqs::kem::Algorithm) -> Result<Self, Error> {
@@ -649,8 +649,8 @@ impl PostQuantumKem {
         let public_key = kem_alg.public_key_from_bytes(public_key).ok_or(Error::InvalidLength)?.to_owned();
         let (ciphertext, shared_secret) = kem_alg.encapsulate(&public_key)?;
         let secret_key = None;
-        let shared_secret = Some(shared_secret.to_owned());
-        let ciphertext = Some(ciphertext.to_owned());
+        let shared_secret = Some(shared_secret);
+        let ciphertext = Some(ciphertext);
         Ok(Self { public_key, secret_key, ciphertext, shared_secret, kem_alg: algorithm })
     }
 
