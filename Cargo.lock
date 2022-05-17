@@ -2318,8 +2318,7 @@ dependencies = [
 [[package]]
 name = "oqs"
 version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9534d1e8a22731bcd9fb97be6f6597503dcc4d86fd72e8a9deec214481884cc6"
+source = "git+https://github.com/open-quantum-safe/liboqs-rust.git#9341a0c2bec17760125ade3ff35c712f5efff297"
 dependencies = [
  "cstr_core",
  "libc",
@@ -2330,8 +2329,7 @@ dependencies = [
 [[package]]
 name = "oqs-sys"
 version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "667693ecaa5afb140d88242bced5f259c9c2e2f477418f13b47834d784ed2b12"
+source = "git+https://github.com/open-quantum-safe/liboqs-rust.git#9341a0c2bec17760125ade3ff35c712f5efff297"
 dependencies = [
  "bindgen",
  "build-deps",
