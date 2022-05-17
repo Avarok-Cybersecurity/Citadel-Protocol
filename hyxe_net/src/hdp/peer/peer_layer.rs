@@ -375,7 +375,7 @@ impl HyperNodePeerLayer {
         let mut this = inner_mut!(self);
 
         while let Some(res) = futures::ready!(this.delay_queue.poll_expired(cx)) {
-            let (implicated_cid, ticket) = res?.into_inner();
+            let (implicated_cid, ticket) = res.into_inner();
             if let Some(active_postings) = this.observed_postings.get_mut(&implicated_cid) {
                 if let Some(posting) = active_postings.remove(&ticket) {
                     log::warn!("Running on_timeout for active posting {} for CID {}", ticket, implicated_cid);
