@@ -142,11 +142,11 @@ jobs:
       # Run with valgrind
       - name: Run valgrind secmem_string
         run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
-      - name: cargo build pq_kems
-        run: cargo build --bin pq_kems_test
-      # Run with valgrind
-      - name: Run valgrind pq_kems
-        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/pq_kems_test
+#      - name: cargo build pq_kems
+#        run: cargo build --bin pq_kems_test
+#      # Run with valgrind
+#      - name: Run valgrind pq_kems
+#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/pq_kems_test
       - uses: actions/github-script@v2
         if: failure()
         with:
