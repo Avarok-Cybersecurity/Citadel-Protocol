@@ -125,6 +125,8 @@ jobs:
   cargo_deny_and_coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - run: cargo install --locked cargo-deny && cargo deny check All
@@ -134,7 +136,6 @@ jobs:
           args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=localhost-testing -- --test-threads=1'
       - uses: codecov/codecov-action@v3
         with:
-          token: ${{secrets.CODECOV_TOKEN}}
           files: cobertura.xml
       - uses: actions/github-script@v2
         if: failure()
