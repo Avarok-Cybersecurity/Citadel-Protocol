@@ -112,7 +112,7 @@ impl PostQuantumContainer {
     pub fn new_alice(opts: ConstructorOpts) -> Result<Self, Error> {
         let params = opts.cryptography.unwrap_or_default();
         let previous_symmetric_key = opts.chain;
-        let data = Self::get_new_alice(params.kem_algorithm)?;
+        let data = Self::create_new_alice(params.kem_algorithm)?;
         let aes_gcm_key = None;
         log::info!("Success creating new ALICE container");
 
@@ -125,7 +125,7 @@ impl PostQuantumContainer {
         let params = opts.cryptography.unwrap_or_default();
         let chain = opts.chain;
 
-        let data = Self::get_new_bob(params.kem_algorithm, public_key)?;
+        let data = Self::create_new_bob(params.kem_algorithm, public_key)?;
         // We must call the below to refresh the internal state to allow get_shared_secret to function
         let ss = data.get_shared_secret().unwrap();
 
@@ -394,12 +394,12 @@ impl PostQuantumContainer {
     }
 
     /// This, for now, only gets FIRESABER
-    fn get_new_alice(kem_algorithm: KemAlgorithm) -> Result<PostQuantumKem, Error> {
+    fn create_new_alice(kem_algorithm: KemAlgorithm) -> Result<PostQuantumKem, Error> {
         PostQuantumKem::new_alice(kem_algorithm.into())
     }
 
     /// This, for now, only gets FIRESABER
-    fn get_new_bob(kem_algorithm: KemAlgorithm, public_key: &[u8]) -> Result<PostQuantumKem, Error> {
+    fn create_new_bob(kem_algorithm: KemAlgorithm, public_key: &[u8]) -> Result<PostQuantumKem, Error> {
         PostQuantumKem::new_bob(public_key, kem_algorithm.into())
     }
 }
@@ -635,6 +635,7 @@ pub struct PostQuantumKem {
 
 impl PostQuantumKem {
     fn new_alice(algorithm: oqs::kem::Algorithm) -> Result<Self, Error> {
+        log::info!("About to generate keypair for {:?}", algorithm);
         let kem_alg = oqs::kem::Kem::new(algorithm)?;
         let (public_key, secret_key) = kem_alg.keypair()?;
         let ciphertext = None;
