@@ -389,7 +389,7 @@ pub mod tests {
     pub const DEFAULT_P2P_SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
     pub const DEFAULT_SECRECY_MODE: SecrecyMode = SecrecyMode::BestEffort;
     pub const DEFAULT_UNDERLYING_PROTOCOL: UnderlyingProtocol = UnderlyingProtocol::Tcp;
-    pub const DEFAULT_COUNT: usize = 4000;
+    pub const DEFAULT_COUNT: usize = 2000;
     pub const DEFAULT_TIMEOUT_CNT_MS: usize = 60000 * 4;
     pub const DEFAULT_RAND_MESSAGE_LEN: usize = 2000;
     pub const DEFAULT_ENCRYPTION_ALGORITHM: EncryptionAlgorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
