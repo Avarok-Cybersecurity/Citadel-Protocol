@@ -174,7 +174,7 @@ fn make_client_endpoint(
 /// only one side needs to set this transport config
 fn load_hole_punch_friendly_quic_transport_config<'a>(cfg: Either<&'a mut ServerConfig, &'a mut ClientConfig>) {
     let mut transport_cfg = TransportConfig::default();
-    transport_cfg.keep_alive_interval(Some(Duration::from_millis(2000)));
+    transport_cfg.keep_alive_interval(Some(Duration::from_millis(8000)));
     transport_cfg.max_concurrent_uni_streams(0u8.into());
 
     match cfg {
