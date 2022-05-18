@@ -164,7 +164,7 @@ jobs:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo install --locked cargo-deny && cargo deny check All
+      - run: cargo install --locked cargo-deny && cargo deny check all
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
