@@ -262,7 +262,7 @@ impl NodeBuilder {
 #[cfg(test)]
 mod tests {
     use crate::builder::node_builder::NodeBuilder;
-    use crate::prefabs::server::empty_kernel::EmptyKernel;
+    use crate::prefabs::server::empty::EmptyKernel;
 
     #[test]
     fn okay_config() {

@@ -136,8 +136,8 @@ impl PeerChannelSendHalf {
         self.security_level = security_level;
     }
 
-    /// Sends a message using the sink interface
-    pub async fn send_message(&mut self, message: SecureProtocolPacket) -> Result<(), NetworkError> {
+    /// Sends a message through the channel
+    pub async fn send_message(&self, message: SecureProtocolPacket) -> Result<(), NetworkError> {
         let (ticket, message, v_conn, security_level) = self.get_args(message);
         inner_mut_state!(self.state_container).process_outbound_message(ticket, message, v_conn, security_level, false)?;
         Ok(())

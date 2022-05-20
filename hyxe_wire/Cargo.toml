@@ -31,11 +31,11 @@ log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_lev
 bincode2 = "2.0.1"
 async_ip = { path = "../async_ip", version = "0.1.0" }
 itertools = "0.10.3"
-quinn = { version = "0.8.0", features = ["rustls"] }
+quinn = { version = "0.8.2", features = ["rustls"] }
 webpki = "0.21.0"
 rustls = { version = "0.20.2", features = ["quic", "dangerous_configuration"] }
 rustls-native-certs = "0.6.1"
-rustls-pemfile = "0.3.0"
+rustls-pemfile = "1.0.0"
 rcgen = "0.9.1"
 openssl = { version = "0.10.36", features = ["vendored"] }
 either = "1.6.1"
