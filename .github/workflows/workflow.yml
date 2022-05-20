@@ -110,8 +110,8 @@ jobs:
     timeout-minutes: 100
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo test --package lusna_sdk --features=single-threaded,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
-      - run: cargo test --package lusna_sdk --features=multi-threaded,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
+      - run: cargo test --package lusna_sdk --features=standard,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
+      - run: cargo test --package lusna_sdk --features=plus,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
       - uses: actions/github-script@v2
         if: failure()
         with:
