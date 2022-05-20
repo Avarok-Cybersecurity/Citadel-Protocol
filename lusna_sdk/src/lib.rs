@@ -136,4 +136,4 @@ pub mod remote_ext;
 pub mod prefabs;
 mod builder;
 #[doc(hidden)]
-pub(crate) mod test_common;
+pub mod test_common;

@@ -378,6 +378,8 @@ pub mod prelude {
     pub use hyxe_user::external_services::fcm::kem::FcmPostRegister;
     pub use crate::hdp::peer::peer_layer::HypernodeConnectionType;
     pub use crate::hdp::misc::sync_future::*;
+    pub use hyxe_fs::io::SyncIO;
+    pub use crate::kernel::RuntimeFuture;
 }
 
 /// Contains the streams for creating connections
