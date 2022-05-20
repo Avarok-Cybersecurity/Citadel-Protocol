@@ -34,6 +34,8 @@ portpicker = "0.1.1"
 dirs2 = "3.0.1"
 env_logger = "0.9.0"
 rstest = "0.12.0"
+serde = { version = "1.0.137", features = ["derive"] }
+rand = "0.8.5"
 
 [lib]
 doctest = false
