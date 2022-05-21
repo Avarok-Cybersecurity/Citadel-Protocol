@@ -117,6 +117,7 @@ mod tests {
         setup_barrier(2);
 
         let (server, server_addr) = server_info_reactive(move |conn, remote| async move {
+            log::info!("*** SERVER RECV CHANNEL ***");
             handle_send_receive(get_barrier(), conn.channel, message_count).await?;
             log::info!("***SERVER TEST SUCCESS***");
             SERVER_SUCCESS.store(true, Ordering::Relaxed);
@@ -130,6 +131,7 @@ mod tests {
             .build();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless(uuid, server_addr, UdpMode::Enabled,session_security,move |connection, remote| async move {
+            log::info!("*** CLIENT RECV CHANNEL ***");
             handle_send_receive(get_barrier(), connection.channel, message_count).await?;
             log::info!("***CLIENT TEST SUCCESS***");
             CLIENT_SUCCESS.store(true, Ordering::Relaxed);
