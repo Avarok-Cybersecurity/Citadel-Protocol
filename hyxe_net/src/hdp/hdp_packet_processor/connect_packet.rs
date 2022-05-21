@@ -84,9 +84,11 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                                 session.state.store(SessionState::Connected, Ordering::Relaxed);
 
                                 let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
+                                // send packet manually to ensure packet gets handled before channel gets used
+                                session.send_to_primary_stream(None, success_packet)?;
                                 session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel, udp_channel_rx))?;
 
-                                Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
+                                Ok(PrimaryProcessorResult::Void)
                             }
                         }
 
