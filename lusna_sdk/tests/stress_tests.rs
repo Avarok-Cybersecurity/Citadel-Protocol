@@ -193,10 +193,16 @@ mod tests {
 
         let client0 = NodeBuilder::default().build(client_kernel0).unwrap();
         let client1 = NodeBuilder::default().build(client_kernel1).unwrap();
+        let clients = futures::future::try_join(client0, client1);
 
-        let joined = futures::future::try_join3(server, client0, client1);
+        let task = async move {
+            tokio::select! {
+                server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res))),
+                client_res = clients => client_res.map(|_| ())
+            }
+        };
 
-        let _ = tokio::time::timeout(Duration::from_secs(120),joined).await.unwrap().unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(120),task).await.unwrap().unwrap();
 
         assert!(CLIENT0_SUCCESS.load(Ordering::Relaxed));
         assert!(CLIENT1_SUCCESS.load(Ordering::Relaxed));
