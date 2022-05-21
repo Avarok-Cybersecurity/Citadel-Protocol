@@ -70,7 +70,6 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                             let account_manager = session.account_manager.clone();
 
                             async move {
-                                // Now, we handle the FCM setup
                                 let mailbox_items = session.session_manager.register_session_with_peer_layer(cid).await?;
                                 let _ = handle_client_fcm_keys(fcm_keys, &cnac, account_manager.get_persistence_handler()).await?;
                                 let peers = account_manager.get_persistence_handler().get_hyperlan_peer_list_with_fcm_keys_as_server(cid).await?.unwrap_or(Vec::new());
