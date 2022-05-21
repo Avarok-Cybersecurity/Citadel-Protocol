@@ -3,8 +3,8 @@ use hyxe_crypt::drill::SecurityLevel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::error::NetworkError;
-use crate::hdp::state_container::{VirtualConnectionType, StateContainer};
-use crate::hdp::outbound_sender::{UnboundedReceiver, OutboundUdpSender};
+use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
+use crate::hdp::outbound_sender::{UnboundedReceiver, OutboundUdpSender, Sender};
 use futures::Stream;
 use futures::task::{Context, Poll};
 use tokio::macros::support::Pin;
@@ -23,12 +23,12 @@ pub struct PeerChannel {
 }
 
 impl PeerChannel {
-    pub(crate) fn new(server_remote: NodeRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>, state_container: StateContainer) -> Self {
+    pub(crate) fn new(server_remote: NodeRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>, to_outbound_stream: Sender<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) -> Self {
         let implicated_cid = vconn_type.get_implicated_cid();
         let recv_type = ReceivePortType::OrderedReliable;
 
         let send_half = PeerChannelSendHalf {
-            state_container,
+            to_outbound_stream,
             target_cid,
             vconn_type,
             implicated_cid,
@@ -116,7 +116,7 @@ pub struct PeerChannelSendHalf {
 
 #[derive(Clone)]
 pub struct PeerChannelSendHalf {
-    state_container: StateContainer,
+    to_outbound_stream: Sender<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>,
     target_cid: u64,
     #[allow(dead_code)]
     implicated_cid: u64,
@@ -139,8 +139,8 @@ impl PeerChannelSendHalf {
     /// Sends a message through the channel
     pub async fn send_message(&self, message: SecureProtocolPacket) -> Result<(), NetworkError> {
         let (ticket, message, v_conn, security_level) = self.get_args(message);
-        inner_mut_state!(self.state_container).process_outbound_message(ticket, message, v_conn, security_level, false)?;
-        Ok(())
+        self.to_outbound_stream.send((ticket, message, v_conn, security_level)).await
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     /// used to identify this channel in the network

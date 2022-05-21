@@ -181,6 +181,7 @@ static TEST_BARRIER: parking_lot::Mutex<Option<TestBarrier>> = parking_lot::cons
 
 #[derive(Clone)]
 struct TestBarrier {
+    #[allow(dead_code)]
     inner: Arc<tokio::sync::Barrier>
 }
 
@@ -189,10 +190,12 @@ impl TestBarrier {
     pub fn setup(count: usize) {
         let _ = TEST_BARRIER.lock().replace(Self::new(count));
     }
+    #[allow(dead_code)]
     fn new(count: usize) -> Self {
         Self { inner: Arc::new(tokio::sync::Barrier::new(count)) }
     }
 
+    #[allow(dead_code)]
     pub async fn wait(&self) {
         let _ = self.inner.wait().await;
     }
