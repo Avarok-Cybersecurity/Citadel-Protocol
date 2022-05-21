@@ -47,29 +47,7 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo test --package hyxe_user --features enterprise,localhost-testing -- --test-threads=1
       #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
-      - run: cargo test --package ez_pqcrypto
-      - run: cargo test --package hyxe_crypt
-      - run: cargo test --package hyxe_fs
-      - uses: actions/github-script@v2
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
-
-  proto:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-2019]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 50
-    steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo test --package hyxe_net --features=localhost-testing -- --test-threads=1
+      - run: cargo test --features=localhost-testing --package ez_pqcrypto --package hyxe_crypt --package hyxe_fs --package hyxe_net
       - uses: actions/github-script@v2
         if: failure()
         with:
