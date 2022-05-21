@@ -78,15 +78,13 @@ pub mod macros {
 
     macro_rules! inner_state {
     ($item:expr) => {
-        //$item.inner.borrow()
-        self.inner.read()
+        $item.inner.borrow()
     };
 }
 
     macro_rules! inner_mut_state {
     ($item:expr) => {
-        //$item.inner.borrow_mut()
-        self.inner.write()
+        $item.inner.borrow_mut()
     };
 }
 

@@ -14,7 +14,7 @@ use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverConfig, GroupR
 use netbeam::time_tracker::TimeTracker;
 use hyxe_user::client_account::ClientNetworkAccount;
 
-use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS, GROUP_EXPIRE_TIME_MS};
+use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_INTERVAL_MS, GROUP_EXPIRE_TIME_MS, MAX_OUTGOING_UNPROCESSED_REQUESTS};
 use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::{GroupTransmitter, SecureProtocolPacket, RatchetPacketCrafterContainer};
@@ -67,16 +67,7 @@ impl Debug for StateContainer {
     }
 }
 
-/*
-#[derive(Clone)]
-pub struct StateContainer {
-    pub(crate) inner: DualRwLock<StateContainerInner>
-}*/
-
-#[derive(Clone)]
-pub struct StateContainer {
-    pub(crate) inner: Arc<parking_lot::RwLock<StateContainerInner>>
-}
+define_outer_struct_wrapper!(StateContainer, StateContainerInner);
 
 /// For keeping track of the stages
 pub struct StateContainerInner {
@@ -212,7 +203,8 @@ pub struct C2SChannelContainer {
     // for UDP
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
     is_active: Arc<AtomicBool>,
-    primary_outbound_tx: OutboundPrimaryStreamSender
+    primary_outbound_tx: OutboundPrimaryStreamSender,
+    pub(crate) channel_signal: Option<HdpServerResult>
 }
 
 pub(crate) struct UnorderedChannelContainer {
@@ -606,15 +598,15 @@ impl StateContainerInner {
     #[allow(unused_results)]
     pub fn insert_new_peer_virtual_connection_as_endpoint(&mut self, peer_socket_addr: SocketAddr, default_security_settings: SessionSecuritySettings, channel_ticket: Ticket, target_cid: u64, connection_type: VirtualConnectionType, endpoint_crypto: PeerSessionCrypto, sess: &HdpSession) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
+        let (tx, rx) = crate::hdp::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
         let is_active = Arc::new(AtomicBool::new(true));
 
         self.updates_in_progress.insert(target_cid, endpoint_crypto.update_in_progress.clone());
 
         //let (tx, rx) = futures::channel::mpsc::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
-        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket, default_security_settings.security_level, is_active.clone(), channel_rx, sess.state_container.clone());
+        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), target_cid, connection_type, channel_ticket, default_security_settings.security_level, is_active.clone(), channel_rx, tx);
         let to_channel = OrderedChannel::new(channel_tx);
-
-        //HdpSession::spawn_message_sender_function(sess.clone(), rx);
+        HdpSession::spawn_message_sender_function(sess.clone(), rx);
 
         let endpoint_container = Some(EndpointChannelContainer {
             default_security_settings,
@@ -643,16 +635,17 @@ impl StateContainerInner {
     #[allow(unused_results)]
     pub fn init_new_c2s_virtual_connection(&mut self, cnac: &ClientNetworkAccount, security_level: SecurityLevel, channel_ticket: Ticket, implicated_cid: u64, session: &HdpSession) -> PeerChannel {
         let (channel_tx, channel_rx) = unbounded();
-        //let (tx, rx) = futures::channel::mpsc::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
+        let (tx, rx) = crate::hdp::outbound_sender::channel(MAX_OUTGOING_UNPROCESSED_REQUESTS);
         let is_active = Arc::new(AtomicBool::new(true));
-        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), channel_ticket, security_level, is_active.clone(), channel_rx, session.state_container.clone());
-        //HdpSession::spawn_message_sender_function(session.clone(), rx);
+        let peer_channel = PeerChannel::new(self.hdp_server_remote.clone(), implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANServer(implicated_cid), channel_ticket, security_level, is_active.clone(), channel_rx, tx);
+        HdpSession::spawn_message_sender_function(session.clone(), rx);
 
         let c2s = C2SChannelContainer {
             to_channel: OrderedChannel::new(channel_tx),
             to_unordered_channel: None,
             is_active,
-            primary_outbound_tx: session.to_primary_stream.clone().unwrap()
+            primary_outbound_tx: session.to_primary_stream.clone().unwrap(),
+            channel_signal: None
         };
 
         self.c2s_channel_container = Some(c2s);
