@@ -226,9 +226,13 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
         let path = get_pathbuf(inner_nac.persistence_handler.as_ref().unwrap().directory_store().inner.read().nac_node_default_store_location.as_str());
 
         let path_no_filename = path.parent().unwrap().clone();
-        info!("Storing NAC to directory: {}", &path_no_filename.display());
+        let path_name = path_no_filename.display().to_string();
+        info!("Storing NAC to directory: {}", &path_name);
         hyxe_fs::system_file_manager::make_dir_all_blocking(path_no_filename).map_err(|err| AccountError::Generic(err.to_string()))?;
-        inner_nac.serialize_to_local_fs(path).map_err(|err| AccountError::IoError(err.to_string()))
+        info!("Dirs created for {}", path_name);
+        inner_nac.serialize_to_local_fs(path).map_err(|err| AccountError::IoError(err.to_string()))?;
+        info!("Serialized to local fs for {}", path_name);
+        Ok(())
     }
 
     /// Stores the PersistenceHandler internally
