@@ -56,7 +56,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
     let implicated_cid = header.session_cid.get();
     match signal {
         GroupBroadcast::Create(initial_peers) => {
-            let key = session.session_manager.create_message_group_and_notify(timestamp, ticket, implicated_cid, initial_peers, security_level);
+            let key = session.session_manager.create_message_group_and_notify(timestamp, ticket, implicated_cid, initial_peers, security_level).await;
             let signal = GroupBroadcast::CreateResponse(key);
             let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
             Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
@@ -68,7 +68,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
 
         GroupBroadcast::End(key) => {
             return_if_none!(permission_gate(implicated_cid, key), "Permission denied");
-            let success = session.session_manager.remove_message_group(implicated_cid, timestamp, ticket, key, security_level);
+            let success = session.session_manager.remove_message_group(implicated_cid, timestamp, ticket, key, security_level).await;
             let signal = GroupBroadcast::EndResponse(key, success);
             let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
             Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
@@ -110,7 +110,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
 
         GroupBroadcast::AcceptMembership(key) => {
 
-            let success = session.hypernode_peer_layer.upgrade_peer_in_group(key, implicated_cid);
+            let success = session.hypernode_peer_layer.upgrade_peer_in_group(key, implicated_cid).await;
             if !success {
                 log::warn!("Unable to upgrade peer {} for {:?}", implicated_cid, key);
             } else {
@@ -162,11 +162,11 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
             let ref peer_layer = session.hypernode_peer_layer;
             let peer_statuses = persistence_handler.hyperlan_peers_are_mutuals(implicated_cid, &peers).await?;
 
-            if peer_layer.message_group_exists(key) {
+            if peer_layer.message_group_exists(key).await {
                 let (peers_okay, peers_failed) = sess_mgr.send_group_broadcast_signal_to(timestamp, ticket, peers.iter().cloned().zip(peer_statuses.clone()), true, GroupBroadcast::Invitation(key), security_level).await.map_err(|err| NetworkError::Generic(err))?;
 
                 if peers_okay.len() != 0 {
-                    peer_layer.add_pending_peers_to_group(key, peers_okay);
+                    peer_layer.add_pending_peers_to_group(key, peers_okay).await;
                     std::mem::drop(sess_mgr);
                 }
 
