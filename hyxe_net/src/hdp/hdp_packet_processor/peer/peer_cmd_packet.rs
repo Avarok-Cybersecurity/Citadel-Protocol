@@ -362,7 +362,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
 
                                     let channel_signal = HdpServerResult::PeerChannelCreated(ticket_for_chan.unwrap_or(ticket), channel, udp_rx_opt);
 
-                                    if needs_turn {
+                                    if needs_turn && !cfg!(feature = "localhost-testing") {
                                         log::warn!("This p2p connection requires TURN-like routing");
                                         session.send_to_kernel(channel_signal)?;
                                     } else {
@@ -417,7 +417,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
 
                                     let channel_signal = HdpServerResult::PeerChannelCreated(ticket_for_chan.unwrap_or(ticket), channel, udp_rx_opt);
 
-                                    if needs_turn {
+                                    if needs_turn && !cfg!(feature = "localhost-testing") {
                                         log::warn!("This p2p connection requires TURN-like routing");
                                         session.send_to_kernel(channel_signal)?;
                                     } else {
