@@ -133,7 +133,7 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
         Ok(())
     }
 
-    async fn on_stop(self) -> Result<(), NetworkError> {
+    async fn on_stop(&mut self) -> Result<(), NetworkError> {
         Ok(())
     }
 }
@@ -167,7 +167,7 @@ mod tests {
         let joined = futures::future::try_join(server, client);
 
         tokio::select! {
-            res0 = joined => { res0.unwrap(); },
+            res0 = joined => { let _ = res0.unwrap(); },
             res1 = stop_rx => { res1.unwrap(); }
         }
 
@@ -197,7 +197,7 @@ mod tests {
         let joined = futures::future::try_join(server, client);
 
         tokio::select! {
-            res0 = joined => { res0.unwrap(); },
+            res0 = joined => { let _ = res0.unwrap(); },
             res1 = stop_rx => { res1.unwrap(); }
         }
 

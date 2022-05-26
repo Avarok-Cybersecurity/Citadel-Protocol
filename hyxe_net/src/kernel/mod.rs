@@ -13,3 +13,18 @@ pub mod kernel_communicator;
 
 pub trait RuntimeFuture: Future<Output=Result<(), NetworkError>> + ContextRequirements {}
 impl<T: Future<Output=Result<(), NetworkError>> + ContextRequirements> RuntimeFuture for T {}
+
+#[derive(Default, Debug)]
+/// Used for fine-tuning parameters within the [`KernelExecutor`]
+pub struct KernelExecutorSettings {
+    max_concurrency: Option<usize>
+}
+
+impl KernelExecutorSettings {
+    /// Determines the maximum number of concurrent asynchronous subroutines executed for
+    /// [`NetKernel::on_node_event_received`]. Default is None, implying there is no limit
+    pub fn with_max_concurrency(mut self, max_concurrency: impl Into<Option<usize>>) -> Self {
+        self.max_concurrency = max_concurrency.into();
+        self
+    }
+}

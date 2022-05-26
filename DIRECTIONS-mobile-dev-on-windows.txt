@@ -1,0 +1,19 @@
+To cross compile to aarch64, download:
+android-ndk-r21d
+
+Unpack to C:/
+
+To setup the gradle rust plugin, set the env var:
+RUST_ANDROID_GRADLE_CC=C:/android-ndk-r21d/toolchains/llvm/prebuilt/windows-x86_64/bin/x86_64-linux-android30-clang.cmd
+
+NOTE: if you don't unpack to C:/, you will need to also change the .cargo/config path in hyxe_wave and hyxe_wave/lusna_ffi
+
+There may be other dependencies. Add them as required
+
+To cross-compile to MAC on linux/WSL:
+
+https://wapl.es/rust/2019/02/17/rust-cross-compile-linux-to-macos.html
+
+Note: You'll need to do the additional step of setting CC and CCX since pqcrypto requires that
+
+For zk-paillier & building on windows/msvc, download a precompiled lib and bin from https://github.com/ShiftMediaProject/gmp (these are included in the repo in the root directory by default)
