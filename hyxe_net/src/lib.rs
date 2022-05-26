@@ -371,7 +371,7 @@ pub mod prelude {
     pub use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
     pub use crate::hdp::peer::peer_layer::PeerResponse;
     pub use crate::hdp::state_container::VirtualTargetType;
-    pub use crate::kernel::{kernel::NetKernel, kernel_executor::KernelExecutor};
+    pub use crate::kernel::{kernel::NetKernel, kernel_executor::KernelExecutor, KernelExecutorSettings};
     pub use crate::re_imports::{async_trait, NodeType};
     pub use hyxe_user::external_services::fcm::kem::FcmPostRegister;
     pub use crate::hdp::peer::peer_layer::HypernodeConnectionType;

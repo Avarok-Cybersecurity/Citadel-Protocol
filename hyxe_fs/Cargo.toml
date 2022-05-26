@@ -14,7 +14,7 @@ dirs-2 = "1.1.0"
 serde = { version = "1.0.104", features = ["derive", "rc"] }
 bincode2 = "2.0.1"
 async-trait = "0.1.11"
-num-bigint = "0.3.0"
+num-bigint = "0.4.3"
 num = "*"
 chrono = "0.4.7"
 rand = "0.7.0"

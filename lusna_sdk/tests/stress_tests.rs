@@ -4,7 +4,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use uuid::Uuid;
     use lusna_sdk::prefabs::client::single_connection::SingleClientServerConnectionKernel;
-    use lusna_sdk::prelude::{NodeBuilder, PeerChannel, NodeFuture, ConnectSuccess};
+    use lusna_sdk::prelude::{NodeBuilder, PeerChannel, NodeFuture, ConnectSuccess, NetKernel};
     use hyxe_net::prelude::{NetworkError, SecureProtocolPacket, SecBuffer, SessionSecuritySettingsBuilder, UdpMode, SecrecyMode, KemAlgorithm, EncryptionAlgorithm};
     use rstest::rstest;
     use tokio::sync::Barrier;
@@ -17,7 +17,7 @@ mod tests {
     use std::net::SocketAddr;
     use lusna_sdk::prefabs::ClientServerRemote;
     use std::str::FromStr;
-    use lusna_sdk::prefabs::server::channel_listener::ChannelListenerKernel;
+    use lusna_sdk::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
     use std::future::Future;
     use parking_lot::Mutex;
     use std::time::Duration;
@@ -46,17 +46,17 @@ mod tests {
         }
     }
 
-    pub fn server_info_reactive<F, Fut>(on_channel_received: F) -> (NodeFuture, SocketAddr)
+    pub fn server_info_reactive<F, Fut>(on_channel_received: F) -> (NodeFuture<Box<dyn NetKernel>>, SocketAddr)
         where
             F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync + 'static,
             Fut: Future<Output=Result<(), NetworkError>> + Send + Sync + 'static {
         let port = portpicker::pick_unused_port().unwrap();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
-        let server = lusna_sdk::test_common::server_test_node(bind_addr, ChannelListenerKernel::new(on_channel_received));
+        let server = lusna_sdk::test_common::server_test_node(bind_addr, Box::new(ClientConnectListenerKernel::new(on_channel_received)) as Box<dyn NetKernel>);
         (server, bind_addr)
     }
 
-    pub fn server_info() -> (NodeFuture, SocketAddr) {
+    pub fn server_info() -> (NodeFuture<EmptyKernel>, SocketAddr) {
         let port = portpicker::pick_unused_port().unwrap();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
         let server = lusna_sdk::test_common::server_test_node(bind_addr, EmptyKernel::default());
@@ -199,7 +199,7 @@ mod tests {
 
         let task = async move {
             tokio::select! {
-                server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res))),
+                server_res = server => Err(NetworkError::msg(format!("Server ended prematurely: {:?}", server_res.map(|_| ())))),
                 client_res = clients => client_res.map(|_| ())
             }
         };

@@ -392,6 +392,35 @@ pub mod results {
     }
 }
 
+pub mod remote_specialization {
+    use crate::prelude::{NodeRemote, VirtualTargetType};
+    use crate::prelude::user_ids::TargetLockedRemote;
+
+    pub struct PeerRemote {
+        inner: NodeRemote,
+        peer: VirtualTargetType,
+        username: Option<String>
+    }
+
+    impl TargetLockedRemote for PeerRemote {
+        fn user(&self) -> &VirtualTargetType {
+            &self.peer
+        }
+
+        fn remote(&mut self) -> &mut NodeRemote {
+            &mut self.inner
+        }
+
+        fn target_username(&self) -> Option<&String> {
+            self.username.as_ref()
+        }
+
+        fn user_mut(&mut self) -> &mut VirtualTargetType {
+            &mut self.peer
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -405,7 +434,7 @@ mod tests {
     use crate::prelude::*;
     use uuid::Uuid;
 
-    struct ServerFileTransferKernel(Option<NodeRemote>);
+    pub struct ServerFileTransferKernel(Option<NodeRemote>);
 
     #[async_trait]
     impl NetKernel for ServerFileTransferKernel {
@@ -446,12 +475,12 @@ mod tests {
             Ok(())
         }
 
-        async fn on_stop(self) -> Result<(), NetworkError> {
+        async fn on_stop(&mut self) -> Result<(), NetworkError> {
             Ok(())
         }
     }
 
-    pub fn server_info() -> (NodeFuture, SocketAddr) {
+    pub fn server_info() -> (NodeFuture<ServerFileTransferKernel>, SocketAddr) {
         let port = portpicker::pick_unused_port().unwrap();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
         let server = crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel(None));

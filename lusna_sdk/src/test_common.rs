@@ -5,7 +5,7 @@ use crate::prefabs::server::empty::EmptyKernel;
 use futures::Future;
 use crate::prefabs::ClientServerRemote;
 use std::str::FromStr;
-use crate::prefabs::server::channel_listener::ChannelListenerKernel;
+use crate::prefabs::server::client_connect_listener::ClientConnectListenerKernel;
 
 #[allow(dead_code)]
 pub fn setup_log() {
@@ -19,7 +19,7 @@ pub fn setup_log() {
 }
 
 #[allow(dead_code)]
-pub fn server_test_node(bind_addr: SocketAddr, kernel: impl NetKernel) -> NodeFuture {
+pub fn server_test_node<K: NetKernel>(bind_addr: SocketAddr, kernel: K) -> NodeFuture<K> {
     NodeBuilder::default()
         .with_node_type(NodeType::Server(bind_addr))
         .build(kernel).unwrap()
@@ -27,7 +27,7 @@ pub fn server_test_node(bind_addr: SocketAddr, kernel: impl NetKernel) -> NodeFu
 
 #[allow(dead_code)]
 #[cfg(test)]
-pub fn server_info() -> (NodeFuture, SocketAddr) {
+pub fn server_info() -> (NodeFuture<EmptyKernel>, SocketAddr) {
     let port = portpicker::pick_unused_port().unwrap();
     let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
     let server = crate::test_common::server_test_node(bind_addr, EmptyKernel::default());
