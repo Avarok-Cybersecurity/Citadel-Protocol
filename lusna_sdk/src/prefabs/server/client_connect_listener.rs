@@ -6,13 +6,13 @@ use hyxe_net::prelude::async_trait;
 
 /// A kernel that executes a user-provided function each time
 /// a client makes a connection
-pub struct ChannelListenerKernel<F, Fut> {
+pub struct ClientConnectListenerKernel<F, Fut> {
     on_channel_received: F,
     node_remote: Option<NodeRemote>,
     _pd: PhantomData<Fut>
 }
 
-impl<F, Fut> ChannelListenerKernel<F, Fut>
+impl<F, Fut> ClientConnectListenerKernel<F, Fut>
     where
         F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync + 'static,
         Fut: Future<Output=Result<(), NetworkError>> + Send + Sync + 'static {
@@ -23,7 +23,7 @@ impl<F, Fut> ChannelListenerKernel<F, Fut>
 }
 
 #[async_trait]
-impl<F, Fut> NetKernel for ChannelListenerKernel<F, Fut>
+impl<F, Fut> NetKernel for ClientConnectListenerKernel<F, Fut>
     where
         F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync + 'static,
         Fut: Future<Output=Result<(), NetworkError>> + Send + Sync + 'static {
@@ -56,7 +56,7 @@ impl<F, Fut> NetKernel for ChannelListenerKernel<F, Fut>
         }
     }
 
-    async fn on_stop(self) -> Result<(), NetworkError> {
+    async fn on_stop(&mut self) -> Result<(), NetworkError> {
         Ok(())
     }
 }

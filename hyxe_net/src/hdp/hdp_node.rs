@@ -337,6 +337,7 @@ impl HdpServer {
 
     /// Important: Assumes UDP NAT traversal has concluded. This should ONLY be used for p2p
     /// This takes the local socket AND QuicNode instance
+    #[allow(dead_code)]
     pub async fn create_p2p_quic_connect_socket<R: ToSocketAddrs>(quic_endpoint: Endpoint, remote: R, tls_domain: TlsDomain, timeout: Option<Duration>, secure_client_config: Arc<ClientConfig>) -> io::Result<GenericNetworkStream> {
         let remote: SocketAddr = remote.to_socket_addrs()?.next().ok_or(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "bad addr"))?;
         Self::quic_p2p_connect_defaults(quic_endpoint, timeout, tls_domain, remote, secure_client_config).await

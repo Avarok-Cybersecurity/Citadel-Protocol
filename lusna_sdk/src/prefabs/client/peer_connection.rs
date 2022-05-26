@@ -38,8 +38,8 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<F, Fut>
         self.inner_kernel.on_node_event_received(message).await
     }
 
-    async fn on_stop(self) -> Result<(), NetworkError> {
-        Ok(())
+    async fn on_stop(&mut self) -> Result<(), NetworkError> {
+        self.inner_kernel.on_stop().await
     }
 }
 
@@ -247,8 +247,10 @@ mod tests {
                 }
             });
 
-            let client1 = NodeBuilder::default().build(client_kernel).unwrap();
-            client_kernels.push(client1);
+            let client = NodeBuilder::default().build(client_kernel).unwrap();
+            client_kernels.push(async move {
+                client.await.map(|_| ())
+            });
         }
 
         let clients = Box::pin(async move {
@@ -292,8 +294,10 @@ mod tests {
                 }
             });
 
-            let client1 = NodeBuilder::default().build(client_kernel).unwrap();
-            client_kernels.push(client1);
+            let client = NodeBuilder::default().build(client_kernel).unwrap();
+            client_kernels.push(async move {
+                client.await.map(|_| ())
+            });
         }
 
         let clients = Box::pin(async move {

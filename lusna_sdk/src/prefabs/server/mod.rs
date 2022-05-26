@@ -2,4 +2,4 @@
 pub mod empty;
 /// A kernel that reacts to new channels created, allowing communication with new clients.
 /// Useful for when a server needs to send messages to clients
-pub mod channel_listener;
+pub mod client_connect_listener;
