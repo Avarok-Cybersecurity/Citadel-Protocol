@@ -12,7 +12,7 @@ pub mod peer_connection;
 pub mod broadcast;
 
 #[async_trait]
-pub trait CorePrefabFunctions<Arg: Send + 'static>: Sized {
+pub trait PrefabFunctions<Arg: Send + 'static>: Sized {
     type UserLevelInputFunction: Send + 'static;
     async fn on_c2s_channel_received(connect_success: ConnectSuccess, remote: ClientServerRemote, arg: Arg, fx: Self::UserLevelInputFunction) -> Result<(), NetworkError>;
     fn construct(kernel: Box<dyn NetKernel>) -> Self;
