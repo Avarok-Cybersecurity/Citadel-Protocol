@@ -16,8 +16,6 @@ pub trait PrefabFunctions<Arg: Send + 'static>: Sized {
     type UserLevelInputFunction: Send + 'static;
     async fn on_c2s_channel_received(connect_success: ConnectSuccess, remote: ClientServerRemote, arg: Arg, fx: Self::UserLevelInputFunction) -> Result<(), NetworkError>;
     fn construct(kernel: Box<dyn NetKernel>) -> Self;
-    fn kernel(&self) -> &dyn NetKernel;
-    fn kernel_mut(&mut self) ->&mut dyn NetKernel;
 
     /// Creates a new connection with a central server entailed by the user information
     fn new_connect<T: Into<String>, P: Into<SecBuffer>>(username: T, password: P, arg: Arg, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: Self::UserLevelInputFunction) -> Self {
