@@ -10,7 +10,6 @@ use crate::prefabs::server::client_connect_listener::ClientConnectListenerKernel
 #[allow(dead_code)]
 pub fn setup_log() {
     std::env::set_var("RUST_LOG", "error,warn,info,trace");
-    //std::env::set_var("RUST_LOG", "error");
     let _ = env_logger::try_init();
     log::trace!("TRACE enabled");
     log::info!("INFO enabled");

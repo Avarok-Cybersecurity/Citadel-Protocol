@@ -52,6 +52,7 @@ pub trait SecondKernelOnBegin<F: FirstKernelOnLoad>: SyncContextRequirements {
 }
 
 impl<First: NetKernel + FirstKernelOnLoad, Second: NetKernel + SecondKernelOnBegin<First>> ChainKernel<First, Second> {
+    #[allow(dead_code)]
     pub fn new(first: First, second: Second) -> Self {
         let (tx, rx) = tokio::sync::oneshot::channel();
         Self {

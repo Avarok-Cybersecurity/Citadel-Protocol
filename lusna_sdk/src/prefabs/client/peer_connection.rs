@@ -2,13 +2,14 @@ use std::marker::PhantomData;
 use crate::prelude::{NodeRemote, SessionSecuritySettings, UdpMode, NetworkError, SecBuffer, NetKernel, ConnectSuccess, HdpServerResult, ProtocolRemoteExt, UserIdentifier, ProtocolRemoteTargetExt};
 use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
 use crate::prelude::results::PeerConnectSuccess;
-use futures::{Future, StreamExt};
+use futures::{Future, TryStreamExt};
 use std::net::SocketAddr;
 use crate::prefabs::ClientServerRemote;
 use hyxe_net::re_imports::async_trait;
 use futures::stream::FuturesUnordered;
 use std::sync::Arc;
 use uuid::Uuid;
+use tokio::sync::mpsc::Receiver;
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
 /// This kernel will only allow outbound communication for the provided account
@@ -24,7 +25,7 @@ pub struct PeerConnectionKernel<F, Fut> {
 #[async_trait]
 impl<F, Fut> NetKernel for PeerConnectionKernel<F, Fut>
     where
-        F: FnOnce(Vec<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
+        F: FnOnce(Receiver<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
         Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(server_remote)
@@ -64,9 +65,10 @@ impl PeerIDAggregator {
 
 impl<F, Fut> PeerConnectionKernel<F, Fut>
     where
-        F: FnOnce(Vec<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
+        F: FnOnce(Receiver<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
         Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
     /// Creates a new connection with a central server entailed by the user information
+    /// Then, connects to the desired peer
     pub fn new_connect<T: Into<String>, P: Into<SecBuffer>>(username: T, password: P, peers: Vec<UserIdentifier>, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
         let server_conn_kernel = SingleClientServerConnectionKernel::new_connect(username, password, udp_mode, session_security_settings, |connect_success, remote| async move {
             on_server_connect_success(connect_success, remote, on_channel_received, peers).await
@@ -79,11 +81,13 @@ impl<F, Fut> PeerConnectionKernel<F, Fut>
     }
 
     /// Crates a new connection with a central server entailed by the user information and default configuration
+    /// Then, connects to the desired peer(s)
     pub fn new_connect_defaults<T: Into<String>, P: Into<SecBuffer>>(username: T, password: P, peers: Vec<UserIdentifier>, on_channel_received: F) -> Self {
         Self::new_connect(username, password, peers, Default::default(), Default::default(), on_channel_received)
     }
 
     /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with custom parameters
+    /// Then, connects to the desired peer(s)
     pub fn new_register<T: Into<String>, R: Into<String>, P: Into<SecBuffer>>(full_name: T, username: R, password: P, peers: Vec<UserIdentifier>, server_addr: SocketAddr, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
         let server_conn_kernel = SingleClientServerConnectionKernel::new_register(full_name, username, password, server_addr, udp_mode, session_security_settings, |connect_success, remote| async move {
             on_server_connect_success(connect_success, remote, on_channel_received, peers).await
@@ -96,11 +100,13 @@ impl<F, Fut> PeerConnectionKernel<F, Fut>
     }
 
     /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with default parameters
+    /// Then, connects to the desired peer(s)
     pub fn new_register_defaults<T: Into<String>, R: Into<String>, P: Into<SecBuffer>>(full_name: T, username: R, password: P, peers: Vec<UserIdentifier>, server_addr: SocketAddr, on_channel_received: F) -> Self {
         Self::new_register(full_name, username, password, peers, server_addr, Default::default(), Default::default(), on_channel_received)
     }
 
     /// Creates a new authless connection with custom arguments
+    /// Then, connects to the desired peer(s)
     pub fn new_passwordless(uuid: Uuid, server_addr: SocketAddr, peers: Vec<UserIdentifier>, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
         let server_conn_kernel = SingleClientServerConnectionKernel::new_passwordless(uuid, server_addr, udp_mode, session_security_settings,  |connect_success, remote| async move {
             on_server_connect_success(connect_success, remote, on_channel_received, peers).await
@@ -113,13 +119,14 @@ impl<F, Fut> PeerConnectionKernel<F, Fut>
     }
 
     /// Creates a new authless connection with default arguments
+    /// Then, connects to the desired peer(s)
     pub fn new_passwordless_defaults(uuid: Uuid, server_addr: SocketAddr, peers: Vec<UserIdentifier>, on_channel_received: F) -> Self {
         Self::new_passwordless(uuid, server_addr, peers, Default::default(), Default::default(), on_channel_received)
     }
 }
 
 async fn on_server_connect_success<F, Fut>(connect_success: ConnectSuccess, cls_remote: ClientServerRemote, f: F, peers_to_connect: Vec<UserIdentifier>) -> Result<(), NetworkError>
-    where F: FnOnce(Vec<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
+    where F: FnOnce(Receiver<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
           Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
 
     let implicated_cid = connect_success.cid;
@@ -133,6 +140,7 @@ async fn on_server_connect_success<F, Fut>(connect_success: ConnectSuccess, cls_
     }
 
     let remote = cls_remote.inner.clone();
+    let (ref tx, rx) = tokio::sync::mpsc::channel(peers_to_connect.len());
     let requests = FuturesUnordered::new();
 
     for (mutually_registered, peer_to_connect) in peers_already_registered.into_iter().zip(peers_to_connect) {
@@ -140,25 +148,32 @@ async fn on_server_connect_success<F, Fut>(connect_success: ConnectSuccess, cls_
         // with the desired peer
         let mut remote = remote.clone();
         let task = async move {
-            if let Some(_already_registered) = mutually_registered {
-                let mut handle = remote.find_target(implicated_cid, peer_to_connect).await?;
-                handle.connect_to_peer().await
-            } else {
-                // do both register + connect
-                // TODO: optimize peer registration + connection in one go
-                let mut handle = remote.propose_target(implicated_cid, peer_to_connect.clone()).await?;
-                let _reg_success = handle.register_to_peer().await?;
-                log::info!("Peer {:?} registered || success -> now connecting", peer_to_connect);
-                handle.connect_to_peer().await
-            }
+            let inner_task = async move {
+                if let Some(_already_registered) = mutually_registered {
+                    let mut handle = remote.find_target(implicated_cid, peer_to_connect).await?;
+                    handle.connect_to_peer().await
+                } else {
+                    // do both register + connect
+                    // TODO: optimize peer registration + connection in one go
+                    let mut handle = remote.propose_target(implicated_cid, peer_to_connect.clone()).await?;
+                    let _reg_success = handle.register_to_peer().await?;
+                    log::info!("Peer {:?} registered || success -> now connecting", peer_to_connect);
+                    handle.connect_to_peer().await
+                }
+            };
+
+            tx.send(inner_task.await).await.map_err(|err| NetworkError::Generic(err.to_string()))
         };
 
         requests.push(Box::pin(task))
     }
 
+    let collection_task = async move {
+        requests.try_collect::<()>().await
+    };
 
-    let results = requests.collect::<Vec<Result<PeerConnectSuccess, NetworkError>>>().await;
-    (f)(results, cls_remote).await
+    tokio::try_join!(collection_task, (f)(rx, cls_remote))
+        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -234,17 +249,22 @@ mod tests {
             let peers = total_peers.clone().into_iter().filter(|r| r != username).map(UserIdentifier::Username).collect::<Vec<UserIdentifier>>();
             let username = username.clone();
 
-            let client_kernel = PeerConnectionKernel::new_register_defaults(full_name.as_str(), username.clone().as_str(), password.as_str(), peers, server_addr, |results,remote| async move {
-                let success = results.iter().all(|r| r.is_ok());
-                log::info!("***PEER {} CONNECT RESULT: {}***", username, success);
-                if success {
-                    let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
-                    wait_for_peers().await;
-                    remote.shutdown_kernel().await
-                } else {
-                    log::error!("Peer connect failed: {:?}", results);
-                    Err(NetworkError::msg(format!("Connect failed: {:?}", results)))
+            let client_kernel = PeerConnectionKernel::new_register_defaults(full_name.as_str(), username.clone().as_str(), password.as_str(), peers, server_addr, move |mut results,remote| async move {
+                let mut success = 0;
+
+                while let Some(conn) = results.recv().await {
+                    log::info!("User {} received {:?}", username, conn);
+                    let _conn = conn?;
+                    success += 1;
+                    if success == peer_count-1 {
+                        break
+                    }
                 }
+
+                log::info!("***PEER {} CONNECT RESULT: {}***", username, success);
+                let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                wait_for_peers().await;
+                remote.shutdown_kernel().await
             });
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();
@@ -281,17 +301,22 @@ mod tests {
             let uuid = total_peers.get(idx).cloned().unwrap();
             let peers = total_peers.clone().into_iter().filter(|r| r != &uuid).map(UserIdentifier::from).collect::<Vec<UserIdentifier>>();
 
-            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(uuid, server_addr, peers, move |results,remote| async move {
-                let success = results.iter().all(|r| r.is_ok());
-                log::info!("***PEER {} CONNECT RESULT: {}***", uuid, success);
-                if success {
-                    let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
-                    wait_for_peers().await;
-                    remote.shutdown_kernel().await
-                } else {
-                    log::error!("Peer connect failed: {:?}", results);
-                    Err(NetworkError::msg(format!("Connect failed: {:?}", results)))
+            let client_kernel = PeerConnectionKernel::new_passwordless_defaults(uuid, server_addr, peers, move |mut results,remote| async move {
+                let mut success = 0;
+
+                while let Some(conn) = results.recv().await {
+                    log::info!("User {} received {:?}", uuid, conn);
+                    let _conn = conn?;
+                    success += 1;
+                    if success == peer_count-1 {
+                        break
+                    }
                 }
+
+                log::info!("***PEER {} CONNECT RESULT: {}***", uuid, success);
+                let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                wait_for_peers().await;
+                remote.shutdown_kernel().await
             });
 
             let client = NodeBuilder::default().build(client_kernel).unwrap();

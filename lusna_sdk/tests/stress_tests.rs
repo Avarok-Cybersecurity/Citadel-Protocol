@@ -177,17 +177,16 @@ mod tests {
             .build();
 
         // TODO: SinglePeerConnectionKernel
-        // TODO: Make PeerConnectionKernel give the user a channel for receiving results, not all at once
         // to not hold up all conns
         let client_kernel0 = PeerConnectionKernel::new_passwordless(uuid0, server_addr, vec![uuid1.into()],UdpMode::Enabled,session_security,move |mut connection, remote| async move {
-            handle_send_receive(get_barrier(), connection.pop().unwrap().unwrap().channel, message_count).await?;
+            handle_send_receive(get_barrier(), connection.recv().await.unwrap()?.channel, message_count).await?;
             log::info!("***CLIENT0 TEST SUCCESS***");
             CLIENT0_SUCCESS.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
 
         let client_kernel1 = PeerConnectionKernel::new_passwordless(uuid1, server_addr, vec![uuid0.into()], UdpMode::Enabled,session_security,move |mut connection, remote| async move {
-            handle_send_receive(get_barrier(), connection.pop().unwrap().unwrap().channel, message_count).await?;
+            handle_send_receive(get_barrier(), connection.recv().await.unwrap()?.channel, message_count).await?;
             log::info!("***CLIENT1 TEST SUCCESS***");
             CLIENT1_SUCCESS.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await

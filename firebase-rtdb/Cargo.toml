@@ -8,7 +8,7 @@ license = "MIT"
 
 [dependencies]
 reqwest = { version = "0.11.3", features = ["native-tls-vendored", "json", "serde_json"] }
-log = { version = "0.4.8", features = ["std", "max_level_trace", "release_max_level_error"] }
+log = { version = "0.4.8", features = ["std"] }
 serde = "1.0.126"
 
 [dev-dependencies]
