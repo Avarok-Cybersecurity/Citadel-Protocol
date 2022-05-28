@@ -21,6 +21,7 @@ mod tests {
     use std::future::Future;
     use parking_lot::Mutex;
     use std::time::Duration;
+    use lusna_sdk::prefabs::client::PrefabFunctions;
     use lusna_sdk::prefabs::client::peer_connection::PeerConnectionKernel;
     use lusna_sdk::prefabs::server::empty::EmptyKernel;
 

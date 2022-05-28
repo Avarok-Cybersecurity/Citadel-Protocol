@@ -124,7 +124,7 @@ unused_results,
 /// Convenience import for building applications
 pub mod prelude {
     pub use hyxe_net::prelude::*;
-
+    pub use crate::prefabs::client::PrefabFunctions;
     pub use crate::builder::node_builder::*;
     pub use crate::remote_ext::*;
 }
