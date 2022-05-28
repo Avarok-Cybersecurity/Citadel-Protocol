@@ -1,14 +1,11 @@
 use std::marker::PhantomData;
-use crate::prelude::{NodeRemote, SessionSecuritySettings, UdpMode, NetworkError, SecBuffer, NetKernel, ConnectSuccess, HdpServerResult, ProtocolRemoteExt, UserIdentifier, ProtocolRemoteTargetExt};
-use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
+use crate::prelude::{NodeRemote, NetworkError, NetKernel, ConnectSuccess, HdpServerResult, ProtocolRemoteExt, UserIdentifier, ProtocolRemoteTargetExt};
 use crate::prelude::results::PeerConnectSuccess;
 use futures::{Future, TryStreamExt};
-use std::net::SocketAddr;
 use crate::prefabs::ClientServerRemote;
 use hyxe_net::re_imports::async_trait;
 use futures::stream::FuturesUnordered;
 use std::sync::Arc;
-use uuid::Uuid;
 use tokio::sync::mpsc::Receiver;
 use crate::prefabs::client::PrefabFunctions;
 
@@ -24,7 +21,7 @@ pub struct PeerConnectionKernel<F, Fut> {
 }
 
 #[async_trait]
-impl<F, Fut> NetKernel for PeerConnectionKernel<F, Fut> {
+impl<F: 'static, Fut: 'static> NetKernel for PeerConnectionKernel<F, Fut> {
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(server_remote)
     }
@@ -42,6 +39,7 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<F, Fut> {
     }
 }
 
+/// Allows easy aggregation of [`UserIdentifier`]'s
 pub struct PeerIDAggregator {
     inner: Vec<UserIdentifier>
 }
@@ -69,8 +67,52 @@ impl<F, Fut> PrefabFunctions<Vec<UserIdentifier>> for PeerConnectionKernel<F, Fu
         Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
     type UserLevelInputFunction = F;
 
-    async fn on_c2s_channel_received(connect_success: ConnectSuccess, remote: ClientServerRemote, arg: Vec<UserIdentifier>, fx: Self::UserLevelInputFunction) -> Result<(), NetworkError> {
-        on_server_connect_success(connect_success, remote, fx, arg).await
+    async fn on_c2s_channel_received(connect_success: ConnectSuccess, cls_remote: ClientServerRemote, peers_to_connect: Vec<UserIdentifier>, f: Self::UserLevelInputFunction) -> Result<(), NetworkError> {
+        let implicated_cid = connect_success.cid;
+        let mut peers_already_registered = vec![];
+
+        wait_for_peers().await;
+
+        for peer in &peers_to_connect {
+            // TODO: optimize this into a single operation
+            peers_already_registered.push(peer.search_peer(implicated_cid, cls_remote.inner.account_manager()).await?)
+        }
+
+        let remote = cls_remote.inner.clone();
+        let (ref tx, rx) = tokio::sync::mpsc::channel(peers_to_connect.len());
+        let requests = FuturesUnordered::new();
+
+        for (mutually_registered, peer_to_connect) in peers_already_registered.into_iter().zip(peers_to_connect) {
+            // each task will be responsible for possibly registering to and connecting
+            // with the desired peer
+            let mut remote = remote.clone();
+            let task = async move {
+                let inner_task = async move {
+                    if let Some(_already_registered) = mutually_registered {
+                        let mut handle = remote.find_target(implicated_cid, peer_to_connect).await?;
+                        handle.connect_to_peer().await
+                    } else {
+                        // do both register + connect
+                        // TODO: optimize peer registration + connection in one go
+                        let mut handle = remote.propose_target(implicated_cid, peer_to_connect.clone()).await?;
+                        let _reg_success = handle.register_to_peer().await?;
+                        log::info!("Peer {:?} registered || success -> now connecting", peer_to_connect);
+                        handle.connect_to_peer().await
+                    }
+                };
+
+                tx.send(inner_task.await).await.map_err(|err| NetworkError::Generic(err.to_string()))
+            };
+
+            requests.push(Box::pin(task))
+        }
+
+        let collection_task = async move {
+            requests.try_collect::<()>().await
+        };
+
+        tokio::try_join!(collection_task, (f)(rx, cls_remote))
+            .map(|_| ())
     }
 
     fn construct(kernel: Box<dyn NetKernel>) -> Self {
@@ -79,57 +121,6 @@ impl<F, Fut> PrefabFunctions<Vec<UserIdentifier>> for PeerConnectionKernel<F, Fu
             _pd: Default::default()
         }
     }
-}
-
-async fn on_server_connect_success<F, Fut>(connect_success: ConnectSuccess, cls_remote: ClientServerRemote, f: F, peers_to_connect: Vec<UserIdentifier>) -> Result<(), NetworkError>
-    where F: FnOnce(Receiver<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
-          Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
-
-    let implicated_cid = connect_success.cid;
-    let mut peers_already_registered = vec![];
-
-    wait_for_peers().await;
-
-    for peer in &peers_to_connect {
-        // TODO: optimize this into a single operation
-        peers_already_registered.push(peer.search_peer(implicated_cid, cls_remote.inner.account_manager()).await?)
-    }
-
-    let remote = cls_remote.inner.clone();
-    let (ref tx, rx) = tokio::sync::mpsc::channel(peers_to_connect.len());
-    let requests = FuturesUnordered::new();
-
-    for (mutually_registered, peer_to_connect) in peers_already_registered.into_iter().zip(peers_to_connect) {
-        // each task will be responsible for possibly registering to and connecting
-        // with the desired peer
-        let mut remote = remote.clone();
-        let task = async move {
-            let inner_task = async move {
-                if let Some(_already_registered) = mutually_registered {
-                    let mut handle = remote.find_target(implicated_cid, peer_to_connect).await?;
-                    handle.connect_to_peer().await
-                } else {
-                    // do both register + connect
-                    // TODO: optimize peer registration + connection in one go
-                    let mut handle = remote.propose_target(implicated_cid, peer_to_connect.clone()).await?;
-                    let _reg_success = handle.register_to_peer().await?;
-                    log::info!("Peer {:?} registered || success -> now connecting", peer_to_connect);
-                    handle.connect_to_peer().await
-                }
-            };
-
-            tx.send(inner_task.await).await.map_err(|err| NetworkError::Generic(err.to_string()))
-        };
-
-        requests.push(Box::pin(task))
-    }
-
-    let collection_task = async move {
-        requests.try_collect::<()>().await
-    };
-
-    tokio::try_join!(collection_task, (f)(rx, cls_remote))
-        .map(|_| ())
 }
 
 #[cfg(test)]
