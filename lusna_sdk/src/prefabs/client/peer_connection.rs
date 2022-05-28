@@ -24,10 +24,7 @@ pub struct PeerConnectionKernel<F, Fut> {
 }
 
 #[async_trait]
-impl<F, Fut> NetKernel for PeerConnectionKernel<F, Fut>
-    where
-        F: FnOnce(Receiver<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
-        Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
+impl<F, Fut> NetKernel for PeerConnectionKernel<F, Fut> {
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(server_remote)
     }
