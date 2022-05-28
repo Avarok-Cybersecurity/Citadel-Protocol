@@ -33,7 +33,7 @@ futures = "0.3.5"
 rand = "0.7.0"
 multimap = "^0.8.3"
 parking_lot = { version = "0.11.0", features = ["serde"] }
-log = { version = "0.4.8", features = ["max_level_trace", "release_max_level_error"] }
+log = { version = "0.4.8" }
 
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }

@@ -1,4 +1,4 @@
-use crate::prelude::{UserIdentifier, MessageGroupKey};
+use crate::prelude::{UserIdentifier, MessageGroupKey, NetKernel};
 
 /// A kernel that streamlines creating, connecting, and interacting with groups. Unlike
 /// [`PeerConnectionKernel`] and [`SingleClientServerConnectionKernel`], this kernel
@@ -9,6 +9,7 @@ use crate::prelude::{UserIdentifier, MessageGroupKey};
 /// future members that connect to the group.
 pub struct BroadcastKernel {
     initial_request: GroupInitRequestType,
+    c2s_kernel: Box<dyn NetKernel>
 }
 
 /// Before running the [`BroadcastKernel`], each peer must send this request
@@ -25,3 +26,6 @@ pub enum GroupInitRequestType {
     Join { local_user: UserIdentifier, owner: UserIdentifier, group_id: Option<u128> },
 }
 
+impl BroadcastKernel {
+
+}

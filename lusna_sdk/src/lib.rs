@@ -56,7 +56,7 @@
 //! Important note: Since [`NetKernel::on_node_event_received`] takes self by reference and is executed concurrently, [`NetKernel`] requires that ``Self: Sync`` since by definition, if ``&T: Send``, then ``T: Sync``
 //!
 //! ## Shutdown stage
-//! Whether through an error, or, a call to [`NodeRemote::shutdown`], the [`KernelExecutor`] will call [`NetKernel::on_stop`] (which is passed a &mut). During and after the execution of [`NetKernel::on_stop`], no more calls to [`NetKernel::on_node_event_received`] will occur. Any errors returned from [`NetKernel::on_stop`] will be propagated
+//! Whether through an error, or, a call to [`NodeRemote::shutdown`], the [`KernelExecutor`] will call [`NetKernel::on_stop`] (which is passed an &mut). During and after the execution of [`NetKernel::on_stop`], no more calls to [`NetKernel::on_node_event_received`] will occur. Any errors returned from [`NetKernel::on_stop`] will be propagated
 //! to the initial awaited call site on the node. Execution is complete, returning the initial kernel on success
 //!
 //! # Examples
