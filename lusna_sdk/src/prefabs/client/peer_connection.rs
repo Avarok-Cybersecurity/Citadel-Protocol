@@ -10,6 +10,7 @@ use futures::stream::FuturesUnordered;
 use std::sync::Arc;
 use uuid::Uuid;
 use tokio::sync::mpsc::Receiver;
+use crate::prefabs::client::PrefabFunctions;
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
 /// This kernel will only allow outbound communication for the provided account
@@ -63,65 +64,23 @@ impl PeerIDAggregator {
     }
 }
 
-impl<F, Fut> PeerConnectionKernel<F, Fut>
+
+#[async_trait]
+impl<F, Fut> PrefabFunctions<Vec<UserIdentifier>> for PeerConnectionKernel<F, Fut>
     where
         F: FnOnce(Receiver<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
         Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
-    /// Creates a new connection with a central server entailed by the user information
-    /// Then, connects to the desired peer
-    pub fn new_connect<T: Into<String>, P: Into<SecBuffer>>(username: T, password: P, peers: Vec<UserIdentifier>, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
-        let server_conn_kernel = SingleClientServerConnectionKernel::new_connect(username, password, udp_mode, session_security_settings, |connect_success, remote| async move {
-            on_server_connect_success(connect_success, remote, on_channel_received, peers).await
-        });
+    type UserLevelInputFunction = F;
 
+    async fn on_c2s_channel_received(connect_success: ConnectSuccess, remote: ClientServerRemote, arg: Vec<UserIdentifier>, fx: Self::UserLevelInputFunction) -> Result<(), NetworkError> {
+        on_server_connect_success(connect_success, remote, fx, arg).await
+    }
+
+    fn construct(kernel: Box<dyn NetKernel>) -> Self {
         Self {
-            inner_kernel: Box::new(server_conn_kernel),
+            inner_kernel: kernel,
             _pd: Default::default()
         }
-    }
-
-    /// Crates a new connection with a central server entailed by the user information and default configuration
-    /// Then, connects to the desired peer(s)
-    pub fn new_connect_defaults<T: Into<String>, P: Into<SecBuffer>>(username: T, password: P, peers: Vec<UserIdentifier>, on_channel_received: F) -> Self {
-        Self::new_connect(username, password, peers, Default::default(), Default::default(), on_channel_received)
-    }
-
-    /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with custom parameters
-    /// Then, connects to the desired peer(s)
-    pub fn new_register<T: Into<String>, R: Into<String>, P: Into<SecBuffer>>(full_name: T, username: R, password: P, peers: Vec<UserIdentifier>, server_addr: SocketAddr, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
-        let server_conn_kernel = SingleClientServerConnectionKernel::new_register(full_name, username, password, server_addr, udp_mode, session_security_settings, |connect_success, remote| async move {
-            on_server_connect_success(connect_success, remote, on_channel_received, peers).await
-        });
-
-        Self {
-            inner_kernel: Box::new(server_conn_kernel),
-            _pd: Default::default()
-        }
-    }
-
-    /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with default parameters
-    /// Then, connects to the desired peer(s)
-    pub fn new_register_defaults<T: Into<String>, R: Into<String>, P: Into<SecBuffer>>(full_name: T, username: R, password: P, peers: Vec<UserIdentifier>, server_addr: SocketAddr, on_channel_received: F) -> Self {
-        Self::new_register(full_name, username, password, peers, server_addr, Default::default(), Default::default(), on_channel_received)
-    }
-
-    /// Creates a new authless connection with custom arguments
-    /// Then, connects to the desired peer(s)
-    pub fn new_passwordless(uuid: Uuid, server_addr: SocketAddr, peers: Vec<UserIdentifier>, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
-        let server_conn_kernel = SingleClientServerConnectionKernel::new_passwordless(uuid, server_addr, udp_mode, session_security_settings,  |connect_success, remote| async move {
-            on_server_connect_success(connect_success, remote, on_channel_received, peers).await
-        });
-
-        Self {
-            inner_kernel: Box::new(server_conn_kernel),
-            _pd: Default::default()
-        }
-    }
-
-    /// Creates a new authless connection with default arguments
-    /// Then, connects to the desired peer(s)
-    pub fn new_passwordless_defaults(uuid: Uuid, server_addr: SocketAddr, peers: Vec<UserIdentifier>, on_channel_received: F) -> Self {
-        Self::new_passwordless(uuid, server_addr, peers, Default::default(), Default::default(), on_channel_received)
     }
 }
 
