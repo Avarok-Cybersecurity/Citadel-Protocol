@@ -1216,6 +1216,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c66a976bf5909d801bbef33416c41372779507e7a6b3a5e25e4749c58f776a"
 
 [[package]]
+name = "futures-timer"
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e64b03909df88034c26dc1547e8970b91f98bdb65165d6a4e9110d94263dbb2c"
+
+[[package]]
 name = "futures-util"
 version = "0.3.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1568,7 +1574,7 @@ dependencies = [
  "parking_lot 0.11.2",
  "portpicker",
  "rand 0.7.3",
- "rstest",
+ "rstest 0.14.0",
  "serde",
  "sync_wrapper",
  "tokio",
@@ -1604,7 +1610,7 @@ dependencies = [
  "openssl",
  "parking_lot 0.11.2",
  "rand 0.7.3",
- "rstest",
+ "rstest 0.12.0",
  "serde",
  "serde_bytes",
  "serde_json",
@@ -1638,7 +1644,7 @@ dependencies = [
  "quinn",
  "rand 0.8.5",
  "rcgen",
- "rstest",
+ "rstest 0.12.0",
  "rustls",
  "rustls-native-certs",
  "rustls-pemfile 1.0.0",
@@ -1854,9 +1860,8 @@ dependencies = [
  "lazy_static",
  "log",
  "parking_lot 0.11.2",
- "portpicker",
  "rand 0.8.5",
- "rstest",
+ "rstest 0.14.0",
  "serde",
  "tokio",
  "uuid 1.0.0",
@@ -3000,6 +3005,29 @@ name = "rstest"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d912f35156a3f99a66ee3e11ac2e0b3f34ac85a07e05263d05a7e2c8810d616f"
+dependencies = [
+ "cfg-if 1.0.0",
+ "proc-macro2",
+ "quote",
+ "rustc_version 0.4.0",
+ "syn",
+]
+
+[[package]]
+name = "rstest"
+version = "0.14.0"
+source = "git+https://github.com/la10736/rstest?branch=master#99762580819fc56a20d2d9e601d5f855a87e22bc"
+dependencies = [
+ "futures",
+ "futures-timer",
+ "rstest_macros",
+ "rustc_version 0.4.0",
+]
+
+[[package]]
+name = "rstest_macros"
+version = "0.14.0"
+source = "git+https://github.com/la10736/rstest?branch=master#99762580819fc56a20d2d9e601d5f855a87e22bc"
 dependencies = [
  "cfg-if 1.0.0",
  "proc-macro2",
