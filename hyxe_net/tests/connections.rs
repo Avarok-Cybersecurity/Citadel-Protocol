@@ -12,6 +12,7 @@ pub mod tests {
     use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
     use hyxe_wire::socket_helpers::is_ipv6_enabled;
     use itertools::Itertools;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
