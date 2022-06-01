@@ -47,30 +47,7 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo test --package hyxe_user --features enterprise,localhost-testing -- --test-threads=1
       #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
-      - run: cargo test --package ez_pqcrypto
-      - run: cargo test --package hyxe_crypt
-      - run: cargo test --package hyxe_fs
-      - uses: actions/github-script@v2
-        if: failure()
-        with:
-          script: |
-            const { owner, repo } = context.repo
-            console.log('Cancelling ...');
-            const run_id = "${{ github.run_id }}";
-            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
-            return 'stop'
-          result-encoding: string
-
-  proto:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-2019]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 50
-    steps:
-      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo test --package hyxe_net --features=single-threaded,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
-      - run: cargo test --package hyxe_net --features=multi-threaded,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
+      - run: cargo test --features=localhost-testing --package ez_pqcrypto --package hyxe_crypt --package hyxe_fs --package hyxe_net
       - uses: actions/github-script@v2
         if: failure()
         with:
@@ -111,7 +88,43 @@ jobs:
     timeout-minutes: 100
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo test --package lusna_sdk --features=localhost-testing -- --test-threads=1
+      - run: cargo test --package lusna_sdk --features=standard,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
+      - run: cargo test --package lusna_sdk --features=plus,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
+      - uses: actions/github-script@v2
+        if: failure()
+        with:
+          script: |
+            const { owner, repo } = context.repo
+            console.log('Cancelling ...');
+            const run_id = "${{ github.run_id }}";
+            await github.actions.cancelWorkflowRun({ owner, repo, run_id });
+            return 'stop'
+          result-encoding: string
+  valgrind:
+    name: valgrind secmem
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y valgrind
+      # Compile tests
+      - name: cargo build secmem_bytes_test
+        run: cargo build --bin secmem_bytes_test
+      # Run with valgrind
+      - name: Run valgrind secmem_bytes
+        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_bytes_test
+      - name: cargo build secmem_string_test
+        run: cargo build --bin secmem_string_test
+      # Run with valgrind
+      - name: Run valgrind secmem_string
+        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
+#      - name: cargo build pq_kems
+#        run: cargo build --bin pq_kems_test
+#      # Run with valgrind
+#      - name: Run valgrind pq_kems
+#        run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/pq_kems_test
       - uses: actions/github-script@v2
         if: failure()
         with:
@@ -125,16 +138,17 @@ jobs:
   cargo_deny_and_coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo install --locked cargo-deny && cargo deny check All
+      - run: cargo install --locked cargo-deny && cargo deny check all
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=localhost-testing -- --test-threads=1'
+          args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=localhost-testing -- --test-threads=1 --skip stress_test --skip argon_autotuner'
       - uses: codecov/codecov-action@v3
         with:
-          token: ${{secrets.CODECOV_TOKEN}}
           files: cobertura.xml
       - uses: actions/github-script@v2
         if: failure()

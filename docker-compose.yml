@@ -71,6 +71,5 @@ services:
       - rust
 
 networks:
-  my-other-project-network:
-    driver_opts:
-      com.docker.network.bridge.host_binding_ipv4: "172.21.0.1"
+  testnet:
+    driver: bridge

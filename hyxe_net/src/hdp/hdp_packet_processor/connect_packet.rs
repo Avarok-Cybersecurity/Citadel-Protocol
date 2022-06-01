@@ -14,18 +14,22 @@ use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref.clone();
 
-    if !session.is_provisional() {
-        log::error!("Connect packet received, but the system is not in a provisional state. Dropping");
-        return Ok(PrimaryProcessorResult::Void);
-    }
+    let cnac = {
+        let state_container = inner_state!(session.state_container);
+        if !session.is_provisional() && state_container.connect_state.last_stage != packet_flags::cmd::aux::do_connect::SUCCESS {
+            log::error!("Connect packet received, but the system is not in a provisional state. Dropping");
+            return Ok(PrimaryProcessorResult::Void);
+        }
 
-    if !inner_state!(session.state_container).pre_connect_state.success {
-        log::error!("Connect packet received, but the system has not yet completed the pre-connect stage. Dropping");
-        return Ok(PrimaryProcessorResult::Void);
-    }
+        if !state_container.pre_connect_state.success {
+            log::error!("Connect packet received, but the system has not yet completed the pre-connect stage. Dropping");
+            return Ok(PrimaryProcessorResult::Void);
+        }
+        state_container.cnac.clone()
+    };
 
     // the preconnect stage loads the CNAC for us, as well as re-negotiating the keys
-    let cnac = return_if_none!(inner_state!(session.state_container).cnac.clone(), "Unable to load CNAC [connect]");
+    let cnac = return_if_none!(cnac, "Unable to load CNAC [connect]");
     let (header, payload, _, _) = packet.decompose();
     let (header, payload, hyper_ratchet) = return_if_none!(validation::aead::validate(&cnac, &header, payload), "Unable to validate connect packet");
     let header = header.clone();
@@ -70,7 +74,6 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                             let account_manager = session.account_manager.clone();
 
                             async move {
-                                // Now, we handle the FCM setup
                                 let mailbox_items = session.session_manager.register_session_with_peer_layer(cid).await?;
                                 let _ = handle_client_fcm_keys(fcm_keys, &cnac, account_manager.get_persistence_handler()).await?;
                                 let peers = account_manager.get_persistence_handler().get_hyperlan_peer_list_with_fcm_keys_as_server(cid).await?.unwrap_or(Vec::new());
@@ -84,8 +87,9 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                                 session.state.store(SessionState::Connected, Ordering::Relaxed);
 
                                 let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                                session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel, udp_channel_rx))?;
-
+                                let channel_signal = HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel, udp_channel_rx);
+                                // safe unwrap. Store the signal
+                                inner_mut_state!(session.state_container).c2s_channel_container.as_mut().unwrap().channel_signal = Some(channel_signal);
                                 Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
                             }
                         }
@@ -188,6 +192,9 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                             let fcm_keys = session.fcm_keys.clone();
                             session.state.store(SessionState::Connected, Ordering::Relaxed);
 
+                            let success_ack = hdp_packet_crafter::do_connect::craft_success_ack(&hyper_ratchet, timestamp, security_level);
+                            session.send_to_primary_stream(None, success_ack)?;
+
                             // TODO: Clean this up to prevent multiple saves
                             async move {
                                 let _ = handle_client_fcm_keys(fcm_keys, &cnac, &persistence_handler).await?;
@@ -244,6 +251,22 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                 };
 
                 return task.await
+            }
+
+            packet_flags::cmd::aux::do_connect::SUCCESS_ACK => {
+                log::info!("RECV SUCCESS_ACK");
+                if session.is_server {
+                    let signal = inner_mut_state!(session.state_container)
+                        .c2s_channel_container
+                        .as_mut()
+                        .ok_or_else(|| NetworkError::InternalError("C2S channel not loaded"))?
+                        .channel_signal.take()
+                        .ok_or_else(|| NetworkError::InternalError("Channel signal missing"))?;
+                    session.send_to_kernel(signal)?;
+                    Ok(PrimaryProcessorResult::Void)
+                } else {
+                    Err(NetworkError::InvalidPacket("Received a SUCCESS_ACK as a client"))
+                }
             }
 
             n => {

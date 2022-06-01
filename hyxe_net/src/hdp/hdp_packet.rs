@@ -43,6 +43,7 @@ pub(crate) mod packet_flags {
                 pub(crate) const STAGE1: u8 = 1;
                 pub(crate) const SUCCESS: u8 = 3;
                 pub(crate) const FAILURE: u8 = 4;
+                pub(crate) const SUCCESS_ACK: u8 = 5;
             }
 
             pub(crate) mod do_register {

@@ -133,7 +133,7 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
         Ok(())
     }
 
-    async fn on_stop(self) -> Result<(), NetworkError> {
+    async fn on_stop(&mut self) -> Result<(), NetworkError> {
         Ok(())
     }
 }
@@ -145,7 +145,10 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use crate::test_common::server_info;
     use uuid::Uuid;
+    use rstest::rstest;
 
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn single_connection_registered() {
         crate::test_common::setup_log();
@@ -167,13 +170,15 @@ mod tests {
         let joined = futures::future::try_join(server, client);
 
         tokio::select! {
-            res0 = joined => { res0.unwrap(); },
+            res0 = joined => { let _ = res0.unwrap(); },
             res1 = stop_rx => { res1.unwrap(); }
         }
 
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
     }
 
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn single_connection_passwordless() {
         crate::test_common::setup_log();
@@ -197,7 +202,7 @@ mod tests {
         let joined = futures::future::try_join(server, client);
 
         tokio::select! {
-            res0 = joined => { res0.unwrap(); },
+            res0 = joined => { let _ = res0.unwrap(); },
             res1 = stop_rx => { res1.unwrap(); }
         }
 

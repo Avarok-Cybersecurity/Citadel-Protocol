@@ -23,17 +23,18 @@ hyxe_net = { path = "../hyxe_net", default-features = false }
 tokio = { version = "1.18.0", features = ["full"] }
 futures = "0.3.19"
 parking_lot = "0.11.2"
-log = { version = "0.4.14", features = ["std", "max_level_info", "release_max_level_info"] }
+log = { version = "0.4.14", features = ["std"] }
 env_logger = "0.9.0"
 lazy_static = "1.4.0"
 uuid = { version = "1.0.0", features = ["v4"] }
 
 [dev-dependencies]
 parking_lot = { version = "0.11.2", features = ["deadlock_detection"] }
-portpicker = "0.1.1"
 dirs2 = "3.0.1"
 env_logger = "0.9.0"
-rstest = "0.12.0"
+rstest = { git = "https://github.com/la10736/rstest", branch="master" }
+serde = { version = "1.0.137", features = ["derive"] }
+rand = "0.8.5"
 
 [lib]
 doctest = false
