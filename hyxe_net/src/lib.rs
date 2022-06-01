@@ -379,6 +379,7 @@ pub mod prelude {
     pub use hyxe_fs::io::SyncIO;
     pub use crate::kernel::RuntimeFuture;
     pub use crate::hdp::peer::message_group::{MessageGroupOptions, GroupType};
+    pub use crate::hdp::hdp_node::HdpServer;
 }
 
 /// Contains the streams for creating connections
@@ -393,6 +394,4 @@ mod hdp;
 mod functional;
 /// For handling differential function input types between single/multi-threaded modes
 mod inner_arg;
-#[doc(hidden)]
-pub mod test_common;
 pub mod auth;
