@@ -144,7 +144,7 @@ mod tests {
     #[rstest]
     #[case(500, SecrecyMode::Perfect)]
     #[case(4000, SecrecyMode::BestEffort)]
-    #[timeout(Duration::from_secs(90))]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor="multi_thread")]
     async fn stress_test_c2s_messaging(#[case] message_count: usize,
                                        #[case] secrecy_mode: SecrecyMode,
@@ -195,7 +195,7 @@ mod tests {
     #[rstest]
     #[case(500, SecrecyMode::Perfect)]
     #[case(4000, SecrecyMode::BestEffort)]
-    #[timeout(Duration::from_secs(90))]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor="multi_thread")]
     async fn stress_test_p2p_messaging(#[case] message_count: usize,
                                        #[case] secrecy_mode: SecrecyMode,
@@ -255,8 +255,8 @@ mod tests {
 
     #[rstest]
     #[case(500)]
-    #[timeout(Duration::from_secs(90))]
-    #[tokio::test]
+    #[timeout(std::time::Duration::from_secs(90))]
+    #[tokio::test(flavor="multi_thread")]
     async fn stress_test_group_broadcast(#[case] message_count: usize) {
         const PEER_COUNT: usize = 3;
         lusna_sdk::test_common::setup_log();
