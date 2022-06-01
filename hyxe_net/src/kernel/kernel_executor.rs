@@ -58,11 +58,10 @@ impl<K: NetKernel> KernelExecutor<K> {
 
         let (rt, hdp_server, _localset_opt) = self.context.take().unwrap();
 
-        let kernel_future = ExplicitPanicFuture::new(rt.spawn(Self::kernel_inner_loop(kernel.clone(), server_to_kernel_rx, server_remote, shutdown_alerter_rx, callback_handler, kernel_executor_settings)));
-
         log::info!("KernelExecutor::execute is now executing ...");
 
         let ret = {
+            let kernel_future = ExplicitPanicFuture::new(rt.spawn(Self::kernel_inner_loop(kernel.clone(), server_to_kernel_rx, server_remote, shutdown_alerter_rx, callback_handler, kernel_executor_settings)));
             #[cfg(feature = "multi-threaded")]
                 {
                     let hdp_server_future = ExplicitPanicFuture::new(rt.spawn(hdp_server));
