@@ -49,15 +49,15 @@
 //! the kernel itself to allow mutation of the inner data, effectively ensuring that the remote may be stored without need of atomics, as well as any other config). Thereafter, the [`KernelExecutor`] calls [`NetKernel::on_start`] (uses an ``&self`` reference) where any first asynchronous calls using the remote itself may be made.
 //!
 //! ## Passive Stage
-//! As the protocol generates events, the developer may choose to add program logic to react to the events. When an event is sent from the protocol to the [`KernelExecutor`], the [`KernelExecutor`] first checks [`NetKernel::can_run`], and if the kernel can still run, the [`KernelExecutor`] executes [`NetKernel::on_node_event_received`] with the new event. Importantly,
+//! As the protocol generates events, the developer may choose to add program logic to react to the events. When an event is sent from the protocol to the [`KernelExecutor`], the [`KernelExecutor`] executes [`NetKernel::on_node_event_received`], passing the new event. Importantly,
 //! every call to [`NetKernel::on_node_event_received`] is executed *concurrently* (**not** to be confused with *parallel*), allowing the developer to react to each event separately without having to await completion before handling the next event. If an error is returned from [`NetKernel::on_node_event_received`], then the [`KernelExecutor`] will attempt
 //! a graceful shutdown of the protocol and any running sessions. Errors returned from [`NetKernel::on_node_event_received`] are propagated to the initial awaited call site on the node.
 //!
 //! Important note: Since [`NetKernel::on_node_event_received`] takes self by reference and is executed concurrently, [`NetKernel`] requires that ``Self: Sync`` since by definition, if ``&T: Send``, then ``T: Sync``
 //!
 //! ## Shutdown stage
-//! Whether through an error, or, a call to [`NodeRemote::shutdown`], the [`KernelExecutor`] will call [`NetKernel::on_stop`] (which is passed the final owned version of the Kernel, ``self``). During and after the execution of [`NetKernel::on_stop`], no more calls to [`NetKernel::on_node_event_received`] will occur. Any errors returned from [`NetKernel::on_stop`] will be propagated
-//! to the initial awaited call site on the node. Execution is complete
+//! Whether through an error, or, a call to [`NodeRemote::shutdown`], the [`KernelExecutor`] will call [`NetKernel::on_stop`] (which is passed an &mut). During and after the execution of [`NetKernel::on_stop`], no more calls to [`NetKernel::on_node_event_received`] will occur. Any errors returned from [`NetKernel::on_stop`] will be propagated
+//! to the initial awaited call site on the node. Execution is complete, returning the initial kernel on success
 //!
 //! # Examples
 //!
@@ -103,7 +103,6 @@
 //! [`NetKernel`]: crate::prelude::NetKernel
 //! [`NetKernel::load_remote`]: crate::prelude::NetKernel::load_remote
 //! [`NetKernel::on_start`]: crate::prelude::NetKernel::on_start
-//! [`NetKernel::can_run`]: crate::prelude::NetKernel::can_run
 //! [`NetKernel::on_node_event_received`]: crate::prelude::NetKernel::on_node_event_received
 //! [`NetKernel::on_stop`]: crate::prelude::NetKernel::on_stop
 //! [`KernelExecutor`]: crate::prelude::KernelExecutor
@@ -125,7 +124,7 @@ unused_results,
 /// Convenience import for building applications
 pub mod prelude {
     pub use hyxe_net::prelude::*;
-
+    pub use crate::prefabs::client::PrefabFunctions;
     pub use crate::builder::node_builder::*;
     pub use crate::remote_ext::*;
 }
@@ -136,4 +135,4 @@ pub mod remote_ext;
 pub mod prefabs;
 mod builder;
 #[doc(hidden)]
-pub(crate) mod test_common;
+pub mod test_common;

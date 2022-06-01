@@ -82,7 +82,10 @@ impl Drop for SecString {
 
 impl Clone for SecString {
     fn clone(&self) -> Self {
-        Self::from(self.inner.clone())
+        self.unlock();
+        let ret = Self::from(self.inner.clone());
+        self.unlock();
+        ret
     }
 }
 
@@ -121,7 +124,10 @@ fn decompose(input: &String) -> (*const u8, usize) {
 impl Serialize for SecString {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
         S: Serializer {
-        serializer.serialize_bytes(self.as_ref())
+        self.unlock();
+        let res = serializer.serialize_bytes(self.as_ref());
+        self.lock();
+        res
     }
 }
 

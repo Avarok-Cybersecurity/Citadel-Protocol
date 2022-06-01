@@ -241,7 +241,7 @@ pub trait ProtocolRemoteExt: Remote {
     }
 }
 
-fn map_errors(result: HdpServerResult) -> Result<HdpServerResult, NetworkError> {
+pub(crate) fn map_errors(result: HdpServerResult) -> Result<HdpServerResult, NetworkError> {
     match result {
         HdpServerResult::InternalServerError(_, err) => Err(NetworkError::Generic(err)),
         HdpServerResult::PeerEvent(PeerSignal::SignalError(_, err), _) => Err(NetworkError::Generic(err)),
@@ -392,6 +392,35 @@ pub mod results {
     }
 }
 
+pub mod remote_specialization {
+    use crate::prelude::{NodeRemote, VirtualTargetType};
+    use crate::prelude::user_ids::TargetLockedRemote;
+
+    pub struct PeerRemote {
+        inner: NodeRemote,
+        peer: VirtualTargetType,
+        username: Option<String>
+    }
+
+    impl TargetLockedRemote for PeerRemote {
+        fn user(&self) -> &VirtualTargetType {
+            &self.peer
+        }
+
+        fn remote(&mut self) -> &mut NodeRemote {
+            &mut self.inner
+        }
+
+        fn target_username(&self) -> Option<&String> {
+            self.username.as_ref()
+        }
+
+        fn user_mut(&mut self) -> &mut VirtualTargetType {
+            &mut self.peer
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -399,13 +428,14 @@ mod tests {
     use crate::builder::node_builder::{NodeBuilder, NodeFuture};
     use crate::prelude::{ProtocolRemoteTargetExt, NetKernel, NodeRemote, NetworkError, HdpServerResult, FileTransferStatus};
     use crate::remote_ext::map_errors;
+    use rstest::rstest;
     use futures::StreamExt;
     use std::net::SocketAddr;
     use std::str::FromStr;
     use crate::prelude::*;
     use uuid::Uuid;
 
-    struct ServerFileTransferKernel(Option<NodeRemote>);
+    pub struct ServerFileTransferKernel(Option<NodeRemote>);
 
     #[async_trait]
     impl NetKernel for ServerFileTransferKernel {
@@ -446,13 +476,13 @@ mod tests {
             Ok(())
         }
 
-        async fn on_stop(self) -> Result<(), NetworkError> {
+        async fn on_stop(&mut self) -> Result<(), NetworkError> {
             Ok(())
         }
     }
 
-    pub fn server_info() -> (NodeFuture, SocketAddr) {
-        let port = portpicker::pick_unused_port().unwrap();
+    pub fn server_info() -> (NodeFuture<ServerFileTransferKernel>, SocketAddr) {
+        let port = crate::test_common::get_unused_tcp_port();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
         let server = crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel(None));
         (server, bind_addr)
@@ -460,6 +490,8 @@ mod tests {
 
     static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
 
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn test_c2s_file_transfer() {
         crate::test_common::setup_log();

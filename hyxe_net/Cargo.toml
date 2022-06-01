@@ -22,12 +22,13 @@ localhost-testing-assert-no-proxy = []
 futures = "0.3.12"
 #rav1e = {version = "0.4.0-alpha", default-features=false, features = ["binaries", "signal_support"]}
 bstr = "0.2.13"
-log = { version = "0.4.8", features = ["std", "max_level_info", "release_max_level_info"] }
+log = { version = "0.4.8", features = ["std"] }
 async-trait = "0.1.31"
 #tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
-tokio-util = { version = "^0.6.9", features = ["net", "codec", "time", "io"] }
+tokio-util = { version = "0.7.2", features = ["net", "codec", "time", "io"] }
 #tokio = { version = "^0.2.22", features = ["full"] }
 tokio = { version = "1.16.1", features = ["full"] }
+auto_impl = "0.5.0"
 tokio-stream = "0.1.7"
 parking_lot = "0.11.1"
 zerocopy = "0.5.0"
@@ -68,7 +69,7 @@ clap = "2.33.3"
 portpicker = "0.1.1"
 dirs2 = "3.0.1"
 ureq = "2.4.0"
-rstest = "0.12.0"
+rstest = { git = "https://github.com/la10736/rstest", branch="master" }
 
 [lib]
 doctest = false

@@ -139,7 +139,7 @@ impl SessionQueueWorker {
             let mut state_container = inner_mut_state!(state_container.as_ref().unwrap());
             if state_container.state.load(Ordering::Relaxed) != SessionState::Disconnected {
                 while let Some(res) = futures::ready!(expirations.poll_expired(cx)) {
-                    let entry: QueueWorkerTicket = res?.into_inner();
+                    let entry: QueueWorkerTicket = res.into_inner();
                     //log::info!("POLL_EXPIRED: {:?}", &entry);
                     match entry {
                         QueueWorkerTicket::Oneshot(_, _) => {

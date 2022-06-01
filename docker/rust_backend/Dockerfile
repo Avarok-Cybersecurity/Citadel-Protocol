@@ -24,4 +24,4 @@ COPY . /app
 EXPOSE 25021/tcp
 EXPOSE 25021/udp
 
-RUN cargo test --verbose --package hyxe_user
+RUN cargo test --package hyxe_user
