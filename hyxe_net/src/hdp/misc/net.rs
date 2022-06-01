@@ -136,6 +136,7 @@ pub struct GenericNetworkListener {
     future: Pin<Box<dyn StreamOutputImpl>>,
     recv: tokio::sync::mpsc::Receiver<std::io::Result<(GenericNetworkStream, SocketAddr)>>,
     local_addr: SocketAddr,
+    #[allow(dead_code)]
     quic_endpoint: Option<Endpoint>,
     #[allow(dead_code)]
     redirect_to_quic: Option<(TlsDomain, bool)>,
@@ -244,6 +245,7 @@ impl GenericNetworkListener {
     }
 
     /// For P2P connections, this should exist
+    #[allow(dead_code)]
     pub fn quic_endpoint(&self) -> Option<Endpoint> {
         self.quic_endpoint.clone()
     }

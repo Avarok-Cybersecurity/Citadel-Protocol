@@ -420,6 +420,30 @@ pub(crate) mod do_connect {
 
         packet
     }
+
+    #[allow(unused_results)]
+    pub(crate) fn craft_success_ack(hyper_ratchet: &HyperRatchet, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+        let header = HdpHeader {
+            cmd_primary: packet_flags::cmd::primary::DO_CONNECT,
+            cmd_aux: packet_flags::cmd::aux::do_connect::SUCCESS_ACK,
+            algorithm: 0,
+            security_level: security_level.value(),
+            context_info: U128::new(0),
+            group: U64::new(0),
+            wave_id: U32::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
+            drill_version: U32::new(hyper_ratchet.version()),
+            timestamp: I64::new(timestamp),
+            target_cid: U64::new(0)
+        };
+
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
+        header.inscribe_into(&mut packet);
+
+        hyper_ratchet.protect_message_packet(Some(security_level), HDP_HEADER_BYTE_LEN, &mut packet).unwrap();
+
+        packet
+    }
 }
 
 pub(crate) mod keep_alive {

@@ -1,9 +1,9 @@
 use super::super::includes::*;
 use serde::{Serialize, Deserialize};
-use crate::hdp::peer::message_group::MessageGroupKey;
+use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroupOptions};
 use crate::hdp::hdp_node::Ticket;
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
-use crate::functional::IfEqConditional;
+use crate::functional::*;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_fs::io::SyncIO;
 use crate::error::NetworkError;
@@ -12,7 +12,7 @@ use crate::hdp::peer::group_channel::GroupBroadcastPayload;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GroupBroadcast {
     // contains the set of peers that will receive an initial invitation (must be connected)
-    Create(Vec<u64>),
+    Create(Vec<u64>, MessageGroupOptions),
     LeaveRoom(MessageGroupKey),
     LeaveRoomResponse(MessageGroupKey, bool, String),
     End(MessageGroupKey),
@@ -28,10 +28,16 @@ pub enum GroupBroadcast {
     AcceptMembershipResponse(MessageGroupKey, bool),
     Kick(MessageGroupKey, Vec<u64>),
     KickResponse(MessageGroupKey, bool),
+    ListGroupsFor(u64),
+    ListResponse(Vec<MessageGroupKey>),
+    /// When relayed to a group owner, the owner is expected to send an
+    /// AcceptMembership signal
+    RequestJoin(MessageGroupKey),
     Invitation(MessageGroupKey),
     CreateResponse(Option<MessageGroupKey>),
     MemberStateChanged(MessageGroupKey, MemberState),
-    GroupNonExists(MessageGroupKey)
+    GroupNonExists(MessageGroupKey),
+    SignalResponse(Result<(), String>)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -54,12 +60,64 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
     let security_level = header.security_level.into();
     // since group broadcast packets never get proxied, the implicated cid is the local session cid
     let implicated_cid = header.session_cid.get();
+    log::info!("[GROUP:{}] message: {:?}", session.is_server.if_true("server").if_false("client"), signal);
     match signal {
-        GroupBroadcast::Create(initial_peers) => {
-            let key = session.session_manager.create_message_group_and_notify(timestamp, ticket, implicated_cid, initial_peers, security_level);
+        GroupBroadcast::Create(initial_peers, options) => {
+            let key = session.session_manager.create_message_group_and_notify(timestamp, ticket, implicated_cid, initial_peers, security_level, options).await;
             let signal = GroupBroadcast::CreateResponse(key);
             let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
             Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
+        }
+
+        GroupBroadcast::SignalResponse(res) => {
+            forward_signal(session, ticket, None, GroupBroadcast::SignalResponse(res))
+        }
+
+        GroupBroadcast::RequestJoin(key) => {
+            if session.is_server {
+                // if the group is auto-accept enabled, rebound a GroupBroadcast::AcceptMembershipResponse
+                let result = session.hypernode_peer_layer.request_join(implicated_cid, key).await;
+                match result {
+                    None => {
+                        // group does not exist. Send error packet
+                        log::warn!("Group {:?} does not exist", key);
+                        let error = GroupBroadcast::GroupNonExists(key);
+                        let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &error, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
+                        Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
+                    }
+
+                    Some(true) => {
+                        // user has been automatically added to the group via auto-accept.
+                        let success = GroupBroadcast::AcceptMembershipResponse(key, true);
+                        let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &success, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
+                        Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
+                    }
+
+                    Some(false) => {
+                        // auto-accept is not enabled. Relay signal to owner
+                        let res = session.session_manager.route_packet_to(key.cid, |peer_hr| {
+                            hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hr, &GroupBroadcast::RequestJoin(key), ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
+                        });
+
+                        let signal = GroupBroadcast::SignalResponse(res);
+                        let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
+                        Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
+                    }
+                }
+            } else {
+                forward_signal(session, ticket, Some(key), GroupBroadcast::RequestJoin(key))
+            }
+        }
+
+        GroupBroadcast::ListGroupsFor(owner) => {
+            let message_groups = session.hypernode_peer_layer.list_message_groups_for(owner).await.unwrap_or_default();
+            let signal = GroupBroadcast::ListResponse(message_groups);
+            let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
+            Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
+        }
+
+        GroupBroadcast::ListResponse(message_groups) => {
+            forward_signal(session, ticket, None, GroupBroadcast::ListResponse(message_groups))
         }
 
         GroupBroadcast::MemberStateChanged(key, state) => {
@@ -68,7 +126,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
 
         GroupBroadcast::End(key) => {
             return_if_none!(permission_gate(implicated_cid, key), "Permission denied");
-            let success = session.session_manager.remove_message_group(implicated_cid, timestamp, ticket, key, security_level);
+            let success = session.session_manager.remove_message_group(implicated_cid, timestamp, ticket, key, security_level).await;
             let signal = GroupBroadcast::EndResponse(key, success);
             let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
             Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
@@ -109,8 +167,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         }
 
         GroupBroadcast::AcceptMembership(key) => {
-
-            let success = session.hypernode_peer_layer.upgrade_peer_in_group(key, implicated_cid);
+            let success = session.hypernode_peer_layer.upgrade_peer_in_group(key, implicated_cid).await;
             if !success {
                 log::warn!("Unable to upgrade peer {} for {:?}", implicated_cid, key);
             } else {
@@ -122,6 +179,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
                 log::info!("Successfully upgraded {} for {:?}", implicated_cid, key);
             }
 
+            // tell the user who accepted the membership
             let signal = GroupBroadcast::AcceptMembershipResponse(key, success);
             let packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
             Ok(PrimaryProcessorResult::ReplyToSender(packet))
@@ -162,11 +220,11 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
             let ref peer_layer = session.hypernode_peer_layer;
             let peer_statuses = persistence_handler.hyperlan_peers_are_mutuals(implicated_cid, &peers).await?;
 
-            if peer_layer.message_group_exists(key) {
+            if peer_layer.message_group_exists(key).await {
                 let (peers_okay, peers_failed) = sess_mgr.send_group_broadcast_signal_to(timestamp, ticket, peers.iter().cloned().zip(peer_statuses.clone()), true, GroupBroadcast::Invitation(key), security_level).await.map_err(|err| NetworkError::Generic(err))?;
 
                 if peers_okay.len() != 0 {
-                    peer_layer.add_pending_peers_to_group(key, peers_okay);
+                    peer_layer.add_pending_peers_to_group(key, peers_okay).await;
                     std::mem::drop(sess_mgr);
                 }
 

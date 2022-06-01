@@ -10,6 +10,7 @@ use std::fmt::{Debug, Formatter};
 use hyxe_net::re_imports::RustlsClientConfig;
 use std::path::Path;
 use std::sync::Arc;
+use std::marker::PhantomData;
 
 #[derive(Default)]
 /// Used to construct a running client/peer or server instance
@@ -21,22 +22,24 @@ pub struct NodeBuilder {
     server_argon_settings: Option<ArgonDefaultServerSettings>,
     services: Option<ServicesConfig>,
     server_misc_settings: Option<ServerMiscSettings>,
-    client_tls_config: Option<RustlsClientConfig>
+    client_tls_config: Option<RustlsClientConfig>,
+    kernel_executor_settings: Option<KernelExecutorSettings>
 }
 
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
-pub struct NodeFuture {
-    inner: Pin<Box<dyn Future<Output=Result<(), NetworkError>> + 'static>>
+pub struct NodeFuture<K> {
+    inner: Pin<Box<dyn Future<Output=Result<K, NetworkError>> + 'static>>,
+    _pd: PhantomData<fn() -> K>
 }
 
-impl Debug for NodeFuture {
+impl<K> Debug for NodeFuture<K> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "NodeFuture")
     }
 }
 
-impl Future for NodeFuture {
-    type Output = Result<(), NetworkError>;
+impl<K> Future for NodeFuture<K> {
+    type Output = Result<K, NetworkError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         self.inner.as_mut().poll(cx)
@@ -178,7 +181,7 @@ impl ServerConfigBuilder<'_> {
 
 impl NodeBuilder {
     /// Returns a future that represents the both the protocol and kernel execution
-    pub fn build<K: NetKernel>(&mut self, kernel: K) -> Result<NodeFuture, NodeBuilderError> {
+    pub fn build<K: NetKernel>(&mut self, kernel: K) -> Result<NodeFuture<K>, NodeBuilderError> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let home_dir = self.home_directory.take();
@@ -187,22 +190,24 @@ impl NodeBuilder {
         let server_services_cfg = self.services.take();
         let server_misc_settings = self.server_misc_settings.take();
         let client_config = self.client_tls_config.take().map(Arc::new);
+        let kernel_executor_settings = self.kernel_executor_settings.take().unwrap_or_default();
 
         let underlying_proto = if let Some(proto) = self.underlying_protocol.take() {
             proto
         } else {
-            // default to TLS self-signed
+            // default to TLS self-signed to enforce hybrid cryptography
             UnderlyingProtocol::new_tls_self_signed().map_err(|err| NodeBuilderError::Other(err.into_string()))?
         };
 
         Ok(NodeFuture {
+            _pd: Default::default(),
             inner: Box::pin(async move {
                 log::info!("[NodeBuilder] Checking Tokio runtime ...");
                 let rt = tokio::runtime::Handle::try_current().map_err(|err| NetworkError::Generic(err.to_string()))?;
                 log::info!("[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(hypernode_type.bind_addr().unwrap_or_else(|| SocketAddr::from_str("127.0.0.1:25021").unwrap()), home_dir, backend_type, server_argon_settings, server_services_cfg, server_misc_settings).await?;
                 log::info!("[NodeBuilder] Creating KernelExecutor ...");
-                let kernel_executor = KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto, client_config).await?;
+                let kernel_executor = KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto, client_config, kernel_executor_settings).await?;
                 log::info!("[NodeBuilder] Executing kernel");
                 kernel_executor.execute().await
             })
@@ -248,6 +253,12 @@ impl NodeBuilder {
         self
     }
 
+    /// Sets the desired settings for the [`KernelExecutor`]
+    pub fn with_kernel_executor_settings(&mut self, kernel_executor_settings: KernelExecutorSettings) -> &mut Self {
+        self.kernel_executor_settings = Some(kernel_executor_settings);
+        self
+    }
+
     fn check(&self) -> Result<(), NodeBuilderError> {
         if let Some(svc) = self.services.as_ref() {
             if svc.google_rtdb.is_some() && svc.google_services_json_path.is_none() {
@@ -262,7 +273,7 @@ impl NodeBuilder {
 #[cfg(test)]
 mod tests {
     use crate::builder::node_builder::NodeBuilder;
-    use crate::prefabs::server::empty_kernel::EmptyKernel;
+    use crate::prefabs::server::empty::EmptyKernel;
 
     #[test]
     fn okay_config() {

@@ -17,7 +17,7 @@ impl SecBuffer {
     }
 
     pub fn with_capacity(cap: usize) -> Self {
-        Self { inner: BytesMut::with_capacity(cap) }
+        Self::from(BytesMut::with_capacity(cap))
     }
 
     /// Returns the inner element without dropping the memory
@@ -86,7 +86,7 @@ impl Drop for SecureBufMutHandle<'_> {
 
 impl AsRef<[u8]> for SecBuffer {
     fn as_ref(&self) -> &[u8] {
-        self.inner.as_ref()
+        &self.inner[..]
     }
 }
 
@@ -155,14 +155,20 @@ impl<T: AsRef<[u8]>> PartialEq<T> for SecBuffer {
 
 impl Clone for SecBuffer {
     fn clone(&self) -> Self {
-        SecBuffer::from(self.inner.clone())
+        self.unlock();
+        let ret = SecBuffer::from(self.inner.clone());
+        self.lock();
+        ret
     }
 }
 
 impl Serialize for SecBuffer {
     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
         S: Serializer {
-        self.inner.serialize(serializer)
+        self.unlock();
+        let ret = self.inner.serialize(serializer);
+        self.lock();
+        ret
     }
 }
 
