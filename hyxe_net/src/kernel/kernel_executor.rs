@@ -48,7 +48,7 @@ impl<K: NetKernel> KernelExecutor<K> {
     pub async fn execute(mut self) -> Result<K, NetworkError> {
         // We only clone this once, ensuring Arc::try_unwrap succeeds once the inner
         // scope stack frame gets popped, thus allowing us to return the kernel
-        let kernel = Arc::new(Mutex::new(self.kernel));
+        let kernel = Arc::new(Mutex::new(Some(self.kernel)));
 
         let server_to_kernel_rx = self.server_to_kernel_rx.take().unwrap();
         let server_remote = self.server_remote.take().unwrap();
@@ -86,14 +86,15 @@ impl<K: NetKernel> KernelExecutor<K> {
         log::info!("KernelExecutor::execute has finished execution");
         // Arc::strong_count should be 1 by now since the drop code in the inner
         // block ensures that the single clone is now absent
-        let kernel = Arc::try_unwrap(kernel).map_err(|_| NetworkError::InternalError("Arc_strong_count != 1"))?.into_inner();
+        let kernel = kernel.lock().await.take().ok_or(NetworkError::InternalError("Failed to reclaim kernel"))?;
         ret.map(|_| kernel)
     }
 
     #[allow(unused_must_use)]
-    async fn kernel_inner_loop(kernel: Arc<Mutex<K>>, mut server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, ref hdp_server_remote: NodeRemote, shutdown: tokio::sync::oneshot::Receiver<()>, ref callback_handler: KernelAsyncCallbackHandler, kernel_settings: KernelExecutorSettings) -> Result<(), NetworkError> {
+    async fn kernel_inner_loop(kernel: Arc<Mutex<Option<K>>>, mut server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, ref hdp_server_remote: NodeRemote, shutdown: tokio::sync::oneshot::Receiver<()>, ref callback_handler: KernelAsyncCallbackHandler, kernel_settings: KernelExecutorSettings) -> Result<(), NetworkError> {
         log::info!("Kernel multithreaded environment executed ...");
-        let mut kernel = kernel.lock().await;
+        let mut lock = kernel.lock().await;
+        let kernel = lock.as_mut().ok_or(NetworkError::InternalError("Failed to load kernel"))?;
         // Load the remote into the kernel
         kernel.load_remote(hdp_server_remote.clone())?;
 
