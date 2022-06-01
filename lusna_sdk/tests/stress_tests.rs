@@ -111,7 +111,7 @@ mod tests {
                     //assert_eq!(msg.idx, *cur_idx as u64);
                     assert_eq!(msg.rand.len(), MESSAGE_LEN);
                     *cur_idx += 1;
-                    if counter.values().all(|r| *r == count) {
+                    if counter.values().all(|r| *r == count)  && counter.len() == total_peers - 1 {
                         break;
                     }
                 }
