@@ -112,7 +112,7 @@ impl PostQuantumContainer {
     pub fn new_alice(opts: ConstructorOpts) -> Result<Self, Error> {
         let params = opts.cryptography.unwrap_or_default();
         let previous_symmetric_key = opts.chain;
-        let data = Self::get_new_alice(params.kem_algorithm)?;
+        let data = Self::create_new_alice(params.kem_algorithm)?;
         let aes_gcm_key = None;
         log::info!("Success creating new ALICE container");
 
@@ -125,7 +125,7 @@ impl PostQuantumContainer {
         let params = opts.cryptography.unwrap_or_default();
         let chain = opts.chain;
 
-        let data = Self::get_new_bob(params.kem_algorithm, public_key)?;
+        let data = Self::create_new_bob(params.kem_algorithm, public_key)?;
         // We must call the below to refresh the internal state to allow get_shared_secret to function
         let ss = data.get_shared_secret().unwrap();
 
@@ -133,6 +133,7 @@ impl PostQuantumContainer {
 
         let aes_gcm_key = Some(aes_gcm_key);
 
+        log::info!("Success creating new BOB container");
         Ok(Self { chain: Some(chain), params, shared_secret: aes_gcm_key, data, anti_replay_attack: AntiReplayAttackContainer::default(), node: PQNode::Bob })
     }
 
@@ -393,12 +394,12 @@ impl PostQuantumContainer {
     }
 
     /// This, for now, only gets FIRESABER
-    fn get_new_alice(kem_algorithm: KemAlgorithm) -> Result<PostQuantumKem, Error> {
+    fn create_new_alice(kem_algorithm: KemAlgorithm) -> Result<PostQuantumKem, Error> {
         PostQuantumKem::new_alice(kem_algorithm.into())
     }
 
     /// This, for now, only gets FIRESABER
-    fn get_new_bob(kem_algorithm: KemAlgorithm, public_key: &[u8]) -> Result<PostQuantumKem, Error> {
+    fn create_new_bob(kem_algorithm: KemAlgorithm, public_key: &[u8]) -> Result<PostQuantumKem, Error> {
         PostQuantumKem::new_bob(public_key, kem_algorithm.into())
     }
 }
@@ -634,12 +635,13 @@ pub struct PostQuantumKem {
 
 impl PostQuantumKem {
     fn new_alice(algorithm: oqs::kem::Algorithm) -> Result<Self, Error> {
+        log::info!("About to generate keypair for {:?}", algorithm);
         let kem_alg = oqs::kem::Kem::new(algorithm)?;
         let (public_key, secret_key) = kem_alg.keypair()?;
         let ciphertext = None;
         let shared_secret = None;
-        let secret_key = Some(secret_key.to_owned());
-        Ok(Self { public_key: public_key.to_owned(), secret_key, ciphertext, shared_secret, kem_alg: algorithm })
+        let secret_key = Some(secret_key);
+        Ok(Self { public_key, secret_key, ciphertext, shared_secret, kem_alg: algorithm })
     }
 
     fn new_bob(public_key: &[u8], algorithm: oqs::kem::Algorithm) -> Result<Self, Error> {
@@ -647,8 +649,8 @@ impl PostQuantumKem {
         let public_key = kem_alg.public_key_from_bytes(public_key).ok_or(Error::InvalidLength)?.to_owned();
         let (ciphertext, shared_secret) = kem_alg.encapsulate(&public_key)?;
         let secret_key = None;
-        let shared_secret = Some(shared_secret.to_owned());
-        let ciphertext = Some(ciphertext.to_owned());
+        let shared_secret = Some(shared_secret);
+        let ciphertext = Some(ciphertext);
         Ok(Self { public_key, secret_key, ciphertext, shared_secret, kem_alg: algorithm })
     }
 

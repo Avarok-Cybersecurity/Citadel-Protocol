@@ -68,6 +68,7 @@ use crate::hdp::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 use atomic::Atomic;
 use crate::auth::AuthenticationRequest;
 use hyxe_wire::exports::tokio_rustls::rustls;
+use crate::prelude::SecureProtocolPacket;
 
 //use crate::define_struct;
 
@@ -1133,6 +1134,36 @@ impl HdpSession {
                 Err(NetworkError::Generic(format!("File `{:?}` not found", file)))
             }
         }
+    }
+
+    pub(crate) fn spawn_message_sender_function(this: HdpSession, mut rx: tokio::sync::mpsc::Receiver<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) {
+        let task = async move {
+            let ref this = this;
+            let mut stopper_rx = inner!(this.stopper_tx).subscribe();
+            let ref to_kernel_tx = this.kernel_tx.clone();
+
+            let stopper = async move {
+                stopper_rx.recv().await.map_err(|err| NetworkError::Generic(err.to_string()))
+            };
+
+            let receiver = async move {
+                while let Some((ticket, message, v_target, security_level)) = rx.recv().await {
+                    let mut state_container = inner_mut_state!(this.state_container);
+                    if let Err(err) = state_container.process_outbound_message(ticket, message, v_target, security_level, false) {
+                        to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket), err.into_string())).map_err(|err| NetworkError::Generic(err.to_string()))?
+                    }
+                }
+
+                Ok(())
+            };
+
+            tokio::select! {
+                res0 = stopper => res0,
+                res1 = receiver => res1
+            }
+        };
+
+        let _ = spawn!(task);
     }
 
     #[allow(unused_results)]
