@@ -10,7 +10,7 @@ use tokio::time::Duration;
 use futures::Stream;
 use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
 use std::fmt::{Display, Formatter};
-use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer};
+use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer, MessageGroupOptions, GroupType};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
 use serde::{Serialize, Deserialize};
 use hyxe_fs::prelude::SyncIO;
@@ -140,13 +140,13 @@ impl HyperNodePeerLayer {
 
     /// Creates a new [MessageGroup]. Returns the key upon completion
     #[allow(unused_results)]
-    pub async fn create_new_message_group(&self, implicated_cid: u64, initial_peers: &Vec<u64>) -> Option<MessageGroupKey> {
+    pub async fn create_new_message_group(&self, implicated_cid: u64, initial_peers: &Vec<u64>, options: MessageGroupOptions) -> Option<MessageGroupKey> {
         let mut this = self.inner.write().await;
         let map = this.message_groups.get_mut(&implicated_cid)?;
-        let mgid = Uuid::new_v4().as_u128();
+        let mgid = options.id;
         if map.len() <= u8::MAX as usize {
             if !map.contains_key(&mgid) {
-                let mut message_group = MessageGroup { concurrent_peers: HashMap::new(), pending_peers: HashMap::with_capacity(initial_peers.len()) };
+                let mut message_group = MessageGroup { concurrent_peers: HashMap::new(), pending_peers: HashMap::with_capacity(initial_peers.len()), options };
                 // insert peers into the pending_peers map to allow/process AcceptMembership signals
                 for peer_cid in initial_peers {
                     let peer_cid = *peer_cid;
@@ -244,6 +244,26 @@ impl HyperNodePeerLayer {
         let peers_successfully_removed = peers;
 
         Ok((peers_successfully_removed, peers_remaining))
+    }
+
+    pub async fn list_message_groups_for(&self, cid: u64) -> Option<Vec<MessageGroupKey>> {
+        Some(self.inner.read().await.message_groups.get(&cid)?.keys()
+            .copied()
+            .map(|mgid| MessageGroupKey { cid, mgid })
+            .collect())
+    }
+
+    /// returns true if auto-accepted, false if requires the owner to accept
+    /// returns None if the key does not match an active group
+    pub async fn request_join(&self, peer_cid: u64, key: MessageGroupKey) -> Option<bool> {
+        let mut write = self.inner.write().await;
+        let group = write.message_groups.get_mut(&key.cid)?.get_mut(&key.mgid)?;
+        if group.options.group_type == GroupType::Public {
+            let _ = group.concurrent_peers.insert(peer_cid, MessageGroupPeer { peer_cid });
+            Some(true)
+        } else {
+            Some(false)
+        }
     }
 
     /// returns true if added successfully, or false if not (mailbox may be overloaded)

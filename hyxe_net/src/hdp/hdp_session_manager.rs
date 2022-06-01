@@ -32,7 +32,7 @@ use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver, UnboundedSender};
 use tokio::sync::broadcast::Sender;
-use crate::hdp::peer::message_group::MessageGroupKey;
+use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroupOptions};
 use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal, UdpMode, HyperNodePeerLayerInner};
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::kernel::RuntimeFuture;
@@ -551,12 +551,12 @@ impl HdpSessionManager {
     }
 
     /// Creates a new message group. Returns a key if successful
-    pub async fn create_message_group_and_notify(&self, timestamp: i64, ticket: Ticket, implicated_cid: u64, peers_to_notify: Vec<u64>, security_level: SecurityLevel) -> Option<MessageGroupKey> {
+    pub async fn create_message_group_and_notify(&self, timestamp: i64, ticket: Ticket, implicated_cid: u64, peers_to_notify: Vec<u64>, security_level: SecurityLevel, options: MessageGroupOptions) -> Option<MessageGroupKey> {
         let peer_layer = {
             inner!(self).hypernode_peer_layer.clone()
         };
 
-        let key = peer_layer.create_new_message_group(implicated_cid, &peers_to_notify).await?;
+        let key = peer_layer.create_new_message_group(implicated_cid, &peers_to_notify, options).await?;
         // notify all the peers
         for peer_cid in peers_to_notify {
             let this = inner!(self);
@@ -733,8 +733,7 @@ impl HdpSessionManager {
         }
     }
 
-    #[allow(dead_code)]
-    fn route_packet_to(&self, target_cid: u64, packet: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), String> {
+    pub fn route_packet_to(&self, target_cid: u64, packet: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), String> {
         let lock = inner!(self);
         let (_, sess_ref) = lock.sessions.get(&target_cid).ok_or_else(|| format!("Target cid {} does not exist (route err)", target_cid))?;
         let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();

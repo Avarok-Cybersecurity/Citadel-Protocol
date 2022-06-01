@@ -241,7 +241,7 @@ pub trait ProtocolRemoteExt: Remote {
     }
 }
 
-fn map_errors(result: HdpServerResult) -> Result<HdpServerResult, NetworkError> {
+pub(crate) fn map_errors(result: HdpServerResult) -> Result<HdpServerResult, NetworkError> {
     match result {
         HdpServerResult::InternalServerError(_, err) => Err(NetworkError::Generic(err)),
         HdpServerResult::PeerEvent(PeerSignal::SignalError(_, err), _) => Err(NetworkError::Generic(err)),
@@ -481,7 +481,7 @@ mod tests {
     }
 
     pub fn server_info() -> (NodeFuture<ServerFileTransferKernel>, SocketAddr) {
-        let port = portpicker::pick_unused_port().unwrap();
+        let port = crate::test_common::get_unused_tcp_port();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
         let server = crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel(None));
         (server, bind_addr)

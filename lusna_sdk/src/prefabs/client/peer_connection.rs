@@ -5,9 +5,9 @@ use futures::{Future, TryStreamExt};
 use crate::prefabs::ClientServerRemote;
 use hyxe_net::re_imports::async_trait;
 use futures::stream::FuturesUnordered;
-use std::sync::Arc;
 use tokio::sync::mpsc::Receiver;
 use crate::prefabs::client::PrefabFunctions;
+use crate::test_common::wait_for_peers;
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
 /// This kernel will only allow outbound communication for the provided account
@@ -66,8 +66,13 @@ impl<F, Fut> PrefabFunctions<Vec<UserIdentifier>> for PeerConnectionKernel<F, Fu
         F: FnOnce(Receiver<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
         Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
     type UserLevelInputFunction = F;
+    type SharedBundle = ();
 
-    async fn on_c2s_channel_received(connect_success: ConnectSuccess, cls_remote: ClientServerRemote, peers_to_connect: Vec<UserIdentifier>, f: Self::UserLevelInputFunction) -> Result<(), NetworkError> {
+    fn get_shared_bundle(&mut self) -> Self::SharedBundle {
+        ()
+    }
+
+    async fn on_c2s_channel_received(connect_success: ConnectSuccess, cls_remote: ClientServerRemote, peers_to_connect: Vec<UserIdentifier>, f: Self::UserLevelInputFunction, _: ()) -> Result<(), NetworkError> {
         let implicated_cid = connect_success.cid;
         let mut peers_already_registered = vec![];
 
@@ -124,53 +129,12 @@ impl<F, Fut> PrefabFunctions<Vec<UserIdentifier>> for PeerConnectionKernel<F, Fu
 }
 
 #[cfg(test)]
-async fn wait_for_peers() {
-    let barrier = {
-        TEST_BARRIER.lock().clone()
-    };
-
-    if let Some(test_barrier) = barrier {
-        // wait for all peers to reach this point in the code
-        test_barrier.wait().await;
-    }
-}
-
-#[cfg(not(test))]
-async fn wait_for_peers() {}
-
-#[cfg(test)]
-static TEST_BARRIER: parking_lot::Mutex<Option<TestBarrier>> = parking_lot::const_mutex(None);
-
-#[derive(Clone)]
-struct TestBarrier {
-    #[allow(dead_code)]
-    inner: Arc<tokio::sync::Barrier>
-}
-
-impl TestBarrier {
-    #[cfg(test)]
-    pub fn setup(count: usize) {
-        let _ = TEST_BARRIER.lock().replace(Self::new(count));
-    }
-    #[allow(dead_code)]
-    fn new(count: usize) -> Self {
-        Self { inner: Arc::new(tokio::sync::Barrier::new(count)) }
-    }
-
-    #[allow(dead_code)]
-    pub async fn wait(&self) {
-        let _ = self.inner.wait().await;
-    }
-}
-
-
-#[cfg(test)]
 mod tests {
     use crate::prelude::*;
     use std::sync::atomic::{Ordering, AtomicUsize};
-    use crate::test_common::{PEERS, server_info};
+    use crate::test_common::{PEERS, server_info, TestBarrier, wait_for_peers};
     use rstest::rstest;
-    use crate::prefabs::client::peer_connection::{PeerConnectionKernel, TestBarrier, wait_for_peers};
+    use crate::prefabs::client::peer_connection::PeerConnectionKernel;
     use futures::stream::FuturesUnordered;
     use futures::TryStreamExt;
     use uuid::Uuid;

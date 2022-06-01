@@ -14,16 +14,24 @@ pub mod broadcast;
 #[async_trait]
 pub trait PrefabFunctions<Arg: Send + 'static>: Sized {
     type UserLevelInputFunction: Send + 'static;
-    async fn on_c2s_channel_received(connect_success: ConnectSuccess, remote: ClientServerRemote, arg: Arg, fx: Self::UserLevelInputFunction) -> Result<(), NetworkError>;
+    /// Shared between the kernel and the on_c2s_channel_received function
+    type SharedBundle: Send + 'static;
+
+    fn get_shared_bundle(&mut self) -> Self::SharedBundle;
+    async fn on_c2s_channel_received(connect_success: ConnectSuccess, remote: ClientServerRemote, arg: Arg, fx: Self::UserLevelInputFunction, shared: Self::SharedBundle) -> Result<(), NetworkError>;
     fn construct(kernel: Box<dyn NetKernel>) -> Self;
 
     /// Creates a new connection with a central server entailed by the user information
     fn new_connect<T: Into<String>, P: Into<SecBuffer>>(username: T, password: P, arg: Arg, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: Self::UserLevelInputFunction) -> Self {
+        let (tx, rx) = tokio::sync::oneshot::channel();
         let server_conn_kernel = SingleClientServerConnectionKernel::new_connect(username, password, udp_mode, session_security_settings, |connect_success, remote| async move {
-            Self::on_c2s_channel_received(connect_success, remote, arg, on_channel_received).await
+            let shared = rx.await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+            Self::on_c2s_channel_received(connect_success, remote, arg, on_channel_received, shared).await
         });
 
-        Self::construct(Box::new(server_conn_kernel))
+        let mut this = Self::construct(Box::new(server_conn_kernel));
+        assert!(tx.send(this.get_shared_bundle()).is_ok());
+        this
     }
 
     /// Crates a new connection with a central server entailed by the user information and default configuration
@@ -33,11 +41,15 @@ pub trait PrefabFunctions<Arg: Send + 'static>: Sized {
 
     /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with custom parameters
     fn new_register<T: Into<String>, R: Into<String>, P: Into<SecBuffer>>(full_name: T, username: R, password: P, arg: Arg, server_addr: SocketAddr, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: Self::UserLevelInputFunction) -> Self {
+        let (tx, rx) = tokio::sync::oneshot::channel();
         let server_conn_kernel = SingleClientServerConnectionKernel::new_register(full_name, username, password, server_addr, udp_mode, session_security_settings, |connect_success, remote| async move {
-            Self::on_c2s_channel_received(connect_success, remote, arg, on_channel_received).await
+            let shared = rx.await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+            Self::on_c2s_channel_received(connect_success, remote, arg, on_channel_received, shared).await
         });
 
-        Self::construct(Box::new(server_conn_kernel))
+        let mut this = Self::construct(Box::new(server_conn_kernel));
+        assert!(tx.send(this.get_shared_bundle()).is_ok());
+        this
     }
 
     /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with default parameters
@@ -47,11 +59,15 @@ pub trait PrefabFunctions<Arg: Send + 'static>: Sized {
 
     /// Creates a new authless connection with custom arguments
     fn new_passwordless(uuid: Uuid, server_addr: SocketAddr, arg: Arg, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: Self::UserLevelInputFunction) -> Self {
+        let (tx, rx) = tokio::sync::oneshot::channel();
         let server_conn_kernel = SingleClientServerConnectionKernel::new_passwordless(uuid, server_addr, udp_mode, session_security_settings,  |connect_success, remote| async move {
-            Self::on_c2s_channel_received(connect_success, remote, arg, on_channel_received).await
+            let shared = rx.await.map_err(|err| NetworkError::Generic(err.to_string()))?;
+            Self::on_c2s_channel_received(connect_success, remote, arg, on_channel_received, shared).await
         });
 
-        Self::construct(Box::new(server_conn_kernel))
+        let mut this = Self::construct(Box::new(server_conn_kernel));
+        assert!(tx.send(this.get_shared_bundle()).is_ok());
+        this
     }
 
     /// Creates a new authless connection with default arguments
