@@ -21,7 +21,7 @@ async-trait-with-sync = "0.1.36"
 bytes = "^1.0.1"
 byteorder = "1.3.4"
 #rsntp = { version = "2.0.0", features = ["async"] }
-parking_lot = "0.11.1"
+parking_lot = "0.12.0"
 stun = "0.4.2"
 #socket2 = "0.4.1"
 socket2 = { version = "0.4.4", features = ["all"] }
@@ -48,7 +48,7 @@ whoami = "1.2.1"
 
 [dev-dependencies]
 env_logger = "0.7.1"
-parking_lot = { version = "0.11.1", features = ["deadlock_detection"] }
+parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
 rand = "0.8.4"
 tokio-util = "0.6.7"
 rstest = "0.12.0"
