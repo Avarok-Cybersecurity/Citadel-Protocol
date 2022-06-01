@@ -428,6 +428,7 @@ mod tests {
     use crate::builder::node_builder::{NodeBuilder, NodeFuture};
     use crate::prelude::{ProtocolRemoteTargetExt, NetKernel, NodeRemote, NetworkError, HdpServerResult, FileTransferStatus};
     use crate::remote_ext::map_errors;
+    use rstest::rstest;
     use futures::StreamExt;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -489,6 +490,8 @@ mod tests {
 
     static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
 
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn test_c2s_file_transfer() {
         crate::test_common::setup_log();

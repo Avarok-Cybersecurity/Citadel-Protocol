@@ -145,7 +145,10 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use crate::test_common::server_info;
     use uuid::Uuid;
+    use rstest::rstest;
 
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn single_connection_registered() {
         crate::test_common::setup_log();
@@ -174,6 +177,8 @@ mod tests {
         assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
     }
 
+    #[rstest]
+    #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn single_connection_passwordless() {
         crate::test_common::setup_log();
