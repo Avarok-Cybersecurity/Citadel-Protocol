@@ -11,6 +11,7 @@ members = [
 	"hyxe_net",
     "firebase-rtdb",
     "netbeam",
+	"dpb_kem"
 ]
 
 exclude = [

@@ -24,7 +24,24 @@ use std::fmt::Formatter;
 pub struct MessageGroup {
     // peer cid, entry (entry will contain metadata in the future)
     pub(crate) concurrent_peers: HashMap<u64, MessageGroupPeer>,
-    pub(crate) pending_peers: HashMap<u64, MessageGroupPeer>
+    pub(crate) pending_peers: HashMap<u64, MessageGroupPeer>,
+    pub(crate) options: MessageGroupOptions
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+/// Options for creating message groups
+pub struct MessageGroupOptions {
+    pub group_type: GroupType,
+    pub id: u128
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Copy, Clone)]
+pub enum GroupType {
+    /// A public group is a group where any user registered to the owner can join
+    Public,
+    /// A private group is a group where the group can only be joined when the owner
+    /// sends out Invitation requests to mutually-registered peers
+    Private
 }
 
 /// TODO: Attributed data (e.g., permissions)

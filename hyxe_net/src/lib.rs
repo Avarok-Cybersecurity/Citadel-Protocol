@@ -78,15 +78,13 @@ pub mod macros {
 
     macro_rules! inner_state {
     ($item:expr) => {
-        //$item.inner.borrow()
-        self.inner.read()
+        $item.inner.borrow()
     };
 }
 
     macro_rules! inner_mut_state {
     ($item:expr) => {
-        //$item.inner.borrow_mut()
-        self.inner.write()
+        $item.inner.borrow_mut()
     };
 }
 
@@ -373,11 +371,15 @@ pub mod prelude {
     pub use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
     pub use crate::hdp::peer::peer_layer::PeerResponse;
     pub use crate::hdp::state_container::VirtualTargetType;
-    pub use crate::kernel::{kernel::NetKernel, kernel_executor::KernelExecutor};
+    pub use crate::kernel::{kernel::NetKernel, kernel_executor::KernelExecutor, KernelExecutorSettings};
     pub use crate::re_imports::{async_trait, NodeType};
     pub use hyxe_user::external_services::fcm::kem::FcmPostRegister;
     pub use crate::hdp::peer::peer_layer::HypernodeConnectionType;
     pub use crate::hdp::misc::sync_future::*;
+    pub use hyxe_fs::io::SyncIO;
+    pub use crate::kernel::RuntimeFuture;
+    pub use crate::hdp::peer::message_group::{MessageGroupOptions, GroupType};
+    pub use crate::hdp::hdp_node::HdpServer;
 }
 
 /// Contains the streams for creating connections
@@ -392,6 +394,4 @@ mod hdp;
 mod functional;
 /// For handling differential function input types between single/multi-threaded modes
 mod inner_arg;
-#[doc(hidden)]
-pub mod test_common;
 pub mod auth;
