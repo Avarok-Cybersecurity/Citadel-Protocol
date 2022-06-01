@@ -378,6 +378,7 @@ pub mod prelude {
     pub use crate::hdp::misc::sync_future::*;
     pub use hyxe_fs::io::SyncIO;
     pub use crate::kernel::RuntimeFuture;
+    pub use crate::hdp::peer::message_group::{MessageGroupOptions, GroupType};
 }
 
 /// Contains the streams for creating connections
