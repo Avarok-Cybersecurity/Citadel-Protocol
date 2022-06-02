@@ -18,7 +18,6 @@ use crate::kernel::kernel_communicator::KernelAsyncCallbackHandler;
 use crate::kernel::{RuntimeFuture, KernelExecutorSettings};
 use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
@@ -46,9 +45,7 @@ impl<K: NetKernel> KernelExecutor<K> {
 
     /// This function is expected to be asynchronously executed from the context of the tokio runtime
     pub async fn execute(mut self) -> Result<K, NetworkError> {
-        // We only clone this once, ensuring Arc::try_unwrap succeeds once the inner
-        // scope stack frame gets popped, thus allowing us to return the kernel
-        let kernel = Arc::new(Mutex::new(Some(self.kernel)));
+        let mut kernel = self.kernel;
 
         let server_to_kernel_rx = self.server_to_kernel_rx.take().unwrap();
         let server_remote = self.server_remote.take().unwrap();
@@ -61,12 +58,12 @@ impl<K: NetKernel> KernelExecutor<K> {
         log::info!("KernelExecutor::execute is now executing ...");
 
         let ret = {
-            let kernel_future = ExplicitPanicFuture::new(rt.spawn(Self::kernel_inner_loop(kernel.clone(), server_to_kernel_rx, server_remote, shutdown_alerter_rx, callback_handler, kernel_executor_settings)));
+            let kernel_future = Self::kernel_inner_loop(&mut kernel, server_to_kernel_rx, server_remote, shutdown_alerter_rx, callback_handler, kernel_executor_settings);
             #[cfg(feature = "multi-threaded")]
                 {
                     let hdp_server_future = ExplicitPanicFuture::new(rt.spawn(hdp_server));
                     tokio::select! {
-                        ret0 = kernel_future => ret0.map_err(|err| NetworkError::Generic(err.to_string()))?,
+                        ret0 = kernel_future => ret0,
                         ret1 = hdp_server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?
                     }
                 }
@@ -77,24 +74,19 @@ impl<K: NetKernel> KernelExecutor<K> {
                     let hdp_server_future = localset.run_until(hdp_server);
                     //let hdp_server_future = localset;
                     tokio::select! {
-                        ret0 = kernel_future => ret0.map_err(|err| NetworkError::Generic(err.to_string()))?,
+                        ret0 = kernel_future => ret0,
                         ret1 = hdp_server_future => ret1
                     }
                 }
         };
 
         log::info!("KernelExecutor::execute has finished execution");
-        // Arc::strong_count should be 1 by now since the drop code in the inner
-        // block ensures that the single clone is now absent
-        let kernel = kernel.lock().await.take().ok_or(NetworkError::InternalError("Failed to reclaim kernel"))?;
         ret.map(|_| kernel)
     }
 
     #[allow(unused_must_use)]
-    async fn kernel_inner_loop(kernel: Arc<Mutex<Option<K>>>, mut server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, ref hdp_server_remote: NodeRemote, shutdown: tokio::sync::oneshot::Receiver<()>, ref callback_handler: KernelAsyncCallbackHandler, kernel_settings: KernelExecutorSettings) -> Result<(), NetworkError> {
+    async fn kernel_inner_loop(kernel: &mut K, mut server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, ref hdp_server_remote: NodeRemote, shutdown: tokio::sync::oneshot::Receiver<()>, ref callback_handler: KernelAsyncCallbackHandler, kernel_settings: KernelExecutorSettings) -> Result<(), NetworkError> {
         log::info!("Kernel multithreaded environment executed ...");
-        let mut lock = kernel.lock().await;
-        let kernel = lock.as_mut().ok_or(NetworkError::InternalError("Failed to load kernel"))?;
         // Load the remote into the kernel
         kernel.load_remote(hdp_server_remote.clone())?;
 

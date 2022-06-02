@@ -14,8 +14,8 @@ pub struct ClientConnectListenerKernel<F, Fut> {
 
 impl<F, Fut> ClientConnectListenerKernel<F, Fut>
     where
-        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output=Result<(), NetworkError>> + Send + Sync + 'static {
+        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
+        Fut: Future<Output=Result<(), NetworkError>> + Send + Sync {
 
     pub fn new(on_channel_received: F) -> Self {
         Self { on_channel_received, node_remote: None, _pd: Default::default() }
@@ -25,8 +25,8 @@ impl<F, Fut> ClientConnectListenerKernel<F, Fut>
 #[async_trait]
 impl<F, Fut> NetKernel for ClientConnectListenerKernel<F, Fut>
     where
-        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output=Result<(), NetworkError>> + Send + Sync + 'static {
+        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
+        Fut: Future<Output=Result<(), NetworkError>> + Send + Sync {
 
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
         self.node_remote = Some(server_remote);

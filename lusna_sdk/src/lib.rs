@@ -127,6 +127,7 @@ pub mod prelude {
     pub use crate::prefabs::client::PrefabFunctions;
     pub use crate::builder::node_builder::*;
     pub use crate::remote_ext::*;
+    pub use crate::responses;
 }
 
 /// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)
@@ -134,5 +135,7 @@ pub mod remote_ext;
 /// A list of prefabricated kernels designed for common use cases. If a greater degree of control is required for an application, a custom implementation of [NetKernel](crate::prelude::NetKernel) is desirable
 pub mod prefabs;
 mod builder;
+/// For easy construction of replies to common message types
+pub mod responses;
 #[doc(hidden)]
 pub mod test_common;

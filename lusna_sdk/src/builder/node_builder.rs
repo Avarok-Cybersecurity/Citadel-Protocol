@@ -27,18 +27,18 @@ pub struct NodeBuilder {
 }
 
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
-pub struct NodeFuture<K> {
-    inner: Pin<Box<dyn Future<Output=Result<K, NetworkError>> + 'static>>,
+pub struct NodeFuture<'a, K> {
+    inner: Pin<Box<dyn Future<Output=Result<K, NetworkError>> + 'a>>,
     _pd: PhantomData<fn() -> K>
 }
 
-impl<K> Debug for NodeFuture<K> {
+impl<K> Debug for NodeFuture<'_, K> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "NodeFuture")
     }
 }
 
-impl<K> Future for NodeFuture<K> {
+impl<K> Future for NodeFuture<'_, K> {
     type Output = Result<K, NetworkError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -181,7 +181,7 @@ impl ServerConfigBuilder<'_> {
 
 impl NodeBuilder {
     /// Returns a future that represents the both the protocol and kernel execution
-    pub fn build<K: NetKernel>(&mut self, kernel: K) -> Result<NodeFuture<K>, NodeBuilderError> {
+    pub fn build<'a, 'b: 'a, K: NetKernel + 'b>(&'a mut self, kernel: K) -> Result<NodeFuture<'b, K>, NodeBuilderError> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let home_dir = self.home_directory.take();
