@@ -57,10 +57,10 @@ mod tests {
         }
     }
 
-    pub fn server_info_reactive<F, Fut>(on_channel_received: F) -> (NodeFuture<Box<dyn NetKernel>>, SocketAddr)
+    pub fn server_info_reactive<'a, F: 'a, Fut: 'a>(on_channel_received: F) -> (NodeFuture<'a, Box<dyn NetKernel + 'a>>, SocketAddr)
         where
-            F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync + 'static,
-            Fut: Future<Output=Result<(), NetworkError>> + Send + Sync + 'static {
+            F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
+            Fut: Future<Output=Result<(), NetworkError>> + Send + Sync {
         let port = lusna_sdk::test_common::get_unused_tcp_port();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
         let server = lusna_sdk::test_common::server_test_node(bind_addr, Box::new(ClientConnectListenerKernel::new(on_channel_received)) as Box<dyn NetKernel>);
@@ -155,16 +155,14 @@ mod tests {
 
         lusna_sdk::test_common::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(2);
-        static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
-        static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
-        CLIENT_SUCCESS.store(false, Ordering::SeqCst);
-        SERVER_SUCCESS.store(false, Ordering::SeqCst);
+        let ref client_success = AtomicBool::new(false);
+        let ref server_success = AtomicBool::new(false);
 
         let (server, server_addr) = server_info_reactive(move |conn, remote| async move {
             log::info!("*** SERVER RECV CHANNEL ***");
             handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
             log::info!("***SERVER TEST SUCCESS***");
-            SERVER_SUCCESS.store(true, Ordering::Relaxed);
+            server_success.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
 
@@ -178,7 +176,7 @@ mod tests {
             log::info!("*** CLIENT RECV CHANNEL ***");
             handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
             log::info!("***CLIENT TEST SUCCESS***");
-            CLIENT_SUCCESS.store(true, Ordering::Relaxed);
+            client_success.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
 
@@ -188,8 +186,8 @@ mod tests {
 
         let _ = tokio::time::timeout(Duration::from_secs(120),joined).await.unwrap().unwrap();
 
-        assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
-        assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
+        assert!(client_success.load(Ordering::Relaxed));
+        assert!(server_success.load(Ordering::Relaxed));
     }
 
     #[rstest]
@@ -206,10 +204,8 @@ mod tests {
 
         lusna_sdk::test_common::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(2);
-        static CLIENT0_SUCCESS: AtomicBool = AtomicBool::new(false);
-        static CLIENT1_SUCCESS: AtomicBool = AtomicBool::new(false);
-        CLIENT0_SUCCESS.store(false, Ordering::SeqCst);
-        CLIENT1_SUCCESS.store(false, Ordering::SeqCst);
+        let ref client0_success = AtomicBool::new(false);
+        let ref client1_success = AtomicBool::new(false);
 
         let (server, server_addr) = server_info();
 
@@ -225,14 +221,14 @@ mod tests {
         let client_kernel0 = PeerConnectionKernel::new_passwordless(uuid0, server_addr, vec![uuid1.into()],UdpMode::Enabled,session_security,move |mut connection, remote| async move {
             handle_send_receive_e2e(get_barrier(), connection.recv().await.unwrap()?.channel, message_count).await?;
             log::info!("***CLIENT0 TEST SUCCESS***");
-            CLIENT0_SUCCESS.store(true, Ordering::Relaxed);
+            client0_success.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
 
         let client_kernel1 = PeerConnectionKernel::new_passwordless(uuid1, server_addr, vec![uuid0.into()], UdpMode::Enabled,session_security,move |mut connection, remote| async move {
             handle_send_receive_e2e(get_barrier(), connection.recv().await.unwrap()?.channel, message_count).await?;
             log::info!("***CLIENT1 TEST SUCCESS***");
-            CLIENT1_SUCCESS.store(true, Ordering::Relaxed);
+            client1_success.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
 
@@ -249,8 +245,8 @@ mod tests {
 
         let _ = tokio::time::timeout(Duration::from_secs(120),task).await.unwrap().unwrap();
 
-        assert!(CLIENT0_SUCCESS.load(Ordering::Relaxed));
-        assert!(CLIENT1_SUCCESS.load(Ordering::Relaxed));
+        assert!(client0_success.load(Ordering::Relaxed));
+        assert!(client1_success.load(Ordering::Relaxed));
     }
 
     #[rstest]
@@ -262,8 +258,8 @@ mod tests {
         lusna_sdk::test_common::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(PEER_COUNT);
 
-        static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
-        CLIENT_SUCCESS.store(0, Ordering::Relaxed);
+        let ref client_success = AtomicUsize::new(0);
+        client_success.store(0, Ordering::Relaxed);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
@@ -289,7 +285,7 @@ mod tests {
                 log::info!("***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
                 // wait for every group member to connect to ensure all receive all messages
                 handle_send_receive_group(get_barrier(), channel, message_count, PEER_COUNT).await?;
-                let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                let _ = client_success.fetch_add(1, Ordering::Relaxed);
                 remote.shutdown_kernel().await
             });
 
@@ -317,6 +313,6 @@ mod tests {
             }
         }
         assert!(res.is_ok());
-        assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), PEER_COUNT);
+        assert_eq!(client_success.load(Ordering::Relaxed), PEER_COUNT);
     }
 }

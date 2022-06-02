@@ -13,8 +13,8 @@ use crate::test_common::wait_for_peers;
 /// to the owner alone. The owner thus serves as an "axis of consent", where each member
 /// trusts the owner, and through this trust, transitivity of trust flows to all other
 /// future members that connect to the group.
-pub struct BroadcastKernel<F, Fut> {
-    inner_kernel: Box<dyn NetKernel>,
+pub struct BroadcastKernel<'a, F, Fut> {
+    inner_kernel: Box<dyn NetKernel + 'a>,
     shared: Arc<BroadcastShared>,
     _pd: PhantomData<fn() -> (F, Fut)>
 }
@@ -49,10 +49,10 @@ pub enum GroupInitRequestType {
 }
 
 #[async_trait]
-impl<F, Fut> PrefabFunctions<GroupInitRequestType> for BroadcastKernel<F, Fut>
+impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'a, F, Fut>
     where
-        F: FnOnce(GroupChannel, ClientServerRemote) -> Fut + Send + 'static,
-        Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
+        F: FnOnce(GroupChannel, ClientServerRemote) -> Fut + Send + 'a,
+        Fut: Future<Output=Result<(), NetworkError>> + Send + 'a {
     type UserLevelInputFunction = F;
     type SharedBundle = Arc<BroadcastShared>;
 
@@ -168,7 +168,7 @@ impl<F, Fut> PrefabFunctions<GroupInitRequestType> for BroadcastKernel<F, Fut>
         Ok(())
     }
 
-    fn construct(kernel: Box<dyn NetKernel>) -> Self {
+    fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
             shared: Arc::new(BroadcastShared {
@@ -183,7 +183,7 @@ impl<F, Fut> PrefabFunctions<GroupInitRequestType> for BroadcastKernel<F, Fut>
 }
 
 #[async_trait]
-impl<F: 'static, Fut: 'static> NetKernel for BroadcastKernel<F, Fut> {
+impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
     fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(node_remote)
     }
@@ -234,8 +234,7 @@ mod tests {
         crate::test_common::setup_log();
         TestBarrier::setup(peer_count);
 
-        static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
-        CLIENT_SUCCESS.store(0, Ordering::Relaxed);
+        let ref client_success = AtomicUsize::new(0);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
@@ -259,7 +258,7 @@ mod tests {
 
             let client_kernel = BroadcastKernel::new_passwordless_defaults(uuid, server_addr, request, move |channel,remote| async move {
                 log::info!("***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
-                let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                let _ = client_success.fetch_add(1, Ordering::Relaxed);
                 wait_for_peers().await;
                 std::mem::drop(channel);
                 remote.shutdown_kernel().await
@@ -289,6 +288,6 @@ mod tests {
             }
         }
         assert!(res.is_ok());
-        assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), peer_count);
+        assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
     }
 }

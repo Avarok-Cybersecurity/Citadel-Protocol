@@ -590,6 +590,7 @@ struct HdpServerRemoteInner {
 }
 
 #[async_trait::async_trait]
+#[auto_impl::auto_impl(Box, &mut)]
 pub trait Remote: Clone + Send {
     async fn send(&mut self, request: HdpServerRequest) -> Result<Ticket, NetworkError>;
     async fn send_callback_subscription(&mut self, request: HdpServerRequest) -> Result<KernelStreamSubscription, NetworkError>;
