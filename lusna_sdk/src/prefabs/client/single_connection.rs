@@ -31,8 +31,8 @@ pub(crate) enum ConnectionType {
 
 impl<F, Fut> SingleClientServerConnectionKernel<F, Fut>
     where
-        F: FnOnce(ConnectSuccess, ClientServerRemote) -> Fut + Send + 'static,
-        Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
+        F: FnOnce(ConnectSuccess, ClientServerRemote) -> Fut + Send,
+        Fut: Future<Output=Result<(), NetworkError>> + Send {
     /// Creates a new connection with a central server entailed by the user information
     pub fn new_connect<T: Into<String>, P: Into<SecBuffer>>(username: T, password: P, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: F) -> Self {
 
@@ -91,8 +91,8 @@ impl<F, Fut> SingleClientServerConnectionKernel<F, Fut>
 #[async_trait]
 impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
     where
-        F: FnOnce(ConnectSuccess, ClientServerRemote) -> Fut + Send + 'static,
-        Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
+        F: FnOnce(ConnectSuccess, ClientServerRemote) -> Fut + Send,
+        Fut: Future<Output=Result<(), NetworkError>> + Send {
 
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
         self.remote = Some(server_remote);
@@ -153,14 +153,14 @@ mod tests {
     async fn single_connection_registered() {
         crate::test_common::setup_log();
 
-        static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
+        let ref client_success = AtomicBool::new(false);
         let (server, server_addr) = server_info();
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
 
         let client_kernel = SingleClientServerConnectionKernel::new_register_defaults("Thomas P Braun", "nologik", "password", server_addr, |_channel,_remote| async move {
             log::info!("***CLIENT TEST SUCCESS***");
-            CLIENT_SUCCESS.store(true, Ordering::Relaxed);
+            client_success.store(true, Ordering::Relaxed);
             stop_tx.send(()).unwrap();
             Ok(())
         });
@@ -174,7 +174,7 @@ mod tests {
             res1 = stop_rx => { res1.unwrap(); }
         }
 
-        assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
+        assert!(client_success.load(Ordering::Relaxed));
     }
 
     #[rstest]
@@ -183,7 +183,7 @@ mod tests {
     async fn single_connection_passwordless() {
         crate::test_common::setup_log();
 
-        static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
+        let ref client_success = AtomicBool::new(false);
         let (server, server_addr) = server_info();
 
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
@@ -192,7 +192,7 @@ mod tests {
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(uuid, server_addr, |_channel, _remote| async move {
             log::info!("***CLIENT TEST SUCCESS***");
             //_remote.inner.find_target("", "").await.unwrap().connect_to_peer().await.unwrap();
-            CLIENT_SUCCESS.store(true, Ordering::Relaxed);
+            client_success.store(true, Ordering::Relaxed);
             stop_tx.send(()).unwrap();
             Ok(())
         });
@@ -206,6 +206,6 @@ mod tests {
             res1 = stop_rx => { res1.unwrap(); }
         }
 
-        assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
+        assert!(client_success.load(Ordering::Relaxed));
     }
 }

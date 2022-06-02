@@ -11,7 +11,7 @@ use auto_impl::auto_impl;
 /// protocol and your network application
 #[async_trait]
 #[auto_impl(Box)]
-pub trait NetKernel: Send + Sync + 'static {
+pub trait NetKernel: Send + Sync {
     /// when the kernel executes, it will be given a handle to the server
     fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError>;
     /// After the server remote is passed to the kernel, this function will be called once to allow the application to make any initial calls
