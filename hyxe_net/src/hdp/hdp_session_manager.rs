@@ -25,7 +25,7 @@ use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant};
 use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, GroupMemberAlterMode, MemberState};
 use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
-use crate::hdp::hdp_node::{ConnectMode, HdpServer, NodeRemote, HdpServerResult, Ticket};
+use crate::hdp::hdp_node::{ConnectMode, HdpServer, NodeRemote, NodeResult, Ticket};
 use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode};
 use crate::hdp::misc::net::GenericNetworkStream;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
@@ -57,7 +57,7 @@ pub struct HdpSessionManagerInner {
     /// by the [HdpSessionManager] and thereafter placed inside an appropriate session
     provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, HdpSession)>,
     fcm_post_registrations: HashSet<FcmPeerRegisterTicket>,
-    kernel_tx: UnboundedSender<HdpServerResult>,
+    kernel_tx: UnboundedSender<NodeResult>,
     time_tracker: TimeTracker,
     clean_shutdown_tracker_tx: UnboundedSender<()>,
     clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
@@ -78,7 +78,7 @@ impl FcmPeerRegisterTicket {
 
 impl HdpSessionManager {
     /// Creates a new [SessionManager] which handles individual connections
-    pub fn new(local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, account_manager: AccountManager, time_tracker: TimeTracker, client_config: Arc<rustls::ClientConfig>) -> Self {
+    pub fn new(local_node_type: NodeType, kernel_tx: UnboundedSender<NodeResult>, account_manager: AccountManager, time_tracker: TimeTracker, client_config: Arc<rustls::ClientConfig>) -> Self {
         let incoming_cxn_count = 0;
         let (clean_shutdown_tracker_tx, clean_shutdown_tracker_rx) = unbounded();
         let inner = HdpSessionManagerInner {

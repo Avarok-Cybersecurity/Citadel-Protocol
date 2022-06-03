@@ -62,8 +62,6 @@ impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'
 
     async fn on_c2s_channel_received(connect_success: ConnectSuccess, mut remote: ClientServerRemote, arg: GroupInitRequestType, fx: Self::UserLevelInputFunction, shared: Arc<BroadcastShared>) -> Result<(), NetworkError> {
         let implicated_cid = connect_success.cid;
-        let this_username = remote.inner.account_manager().get_username_by_cid(implicated_cid).await.map_err(|err| NetworkError::Generic(err.into_string()))?
-            .ok_or_else(||NetworkError::InternalError("This should not happen"))?;
 
         wait_for_peers().await;
 
@@ -107,7 +105,7 @@ impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'
             }
         };
 
-        let request = HdpServerRequest::GroupBroadcastCommand(implicated_cid, request);
+        let request = NodeRequest::GroupBroadcastCommand(implicated_cid, request);
 
         let mut subscription = remote.inner.send_callback_subscription(request).await?;
 
@@ -120,7 +118,7 @@ impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'
                 // cid for this group owner
                 while let Some(reg_request) = reg_rx.recv().await {
                     log::info!("owner recv reg_request: {:?}", reg_request);
-                    if let PeerSignal::PostRegister(peer_conn, first_username, second_username_opt, ticket, None, fcm) = reg_request {
+                    if let PeerSignal::PostRegister(peer_conn, _, _, _, None, _) = &reg_request {
                         let cid = peer_conn.get_original_target_cid();
                         if cid != implicated_cid {
                             log::warn!("Received the wrong CID. Will not accept request");
@@ -129,11 +127,7 @@ impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'
 
                         log::info!("Sending ACCEPT_REQUEST to {}", cid);
 
-                        // TODO: make response_api to auto-handle building of responses
-                        let accept_signal = PeerSignal::PostRegister(peer_conn.reverse(), first_username, second_username_opt, ticket.clone(), Some(PeerResponse::Accept(Some(this_username.clone()))), fcm);
-                        // this is a safe unwrap since the server places the ticket inside
-                        let ticket = ticket.unwrap();
-                        let _ = remote.send_with_custom_ticket(ticket,HdpServerRequest::PeerCommand(implicated_cid, accept_signal)).await?;
+                        let _ = responses::peer_register(reg_request, true, &mut remote).await?;
                     }
                 }
 
@@ -146,12 +140,12 @@ impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'
         while let Some(event) = subscription.next().await {
             log::info!("{:?} *recv* {:?}", implicated_cid, event);
             match map_errors(event)? {
-                HdpServerResult::GroupChannelCreated(_, channel) => {
+                NodeResult::GroupChannelCreated(_, channel) => {
                     // in either case, whether owner or not, we get a channel
                     return tokio::try_join!((fx)(channel, remote), acceptor_task).map(|_| ())
                 },
 
-                HdpServerResult::GroupEvent(_, _, evt) => {
+                NodeResult::GroupEvent(_, _, evt) => {
                     match evt {
                         GroupBroadcast::CreateResponse(None) => {
                             return Err(NetworkError::InternalError("Unable to create a message group"))
@@ -192,9 +186,9 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
         self.inner_kernel.on_start().await
     }
 
-    async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match &message {
-            HdpServerResult::PeerEvent(ps @ PeerSignal::PostRegister(_, _, _, _, _, _), _) => {
+            NodeResult::PeerEvent(ps @ PeerSignal::PostRegister(_, _, _, _, _, _), _) => {
                 if self.shared.route_registers.load(Ordering::Relaxed) {
                     return self.shared.register_tx.send(ps.clone()).map_err(|err| NetworkError::Generic(err.to_string()));
                 }

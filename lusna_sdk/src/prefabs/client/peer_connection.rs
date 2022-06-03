@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::prelude::{NodeRemote, NetworkError, NetKernel, ConnectSuccess, HdpServerResult, ProtocolRemoteExt, UserIdentifier, ProtocolRemoteTargetExt};
+use crate::prelude::{NodeRemote, NetworkError, NetKernel, ConnectSuccess, NodeResult, ProtocolRemoteExt, UserIdentifier, ProtocolRemoteTargetExt};
 use crate::prelude::results::PeerConnectSuccess;
 use futures::{Future, TryStreamExt};
 use crate::prefabs::ClientServerRemote;
@@ -30,7 +30,7 @@ impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
         self.inner_kernel.on_start().await
     }
 
-    async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         self.inner_kernel.on_node_event_received(message).await
     }
 
