@@ -1027,7 +1027,7 @@ dependencies = [
  "lazy_static",
  "log",
  "oqs",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.0",
  "rand 0.8.5",
  "serde",
  "sha3",
@@ -1092,9 +1092,9 @@ dependencies = [
 
 [[package]]
 name = "fixedbitset"
-version = "0.2.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37ab347416e802de484e4d03c7316c48f1ecb56574dfd4a46a80f173ce1de04d"
+checksum = "279fb028e20b3c4c320317955b77c5e0c9701f05a1d309905d6fc702cdc5053e"
 
 [[package]]
 name = "flate2"
@@ -1557,7 +1557,7 @@ dependencies = [
  "log",
  "num 0.4.0",
  "num-bigint 0.4.3",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.0",
  "rand 0.7.3",
  "serde",
  "tokio",
@@ -1595,7 +1595,7 @@ dependencies = [
  "num 0.2.1",
  "num_cpus",
  "once_cell",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.0",
  "portpicker",
  "rand 0.7.3",
  "rstest 0.14.0",
@@ -1632,7 +1632,7 @@ dependencies = [
  "log",
  "multimap",
  "openssl",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.0",
  "rand 0.7.3",
  "rstest 0.12.0",
  "serde",
@@ -1664,7 +1664,7 @@ dependencies = [
  "log",
  "netbeam",
  "openssl",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.0",
  "quinn",
  "rand 0.8.5",
  "rcgen",
@@ -1883,7 +1883,7 @@ dependencies = [
  "hyxe_net",
  "lazy_static",
  "log",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.0",
  "rand 0.8.5",
  "rstest 0.14.0",
  "serde",
@@ -2042,7 +2042,7 @@ dependencies = [
  "env_logger 0.7.1",
  "futures",
  "log",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.0",
  "rand 0.8.5",
  "serde",
  "tokio",
@@ -2418,14 +2418,11 @@ version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d76e8e1493bcac0d2766c42737f34458f1c8c50c0d23bcb24ea953affb273216"
 dependencies = [
- "backtrace",
  "cfg-if 1.0.0",
  "instant",
  "libc",
- "petgraph",
  "redox_syscall 0.2.13",
  "smallvec",
- "thread-id",
  "winapi 0.3.9",
 ]
 
@@ -2435,10 +2432,13 @@ version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09a279cbf25cb0757810394fbc1e359949b59e348145c643a939a525692e6929"
 dependencies = [
+ "backtrace",
  "cfg-if 1.0.0",
  "libc",
+ "petgraph",
  "redox_syscall 0.2.13",
  "smallvec",
+ "thread-id",
  "windows-sys",
 ]
 
@@ -2480,9 +2480,9 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
 name = "petgraph"
-version = "0.5.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "467d164a6de56270bd7c4d070df81d07beace25012d5103ced4e9ff08d6afdb7"
+checksum = "e6d5014253a1331579ce62aa67443b4a658c5e7dd03d4bc6d302b94474888143"
 dependencies = [
  "fixedbitset",
  "indexmap",
@@ -3258,9 +3258,9 @@ dependencies = [
 
 [[package]]
 name = "serde-big-array"
-version = "0.3.3"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd31f59f6fe2b0c055371bb2f16d7f0aa7d8881676c04a55b1596d1a17cd10a4"
+checksum = "3323f09a748af288c3dc2474ea6803ee81f118321775bffa3ac8f7e65c5e90e7"
 dependencies = [
  "serde",
 ]
