@@ -42,7 +42,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, concurrent_processor
                 // state_container.deregister_state.on_fail();
                 std::mem::drop(state_container);
                 let cid = return_if_none!(session.implicated_cid.get(), "implicated CID not loaded");
-                session.kernel_tx.unbounded_send(HdpServerResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), ticket, true, false))?;
+                session.kernel_tx.unbounded_send(NodeResult::DeRegistration(VirtualConnectionType::HyperLANPeerToHyperLANServer(cid), ticket, true, false))?;
                 log::error!("Unable to locally purge account {}. Please report this to the HyperLAN Server admin", cid);
                 Ok(PrimaryProcessorResult::EndSession("Deregistration failure. Closing connection anyways"))
             }

@@ -280,7 +280,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                         let ticket = state_container.pre_connect_state.ticket.clone().unwrap_or_else(|| session.kernel_ticket.get());
                         std::mem::drop(state_container);
                         //session.needs_close_message.set(false);
-                        session.send_to_kernel(HdpServerResult::ConnectFail(ticket, Some(cnac.get_cid()), "Preconnect stage failed".to_string()))?;
+                        session.send_to_kernel(NodeResult::ConnectFail(ticket, Some(cnac.get_cid()), "Preconnect stage failed".to_string()))?;
                         Ok(PrimaryProcessorResult::EndSession("Failure packet received"))
                     } else {
                         let begin_connect = hdp_packet_crafter::pre_connect::craft_begin_connect(&hyper_ratchet, timestamp, security_level);
@@ -317,7 +317,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
             packet_flags::cmd::aux::do_preconnect::HALT => {
                 let message = String::from_utf8(payload.to_vec()).unwrap_or("INVALID UTF-8".into());
                 let ticket = session.kernel_ticket.get();
-                session.send_to_kernel(HdpServerResult::ConnectFail(ticket, Some(header.session_cid.get()), message))?;
+                session.send_to_kernel(NodeResult::ConnectFail(ticket, Some(header.session_cid.get()), message))?;
                 //session.needs_close_message.set(false);
                 Ok(PrimaryProcessorResult::EndSession("Preconnect signalled to halt"))
             }

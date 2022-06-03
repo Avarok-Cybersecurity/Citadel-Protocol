@@ -25,6 +25,7 @@ pub enum GroupBroadcast {
     Add(MessageGroupKey, Vec<u64>),
     AddResponse(MessageGroupKey, Option<Vec<u64>>),
     AcceptMembership(MessageGroupKey),
+    DeclineMembership(MessageGroupKey),
     AcceptMembershipResponse(MessageGroupKey, bool),
     Kick(MessageGroupKey, Vec<u64>),
     KickResponse(MessageGroupKey, bool),
@@ -276,12 +277,15 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         GroupBroadcast::GroupNonExists(key) => {
             forward_signal(&session, ticket, Some(key), GroupBroadcast::GroupNonExists(key))
         }
+        GroupBroadcast::DeclineMembership(key) => {
+            forward_signal(session, ticket, Some(key), GroupBroadcast::DeclineMembership(key))
+        }
     }
 }
 
 fn create_group_channel(ticket: Ticket, key: MessageGroupKey, session: &HdpSession) -> Result<PrimaryProcessorResult, NetworkError> {
     let channel = inner_mut_state!(session.state_container).setup_group_channel_endpoints(key, ticket, session)?;
-    session.send_to_kernel(HdpServerResult::GroupChannelCreated(ticket, channel))?;
+    session.send_to_kernel(NodeResult::GroupChannelCreated(ticket, channel))?;
     Ok(PrimaryProcessorResult::Void)
 }
 
@@ -306,7 +310,7 @@ fn forward_signal(session: &HdpSession, ticket: Ticket, key: Option<MessageGroup
     }
 
     // send to kernel
-    session.send_to_kernel(HdpServerResult::GroupEvent(implicated_cid, ticket, broadcast)).map_err(|err| NetworkError::Generic(err.to_string()))?;
+    session.send_to_kernel(NodeResult::GroupEvent(implicated_cid, ticket, broadcast)).map_err(|err| NetworkError::Generic(err.to_string()))?;
     Ok(PrimaryProcessorResult::Void)
 }
 

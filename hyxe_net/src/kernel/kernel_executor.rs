@@ -9,7 +9,7 @@ use hyxe_user::account_manager::AccountManager;
 
 use crate::error::NetworkError;
 use crate::hdp::hdp_packet_processor::includes::Duration;
-use crate::hdp::hdp_node::{HdpServer, NodeRemote, HdpServerResult};
+use crate::hdp::hdp_node::{HdpServer, NodeRemote, NodeResult};
 use crate::hdp::misc::panic_future::ExplicitPanicFuture;
 use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
@@ -22,7 +22,7 @@ use std::sync::Arc;
 /// Creates a [KernelExecutor]
 pub struct KernelExecutor<K: NetKernel> {
     server_remote: Option<NodeRemote>,
-    server_to_kernel_rx: Option<UnboundedReceiver<HdpServerResult>>,
+    server_to_kernel_rx: Option<UnboundedReceiver<NodeResult>>,
     shutdown_alerter_rx: Option<tokio::sync::oneshot::Receiver<()>>,
     callback_handler: Option<KernelAsyncCallbackHandler>,
     context: Option<(Handle, Pin<Box<dyn RuntimeFuture>>, Option<LocalSet>)>,
@@ -85,7 +85,7 @@ impl<K: NetKernel> KernelExecutor<K> {
     }
 
     #[allow(unused_must_use)]
-    async fn kernel_inner_loop(kernel: &mut K, mut server_to_kernel_rx: UnboundedReceiver<HdpServerResult>, ref hdp_server_remote: NodeRemote, shutdown: tokio::sync::oneshot::Receiver<()>, ref callback_handler: KernelAsyncCallbackHandler, kernel_settings: KernelExecutorSettings) -> Result<(), NetworkError> {
+    async fn kernel_inner_loop(kernel: &mut K, mut server_to_kernel_rx: UnboundedReceiver<NodeResult>, ref hdp_server_remote: NodeRemote, shutdown: tokio::sync::oneshot::Receiver<()>, ref callback_handler: KernelAsyncCallbackHandler, kernel_settings: KernelExecutorSettings) -> Result<(), NetworkError> {
         log::info!("Kernel multithreaded environment executed ...");
         // Load the remote into the kernel
         kernel.load_remote(hdp_server_remote.clone())?;
@@ -104,10 +104,10 @@ impl<K: NetKernel> KernelExecutor<K> {
                 }
             };
 
-            reader.try_for_each_concurrent(kernel_settings.max_concurrency, |message: HdpServerResult| async move {
+            reader.try_for_each_concurrent(kernel_settings.max_concurrency, |message: NodeResult| async move {
                 log::info!("[KernelExecutor] Received message {:?}", message);
                 match message {
-                    HdpServerResult::Shutdown => {
+                    NodeResult::Shutdown => {
                         log::info!("Kernel received safe shutdown signal");
                         let _ = clean_stop_tx.send(()).await;
                         Ok(())

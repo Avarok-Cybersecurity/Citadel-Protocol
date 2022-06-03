@@ -248,6 +248,14 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         }
     }
 
+    /// Converts a user identifier into its cid
+    pub async fn find_cnac_by_identifier(&self, implicated_user: impl Into<UserIdentifier>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
+        match implicated_user.into() {
+            UserIdentifier::ID(cid) => self.get_client_by_cid(cid).await,
+            UserIdentifier::Username(username) => self.get_client_by_username(username).await
+        }
+    }
+
     /// Saves all the CNACs safely. This should be called during the shutdowns sequence.
     pub async fn save(&self) -> Result<(), AccountError> {
         self.persistence_handler.save_all().await

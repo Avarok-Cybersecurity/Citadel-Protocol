@@ -129,7 +129,7 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
         (handler)(connect_success, ClientServerRemote { inner: remote, conn_type }).await
     }
 
-    async fn on_node_event_received(&self, _message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, _message: NodeResult) -> Result<(), NetworkError> {
         Ok(())
     }
 

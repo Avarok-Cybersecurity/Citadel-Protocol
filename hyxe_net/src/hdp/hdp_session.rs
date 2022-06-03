@@ -36,7 +36,7 @@ use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 //use futures_codec::Framed;
 use crate::hdp::hdp_packet_processor::{self, PrimaryProcessorResult};
 use crate::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
-use crate::hdp::hdp_node::{ConnectMode, NodeRemote, HdpServerResult, Ticket};
+use crate::hdp::hdp_node::{ConnectMode, NodeRemote, NodeResult, Ticket};
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::misc;
 use crate::hdp::misc::clean_shutdown::{CleanShutdownSink, CleanShutdownStream};
@@ -156,7 +156,7 @@ pub struct HdpSessionInner {
     pub(super) kernel_ticket: DualCell<Ticket>,
     pub(super) remote_peer: SocketAddr,
     // Sends results directly to the kernel
-    pub(super) kernel_tx: UnboundedSender<HdpServerResult>,
+    pub(super) kernel_tx: UnboundedSender<NodeResult>,
     pub(super) to_primary_stream: DualLateInit<Option<OutboundPrimaryStreamSender>>,
     // Setting this will determine what algorithm is used during the DO_CONNECT stage
     pub(super) session_manager: HdpSessionManager,
@@ -168,7 +168,7 @@ pub struct HdpSessionInner {
     pub(super) remote_node_type: Option<NodeType>,
     pub(super) local_bind_addr: SocketAddr,
     pub(super) do_static_hr_refresh_atexit: DualCell<bool>,
-    pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<HdpServerResult>>>,
+    pub(super) dc_signal_sender: DualRwLock<Option<UnboundedSender<NodeResult>>>,
     pub(super) is_server: bool,
     pub(super) stopper_tx: DualRwLock<tokio::sync::broadcast::Sender<()>>,
     pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle>,
@@ -213,7 +213,7 @@ pub enum HdpSessionInitMode {
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, mut fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings, connect_mode: Option<ConnectMode>, client_config: Arc<rustls::ClientConfig>, hypernode_peer_layer: HyperNodePeerLayer) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
+    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<NodeResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, mut fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings, connect_mode: Option<ConnectMode>, client_config: Arc<rustls::ClientConfig>, hypernode_peer_layer: HyperNodePeerLayer) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
         let (cnac, state, implicated_cid) = match &init_mode {
             HdpSessionInitMode::Connect(auth) => {
                 match auth {
@@ -279,7 +279,7 @@ impl HdpSession {
     ///
     /// When this is called, the connection is implied to be in impersonal mode. As such, the calling closure should have a way of incrementing
     /// the provisional ticket.
-    pub(crate) fn new_incoming(on_drop: UnboundedSender<()>, local_nat_type: NatType, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<HdpServerResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket, client_config: Arc<rustls::ClientConfig>, hypernode_peer_layer: HyperNodePeerLayer) -> (tokio::sync::broadcast::Sender<()>, Self) {
+    pub(crate) fn new_incoming(on_drop: UnboundedSender<()>, local_nat_type: NatType, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<NodeResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, remote_peer: SocketAddr, provisional_ticket: Ticket, client_config: Arc<rustls::ClientConfig>, hypernode_peer_layer: HyperNodePeerLayer) -> (tokio::sync::broadcast::Sender<()>, Self) {
         let (stopper_tx, _stopper_rx) = tokio::sync::broadcast::channel(10);
         let state = Arc::new(Atomic::new(SessionState::SocketJustOpened));
 
@@ -494,11 +494,12 @@ impl HdpSession {
         // reset the toolset's ARA
         let ref static_aux_hr = cnac.refresh_static_hyper_ratchet();
         // security level inside static hr may not be what the declared session security level for this session is. Session security level can be no higher than the initial static HR level, since the chain requires recursion from the initial value
-        let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|err| NetworkError::Generic(err.into_string()))?;
+        let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|_| NetworkError::InvalidRequest("The specified security setting for the session exceeds the registration security setting"))?;
         let opts = static_aux_hr.get_next_constructor_opts().into_iter().take((session_security_settings.security_level.value() + 1) as usize).collect();
         //static_aux_hr.verify_level(Some(security_level)).map_err(|_| NetworkError::Generic(format!("Invalid security level. Maximum security level for this account is {:?}", static_aux_hr.get_default_security_level())))?;
         let alice_constructor = HyperRatchetConstructor::new_alice(opts, cnac.get_cid(), 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
         let transfer = alice_constructor.stage0_alice();
+        // encrypts the entire connect process with the highest possible security level
         let max_usable_level = static_aux_hr.get_default_security_level();
         let nat_type = session_ref.local_nat_type.clone();
 
@@ -599,7 +600,7 @@ impl HdpSession {
                 // will arrive in order
                 let (writer, reader) = udp_conn.split();
 
-                let listener = Self::listen_wave_port(sess.clone(), hole_punched_addr_ip, local_bind_addr.port(), reader, accessor.clone());
+                let listener = Self::listen_udp_port(sess.clone(), hole_punched_addr_ip, local_bind_addr.port(), reader, accessor.clone());
 
                 log::info!("Server established UDP Port {}", local_bind_addr);
 
@@ -643,7 +644,7 @@ impl HdpSession {
             (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream, false)
         };
 
-        fn evaulute_result(result: Result<PrimaryProcessorResult, NetworkError>, primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<HdpServerResult>) -> std::io::Result<()> {
+        fn evaulute_result(result: Result<PrimaryProcessorResult, NetworkError>, primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<NodeResult>) -> std::io::Result<()> {
             match result {
                 Ok(PrimaryProcessorResult::ReplyToSender(return_packet)) => {
                     HdpSession::send_to_primary_stream_closure(primary_stream, kernel_tx, return_packet, None)
@@ -717,9 +718,9 @@ impl HdpSession {
         }
     }
 
-    pub(crate) fn send_to_primary_stream_closure(to_primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<HdpServerResult>, msg: BytesMut, ticket: Option<Ticket>) -> Result<(), NetworkError> {
+    pub(crate) fn send_to_primary_stream_closure(to_primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<NodeResult>, msg: BytesMut, ticket: Option<Ticket>) -> Result<(), NetworkError> {
         if let Err(err) = to_primary_stream.unbounded_send(msg) {
-            kernel_tx.unbounded_send(HdpServerResult::InternalServerError(ticket, err.to_string())).map_err(|err| NetworkError::Generic(err.to_string()))?;
+            kernel_tx.unbounded_send(NodeResult::InternalServerError(ticket, err.to_string())).map_err(|err| NetworkError::Generic(err.to_string()))?;
             Err(NetworkError::InternalError("Primary stream closed"))
         } else {
             Ok(())
@@ -1087,7 +1088,7 @@ impl HdpSession {
                                                         log::warn!("Attempted to remove {:?}, but was already absent from map", &file_key);
                                                     }
 
-                                                    if let Err(_) = kernel_tx2.unbounded_send(HdpServerResult::InternalServerError(Some(ticket), format!("Timeout on ticket {}", ticket))) {
+                                                    if let Err(_) = kernel_tx2.unbounded_send(NodeResult::InternalServerError(Some(ticket), format!("Timeout on ticket {}", ticket))) {
                                                         log::error!("[File] Unable to send kernel error signal. Ending session");
                                                         QueueWorkerResult::EndSession
                                                     } else {
@@ -1121,7 +1122,7 @@ impl HdpSession {
                             }
 
                             Err(err) => {
-                                let _ = kernel_tx.clone().unbounded_send(HdpServerResult::InternalServerError(Some(ticket), err.to_string()));
+                                let _ = kernel_tx.clone().unbounded_send(NodeResult::InternalServerError(Some(ticket), err.to_string()));
                             }
                         }
                     }
@@ -1150,7 +1151,7 @@ impl HdpSession {
                 while let Some((ticket, message, v_target, security_level)) = rx.recv().await {
                     let mut state_container = inner_mut_state!(this.state_container);
                     if let Err(err) = state_container.process_outbound_message(ticket, message, v_target, security_level, false) {
-                        to_kernel_tx.unbounded_send(HdpServerResult::InternalServerError(Some(ticket), err.into_string())).map_err(|err| NetworkError::Generic(err.to_string()))?
+                        to_kernel_tx.unbounded_send(NodeResult::InternalServerError(Some(ticket), err.into_string())).map_err(|err| NetworkError::Generic(err.to_string()))?
                     }
                 }
 
@@ -1267,7 +1268,7 @@ impl HdpSession {
         res
     }
 
-    async fn listen_wave_port<S: UdpStream>(this: HdpSession, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
+    async fn listen_udp_port<S: UdpStream>(this: HdpSession, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
         while let Some(res) = stream.next().await {
             match res {
                 Ok((packet, remote_peer)) => {
@@ -1412,7 +1413,7 @@ impl HdpSessionInner {
 
     /// This will panic if cannot be sent
     #[inline]
-    pub fn send_to_kernel(&self, msg: HdpServerResult) -> Result<(), SendError<HdpServerResult>> {
+    pub fn send_to_kernel(&self, msg: NodeResult) -> Result<(), SendError<NodeResult>> {
         self.kernel_tx.unbounded_send(msg)
     }
 
@@ -1425,7 +1426,7 @@ impl HdpSessionInner {
                 }
 
                 Err(err) => {
-                    self.send_to_kernel(HdpServerResult::InternalServerError(ticket, err.to_string()))
+                    self.send_to_kernel(NodeResult::InternalServerError(ticket, err.to_string()))
                         .map_err(|err| NetworkError::Generic(err.to_string()))?;
                     Err(NetworkError::InternalError("Unable to send through primary stream"))
                 }
@@ -1439,7 +1440,7 @@ impl HdpSessionInner {
     pub fn try_action<T, E: ToString>(&self, ticket: Option<Ticket>, fx: impl FnOnce() -> Result<T, E>) -> Result<T, NetworkError> {
         match (fx)().map_err(|err| NetworkError::Generic(err.to_string())) {
             Err(err) => {
-                self.send_to_kernel(HdpServerResult::InternalServerError(ticket, err.to_string()))
+                self.send_to_kernel(NodeResult::InternalServerError(ticket, err.to_string()))
                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 Err(err)
             }
@@ -1477,7 +1478,7 @@ impl HdpSessionInner {
 
     pub(crate) fn send_session_dc_signal<T: Into<String>>(&self, ticket: Option<Ticket>, disconnect_success: bool, msg: T) {
         if let Some(tx) = self.dc_signal_sender.take() {
-            let _ = tx.unbounded_send(HdpServerResult::Disconnect(ticket.unwrap_or_else(|| self.kernel_ticket.get()), self.implicated_cid.get().map(|r| r as _).unwrap_or_else(|| self.kernel_ticket.get().0), disconnect_success, None, msg.into()));
+            let _ = tx.unbounded_send(NodeResult::Disconnect(ticket.unwrap_or_else(|| self.kernel_ticket.get()), self.implicated_cid.get().map(|r| r as _).unwrap_or_else(|| self.kernel_ticket.get().0), disconnect_success, None, msg.into()));
         }
     }
 

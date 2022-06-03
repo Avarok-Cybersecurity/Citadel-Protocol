@@ -255,7 +255,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                         if !fast_msg {
                                             let ticket = header.context_info.get();
                                             log::info!("Header ACK was valid, but the receiving end is not receiving the packet at this time. Clearing local memory ...");
-                                            session.send_to_kernel(HdpServerResult::OutboundRequestRejected(ticket.into(), Some(Vec::from("Adjacent node unable to accept request"))))?;
+                                            session.send_to_kernel(NodeResult::OutboundRequestRejected(ticket.into(), Some(Vec::from("Adjacent node unable to accept request"))))?;
                                         }
 
                                         Ok(PrimaryProcessorResult::Void)

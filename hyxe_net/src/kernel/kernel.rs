@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
 use crate::error::NetworkError;
-use crate::hdp::hdp_node::{NodeRemote, HdpServerResult};
+use crate::hdp::hdp_node::{NodeRemote, NodeResult};
 use parking_lot::Mutex;
 use crate::macros::SyncContextRequirements;
 use std::marker::PhantomData;
@@ -19,7 +19,7 @@ pub trait NetKernel: Send + Sync {
     /// When the server processes a valid entry, the value is sent here. Each call to 'on_server_message_received' is done
     /// *concurrently* (but NOT in *parallel*). This allows code inside this function to await without blocking new incoming
     /// messages
-    async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError>;
+    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError>;
     /// When the system is ready to shutdown, this is called
     async fn on_stop(&mut self) -> Result<(), NetworkError>;
 }
@@ -107,7 +107,7 @@ impl<First: NetKernel + FirstKernelOnLoad, Second: NetKernel + SecondKernelOnBeg
         tokio::try_join!(first_on_start, begin_next).map(|_| ())
     }
 
-    async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         if let Some(second) = self.second.read().await.as_ref() {
             second.on_node_event_received(message).await
         } else {

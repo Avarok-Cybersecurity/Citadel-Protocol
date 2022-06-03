@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use crate::hdp::hdp_node::{Ticket, HdpServerResult};
+use crate::hdp::hdp_node::{Ticket, NodeResult};
 use crate::error::NetworkError;
 use futures::{Stream, Future};
 use std::task::{Context, Poll};
@@ -17,12 +17,12 @@ pub struct KernelAsyncCallbackHandlerInner {
 }
 
 pub(crate) enum CallbackNotifier {
-    Future(tokio::sync::oneshot::Sender<HdpServerResult>),
-    Stream(tokio::sync::mpsc::UnboundedSender<HdpServerResult>)
+    Future(tokio::sync::oneshot::Sender<NodeResult>),
+    Stream(tokio::sync::mpsc::UnboundedSender<NodeResult>)
 }
 
 impl CallbackNotifier {
-    fn send(self, item: HdpServerResult) -> Result<(), HdpServerResult> {
+    fn send(self, item: NodeResult) -> Result<(), NodeResult> {
         match self {
             Self::Future(tx) => tx.send(item),
             Self::Stream(tx) => tx.send(item).map_err(|err| err.0)
@@ -35,7 +35,7 @@ impl KernelAsyncCallbackHandler {
         Self { inner: Arc::new(Mutex::new(Default::default())) }
     }
 
-    pub fn register_future(&self, ticket: Ticket) -> Result<tokio::sync::oneshot::Receiver<HdpServerResult>, NetworkError> {
+    pub fn register_future(&self, ticket: Ticket) -> Result<tokio::sync::oneshot::Receiver<NodeResult>, NetworkError> {
         let mut this = self.inner.lock();
         let (tx, rx) = tokio::sync::oneshot::channel();
         this.insert(ticket, CallbackNotifier::Future(tx))?;
@@ -56,7 +56,7 @@ impl KernelAsyncCallbackHandler {
     }
 
     // If a notification occurred, returns None. Else, returns the result
-    fn maybe_notify(&self, result: HdpServerResult) -> Option<HdpServerResult> {
+    fn maybe_notify(&self, result: NodeResult) -> Option<NodeResult> {
         match result.ticket() {
             Some(ref ticket) => {
                 let mut this = self.inner.lock();
@@ -87,7 +87,7 @@ impl KernelAsyncCallbackHandler {
         }
     }
 
-    pub async fn on_message_received<F: Future<Output=Result<(), NetworkError>>>(&self, result: HdpServerResult, default: impl FnOnce(HdpServerResult) -> F) -> Result<(), NetworkError> {
+    pub async fn on_message_received<F: Future<Output=Result<(), NetworkError>>>(&self, result: NodeResult, default: impl FnOnce(NodeResult) -> F) -> Result<(), NetworkError> {
         match self.maybe_notify(result) {
             None => {
                 Ok(())
@@ -117,13 +117,13 @@ impl Clone for KernelAsyncCallbackHandler {
 }
 
 pub struct KernelStreamSubscription {
-    inner: tokio::sync::mpsc::UnboundedReceiver<HdpServerResult>,
+    inner: tokio::sync::mpsc::UnboundedReceiver<NodeResult>,
     ptr: KernelAsyncCallbackHandler,
     ticket: Ticket
 }
 
 impl Stream for KernelStreamSubscription {
-    type Item = HdpServerResult;
+    type Item = NodeResult;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.inner).poll_recv(cx)

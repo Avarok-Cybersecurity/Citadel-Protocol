@@ -9,6 +9,12 @@ use crate::prelude::SecBuffer;
 /// until one hashing operation takes less than your desired duration. Next, advance the
 /// number of iterations to approach the desired execution time as close as possible"
 pub async fn calculate_optimal_argon_params(millis_minimum: u16, hash_length: Option<u32>, secret: Option<Vec<u8>>) -> Result<ArgonDefaultServerSettings, CryptError<String>> {
+    if cfg!(debug_assertions) {
+        log::warn!("You are running the argon autotuner in a debug build. \
+        This will give inaccurate results. Use a release build to ensure the best possible performance. \
+        Additionally, make sure to only run this autotuner on the CPU that you expect to hash on")
+    }
+
     let system = sysinfo::System::new_all();
     let total_memory_kb = std::cmp::max(system.available_memory(), 1024*512); // ensure we don't start at too low of a value
     let hash_length = hash_length.unwrap_or(DEFAULT_HASH_LENGTH);
@@ -16,7 +22,7 @@ pub async fn calculate_optimal_argon_params(millis_minimum: u16, hash_length: Op
     let lanes: u32 = num_cpus::get() as _;
 
     let mut iters = 0;
-    let fake_password = SecBuffer::from(vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    let fake_password = SecBuffer::from((0u8..15u8).into_iter().collect::<Vec<u8>>());
 
     let mut mem_cost_tuned = false;
     // start with 1

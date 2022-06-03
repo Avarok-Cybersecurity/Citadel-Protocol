@@ -224,13 +224,13 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                                         } else {
                                             // Finally, alert the higher-level kernel about the success
                                             session.session_manager.clear_provisional_session(&remote_addr);
-                                            kernel_tx.unbounded_send(HdpServerResult::RegisterOkay(reg_ticket.get(), new_cnac, success_message))?;
+                                            kernel_tx.unbounded_send(NodeResult::RegisterOkay(reg_ticket.get(), new_cnac, success_message))?;
                                             Ok(PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: Success)"))
                                         }
                                     }
 
                                     Err(err) => {
-                                        kernel_tx.unbounded_send(HdpServerResult::RegisterFailure(reg_ticket.get(), err.into_string()))?;
+                                        kernel_tx.unbounded_send(NodeResult::RegisterFailure(reg_ticket.get(), err.into_string()))?;
                                         Ok(PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: ERR)"))
                                     }
                                 }
@@ -254,7 +254,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                 // A failure can be sent at any stage greater than the zeroth
                 if inner_state!(session.state_container).register_state.last_stage > packet_flags::cmd::aux::do_register::STAGE0 {
                     if let Some(error_message) = validation::do_register::validate_failure(header, &payload[..]) {
-                        session.send_to_kernel(HdpServerResult::RegisterFailure(session.kernel_ticket.get(), String::from_utf8(error_message).unwrap_or("Non-UTF8 error message".to_string())))?;
+                        session.send_to_kernel(NodeResult::RegisterFailure(session.kernel_ticket.get(), String::from_utf8(error_message).unwrap_or("Non-UTF8 error message".to_string())))?;
                         //session.needs_close_message.set(false);
                         session.shutdown();
                     } else {

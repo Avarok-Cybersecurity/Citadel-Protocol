@@ -4,7 +4,7 @@ use tokio_stream::StreamExt;
 use crate::error::NetworkError;
 use crate::functional::IfTrueConditional;
 use crate::hdp::hdp_packet_processor::includes::{Duration, Instant, SocketAddr};
-use crate::hdp::hdp_node::{HdpServer, HdpServerResult, Ticket};
+use crate::hdp::hdp_node::{HdpServer, NodeResult, Ticket};
 use crate::hdp::hdp_session::HdpSession;
 use crate::hdp::misc;
 use crate::hdp::misc::net::{GenericNetworkListener, GenericNetworkStream};
@@ -104,7 +104,7 @@ async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session: Hdp
 }
 
 /// optionally returns a receiver that gets triggered once the connection is upgraded. Only returned when the stream is a client stream, not a server stream
-fn handle_p2p_stream(mut p2p_stream: GenericNetworkStream, implicated_cid: DualCell<Option<u64>>, session: HdpSession, kernel_tx: UnboundedSender<HdpServerResult>, from_listener: bool, v_conn: VirtualConnectionType, hole_punched_addr: TargettedSocketAddr, ticket: Ticket) -> std::io::Result<()> {
+fn handle_p2p_stream(mut p2p_stream: GenericNetworkStream, implicated_cid: DualCell<Option<u64>>, session: HdpSession, kernel_tx: UnboundedSender<NodeResult>, from_listener: bool, v_conn: VirtualConnectionType, hole_punched_addr: TargettedSocketAddr, ticket: Ticket) -> std::io::Result<()> {
     // SECURITY: Since this branch only occurs IF the primary session is connected, then the primary user is
     // logged-in. However, what if a malicious user decides to connect here?
     // They won't be able to register through here, since registration requires that the state is NeedsRegister
@@ -167,12 +167,12 @@ pub struct P2PInboundHandle {
     pub local_bind_port: u16,
     // this has to be the CID of the local session, not the peer's CID
     pub implicated_cid: DualCell<Option<u64>>,
-    pub kernel_tx: UnboundedSender<HdpServerResult>,
+    pub kernel_tx: UnboundedSender<NodeResult>,
     pub to_primary_stream: OutboundPrimaryStreamSender
 }
 
 impl P2PInboundHandle {
-    fn new(remote_peer: SocketAddr, local_bind_port: u16, implicated_cid: DualCell<Option<u64>>, kernel_tx: UnboundedSender<HdpServerResult>, to_primary_stream: OutboundPrimaryStreamSender) -> Self {
+    fn new(remote_peer: SocketAddr, local_bind_port: u16, implicated_cid: DualCell<Option<u64>>, kernel_tx: UnboundedSender<NodeResult>, to_primary_stream: OutboundPrimaryStreamSender) -> Self {
         Self { remote_peer, local_bind_port, implicated_cid, kernel_tx, to_primary_stream }
     }
 }
@@ -183,8 +183,8 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 }
 
 /// Both sides need to begin this process at `sync_time`
-pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, ref session: HdpSession, peer_nat_info: PeerNatInfo, implicated_cid: DualCell<Option<u64>>, ref kernel_tx: UnboundedSender<HdpServerResult>, channel_signal: HdpServerResult, sync_time: Instant,
-                                                     ref app: NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer, client_config: Arc<rustls::ClientConfig>) -> std::io::Result<()> {
+pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, ref session: HdpSession, peer_nat_info: PeerNatInfo, implicated_cid: DualCell<Option<u64>>, ref kernel_tx: UnboundedSender<NodeResult>, channel_signal: NodeResult, sync_time: Instant,
+                                                    ref app: NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer, client_config: Arc<rustls::ClientConfig>) -> std::io::Result<()> {
 
     let is_initiator = app.is_initiator();
     let v_conn = peer_connection_type.as_virtual_connection();
