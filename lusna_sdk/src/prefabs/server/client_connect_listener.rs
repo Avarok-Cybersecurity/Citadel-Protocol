@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::prelude::{ConnectSuccess, NetworkError, NetKernel, NodeRemote, HdpServerResult};
+use crate::prelude::{ConnectSuccess, NetworkError, NetKernel, NodeRemote, NodeResult};
 use crate::prefabs::ClientServerRemote;
 use futures::Future;
 use hyxe_net::prelude::async_trait;
@@ -37,9 +37,9 @@ impl<F, Fut> NetKernel for ClientConnectListenerKernel<F, Fut>
         Ok(())
     }
 
-    async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match message {
-            HdpServerResult::ConnectSuccess(_, cid, _, _, conn_type,_,services,_,channel, udp_channel_rx) => {
+            NodeResult::ConnectSuccess(_, cid, _, _, conn_type, _, services, _, channel, udp_channel_rx) => {
                 let client_server_remote = ClientServerRemote { inner: self.node_remote.clone().unwrap(), conn_type };
                 (&self.on_channel_received)(ConnectSuccess {
                     channel,

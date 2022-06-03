@@ -19,7 +19,7 @@ use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::{GroupTransmitter, SecureProtocolPacket, RatchetPacketCrafterContainer};
 use crate::hdp::hdp_packet_processor::includes::{Instant, SocketAddr, HdpSession};
-use crate::hdp::hdp_node::{HdpServerResult, Ticket, NodeRemote, SecrecyMode};
+use crate::hdp::hdp_node::{NodeResult, Ticket, NodeRemote, SecrecyMode};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;
@@ -93,7 +93,7 @@ pub struct StateContainerInner {
     // transform if a simultaneous connect)
     pub(super) outgoing_peer_connect_attempts: HashMap<u64, Ticket>,
     pub(super) udp_primary_outbound_tx: Option<OutboundUdpSender>,
-    pub(super) kernel_tx: UnboundedSender<HdpServerResult>,
+    pub(super) kernel_tx: UnboundedSender<NodeResult>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection>,
     pub(super) c2s_channel_container: Option<C2SChannelContainer>,
     pub(crate) keep_alive_timeout_ns: i64,
@@ -204,7 +204,7 @@ pub struct C2SChannelContainer {
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
     is_active: Arc<AtomicBool>,
     primary_outbound_tx: OutboundPrimaryStreamSender,
-    pub(crate) channel_signal: Option<HdpServerResult>
+    pub(crate) channel_signal: Option<NodeResult>
 }
 
 pub(crate) struct UnorderedChannelContainer {
@@ -463,7 +463,7 @@ impl GroupReceiverContainer {
 
 impl StateContainerInner {
     /// Creates a new container
-    pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: NodeRemote, keep_alive_timeout_ns: i64, state: Arc<Atomic<SessionState>>, cnac: Option<ClientNetworkAccount>, time_tracker: TimeTracker, session_security_settings: Option<SessionSecuritySettings>, is_server: bool, transfer_stats: TransferStats, udp_mode: UdpMode) -> StateContainer {
+    pub fn new(kernel_tx: UnboundedSender<NodeResult>, hdp_server_remote: NodeRemote, keep_alive_timeout_ns: i64, state: Arc<Atomic<SessionState>>, cnac: Option<ClientNetworkAccount>, time_tracker: TimeTracker, session_security_settings: Option<SessionSecuritySettings>, is_server: bool, transfer_stats: TransferStats, udp_mode: UdpMode) -> StateContainer {
         let inner = Self { outgoing_peer_connect_attempts: Default::default(), file_transfer_handles: HashMap::new(), group_channels: Default::default(), udp_mode, transfer_stats, queue_handle: Default::default(), is_server, session_security_settings, time_tracker, cnac, updates_in_progress: HashMap::new(), hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), ratchet_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new() };
         StateContainer { inner: Arc::new(parking_lot::RwLock::new(inner)) }
     }
@@ -811,7 +811,7 @@ impl StateContainerInner {
                 let _ = tx_status.unbounded_send(FileTransferStatus::ReceptionBeginning(save_location, metadata));
                 self.file_transfer_handles.insert(key, tx_status.clone());
                 // finally, alert the kernel (receiver)
-                let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferHandle(ticket, handle));
+                let _ = self.kernel_tx.unbounded_send(NodeResult::FileTransferHandle(ticket, handle));
 
                 // now that the InboundFileTransfer is loaded, we just need to spawn the async task that takes the results and streams it to the HD.
                 // This is safe since no mutation/reading on the state container or session takes place. This only streams to the hard drive without interrupting
@@ -884,7 +884,7 @@ impl StateContainerInner {
                 tx.unbounded_send(FileTransferStatus::TransferBeginning).ok()?;
                 let _ = self.file_transfer_handles.insert(key, tx);
                 // alert the kernel that file transfer has begun
-                self.kernel_tx.unbounded_send(HdpServerResult::FileTransferHandle(ticket, handle)).ok()?;
+                self.kernel_tx.unbounded_send(NodeResult::FileTransferHandle(ticket, handle)).ok()?;
             } else {
                 log::error!("Attempted to obtain OutboundFileTransfer for {:?}, but it didn't exist", key);
             }

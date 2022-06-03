@@ -72,7 +72,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                             let to_kernel = session.kernel_tx.clone();
 
                             persistence_handler.update_fcm_keys(&cnac, new_keys.clone()).await?;
-                            to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalReceived(ticket), ticket))?;
+                            to_kernel.unbounded_send(NodeResult::PeerEvent(PeerSignal::SignalReceived(ticket), ticket))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
@@ -117,7 +117,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 log::warn!("Vconn already removed");
                             }
 
-                            session.send_to_kernel(HdpServerResult::PeerEvent(signal, ticket))?;
+                            session.send_to_kernel(NodeResult::PeerEvent(signal, ticket))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
@@ -153,7 +153,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                 log::warn!("Unable to remove hyperlan peer {}", peer_cid);
                             }
 
-                            kernel_tx.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), *peer_cid), *used_fcm), ticket))?;
+                            kernel_tx.unbounded_send(NodeResult::PeerEvent(PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), *peer_cid), *used_fcm), ticket))?;
                             return Ok(PrimaryProcessorResult::Void)
                         }
 
@@ -183,7 +183,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         match account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_uname).await {
                                             Ok(_) => {
                                                 log::info!("[FCM] Successfully finished registration!");
-                                                to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), None,ticket_opt.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
+                                                to_kernel.unbounded_send(NodeResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), None, ticket_opt.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
                                                 return Ok(PrimaryProcessorResult::Void);
                                             },
 
@@ -199,7 +199,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
 
                             cnac.save().await?;
                             log::info!("[FCM] Successfully finished registration!");
-                            to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), None,ticket_opt.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
+                            to_kernel.unbounded_send(NodeResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), None, ticket_opt.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
                             return Ok(PrimaryProcessorResult::Void);
                         }
 
@@ -213,12 +213,12 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                             match account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_username).await {
                                 Ok(_) => {
                                     log::info!("Success registering at endpoints");
-                                    to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(),None,*ticket0, Some(PeerResponse::Accept(Some(peer_username.clone()))), FcmPostRegister::Disable), ticket))?;
+                                    to_kernel.unbounded_send(NodeResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), None, *ticket0, Some(PeerResponse::Accept(Some(peer_username.clone()))), FcmPostRegister::Disable), ticket))?;
                                 }
 
                                 Err(err) => {
                                     log::error!("Unable to register at endpoints: {:?}", &err);
-                                    to_kernel.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalError(ticket, err.into_string()), ticket))?;
+                                    to_kernel.unbounded_send(NodeResult::PeerEvent(PeerSignal::SignalError(ticket, err.into_string()), ticket))?;
                                 }
                             }
 
@@ -360,7 +360,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         (hole_punch_compat_stream, channel, udp_rx_opt, sync_instant, encrypted_config_container, ticket_for_chan, needs_turn)
                                     };
 
-                                    let channel_signal = HdpServerResult::PeerChannelCreated(ticket_for_chan.unwrap_or(ticket), channel, udp_rx_opt);
+                                    let channel_signal = NodeResult::PeerChannelCreated(ticket_for_chan.unwrap_or(ticket), channel, udp_rx_opt);
 
                                     if needs_turn && !cfg!(feature = "localhost-testing") {
                                         log::warn!("This p2p connection requires TURN-like routing");
@@ -415,7 +415,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         (hole_punch_compat_stream, channel, udp_rx_opt, endpoint_hyper_ratchet, ticket_for_chan, needs_turn)
                                     };
 
-                                    let channel_signal = HdpServerResult::PeerChannelCreated(ticket_for_chan.unwrap_or(ticket), channel, udp_rx_opt);
+                                    let channel_signal = NodeResult::PeerChannelCreated(ticket_for_chan.unwrap_or(ticket), channel, udp_rx_opt);
 
                                     if needs_turn && !cfg!(feature = "localhost-testing") {
                                         log::warn!("This p2p connection requires TURN-like routing");
@@ -456,7 +456,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                     }
 
                     log::info!("Forwarding PEER signal to kernel ...");
-                    session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(signal, ticket))?;
+                    session.kernel_tx.unbounded_send(NodeResult::PeerEvent(signal, ticket))?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
                     process_signal_command_as_server(session, signal, ticket, sess_hyper_ratchet, header, timestamp, security_level, cnac).await
@@ -855,12 +855,12 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
 
         PeerSignal::SignalError(ticket, err) => {
             // in this case, we delegate the error to the higher-level kernel to determine what to do
-            session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(PeerSignal::SignalError(ticket, err), ticket))?;
+            session.kernel_tx.unbounded_send(NodeResult::PeerEvent(PeerSignal::SignalError(ticket, err), ticket))?;
             Ok(PrimaryProcessorResult::Void)
         }
 
         PeerSignal::SignalReceived(ticket) => {
-            session.kernel_tx.unbounded_send(HdpServerResult::PeerEvent(signal, ticket))?;
+            session.kernel_tx.unbounded_send(NodeResult::PeerEvent(signal, ticket))?;
             Ok(PrimaryProcessorResult::Void)
         }
 

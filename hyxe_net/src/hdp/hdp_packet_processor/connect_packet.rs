@@ -87,7 +87,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                                 session.state.store(SessionState::Connected, Ordering::Relaxed);
 
                                 let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                                let channel_signal = HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel, udp_channel_rx);
+                                let channel_signal = NodeResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel, udp_channel_rx);
                                 // safe unwrap. Store the signal
                                 inner_mut_state!(session.state_container).c2s_channel_container.as_mut().unwrap().channel_signal = Some(channel_signal);
                                 Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
@@ -126,7 +126,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                     session.state.store(SessionState::NeedsConnect, Ordering::Relaxed);
                     session.disable_dc_signal();
 
-                    session.send_to_kernel(HdpServerResult::ConnectFail(kernel_ticket, Some(cid), message))?;
+                    session.send_to_kernel(NodeResult::ConnectFail(kernel_ticket, Some(cid), message))?;
                     Ok(PrimaryProcessorResult::EndSession("Failed connecting. Retry again"))
                 } else {
                     trace!("An invalid FAILURE packet was received; dropping due to invalid signature");
@@ -176,7 +176,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                             //session.post_quantum = pqc;
                             let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
                             let peers = payload.peers;
-                            session.send_to_kernel(HdpServerResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), payload.post_login_object, message, channel, udp_channel_rx))?;
+                            session.send_to_kernel(NodeResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), payload.post_login_object, message, channel, udp_channel_rx))?;
 
                             let timestamp = session.time_tracker.get_global_time_ns();
 
@@ -184,7 +184,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
 
                             //finally, if there are any mailbox items, send them to the kernel for processing
                             if let Some(mailbox_delivery) = payload.mailbox {
-                                session.send_to_kernel(HdpServerResult::MailboxDelivery(cid, None, mailbox_delivery))?;
+                                session.send_to_kernel(NodeResult::MailboxDelivery(cid, None, mailbox_delivery))?;
                             }
 
                             let persistence_handler = session.account_manager.get_persistence_handler().clone();

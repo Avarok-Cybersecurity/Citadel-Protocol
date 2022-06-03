@@ -128,6 +128,7 @@ pub mod prelude {
     pub use crate::builder::node_builder::*;
     pub use crate::remote_ext::*;
     pub use crate::responses;
+    pub use crate::builder::request_builder::*;
 }
 
 /// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)

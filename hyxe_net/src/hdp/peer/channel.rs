@@ -1,4 +1,4 @@
-use crate::hdp::hdp_node::{NodeRemote, Ticket, HdpServerRequest};
+use crate::hdp::hdp_node::{NodeRemote, Ticket, NodeRequest};
 use hyxe_crypt::drill::SecurityLevel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -206,11 +206,11 @@ impl Drop for PeerChannelRecvHalf {
                 let command = match self.recv_type {
                     ReceivePortType::OrderedReliable => {
                         self.is_alive.store(false, Ordering::SeqCst);
-                        HdpServerRequest::PeerCommand(local_cid, PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), None))
+                        NodeRequest::PeerCommand(local_cid, PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), None))
                     }
 
                     ReceivePortType::UnorderedUnreliable => {
-                        HdpServerRequest::PeerCommand(local_cid, PeerSignal::DisconnectUDP(self.vconn_type))
+                        NodeRequest::PeerCommand(local_cid, PeerSignal::DisconnectUDP(self.vconn_type))
                     }
                 };
 

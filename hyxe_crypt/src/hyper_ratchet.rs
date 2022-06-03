@@ -217,7 +217,7 @@ impl HyperRatchet {
     pub fn verify_level(&self, security_level: Option<SecurityLevel>) -> Result<usize, CryptError<String>> {
         let security_level = security_level.unwrap_or(SecurityLevel::LOW);
         if security_level.value() as usize >= self.inner.message.inner.len() {
-            log::warn!("OOB: Security value: {}, max: {} ({:?})|| Version: {}", security_level.value() as usize, self.inner.message.inner.len(), self.get_default_security_level(), self.version());
+            log::warn!("OOB: Security value: {}, max: {} (default: {:?})|| Version: {}", security_level.value() as usize, self.inner.message.inner.len() - 1, self.get_default_security_level(), self.version());
             Err(CryptError::OutOfBoundsError)
         } else {
             Ok(security_level.value() as usize)

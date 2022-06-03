@@ -188,8 +188,8 @@ mod tests {
         setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
-                hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
-                hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), false);
+                let _ = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
+                let _ = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), false);
             }
         }
     }
@@ -199,13 +199,28 @@ mod tests {
         setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
-                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), true);
-                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), true);
+                let _ = hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), true);
+                let _ = hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), true);
             }
         }
     }
 
-    fn hyper_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(algorithm: Z, security_level: Option<SecurityLevel>, is_fcm: bool) {
+    #[test]
+    fn security_levels() {
+        setup_log();
+        for sec in 0..SecurityLevel::DIVINE.value() {
+            let ratchet = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::Firesaber + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
+            for x in 0..sec {
+                assert!(ratchet.verify_level(Some(x.into())).is_ok())
+            }
+
+            for x in (sec+1)..SecurityLevel::CUSTOM(255).value() {
+                assert!(ratchet.verify_level(Some(x.into())).is_err())
+            }
+        }
+    }
+
+    fn hyper_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(algorithm: Z, security_level: Option<SecurityLevel>, is_fcm: bool) -> R {
         let algorithm = algorithm.into();
         log::info!("Using {:?} with {:?} @ {:?} security level | is FCM: {}", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level, is_fcm);
         let algorithm = Some(algorithm);
@@ -243,6 +258,7 @@ mod tests {
         header.unsplit(packet);
 
         assert_eq!(header, plaintext_packet);
+        alice_hyper_ratchet
     }
 
     #[test]
