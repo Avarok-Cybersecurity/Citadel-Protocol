@@ -25,7 +25,7 @@
 //! - `plus`: Uses a multi-threaded Send executor for the inner protocol
 //! - `enterprise-lite`: Uses a single-threaded !Send executor for the inner protocol coupled with an optional SQL backend
 //! - `enterprise`: Uses a multi-threaded Send executor for the inner protocol coupled with an optional SQL backend
-//! - `webrtc`: enables interoperability with webrtc via the [`UdpChannel`] (see: [UdpChannel::into_webrtc_compat](crate::prelude::UdpChannel::into_webrtc_compat))
+//! - `webrtc`: enables *limited* interoperability with webrtc via the [`UdpChannel`] (see: [UdpChannel::into_webrtc_compat](crate::prelude::UdpChannel::into_webrtc_compat))
 //!
 //!
 //! # Post-quantum key encapsulation mechanisms
