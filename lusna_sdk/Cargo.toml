@@ -22,7 +22,7 @@ localhost-testing-assert-no-proxy = ["hyxe_net/localhost-testing-assert-no-proxy
 hyxe_net = { path = "../hyxe_net", default-features = false }
 tokio = { version = "1.18.0", features = ["full"] }
 futures = "0.3.19"
-parking_lot = "0.12.0"
+parking_lot = "0.11.0"
 log = { version = "0.4.14", features = ["std"] }
 env_logger = "0.9.0"
 lazy_static = "1.4.0"
