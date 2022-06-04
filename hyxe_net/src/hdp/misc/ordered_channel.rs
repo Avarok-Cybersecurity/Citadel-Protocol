@@ -23,19 +23,6 @@ impl OrderedChannel {
         if next_expected_message_id == id {
             // we send this packet, then scan sequentially for any other packets that may have been delivered until hitting discontinuity
             self.send_then_scan(id, packet)?;
-
-            /*
-            if id == 0 {
-                let ptr = self as *const OrderedChannel;
-                tokio::task::spawn(async move {
-                    use futures::StreamExt;
-                    while let Some(_) = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(std::time::Duration::from_millis(5000))).next().await {
-                        let this = unsafe { &*ptr };
-                        log::error!("Looking for: {:?}. Map has {} items", this.last_message_received.clone().map(|r| r.wrapping_add(1)), this.map.len());
-                    }
-                });
-            }*/
-
             Ok(())
         } else {
             // we store. Since the next needed packet in order is not yet received, we store and return
