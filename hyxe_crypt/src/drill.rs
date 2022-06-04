@@ -293,19 +293,10 @@ impl From<u8> for SecurityLevel {
 }
 
 
-use serde_big_array::big_array;
+use serde_big_array::BigArray;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
 use ez_pqcrypto::algorithm_dictionary::EncryptionAlgorithm;
 use arrayvec::ArrayVec;
-/* Use the bellow version if BYTES_PER_3D_ARRAY is a value not automatically implied
-big_array! {
-    BigArray;
-    +BYTES_PER_3D_ARRAY,
-}*/
-
-big_array! {
-    BigArray;
-}
 
 /// A drill is a fundamental encryption dataset that continually morphs into new future sets
 #[repr(C)]
