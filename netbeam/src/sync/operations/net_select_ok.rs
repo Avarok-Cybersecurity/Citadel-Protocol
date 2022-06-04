@@ -237,7 +237,7 @@ mod tests {
     use std::fmt::Debug;
     use std::time::Duration;
     use crate::sync::network_application::NetworkApplication;
-    use crate::sync::test_utils::{deadlock_detector, create_streams};
+    use crate::sync::test_utils::create_streams;
 
     fn setup_log() {
         std::env::set_var("RUST_LOG", "error,warn,info,trace");
@@ -252,7 +252,6 @@ mod tests {
     #[tokio::test]
     async fn racer() {
         setup_log();
-        deadlock_detector();
 
         let (server_stream, client_stream) = create_streams().await;
 
