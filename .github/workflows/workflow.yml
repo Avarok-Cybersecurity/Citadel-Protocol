@@ -55,7 +55,7 @@ jobs:
             const { owner, repo } = context.repo
             console.log('Cancelling ...');
             const run_id = "${{ github.run_id }}";
-            await octokit.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
+            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
 
@@ -76,7 +76,7 @@ jobs:
             const { owner, repo } = context.repo
             console.log('Cancelling ...');
             const run_id = "${{ github.run_id }}";
-            await octokit.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
+            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
 
@@ -97,7 +97,7 @@ jobs:
             const { owner, repo } = context.repo
             console.log('Cancelling ...');
             const run_id = "${{ github.run_id }}";
-            await octokit.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
+            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
   valgrind:
@@ -132,7 +132,7 @@ jobs:
             const { owner, repo } = context.repo
             console.log('Cancelling ...');
             const run_id = "${{ github.run_id }}";
-            await octokit.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
+            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
   cargo_deny_and_coverage:
@@ -157,7 +157,7 @@ jobs:
             const { owner, repo } = context.repo
             console.log('Cancelling ...');
             const run_id = "${{ github.run_id }}";
-            await octokit.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
+            await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
  # scanning:
@@ -183,6 +183,6 @@ jobs:
  #           const { owner, repo } = context.repo
  #           console.log('Cancelling ...');
  #           const run_id = "${{ github.run_id }}";
- #           await octokit.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
+ #           await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
  #           return 'stop'
  #         result-encoding: string
