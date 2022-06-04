@@ -1390,11 +1390,11 @@ impl HdpSessionInner {
 
     /// When a successful login occurs, this function gets called. Must return any AsRef<[u8]> type
     pub(super) fn create_welcome_message(&self, cid: u64) -> String {
-        format!("SatoriNET login::success. Welcome to the Post-quantum network. Implicated CID: {}", cid)
+        format!("LUSNA login::success. Welcome to the Post-quantum network. Implicated CID: {}", cid)
     }
 
     pub(super) fn create_register_success_message(&self) -> String {
-        format!("SatoriNET register::success. Welcome to your new post-quantum network! Login to interact with your new network")
+        format!("LUSNA register::success. Welcome to your new post-quantum network! Login to interact with your new network")
     }
 
     /// If the previous state was not a login fail, then the unwrap_or case will occur
