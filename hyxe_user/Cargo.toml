@@ -47,7 +47,7 @@ zerocopy = "0.5.0"
 byteorder = "1.4.2"
 sqlx = { version = "0.5.11", features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
 firebase-rtdb = { path = "../firebase-rtdb", version = "0.1.0" }
-jwt = { version = "0.14.0", features = ["openssl"] }
+jwt = { version = "0.16.0", features = ["openssl"] }
 openssl = { version = "0.10.36", features = ["vendored"] }
 uuid = { version = "1.0.0", features = ["v4"] }
 
