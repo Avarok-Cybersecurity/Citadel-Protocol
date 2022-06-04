@@ -122,33 +122,6 @@ pub mod test_utils {
     pub async fn create_streams_with_addrs() -> (NetworkEndpoint, NetworkEndpoint) {
         create_streams_with_addrs_and_lag(0).await
     }
-
-    pub fn deadlock_detector() {
-        log::info!("Deadlock function called ...");
-        use std::thread;
-        use std::time::Duration;
-        use parking_lot::deadlock;
-        // Create a background thread which checks for deadlocks every 10s
-        thread::spawn(move || {
-            log::info!("Deadlock detector spawned ...");
-            loop {
-                thread::sleep(Duration::from_secs(8));
-                let deadlocks = deadlock::check_deadlock();
-                if deadlocks.is_empty() {
-                    continue;
-                }
-
-                log::info!("{} deadlocks detected", deadlocks.len());
-                for (i, threads) in deadlocks.iter().enumerate() {
-                    log::info!("Deadlock #{}", i);
-                    for t in threads {
-                        //println!("Thread Id {:#?}", t.thread_id());
-                        log::info!("{:#?}", t.backtrace());
-                    }
-                }
-            }
-        });
-    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
