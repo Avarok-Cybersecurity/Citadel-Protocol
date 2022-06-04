@@ -1555,7 +1555,7 @@ dependencies = [
  "log",
  "num 0.4.0",
  "num-bigint 0.4.3",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.1",
  "rand 0.7.3",
  "serde",
  "tokio",
@@ -1593,7 +1593,6 @@ dependencies = [
  "num 0.2.1",
  "num_cpus",
  "once_cell",
- "parking_lot 0.11.2",
  "parking_lot 0.12.1",
  "portpicker",
  "rand 0.7.3",
@@ -1663,7 +1662,6 @@ dependencies = [
  "log",
  "netbeam",
  "openssl",
- "parking_lot 0.11.2",
  "parking_lot 0.12.1",
  "quinn",
  "rand 0.8.5",
@@ -1883,7 +1881,6 @@ dependencies = [
  "hyxe_net",
  "lazy_static",
  "log",
- "parking_lot 0.11.2",
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "rstest 0.14.0",
@@ -2021,7 +2018,6 @@ dependencies = [
  "env_logger 0.7.1",
  "futures",
  "log",
- "parking_lot 0.11.2",
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "serde",
@@ -3237,9 +3233,9 @@ dependencies = [
 
 [[package]]
 name = "serde-big-array"
-version = "0.3.3"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd31f59f6fe2b0c055371bb2f16d7f0aa7d8881676c04a55b1596d1a17cd10a4"
+checksum = "3323f09a748af288c3dc2474ea6803ee81f118321775bffa3ac8f7e65c5e90e7"
 dependencies = [
  "serde",
 ]
