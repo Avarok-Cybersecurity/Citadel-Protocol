@@ -85,11 +85,11 @@ jobs:
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-2019 ]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 100
+    timeout-minutes: 50
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - run: cargo test --package lusna_sdk --features=standard,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
-      - run: cargo test --package lusna_sdk --features=plus,localhost-testing,localhost-testing-assert-no-proxy -- --test-threads=1
+      - run: cargo test --package lusna_sdk --features=standard,localhost-testing -- --test-threads=1
+      - run: cargo test --package lusna_sdk --features=plus,localhost-testing -- --test-threads=1
       - uses: actions/github-script@v6
         if: failure()
         with:
