@@ -89,5 +89,5 @@ pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_
 ///
 pub const TCP_CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 
-pub const MAX_OUTGOING_UNPROCESSED_REQUESTS: usize = 512;
+pub const MAX_OUTGOING_UNPROCESSED_REQUESTS: usize = 1;
 pub const MAX_INCOMING_UNPROCESSED_REQUESTS: usize = 512;
