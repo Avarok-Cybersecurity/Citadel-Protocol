@@ -1,4 +1,3 @@
-#![forbid(unsafe_code)]
 //! Software development kit for creating high performance, extremely-secure, and post-quantum network applications. Supports p2p (NAT traversal + WebRTC) and standard client/server architectures for
 //! messaging and streaming. The underlying asynchronous runtime is [Tokio](https://tokio.rs).
 //!
