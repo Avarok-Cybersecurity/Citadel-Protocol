@@ -11,7 +11,7 @@ edition = "2018"
 [features]
 
 [dependencies]
-tokio = { version = "1.10.1", features = ["net", "macros", "rt", "time", "io-util", "parking_lot"] }
+tokio = { version = "=1.17.0", features = ["net", "macros", "rt", "time", "io-util", "parking_lot"] }
 futures = "0.3.16"
 bytes = "1.0.1"
 async-trait = "0.1.51"

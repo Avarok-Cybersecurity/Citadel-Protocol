@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
 use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, ConstructorType};
-use crate::hdp::hdp_packet_processor::primary_group_packet::{attempt_kem_as_alice_finish, get_resp_target_cid_from_header};
+use crate::hdp::packet_processor::primary_group_packet::{attempt_kem_as_alice_finish, get_resp_target_cid_from_header};
 
 use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
@@ -18,7 +18,7 @@ use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_
 use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::{GroupTransmitter, SecureProtocolPacket, RatchetPacketCrafterContainer};
-use crate::hdp::hdp_packet_processor::includes::{Instant, SocketAddr, HdpSession};
+use crate::hdp::packet_processor::includes::{Instant, SocketAddr, HdpSession};
 use crate::hdp::hdp_node::{NodeResult, Ticket, NodeRemote, SecrecyMode};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
@@ -55,10 +55,10 @@ use crate::hdp::session_queue_handler::{QueueWorkerResult, SessionQueueWorkerHan
 use crate::hdp::time::TransferStats;
 use crate::hdp::hdp_packet_crafter;
 use crate::hdp::misc::dual_late_init::DualLateInit;
-use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::prelude::MessageGroupKey;
 use crate::hdp::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
-use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
+use crate::hdp::packet_processor::PrimaryProcessorResult;
 use std::path::PathBuf;
 
 impl Debug for StateContainer {

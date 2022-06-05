@@ -3,7 +3,7 @@ use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAlice
 use crate::error::NetworkError;
 use hyxe_crypt::prelude::ConstructorOpts;
 use std::sync::atomic::Ordering;
-use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
+use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// This will handle an HDP registration packet
 #[inline]

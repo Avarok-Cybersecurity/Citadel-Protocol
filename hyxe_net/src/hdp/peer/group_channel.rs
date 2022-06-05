@@ -3,7 +3,7 @@ use crate::hdp::state_container::StateContainer;
 use futures::Stream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::error::NetworkError;
 use std::fmt::Debug;
 use hyxe_user::re_imports::__private::Formatter;

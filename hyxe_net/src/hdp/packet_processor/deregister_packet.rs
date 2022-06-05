@@ -2,7 +2,7 @@ use super::includes::*;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
-use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
+use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
 pub fn process(session_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {

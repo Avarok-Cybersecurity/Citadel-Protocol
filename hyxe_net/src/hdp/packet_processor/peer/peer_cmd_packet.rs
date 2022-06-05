@@ -12,10 +12,10 @@ use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use netbeam::sync::RelativeNodeType;
 
 use crate::error::NetworkError;
-use crate::hdp::hdp_packet_processor::includes::*;
-use crate::hdp::hdp_packet_processor::peer::group_broadcast;
-use crate::hdp::hdp_packet_processor::preconnect_packet::{calculate_sync_time, generate_hole_punch_crypt_container};
-use crate::hdp::hdp_packet_processor::primary_group_packet::{get_proper_hyper_ratchet, get_resp_target_cid};
+use crate::hdp::packet_processor::includes::*;
+use crate::hdp::packet_processor::peer::group_broadcast;
+use crate::hdp::packet_processor::preconnect_packet::{calculate_sync_time, generate_hole_punch_crypt_container};
+use crate::hdp::packet_processor::primary_group_packet::{get_proper_hyper_ratchet, get_resp_target_cid};
 use crate::hdp::hdp_node::Ticket;
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::outbound_sender::OutboundPrimaryStreamSender;
@@ -25,7 +25,7 @@ use crate::hdp::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal, UdpMode, HyperNodePeerLayerInner};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
-use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
+use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
