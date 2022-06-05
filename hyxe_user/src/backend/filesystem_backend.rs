@@ -105,7 +105,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
         for (cid, cnac) in write.drain() {
             log::info!("Purging cid {}", cid);
-            cnac.purge_from_fs_blocking()?;
+            if let Err(err) = cnac.purge_from_fs_blocking() {
+                log::warn!("Unable to purge account {}/{}: {:?}", cid, cnac.get_username(), err);
+            }
         }
 
         let mut write = self.local_nac().write();
