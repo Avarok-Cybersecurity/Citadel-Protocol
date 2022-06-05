@@ -1,7 +1,7 @@
 use super::includes::*;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
-use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
+use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// This will handle a keep alive packet. It will automatically send a keep packet after it sleeps for a period of time
 #[inline]

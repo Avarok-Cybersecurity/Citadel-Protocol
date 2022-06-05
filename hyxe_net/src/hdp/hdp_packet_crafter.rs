@@ -1090,7 +1090,7 @@ pub(crate) mod peer_cmd {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use crate::hdp::peer::peer_layer::ChannelPacket;
-    use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+    use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_fs::io::SyncIO;
@@ -1210,7 +1210,7 @@ pub(crate) mod peer_cmd {
 }
 
 pub(crate) mod file {
-    use crate::hdp::hdp_packet_processor::includes::{SecurityLevel, HdpHeader, packet_flags};
+    use crate::hdp::packet_processor::includes::{SecurityLevel, HdpHeader, packet_flags};
     use crate::hdp::hdp_node::Ticket;
     use crate::hdp::state_container::VirtualTargetType;
     use crate::hdp::file_transfer::VirtualFileMetadata;

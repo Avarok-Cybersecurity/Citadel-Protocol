@@ -8,7 +8,7 @@ use hyxe_user::external_services::ServicesObject;
 use hyxe_user::external_services::rtdb::RtdbClientConfig;
 use hyxe_user::re_imports::FirebaseRTDB;
 use std::sync::atomic::Ordering;
-use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
+use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
 pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {

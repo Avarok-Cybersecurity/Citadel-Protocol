@@ -5,7 +5,7 @@ use tokio_util::time::{delay_queue, DelayQueue};
 use tokio::time::error::Error;
 use std::collections::HashMap;
 use crate::hdp::hdp_session::SessionState;
-use crate::hdp::hdp_packet_processor::includes::Duration;
+use crate::hdp::packet_processor::includes::Duration;
 use crate::error::NetworkError;
 use tokio::sync::broadcast::Sender;
 

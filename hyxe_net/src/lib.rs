@@ -357,7 +357,7 @@ pub mod prelude {
     pub use crate::functional::*;
     pub use crate::hdp::file_transfer::FileTransferStatus;
     pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
-    pub use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
+    pub use crate::hdp::packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
     pub use crate::hdp::hdp_node::{atexit, NodeRequest, NodeResult, NodeRemote, Remote, SecrecyMode};
     pub use crate::hdp::hdp_node::ConnectMode;
     pub use crate::hdp::hdp_node::Ticket;

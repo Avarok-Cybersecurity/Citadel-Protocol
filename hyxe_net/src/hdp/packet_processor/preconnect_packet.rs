@@ -17,7 +17,7 @@ use super::includes::*;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use hyxe_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use std::sync::atomic::Ordering;
-use crate::hdp::hdp_packet_processor::raw_primary_packet::ConcurrentProcessorTx;
+use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 use hyxe_wire::exports::NewConnection;
 
 /// Handles preconnect packets. Handles the NAT traversal

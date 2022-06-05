@@ -1,6 +1,6 @@
 use bytes::BytesMut;
 
-use crate::hdp::hdp_packet_processor::peer::peer_cmd_packet;
+use crate::hdp::packet_processor::peer::peer_cmd_packet;
 
 use super::includes::*;
 use crate::error::NetworkError;
