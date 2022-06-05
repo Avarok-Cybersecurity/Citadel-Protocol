@@ -49,35 +49,6 @@ impl PeerChannel {
         PeerChannel { send_half, recv_half }
     }
 
-    /*
-        pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>, to_outbound: Sender<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) -> Self {
-        let implicated_cid = vconn_type.get_implicated_cid();
-        let recv_type = ReceivePortType::OrderedReliable;
-
-        let send_half = PeerChannelSendHalf {
-            tx: to_outbound,
-            target_cid,
-            vconn_type,
-            implicated_cid,
-            channel_id,
-            security_level,
-            is_alive: is_alive.clone()
-        };
-
-        let recv_half = PeerChannelRecvHalf {
-            server_remote,
-            receiver,
-            target_cid,
-            vconn_type,
-            channel_id,
-            is_alive,
-            recv_type
-        };
-
-        PeerChannel { send_half, recv_half }
-    }
-     */
-
     /// Gets the CID of the endpoint
     pub fn get_peer_cid(&self) -> u64 {
         self.send_half.target_cid

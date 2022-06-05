@@ -155,14 +155,16 @@ mod tests {
 
         lusna_sdk::test_common::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(2);
-        let ref client_success = AtomicBool::new(false);
-        let ref server_success = AtomicBool::new(false);
+        static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
+        static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
+        CLIENT_SUCCESS.store(false, Ordering::Relaxed);
+        SERVER_SUCCESS.store(false, Ordering::Relaxed);
 
         let (server, server_addr) = server_info_reactive(move |conn, remote| async move {
             log::info!("*** SERVER RECV CHANNEL ***");
             handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
             log::info!("***SERVER TEST SUCCESS***");
-            server_success.store(true, Ordering::Relaxed);
+            SERVER_SUCCESS.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
 
@@ -176,18 +178,20 @@ mod tests {
             log::info!("*** CLIENT RECV CHANNEL ***");
             handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
             log::info!("***CLIENT TEST SUCCESS***");
-            client_success.store(true, Ordering::Relaxed);
+            CLIENT_SUCCESS.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
 
-        let client = NodeBuilder::default().build(client_kernel).unwrap();
+        let client = tokio::spawn(NodeBuilder::default().build(client_kernel).unwrap());
+        let server = tokio::spawn(server);
 
         let joined = futures::future::try_join(server, client);
 
-        let _ = tokio::time::timeout(Duration::from_secs(120),joined).await.unwrap().unwrap();
-
-        assert!(client_success.load(Ordering::Relaxed));
-        assert!(server_success.load(Ordering::Relaxed));
+        let (res0, res1) = tokio::time::timeout(Duration::from_secs(120),joined).await.unwrap().unwrap();
+        let _ = res0.unwrap();
+        let _ = res1.unwrap();
+        assert!(CLIENT_SUCCESS.load(Ordering::Relaxed));
+        assert!(SERVER_SUCCESS.load(Ordering::Relaxed));
     }
 
     #[rstest]
@@ -258,8 +262,8 @@ mod tests {
         lusna_sdk::test_common::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(PEER_COUNT);
 
-        let ref client_success = AtomicUsize::new(0);
-        client_success.store(0, Ordering::Relaxed);
+        static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
+        CLIENT_SUCCESS.store(0, Ordering::Relaxed);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
@@ -268,32 +272,36 @@ mod tests {
 
         for idx in 0..PEER_COUNT {
             let uuid = total_peers.get(idx).cloned().unwrap();
+            let owner = total_peers.get(0).cloned().unwrap().into();
 
-            let request = if idx == 0 {
-                // invite list is empty since we will expect the users to post_register to us before attempting to join
-                GroupInitRequestType::Create { local_user: UserIdentifier::from(uuid), invite_list: vec![], group_id, accept_registrations: true }
-            } else {
-                GroupInitRequestType::Join {
-                    local_user: UserIdentifier::from(uuid),
-                    owner: total_peers.get(0).cloned().unwrap().into(),
-                    group_id,
-                    do_peer_register: true
-                }
+            let task = async move {
+                tokio::spawn(async move {
+                    let request = if idx == 0 {
+                        // invite list is empty since we will expect the users to post_register to us before attempting to join
+                        GroupInitRequestType::Create { local_user: UserIdentifier::from(uuid), invite_list: vec![], group_id, accept_registrations: true }
+                    } else {
+                        GroupInitRequestType::Join {
+                            local_user: UserIdentifier::from(uuid),
+                            owner,
+                            group_id,
+                            do_peer_register: true
+                        }
+                    };
+
+                    let client_kernel = BroadcastKernel::new_passwordless_defaults(uuid, server_addr, request, move |channel,remote| async move {
+                        log::info!("***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
+                        // wait for every group member to connect to ensure all receive all messages
+                        handle_send_receive_group(get_barrier(), channel, message_count, PEER_COUNT).await?;
+                        let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                        remote.shutdown_kernel().await
+                    });
+
+                    let client = NodeBuilder::default().build(client_kernel).unwrap();
+                    client.await.map(|_| ())
+                }).await.map_err(|err| NetworkError::Generic(err.to_string()))?
             };
 
-            let client_kernel = BroadcastKernel::new_passwordless_defaults(uuid, server_addr, request, move |channel,remote| async move {
-                log::info!("***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
-                // wait for every group member to connect to ensure all receive all messages
-                handle_send_receive_group(get_barrier(), channel, message_count, PEER_COUNT).await?;
-                let _ = client_success.fetch_add(1, Ordering::Relaxed);
-                remote.shutdown_kernel().await
-            });
-
-            let client = NodeBuilder::default().build(client_kernel).unwrap();
-
-            client_kernels.push(async move {
-                client.await.map(|_| ())
-            });
+            client_kernels.push(task);
         }
 
         let clients = Box::pin(async move {
@@ -313,6 +321,6 @@ mod tests {
             }
         }
         assert!(res.is_ok());
-        assert_eq!(client_success.load(Ordering::Relaxed), PEER_COUNT);
+        assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), PEER_COUNT);
     }
 }
