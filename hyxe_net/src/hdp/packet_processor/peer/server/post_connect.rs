@@ -1,9 +1,9 @@
-use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
+use crate::hdp::packet_processor::PrimaryProcessorResult;
 use crate::prelude::{PeerSignal, PeerConnectionType, Ticket, PeerResponse, SessionSecuritySettings, UdpMode};
 use crate::hdp::hdp_session::HdpSession;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use crate::hdp::hdp_packet_processor::peer::peer_cmd_packet::route_signal_response;
-use crate::hdp::hdp_packet_processor::includes::VirtualConnectionType;
+use crate::hdp::packet_processor::peer::peer_cmd_packet::route_signal_response;
+use crate::hdp::packet_processor::includes::VirtualConnectionType;
 use crate::error::NetworkError;
 use hyxe_crypt::drill::SecurityLevel;
 use crate::hdp::peer::peer_layer::HyperNodePeerLayerInner;

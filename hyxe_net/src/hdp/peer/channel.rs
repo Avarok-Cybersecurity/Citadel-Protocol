@@ -11,7 +11,7 @@ use tokio::macros::support::Pin;
 use std::fmt::Debug;
 use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use hyxe_crypt::prelude::SecBuffer;
-use crate::hdp::hdp_packet_processor::raw_primary_packet::ReceivePortType;
+use crate::hdp::packet_processor::raw_primary_packet::ReceivePortType;
 use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
 use hyxe_user::re_imports::__private::Formatter;
 
@@ -270,7 +270,7 @@ pub struct WebRTCCompatChannel {
 #[cfg(feature = "webrtc")]
 mod rtc_impl {
     use async_trait::async_trait;
-    use crate::hdp::hdp_packet_processor::includes::SocketAddr;
+    use crate::hdp::packet_processor::includes::SocketAddr;
     use bytes::BytesMut;
     use crate::hdp::peer::channel::WebRTCCompatChannel;
     use crate::error::NetworkError;

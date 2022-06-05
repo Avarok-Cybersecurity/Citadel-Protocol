@@ -1,6 +1,6 @@
 use super::includes::*;
 use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
-use crate::hdp::hdp_packet_processor::primary_group_packet::get_resp_target_cid_from_header;
+use crate::hdp::packet_processor::primary_group_packet::get_resp_target_cid_from_header;
 use crate::error::NetworkError;
 
 /// This will handle an inbound group packet

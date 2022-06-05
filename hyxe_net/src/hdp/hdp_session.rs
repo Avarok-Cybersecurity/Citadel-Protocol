@@ -34,8 +34,8 @@ use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
 use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 //use futures_codec::Framed;
-use crate::hdp::hdp_packet_processor::{self, PrimaryProcessorResult};
-use crate::hdp::hdp_packet_processor::includes::{Duration, SocketAddr};
+use crate::hdp::packet_processor::{self, PrimaryProcessorResult};
+use crate::hdp::packet_processor::includes::{Duration, SocketAddr};
 use crate::hdp::hdp_node::{ConnectMode, NodeRemote, NodeResult, Ticket};
 use crate::hdp::hdp_session_manager::HdpSessionManager;
 use crate::hdp::misc;
@@ -60,7 +60,7 @@ use crate::kernel::RuntimeFuture;
 use std::pin::Pin;
 use hyxe_crypt::prelude::ConstructorOpts;
 use crate::hdp::endpoint_crypto_accessor::EndpointCryptoAccessor;
-use crate::hdp::hdp_packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
+use crate::hdp::packet_processor::raw_primary_packet::{check_proxy, ReceivePortType};
 use crate::hdp::state_subcontainers::preconnect_state_container::UdpChannelSender;
 use hyxe_wire::nat_identification::NatType;
 use hyxe_wire::exports::NewConnection;
@@ -688,7 +688,7 @@ impl HdpSession {
             while let Some(packet) = reader.next().await {
                 let packet = packet.map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                if let Err(err) = evaulute_result(hdp_packet_processor::raw_primary_packet::process(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet, async_processor_tx), primary_stream, kernel_tx) {
+                if let Err(err) = evaulute_result(packet_processor::raw_primary_packet::process(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet, async_processor_tx), primary_stream, kernel_tx) {
                     return Err(handle_session_terminating_error(err, this_main.is_server, p2p))
                 }
             }
@@ -1325,7 +1325,7 @@ impl HdpSession {
             let mut endpoint_cid_info = None;
             match check_proxy(self.implicated_cid.get(), header.cmd_primary, header.cmd_aux, header.session_cid.get(), header.target_cid.get(), self, &mut endpoint_cid_info, ReceivePortType::UnorderedUnreliable, packet) {
                 Some(packet) => {
-                    match hdp_packet_processor::udp_packet::process(self, packet, hr_version, accessor) {
+                    match packet_processor::udp_packet::process(self, packet, hr_version, accessor) {
                         Ok(PrimaryProcessorResult::Void) => {
                             Ok(())
                         }

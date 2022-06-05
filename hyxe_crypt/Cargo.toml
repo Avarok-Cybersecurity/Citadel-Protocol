@@ -40,7 +40,7 @@ sysinfo = "0.23.2"
 zeroize = "*"
 num_cpus = "1.13.0"
 linked-hash-map = "*"
-tokio = { version = "1.10.1", features = ["full"] }
+tokio = { version = "=1.17.0", features = ["full"] }
 sha3 = "0.10.1"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]

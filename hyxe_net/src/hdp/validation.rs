@@ -192,7 +192,7 @@ pub(crate) mod pre_connect {
     use crate::hdp::hdp_node::ConnectMode;
     use crate::hdp::peer::peer_layer::UdpMode;
     use hyxe_wire::nat_identification::NatType;
-    use crate::hdp::hdp_packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;
+    use crate::hdp::packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;
 
     pub(crate) fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType), NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
@@ -287,7 +287,7 @@ pub(crate) mod pre_connect {
 pub(crate) mod file {
     use crate::hdp::file_transfer::VirtualFileMetadata;
     use crate::hdp::hdp_packet::HdpHeader;
-    use crate::hdp::hdp_packet_processor::includes::LayoutVerified;
+    use crate::hdp::packet_processor::includes::LayoutVerified;
     use crate::hdp::state_container::VirtualTargetType;
 
     pub fn validate_file_header(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(VirtualTargetType, VirtualFileMetadata)> {
