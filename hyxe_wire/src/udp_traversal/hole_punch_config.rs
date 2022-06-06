@@ -5,8 +5,8 @@ use async_ip::IpAddressInfo;
 
 #[derive(Debug)]
 pub struct HolePunchConfig {
-    // The IP address that must be connected to based on NAT traversal
-    bands: Vec<AddrBand>,
+    /// The IP address that must be connected to based on NAT traversal
+    pub bands: Vec<AddrBand>,
     // sockets bound to ports specially prepared for NAT traversal
     pub(crate) locally_bound_sockets: Option<Vec<UdpSocket>>
 }
@@ -134,6 +134,32 @@ impl HolePunchConfig {
                 }
             }
 
+            NatType::EDMRandomIPPortPreserved(addrs, _, _) => {
+                // the peer has semi-predictable addrs, each with a spread of 1
+                // port is preserved, therefore, internal=external
+                let first_addr = addrs[0];
+                match first_addr {
+                    IpAddr::V4(v4) => {
+                        let mut octets = v4.octets();
+                        let mut bands = vec![];
+                        for _ in 0..4 {
+                            // increment the last octet by 1
+                            octets[3] = octets[3].wrapping_add(1);
+                            bands.push(AddrBand { necessary_ip: IpAddr::from(octets), anticipated_ports: vec![peer_declared_internal_port] })
+                        }
+
+                        Ok(Self {
+                            bands,
+                            locally_bound_sockets: Some(vec![first_local_socket])
+                        })
+                    },
+
+                    _ => {
+                        Err(anyhow::Error::msg("Should not be an ipv6 addr in this block ..."))
+                    }
+                }
+            }
+
             _ => {
                 Err(anyhow::Error::msg("This function should not be called since one or more of the peers cannot be reached via STUN-like traversal"))
             }
@@ -176,33 +202,7 @@ impl HolePunchConfig {
         // one addr will bind on 0.0.0.0 (or [::]), and the other on 127.0.0.1 (or [::1])
         let _local_bind_addr = first_local_socket.local_addr()?;
         let ret = vec![first_local_socket];
-
-        // NOTE: We only bind to a single addr now, since that's all that's needed
-        /*
-        match local_nat_info {
-            NatType::EIM(..) | NatType::PortPreserved(..) => {
-                // we alter nothing
-            }
-
-            NatType::EDM(.., delta, _) => {
-                Self::generate_bind_for_delta_config(&mut ret, *delta as u16, local_bind_addr)?;
-            }
-
-            NatType::EDMRandomPort(..) => {
-                let delta = local_nat_info.get_average_delta_for_rand_port().ok_or_else(||anyhow::Error::msg("Expected acceptable average delta in local"))?;
-                Self::generate_bind_for_delta_config(&mut ret, delta, local_bind_addr)?;
-            }
-
-            NatType::EDMRandomIp(..) => {
-                // local is unpredictable. However, thanks to the logic preceeding this function,
-                // we know the other address is predictable. Thus, we can bind to any address we want.
-                // Thus, we keep the current socket and add nothing
-            }
-
-            _ => {
-                return Err(anyhow::Error::msg("This function should not be called since one or more of the peers cannot be reached via STUN-like traversal"))
-            }
-        }*/
+        // note: we only bind to a single addr now, to drastically reduce complexity
 
         Ok(ret)
     }
@@ -313,5 +313,94 @@ impl Iterator for AddrBand {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.anticipated_ports.pop().map(|port| SocketAddr::new(self.necessary_ip, port))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{SocketAddr, IpAddr};
+    use std::str::FromStr;
+    use crate::nat_identification::NatType;
+    use crate::udp_traversal::hole_punch_config::HolePunchConfig;
+    use crate::udp_traversal::udp_hole_puncher::get_optimal_bind_socket;
+
+    #[tokio::test]
+    async fn test_hole_punch_config() {
+        let dummy_addr = SocketAddr::from_str("127.0.0.1:1234").unwrap();
+        let dummy_ip0_ok = IpAddr::from_str("123.100.200.100").unwrap();
+        let dummy_ip1_ok = IpAddr::from_str("123.100.200.101").unwrap();
+        let dummy_ip2_ok = IpAddr::from_str("123.100.200.102").unwrap();
+        let dummy_ip3_err = IpAddr::from_str("100.100.200.103").unwrap();
+
+        let eim = &NatType::EIM(dummy_addr, None, true);
+        let edm = &NatType::EDM(dummy_addr, None, 1, true);
+        let port_preserved = &NatType::PortPreserved(dummy_addr.ip(), None, true);
+        let random_port_compat = &NatType::EDMRandomPort(dummy_addr, None, vec![10, 20, 30, 40], true);
+        let random_port_bad = &NatType::EDMRandomPort(dummy_addr, None, vec![40, 80, 120], true);
+        let random_ip = &NatType::EDMRandomIp(vec![dummy_addr.ip()], None, true);
+        let random_ip_port_preserved_ok = &NatType::EDMRandomIPPortPreserved(vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip2_ok], None, true);
+        let random_ip_port_preserved_err = &NatType::EDMRandomIPPortPreserved(vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip3_err], None, true);
+
+        // Start with EIM
+        inner_test(eim, eim);
+        inner_test(eim, edm);
+        inner_test(eim, port_preserved);
+        inner_test(eim, random_port_compat);
+
+        inner_test(eim, random_port_bad);
+        inner_test(eim, random_ip);
+
+        inner_test(eim, random_ip_port_preserved_ok);
+        inner_test(eim, random_ip_port_preserved_err);
+
+        // EDM
+        inner_test(edm, edm);
+        inner_test(edm, port_preserved);
+        inner_test(edm, random_port_compat);
+
+        inner_test(edm, random_port_bad);
+        inner_test(edm, random_ip);
+        inner_test(edm, random_ip_port_preserved_ok);
+        inner_test(edm, random_ip_port_preserved_err);
+
+        // PortPreserved
+        inner_test(port_preserved, port_preserved);
+        inner_test(port_preserved, random_port_compat);
+
+        inner_test(port_preserved, random_port_bad);
+        inner_test(port_preserved, random_ip);
+        inner_test(port_preserved, random_ip_port_preserved_ok);
+        inner_test(port_preserved, random_ip_port_preserved_err);
+
+        // Random port (compat)
+        inner_test(random_port_compat, random_port_compat);
+        inner_test(random_port_compat, random_port_bad);
+        inner_test(random_port_compat, random_ip);
+        inner_test(random_port_compat, random_ip_port_preserved_ok);
+        inner_test(random_port_compat, random_ip_port_preserved_err);
+
+        // Random port (bad)
+        inner_test(random_port_bad, random_ip_port_preserved_ok);
+
+        // Random ip
+        inner_test(random_ip, random_ip_port_preserved_ok);
+
+        // random ip, port preserved, delta ok
+        inner_test(random_ip_port_preserved_ok, random_ip_port_preserved_ok);
+        inner_test(random_ip_port_preserved_ok, random_ip_port_preserved_err);
+    }
+
+    fn inner_test(local_nat_type: &NatType, peer_nat_type: &NatType) {
+        assert!(local_nat_type.stun_compatible(peer_nat_type));
+        let initial_socket_local = get_optimal_bind_socket(local_nat_type, peer_nat_type).unwrap();
+        let internal_bind_port_local = initial_socket_local.local_addr().unwrap().port();
+
+        let initial_socket_remote = get_optimal_bind_socket(peer_nat_type, local_nat_type).unwrap();
+        let internal_bind_port_remote = initial_socket_remote.local_addr().unwrap().port();
+        // TODO: assertions
+        // local
+        HolePunchConfig::new(local_nat_type, peer_nat_type, initial_socket_local, internal_bind_port_remote).unwrap();
+        // remote
+        HolePunchConfig::new(peer_nat_type, local_nat_type, initial_socket_remote, internal_bind_port_local).unwrap();
     }
 }

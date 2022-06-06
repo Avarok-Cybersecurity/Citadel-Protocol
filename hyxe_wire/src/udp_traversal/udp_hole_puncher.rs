@@ -26,7 +26,7 @@ impl<'a> UdpHolePuncher<'a> {
     pub fn new_timeout(conn: &'a NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer, timeout: Duration) -> Self {
         Self { driver: Box::pin(async move {
             tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
-        }) }
+        })}
     }
 }
 
@@ -69,7 +69,7 @@ async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedCon
 /// Suppose A binds to ipv6 addr, and B binds to ipv4 addr, then B cannot send packets to
 /// A. Only A can send to B via ipv4-mapped-v6 addrs. In order for B to send packets back to A,
 /// B will need the ipv4 address of A.
-fn get_optimal_bind_socket(local_nat_info: &NatType, peer_nat_info: &NatType) -> Result<UdpSocket, anyhow::Error> {
+pub fn get_optimal_bind_socket(local_nat_info: &NatType, peer_nat_info: &NatType) -> Result<UdpSocket, anyhow::Error> {
     let mut local_has_an_external_ipv6_addr = false;
     let mut peer_has_an_external_ipv6_addr = false;
 
