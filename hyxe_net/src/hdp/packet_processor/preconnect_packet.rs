@@ -167,9 +167,9 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                     }
 
                     Err(err) => {
-                        log::warn!("Hole punch attempt failed. Will exit session: {:?}", err.to_string());
-                        // Note: this currently implies that if NAT traversal fails, the session does not open (which should be the case for C2S connections anyways)
-                        Ok(PrimaryProcessorResult::EndSession("UDP NAT traversal failed"))
+                        log::warn!("Hole punch attempt failed {:?}", err.to_string());
+                        // Note: the session will automatically close, if needed
+                        Ok(PrimaryProcessorResult::Void)
                     }
                 }
             }

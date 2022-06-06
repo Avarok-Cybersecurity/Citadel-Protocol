@@ -254,51 +254,48 @@ mod tests {
     }
 
     #[rstest]
-    #[case(500)]
+    #[case(500, 3)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor="multi_thread")]
-    async fn stress_test_group_broadcast(#[case] message_count: usize) {
-        const PEER_COUNT: usize = 3;
+    async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
         lusna_sdk::test_common::setup_log();
-        lusna_sdk::test_common::TestBarrier::setup(PEER_COUNT);
+        lusna_sdk::test_common::TestBarrier::setup(peer_count);
 
         static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
         CLIENT_SUCCESS.store(0, Ordering::Relaxed);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
-        let total_peers = (0..PEER_COUNT).into_iter().map(|_| Uuid::new_v4()).collect::<Vec<Uuid>>();
+        let total_peers = (0..peer_count).into_iter().map(|_| Uuid::new_v4()).collect::<Vec<Uuid>>();
         let group_id = Uuid::new_v4();
 
-        for idx in 0..PEER_COUNT {
+        for idx in 0..peer_count {
             let uuid = total_peers.get(idx).cloned().unwrap();
             let owner = total_peers.get(0).cloned().unwrap().into();
 
+            let request = if idx == 0 {
+                // invite list is empty since we will expect the users to post_register to us before attempting to join
+                GroupInitRequestType::Create { local_user: UserIdentifier::from(uuid), invite_list: vec![], group_id, accept_registrations: true }
+            } else {
+                GroupInitRequestType::Join {
+                    local_user: UserIdentifier::from(uuid),
+                    owner,
+                    group_id,
+                    do_peer_register: true
+                }
+            };
+
+            let client_kernel = BroadcastKernel::new_passwordless_defaults(uuid, server_addr, request, move |channel,remote| async move {
+                log::info!("***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
+                // wait for every group member to connect to ensure all receive all messages
+                handle_send_receive_group(get_barrier(), channel, message_count, peer_count).await?;
+                let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                remote.shutdown_kernel().await
+            });
+
+            let client = NodeBuilder::default().build(client_kernel).unwrap();
             let task = async move {
-                tokio::spawn(async move {
-                    let request = if idx == 0 {
-                        // invite list is empty since we will expect the users to post_register to us before attempting to join
-                        GroupInitRequestType::Create { local_user: UserIdentifier::from(uuid), invite_list: vec![], group_id, accept_registrations: true }
-                    } else {
-                        GroupInitRequestType::Join {
-                            local_user: UserIdentifier::from(uuid),
-                            owner,
-                            group_id,
-                            do_peer_register: true
-                        }
-                    };
-
-                    let client_kernel = BroadcastKernel::new_passwordless_defaults(uuid, server_addr, request, move |channel,remote| async move {
-                        log::info!("***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
-                        // wait for every group member to connect to ensure all receive all messages
-                        handle_send_receive_group(get_barrier(), channel, message_count, PEER_COUNT).await?;
-                        let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
-                        remote.shutdown_kernel().await
-                    });
-
-                    let client = NodeBuilder::default().build(client_kernel).unwrap();
-                    client.await.map(|_| ())
-                }).await.map_err(|err| NetworkError::Generic(err.to_string()))?
+                client.await.map(|_| ())
             };
 
             client_kernels.push(task);
@@ -321,6 +318,6 @@ mod tests {
             }
         }
         assert!(res.is_ok());
-        assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), PEER_COUNT);
+        assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), peer_count);
     }
 }
