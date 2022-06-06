@@ -328,7 +328,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     pub(crate) fn purge_from_fs_blocking(&self) -> Result<(), AccountError> {
         let read = self.read();
         if let Some(ref path) = read.local_save_path {
-            std::fs::remove_file(path).map_err(|err| err.into())
+            if path.exists() {
+                std::fs::remove_file(path).map_err(|err| err.into())
+            } else {
+                Ok(())
+            }
         } else {
             Err(AccountError::Generic("Save path not loaded inside".into()))
         }
