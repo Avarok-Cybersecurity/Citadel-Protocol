@@ -154,6 +154,7 @@ jobs:
       - uses: codecov/codecov-action@v3
         with:
           files: cobertura.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
       - uses: actions/github-script@v6
         if: failure()
         with:
