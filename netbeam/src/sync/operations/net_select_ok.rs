@@ -79,7 +79,7 @@ impl<R> NetSelectOkResult<R> {
 async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnKey, Conn: ReliableOrderedStreamToTarget + 'static, F, R>(conn: &S, local_node_type: RelativeNodeType, future: F) -> Result<NetSelectOkResult<R>, anyhow::Error>
     where F: Future<Output=Result<R, anyhow::Error>> {
     let conn = &(conn.initiate_subscription().await?);
-    log::info!("NET_SELECT_OK started conv={:?} for {:?}", conn.id(), local_node_type);
+    log::trace!(target: "lusna", "NET_SELECT_OK started conv={:?} for {:?}", conn.id(), local_node_type);
     let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
 
     struct LocalState<R> {
@@ -104,13 +104,13 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
         }
 
         loop {
-            log::info!("{:?} awaiting ...", local_node_type);
+            log::trace!(target: "lusna", "{:?} awaiting ...", local_node_type);
             let received_remote_state = conn.recv_serialized::<State>().await?;
-            log::info!("{:?} RECV'd {:?}", local_node_type, &received_remote_state);
+            log::trace!(target: "lusna", "{:?} RECV'd {:?}", local_node_type, &received_remote_state);
             let mut lock = local_state_ref.lock().await;
             let local_state_info = lock.ret_value.as_ref().map(|r| r.is_ok());
             let adjacent_success = received_remote_state.implies_remote_success();
-            log::info!("[conv={:?} Node {:?} recv {:?} || Local state: {:?}", conn.id(), local_node_type, received_remote_state, lock.local_state);
+            log::trace!(target: "lusna", "[conv={:?} Node {:?} recv {:?} || Local state: {:?}", conn.id(), local_node_type, received_remote_state, lock.local_state);
 
             if has_preference {
                 // if local has preference, we have the permission to evaluate
@@ -158,7 +158,7 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
                 }
             } else {
                 // if not, we cannot evaluate UNLESS we are being told that we resolved
-                //log::info!("RECV REMT: {:?}", received_remote_state);
+                //log::trace!(target: "lusna", "RECV REMT: {:?}", received_remote_state);
                 match received_remote_state {
                     State::ResolvedAdjacentWins => {
                         // remote is telling us WE won
@@ -200,7 +200,7 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
         let state = res.as_ref().map(|_| State::ObtainedValidResult).unwrap_or(State::Error);
 
         // we don't check the local state because the resolution would terminate this task anyways
-        //log::info!("[NetRacer] {:?} Old state: {:?} | New state: {:?}", local_node_type, &local_state.local_state, &state);
+        //log::trace!(target: "lusna", "[NetRacer] {:?} Old state: {:?} | New state: {:?}", local_node_type, &local_state.local_state, &state);
 
         local_state.local_state = state.clone();
         local_state.ret_value = Some(res);
@@ -208,7 +208,7 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
         // now, send a packet to the other side
         conn.send_serialized(state).await?;
         std::mem::drop(local_state);
-        //log::info!("[NetRacer] {:?} completer done", local_node_type);
+        //log::trace!(target: "lusna", "[NetRacer] {:?} completer done", local_node_type);
 
         stopper_rx.await?;
         Err(anyhow::Error::msg("Stopped before the resolver"))
@@ -216,10 +216,10 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
 
     tokio::select! {
         res0 = evaluator => {
-            log::info!("[conv={:?}] NET_SELECT_OK Ending for {:?}", conn.id(), local_node_type);
+            log::trace!(target: "lusna", "[conv={:?}] NET_SELECT_OK Ending for {:?}", conn.id(), local_node_type);
             let (ret, remote_success) = res0?;
             let local_state = local_state_ref.lock().await;
-            //log::info!("returning {:?} local state = {:?}", local_node_type, local_state.local_state);
+            //log::trace!(target: "lusna", "returning {:?} local state = {:?}", local_node_type, local_state.local_state);
             Ok(wrap_return(ret, local_state.local_state == State::ResolvedLocalWon, remote_success))
         },
 
@@ -237,46 +237,45 @@ mod tests {
     use std::fmt::Debug;
     use std::time::Duration;
     use crate::sync::network_application::NetworkApplication;
-    use crate::sync::test_utils::{deadlock_detector, create_streams};
+    use crate::sync::test_utils::create_streams;
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        std::env::set_var("RUST_LOG", "lusna=trace");
         //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     #[tokio::test]
     async fn racer() {
         setup_log();
-        deadlock_detector();
 
         let (server_stream, client_stream) = create_streams().await;
 
         const COUNT: i32 = 100;
 
         for idx in 0..COUNT {
-            log::info!("[Meta] ERR:ERR ({}/{})", idx, COUNT);
+            log::trace!(target: "lusna", "[Meta] ERR:ERR ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function_err(), dummy_function_err()).await;
         }
 
         for idx in 0..COUNT {
-            log::info!("[Meta] OK:OK ({}/{})", idx, COUNT);
+            log::trace!(target: "lusna", "[Meta] OK:OK ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function(), dummy_function()).await;
         }
 
 
         for idx in 0..COUNT{
-            log::info!("[Meta] ERR:OK ({}/{})", idx, COUNT);
+            log::trace!(target: "lusna", "[Meta] ERR:OK ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function_err(), dummy_function()).await;
         }
 
 
         for idx in 0..COUNT {
-            log::info!("[Meta] OK:ERR ({}/{})", idx, COUNT);
+            log::trace!(target: "lusna", "[Meta] OK:ERR ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function(), dummy_function_err()).await;
         }
     }
@@ -285,13 +284,13 @@ mod tests {
     async fn inner<R: Send + Debug + 'static, F: Future<Output=Result<R, anyhow::Error>> + Send + 'static, Y: Future<Output=Result<R, anyhow::Error>> + Send + 'static>(conn0: NetworkApplication, conn1: NetworkApplication, fx_1: F, fx_2: Y) {
         let server = async move {
             let res = conn0.net_select_ok(fx_1).await.unwrap();
-            log::info!("Server res: {:?}", res);
+            log::trace!(target: "lusna", "Server res: {:?}", res);
             res
         };
 
         let client = async move {
             let res = conn1.net_select_ok(fx_2).await.unwrap();
-            log::info!("Client res: {:?}", res);
+            log::trace!(target: "lusna", "Client res: {:?}", res);
             res
         };
 
@@ -319,7 +318,7 @@ mod tests {
             assert!(res1.global_failure());
         }
 
-        log::info!("DONE executing")
+        log::trace!(target: "lusna", "DONE executing")
     }
 
     async fn dummy_function() -> Result<(), anyhow::Error> {

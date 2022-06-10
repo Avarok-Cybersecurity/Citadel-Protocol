@@ -44,7 +44,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
         // To not get accounts mixed up between tests
         if cfg!(feature = "localhost-testing") || std::env::var("LOCALHOST_TESTING").unwrap_or_default() == "1" {
-            log::info!("Purging home directory since localhost-testing is enabled");
+            log::trace!(target: "lusna", "Purging home directory since localhost-testing is enabled");
             let _ = self.purge().await?;
         }
 
@@ -104,7 +104,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         let count = write.len();
 
         for (cid, cnac) in write.drain() {
-            log::info!("Purging cid {}", cid);
+            log::trace!(target: "lusna", "Purging cid {}", cid);
             cnac.purge_from_fs_blocking()?;
         }
 
@@ -305,9 +305,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) {
         if let Some(cnac) = self.write_map().insert(cnac.get_id(), cnac) {
-            log::error!("Overwrote pre-existing account {} in the CNAC map. Please report to developers", cnac.get_id());
+            log::error!(target: "lusna", "Overwrote pre-existing account {} in the CNAC map. Please report to developers", cnac.get_id());
         } else {
-            log::info!("Successfully added client to FilesystemBackend Hashmap");
+            log::trace!(target: "lusna", "Successfully added client to FilesystemBackend Hashmap");
         }
     }
 

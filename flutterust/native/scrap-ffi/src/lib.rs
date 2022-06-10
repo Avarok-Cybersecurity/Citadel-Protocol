@@ -116,7 +116,7 @@ pub unsafe extern "C" fn fcm_process(
     let backend_cfg = generate_backend_config(database);
     let backend_type = BackendType::sql_with(&backend_cfg.url, (&backend_cfg).into());
 
-    log::info!("[Rust BG processor] Received packet: {:?}", &packet);
+    log::trace!(target: "lusna", "[Rust BG processor] Received packet: {:?}", &packet);
 
     // if the primary instance is in memory already, don't bother using the account manager. Delegate to "peer fcm-parse <packet/raw>"
     if hyxewave::ffi::ffi_entry::FFI_STATIC.lock().is_some() {
@@ -128,14 +128,14 @@ pub unsafe extern "C" fn fcm_process(
 
     // setup account manager. We MUST reload each time this gets called, because the main instance may have
     // experienced changes that wouldn't otherwise register in this background isolate
-    log::info!("[Rust BG processor] Setting up background processor ...");
+    log::trace!(target: "lusna", "[Rust BG processor] Setting up background processor ...");
 
     let home_dir = home_dir.to_string();
 
     let task = async move {
         match AccountManager::new(SocketAddr::new(IpAddr::from_str(BIND_ADDR).unwrap(), PRIMARY_PORT),Some(home_dir.to_string()), backend_type, None, None).await {
             Ok(acc_mgr) => {
-                log::info!("[Rust BG processor] Success setting-up account manager");
+                log::trace!(target: "lusna", "[Rust BG processor] Success setting-up account manager");
                 let fcm_res = hyxewave::re_exports::fcm_packet_processor::process(packet, acc_mgr, ExternalService::Rtdb).await;
 
                 KernelResponse::from(fcm_res)
@@ -170,7 +170,7 @@ fn response_err(err: AccountError) -> *mut raw::c_char {
 #[no_mangle]
 pub unsafe extern "C" fn send_to_kernel(packet: *const raw::c_char) -> *mut raw::c_char {
     let packet = CStr::from_ptr(packet).to_str().unwrap();
-    log::info!("[Rust] Received packet: {:?}", &packet);
+    log::trace!(target: "lusna", "[Rust] Received packet: {:?}", &packet);
     //let packet: Vec<u8> = Vec::from(packet);
 
     kernel_response_into_raw(packet)
@@ -181,7 +181,7 @@ fn kernel_response_into_raw(packet: &str) -> *mut raw::c_char {
         hyxewave::ffi::command_handler::on_ffi_bytes_received(packet),
     );
 
-    //log::info!("Kernel response: {:?}", &kernel_response);
+    //log::trace!(target: "lusna", "Kernel response: {:?}", &kernel_response);
     let ret = kernel_response.serialize_json().unwrap();
     let ptr = CString::new(ret).unwrap();
     ptr.into_raw()
@@ -211,6 +211,6 @@ fn start_logger() {
             ),
         );
 
-        log::info!("Starting Android Logger");
+        log::trace!(target: "lusna", "Starting Android Logger");
     }
 }

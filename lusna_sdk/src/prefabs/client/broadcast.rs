@@ -13,8 +13,8 @@ use crate::test_common::wait_for_peers;
 /// to the owner alone. The owner thus serves as an "axis of consent", where each member
 /// trusts the owner, and through this trust, transitivity of trust flows to all other
 /// future members that connect to the group.
-pub struct BroadcastKernel<F, Fut> {
-    inner_kernel: Box<dyn NetKernel>,
+pub struct BroadcastKernel<'a, F, Fut> {
+    inner_kernel: Box<dyn NetKernel + 'a>,
     shared: Arc<BroadcastShared>,
     _pd: PhantomData<fn() -> (F, Fut)>
 }
@@ -49,10 +49,10 @@ pub enum GroupInitRequestType {
 }
 
 #[async_trait]
-impl<F, Fut> PrefabFunctions<GroupInitRequestType> for BroadcastKernel<F, Fut>
+impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'a, F, Fut>
     where
-        F: FnOnce(GroupChannel, ClientServerRemote) -> Fut + Send + 'static,
-        Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
+        F: FnOnce(GroupChannel, ClientServerRemote) -> Fut + Send + 'a,
+        Fut: Future<Output=Result<(), NetworkError>> + Send + 'a {
     type UserLevelInputFunction = F;
     type SharedBundle = Arc<BroadcastShared>;
 
@@ -62,8 +62,6 @@ impl<F, Fut> PrefabFunctions<GroupInitRequestType> for BroadcastKernel<F, Fut>
 
     async fn on_c2s_channel_received(connect_success: ConnectSuccess, mut remote: ClientServerRemote, arg: GroupInitRequestType, fx: Self::UserLevelInputFunction, shared: Arc<BroadcastShared>) -> Result<(), NetworkError> {
         let implicated_cid = connect_success.cid;
-        let this_username = remote.inner.account_manager().get_username_by_cid(implicated_cid).await.map_err(|err| NetworkError::Generic(err.into_string()))?
-            .ok_or_else(||NetworkError::InternalError("This should not happen"))?;
 
         wait_for_peers().await;
 
@@ -107,7 +105,7 @@ impl<F, Fut> PrefabFunctions<GroupInitRequestType> for BroadcastKernel<F, Fut>
             }
         };
 
-        let request = HdpServerRequest::GroupBroadcastCommand(implicated_cid, request);
+        let request = NodeRequest::GroupBroadcastCommand(implicated_cid, request);
 
         let mut subscription = remote.inner.send_callback_subscription(request).await?;
 
@@ -119,21 +117,17 @@ impl<F, Fut> PrefabFunctions<GroupInitRequestType> for BroadcastKernel<F, Fut>
                 // Accept every inbound request, so long as the cid is equal to the
                 // cid for this group owner
                 while let Some(reg_request) = reg_rx.recv().await {
-                    log::info!("owner recv reg_request: {:?}", reg_request);
-                    if let PeerSignal::PostRegister(peer_conn, first_username, second_username_opt, ticket, None, fcm) = reg_request {
+                    log::trace!(target: "lusna", "owner recv reg_request: {:?}", reg_request);
+                    if let PeerSignal::PostRegister(peer_conn, _, _, _, None, _) = &reg_request {
                         let cid = peer_conn.get_original_target_cid();
                         if cid != implicated_cid {
-                            log::warn!("Received the wrong CID. Will not accept request");
+                            log::warn!(target: "lusna", "Received the wrong CID. Will not accept request");
                             continue;
                         }
 
-                        log::info!("Sending ACCEPT_REQUEST to {}", cid);
+                        log::trace!(target: "lusna", "Sending ACCEPT_REQUEST to {}", cid);
 
-                        // TODO: make response_api to auto-handle building of responses
-                        let accept_signal = PeerSignal::PostRegister(peer_conn.reverse(), first_username, second_username_opt, ticket.clone(), Some(PeerResponse::Accept(Some(this_username.clone()))), fcm);
-                        // this is a safe unwrap since the server places the ticket inside
-                        let ticket = ticket.unwrap();
-                        let _ = remote.send_with_custom_ticket(ticket,HdpServerRequest::PeerCommand(implicated_cid, accept_signal)).await?;
+                        let _ = responses::peer_register(reg_request, true, &mut remote).await?;
                     }
                 }
 
@@ -144,14 +138,14 @@ impl<F, Fut> PrefabFunctions<GroupInitRequestType> for BroadcastKernel<F, Fut>
         };
 
         while let Some(event) = subscription.next().await {
-            log::info!("{:?} *recv* {:?}", implicated_cid, event);
+            log::trace!(target: "lusna", "{:?} *recv* {:?}", implicated_cid, event);
             match map_errors(event)? {
-                HdpServerResult::GroupChannelCreated(_, channel) => {
+                NodeResult::GroupChannelCreated(_, channel) => {
                     // in either case, whether owner or not, we get a channel
                     return tokio::try_join!((fx)(channel, remote), acceptor_task).map(|_| ())
                 },
 
-                HdpServerResult::GroupEvent(_, _, evt) => {
+                NodeResult::GroupEvent(_, _, evt) => {
                     match evt {
                         GroupBroadcast::CreateResponse(None) => {
                             return Err(NetworkError::InternalError("Unable to create a message group"))
@@ -168,7 +162,7 @@ impl<F, Fut> PrefabFunctions<GroupInitRequestType> for BroadcastKernel<F, Fut>
         Ok(())
     }
 
-    fn construct(kernel: Box<dyn NetKernel>) -> Self {
+    fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         Self {
             shared: Arc::new(BroadcastShared {
@@ -183,7 +177,7 @@ impl<F, Fut> PrefabFunctions<GroupInitRequestType> for BroadcastKernel<F, Fut>
 }
 
 #[async_trait]
-impl<F: 'static, Fut: 'static> NetKernel for BroadcastKernel<F, Fut> {
+impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
     fn load_remote(&mut self, node_remote: NodeRemote) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(node_remote)
     }
@@ -192,9 +186,9 @@ impl<F: 'static, Fut: 'static> NetKernel for BroadcastKernel<F, Fut> {
         self.inner_kernel.on_start().await
     }
 
-    async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match &message {
-            HdpServerResult::PeerEvent(ps @ PeerSignal::PostRegister(_, _, _, _, _, _), _) => {
+            NodeResult::PeerEvent(ps @ PeerSignal::PostRegister(_, _, _, _, _, _), _) => {
                 if self.shared.route_registers.load(Ordering::Relaxed) {
                     return self.shared.register_tx.send(ps.clone()).map_err(|err| NetworkError::Generic(err.to_string()));
                 }
@@ -234,8 +228,7 @@ mod tests {
         crate::test_common::setup_log();
         TestBarrier::setup(peer_count);
 
-        static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
-        CLIENT_SUCCESS.store(0, Ordering::Relaxed);
+        let ref client_success = AtomicUsize::new(0);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
@@ -258,8 +251,8 @@ mod tests {
             };
 
             let client_kernel = BroadcastKernel::new_passwordless_defaults(uuid, server_addr, request, move |channel,remote| async move {
-                log::info!("***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
-                let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                log::trace!(target: "lusna", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
+                let _ = client_success.fetch_add(1, Ordering::Relaxed);
                 wait_for_peers().await;
                 std::mem::drop(channel);
                 remote.shutdown_kernel().await
@@ -280,15 +273,15 @@ mod tests {
         if let Err(err) = &res {
             match err {
                 futures::future::Either::Left(left) => {
-                    log::warn!("ERR-left: {:?}", &left.0);
+                    log::warn!(target: "lusna", "ERR-left: {:?}", &left.0);
                 },
 
                 futures::future::Either::Right(right) => {
-                    log::warn!("ERR-right: {:?}", &right.0);
+                    log::warn!(target: "lusna", "ERR-right: {:?}", &right.0);
                 }
             }
         }
         assert!(res.is_ok());
-        assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), peer_count);
+        assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
     }
 }

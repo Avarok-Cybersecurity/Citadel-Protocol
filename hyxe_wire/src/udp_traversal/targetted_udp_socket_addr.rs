@@ -56,7 +56,7 @@ impl HolePunchedUdpSocket {
     // After hole-punching, some packets may be sent that need to be flushed
     // this cleanses the stream
     pub(crate) fn cleanse(&self) -> std::io::Result<()> {
-        let buf = &mut [0u8; 1024];
+        let buf = &mut [0u8; 4096];
         loop {
             match self.socket.try_recv(buf) {
                 Ok(_) => {

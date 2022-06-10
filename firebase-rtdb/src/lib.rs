@@ -66,7 +66,7 @@ impl FirebaseRTDB {
         let payload = AuthPayload { token: jwt.clone(), returnSecureToken: true };
         // auth first
         let resp: AuthResponsePayload = client.post(format!("https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={}", api_key)).header(CONTENT_TYPE, "application/json").json(&payload).send().await?.json().await?;
-        log::info!("RESP AUTH: {:?}", resp);
+        log::trace!(target: "lusna", "RESP AUTH: {:?}", resp);
 
         let expire_time = Instant::now() + Duration::from_secs(u64::from_str(resp.expiresIn.as_str())?);
 
@@ -101,12 +101,12 @@ impl FirebaseRTDB {
             project_id: String
         }
 
-        log::info!("[RTDB] About to renew token");
+        log::trace!(target: "lusna", "[RTDB] About to renew token");
         let payload = RenewPayload { grant_type: "refresh_token".to_string(), refresh_token: self.auth.refreshToken.clone() };
 
         let resp: RenewResponse = self.client.post(format!("https://securetoken.googleapis.com/v1/token?key={}", self.api_key.as_str())).header(CONTENT_TYPE, "application/x-www-form-urlencoded").json(&payload).send().await?.json().await?;
 
-        log::info!("RESP RENEW: {:?}", &resp);
+        log::trace!(target: "lusna", "RESP RENEW: {:?}", &resp);
         // update internal value using the new response
         let expire_time = Instant::now() + Duration::from_secs(u64::from_str(resp.expires_in.as_str())?);
         self.expire_time = expire_time;
@@ -145,14 +145,14 @@ impl Node<'_> {
     pub fn child<T: AsRef<str>>(&mut self, child: T) -> &mut Self {
         self.string_builder += child.as_ref();
         self.string_builder += "/";
-        log::info!("Builder: {:?}", &self.string_builder);
+        log::trace!(target: "lusna", "Builder: {:?}", &self.string_builder);
         self
     }
 
     pub fn final_node<T: AsRef<str>>(&mut self, node: T) -> &Self {
         self.string_builder += node.as_ref();
         self.string_builder += ".json";
-        log::info!("Builder: {:?}", &self.string_builder);
+        log::trace!(target: "lusna", "Builder: {:?}", &self.string_builder);
         self
     }
 

@@ -25,7 +25,7 @@ impl FcmPacket {
     pub fn from_raw_fcm_packet(packet: &RawExternalPacket) -> Option<Self> {
         let mut raw = base64::decode(packet.inner.as_bytes()).ok()?;
         if raw.len() < FCM_HEADER_BYTES {
-            log::warn!("[FCM] packet too small");
+            log::warn!(target: "lusna", "[FCM] packet too small");
             return None;
         }
 

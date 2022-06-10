@@ -84,9 +84,9 @@ pub mod unordered {
         #[allow(unused_results)]
         pub fn on_pid_received(&self, pid_received: u64) -> bool {
             let mut queue = self.history.lock();
-            //log::info!("Circular queue: {:?}", &queue.1);
+            //log::trace!(target: "lusna", "Circular queue: {:?}", &queue.1);
             if queue.1.contains(&pid_received) {
-                log::error!("[ARA] packet {} already arrived!", pid_received);
+                log::error!(target: "lusna", "[ARA] packet {} already arrived!", pid_received);
                 false
             } else {
                 // this means the PID is not in the history. HOWEVER, it may still be possible that the packet
@@ -96,7 +96,7 @@ pub mod unordered {
                 //let min = queue.0.saturating_sub(HISTORY_LEN);
                 let min = queue.0.saturating_sub(HISTORY_LEN);
                 //let max = queue.0 + HISTORY_LEN;
-                //log::info!("RECV {}. Must be >= {} (st: {})", pid_received, min, queue.0);
+                //log::trace!(target: "lusna", "RECV {}. Must be >= {} (st: {})", pid_received, min, queue.0);
                 // TODO: Consider logic of this section of code. This may not do what I want it to do
                 if pid_received >= min {
                     if queue.1.len() >= HISTORY_LEN as _ {
@@ -114,7 +114,7 @@ pub mod unordered {
 
                     true
                 } else {
-                    log::error!("[ARA] out of range! Recv: {}. Expected >= {}", pid_received, min);
+                    log::error!(target: "lusna", "[ARA] out of range! Recv: {}. Expected >= {}", pid_received, min);
                     false
                 }
             }

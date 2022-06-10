@@ -3,7 +3,7 @@ pub mod hdp_node;
 /// The fundamental packet types
 pub(crate) mod hdp_packet;
 /// Contains the library for processing inbound packet types. all #[inline]'d
-pub(crate) mod hdp_packet_processor;
+pub(crate) mod packet_processor;
 /// Manages multiple sessions
 pub(crate) mod hdp_session_manager;
 /// Each CID gets a session

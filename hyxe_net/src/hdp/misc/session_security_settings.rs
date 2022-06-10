@@ -6,8 +6,8 @@ use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Default)]
 pub struct SessionSecuritySettings {
     pub security_level: SecurityLevel,
-    pub(crate) secrecy_mode: SecrecyMode,
-    pub(crate) crypto_params: CryptoParameters
+    pub secrecy_mode: SecrecyMode,
+    pub crypto_params: CryptoParameters
 }
 
 #[derive(Default)]
