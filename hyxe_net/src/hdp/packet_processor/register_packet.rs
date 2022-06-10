@@ -12,7 +12,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
     let state = session.state.load(Ordering::Relaxed);
 
     if state != SessionState::NeedsRegister && state != SessionState::SocketJustOpened && state != SessionState::NeedsConnect {
-        log::error!("Register packet received, but the system's state is not NeedsRegister. Dropping packet");
+        log::error!(target: "lusna", "Register packet received, but the system's state is not NeedsRegister. Dropping packet");
         return Ok(PrimaryProcessorResult::Void);
     }
 
@@ -24,7 +24,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
 
         match header.cmd_aux {
             packet_flags::cmd::aux::do_register::STAGE0 => {
-                log::info!("STAGE 0 REGISTER PACKET");
+                log::trace!(target: "lusna", "STAGE 0 REGISTER PACKET");
                 let task = {
                     let mut state_container = inner_mut_state!(session.state_container);
                     // This node is Bob (receives a stage 0 packet from Alice). The payload should have Alice's public key
@@ -69,7 +69,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                             }
 
                             _ => {
-                                log::error!("Unable to validate STAGE0_REGISTER packet");
+                                log::error!(target: "lusna", "Unable to validate STAGE0_REGISTER packet");
                                 state_container.register_state.on_fail();
                                 state_container.register_state.on_register_packet_received();
                                 std::mem::drop(state_container);
@@ -80,7 +80,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                             }
                         }
                     } else {
-                        warn!("Inconsistency between the session's stage and the packet's state. Dropping");
+                        warn!(target: "lusna", "Inconsistency between the session's stage and the packet's state. Dropping");
                         return Ok(PrimaryProcessorResult::Void)
                     }
                 };
@@ -90,7 +90,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
             }
 
             packet_flags::cmd::aux::do_register::STAGE1 => {
-                log::info!("STAGE 1 REGISTER PACKET");
+                log::trace!(target: "lusna", "STAGE 1 REGISTER PACKET");
                 // Node is Alice. This packet will contain Bob's ciphertext; Alice will now be able to create the shared private key
                 let mut state_container = inner_mut_state!(session.state_container);
                 if state_container.register_state.last_stage == packet_flags::cmd::aux::do_register::STAGE0 {
@@ -121,17 +121,17 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
 
                         Ok(PrimaryProcessorResult::ReplyToSender(stage2_packet))
                     } else {
-                        log::error!("Register stage is one, yet, no PQC is present. Aborting.");
+                        log::error!(target: "lusna", "Register stage is one, yet, no PQC is present. Aborting.");
                         Ok(PrimaryProcessorResult::Void)
                     }
                 } else {
-                    warn!("Inconsistency between the session's stage and the packet's state. Dropping");
+                    warn!(target: "lusna", "Inconsistency between the session's stage and the packet's state. Dropping");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
 
             packet_flags::cmd::aux::do_register::STAGE2 => {
-                log::info!("STAGE 2 REGISTER PACKET");
+                log::trace!(target: "lusna", "STAGE 2 REGISTER PACKET");
                 // Bob receives this packet. It contains the proposed credentials. We need to register and we're good to go
 
                 let task = {
@@ -152,7 +152,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                             async move {
                                 match account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid, adjacent_nac, creds,  hyper_ratchet.clone(), fcm_keys).await {
                                     Ok(peer_cnac) => {
-                                        log::info!("Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_id());
+                                        log::trace!(target: "lusna", "Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_id());
 
                                         let success_message = session.create_register_success_message();
                                         let packet = hdp_packet_crafter::do_register::craft_success(&hyper_ratchet, algorithm, local_nid, timestamp, success_message, security_level);
@@ -167,7 +167,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
 
                                     Err(err) => {
                                         let err = err.into_string();
-                                        log::error!("Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
+                                        log::error!(target: "lusna", "Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
                                         let packet = hdp_packet_crafter::do_register::craft_failure(algorithm, local_nid, timestamp, err);
 
                                         Ok(PrimaryProcessorResult::ReplyToSender(packet))
@@ -175,11 +175,11 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                                 }
                             }
                         } else {
-                            log::error!("Unable to validate stage2 packet. Aborting");
+                            log::error!(target: "lusna", "Unable to validate stage2 packet. Aborting");
                             return Ok(PrimaryProcessorResult::Void)
                         }
                     } else {
-                        warn!("Inconsistency between the session's stage and the packet's state. Dropping");
+                        warn!(target: "lusna", "Inconsistency between the session's stage and the packet's state. Dropping");
                         return Ok(PrimaryProcessorResult::Void)
                     }
                 };
@@ -188,7 +188,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
             }
 
             packet_flags::cmd::aux::do_register::SUCCESS => {
-                log::info!("STAGE SUCCESS REGISTER PACKET");
+                log::trace!(target: "lusna", "STAGE SUCCESS REGISTER PACKET");
                 // This will follow stage 4 in the case of a successful registration. The packet's payload contains the CNAC bytes, encrypted using AES-GCM.
                 // The CNAC does not have the credentials (Serde skips the serialization thereof)
 
@@ -236,11 +236,11 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                                 }
                             }
                         } else {
-                            log::error!("Unable to validate SUCCESS packet");
+                            log::error!(target: "lusna", "Unable to validate SUCCESS packet");
                             return Ok(PrimaryProcessorResult::Void)
                         }
                     } else {
-                        warn!("Inconsistency between the session's stage and the packet's state. Dropping");
+                        warn!(target: "lusna", "Inconsistency between the session's stage and the packet's state. Dropping");
                         return Ok(PrimaryProcessorResult::Void)
                     }
                 };
@@ -249,7 +249,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
             }
 
             packet_flags::cmd::aux::do_register::FAILURE => {
-                log::info!("STAGE FAILURE REGISTER PACKET");
+                log::trace!(target: "lusna", "STAGE FAILURE REGISTER PACKET");
                 // This node is again Bob. Alice received Bob's stage1 packet, but was unable to connect
                 // A failure can be sent at any stage greater than the zeroth
                 if inner_state!(session.state_container).register_state.last_stage > packet_flags::cmd::aux::do_register::STAGE0 {
@@ -258,19 +258,19 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                         //session.needs_close_message.set(false);
                         session.shutdown();
                     } else {
-                        log::error!("Error validating FAILURE packet");
+                        log::error!(target: "lusna", "Error validating FAILURE packet");
                         return Ok(PrimaryProcessorResult::Void);
                     }
 
                     Ok(PrimaryProcessorResult::EndSession("Registration subroutine ended (Status: FAIL)"))
                 } else {
-                    log::warn!("A failure packet was received, but the program's registration did not advance past stage 0. Dropping");
+                    log::warn!(target: "lusna", "A failure packet was received, but the program's registration did not advance past stage 0. Dropping");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
 
             _ => {
-                warn!("Invalid auxiliary command. Dropping packet");
+                warn!(target: "lusna", "Invalid auxiliary command. Dropping packet");
                 Ok(PrimaryProcessorResult::Void)
             }
         }

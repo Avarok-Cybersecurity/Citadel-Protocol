@@ -17,12 +17,12 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
     let cnac = {
         let state_container = inner_state!(session.state_container);
         if !session.is_provisional() && state_container.connect_state.last_stage != packet_flags::cmd::aux::do_connect::SUCCESS {
-            log::error!("Connect packet received, but the system is not in a provisional state. Dropping");
+            log::error!(target: "lusna", "Connect packet received, but the system is not in a provisional state. Dropping");
             return Ok(PrimaryProcessorResult::Void);
         }
 
         if !state_container.pre_connect_state.success {
-            log::error!("Connect packet received, but the system has not yet completed the pre-connect stage. Dropping");
+            log::error!(target: "lusna", "Connect packet received, but the system has not yet completed the pre-connect stage. Dropping");
             return Ok(PrimaryProcessorResult::Void);
         }
         state_container.cnac.clone()
@@ -42,7 +42,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
         match header.cmd_aux {
             // Node is Bob. Bob gets the encrypted username and password (separately encrypted)
             packet_flags::cmd::aux::do_connect::STAGE0 => {
-                log::info!("STAGE 2 CONNECT PACKET");
+                log::trace!(target: "lusna", "STAGE 2 CONNECT PACKET");
                 let task = {
                     match validation::do_connect::validate_stage0_packet(&cnac, &*payload).await {
                         Ok(fcm_keys) => {
@@ -95,7 +95,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                         }
 
                         Err(err) => {
-                            log::error!("Error validating stage2 packet. Reason: {}", err.to_string());
+                            log::error!(target: "lusna", "Error validating stage2 packet. Reason: {}", err.to_string());
                             let fail_time = time_tracker.get_global_time_ns();
 
                             //session.state = SessionState::NeedsConnect;
@@ -109,13 +109,13 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
             }
 
             packet_flags::cmd::aux::do_connect::FAILURE => {
-                log::info!("STAGE FAILURE CONNECT PACKET");
+                log::trace!(target: "lusna", "STAGE FAILURE CONNECT PACKET");
                 let kernel_ticket = session.kernel_ticket.get();
 
                 let mut state_container = inner_mut_state!(session.state_container);
                 if let Some(payload) = validation::do_connect::validate_final_status_packet(&*payload) {
                     let message = String::from_utf8(payload.message.to_vec()).unwrap_or("Invalid UTF-8 message".to_string());
-                    log::info!("The server refused to login the user. Reason: {}", &message);
+                    log::trace!(target: "lusna", "The server refused to login the user. Reason: {}", &message);
                     let cid = hyper_ratchet.get_cid();
                     state_container.connect_state.on_fail();
                     std::mem::drop(state_container);
@@ -129,14 +129,14 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                     session.send_to_kernel(NodeResult::ConnectFail(kernel_ticket, Some(cid), message))?;
                     Ok(PrimaryProcessorResult::EndSession("Failed connecting. Retry again"))
                 } else {
-                    trace!("An invalid FAILURE packet was received; dropping due to invalid signature");
+                    trace!(target: "lusna", "An invalid FAILURE packet was received; dropping due to invalid signature");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
 
             // Node is finally Alice. The login either failed or succeeded
             packet_flags::cmd::aux::do_connect::SUCCESS => {
-                log::info!("STAGE SUCCESS CONNECT PACKET");
+                log::trace!(target: "lusna", "STAGE SUCCESS CONNECT PACKET");
 
                 let task = {
                     let mut state_container = inner_mut_state!(session.state_container);
@@ -170,7 +170,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                                 return Ok(PrimaryProcessorResult::EndSession("Unable to upgrade from a provisional to a protected connection"));
                             }
 
-                            log::info!("The login to the server was a success. Welcome Message: {}", &message);
+                            log::trace!(target: "lusna", "The login to the server was a success. Welcome Message: {}", &message);
 
                             let post_login_object = payload.post_login_object.clone();
                             //session.post_quantum = pqc;
@@ -201,7 +201,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                                 let _ = persistence_handler.synchronize_hyperlan_peer_list_as_client(&cnac, peers).await?;
                                 match (post_login_object.rtdb, post_login_object.google_auth_jwt) {
                                     (Some(rtdb_cfg), Some(jwt)) => {
-                                        log::info!("Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
+                                        log::trace!(target: "lusna", "Client detected RTDB config + Google Auth web token. Will login + store config to CNAC ...");
                                         let rtdb = FirebaseRTDB::new_from_jwt(&rtdb_cfg.url, jwt.clone(), rtdb_cfg.api_key.clone()).await.map_err(|err| NetworkError::Generic(err.inner))?;// login
 
                                         let FirebaseRTDB {
@@ -213,7 +213,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                                             inner.client_rtdb_config = Some(client_rtdb_config);
                                         });
 
-                                        log::info!("Successfully logged-in to RTDB + stored config inside CNAC ...");
+                                        log::trace!(target: "lusna", "Successfully logged-in to RTDB + stored config inside CNAC ...");
                                     }
 
                                     _ => {}
@@ -224,7 +224,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
 
                                 match connect_mode {
                                     ConnectMode::Fetch { .. } => {
-                                        log::info!("[FETCH] complete ...");
+                                        log::trace!(target: "lusna", "[FETCH] complete ...");
                                         // we can end the session now. The fcm packets have already been sent alongside the connect signal above
                                         return Ok(PrimaryProcessorResult::EndSession("Fetch succeeded"))
                                     }
@@ -236,16 +236,16 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                                     let ka = hdp_packet_crafter::keep_alive::craft_keep_alive_packet(&hyper_ratchet, timestamp, security_level);
                                     Ok(PrimaryProcessorResult::ReplyToSender(ka))
                                 } else {
-                                    log::warn!("Keep-alive subsystem will not be used for this session as requested");
+                                    log::warn!(target: "lusna", "Keep-alive subsystem will not be used for this session as requested");
                                     Ok(PrimaryProcessorResult::Void)
                                 }
                             }
                         } else {
-                            log::error!("An invalid SUCCESS packet was received; dropping due to invalid signature");
+                            log::error!(target: "lusna", "An invalid SUCCESS packet was received; dropping due to invalid signature");
                             return Ok(PrimaryProcessorResult::Void)
                         }
                     } else {
-                        log::error!("An invalid SUCCESS packet was received; dropping since the last local stage was not stage 1");
+                        log::error!(target: "lusna", "An invalid SUCCESS packet was received; dropping since the last local stage was not stage 1");
                         return Ok(PrimaryProcessorResult::Void)
                     }
                 };
@@ -254,7 +254,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
             }
 
             packet_flags::cmd::aux::do_connect::SUCCESS_ACK => {
-                log::info!("RECV SUCCESS_ACK");
+                log::trace!(target: "lusna", "RECV SUCCESS_ACK");
                 if session.is_server {
                     let signal = inner_mut_state!(session.state_container)
                         .c2s_channel_container
@@ -270,7 +270,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
             }
 
             n => {
-                log::error!("Invalid auxiliary command: {}", n);
+                log::error!(target: "lusna", "Invalid auxiliary command: {}", n);
                 Ok(PrimaryProcessorResult::Void)
             }
         }
@@ -282,7 +282,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
 /// returns true if saving occured
 pub(super) async fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNetworkAccount, persistence_handler: &PersistenceHandler) -> Result<bool, NetworkError> {
     if let Some(fcm_keys) = fcm_keys {
-        log::info!("[FCM KEYS]: {:?}", &fcm_keys);
+        log::trace!(target: "lusna", "[FCM KEYS]: {:?}", &fcm_keys);
         persistence_handler.update_fcm_keys(cnac, fcm_keys).await.map(|_| true).map_err(|err| NetworkError::Generic(err.into_string()))
     } else {
         Ok(false)

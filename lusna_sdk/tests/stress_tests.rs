@@ -78,7 +78,7 @@ mod tests {
 
         let mut rx = rx.take(count);
         while let Some(msg) = rx.next().await {
-            log::info!("**~ Received message {} ~**", cur_idx);
+            log::trace!(target: "lusna", "**~ Received message {} ~**", cur_idx);
             let msg = MessageTransfer::receive(msg);
             assert_eq!(msg.idx, cur_idx as u64);
             assert_eq!(msg.rand.len(), MESSAGE_LEN);
@@ -105,7 +105,7 @@ mod tests {
             match msg {
                 GroupBroadcastPayload::Message { payload, sender } => {
                     let cur_idx = counter.entry(sender).or_insert(0usize);
-                    log::info!("**~ Received message {} for {}~**", cur_idx, sender);
+                    log::trace!(target: "lusna", "**~ Received message {} for {}~**", cur_idx, sender);
                     let msg = MessageTransfer::receive(payload);
                     // order is not guaranteed in group broadcasts. Do not use idx
                     //assert_eq!(msg.idx, *cur_idx as u64);
@@ -161,9 +161,9 @@ mod tests {
         SERVER_SUCCESS.store(false, Ordering::Relaxed);
 
         let (server, server_addr) = server_info_reactive(move |conn, remote| async move {
-            log::info!("*** SERVER RECV CHANNEL ***");
+            log::trace!(target: "lusna", "*** SERVER RECV CHANNEL ***");
             handle_send_receive_e2e(get_barrier(), conn.channel, message_count).await?;
-            log::info!("***SERVER TEST SUCCESS***");
+            log::trace!(target: "lusna", "***SERVER TEST SUCCESS***");
             SERVER_SUCCESS.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
@@ -175,9 +175,9 @@ mod tests {
             .build();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless(uuid, server_addr, UdpMode::Enabled,session_security,move |connection, remote| async move {
-            log::info!("*** CLIENT RECV CHANNEL ***");
+            log::trace!(target: "lusna", "*** CLIENT RECV CHANNEL ***");
             handle_send_receive_e2e(get_barrier(), connection.channel, message_count).await?;
-            log::info!("***CLIENT TEST SUCCESS***");
+            log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
             CLIENT_SUCCESS.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
@@ -224,14 +224,14 @@ mod tests {
         // to not hold up all conns
         let client_kernel0 = PeerConnectionKernel::new_passwordless(uuid0, server_addr, vec![uuid1.into()],UdpMode::Enabled,session_security,move |mut connection, remote| async move {
             handle_send_receive_e2e(get_barrier(), connection.recv().await.unwrap()?.channel, message_count).await?;
-            log::info!("***CLIENT0 TEST SUCCESS***");
+            log::trace!(target: "lusna", "***CLIENT0 TEST SUCCESS***");
             client0_success.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
 
         let client_kernel1 = PeerConnectionKernel::new_passwordless(uuid1, server_addr, vec![uuid0.into()], UdpMode::Enabled,session_security,move |mut connection, remote| async move {
             handle_send_receive_e2e(get_barrier(), connection.recv().await.unwrap()?.channel, message_count).await?;
-            log::info!("***CLIENT1 TEST SUCCESS***");
+            log::trace!(target: "lusna", "***CLIENT1 TEST SUCCESS***");
             client1_success.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });
@@ -286,7 +286,7 @@ mod tests {
             };
 
             let client_kernel = BroadcastKernel::new_passwordless_defaults(uuid, server_addr, request, move |channel,remote| async move {
-                log::info!("***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
+                log::trace!(target: "lusna", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
                 // wait for every group member to connect to ensure all receive all messages
                 handle_send_receive_group(get_barrier(), channel, message_count, peer_count).await?;
                 let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
@@ -309,11 +309,11 @@ mod tests {
         if let Err(err) = &res {
             match err {
                 futures::future::Either::Left(left) => {
-                    log::warn!("ERR-left: {:?}", &left.0);
+                    log::warn!(target: "lusna", "ERR-left: {:?}", &left.0);
                 },
 
                 futures::future::Either::Right(right) => {
-                    log::warn!("ERR-right: {:?}", &right.0);
+                    log::warn!(target: "lusna", "ERR-right: {:?}", &right.0);
                 }
             }
         }

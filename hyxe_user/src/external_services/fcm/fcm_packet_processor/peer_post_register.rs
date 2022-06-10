@@ -66,16 +66,16 @@ pub struct FcmPostRegisterResponse {
 
 #[allow(unused_results)]
 pub async fn process(persistence_handler: &PersistenceHandler, post_register_store: &mut HashMap<u64, InvitationType>, kem_state_containers: &mut HashMap<u64, ConstructorType>, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>, local_cid: u64, source_cid: u64, ticket: u128, transfer: FcmPostRegister, username: String) -> Result<FcmProcessorResult, AccountError> {
-    log::info!("FCM RECV PEER_POST_REGISTER");
+    log::trace!(target: "lusna", "FCM RECV PEER_POST_REGISTER");
     match &transfer {
         FcmPostRegister::AliceToBobTransfer(_transfer_bytes, _keys, source_cid) => {
             // store inside cnac
             let peer_cid = *source_cid;
             if post_register_store.insert(*source_cid, InvitationType::PostRegister(transfer, username.clone(), ticket)).is_some() {
-                log::warn!("Overwrote pre-existing invite request. Previous is thus invalidated");
+                log::warn!(target: "lusna", "Overwrote pre-existing invite request. Previous is thus invalidated");
             }
 
-            log::info!("[FCM POST-REGISTER] Stored invitation from {} for {}", peer_cid, local_cid);
+            log::trace!(target: "lusna", "[FCM POST-REGISTER] Stored invitation from {} for {}", peer_cid, local_cid);
 
             // finally, return signal to caller
             Ok(FcmProcessorResult::Value(FcmResult::PostRegisterInvitation { invite: PostRegisterInvitation { peer_cid, local_cid, username: username.into_bytes(), ticket } }))
@@ -127,7 +127,7 @@ pub async fn process(persistence_handler: &PersistenceHandler, post_register_sto
             }))
         }
         s @ FcmPostRegister::Enable | s @ FcmPostRegister::Disable => {
-            log::error!("Received unexpected signal: {:?}", s);
+            log::error!(target: "lusna", "Received unexpected signal: {:?}", s);
             // We should never reach here
             Ok(FcmProcessorResult::Void)
         }

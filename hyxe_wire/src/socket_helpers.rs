@@ -53,7 +53,7 @@ async fn setup_connect(connect_addr: SocketAddr, socket: Socket, timeout: Durati
 
 fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(addr: T, reuse: bool) -> Result<UdpSocket, anyhow::Error> {
     let addr: SocketAddr = addr.to_socket_addrs()?.next().ok_or(anyhow::Error::msg("Bad socket addr"))?;
-    log::info!("[Socket helper] Getting UDP (reuse={}) socket @ {:?} ...", reuse, &addr);
+    log::trace!(target: "lusna", "[Socket helper] Getting UDP (reuse={}) socket @ {:?} ...", reuse, &addr);
     let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
     let socket = get_udp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
@@ -63,7 +63,7 @@ fn get_udp_socket_inner<T: std::net::ToSocketAddrs>(addr: T, reuse: bool) -> Res
 
 fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(addr: T, reuse: bool) -> Result<TcpListener, anyhow::Error> {
     let addr: SocketAddr = addr.to_socket_addrs()?.next().ok_or(anyhow::Error::msg("Bad socket addr"))?;
-    log::info!("[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
+    log::trace!(target: "lusna", "[Socket helper] Getting TCP listener (reuse={}) socket @ {:?} ...", reuse, &addr);
     let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
     let socket = get_tcp_socket_builder(domain)?;
     setup_bind(addr, &socket, reuse)?;
@@ -73,7 +73,7 @@ fn get_tcp_listener_inner<T: std::net::ToSocketAddrs>(addr: T, reuse: bool) -> R
 
 async fn get_tcp_stream_inner<T: std::net::ToSocketAddrs>(addr: T, timeout: Duration, reuse: bool) -> Result<TcpStream, anyhow::Error> {
     let addr: SocketAddr = addr.to_socket_addrs()?.next().ok_or(anyhow::Error::msg("Bad socket addr"))?;
-    log::info!("[Socket helper] Getting TCP connect (reuse={}) socket @ {:?} ...", reuse, &addr);
+    log::trace!(target: "lusna", "[Socket helper] Getting TCP connect (reuse={}) socket @ {:?} ...", reuse, &addr);
     //return Ok(tokio::net::TcpStream::connect(addr).await?)
     let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
     let socket = get_tcp_socket_builder(domain)?;
@@ -143,13 +143,13 @@ mod tests {
     const TIMEOUT: Duration = Duration::from_millis(2000);
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        std::env::set_var("RUST_LOG", "lusna=trace");
         //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
 
@@ -162,16 +162,16 @@ mod tests {
     async fn test_tcp(#[case] addr: SocketAddr) -> std::io::Result<()> {
         setup_log();
         if addr.is_ipv6() && !is_ipv6_enabled() {
-            log::info!("Skipping IPv6 test since IPv6 is not enabled");
+            log::trace!(target: "lusna", "Skipping IPv6 test since IPv6 is not enabled");
             return Ok(())
         }
         let server = get_tcp_listener(addr).unwrap();
         let addr = server.local_addr().unwrap();
 
         let server = tokio::spawn(async move {
-            log::info!("Starting server @ {:?}", addr);
+            log::trace!(target: "lusna", "Starting server @ {:?}", addr);
             let (mut conn, addr) = server.accept().await.unwrap();
-            log::info!("RECV {:?} from {:?}", &conn, addr);
+            log::trace!(target: "lusna", "RECV {:?} from {:?}", &conn, addr);
             let buf = &mut [0u8; 3];
             conn.read_exact(buf as &mut [u8]).await.unwrap();
             assert_eq!(buf, &[1, 2, 3]);
@@ -194,7 +194,7 @@ mod tests {
     async fn test_udp(#[case] addr: SocketAddr) -> Result<(), anyhow::Error> {
         setup_log();
         if addr.is_ipv6() && !is_ipv6_enabled() {
-            log::info!("Skipping IPv6 test since IPv6 is not enabled");
+            log::trace!(target: "lusna", "Skipping IPv6 test since IPv6 is not enabled");
             return Ok(())
         }
         let server = get_udp_socket(addr).unwrap();
@@ -202,7 +202,7 @@ mod tests {
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
 
         let server = tokio::spawn(async move {
-            log::info!("Starting server @ {:?}", addr);
+            log::trace!(target: "lusna", "Starting server @ {:?}", addr);
             let buf = &mut [0u8; 3];
             ready_tx.send(()).unwrap();
             server.recv(buf as &mut [u8]).await?;
@@ -220,7 +220,7 @@ mod tests {
         });
 
         let (r0, r1) = tokio::try_join!(server, client)?;
-        log::info!("Done with UDP test {:?}", addr);
+        log::trace!(target: "lusna", "Done with UDP test {:?}", addr);
         r0.and(r1)
     }
 }

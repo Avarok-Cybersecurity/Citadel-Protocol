@@ -45,7 +45,7 @@ fn get_default_server_config_string() -> String {
 /*
 #[allow(unused_results)]
 pub async fn check_config_validity(nac: &NetworkAccount, cnacs_loaded: &mut HashMap<u64, ClientNetworkAccount>) -> Result<(), AccountError<String>> {
-    log::info!("[ServerConfigHandler] Checking config validity");
+    log::trace!(target: "lusna", "[ServerConfigHandler] Checking config validity");
     if let Some(item) = nac.read().await.config_file.as_ref() {
         let mut item = item.lock().await;
         if item.subsection_exists(CLIENTS_SECTION, CIDS_SUBSECTION) {
@@ -55,7 +55,7 @@ pub async fn check_config_validity(nac: &NetworkAccount, cnacs_loaded: &mut Hash
                 // TODO: Contemplate security of this feature
                 let mut needs_recompile = false;
                 'next_cnac: for (id, cnac) in cnacs_loaded.iter() {
-                    log::info!("checking loaded CNAC {} for correspondence in cfg", id);
+                    log::trace!(target: "lusna", "checking loaded CNAC {} for correspondence in cfg", id);
                     let str_id = id.to_string();
                     for key in cids_in_cfg.fields.keys() {
                         if key == &str_id {
@@ -65,7 +65,7 @@ pub async fn check_config_validity(nac: &NetworkAccount, cnacs_loaded: &mut Hash
 
                     // We have a loaded CNAC that doesn't correlate to any CID in the CFG. Add it to extend functionality
                     // of "drag n' drop" accounts
-                    log::info!("[ServerConfigHandler] Locally existent CNAC {} not present in config. Now adding ...", &str_id);
+                    log::trace!(target: "lusna", "[ServerConfigHandler] Locally existent CNAC {} not present in config. Now adding ...", &str_id);
                     needs_recompile = true;
                     cids_in_cfg.add_map_item(str_id, cnac.read().await.username.as_str())
                         .map_err(|err| AccountError::IoError(err.to_string()))?;
@@ -88,7 +88,7 @@ pub async fn check_config_validity(nac: &NetworkAccount, cnacs_loaded: &mut Hash
                         // CFG
                         vals_to_remove.push(cid_in_cfg);
                     } else {
-                        log::info!("[ServerConfigHandler] Improperly formatted entry {}. Removing entry ...", cid_in_cfg);
+                        log::trace!(target: "lusna", "[ServerConfigHandler] Improperly formatted entry {}. Removing entry ...", cid_in_cfg);
                         vals_to_remove.push(cid_in_cfg);
                     }
                 }
@@ -122,7 +122,7 @@ pub fn sync_cnacs_and_nac(nac: &NetworkAccount, cnacs_loaded: &mut HashMap<u64, 
     write.cids_registered.retain(|cid, _e| {
         if !cnacs_loaded.contains_key(cid) {
             // if the NAC has a CID that doesn't map to a loaded CNAC, get rid of the entry in the NAC
-            log::info!("CID {} no longer exists on local storage. Removing entry from local NAC", cid);
+            log::trace!(target: "lusna", "CID {} no longer exists on local storage. Removing entry from local NAC", cid);
             needs_save = true;
             false
         } else {
@@ -133,7 +133,7 @@ pub fn sync_cnacs_and_nac(nac: &NetworkAccount, cnacs_loaded: &mut HashMap<u64, 
     for (cid, cnac) in cnacs_loaded {
         // if a loaded CNAC doesn't map to a value in the NAC, add it to the NAC
         if !write.cids_registered.contains_key(cid) {
-            log::info!("CNAC {} was not synced to NAC. Syncing ...", cid);
+            log::trace!(target: "lusna", "CNAC {} was not synced to NAC. Syncing ...", cid);
             let username = cnac.get_username_blocking();
             write.cids_registered.insert(*cid, username);
             needs_save = true;
@@ -188,7 +188,7 @@ pub fn sync_cnacs_and_nac_filesystem<R: Ratchet, Fcm: Ratchet>(nac: &NetworkAcco
     cids_registered.retain(|cid, _e| {
         if !cnacs_loaded.contains_key(cid) {
             // if the NAC has a CID that doesn't map to a loaded CNAC, get rid of the entry in the NAC
-            log::info!("CID {} no longer exists on local storage. Removing entry from local NAC", cid);
+            log::trace!(target: "lusna", "CID {} no longer exists on local storage. Removing entry from local NAC", cid);
             false
         } else {
             true
@@ -198,7 +198,7 @@ pub fn sync_cnacs_and_nac_filesystem<R: Ratchet, Fcm: Ratchet>(nac: &NetworkAcco
     for (cid, cnac) in cnacs_loaded {
         // if a loaded CNAC doesn't map to a value in the NAC, add it to the NAC
         if !cids_registered.contains_key(cid) {
-            log::info!("CNAC {} was not synced to NAC. Syncing ...", cid);
+            log::trace!(target: "lusna", "CNAC {} was not synced to NAC. Syncing ...", cid);
             let username = cnac.get_username();
             cids_registered.insert(*cid, username);
         }

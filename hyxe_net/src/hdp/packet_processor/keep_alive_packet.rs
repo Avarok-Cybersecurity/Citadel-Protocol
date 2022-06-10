@@ -10,7 +10,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, concurrent_processor_tx:
     let session = session.clone();
 
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
-        log::warn!("Keep alive received, but session not connected. Dropping packet");
+        log::warn!(target: "lusna", "Keep alive received, but session not connected. Dropping packet");
         return Ok(PrimaryProcessorResult::Void);
     }
 
@@ -50,7 +50,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, concurrent_processor_tx:
                         Ok(PrimaryProcessorResult::Void)
                     }
                 } else {
-                    log::trace!("Invalid KEEP_ALIVE window; expired");
+                    log::trace!(target: "lusna", "Invalid KEEP_ALIVE window; expired");
                     //session.session_manager.clear_session(session.implicated_cid.unwrap());
                     return Ok(PrimaryProcessorResult::EndSession("Keep alive arrived too late"))
                 }
@@ -59,7 +59,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, concurrent_processor_tx:
             return task.await;
         } else {
             // timeout
-            log::error!("Keep alive invalid!");
+            log::error!(target: "lusna", "Keep alive invalid!");
             Ok(PrimaryProcessorResult::Void)
         }
     };

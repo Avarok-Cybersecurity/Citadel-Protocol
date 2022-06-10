@@ -47,7 +47,7 @@ impl Method3 {
     /// Note! The endpoints should be the port-predicted addrs
     async fn execute_either(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<TargettedSocketAddr, FirewallError> {
         let default_ttl = socket.ttl().ok();
-        log::info!("Default TTL: {:?}", default_ttl);
+        log::trace!(target: "lusna", "Default TTL: {:?}", default_ttl);
         let unique_id = &self.unique_id.clone();
         let this_node_type = self.this_node_type;
         // We will begin sending packets right away, assuming the pre-process synchronization occurred
@@ -77,7 +77,7 @@ impl Method3 {
 
         let (res0, res1) = tokio::join!(receiver_task, sender_task);
 
-        log::info!("Hole-punch join result: recv={:?} and send={:?}", res0, res1);
+        log::trace!(target: "lusna", "Hole-punch join result: recv={:?} and send={:?}", res0, res1);
 
         if let Some(default_ttl) = default_ttl {
             socket.set_ttl(default_ttl).map_err(|err| FirewallError::HolePunch(err.to_string()))?;
@@ -85,7 +85,7 @@ impl Method3 {
 
         let hole_punched_addr = res0?;
 
-        log::info!("Completed hole-punch...");
+        log::trace!(target: "lusna", "Completed hole-punch...");
 
         Ok(hole_punched_addr)
     }
@@ -101,9 +101,9 @@ impl Method3 {
             let _ = sleep.tick().await;
             for endpoint in endpoints {
                 let packet = encryptor.generate_packet(&bincode2::serialize(&NatPacket::Syn(unique_id, ttl, this_node_type)).unwrap());
-                log::info!("Sending TTL={} to {} || {:?}", ttl, endpoint, &packet[..] as &[u8]);
+                log::trace!(target: "lusna", "Sending TTL={} to {} || {:?}", ttl, endpoint, &packet[..] as &[u8]);
                 if !socket.send(&packet, *endpoint, Some(ttl)).await? {
-                    log::info!("Early-terminating SYN barrage");
+                    log::trace!(target: "lusna", "Early-terminating SYN barrage");
                     return Ok(())
                 }
             }
@@ -115,17 +115,17 @@ impl Method3 {
     // Handles the reception of packets, as well as sending/awaiting for a verification
     async fn recv_until(socket: &UdpWrapper<'_>, encryptor: &EncryptedConfigContainer, unique_id: &HolePunchID, observed_addrs_on_syn: &Mutex<HashMap<HolePunchID, TargettedSocketAddr>>, millis_delta: u64, this_node_type: RelativeNodeType) -> Result<TargettedSocketAddr, FirewallError> {
         let buf = &mut [0u8; 4096];
-        log::info!("[Hole-punch] Listening on {:?}", socket.socket.local_addr().unwrap());
+        log::trace!(target: "lusna", "[Hole-punch] Listening on {:?}", socket.socket.local_addr().unwrap());
 
         let mut has_received_syn = false;
         let mut expected_response_addr = None;
         //let mut recv_from_required = None;
         while let Ok((len, peer_external_addr)) = socket.recv_from(buf).await {
-            log::info!("[UDP Hole-punch] RECV packet from {:?} | {:?}", &peer_external_addr, &buf[..len]);
+            log::trace!(target: "lusna", "[UDP Hole-punch] RECV packet from {:?} | {:?}", &peer_external_addr, &buf[..len]);
             let packet = match encryptor.decrypt_packet(&buf[..len]) {
                 Some(plaintext) => plaintext,
                 _ => {
-                    log::warn!("BAD Hole-punch packet: decryption failed!");
+                    log::warn!(target: "lusna", "BAD Hole-punch packet: decryption failed!");
                     continue;
                 }
             };
@@ -134,7 +134,7 @@ impl Method3 {
             match bincode2::deserialize(&packet).map_err(|err| FirewallError::HolePunch(err.to_string())) {
                 Ok(NatPacket::Syn(peer_unique_id, ttl, adjacent_node_type)) => {
                     if adjacent_node_type == this_node_type {
-                        log::warn!("RECV loopback packet; will discard");
+                        log::warn!(target: "lusna", "RECV loopback packet; will discard");
                         continue;
                     }
 
@@ -142,14 +142,14 @@ impl Method3 {
                         continue;
                     }
 
-                    log::info!("RECV SYN from {:?}", peer_unique_id);
+                    log::trace!(target: "lusna", "RECV SYN from {:?}", peer_unique_id);
                     let hole_punched_addr = TargettedSocketAddr::new(peer_external_addr, peer_external_addr, peer_unique_id);
 
                     observed_addrs_on_syn.lock().insert(peer_unique_id, hole_punched_addr);
 
                     let mut sleep = tokio::time::interval(Duration::from_millis(millis_delta));
 
-                    log::info!("Received TTL={} packet from {:?}. Awaiting mutual recognition... ", ttl, peer_external_addr);
+                    log::trace!(target: "lusna", "Received TTL={} packet from {:?}. Awaiting mutual recognition... ", ttl, peer_external_addr);
 
                     has_received_syn = true;
                     expected_response_addr = Some(peer_external_addr);
@@ -157,41 +157,41 @@ impl Method3 {
                     for ttl in [4, 60, 120] {
                         sleep.tick().await;
                         let packet = &encryptor.generate_packet(&bincode2::serialize(&NatPacket::SynAck(*unique_id, this_node_type)).unwrap());
-                        log::info!("[Syn->SynAck] Sending TTL={} to {} || {:?}", ttl, peer_external_addr, &packet[..] as &[u8]);
+                        log::trace!(target: "lusna", "[Syn->SynAck] Sending TTL={} to {} || {:?}", ttl, peer_external_addr, &packet[..] as &[u8]);
                         socket.send(packet, peer_external_addr, Some(ttl)).await?;
                     }
                 }
 
                 // the reception of a SynAck proves the existence of a hole punched since there is bidirectional communication through the NAT
                 Ok(NatPacket::SynAck(adjacent_unique_id, adjacent_node_type)) => {
-                    log::info!("RECV SYN_ACK");
+                    log::trace!(target: "lusna", "RECV SYN_ACK");
                     if adjacent_node_type == this_node_type {
-                        log::warn!("RECV hairpin packet; will discard");
+                        log::warn!(target: "lusna", "RECV hairpin packet; will discard");
                         continue;
                     }
 
                     if !has_received_syn {
-                        log::warn!("RECV early SYN_ACK. Will discard");
+                        log::warn!(target: "lusna", "RECV early SYN_ACK. Will discard");
                         continue;
                     }
 
                     let expected_addr = expected_response_addr.unwrap();
 
                     if peer_external_addr != expected_addr {
-                        log::warn!("RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
+                        log::warn!(target: "lusna", "RECV SYN_ACK that comes from the wrong addr. RECV: {:?}, Expected: {:?}", peer_external_addr, expected_addr);
                         continue;
                     }
 
                     // this means there was a successful ping-pong. We can now assume this communications line is valid since the nat addrs match
                     let hole_punched_addr = TargettedSocketAddr::new(peer_external_addr, peer_external_addr, adjacent_unique_id);
-                    log::info!("***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
+                    log::trace!(target: "lusna", "***UDP Hole-punch to {:?} success!***", &hole_punched_addr);
                     socket.stop_outgoing_traffic().await;
 
                     return Ok(hole_punched_addr);
                 }
 
                 Err(err) => {
-                    log::warn!("Unable to deserialize packet {:?} from {:?}: {:?}", &packet[..], peer_external_addr, err);
+                    log::warn!(target: "lusna", "Unable to deserialize packet {:?} from {:?}: {:?}", &packet[..], peer_external_addr, err);
                 }
             }
         }
@@ -216,7 +216,7 @@ impl LinearUdpHolePunchImpl for Method3 {
 
     fn get_peer_external_addr_from_peer_hole_punch_id(&self, id: HolePunchID) -> Option<TargettedSocketAddr> {
         let lock = self.observed_addrs_on_syn.lock();
-        log::info!("Recv'd SYNS: {:?}", &*lock);
+        log::trace!(target: "lusna", "Recv'd SYNS: {:?}", &*lock);
         lock.get(&id).copied()
     }
 

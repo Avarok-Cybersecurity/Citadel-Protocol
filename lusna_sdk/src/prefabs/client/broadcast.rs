@@ -117,15 +117,15 @@ impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'
                 // Accept every inbound request, so long as the cid is equal to the
                 // cid for this group owner
                 while let Some(reg_request) = reg_rx.recv().await {
-                    log::info!("owner recv reg_request: {:?}", reg_request);
+                    log::trace!(target: "lusna", "owner recv reg_request: {:?}", reg_request);
                     if let PeerSignal::PostRegister(peer_conn, _, _, _, None, _) = &reg_request {
                         let cid = peer_conn.get_original_target_cid();
                         if cid != implicated_cid {
-                            log::warn!("Received the wrong CID. Will not accept request");
+                            log::warn!(target: "lusna", "Received the wrong CID. Will not accept request");
                             continue;
                         }
 
-                        log::info!("Sending ACCEPT_REQUEST to {}", cid);
+                        log::trace!(target: "lusna", "Sending ACCEPT_REQUEST to {}", cid);
 
                         let _ = responses::peer_register(reg_request, true, &mut remote).await?;
                     }
@@ -138,7 +138,7 @@ impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'
         };
 
         while let Some(event) = subscription.next().await {
-            log::info!("{:?} *recv* {:?}", implicated_cid, event);
+            log::trace!(target: "lusna", "{:?} *recv* {:?}", implicated_cid, event);
             match map_errors(event)? {
                 NodeResult::GroupChannelCreated(_, channel) => {
                     // in either case, whether owner or not, we get a channel
@@ -251,7 +251,7 @@ mod tests {
             };
 
             let client_kernel = BroadcastKernel::new_passwordless_defaults(uuid, server_addr, request, move |channel,remote| async move {
-                log::info!("***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
+                log::trace!(target: "lusna", "***GROUP PEER {}={} CONNECT SUCCESS***", idx,uuid);
                 let _ = client_success.fetch_add(1, Ordering::Relaxed);
                 wait_for_peers().await;
                 std::mem::drop(channel);
@@ -273,11 +273,11 @@ mod tests {
         if let Err(err) = &res {
             match err {
                 futures::future::Either::Left(left) => {
-                    log::warn!("ERR-left: {:?}", &left.0);
+                    log::warn!(target: "lusna", "ERR-left: {:?}", &left.0);
                 },
 
                 futures::future::Either::Right(right) => {
-                    log::warn!("ERR-right: {:?}", &right.0);
+                    log::warn!(target: "lusna", "ERR-right: {:?}", &right.0);
                 }
             }
         }

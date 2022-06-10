@@ -90,7 +90,7 @@ impl Drill {
     /// The nonce is 96 bits or 12 bytes in size. We assume each nonce version is unique
     pub fn get_aes_gcm_nonce(&self, nonce_version: usize) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
         let nonce = self.get_nonce(nonce_version);
-        log::trace!("Generated nonce v{}: {:?}", nonce_version, &nonce);
+        log::trace!(target: "lusna", "Generated nonce v{}: {:?}", nonce_version, &nonce);
         nonce
     }
 

@@ -14,7 +14,7 @@ use hyxe_crypt::hyper_ratchet::Ratchet;
 /// `cnacs_loaded` must also be present in order to validate that the local node's listed clients map to locally-existant CNACs. A "feed two birds with one scone" scenario
 #[allow(unused_results)]
 pub fn load_node_nac<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError> {
-    log::info!("[NAC-loader] Detecting local NAC...");
+    log::trace!(target: "lusna", "[NAC-loader] Detecting local NAC...");
     // First, set the NAC_NODE_DEFAULT_STORE_LOCATION
     let file_location = directory_store.inner.read().nac_node_default_store_location.clone();
 
@@ -28,7 +28,7 @@ pub fn load_node_nac<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore)
 
     match std::fs::File::open(&file_location) {
         Ok(_) => {
-            log::info!("[NAC-Loader] Detected local NAC. Updating information...");
+            log::trace!(target: "lusna", "[NAC-Loader] Detected local NAC. Updating information...");
             match read::<NetworkAccountInner<R, Fcm>, _>(&file_location).map(NetworkAccount::<R, Fcm>::from){
                 Ok(nac) => {
                     Ok(nac)
@@ -56,7 +56,7 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStor
 
     let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_impersonal)?;
     let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_personal)?;
-    log::info!("[CNAC Loader] Impersonal client network accounts loaded: {} | Personal client network accounts loaded: {}", cnacs_impersonal.len(), cnacs_personal.len());
+    log::trace!(target: "lusna", "[CNAC Loader] Impersonal client network accounts loaded: {} | Personal client network accounts loaded: {}", cnacs_impersonal.len(), cnacs_personal.len());
 
     let mut ret = HashMap::with_capacity(cnacs_impersonal.len() + cnacs_personal.len());
     for cnac in cnacs_impersonal.into_iter().chain(cnacs_personal.into_iter()) {
@@ -65,10 +65,10 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStor
                 ret.insert(cnac.get_id(), cnac);
             },
             Err(err) => {
-                log::error!("Error converting CNAC-inner into CNAC: {:?}. Deleting CNAC from local storage", err);
+                log::error!(target: "lusna", "Error converting CNAC-inner into CNAC: {:?}. Deleting CNAC from local storage", err);
                 // delete it. If this doesn't work, it could be because of OS error 13 (bad permissions)
                 if let Err(err) = hyxe_fs::system_file_manager::delete_file_blocking(cnac.1) {
-                    log::warn!("Unable to delete file: {}", err.to_string());
+                    log::warn!(target: "lusna", "Unable to delete file: {}", err.to_string());
                 }
             }
         }

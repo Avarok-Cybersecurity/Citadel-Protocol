@@ -45,7 +45,7 @@ pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
                 }
 
                 Err(err) => {
-                    log::warn!("Invalid packet type ... {:?})", err);
+                    log::warn!(target: "lusna", "Invalid packet type ... {:?})", err);
                 }
             }
         }

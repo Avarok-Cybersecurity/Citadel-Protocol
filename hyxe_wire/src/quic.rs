@@ -31,7 +31,7 @@ pub trait QuicEndpointConnector {
 
     async fn connect_biconn_with(&self, addr: SocketAddr, tls_domain: &str, cfg: Option<ClientConfig>) -> Result<(NewConnection, SendStream, RecvStream), anyhow::Error>
         where Self: Sized {
-        log::info!("Connecting to {:?}={} | Custom Cfg? {}", tls_domain, addr, cfg.is_some());
+        log::trace!(target: "lusna", "Connecting to {:?}={} | Custom Cfg? {}", tls_domain, addr, cfg.is_some());
         let connecting = if let Some(cfg) = cfg {
             self.endpoint().connect_with(cfg, addr, tls_domain)?
         } else {
@@ -306,13 +306,13 @@ mod tests {
     use crate::quic::{QuicServer, QuicEndpointListener, QuicClient, QuicEndpointConnector, SELF_SIGNED_DOMAIN};
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        std::env::set_var("RUST_LOG", "lusna=trace");
         //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
 
@@ -324,7 +324,7 @@ mod tests {
     async fn test_quic(#[case] addr: SocketAddr) -> std::io::Result<()> {
         setup_log();
         if addr.is_ipv6() && !is_ipv6_enabled() {
-            log::info!("Skipping IPv6 test since IPv6 is not enabled");
+            log::trace!(target: "lusna", "Skipping IPv6 test since IPv6 is not enabled");
             return Ok(())
         }
         let mut server = QuicServer::new_self_signed(tokio::net::UdpSocket::bind(addr).await?).unwrap();
@@ -334,11 +334,11 @@ mod tests {
         let addr = server.endpoint.local_addr().unwrap();
 
         let server = async move {
-            log::info!("Starting server @ {:?}", addr);
+            log::trace!(target: "lusna", "Starting server @ {:?}", addr);
             start_tx.send(()).unwrap();
             let (conn, _tx, mut rx) = server.next_connection().await.unwrap();
             let addr = conn.connection.remote_address();
-            log::info!("RECV {:?} from {:?}", &conn, addr);
+            log::trace!(target: "lusna", "RECV {:?} from {:?}", &conn, addr);
             let buf = &mut [0u8; 3];
             rx.read_exact(buf as &mut [u8]).await.unwrap();
             assert_eq!(buf, &[1, 2, 3]);
@@ -349,7 +349,7 @@ mod tests {
             start_rx.await.unwrap();
             let client = QuicClient::new_no_verify(tokio::net::UdpSocket::bind(client_bind_addr).await.unwrap()).unwrap();
             let res = client.connect_biconn(addr, SELF_SIGNED_DOMAIN).await;
-            log::info!("Client res: {:?}", res);
+            log::trace!(target: "lusna", "Client res: {:?}", res);
             let (_conn, mut tx, _rx) = res.unwrap();
             tx.write_all(&[1, 2, 3]).await.unwrap();
             end_rx.await.unwrap();

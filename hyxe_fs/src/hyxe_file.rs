@@ -113,14 +113,14 @@ impl HyxeFile {
     /// Panics if no data is loaded
     pub async fn save_locally(&self, dirs: &DirectoryStore) -> Result<PathBuf, FsError<String>> where Self: AsyncIO {
         let real_file_path = get_pathbuf(format!("{}{}.{}", dirs.inner.read().hyxe_virtual_dir.as_str(), generate_random_string(HYXE_FILE_OBFUSCATED_LEN), HYXE_FILE_EXT));
-        log::info!("[HyxeFile] Saving {} to {}", &self.file_name, real_file_path.to_str().unwrap());
+        log::trace!(target: "lusna", "[HyxeFile] Saving {} to {}", &self.file_name, real_file_path.to_str().unwrap());
         self.async_serialize_to_local_fs(&real_file_path).await.map(|_| real_file_path)
     }
 
     /// Saves the file without blocking
     pub fn save_locally_blocking(&self, dirs: &DirectoryStore) -> Result<PathBuf, FsError<String>> where Self: SyncIO {
         let real_file_path = get_pathbuf(format!("{}{}.{}", dirs.inner.read().hyxe_virtual_dir.as_str(), generate_random_string(HYXE_FILE_OBFUSCATED_LEN), HYXE_FILE_EXT));
-        log::info!("[HyxeFile] Saving {} to {}", &self.file_name, real_file_path.to_str().unwrap());
+        log::trace!(target: "lusna", "[HyxeFile] Saving {} to {}", &self.file_name, real_file_path.to_str().unwrap());
         SyncIO::serialize_to_local_fs(self, &real_file_path).map(|_| real_file_path)
     }
 

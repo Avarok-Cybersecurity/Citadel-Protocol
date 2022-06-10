@@ -293,21 +293,21 @@ impl HeaderObfuscator {
     }
 
     pub fn on_packet_received(&self, packet: &mut BytesMut) -> Option<()> {
-        //log::info!("[Header-scrambler] RECV {:?}", &packet[..]);
+        //log::trace!(target: "lusna", "[Header-scrambler] RECV {:?}", &packet[..]);
         if let Some(val) = self.load() {
-            //log::info!("[Header-scrambler] received ordinary packet");
+            //log::trace!(target: "lusna", "[Header-scrambler] received ordinary packet");
             apply_cipher(val, true, packet);
             Some(())
         } else {
             if packet.len() >= 16 && packet.len() < HDP_HEADER_BYTE_LEN {
-                //log::info!("[Header-Scrambler] Loading first-time packet {:?}", &packet[..]);
+                //log::trace!(target: "lusna", "[Header-Scrambler] Loading first-time packet {:?}", &packet[..]);
                 // we are only interested in taking the first 16 bytes
                 let val0 = packet.get_u64();
                 let val1 = packet.get_u64();
                 self.store(val0, val1);
-                log::info!("[Header obfuscator] initial packet set");
+                log::trace!(target: "lusna", "[Header obfuscator] initial packet set");
             } else {
-                log::error!("Discarding invalid packet (LEN: {})", packet.len());
+                log::error!(target: "lusna", "Discarding invalid packet (LEN: {})", packet.len());
             }
 
             None
@@ -317,11 +317,11 @@ impl HeaderObfuscator {
     /// This will only obfuscate packets that are at least HDP_HEADER_BYTE_LEN
     pub fn prepare_outbound(&self, mut packet: BytesMut) -> Bytes {
         if packet.len() >= HDP_HEADER_BYTE_LEN {
-            //log::info!("[Header-scrambler] Before: {:?}", &packet[..]);
+            //log::trace!(target: "lusna", "[Header-scrambler] Before: {:?}", &packet[..]);
             // it is assumed that the value is already loaded
             let val = self.load().unwrap();
             apply_cipher(val, false, &mut packet);
-            //log::info!("[Header-scrambler] After: {:?}", &packet[..]);
+            //log::trace!(target: "lusna", "[Header-scrambler] After: {:?}", &packet[..]);
         }
 
         packet.freeze()
@@ -338,7 +338,7 @@ impl HeaderObfuscator {
 
         let val0 = u64::from_be_bytes(fill0);
         let val1 = u64::from_be_bytes(fill1);
-        //log::info!("[header-scrambler] {} -> {:?} | {} -> {:?}", val0, &fill0, val1, &fill1);
+        //log::trace!(target: "lusna", "[header-scrambler] {} -> {:?} | {} -> {:?}", val0, &fill0, val1, &fill1);
         // we have 16 bytes used. Now, choose a random number of bytes between 0 and HDP_HEADER_BYTE_LEN - 16 to fill
         let bytes_to_add = rng.gen_range(0, HDP_HEADER_BYTE_LEN - 17);
         let mut packet = vec![0; 16 + bytes_to_add];
@@ -348,7 +348,7 @@ impl HeaderObfuscator {
         tmp.write_all(&fill1 as &[u8]).unwrap();
 
         rng.fill_bytes(&mut packet[16..]);
-        //log::info!("[Header-scrambler] Prepared packet: {:?}", &packet[..]);
+        //log::trace!(target: "lusna", "[Header-scrambler] Prepared packet: {:?}", &packet[..]);
         let packet = BytesMut::from(&packet[..]);
         let this = Self::new_from_u64s(val0, val1);
         (this, packet)

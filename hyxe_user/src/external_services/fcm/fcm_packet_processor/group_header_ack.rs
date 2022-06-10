@@ -8,7 +8,7 @@ use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
 use crate::misc::{AccountError, EmptyOptional};
 
 pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter<'a>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, constructors: &mut HashMap<u64, ConstructorType<R, Fcm>>, header: LayoutVerified<&'a [u8], FcmHeader>, bob_to_alice_transfer: KemTransferStatus) -> Result<FcmProcessorResult, AccountError> {
-    log::info!("FCM RECV GROUP_HEADER_ACK");
+    log::trace!(target: "lusna", "FCM RECV GROUP_HEADER_ACK");
     let mut instance = svc_params.create_instance(endpoint_crypto)?;
     let peer_cid = header.session_cid.get();
     let local_cid = header.target_cid.get();
@@ -44,23 +44,23 @@ pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter
                     Some(endpoint_crypto.maybe_unlock(true)?)
                 }*/
             } else {
-                log::warn!("No constructor, yet, KemTransferStatus is Some?? (did KEM constructor not get sent when the initial message got sent out?)");
+                log::warn!(target: "lusna", "No constructor, yet, KemTransferStatus is Some?? (did KEM constructor not get sent when the initial message got sent out?)");
                 None
             }
         }
 
         KemTransferStatus::Omitted => {
-            log::warn!("KEM was omitted (is adjacent node's hold not being released (unexpected), or tight concurrency (expected)?)");
+            log::warn!(target: "lusna", "KEM was omitted (is adjacent node's hold not being released (unexpected), or tight concurrency (expected)?)");
             Some(endpoint_crypto.maybe_unlock(true).map_empty_err()?)
         }
 
         KemTransferStatus::StatusNoTransfer(_status) => {
-            log::error!("Unaccounted program logic @ StatusNoTransfer. Report to developers");
+            log::error!(target: "lusna", "Unaccounted program logic @ StatusNoTransfer. Report to developers");
             None
         }
 
         _ => {
-            log::info!("[Empty] reached (x-12b)");
+            log::trace!(target: "lusna", "[Empty] reached (x-12b)");
             None
         }
     };
@@ -71,10 +71,10 @@ pub async fn process<'a, R: Ratchet, Fcm: Ratchet>(svc_params: InstanceParameter
             let truncate_packet = super::super::fcm_packet_crafter::craft_truncate(ratchet, header.object_id.get(), header.group_id.get(), peer_cid, header.ticket.get(), requires_truncation);
             instance.send(truncate_packet, local_cid, peer_cid).await?;
         } else {
-            log::error!("No ratchet returned when one was expected");
+            log::error!(target: "lusna", "No ratchet returned when one was expected");
         }
     }
 
-    log::info!("SUBROUTINE COMPLETE: PROCESS GROUP_HEADER_ACK");
+    log::trace!(target: "lusna", "SUBROUTINE COMPLETE: PROCESS GROUP_HEADER_ACK");
     Ok(FcmProcessorResult::Value(FcmResult::GroupHeaderAck { ticket: FcmTicket::new(header.target_cid.get(), header.session_cid.get(), header.ticket.get()) }))
 }

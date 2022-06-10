@@ -9,7 +9,6 @@ use std::task::{Context, Poll};
 
 use futures::{Sink, SinkExt, StreamExt};
 use futures::channel::mpsc::TrySendError;
-use log::info;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncRead;
@@ -58,7 +57,7 @@ use hyxe_wire::tls::client_config_to_tls_connector;
 static OPENED_PORTS: Mutex<Vec<u16>> = parking_lot::const_mutex(Vec::new());
 
 pub extern fn atexit() {
-    log::info!("Cleaning up firewall ports ...");
+    log::trace!(target: "lusna", "Cleaning up firewall ports ...");
     let lock = OPENED_PORTS.lock();
     for port in lock.iter() {
         HdpServer::close_tcp_port(*port);
@@ -103,9 +102,9 @@ impl HdpServer {
             // Note: on Android/IOS, the below command will fail since sudo access is prohibited
             Self::open_tcp_port(primary_port);
 
-            info!("HdpServer established on {}", local_bind_addr);
+            log::trace!(target: "lusna", "HdpServer established on {}", local_bind_addr);
         } else {
-            info!("HdpClient Established")
+            log::trace!(target: "lusna", "HdpClient Established")
         }
 
         let client_config = if let Some(config) = client_config {
@@ -185,7 +184,7 @@ impl HdpServer {
             let res = if let Some(primary_stream_listener) = primary_stream_listener {
                 tokio::select! {
                     res0 = outbound_kernel_request_handler => {
-                        log::info!("OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
+                        log::trace!(target: "lusna", "OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
                         res0
                     }
 
@@ -196,7 +195,7 @@ impl HdpServer {
             } else {
                 tokio::select! {
                     res0 = outbound_kernel_request_handler => {
-                        log::info!("OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
+                        log::trace!(target: "lusna", "OUTBOUND KERNEL REQUEST HANDLER ENDED: {:?}", &res0);
                         res0
                     }
 
@@ -206,7 +205,7 @@ impl HdpServer {
             };
 
             if let Err(_) = kernel_tx.unbounded_send(NodeResult::Shutdown) {
-                log::warn!("Unable to send shutdown result to kernel (kernel died prematurely?)");
+                log::warn!(target: "lusna", "Unable to send shutdown result to kernel (kernel died prematurely?)");
             }
 
             // the kernel will wait until the server shuts down to prevent cleanup tasks from being killed too early
@@ -214,7 +213,7 @@ impl HdpServer {
 
             tokio::time::timeout(Duration::from_millis(1000), sess_mgr.shutdown()).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-            log::info!("HdpServer shutting down (future ended)...");
+            log::trace!(target: "lusna", "HdpServer shutting down (future ended)...");
 
             res
         };
@@ -228,7 +227,7 @@ impl HdpServer {
         if let Ok(Some(res)) = open_local_firewall_port(FirewallProtocol::TCP(port)) {
             if !res.status.success() {
                 let data = if res.stdout.is_empty() { res.stderr } else { res.stdout };
-                log::warn!("We were unable to ensure that port {}, be open. Reason: {}", port, String::from_utf8(data).unwrap_or_default());
+                log::warn!(target: "lusna", "We were unable to ensure that port {}, be open. Reason: {}", port, String::from_utf8(data).unwrap_or_default());
             } else {
                 OPENED_PORTS.lock().push(port);
             }
@@ -239,9 +238,9 @@ impl HdpServer {
         if let Ok(Some(res)) = remove_firewall_rule(FirewallProtocol::TCP(port)) {
             if !res.status.success() {
                 let data = if res.stdout.is_empty() { res.stderr } else { res.stdout };
-                log::warn!("We were unable to ensure that port {}, be CLOSED. Reason: {}", port, String::from_utf8(data).unwrap_or_default());
+                log::warn!(target: "lusna", "We were unable to ensure that port {}, be CLOSED. Reason: {}", port, String::from_utf8(data).unwrap_or_default());
             } else {
-                log::info!("Successfully shutdown port {}", port);
+                log::trace!(target: "lusna", "Successfully shutdown port {}", port);
             }
         }
     }
@@ -273,7 +272,7 @@ impl HdpServer {
             UnderlyingProtocol::Tls(..) | UnderlyingProtocol::Tcp => {
                 hyxe_wire::socket_helpers::get_tcp_listener(bind)
                     .and_then(|listener| {
-                        log::info!("Setting up {:?} listener socket on {:?}", &underlying_proto, bind);
+                        log::trace!(target: "lusna", "Setting up {:?} listener socket on {:?}", &underlying_proto, bind);
                         let bind = listener.local_addr()?;
                         match underlying_proto {
                             UnderlyingProtocol::Tcp => {
@@ -293,7 +292,7 @@ impl HdpServer {
             }
 
             UnderlyingProtocol::Quic(crypto, domain, is_self_signed) => {
-                log::info!("Setting up QUIC listener socket on {:?} | Self-signed? {}", bind, is_self_signed);
+                log::trace!(target: "lusna", "Setting up QUIC listener socket on {:?} | Self-signed? {}", bind, is_self_signed);
 
                 let mut quic = if let Some(quic) = quic_endpoint_opt {
                     quic
@@ -331,7 +330,7 @@ impl HdpServer {
 
         Self::open_tcp_port(stream_bind_addr.port());
 
-        log::info!("[Client] Finished connecting to server {} w/ proto {:?}", stream.peer_addr()?, &stream);
+        log::trace!(target: "lusna", "[Client] Finished connecting to server {} w/ proto {:?}", stream.peer_addr()?, &stream);
         Ok(stream)
     }
 
@@ -345,7 +344,7 @@ impl HdpServer {
 
     /// - force_use_default_config: if true, this will unconditionally use the default client config already present inside the quic_endpoint parameter
     pub async fn quic_p2p_connect_defaults(quic_endpoint: Endpoint, timeout: Option<Duration>, domain: TlsDomain, remote: SocketAddr, secure_client_config: Arc<ClientConfig>) -> io::Result<GenericNetworkStream> {
-        log::info!("Connecting to QUIC node {:?}", remote);
+        log::trace!(target: "lusna", "Connecting to QUIC node {:?}", remote);
         // when using p2p quic, if domain is some, then we will use the default cfg
         let cfg = if domain.is_some() {
             hyxe_wire::quic::rustls_client_config_to_quinn_config(secure_client_config)
@@ -355,7 +354,7 @@ impl HdpServer {
             hyxe_wire::quic::insecure::configure_client()
         };
 
-        log::info!("Using cfg={:?} to connect to {:?}", cfg, remote);
+        log::trace!(target: "lusna", "Using cfg={:?} to connect to {:?}", cfg, remote);
 
         // we MUST use the connect_biconn_WITH below since we are using the server quic instance to make this outgoing connection
         let (conn, sink, stream) = tokio::time::timeout(timeout.unwrap_or(TCP_CONN_TIMEOUT), quic_endpoint.connect_biconn_with(remote, domain.as_ref().map(|r| r.as_str()).unwrap_or(SELF_SIGNED_DOMAIN), Some(cfg))).await?.map_err(generic_error)?;
@@ -369,20 +368,20 @@ impl HdpServer {
     }
 
     pub async fn c2s_connect_defaults(timeout: Option<Duration>, remote: SocketAddr, default_client_config: &Arc<ClientConfig>) -> io::Result<(GenericNetworkStream, Option<QuicNode>)> {
-        log::info!("C2S connect defaults to {:?}", remote);
+        log::trace!(target: "lusna", "C2S connect defaults to {:?}", remote);
         let mut stream = hyxe_wire::socket_helpers::get_tcp_stream(remote, timeout.unwrap_or(TCP_CONN_TIMEOUT)).await.map_err(|err| io::Error::new(io::ErrorKind::ConnectionRefused, err.to_string()))?;
         let bind_addr = stream.local_addr()?;
-        log::info!("C2S Bind addr: {:?}", bind_addr);
+        log::trace!(target: "lusna", "C2S Bind addr: {:?}", bind_addr);
         let first_packet = Self::read_first_packet(&mut stream, timeout).await?;
 
         match first_packet {
             FirstPacket::Tcp { external_addr } => {
-                log::info!("Host claims TCP DEFAULT CONNECTION. External ADDR: {:?}", external_addr);
+                log::trace!(target: "lusna", "Host claims TCP DEFAULT CONNECTION. External ADDR: {:?}", external_addr);
                 Ok((GenericNetworkStream::Tcp(stream), None))
             }
 
             FirstPacket::Tls { domain, external_addr, is_self_signed } => {
-                log::info!("Host claims TLS CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", &domain, external_addr, is_self_signed);
+                log::trace!(target: "lusna", "Host claims TLS CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed? {}", &domain, external_addr, is_self_signed);
 
                 let connector = if is_self_signed {
                     hyxe_wire::tls::create_client_dangerous_config()
@@ -394,7 +393,7 @@ impl HdpServer {
                 Ok((GenericNetworkStream::Tls(stream.into()), None))
             }
             FirstPacket::Quic { domain, external_addr, is_self_signed } => {
-                log::info!("Host claims QUIC CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed: {}", &domain, external_addr, is_self_signed);
+                log::trace!(target: "lusna", "Host claims QUIC CONNECTION (domain: {:?}) | External ADDR: {:?} | self-signed: {}", &domain, external_addr, is_self_signed);
                 let udp_socket = hyxe_wire::socket_helpers::get_udp_socket(bind_addr).map_err(generic_error)?; // bind to same address as tcp for firewall purposes
                 let mut quic_endpoint = if is_self_signed {
                     hyxe_wire::quic::QuicClient::new_no_verify(udp_socket).map_err(generic_error)?
@@ -440,10 +439,10 @@ impl HdpServer {
         loop {
             match socket.next().await {
                 Some(Ok((stream, peer_addr))) => {
-                    log::trace!("Received stream from {:?}", peer_addr);
+                    log::trace!(target: "lusna", "Received stream from {:?}", peer_addr);
                     let local_bind_addr = stream.local_addr().unwrap();
 
-                    log::info!("[Server] Starting connection with remote={} w/ proto={:?}", peer_addr, &stream);
+                    log::trace!(target: "lusna", "[Server] Starting connection with remote={} w/ proto={:?}", peer_addr, &stream);
 
                     match session_manager.process_new_inbound_connection(local_bind_addr, local_nat_type.clone(), peer_addr, stream) {
                         Ok(session) => {
@@ -460,12 +459,12 @@ impl HdpServer {
                 Some(Err(err)) => {
                     const WSACCEPT_ERROR: i32 = 10093;
                     if err.raw_os_error().unwrap_or(-1) != WSACCEPT_ERROR {
-                        log::error!("Error accepting stream: {}", err.to_string());
+                        log::error!(target: "lusna", "Error accepting stream: {}", err.to_string());
                     }
                 }
 
                 None => {
-                    log::error!("Primary session listener returned None");
+                    log::error!(target: "lusna", "Primary session listener returned None");
                     return Err(NetworkError::InternalError("Primary session listener died"))
                 }
             }
@@ -490,7 +489,7 @@ impl HdpServer {
         let send_error = |ticket_id: Ticket, err: NetworkError| {
             let err = err.into_string();
             if let Err(_) = to_kernel_tx.unbounded_send(NodeResult::InternalServerError(Some(ticket_id), err.clone())) {
-                log::error!("TO_KERNEL_TX Error: {:?}", err);
+                log::error!(target: "lusna", "TO_KERNEL_TX Error: {:?}", err);
                 return Err(NetworkError::InternalError("kernel disconnected from hypernode instance"));
             } else {
                 Ok(())

@@ -153,12 +153,12 @@ impl ProposedCredentials {
                     }
 
                     ArgonStatus::VerificationFailed(None) => {
-                        log::warn!("Invalid password specified ...");
+                        log::warn!(target: "lusna", "Invalid password specified ...");
                         Err(AccountError::InvalidPassword)
                     }
 
                     ArgonStatus::VerificationFailed(Some(err)) => {
-                        log::error!("Password verification failed: {}", &err);
+                        log::error!(target: "lusna", "Password verification failed: {}", &err);
                         Err(AccountError::Generic(err))
                     }
 

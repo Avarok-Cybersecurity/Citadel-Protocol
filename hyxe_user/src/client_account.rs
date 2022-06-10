@@ -11,7 +11,6 @@ use crate::misc::{AccountError, check_credential_formatting, CNACMetadata};
 use multimap::MultiMap;
 use crate::prelude::NetworkAccount;
 use crate::network_account::NetworkAccountInner;
-use log::info;
 
 use std::fmt::Formatter;
 use hyxe_fs::misc::{get_present_formatted_timestamp, get_pathbuf};
@@ -145,7 +144,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Note: This should ONLY be called from a server node.
     #[allow(unused_results)]
     pub async fn new(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount<R, Fcm>, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
-        info!("Creating CNAC w/valid cid: {:?}", valid_cid);
+        log::trace!(target: "lusna", "Creating CNAC w/valid cid: {:?}", valid_cid);
 
         check_credential_formatting::<_, &str, _>(auth_store.username(), None, auth_store.full_name())?;
 
@@ -182,7 +181,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let this = self.clone();
         tokio::task::spawn(async move {
             if let Err(err) = this.save().await {
-                log::error!("Unable to save cnac {}: {:?}", this.get_cid(), err);
+                log::error!(target: "lusna", "Unable to save cnac {}: {:?}", this.get_cid(), err);
             }
         });
     }
@@ -497,10 +496,10 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     pub(crate) fn hyperlan_peer_exists(&self, cid: u64) -> bool {
         let read = self.read();
         if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
-            //log::info!("Checking through {} peers", hyperlan_peers.len());
+            //log::trace!(target: "lusna", "Checking through {} peers", hyperlan_peers.len());
             hyperlan_peers.iter().any(|peer| peer.cid == cid)
         } else {
-            log::info!("No mutuals registered on this accounts");
+            log::trace!(target: "lusna", "No mutuals registered on this accounts");
             false
         }
     }
@@ -517,7 +516,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
             peers.iter().map(|peer| hyperlan_peers.iter().any(|hyperlan_peer| hyperlan_peer.cid == *peer)).collect()
         } else {
-            log::warn!("Attempted to check hyperlan list, but it non-exists");
+            log::warn!(target: "lusna", "Attempted to check hyperlan list, but it non-exists");
             peers.iter().map(|_| false).collect()
         }
     }
@@ -551,7 +550,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                     if let Some(fcm_crypt_container) = fcm_crypt_container.get_mut(peer_cid) {
                         fcm_crypt_container.fcm_keys = Some(fcm_keys.clone());
                     } else {
-                        log::warn!("Attempted to synchronize peer list, but local's state is corrupt (fcm)");
+                        log::warn!(target: "lusna", "Attempted to synchronize peer list, but local's state is corrupt (fcm)");
                     }
                 }
             }
@@ -598,7 +597,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
                 self.spawn_save_task_on_threadpool();
                 return Some(removed_peer);
             } else {
-                log::warn!("Peer {} not found within cnac {}", cid, write.cid);
+                log::warn!(target: "lusna", "Peer {} not found within cnac {}", cid, write.cid);
             }
         }
 
@@ -629,7 +628,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
         let local_fcm_keys = write.crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Local client cannot accept an FCM request since local has no FCM keys to reciprocate".to_string()))?;
         // remove regardless
-        log::info!("[FCM PostRegister] Will search for invitation from {}", peer_cid);
+        log::trace!(target: "lusna", "[FCM PostRegister] Will search for invitation from {}", peer_cid);
         let invite = write.fcm_invitations.remove(&peer_cid).ok_or(AccountError::Generic("Invitation for client does not exist, or, expired".to_string()))?;
 
         /*if write.fcm_crypt_container.contains_key(&peer_cid) {
@@ -778,7 +777,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         // store constructor if required (may not be required if an update is already in progress)
         if let Some(constructor) = constructor {
             if kem_state_containers.insert(target_peer_cid, ConstructorType::Fcm(constructor)).is_some() {
-                log::warn!("[FCM] overwrote pre-existing KEM constructor. Please report to developers")
+                log::warn!(target: "lusna", "[FCM] overwrote pre-existing KEM constructor. Please report to developers")
             }
 
             std::mem::drop(write);
