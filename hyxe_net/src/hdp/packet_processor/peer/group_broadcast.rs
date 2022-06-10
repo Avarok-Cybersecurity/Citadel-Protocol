@@ -61,7 +61,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
     let security_level = header.security_level.into();
     // since group broadcast packets never get proxied, the implicated cid is the local session cid
     let implicated_cid = header.session_cid.get();
-    log::info!("[GROUP:{}] message: {:?}", session.is_server.if_true("server").if_false("client"), signal);
+    log::trace!(target: "lusna", "[GROUP:{}] message: {:?}", session.is_server.if_true("server").if_false("client"), signal);
     match signal {
         GroupBroadcast::Create(initial_peers, options) => {
             let key = session.session_manager.create_message_group_and_notify(timestamp, ticket, implicated_cid, initial_peers, security_level, options).await;
@@ -81,7 +81,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
                 match result {
                     None => {
                         // group does not exist. Send error packet
-                        log::warn!("Group {:?} does not exist", key);
+                        log::warn!(target: "lusna", "Group {:?} does not exist", key);
                         let error = GroupBroadcast::GroupNonExists(key);
                         let return_packet = hdp_packet_crafter::peer_cmd::craft_group_message_packet(sess_hyper_ratchet, &error, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level);
                         Ok(PrimaryProcessorResult::ReplyToSender(return_packet))
@@ -151,7 +151,7 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
 
         GroupBroadcast::Message(username, key, message) => {
             if session.is_server {
-                log::info!("[Group/Server] Received message {:?}", message);
+                log::trace!(target: "lusna", "[Group/Server] Received message {:?}", message);
                 // The message will need to be broadcasted to every member in the group
                 let success = session.session_manager.broadcast_signal_to_group(implicated_cid, timestamp, ticket, key, GroupBroadcast::Message(username, key, message), security_level).await.unwrap_or(false);
                 let resp = GroupBroadcast::MessageResponse(key, success);
@@ -170,14 +170,14 @@ pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], Hdp
         GroupBroadcast::AcceptMembership(key) => {
             let success = session.hypernode_peer_layer.upgrade_peer_in_group(key, implicated_cid).await;
             if !success {
-                log::warn!("Unable to upgrade peer {} for {:?}", implicated_cid, key);
+                log::warn!(target: "lusna", "Unable to upgrade peer {} for {:?}", implicated_cid, key);
             } else {
                 // send broadcast to all group members
                 let entered = vec![implicated_cid];
                 if !session.session_manager.broadcast_signal_to_group(implicated_cid, timestamp, ticket, key, GroupBroadcast::MemberStateChanged(key, MemberState::EnteredGroup(entered)), security_level).await.unwrap_or(false) {
-                    log::warn!("Unable to broadcast member acceptance to group {}", key);
+                    log::warn!(target: "lusna", "Unable to broadcast member acceptance to group {}", key);
                 }
-                log::info!("Successfully upgraded {} for {:?}", implicated_cid, key);
+                log::trace!(target: "lusna", "Successfully upgraded {} for {:?}", implicated_cid, key);
             }
 
             // tell the user who accepted the membership

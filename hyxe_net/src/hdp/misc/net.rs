@@ -157,7 +157,7 @@ impl GenericNetworkListener {
                     (GenericNetworkStream::Quic(tx,rx, endpoint, Some(conn), peer_addr), peer_addr)
                 });
 
-                log::info!("RECV raw QUIC stream from {:?}", res);
+                log::trace!(target: "lusna", "RECV raw QUIC stream from {:?}", res);
                 send.send(res).await.map_err(|err| generic_error(err.to_string()))?;
             }
 
@@ -183,7 +183,7 @@ impl GenericNetworkListener {
             let ref redirect_to_quic = redirect_to_quic;
             loop {
                 let (stream, addr) = listener.accept().await?;
-                log::info!("Received raw TCP stream from {:?}: {:?}", addr, stream);
+                log::trace!(target: "lusna", "Received raw TCP stream from {:?}: {:?}", addr, stream);
 
                 // ensures that any errors do not terminate the listener as a whole
                 async fn handle_stream_non_terminating(stream: TcpStream, addr: SocketAddr, redirect_to_quic: &Option<(TlsDomain, bool)>) -> std::io::Result<(GenericNetworkStream, SocketAddr)> {
@@ -220,7 +220,7 @@ impl GenericNetworkListener {
         let future = async move {
             loop {
                 let (stream, addr) = listener.next().await.ok_or_else(|| generic_error("TLS listener died"))??;
-                log::info!("Received raw TLS stream from {:?}: {:?}", addr, stream);
+                log::trace!(target: "lusna", "Received raw TLS stream from {:?}: {:?}", addr, stream);
                 send.send(Ok((GenericNetworkStream::Tls(stream.into()), addr))).await.map_err(|err| generic_error(err.to_string()))?;
             }
         };
@@ -266,7 +266,7 @@ impl Stream for GenericNetworkListener {
             Poll::Pending => {},
             Poll::Ready(res) => {
                 // assert err
-                log::warn!("ERR: {:?}", res);
+                log::warn!(target: "lusna", "ERR: {:?}", res);
                 return Poll::Ready(Some(Err(res.unwrap_err())))
             }
         }
@@ -301,7 +301,7 @@ impl TlsListener {
             };
 
             acceptor_stream.try_for_each_concurrent(None, |(stream, addr)| async move {
-                log::info!("TLs-listener RECV Raw TCP stream from {:?} : {:?}",addr, stream);
+                log::trace!(target: "lusna", "TLs-listener RECV Raw TCP stream from {:?} : {:?}",addr, stream);
                 let domain = domain.clone();
 
                 async fn handle_stream_non_terminating(stream: TcpStream, addr: SocketAddr, domain: TlsDomain, is_self_signed: bool, tls_acceptor: &TlsAcceptor) -> std::io::Result<(TlsStream<TcpStream>, SocketAddr)> {
@@ -347,7 +347,7 @@ impl Stream for TlsListener {
             Poll::Pending => {},
             Poll::Ready(res) => {
                 // assert err
-                log::warn!("ERR: {:?}", res);
+                log::warn!(target: "lusna", "ERR: {:?}", res);
                 return Poll::Ready(Some(Err(res.unwrap_err())))
             }
         }
@@ -381,7 +381,7 @@ impl QuicListener {
                                     // terminate by yielding error
                                     yield Err(res)
                                 } else {
-                                    log::warn!("QUIC accept err: {:?}", res);
+                                    log::warn!(target: "lusna", "QUIC accept err: {:?}", res);
                                 }
                             }
 
@@ -395,7 +395,7 @@ impl QuicListener {
 
                 acceptor_stream.try_for_each_concurrent(None, |(conn, tx, rx)| async move {
                     let addr = conn.connection.remote_address();
-                    log::info!("RECV {:?} from {:?}", &conn, addr);
+                    log::trace!(target: "lusna", "RECV {:?} from {:?}", &conn, addr);
                     send.send(Ok((conn, tx, rx, addr, endpoint.clone()))).await.map_err(|err| generic_error(err.to_string()))
                 }).await?;
             }
@@ -427,7 +427,7 @@ impl Stream for QuicListener {
             Poll::Pending => {},
             Poll::Ready(res) => {
                 // assert err
-                log::warn!("ERR: {:?}", res);
+                log::warn!(target: "lusna", "ERR: {:?}", res);
                 return Poll::Ready(Some(Err(res.unwrap_err())))
             }
         }
@@ -509,7 +509,7 @@ impl Stream for DualListener {
             Poll::Pending => {},
             Poll::Ready(res) => {
                 // assert err
-                log::warn!("ERR: {:?}", res);
+                log::warn!(target: "lusna", "ERR: {:?}", res);
                 return Poll::Ready(Some(Err(res.unwrap_err())))
             }
         }

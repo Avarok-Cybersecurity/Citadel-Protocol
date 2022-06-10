@@ -103,7 +103,7 @@ impl SessionQueueWorker {
             .insert(key, timeout);
 
         if let Some(key) = self.entries.insert(key, (on_timeout, delay, timeout)) {
-            log::error!("Overwrote a session key: {:?}", key.1);
+            log::error!(target: "lusna", "Overwrote a session key: {:?}", key.1);
         }
 
         self.rolling_idx += 1;
@@ -126,7 +126,7 @@ impl SessionQueueWorker {
 
     #[allow(unused_results)]
     fn poll_purge(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
-        //log::info!("poll_purge");
+        //log::trace!(target: "lusna", "poll_purge");
         self.register_waker(cx.waker());
 
         let SessionQueueWorker {
@@ -140,7 +140,7 @@ impl SessionQueueWorker {
             if state_container.state.load(Ordering::Relaxed) != SessionState::Disconnected {
                 while let Some(res) = futures::ready!(expirations.poll_expired(cx)) {
                     let entry: QueueWorkerTicket = res.into_inner();
-                    //log::info!("POLL_EXPIRED: {:?}", &entry);
+                    //log::trace!(target: "lusna", "POLL_EXPIRED: {:?}", &entry);
                     match entry {
                         QueueWorkerTicket::Oneshot(_, _) => {
                             // already removed from expiration; now, just remove from hashmap
@@ -236,7 +236,7 @@ impl futures::Future for SessionQueueWorker {
             Some(_) => Poll::Pending,
             None => {
                 if let Err(_err) = self.sess_shutdown.send(()) {
-                    //log::error!("Unable to shutdown session: {:?}", err);
+                    //log::error!(target: "lusna", "Unable to shutdown session: {:?}", err);
                 }
 
                 Poll::Ready(Err(NetworkError::InternalError("Queue handler signalled shutdown")))

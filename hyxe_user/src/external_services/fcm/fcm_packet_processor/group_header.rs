@@ -8,7 +8,7 @@ use crate::misc::AccountError;
 use hyxe_crypt::fcm::fcm_ratchet::FcmAliceToBobTransfer;
 
 pub async fn process<'a, Fcm: Ratchet>(svc_params: InstanceParameter<'a>, endpoint_crypto: &'a mut PeerSessionCrypto<Fcm>, ratchet: Fcm, header: LayoutVerified<&'a [u8], FcmHeader>, alice_to_bob_transfer: Option<FcmAliceToBobTransfer<'a>>, message: &'a [u8]) -> Result<FcmProcessorResult, AccountError> {
-    log::info!("FCM RECV GROUP_HEADER");
+    log::trace!(target: "lusna", "FCM RECV GROUP_HEADER");
     let mut instance = svc_params.create_instance(endpoint_crypto)?;
     // at this point, the packet was verified to be valid. Calculate return packet, send it via fcm to target. Finally, return the message
     let local_cid = header.target_cid.get();
@@ -28,7 +28,7 @@ pub async fn process<'a, Fcm: Ratchet>(svc_params: InstanceParameter<'a>, endpoi
 
     instance.send(packet, local_cid, header.session_cid.get()).await?;
 
-    log::info!("SUBROUTINE COMPLETE: PROCESS GROUP_HEADER");
+    log::trace!(target: "lusna", "SUBROUTINE COMPLETE: PROCESS GROUP_HEADER");
     // now that we sent the response to FCM, the next step is to return with the original message
     Ok(FcmProcessorResult::Value(FcmResult::GroupHeader { ticket, message: message.to_vec() }))
 }

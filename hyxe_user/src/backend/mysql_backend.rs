@@ -76,7 +76,7 @@ impl Into<AnyPoolOptions> for &'_ SqlConnectionOptions {
         ret = ret.max_lifetime(self.max_lifetime);
 
         if cfg!(feature = "localhost-testing") || std::env::var("LOCALHOST_TESTING").unwrap_or_default() == "1" {
-            log::info!("Reducing connection pool");
+            log::trace!(target: "lusna", "Reducing connection pool");
             ret = ret.max_connections(1);
             ret = ret.max_lifetime(Duration::from_secs(60));
         }
@@ -96,7 +96,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         // To not get accounts mixed up between tests
         if cfg!(feature = "localhost-testing") || std::env::var("LOCALHOST_TESTING").unwrap_or_default() == "1" {
-            log::info!("Purging home directory since localhost-testing is enabled");
+            log::trace!(target: "lusna", "Purging home directory since localhost-testing is enabled");
             let _ = self.purge().await?;
         }
         //let conn = AnyPool::connect_with(&self.url).await?;
@@ -163,7 +163,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let conn = &(self.get_conn().await?);
         // The issue: at endpoints, mutuals are being saved inside CNAC, but not the database. We see here that mutuals are not synced to database
         let serded = base64::encode(cnac.generate_proper_bytes()?);
-        log::info!("[CNAC-Sync] Base64 len: {} | sample: {:?} -> {:?}", serded.len(), &serded.as_str()[..10], &serded.as_str()[(serded.len() - 10)..]);
+        log::trace!(target: "lusna", "[CNAC-Sync] Base64 len: {} | sample: {:?} -> {:?}", serded.len(), &serded.as_str()[..10], &serded.as_str()[(serded.len() - 10)..]);
 
         let keys = cnac.get_fcm_keys();
 
@@ -410,7 +410,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     // We must update the CNAC && the sql database
     async fn register_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64, peer_username: String) -> Result<(), AccountError> {
         let conn = &(self.get_conn().await?);
-        log::info!("Registering p2p ({} <-> {}) as client", implicated_cid, peer_cid);
+        log::trace!(target: "lusna", "Registering p2p ({} <-> {}) as client", implicated_cid, peer_cid);
         let _query = sqlx::query(self.format("INSERT INTO peers (peer_cid, cid, username) VALUES (?, ?, ?)").as_str()).bind(peer_cid.to_string()).bind(implicated_cid.to_string()).bind(peer_username).execute(conn).await?;
         Ok(())
     }
@@ -646,7 +646,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     // We always return false here, since there's no need for manual saving
     async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError> {
-        log::info!("Synchronizing peer list for {}", cnac.get_cid());
+        log::trace!(target: "lusna", "Synchronizing peer list for {}", cnac.get_cid());
         if !peers.is_empty() {
             let conn = &(self.get_conn().await?);
 
@@ -778,14 +778,14 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
 
     async fn generate_conn(&self) -> Result<AnyPool, AccountError> {
         let opts: AnyPoolOptions = (&self.opts).into();
-        log::info!("Generating new connection ...");
+        log::trace!(target: "lusna", "Generating new connection ...");
         Ok(opts.connect(&self.url).await?)
     }
 
     fn row_to_cnac(&self, query: Option<AnyRow>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         if let Some(row) = query {
             let bin: String = row.try_get("bin")?;
-            log::info!("[CNAC-Load] Base64 len: {} | sample: {:?} -> {:?}", bin.len(), &bin.as_str()[..10], &bin.as_str()[(bin.len() - 10)..]);
+            log::trace!(target: "lusna", "[CNAC-Load] Base64 len: {} | sample: {:?} -> {:?}", bin.len(), &bin.as_str()[..10], &bin.as_str()[(bin.len() - 10)..]);
             let bin = base64::decode(bin)?;
             let cnac_inner = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_owned_vector(bin)?;
             let pers = self.local_nac.as_ref().unwrap().persistence_handler().unwrap();

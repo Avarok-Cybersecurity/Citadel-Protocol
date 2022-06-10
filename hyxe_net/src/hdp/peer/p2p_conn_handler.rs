@@ -49,10 +49,10 @@ impl DirectP2PRemote {
 
 impl Drop for DirectP2PRemote {
     fn drop(&mut self) {
-        log::info!("[DirectP2PRemote] dropping p2p connection (type: {})...", self.from_listener.if_true("listener").if_false("client"));
+        log::trace!(target: "lusna", "[DirectP2PRemote] dropping p2p connection (type: {})...", self.from_listener.if_true("listener").if_false("client"));
         if let Some(stopper) = self.stopper.take() {
             if let Err(_) = stopper.send(()) {
-                //log::error!("Unable to alert p2p-stopper")
+                //log::error!(target: "lusna", "Unable to alert p2p-stopper")
             }
         }
     }
@@ -71,7 +71,7 @@ async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session: Hdp
 
     std::mem::drop(session);
 
-    log::info!("[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
+    log::trace!(target: "lusna", "[P2P-stream] Beginning async p2p listener subroutine on {:?}", p2p_listener.local_addr().unwrap());
 
     // loop until we get the right peer
     loop {
@@ -80,7 +80,7 @@ async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session: Hdp
                 let session = HdpSession::upgrade_weak(weak).ok_or(NetworkError::InternalError("HdpSession dropped"))?;
 
                 if p2p_stream.peer_addr()?.ip() != necessary_remote_addr.ip() {
-                    log::warn!("Blocked p2p connection from {:?} since IP does not match {:?}", p2p_stream, necessary_remote_addr);
+                    log::warn!(target: "lusna", "Blocked p2p connection from {:?} since IP does not match {:?}", p2p_stream, necessary_remote_addr);
                     continue;
                 }
 
@@ -91,12 +91,12 @@ async fn p2p_conn_handler(mut p2p_listener: GenericNetworkListener, session: Hdp
             Some(Err(err)) => {
                 // on android/ios, when the program is backgrounded for days then turned on, this error will loop endlessly. As such, drop this future and end the session to give the program the chance to create a session anew
                 //const ERR_INVALID_ARGUMENT: i32 = 22;
-                log::error!("[P2P-stream] ERR: {:?}", err);
+                log::error!(target: "lusna", "[P2P-stream] ERR: {:?}", err);
                 return Err(NetworkError::Generic(err.to_string()))
             }
 
             None => {
-                log::error!("P2P listener returned None. Stream dead");
+                log::error!(target: "lusna", "P2P listener returned None. Stream dead");
                 return Err(NetworkError::InternalError("P2P Listener returned None"))
             }
         }
@@ -117,7 +117,7 @@ fn handle_p2p_stream(mut p2p_stream: GenericNetworkStream, implicated_cid: DualC
     let quic_conn = p2p_stream.take_quic_connection().ok_or_else(|| generic_error("P2P Stream did not have QUIC connection loaded"))?;
     let udp_conn = QuicUdpSocketConnector::new(quic_conn, local_bind_addr);
 
-    log::info!("[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), &remote_peer);
+    log::trace!(target: "lusna", "[P2P-stream {}] New stream from {:?}", from_listener.if_true("listener").if_false("client"), &remote_peer);
     let (sink, stream) = misc::net::safe_split_stream(p2p_stream);
     let (p2p_primary_stream_tx, p2p_primary_stream_rx) = unbounded();
     let p2p_primary_stream_tx = OutboundPrimaryStreamSender::from(p2p_primary_stream_tx);
@@ -149,10 +149,10 @@ fn handle_p2p_stream(mut p2p_stream: GenericNetworkStream, implicated_cid: DualC
         };
 
         if let Err(err) = &res {
-            log::info!("[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
+            log::trace!(target: "lusna", "[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
         }
 
-        log::info!("[P2P-stream] Dropping tri-joined future");
+        log::trace!(target: "lusna", "[P2P-stream] Dropping tri-joined future");
         res
     };
 
@@ -197,7 +197,7 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
         let remote_connect_addr = hole_punched_socket.addr.receive_address;
         let addr = hole_punched_socket.addr;
         let local_addr = hole_punched_socket.socket.local_addr()?;
-        log::info!("~!@ P2P UDP Hole-punch finished @!~ | is initiator: {}", is_initiator);
+        log::trace!(target: "lusna", "~!@ P2P UDP Hole-punch finished @!~ | is initiator: {}", is_initiator);
 
         app.sync().await.map_err(generic_error)?;
         // if local is NOT initiator, we setup a listener at the socket
@@ -209,10 +209,10 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
             let quic_endpoint = hyxe_wire::quic::QuicClient::new_with_config(socket, client_config.clone()).map_err(generic_error)?;
             let p2p_stream = HdpServer::quic_p2p_connect_defaults(quic_endpoint.endpoint, None, peer_nat_info.tls_domain, remote_connect_addr, client_config).await?;
 
-            log::info!("~!@ P2P UDP Hole-punch + QUIC finished successfully for INITIATOR @!~");
+            log::trace!(target: "lusna", "~!@ P2P UDP Hole-punch + QUIC finished successfully for INITIATOR @!~");
             handle_p2p_stream(p2p_stream, implicated_cid, session.clone(), kernel_tx.clone(), false, v_conn, addr, ticket)
         } else {
-            log::info!("Non-initiator will begin listening immediately");
+            log::trace!(target: "lusna", "Non-initiator will begin listening immediately");
             std::mem::drop(hole_punched_socket); // drop to prevent conflicts caused by SO_REUSE_ADDR
             setup_listener_non_initiator(local_addr, remote_connect_addr, session.clone(), v_conn, addr, ticket)
                 .await
@@ -221,10 +221,10 @@ pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerCo
     };
 
     if let Err(err) = process.await {
-        log::warn!("[Hole-punch/Err] {:?}", err);
+        log::warn!(target: "lusna", "[Hole-punch/Err] {:?}", err);
     }
 
-    log::info!("Sending channel to kernel");
+    log::trace!(target: "lusna", "Sending channel to kernel");
     // TODO: Early send IF NAT traversal determined not to be possible, or ...
     // early send anyways, and, upgrade the p2p channel in the state container automatically
     kernel_tx.unbounded_send(channel_signal).map_err(|_| generic_error("Unable to send signal to kernel"))?;

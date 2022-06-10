@@ -29,7 +29,7 @@ pub(crate) async fn handle_response_phase(peer_layer: &mut HyperNodePeerLayerInn
                                       let virtual_conn_relative_to_peer = VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
                                       this_sess_state_container.insert_new_virtual_connection_as_server(target_cid, virtual_conn_relative_to_this, peer_udp_sender, peer_tcp_sender);
                                       peer_sess_state_container.insert_new_virtual_connection_as_server(implicated_cid, virtual_conn_relative_to_peer, this_udp_sender, this_tcp_sender);
-                                      log::info!("Virtual connection between {} <-> {} forged", implicated_cid, target_cid);
+                                      log::trace!(target: "lusna", "Virtual connection between {} <-> {} forged", implicated_cid, target_cid);
                                       // TODO: Ensure that, upon disconnect, the corresponding entry gets dropped in the connection table of not the dropped peer
                                   }
                               }

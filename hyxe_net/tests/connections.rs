@@ -15,13 +15,13 @@ pub mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        std::env::set_var("RUST_LOG", "lusna=trace");
         //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     #[fixture]
@@ -58,24 +58,24 @@ pub mod tests {
         setup_log();
 
         if !is_ipv6_enabled() && addr.is_ipv6() {
-            log::info!("Skipping ipv6 test since ipv6 is not enabled locally");
+            log::trace!(target: "lusna", "Skipping ipv6 test since ipv6 is not enabled locally");
             return Ok(())
         }
 
         for proto in protocols {
-            log::info!("Testing proto {:?}", &proto);
+            log::trace!(target: "lusna", "Testing proto {:?}", &proto);
 
             let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto.clone(),addr).unwrap();
-            log::info!("Bind/connect addr: {:?}", addr);
+            log::trace!(target: "lusna", "Bind/connect addr: {:?}", addr);
 
             let server = async move {
                 let next = listener.next().await;
-                log::info!("[Server] Next conn: {:?}", next);
+                log::trace!(target: "lusna", "[Server] Next conn: {:?}", next);
                 let (mut stream, peer_addr) = next.unwrap().unwrap();
-                log::info!("[Server] Received stream from {}", peer_addr);
+                log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
                 let buf = &mut [0u8;64];
                 let res = stream.read(buf).await;
-                log::info!("Server-res: {:?}", res);
+                log::trace!(target: "lusna", "Server-res: {:?}", res);
                 assert_eq!(buf[0], 0xfb, "Invalid read");
                 let _ = stream.write(&[0xfa]).await.unwrap();
                 stream.shutdown().await.unwrap();
@@ -83,17 +83,17 @@ pub mod tests {
 
             let client = async move {
                 let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await.unwrap();
-                log::info!("Client connected");
+                log::trace!(target: "lusna", "Client connected");
                 let res = stream.write(&[0xfb]).await;
-                log::info!("Client connected - A02 {:?}", res);
+                log::trace!(target: "lusna", "Client connected - A02 {:?}", res);
                 let buf = &mut [0u8;64];
                 let res = stream.read(buf).await;
-                log::info!("Client connected - AO3 {:?}", res);
+                log::trace!(target: "lusna", "Client connected - AO3 {:?}", res);
                 assert_eq!(buf[0], 0xfa, "Invalid read - client");
             };
 
             let _ = tokio::join!(server, client);
-            log::info!("Ended");
+            log::trace!(target: "lusna", "Ended");
         }
 
         Ok(())
@@ -109,7 +109,7 @@ pub mod tests {
         setup_log();
 
         if !is_ipv6_enabled() && addr.is_ipv6() {
-            log::info!("Skipping ipv6 test since ipv6 is not enabled locally");
+            log::trace!(target: "lusna", "Skipping ipv6 test since ipv6 is not enabled locally");
             return Ok(())
         }
 
@@ -117,22 +117,22 @@ pub mod tests {
         for proto in protocols {
             // give sleep to give time for conns to drop
             tokio::time::sleep(Duration::from_millis(100)).await;
-            log::info!("Testing proto {:?}", &proto);
+            log::trace!(target: "lusna", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
             let (mut listener, addr) = HdpServer::server_create_primary_listen_socket(proto.clone(),addr).unwrap();
-            log::info!("Bind/connect addr: {:?}", addr);
+            log::trace!(target: "lusna", "Bind/connect addr: {:?}", addr);
 
             let server = async move {
                 loop {
                     let next = listener.next().await;
-                    log::info!("[Server] Next conn: {:?}", next);
+                    log::trace!(target: "lusna", "[Server] Next conn: {:?}", next);
                     let (mut stream, peer_addr) = next.unwrap().unwrap();
                     tokio::spawn(async move {
-                        log::info!("[Server] Received stream from {}", peer_addr);
+                        log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
                         let buf = &mut [0u8;64];
                         let res = stream.read(buf).await;
-                        log::info!("Server-res: {:?}", res);
+                        log::trace!(target: "lusna", "Server-res: {:?}", res);
                         assert_eq!(buf[0], 0xfb, "Invalid read");
                         let _ = stream.write(&[0xfa]).await.unwrap();
                         stream.shutdown().await.unwrap();
@@ -147,12 +147,12 @@ pub mod tests {
                     let mut rng = rand::rngs::StdRng::from_entropy();
                     tokio::time::sleep(Duration::from_millis(rng.gen_range(10, 50))).await;
                     let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await.unwrap();
-                    log::info!("Client connected");
+                    log::trace!(target: "lusna", "Client connected");
                     let res = stream.write(&[0xfb]).await;
-                    log::info!("Client connected - A02 {:?}", res);
+                    log::trace!(target: "lusna", "Client connected - A02 {:?}", res);
                     let buf = &mut [0u8;64];
                     let res = stream.read(buf).await;
-                    log::info!("Client connected - AO3 {:?}", res);
+                    log::trace!(target: "lusna", "Client connected - AO3 {:?}", res);
                     assert_eq!(buf[0], 0xfa, "Invalid read - client");
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
                 });
@@ -169,11 +169,11 @@ pub mod tests {
                 }
             };
 
-            log::info!("Res: {:?}", res);
+            log::trace!(target: "lusna", "Res: {:?}", res);
 
             assert_eq!(cnt.load(Ordering::SeqCst), count);
 
-            log::info!("Ended proto test for singular proto successfully");
+            log::trace!(target: "lusna", "Ended proto test for singular proto successfully");
         }
 
         Ok(())

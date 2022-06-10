@@ -46,7 +46,7 @@ async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedCon
     stream.send_serialized(local_nat_type).await?;
     let peer_nat_type = &(stream.recv_serialized::<NatType>().await?);
 
-    log::info!("[driver] Local NAT type: {:?}", local_nat_type);
+    log::trace!(target: "lusna", "[driver] Local NAT type: {:?}", local_nat_type);
     let local_initial_socket = get_optimal_bind_socket(local_nat_type, peer_nat_type)?;
     let internal_bind_port = local_initial_socket.local_addr()?.port();
 
@@ -57,7 +57,7 @@ async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedCon
     // the next functions takes everything insofar obtained into account without causing collisions with any existing
     // connections (e.g., no conflicts with the primary stream existing in conn)
     let hole_punch_config = HolePunchConfig::new(local_nat_type, peer_nat_type, local_initial_socket, peer_internal_bind_port)?;
-    log::info!("[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
+    log::trace!(target: "lusna", "[driver] Synchronized; will now execute dualstack hole-puncher ... config: {:?}", hole_punch_config);
     let res = DualStackUdpHolePuncher::new(conn.node_type(), encrypted_config_container, hole_punch_config, conn)?.await;
     res
 }
@@ -116,12 +116,12 @@ mod tests {
     use rstest::rstest;
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        std::env::set_var("RUST_LOG", "lusna=trace");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     #[rstest]
@@ -136,36 +136,36 @@ mod tests {
 
         let server = async move {
             let res = server_stream.begin_udp_hole_punch(Default::default()).await;
-            log::info!("Server res: {:?}", res);
+            log::trace!(target: "lusna", "Server res: {:?}", res);
             res.unwrap()
         };
 
         let client = async move {
             let res = client_stream.begin_udp_hole_punch(Default::default()).await;
-            log::info!("Client res: {:?}", res);
+            log::trace!(target: "lusna", "Client res: {:?}", res);
             res.unwrap()
         };
 
         let server = tokio::spawn(server);
         let client = tokio::spawn(client);
         let (res0, res1) = tokio::join!(server, client);
-        log::info!("JOIN complete! {:?} | {:?}", res0, res1);
+        log::trace!(target: "lusna", "JOIN complete! {:?} | {:?}", res0, res1);
         let (res0, res1) = (res0.unwrap(), res1.unwrap());
 
         let dummy_bytes = b"Hello, world!";
 
-        log::info!("A");
+        log::trace!(target: "lusna", "A");
         res0.socket.send_to(dummy_bytes as &[u8], res0.addr.send_address).await.unwrap();
-        log::info!("B");
+        log::trace!(target: "lusna", "B");
         let buf = &mut [0u8; 4096];
         let (len, _addr) = res1.socket.recv_from(buf).await.unwrap();
         //assert_eq!(res1.addr.receive_address, addr);
-        log::info!("C");
+        log::trace!(target: "lusna", "C");
         assert_ne!(len, 0);
         res1.socket.send_to(dummy_bytes, res1.addr.send_address).await.unwrap();
         let (len, _addr) = res0.socket.recv_from(buf).await.unwrap();
         assert_ne!(len, 0);
         //assert_eq!(res0.addr.receive_address, addr);
-        log::info!("D");
+        log::trace!(target: "lusna", "D");
     }
 }

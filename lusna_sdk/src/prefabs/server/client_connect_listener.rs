@@ -50,7 +50,7 @@ impl<F, Fut> NetKernel for ClientConnectListenerKernel<F, Fut>
             },
 
             other => {
-                log::info!("Unhandled server signal: {:?}", other);
+                log::trace!(target: "lusna", "Unhandled server signal: {:?}", other);
                 Ok(())
             }
         }

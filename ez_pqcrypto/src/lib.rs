@@ -114,7 +114,7 @@ impl PostQuantumContainer {
         let previous_symmetric_key = opts.chain;
         let data = Self::create_new_alice(params.kem_algorithm)?;
         let aes_gcm_key = None;
-        log::info!("Success creating new ALICE container");
+        log::trace!(target: "lusna", "Success creating new ALICE container");
 
         Ok(Self { params, data, chain: previous_symmetric_key, shared_secret: aes_gcm_key, anti_replay_attack: AntiReplayAttackContainer::default(), node: PQNode::Alice })
     }
@@ -133,7 +133,7 @@ impl PostQuantumContainer {
 
         let aes_gcm_key = Some(aes_gcm_key);
 
-        log::info!("Success creating new BOB container");
+        log::trace!(target: "lusna", "Success creating new BOB container");
         Ok(Self { chain: Some(chain), params, shared_secret: aes_gcm_key, data, anti_replay_attack: AntiReplayAttackContainer::default(), node: PQNode::Bob })
     }
 
@@ -165,7 +165,7 @@ impl PostQuantumContainer {
 
             let chain = RecursiveChain::new(chain.as_slice(), alice_key, bob_key, false).ok_or(Error::InvalidLength)?;
 
-            //log::info!("Alice, Bob keys: {:?} || {:?}", alice_key, bob_key);
+            //log::trace!(target: "lusna", "Alice, Bob keys: {:?} || {:?}", alice_key, bob_key);
 
             let alice_key = aes_gcm_siv::aead::generic_array::GenericArray::<u8, _>::from_exact_iter(alice_key.as_slice().iter().cloned()).ok_or(Error::InvalidLength)?;
 
@@ -635,7 +635,7 @@ pub struct PostQuantumKem {
 
 impl PostQuantumKem {
     fn new_alice(algorithm: oqs::kem::Algorithm) -> Result<Self, Error> {
-        log::info!("About to generate keypair for {:?}", algorithm);
+        log::trace!(target: "lusna", "About to generate keypair for {:?}", algorithm);
         let kem_alg = oqs::kem::Kem::new(algorithm)?;
         let (public_key, secret_key) = kem_alg.keypair()?;
         let ciphertext = None;

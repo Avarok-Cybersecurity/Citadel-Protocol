@@ -21,7 +21,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
 
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     let (header, _payload) = return_if_none!(packet.parse(), "Unable to parse packet");
-    //log::info!("RECV Raw packet: {:?}", &*header);
+    //log::trace!(target: "lusna", "RECV Raw packet: {:?}", &*header);
 
     let target_cid = header.target_cid.get();
     let mut endpoint_cid_info = None;
@@ -78,7 +78,7 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
                 }
 
                 _ => {
-                    warn!("The primary port received an invalid packet command. Dropping");
+                    warn!(target: "lusna", "The primary port received an invalid packet command. Dropping");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
@@ -110,7 +110,7 @@ pub(crate) fn check_proxy(this_implicated_cid: Option<u64>, cmd_primary: u8, cmd
         if let Some(this_implicated_cid) = this_implicated_cid {
             // this implies there is at least a connection between hLAN client and hLAN server, but we don't know which is which
             if this_implicated_cid != target_cid {
-                log::info!("Proxying {}:{} packet from {} to {}", cmd_primary, cmd_aux, this_implicated_cid, target_cid);
+                log::trace!(target: "lusna", "Proxying {}:{} packet from {} to {}", cmd_primary, cmd_aux, this_implicated_cid, target_cid);
                 // Proxy will only occur if there exists a virtual connection, in which case, we get the TcpSender (since these are primary packets)
 
                 let mut state_container = inner_mut_state!(session.state_container);
@@ -126,28 +126,28 @@ pub(crate) fn check_proxy(this_implicated_cid: Option<u64>, cmd_primary: u8, cmd
                             #[cfg(all(feature = "localhost-testing", feature = "localhost-testing-assert-no-proxy"))]
                                 {
                                     if cmd_primary == packet_flags::cmd::primary::GROUP_PACKET && cmd_aux == packet_flags::cmd::aux::group::GROUP_HEADER {
-                                        log::error!("***Did not expect packet to be proxied via feature flag*** | local is server: {}", session.is_server);
+                                        log::error!(target: "lusna", "***Did not expect packet to be proxied via feature flag*** | local is server: {}", session.is_server);
                                         std::process::exit(1)
                                     }
                                 }
 
                             if let Err(_err) = peer_vconn.sender.as_ref().unwrap().1.unbounded_send(packet.into_packet()) {
-                                log::error!("Proxy TrySendError to {}", target_cid);
+                                log::error!(target: "lusna", "Proxy TrySendError to {}", target_cid);
                             }
                         }
 
                         ReceivePortType::UnorderedUnreliable => {
                             if let Some(udp_sender) = peer_vconn.sender.as_ref().unwrap().0.as_ref() {
                                 if let Err(_err) = udp_sender.unbounded_send(packet.into_packet()) {
-                                    log::error!("Proxy TrySendError to {}", target_cid);
+                                    log::error!(target: "lusna", "Proxy TrySendError to {}", target_cid);
                                 }
                             } else {
-                                log::error!("UDP sender not yet loaded (proxy)");
+                                log::error!(target: "lusna", "UDP sender not yet loaded (proxy)");
                             }
                         }
                     }
                 } else {
-                    log::warn!("Unable to proxy; virtual connection to {} is not alive", target_cid);
+                    log::warn!(target: "lusna", "Unable to proxy; virtual connection to {} is not alive", target_cid);
                 }
 
                 return None;

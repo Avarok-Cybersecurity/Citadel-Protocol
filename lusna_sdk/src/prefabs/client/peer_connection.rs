@@ -101,7 +101,7 @@ impl<'a, F, Fut> PrefabFunctions<'a, Vec<UserIdentifier>> for PeerConnectionKern
                         // TODO: optimize peer registration + connection in one go
                         let mut handle = remote.propose_target(implicated_cid, peer_to_connect.clone()).await?;
                         let _reg_success = handle.register_to_peer().await?;
-                        log::info!("Peer {:?} registered || success -> now connecting", peer_to_connect);
+                        log::trace!(target: "lusna", "Peer {:?} registered || success -> now connecting", peer_to_connect);
                         handle.connect_to_peer().await
                     }
                 };
@@ -164,7 +164,7 @@ mod tests {
                 let mut success = 0;
 
                 while let Some(conn) = results.recv().await {
-                    log::info!("User {} received {:?}", username, conn);
+                    log::trace!(target: "lusna", "User {} received {:?}", username, conn);
                     let _conn = conn?;
                     success += 1;
                     if success == peer_count-1 {
@@ -172,7 +172,7 @@ mod tests {
                     }
                 }
 
-                log::info!("***PEER {} CONNECT RESULT: {}***", username, success);
+                log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", username, success);
                 let _ = client_success.fetch_add(1, Ordering::Relaxed);
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
@@ -216,7 +216,7 @@ mod tests {
                 let mut success = 0;
 
                 while let Some(conn) = results.recv().await {
-                    log::info!("User {} received {:?}", uuid, conn);
+                    log::trace!(target: "lusna", "User {} received {:?}", uuid, conn);
                     let _conn = conn?;
                     success += 1;
                     if success == peer_count-1 {
@@ -224,7 +224,7 @@ mod tests {
                     }
                 }
 
-                log::info!("***PEER {} CONNECT RESULT: {}***", uuid, success);
+                log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", uuid, success);
                 let _ = client_success.fetch_add(1, Ordering::Relaxed);
                 wait_for_peers().await;
                 remote.shutdown_kernel().await

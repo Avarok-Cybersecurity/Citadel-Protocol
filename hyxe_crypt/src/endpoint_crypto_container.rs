@@ -66,7 +66,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
 
         let next_hyper_ratchet = newest_version.finish_with_custom_cid(local_cid).ok_or(())?;
         let status = self.toolset.update_from(next_hyper_ratchet).ok_or(())?;
-        log::info!("[E2E] Successfully updated HyperRatchet from v{} to v{}", cur_vers, next_vers);
+        log::trace!(target: "lusna", "[E2E] Successfully updated HyperRatchet from v{} to v{}", cur_vers, next_vers);
         //self.latest_hyper_ratchet_version_committed = next_vers;
 
         Ok((transfer, status))
@@ -80,7 +80,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     /// Performs an update internally, only if sync conditions allow
     pub fn update_sync_safe(&mut self, constructor: R::Constructor, local_is_alice: bool, local_cid: u64) -> Result<KemTransferStatus, ()> {
         let update_in_progress = self.update_in_progress.load(Ordering::SeqCst);
-        log::info!("[E2E] Calling UPDATE (local_is_alice: {}. Update in progress: {})", local_is_alice, update_in_progress);
+        log::trace!(target: "lusna", "[E2E] Calling UPDATE (local_is_alice: {}. Update in progress: {})", local_is_alice, update_in_progress);
         // if local is alice (relative), then update_in_progress will be expected to be true. As such, we don't want this to occur
         if update_in_progress && !local_is_alice {
             // update is in progress. We only update if local is NOT the initiator (this implies the packet triggering this was sent by the initiator, which takes the preference as desired)
@@ -121,23 +121,23 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         if requires_locked_by_alice {
             if self.lock_set_by_alice.unwrap_or(false) {
                 if !self.update_in_progress.fetch_nand(true, Ordering::SeqCst) {
-                    log::error!("Expected update_in_progress to be true");
+                    log::error!(target: "lusna", "Expected update_in_progress to be true");
                 }
 
                 //self.update_in_progress.store(false, Ordering::SeqCst);
                 self.lock_set_by_alice = None;
-                log::info!("Unlocking for {}", self.toolset.cid);
+                log::trace!(target: "lusna", "Unlocking for {}", self.toolset.cid);
             }
         } else {
 
             if !self.update_in_progress.fetch_nand(true, Ordering::SeqCst) {
-                log::error!("Expected update_in_progress to be true. LSBA: {:?} | Cid: {}", self.lock_set_by_alice, self.toolset.cid);
+                log::error!(target: "lusna", "Expected update_in_progress to be true. LSBA: {:?} | Cid: {}", self.lock_set_by_alice, self.toolset.cid);
                 //std::process::exit(-1);
             }
 
             //self.update_in_progress.store(false, Ordering::SeqCst);
             self.lock_set_by_alice = None;
-            log::info!("Unlocking for {}", self.toolset.cid);
+            log::trace!(target: "lusna", "Unlocking for {}", self.toolset.cid);
         }
 
         self.get_hyper_ratchet(None)
@@ -197,7 +197,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
 
 impl<R: Ratchet> Drop for PeerSessionCrypto<R> {
     fn drop(&mut self) {
-        //log::info!("**DROPPING PeerSessionCrypto for {:?}. Status: update_in_progress: {:?} | Status: lock_set_by_alice: {:?}**", self.toolset.cid, self.update_in_progress.load(Ordering::Relaxed), self.lock_set_by_alice);
+        //log::trace!(target: "lusna", "**DROPPING PeerSessionCrypto for {:?}. Status: update_in_progress: {:?} | Status: lock_set_by_alice: {:?}**", self.toolset.cid, self.update_in_progress.load(Ordering::Relaxed), self.lock_set_by_alice);
     }
 }
 
@@ -262,10 +262,10 @@ mod tests {
     fn setup_log() {
         std::env::set_var("RUST_LOG", "info");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     fn gen(enx: EncryptionAlgorithm, kem: KemAlgorithm, security_level: SecurityLevel, version: u32, opts: Option<Vec<ConstructorOpts>>) -> (HyperRatchet, HyperRatchet) {

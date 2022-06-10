@@ -157,8 +157,8 @@ impl<S: Read, F: Fn(&PacketVector, &Drill, u64, &mut BytesMut) + Send + Sync> As
         let window_size = 0..=std::cmp::min(max_waves_per_window, waves_in_group);
         let polls_needed = waves_in_group.div_ceil(&max_waves_per_window);
         let polls_finished = 0;
-        log::info!("Window size: {:?} | Total Polls: {}", window_size, polls_needed);
-        log::info!("BUFFER: {} | Max plaintext wavelength: {} | Max waves per window (div ceil): {}", BUFFER_LEN, grc.max_plaintext_wave_length, max_waves_per_window);
+        log::trace!(target: "lusna", "Window size: {:?} | Total Polls: {}", window_size, polls_needed);
+        log::trace!(target: "lusna", "BUFFER: {} | Max plaintext wavelength: {} | Max waves per window (div ceil): {}", BUFFER_LEN, grc.max_plaintext_wave_length, max_waves_per_window);
 
         let scramble_params = ScrambleParams {
             grc: grc.clone(),
@@ -195,14 +195,14 @@ impl<S: Read, F: Fn(&PacketVector, &Drill, u64, &mut BytesMut) + Send + Sync> As
         // Using div_ceil, if wave_range <= max_waves_per_window, we poll once
         // else if greater, we poll the ceiling number of times as expected
         let polls_required_this_iter = wave_range.div_ceil(&max_waves_per_window);
-        log::info!("Will poll {} times this round", polls_required_this_iter);
+        log::trace!(target: "lusna", "Will poll {} times this round", polls_required_this_iter);
         let packets_this_window = (0..polls_required_this_iter).into_iter().map(|poll_idx| {
             let (bytes_read, ret) = match this_orig.input.fill_buf() {
                 Ok(data) => {
                     let data: &[u8] = data;
                     let len = data.len();
                     let wave_start = wave_start + poll_idx * max_waves_per_window;
-                    log::info!("Starting to scramble wave_start: {}..", wave_start);
+                    log::trace!(target: "lusna", "Starting to scramble wave_start: {}..", wave_start);
                     let params = unsafe { &*params_ptr };
                     (len, par_scramble_encrypt_window(data, wave_start, params))
                 }
@@ -222,7 +222,7 @@ impl<S: Read, F: Fn(&PacketVector, &Drill, u64, &mut BytesMut) + Send + Sync> As
         if this_orig.polls_finished != this_orig.polls_needed {
             Poll::Ready(Some(cloned))
         } else {
-            log::info!("Finished encrypting + scrambling all the data! Ending stream");
+            log::trace!(target: "lusna", "Finished encrypting + scrambling all the data! Ending stream");
             Poll::Ready(None)
         }
     }

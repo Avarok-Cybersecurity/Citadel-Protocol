@@ -210,15 +210,15 @@ impl HdpSessionManager {
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
     /// TODO: Make this code less hacky, and make the removal process cleaner. Use RAII on HdpSessionInner?
     async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, tcp_stream: GenericNetworkStream) -> Result<(), NetworkError> {
-        log::info!("Beginning pre-execution of session");
+        log::trace!(target: "lusna", "Beginning pre-execution of session");
         match new_session.execute(tcp_stream, peer_addr).await {
             Ok(cid_opt) | Err((_, cid_opt)) => {
                 if let Some(cid) = cid_opt {
-                    //log::info!("[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
+                    //log::trace!(target: "lusna", "[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
                     session_manager.clear_session(cid);
                     session_manager.clear_provisional_session(&peer_addr);
                 } else {
-                    //log::info!("[safe] deleting provisional connection to {}", &peer_addr);
+                    //log::trace!(target: "lusna", "[safe] deleting provisional connection to {}", &peer_addr);
                     session_manager.clear_provisional_session(&peer_addr);
                 }
             }
@@ -249,7 +249,7 @@ impl HdpSessionManager {
                     pers.delete_cnac(cnac).await
                 };
                 let _ = spawn!(task);
-                log::info!("Deleting passwordless CNAC ...");
+                log::trace!(target: "lusna", "Deleting passwordless CNAC ...");
             }
         }
 
@@ -278,20 +278,20 @@ impl HdpSessionManager {
                         match vconn {
                             VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, _) => {
                                 if peer_cid != implicated_cid {
-                                    log::info!("Alerting {} that {} disconnected", peer_cid, implicated_cid);
+                                    log::trace!(target: "lusna", "Alerting {} that {} disconnected", peer_cid, implicated_cid);
                                     let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, peer_cid);
                                     let signal = PeerSignal::Disconnect(peer_conn_type, Some(PeerResponse::Disconnected(format!("{} disconnected from {} forcibly", peer_cid, implicated_cid))));
                                     if let Err(_err) = sess_mgr.send_signal_to_peer_direct(peer_cid, |peer_hyper_ratchet| {
                                         super::hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal, Ticket(0), timestamp, security_level)
                                     }) {
-                                        //log::error!("Unable to send shutdown signal to {}: {:?}", peer_cid, err);
+                                        //log::error!(target: "lusna", "Unable to send shutdown signal to {}: {:?}", peer_cid, err);
                                     }
 
                                     if let Some(peer_sess) = sess_mgr.sessions.get(&peer_cid) {
                                         let ref peer_sess = peer_sess.1;
                                         let mut peer_state_container = inner_mut_state!(peer_sess.state_container);
                                         if let None = peer_state_container.active_virtual_connections.remove(&implicated_cid) {
-                                            log::warn!("While dropping session {}, attempted to remove vConn to {}, but peer did not have the vConn listed. Report to developers", implicated_cid, peer_cid);
+                                            log::warn!(target: "lusna", "While dropping session {}, attempted to remove vConn to {}, but peer did not have the vConn listed. Report to developers", implicated_cid, peer_cid);
                                         }
                                     }
                                 }
@@ -305,7 +305,7 @@ impl HdpSessionManager {
             }
         } else {
             // if we are ending a client session, we just need to ensure that the P2P streams go-down
-            log::info!("Ending any active P2P connections");
+            log::trace!(target: "lusna", "Ending any active P2P connections");
             //sess.queue_worker.signal_shutdown();
             state_container.end_connections();
         }
@@ -451,7 +451,7 @@ impl HdpSessionManager {
                 // from a provisional to a protected connection must be allowed. As such, issue a warning here,
                 // then return true to allow the new connection to proceed instead of returning false
                 // due to overlapping connection
-                log::warn!("Cleaned up lingering session for {}", implicated_cid);
+                log::warn!(target: "lusna", "Cleaned up lingering session for {}", implicated_cid);
                 let ref prev_conn = lingering_conn.1;
                 prev_conn.do_static_hr_refresh_atexit.set(false);
             }
@@ -484,9 +484,9 @@ impl HdpSessionManager {
 
     /// When the registration process completes, and before sending the kernel a message, this should be called on BOTH ends
     pub fn clear_provisional_session(&self, addr: &SocketAddr) {
-        //log::info!("Attempting to clear provisional session ...");
+        //log::trace!(target: "lusna", "Attempting to clear provisional session ...");
         if inner_mut!(self).provisional_connections.remove(addr).is_none() {
-            log::warn!("Attempted to remove a connection {:?} that wasn't provisional", addr);
+            log::warn!(target: "lusna", "Attempted to remove a connection {:?} that wasn't provisional", addr);
         }
     }
 
@@ -564,7 +564,7 @@ impl HdpSessionManager {
                 let signal = GroupBroadcast::Invitation(key);
                 super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
             }) {
-                log::warn!("Unable to send signal to peer {}: {}", peer_cid, err.to_string());
+                log::warn!(target: "lusna", "Unable to send signal to peer {}: {}", peer_cid, err.to_string());
             }
         }
 
@@ -585,7 +585,7 @@ impl HdpSessionManager {
                         let signal = GroupBroadcast::Disconnected(key);
                         super::hdp_packet_crafter::peer_cmd::craft_group_message_packet(peer_hyper_ratchet, &signal, ticket, C2S_ENCRYPTION_ONLY, timestamp, security_level)
                     }) {
-                        log::warn!("Unable to send d/c signal to peer {}: {}", peer_cid, err.to_string());
+                        log::warn!(target: "lusna", "Unable to send d/c signal to peer {}: {}", peer_cid, err.to_string());
                     }
                 }
             }
@@ -609,7 +609,7 @@ impl HdpSessionManager {
 
         let left_signal = match peer_layer.remove_peers_from_message_group(key, peers).await {
             Ok((peers_removed, peers_remaining)) => {
-                log::info!("Peers removed: {:?}", &peers_removed);
+                log::trace!(target: "lusna", "Peers removed: {:?}", &peers_removed);
                 // We only notify the members when kicking, not leaving
                 if mode == GroupMemberAlterMode::Kick {
                     // notify all the peers removed
@@ -630,7 +630,7 @@ impl HdpSessionManager {
             }
 
             Err(_) => {
-                log::error!("Unable to kick peers from message group");
+                log::error!(target: "lusna", "Unable to kick peers from message group");
                 return Ok(false)
             }
         };
@@ -657,7 +657,7 @@ impl HdpSessionManager {
 
         if let Some(peers_to_broadcast_to) = peer_layer.get_peers_in_message_group(key).await {
             let broadcastees = peers_to_broadcast_to.iter().filter(|peer| **peer != implicated_cid).map(|r| (*r, true));
-            log::info!("[Server/Group] peers_and_statuses: {:?}", broadcastees);
+            log::trace!(target: "lusna", "[Server/Group] peers_and_statuses: {:?}", broadcastees);
             let (_success, failed) = self.send_group_broadcast_signal_to(timestamp, ticket, broadcastees, true, signal, security_level).await?;
             Ok(failed.is_empty())
         } else {
@@ -741,7 +741,7 @@ impl HdpSessionManager {
 
         peer_cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
             if let Some(peer_latest_hyper_ratchet) = hyper_ratchet_opt {
-                log::info!("Routing packet through primary stream -> {}", target_cid);
+                log::trace!(target: "lusna", "Routing packet through primary stream -> {}", target_cid);
                 let packet = packet(peer_latest_hyper_ratchet);
                 peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
             } else {
@@ -762,7 +762,7 @@ impl HdpSessionManager {
             inner!(self).account_manager.clone()
         };
 
-        log::info!("Checking if {} is registered locally ... {:?}", target_cid, signal);
+        log::trace!(target: "lusna", "Checking if {} is registered locally ... {:?}", target_cid, signal);
         if account_manager.hyperlan_cid_is_registered(target_cid).await.map_err(|err| err.into_string())? {
             let (sess, pers) = {
                 let this = inner!(self);
@@ -778,7 +778,7 @@ impl HdpSessionManager {
 
                 peer_cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
                     if let Some(peer_latest_hyper_ratchet) = hyper_ratchet_opt {
-                        log::info!("Routing packet through primary stream ({} -> {})", implicated_cid, target_cid);
+                        log::trace!(target: "lusna", "Routing packet through primary stream ({} -> {})", implicated_cid, target_cid);
                         let packet = packet(peer_latest_hyper_ratchet);
                         peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
                     } else {
@@ -815,7 +815,7 @@ impl HdpSessionManager {
             recv.recv().await.ok_or(NetworkError::InternalError("Unable to receive shutdown signal"))?;
         }
 
-        log::info!("All sessions dropped");
+        log::trace!(target: "lusna", "All sessions dropped");
         Ok(())
     }
 
@@ -904,7 +904,7 @@ impl HdpSessionManagerInner {
     /// Clears a session from the SessionManager
     pub fn clear_session(&mut self, cid: u64) {
         if let None = self.sessions.remove(&cid) {
-            log::warn!("Tried removing a session (non-provisional), but did not find it ...");
+            log::warn!(target: "lusna", "Tried removing a session (non-provisional), but did not find it ...");
         }
     }
 

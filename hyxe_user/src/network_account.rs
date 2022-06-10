@@ -5,7 +5,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use parking_lot::{RwLock, RwLockWriteGuard, RwLockReadGuard};
 //use future_parking_lot::rwlock::{FutureReadable, FutureWriteable, RwLock};
-use log::info;
 use rand::{random, RngCore, thread_rng};
 use serde::{Deserialize, Serialize};
 
@@ -80,7 +79,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
         let nid = random::<u64>() ^ random::<u64>();
         let local_path = get_pathbuf(directory_store.inner.read().nac_node_default_store_location.as_str());
         let cids_registered = HashMap::new();
-        info!("Attempting to create a NAC at {:?}", &local_path);
+        log::trace!(target: "lusna", "Attempting to create a NAC at {:?}", &local_path);
 
         Ok(Self { inner: Arc::new((nid, RwLock::new(NetworkAccountInner::<R, Fcm> { cids_registered, nid, connection_info: None, persistence_handler: None}))) })
     }
@@ -147,7 +146,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
             e.insert(username.into());
             Ok(())
         } else {
-            log::error!("Overwrote pre-existing account that lingered in the NID list. Report to developers");
+            log::error!(target: "lusna", "Overwrote pre-existing account that lingered in the NID list. Report to developers");
             Err(AccountError::ClientExists(cid))
         }
     }
@@ -175,11 +174,11 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     #[allow(unused_results)]
     pub async fn create_client_account(&self, reserved_cid: u64, nac_other: Option<NetworkAccount<R, Fcm>>, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         if nac_other.is_none() {
-            info!("WARNING: You are using debug mode. The supplied NAC is none, and will receive THIS nac in its place (unit tests only)");
+            log::trace!(target: "lusna", "WARNING: You are using debug mode. The supplied NAC is none, and will receive THIS nac in its place (unit tests only)");
         }
 
         // We must lock the config to ensure that the obtained CID gets added into the database before any competing threads may get called
-        log::info!("Checking username {} for correspondence ...", auth_store.username());
+        log::trace!(target: "lusna", "Checking username {} for correspondence ...", auth_store.username());
 
         let persistence_handler = self.inner.1.read().persistence_handler.clone().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".to_string()))?;
 
@@ -227,11 +226,11 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
 
         let path_no_filename = path.parent().unwrap().clone();
         let path_name = path_no_filename.display().to_string();
-        info!("Storing NAC to directory: {}", &path_name);
+        log::trace!(target: "lusna", "Storing NAC to directory: {}", &path_name);
         hyxe_fs::system_file_manager::make_dir_all_blocking(path_no_filename).map_err(|err| AccountError::Generic(err.to_string()))?;
-        info!("Dirs created for {}", path_name);
+        log::trace!(target: "lusna", "Dirs created for {}", path_name);
         inner_nac.serialize_to_local_fs(path).map_err(|err| AccountError::IoError(err.to_string()))?;
-        info!("Serialized to local fs for {}", path_name);
+        log::trace!(target: "lusna", "Serialized to local fs for {}", path_name);
         Ok(())
     }
 

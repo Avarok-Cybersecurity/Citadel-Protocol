@@ -159,7 +159,7 @@ mod tests {
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
 
         let client_kernel = SingleClientServerConnectionKernel::new_register_defaults("Thomas P Braun", "nologik", "password", server_addr, |_channel,_remote| async move {
-            log::info!("***CLIENT TEST SUCCESS***");
+            log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
             client_success.store(true, Ordering::Relaxed);
             stop_tx.send(()).unwrap();
             Ok(())
@@ -190,7 +190,7 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(uuid, server_addr, |_channel, _remote| async move {
-            log::info!("***CLIENT TEST SUCCESS***");
+            log::trace!(target: "lusna", "***CLIENT TEST SUCCESS***");
             //_remote.inner.find_target("", "").await.unwrap().connect_to_peer().await.unwrap();
             client_success.store(true, Ordering::Relaxed);
             stop_tx.send(()).unwrap();

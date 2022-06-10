@@ -38,11 +38,11 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
     //let account_manager = account_manager.clone();
     let base64_value = base64_value.into();
 
-    log::info!("A0");
+    log::trace!(target: "lusna", "A0");
     let raw_packet = RawExternalPacket::from(base64_value);
-    log::info!("A1");
+    log::trace!(target: "lusna", "A1");
     let packet = FcmPacket::from_raw_fcm_packet(&raw_packet).map_empty_err()?;
-    log::info!("A2");
+    log::trace!(target: "lusna", "A2");
     let header = packet.header();
     let group_id = header.group_id.get();
     let ticket = header.ticket.get();
@@ -59,7 +59,7 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
 
     // TODO: Run packet through can_process_packet. If false, then send a REQ packet to request retransmission of last packet in series, and store packet locally
 
-    log::info!("Using {} ratchet (local CID: {} | ratchet vers: {})", use_client_server_ratchet.then(|| "client/server").unwrap_or("FCM endpoint"), local_cid, ratchet_version);
+    log::trace!(target: "lusna", "Using {} ratchet (local CID: {} | ratchet vers: {})", use_client_server_ratchet.then(|| "client/server").unwrap_or("FCM endpoint"), local_cid, ratchet_version);
     let cnac = account_manager.get_client_by_cid(local_cid).await?.ok_or(AccountError::ClientNonExists(local_cid))?;
     let res = cnac.visit_mut(|mut inner| async move {
         // get the implicated_cid's peer session crypto. In order to pass this checkpoint, the two users must have registered to each other
@@ -74,34 +74,34 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
             ..
         } = &mut *inner;
 
-        log::info!("A3");
+        log::trace!(target: "lusna", "A3");
 
         if use_client_server_ratchet {
-            log::info!("A4-CS");
+            log::trace!(target: "lusna", "A4-CS");
             let ratchet = crypt_container.toolset.get_static_auxiliary_ratchet();
             let persistence_handler = persistence_handler.as_ref().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".into()))?;
-            log::info!("A5");
+            log::trace!(target: "lusna", "A5");
             ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
-            log::info!("[FCM] Successfully validated packet. Parsing payload ...");
+            log::trace!(target: "lusna", "[FCM] Successfully validated packet. Parsing payload ...");
             let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
             let source_cid = group_id;
-            log::info!("A6");
+            log::trace!(target: "lusna", "A6");
 
             match payload {
                 // NOTE: Lock being held here across .await
                 FCMPayloadType::PeerPostRegister { transfer, username } => peer_post_register::process(persistence_handler, fcm_invitations, kem_state_containers, fcm_crypt_container, mutuals, local_cid, source_cid, ticket, transfer, username).await,
                 _ => {
-                    log::warn!("[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
+                    log::warn!(target: "lusna", "[FCM] Invalid client/server signal received. Signal not programmed to be processed using c2s encryption");
                     Err(AccountError::msg("Bad signal, report to developers (X-789)"))
                 }
             }
         } else {
             let crypt_container = fcm_crypt_container.get_mut(&implicated_cid).ok_or_else(|| AccountError::Generic("FCM Peer session crypto nonexistant".to_string()))?;
-            log::info!("A4-E2E");
+            log::trace!(target: "lusna", "A4-E2E");
             let ratchet = crypt_container.get_hyper_ratchet(Some(ratchet_version)).cloned().ok_or_else(|| AccountError::Generic("FCM Ratchet version not found".to_string()))?;
-            log::info!("A5");
+            log::trace!(target: "lusna", "A5");
             ratchet.validate_message_packet(None, &header, &mut payload).map_err(|err| AccountError::Generic(err.into_string()))?;
-            log::info!("[FCM] Successfully validated packet. Parsing payload ...");
+            log::trace!(target: "lusna", "[FCM] Successfully validated packet. Parsing payload ...");
             let payload = FCMPayloadType::deserialize_from_vector(&payload).map_err(|err| AccountError::Generic(err.to_string()))?;
 
             let fcm_client = &(match send_service_type { ExternalService::Fcm => Some(Arc::new(Client::new())), _ => None });
@@ -119,13 +119,13 @@ pub async fn process<T: Into<String>>(base64_value: T, account_manager: AccountM
         }
     }).await?;
 
-    log::info!("A7");
+    log::trace!(target: "lusna", "A7");
 
     if res.implies_save_needed() {
         cnac.save().await?;
     }
 
-    log::info!("FCM-processing complete");
+    log::trace!(target: "lusna", "FCM-processing complete");
 
     Ok(res)
 }
@@ -258,11 +258,11 @@ pub fn block_on_async<F: Future + Send + 'static>(fx: impl FnOnce() -> F + Send 
 
         let mut lock = RT.lock();
         if lock.is_none() {
-            log::info!("Constructing current_thread RT ...");
+            log::trace!(target: "lusna", "Constructing current_thread RT ...");
             *lock = Some(Arc::new(tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|err| AccountError::Generic(err.to_string()))?));
         }
 
-        log::info!("RT existent, now spawning ...");
+        log::trace!(target: "lusna", "RT existent, now spawning ...");
         let rt = lock.clone().unwrap();
         std::mem::drop(lock);
 
@@ -270,7 +270,7 @@ pub fn block_on_async<F: Future + Send + 'static>(fx: impl FnOnce() -> F + Send 
 
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|err| AccountError::Generic(err.to_string()))?;
         rt.block_on(async move {
-            log::info!("block_on_async spawned ...");
+            log::trace!(target: "lusna", "block_on_async spawned ...");
             Ok((fx)().await)
         })
     }).join().map_err(|_| AccountError::Generic("Error while joining thread".to_string()))?
@@ -278,7 +278,7 @@ pub fn block_on_async<F: Future + Send + 'static>(fx: impl FnOnce() -> F + Send 
      */
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|err| AccountError::Generic(err.to_string()))?;
     rt.block_on(async move {
-        log::info!("block_on_async spawned ...");
+        log::trace!(target: "lusna", "block_on_async spawned ...");
         Ok((fx)().await)
     })
 }

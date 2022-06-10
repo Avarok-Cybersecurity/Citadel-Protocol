@@ -10,10 +10,10 @@ mod tests {
     fn setup_log() {
         std::env::set_var("RUST_LOG", "trace");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     #[tokio::test]
@@ -23,7 +23,7 @@ mod tests {
         const API_KEY: &str = "AIzaSyDtYt9f0c7x3uL7EhALL6isXXD0q_wGBpA";
         let auth = hyxe_user::external_services::google_auth::GoogleAuth::load_from_google_services_file("/Users/nologik/googlesvc.json").await.unwrap();
         let jwt = auth.sign_new_custom_jwt_auth(USER).unwrap();
-        log::info!("JWT: {}", jwt);
+        log::trace!(target: "lusna", "JWT: {}", jwt);
 
         let mut firebase_rtdb = firebase_rtdb::FirebaseRTDB::new_from_jwt("https://verisend-d3aec-default-rtdb.firebaseio.com/", jwt, API_KEY).await.unwrap();
         let mut map = HashMap::new();
@@ -31,12 +31,12 @@ mod tests {
         map.insert("name", "A peer");
 
         let resp = firebase_rtdb.root().await.unwrap().child("users").child(USER.to_string()).child("peers").final_node("777").post(&map).await.unwrap();
-        log::info!("RESP: {}", resp);
+        log::trace!(target: "lusna", "RESP: {}", resp);
 
         firebase_rtdb.renew_token().await.unwrap();
 
         let resp = firebase_rtdb.root().await.unwrap().child("users").child(USER.to_string()).child("peers").child("second").final_node("777").post(&map).await.unwrap();
-        log::info!("RESP: {}", resp);
+        log::trace!(target: "lusna", "RESP: {}", resp);
     }
 
     #[allow(dead_code)]

@@ -68,7 +68,7 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
     where
         F: Future<Output=Result<T, E>> {
     let conn = &(conn.initiate_subscription().await?);
-    log::info!("NET_TRY_JOIN started conv={:?} for {:?}", conn.id(), local_node_type);
+    log::trace!(target: "lusna", "NET_TRY_JOIN started conv={:?} for {:?}", conn.id(), local_node_type);
     let (stopper_tx, stopper_rx) = tokio::sync::oneshot::channel::<()>();
 
     struct LocalState<T, E> {
@@ -93,10 +93,10 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
 
         loop {
             let received_remote_state = conn.recv_serialized::<State>().await?;
-            //log::info!("{:?} RECV'd {:?}", local_node_type, &received_remote_state);
+            //log::trace!(target: "lusna", "{:?} RECV'd {:?}", local_node_type, &received_remote_state);
             let mut lock = local_state_ref.lock().await;
             let local_state_info = lock.ret_value.as_ref().map(|r| r.is_ok());
-            log::info!("[conv={:?} Node {:?} recv {:?} || Local state: {:?}", conn.id(), local_node_type, received_remote_state, lock.local_state);
+            log::trace!(target: "lusna", "[conv={:?} Node {:?} recv {:?} || Local state: {:?}", conn.id(), local_node_type, received_remote_state, lock.local_state);
             if has_preference {
                 // if local has preference, we have the permission to evaluate
                 // first, check to make sure local hasn't already obtained a value
@@ -145,7 +145,7 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
         let state = res.as_ref().map(|_| State::ObtainedValidResult).unwrap_or(State::Error);
 
         // we don't check the local state because the resolution would terminate this task anyways
-        //log::info!("[NetRacer] {:?} Old state: {:?} | New state: {:?}", local_node_type, &local_state.local_state, &state);
+        //log::trace!(target: "lusna", "[NetRacer] {:?} Old state: {:?} | New state: {:?}", local_node_type, &local_state.local_state, &state);
 
         local_state.local_state = state.clone();
         local_state.ret_value = Some(res);
@@ -153,7 +153,7 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
         // now, send a packet to the other side
         conn.send_serialized(state).await?;
         std::mem::drop(local_state);
-        //log::info!("[NetRacer] {:?} completer done", local_node_type);
+        //log::trace!(target: "lusna", "[NetRacer] {:?} completer done", local_node_type);
 
         stopper_rx.await?;
         Err(anyhow::Error::msg("Stopped before the resolver"))
@@ -161,7 +161,7 @@ async fn resolve<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnK
 
     tokio::select! {
         res0 = evaluator => {
-            log::info!("NET_TRY_JOIN ending for {:?} (conv={:?})", local_node_type, conn.id());
+            log::trace!(target: "lusna", "NET_TRY_JOIN ending for {:?} (conv={:?})", local_node_type, conn.id());
             let ret = res0?;
             wrap_return(ret)
         },
@@ -183,13 +183,13 @@ mod tests {
     use crate::sync::test_utils::create_streams;
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        std::env::set_var("RUST_LOG", "lusna=trace");
         //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     #[tokio::test]
@@ -199,24 +199,24 @@ mod tests {
         let (server_stream, client_stream) = create_streams().await;
         const COUNT: i32 = 10;
         for idx in 0..COUNT {
-            log::info!("[Meta] ERR:ERR ({}/{})", idx, COUNT);
+            log::trace!(target: "lusna", "[Meta] ERR:ERR ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function_err(), dummy_function_err(), false).await;
         }
 
         for idx in 0..COUNT {
-            log::info!("[Meta] OK:OK ({}/{})", idx, COUNT);
+            log::trace!(target: "lusna", "[Meta] OK:OK ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function(), dummy_function(), true).await;
         }
 
         
         for idx in 0..COUNT{
-            log::info!("[Meta] ERR:OK ({}/{})", idx, COUNT);
+            log::trace!(target: "lusna", "[Meta] ERR:OK ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function_err(), dummy_function(), false).await;
         }
 
 
         for idx in 0..COUNT {
-            log::info!("[Meta] OK:ERR ({}/{})", idx, COUNT);
+            log::trace!(target: "lusna", "[Meta] OK:ERR ({}/{})", idx, COUNT);
             inner(server_stream.clone(), client_stream.clone(), dummy_function(), dummy_function_err(), false).await;
         }
     }
@@ -225,13 +225,13 @@ mod tests {
     async fn inner<R: Send + Debug + 'static, F: Future<Output=Result<R, &'static str>> + Send + 'static, Y: Future<Output=Result<R, &'static str>> + Send + 'static>(conn0: NetworkApplication, conn1: NetworkApplication, fx_1: F, fx_2: Y, success: bool) {
         let server = async move {
             let res = conn0.net_try_join(fx_1).await.unwrap();
-            log::info!("Server res: {:?}", res.value);
+            log::trace!(target: "lusna", "Server res: {:?}", res.value);
             res
         };
 
         let client = async move {
             let res = conn1.net_try_join(fx_2).await.unwrap();
-            log::info!("Client res: {:?}", res);
+            log::trace!(target: "lusna", "Client res: {:?}", res);
             res
         };
 
@@ -239,18 +239,18 @@ mod tests {
         let client = tokio::spawn(client);
         let (res0, res1) = tokio::join!(server, client);
 
-        log::info!("Unwrapping ....");
+        log::trace!(target: "lusna", "Unwrapping ....");
 
         let (res0, res1) = (res0.unwrap(), res1.unwrap());
 
-        log::info!("Done unwrapping");
+        log::trace!(target: "lusna", "Done unwrapping");
         if success {
             assert!(res0.value.unwrap().is_ok() && res1.value.unwrap().is_ok())
         } else {
             assert!(res0.value.map(|r| r.is_err()).unwrap_or(true) || res1.value.map(|r| r.is_err()).unwrap_or(true));
         }
 
-        log::info!("DONE executing")
+        log::trace!(target: "lusna", "DONE executing")
     }
 
     async fn dummy_function() -> Result<(), &'static str> {

@@ -219,7 +219,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
                 let new_bind_addr = udp_sck.local_addr()?;
                 udp_sck.connect(server).await?;
                 let (handler_tx, mut handler_rx) = tokio::sync::mpsc::unbounded_channel();
-                log::info!("Connected to STUN server {:?}", server);
+                log::trace!(target: "lusna", "Connected to STUN server {:?}", server);
 
                 let mut client = ClientBuilder::new().with_conn(Arc::new(udp_sck)).build()?;
 
@@ -232,11 +232,11 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
                             xor_addr.get_from(&msg)?;
                             let natted_addr = SocketAddr::new(xor_addr.ip, xor_addr.port);
 
-                            log::info!("External ADDR: {:?} | internal: {:?}", natted_addr, new_bind_addr);
+                            log::trace!(target: "lusna", "External ADDR: {:?} | internal: {:?}", natted_addr, new_bind_addr);
 
                             return Ok(Some((natted_addr, new_bind_addr)));
                         }
-                        Err(err) => log::info!("{:?}", err),
+                        Err(err) => log::trace!(target: "lusna", "{:?}", err),
                     };
                 }
 
@@ -304,7 +304,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
 
                 let delta0 = i32::abs(deltas[0] as i32 - deltas[1] as i32);
                 let delta1 = i32::abs(deltas[1] as i32 - deltas[2] as i32);
-                log::info!("[external] Delta0: {} | Delta1: {}", delta0, delta1);
+                log::trace!(target: "lusna", "[external] Delta0: {} | Delta1: {}", delta0, delta1);
 
                 let highest_latest_port = deltas[2];
                 let highest_last_addr = SocketAddr::new(addr_ext.ip(), highest_latest_port);
@@ -328,7 +328,7 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
 
     let (nat_type, ip_info) = tokio::join!(nat_type, ip_info);
     let mut nat_type = nat_type?;
-    log::info!("NAT Type: {:?}", nat_type);
+    log::trace!(target: "lusna", "NAT Type: {:?}", nat_type);
     let ip_info = ip_info.map_err(|err| anyhow::Error::msg(err.to_string()))?;
 
     nat_type.store_ip_info(ip_info);
@@ -342,13 +342,13 @@ mod tests {
     use std::str::FromStr;
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        std::env::set_var("RUST_LOG", "lusna=trace");
         //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     #[tokio::test]
@@ -356,7 +356,7 @@ mod tests {
         setup_log();
         let nat_type = NatType::identify().await.unwrap();
         let traversal_type = nat_type.traversal_type_required();
-        log::info!("NAT Type: {:?} | Reaching this node will require: {:?} NAT traversal | Hypothetical connect scenario", nat_type, traversal_type);
+        log::trace!(target: "lusna", "NAT Type: {:?} | Reaching this node will require: {:?} NAT traversal | Hypothetical connect scenario", nat_type, traversal_type);
     }
 
     #[test]
