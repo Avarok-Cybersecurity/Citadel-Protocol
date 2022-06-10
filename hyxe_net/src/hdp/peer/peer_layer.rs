@@ -11,7 +11,7 @@ use futures::Stream;
 use crate::hdp::peer::peer_crypt::KeyExchangeProcess;
 use std::fmt::{Display, Formatter};
 use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer, MessageGroupOptions, GroupType};
-use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
 use serde::{Serialize, Deserialize};
 use hyxe_fs::prelude::SyncIO;
 use crate::macros::SyncContextRequirements;
@@ -99,7 +99,7 @@ impl HyperNodePeerLayer {
             let mut this_orig = self.inner.write().await;
 
             if !this_orig.message_groups.contains_key(&cid) {
-                log::info!("Adding message group hashmap for {}", cid);
+                log::trace!(target: "lusna", "Adding message group hashmap for {}", cid);
                 this_orig.message_groups.insert(cid, HashMap::new());
             }
 
@@ -107,7 +107,7 @@ impl HyperNodePeerLayer {
 
             // Otherwise, add only if it doesn't already exist
             if !this.observed_postings.contains_key(&cid) {
-                log::info!("Adding observed postings handler for {}", cid);
+                log::trace!(target: "lusna", "Adding observed postings handler for {}", cid);
                 this.observed_postings.insert(cid, HashMap::new());
             }
 
@@ -117,7 +117,7 @@ impl HyperNodePeerLayer {
         // drain mailbox, return to user (means there was mail to view)
         let items = pers.remove_byte_map_values_by_key(cid, 0, MAILBOX).await?;
         if items.len() != 0 {
-            log::info!("Returning enqueued mailbox items for {}", cid);
+            log::trace!(target: "lusna", "Returning enqueued mailbox items for {}", cid);
             Ok(Some(MailboxTransfer::from(items.into_values().map(PeerSignal::deserialize_from_owned_vector).try_collect::<PeerSignal, Vec<PeerSignal>, _>().map_err(|err| NetworkError::Generic(err.to_string()))?)))
         } else {
             Ok(None)
@@ -162,7 +162,7 @@ impl HyperNodePeerLayer {
                 None
             }
         } else {
-            log::warn!("The maximum number of groups per session has been reached for {}", implicated_cid);
+            log::warn!(target: "lusna", "The maximum number of groups per session has been reached for {}", implicated_cid);
             None
         }
     }
@@ -184,7 +184,7 @@ impl HyperNodePeerLayer {
                     entry.pending_peers.insert(peer_cid, insert);
                 }
             } else {
-                log::warn!("Unable to locate MGID. Peers will not be able to accept");
+                log::warn!(target: "lusna", "Unable to locate MGID. Peers will not be able to accept");
             }
         }
     }
@@ -297,10 +297,10 @@ impl HyperNodePeerLayerExecutor {
             let (implicated_cid, ticket) = res.into_inner();
             if let Some(active_postings) = this.observed_postings.get_mut(&implicated_cid) {
                 if let Some(posting) = active_postings.remove(&ticket) {
-                    log::warn!("Running on_timeout for active posting {} for CID {}", ticket, implicated_cid);
+                    log::warn!(target: "lusna", "Running on_timeout for active posting {} for CID {}", ticket, implicated_cid);
                     (posting.on_timeout)(posting.signal)
                 } else {
-                    log::error!("Attempted to remove active posting {} for CID {}, but failed", implicated_cid, ticket);
+                    log::error!(target: "lusna", "Attempted to remove active posting {} for CID {}, but failed", implicated_cid, ticket);
                 }
             }
         }
@@ -314,14 +314,14 @@ impl HyperNodePeerLayerInner {
     /// Returns the target's ticket for their corresponding request
     pub fn check_simultaneous_register(&mut self, implicated_cid: u64, peer_cid: u64) -> Option<Ticket> {
         let this = self.inner.read();
-        log::info!("Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
+        log::trace!(target: "lusna", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
         let peer_map = this.observed_postings.get(&peer_cid)?;
-        log::info!("Checking simultaneous register between {} and {} | map len: {}", implicated_cid, peer_cid, peer_map.len());
+        log::trace!(target: "lusna", "Checking simultaneous register between {} and {} | map len: {}", implicated_cid, peer_cid, peer_map.len());
         peer_map
             .iter()
             // PeerConnectionType, Username, Option<Username>, Option<Ticket>, Option<PeerResponse>, FcmPostRegister
             .find(|(_, posting)| if let PeerSignal::PostRegister(conn, _, _, _, None, _) = &posting.signal {
-                log::info!("Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
+                log::trace!(target: "lusna", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
                 if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
                     *b == implicated_cid
                 } else {
@@ -337,13 +337,13 @@ impl HyperNodePeerLayerInner {
     /// Returns the target's ticket and signal for their corresponding request
     pub fn check_simultaneous_connect(&mut self, implicated_cid: u64, peer_cid: u64) -> Option<Ticket> {
         let this = self.inner.read();
-        log::info!("Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
+        log::trace!(target: "lusna", "Checking simultaneous register between {} and {}", implicated_cid, peer_cid);
         let peer_map = this.observed_postings.get(&peer_cid)?;
 
         peer_map
             .iter()
             .find(|(_, posting)| if let PeerSignal::PostConnect(conn, _, _, _, _) = &posting.signal {
-                log::info!("Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
+                log::trace!(target: "lusna", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
                 if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
                     *b == implicated_cid
                 } else {
@@ -364,7 +364,7 @@ impl HyperNodePeerLayerInner {
         let mut this = self.inner.write();
         let delay_key = this.delay_queue
             .insert((implicated_cid, ticket), timeout);
-        log::info!("Creating TrackedPosting {} (Ticket: {})", implicated_cid, ticket);
+        log::trace!(target: "lusna", "Creating TrackedPosting {} (Ticket: {})", implicated_cid, ticket);
 
         if let Some(map) = this.observed_postings.get_mut(&implicated_cid) {
             let tracked_posting = TrackedPosting::new(signal, delay_key, on_timeout);
@@ -373,26 +373,26 @@ impl HyperNodePeerLayerInner {
             std::mem::drop(this);
             self.waker.wake();
         } else {
-            log::error!("Unable to find implicated_cid in observed_posting. Bad init state?");
+            log::error!(target: "lusna", "Unable to find implicated_cid in observed_posting. Bad init state?");
         }
     }
 
     pub fn remove_tracked_posting_inner(&mut self, implicated_cid: u64, ticket: Ticket) -> Option<PeerSignal> {
-        log::info!("Removing tracked posting for {} (ticket: {})", implicated_cid, ticket);
+        log::trace!(target: "lusna", "Removing tracked posting for {} (ticket: {})", implicated_cid, ticket);
         let mut this = self.inner.write();
         if let Some(active_postings) = this.observed_postings.get_mut(&implicated_cid) {
             if let Some(active_posting) = active_postings.remove(&ticket) {
-                log::info!("Successfully removed tracked posting {} (ticket: {})", implicated_cid, ticket);
+                log::trace!(target: "lusna", "Successfully removed tracked posting {} (ticket: {})", implicated_cid, ticket);
                 let _ = this.delay_queue.remove(&active_posting.key);
                 std::mem::drop(this);
                 self.waker.wake();
                 Some(active_posting.signal)
             } else {
-                log::warn!("Tracked posting for {} (ticket: {}) does not exist since key for ticket does not exist", implicated_cid, ticket);
+                log::warn!(target: "lusna", "Tracked posting for {} (ticket: {}) does not exist since key for ticket does not exist", implicated_cid, ticket);
                 None
             }
         } else {
-            log::warn!("Tracked posting for {} (ticket: {}) does not exist since key for cid does not exist", implicated_cid, ticket);
+            log::warn!(target: "lusna", "Tracked posting for {} (ticket: {}) does not exist since key for cid does not exist", implicated_cid, ticket);
             None
         }
     }

@@ -13,14 +13,14 @@ use tokio::net::TcpListener;
 pub fn setup_log() {
     std::env::set_var("RUST_LOG", "error,warn,info");
     let _ = env_logger::try_init();
-    log::trace!("TRACE enabled");
-    log::info!("INFO enabled");
-    log::warn!("WARN enabled");
-    log::error!("ERROR enabled");
+    log::trace!(target: "lusna", "TRACE enabled");
+    log::trace!(target: "lusna", "INFO enabled");
+    log::warn!(target: "lusna", "WARN enabled");
+    log::error!(target: "lusna", "ERROR enabled");
 }
 
 #[allow(dead_code)]
-pub fn server_test_node<K: NetKernel>(bind_addr: SocketAddr, kernel: K) -> NodeFuture<K> {
+pub fn server_test_node<'a, K: NetKernel + 'a>(bind_addr: SocketAddr, kernel: K) -> NodeFuture<'a, K> {
     NodeBuilder::default()
         .with_node_type(NodeType::Server(bind_addr))
         .build(kernel).unwrap()
@@ -28,7 +28,7 @@ pub fn server_test_node<K: NetKernel>(bind_addr: SocketAddr, kernel: K) -> NodeF
 
 #[allow(dead_code)]
 #[cfg(feature = "localhost-testing")]
-pub fn server_info() -> (NodeFuture<EmptyKernel>, SocketAddr) {
+pub fn server_info<'a>() -> (NodeFuture<'a, EmptyKernel>, SocketAddr) {
     let port = get_unused_tcp_port();
     let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
     let server = crate::test_common::server_test_node(bind_addr, EmptyKernel::default());

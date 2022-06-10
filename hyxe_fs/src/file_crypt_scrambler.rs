@@ -50,7 +50,7 @@ pub fn scramble_encrypt_file<F: HeaderInscriberFn, const N: usize>(std_file: std
     let file_len = metadata.len() as usize;
     let total_groups = num::Integer::div_ceil(&file_len, &max_bytes_per_group);
 
-    log::info!("Will parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, file_len, (file_len as f32)/(1024f32*1024f32), total_groups);
+    log::trace!(target: "lusna", "Will parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, file_len, (file_len as f32)/(1024f32*1024f32), total_groups);
     let reader = BufReader::with_capacity(std::cmp::min(file_len, max_bytes_per_group), std_file);
 
     let buffer = Arc::new(Mutex::new(vec![0u8; std::cmp::min(file_len, max_bytes_per_group)]));
@@ -128,7 +128,7 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
             *cur_task = None;
             Poll::Ready(Some(sender))
         } else {
-            log::error!("Unable to par_scramble_encrypt group");
+            log::error!(target: "lusna", "Unable to par_scramble_encrypt group");
             Poll::Ready(None)
         }
     }
@@ -190,11 +190,11 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
                 *poll_amt = poll_len;
                 Self::poll_task(groups_rendered,read_cursor,*poll_amt, cur_task, cx)
             } else {
-                log::error!("Error polling exact amt {}", poll_len);
+                log::error!(target: "lusna", "Error polling exact amt {}", poll_len);
                 Poll::Ready(None)
             }
         } else {
-            log::info!("Done rendering all groups!");
+            log::trace!(target: "lusna", "Done rendering all groups!");
             Poll::Ready(None)
         }
     }

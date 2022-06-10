@@ -159,7 +159,7 @@ pub mod macros {
             match $opt {
                 Some(val) => val,
                 _ => {
-                    log::warn!("[X-03] NoneError: {}", $err);
+                    log::warn!(target: "lusna", "[X-03] NoneError: {}", $err);
                     return Ok(PrimaryProcessorResult::Void);
                 }
             }
@@ -286,7 +286,7 @@ pub mod macros {
         if tokio::runtime::Handle::try_current().is_ok() {
             std::mem::drop(crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future)));
         } else {
-            log::warn!("Unable to spawn future: {:?}", stringify!($future));
+            log::warn!(target: "lusna", "Unable to spawn future: {:?}", stringify!($future));
         }
         //tokio::task::spawn($future)
     };
@@ -314,7 +314,7 @@ pub mod macros {
             match $opt {
                 Some(val) => val,
                 _ => {
-                    log::warn!("[X-03] NoneError in file {}:{}: {}", file!(), line!(), $err);
+                    log::warn!(target: "lusna", "[X-03] NoneError in file {}:{}: {}", file!(), line!(), $err);
                     return Ok(PrimaryProcessorResult::Void);
                 }
             }
@@ -357,8 +357,8 @@ pub mod prelude {
     pub use crate::functional::*;
     pub use crate::hdp::file_transfer::FileTransferStatus;
     pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
-    pub use crate::hdp::hdp_packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
-    pub use crate::hdp::hdp_node::{atexit, HdpServerRequest, HdpServerResult, NodeRemote, Remote, SecrecyMode};
+    pub use crate::hdp::packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
+    pub use crate::hdp::hdp_node::{atexit, NodeRequest, NodeResult, NodeRemote, Remote, SecrecyMode};
     pub use crate::hdp::hdp_node::ConnectMode;
     pub use crate::hdp::hdp_node::Ticket;
     pub use crate::hdp::misc::panic_future::ExplicitPanicFuture;

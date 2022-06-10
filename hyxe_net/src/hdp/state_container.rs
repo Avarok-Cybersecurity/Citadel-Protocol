@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use serde::{Serialize, Deserialize};
 use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, ConstructorType};
-use crate::hdp::hdp_packet_processor::primary_group_packet::{attempt_kem_as_alice_finish, get_resp_target_cid_from_header};
+use crate::hdp::packet_processor::primary_group_packet::{attempt_kem_as_alice_finish, get_resp_target_cid_from_header};
 
 use crate::hdp::outbound_sender::{UnboundedSender, unbounded};
 use zerocopy::LayoutVerified;
@@ -18,8 +18,8 @@ use crate::constants::{GROUP_TIMEOUT_MS, INDIVIDUAL_WAVE_TIMEOUT_MS, KEEP_ALIVE_
 use crate::hdp::hdp_packet::HdpHeader;
 use crate::hdp::hdp_packet::packet_flags;
 use crate::hdp::hdp_packet_crafter::{GroupTransmitter, SecureProtocolPacket, RatchetPacketCrafterContainer};
-use crate::hdp::hdp_packet_processor::includes::{Instant, SocketAddr, HdpSession};
-use crate::hdp::hdp_node::{HdpServerResult, Ticket, NodeRemote, SecrecyMode};
+use crate::hdp::packet_processor::includes::{Instant, SocketAddr, HdpSession};
+use crate::hdp::hdp_node::{NodeResult, Ticket, NodeRemote, SecrecyMode};
 use crate::hdp::outbound_sender::{OutboundUdpSender, OutboundPrimaryStreamSender};
 use crate::hdp::state_subcontainers::connect_state_container::ConnectState;
 use crate::hdp::state_subcontainers::deregister_state_container::DeRegisterState;
@@ -55,10 +55,10 @@ use crate::hdp::session_queue_handler::{QueueWorkerResult, SessionQueueWorkerHan
 use crate::hdp::time::TransferStats;
 use crate::hdp::hdp_packet_crafter;
 use crate::hdp::misc::dual_late_init::DualLateInit;
-use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::prelude::MessageGroupKey;
 use crate::hdp::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
-use crate::hdp::hdp_packet_processor::PrimaryProcessorResult;
+use crate::hdp::packet_processor::PrimaryProcessorResult;
 use std::path::PathBuf;
 
 impl Debug for StateContainer {
@@ -93,7 +93,7 @@ pub struct StateContainerInner {
     // transform if a simultaneous connect)
     pub(super) outgoing_peer_connect_attempts: HashMap<u64, Ticket>,
     pub(super) udp_primary_outbound_tx: Option<OutboundUdpSender>,
-    pub(super) kernel_tx: UnboundedSender<HdpServerResult>,
+    pub(super) kernel_tx: UnboundedSender<NodeResult>,
     pub(super) active_virtual_connections: HashMap<u64, VirtualConnection>,
     pub(super) c2s_channel_container: Option<C2SChannelContainer>,
     pub(crate) keep_alive_timeout_ns: i64,
@@ -204,7 +204,7 @@ pub struct C2SChannelContainer {
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
     is_active: Arc<AtomicBool>,
     primary_outbound_tx: OutboundPrimaryStreamSender,
-    pub(crate) channel_signal: Option<HdpServerResult>
+    pub(crate) channel_signal: Option<NodeResult>
 }
 
 pub(crate) struct UnorderedChannelContainer {
@@ -463,7 +463,7 @@ impl GroupReceiverContainer {
 
 impl StateContainerInner {
     /// Creates a new container
-    pub fn new(kernel_tx: UnboundedSender<HdpServerResult>, hdp_server_remote: NodeRemote, keep_alive_timeout_ns: i64, state: Arc<Atomic<SessionState>>, cnac: Option<ClientNetworkAccount>, time_tracker: TimeTracker, session_security_settings: Option<SessionSecuritySettings>, is_server: bool, transfer_stats: TransferStats, udp_mode: UdpMode) -> StateContainer {
+    pub fn new(kernel_tx: UnboundedSender<NodeResult>, hdp_server_remote: NodeRemote, keep_alive_timeout_ns: i64, state: Arc<Atomic<SessionState>>, cnac: Option<ClientNetworkAccount>, time_tracker: TimeTracker, session_security_settings: Option<SessionSecuritySettings>, is_server: bool, transfer_stats: TransferStats, udp_mode: UdpMode) -> StateContainer {
         let inner = Self { outgoing_peer_connect_attempts: Default::default(), file_transfer_handles: HashMap::new(), group_channels: Default::default(), udp_mode, transfer_stats, queue_handle: Default::default(), is_server, session_security_settings, time_tracker, cnac, updates_in_progress: HashMap::new(), hole_puncher_pipes: HashMap::new(), tcp_loaded_status: None, enqueued_packets: HashMap::new(), state, c2s_channel_container: None, keep_alive_timeout_ns, hdp_server_remote, meta_expiry_state: Default::default(), pre_connect_state: Default::default(), udp_primary_outbound_tx: None, deregister_state: Default::default(), ratchet_update_state: Default::default(), active_virtual_connections: Default::default(), network_stats: Default::default(), kernel_tx, register_state: packet_flags::cmd::aux::do_register::STAGE0.into(), connect_state: packet_flags::cmd::aux::do_connect::STAGE0.into(), inbound_groups: HashMap::new(), outbound_transmitters: HashMap::new(), peer_kem_states: HashMap::new(), inbound_files: HashMap::new(), outbound_files: HashMap::new() };
         StateContainer { inner: Arc::new(parking_lot::RwLock::new(inner)) }
     }
@@ -505,7 +505,7 @@ impl StateContainerInner {
             }
         }
 
-        log::warn!("Attempted to forward data to unordered channel, but, one or more containers were not present");
+        log::warn!(target: "lusna", "Attempted to forward data to unordered channel, but, one or more containers were not present");
 
         false
     }
@@ -534,15 +534,15 @@ impl StateContainerInner {
                         // data can now be forwarded
                         Some(udp_channel)
                     } else {
-                        log::info!("WE2");
+                        log::trace!(target: "lusna", "WE2");
                         None
                     }
                 } else {
-                    log::info!("WE1");
+                    log::trace!(target: "lusna", "WE1");
                     None
                 }
             } else {
-                log::info!("WE0");
+                log::trace!(target: "lusna", "WE0");
                 None
             }
         }
@@ -579,13 +579,13 @@ impl StateContainerInner {
     pub(crate) fn insert_direct_p2p_connection(&mut self, provisional: DirectP2PRemote, peer_cid: u64) -> Result<(), NetworkError> {
         if let Some(vconn) = self.active_virtual_connections.get_mut(&peer_cid) {
             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
-                log::info!("UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
+                log::trace!(target: "lusna", "UPGRADING {} conn type", provisional.from_listener.if_eq(true, "listener").if_false("client"));
                 // By setting the below value, all outbound packets will use
                 // this direct conn over the proxied TURN-like connection
                 vconn.sender = Some((None, provisional.p2p_primary_stream.clone())); // setting this will allow the UDP stream to be upgraded too
 
                 if let Some(_) = endpoint_container.direct_p2p_remote.replace(provisional) {
-                    log::warn!("Dropped previous p2p remote during upgrade process");
+                    log::warn!(target: "lusna", "Dropped previous p2p remote during upgrade process");
                 }
 
                 return Ok(());
@@ -670,10 +670,10 @@ impl StateContainerInner {
     pub fn insert_new_virtual_connection_as_server(&mut self, target_cid: u64, connection_type: VirtualConnectionType, target_udp_sender: Option<OutboundUdpSender>, target_tcp_sender: OutboundPrimaryStreamSender) {
         let val = VirtualConnection { last_delivered_message_timestamp: Arc::new(Atomic::new(None)), endpoint_container: None, sender: Some((target_udp_sender, target_tcp_sender)), connection_type, is_active: Arc::new(AtomicBool::new(true)) };
         if self.active_virtual_connections.insert(target_cid, val).is_some() {
-            log::warn!("Inserted a virtual connection. but overwrote one in the process. Report to developers");
+            log::warn!(target: "lusna", "Inserted a virtual connection. but overwrote one in the process. Report to developers");
         }
 
-        log::info!("Vconn {} -> {} established", connection_type.get_implicated_cid(), target_cid);
+        log::trace!(target: "lusna", "Vconn {} -> {} established", connection_type.get_implicated_cid(), target_cid);
     }
 
     pub fn get_peer_session_crypto(active_virtual_connections: &mut HashMap<u64, VirtualConnection>, peer_cid: u64) -> Option<&mut PeerSessionCrypto> {
@@ -723,7 +723,7 @@ impl StateContainerInner {
             true
         };
 
-        //log::info!("KEEP ALIVE subsystem statistics: Ping: {}ms | RTT: {}ms | Jitter: {}ms", (ping_ns as f64/1_000_000f64) as f64, (self.network_stats.rtt_ns.clone().unwrap_or(0) as f64/1_000_000f64) as f64, (jitter_ns as f64/1000000f64) as f64);
+        //log::trace!(target: "lusna", "KEEP ALIVE subsystem statistics: Ping: {}ms | RTT: {}ms | Jitter: {}ms", (ping_ns as f64/1_000_000f64) as f64, (self.network_stats.rtt_ns.clone().unwrap_or(0) as f64/1_000_000f64) as f64, (jitter_ns as f64/1000000f64) as f64);
         res
     }
 
@@ -747,7 +747,7 @@ impl StateContainerInner {
                 if let Some(inbound_file_transfer) = self.inbound_files.get(&file_key) {
                     inbound_file_transfer.last_group_window_len
                 } else {
-                    log::error!("The GROUP HEADER implied the existence of a file transfer, but the key {:?} does not map to anything", &file_key);
+                    log::error!(target: "lusna", "The GROUP HEADER implied the existence of a file transfer, but the key {:?} does not map to anything", &file_key);
                     return None;
                 }
             } else {
@@ -771,7 +771,7 @@ impl StateContainerInner {
             self.inbound_groups.insert(inbound_group_key, receiver_container);
             Some(wave_window)
         } else {
-            log::error!("Duplicate group HEADER detected ({})", group_id);
+            log::error!(target: "lusna", "Duplicate group HEADER detected ({})", group_id);
             None
         }
     }
@@ -791,7 +791,7 @@ impl StateContainerInner {
             let save_location = PathBuf::from(save_location);
             if let Ok(file) = std::fs::File::create(&save_location) {
                 let file = tokio::fs::File::from_std(file);
-                log::info!("Will stream virtual file to: {:?}", &save_location);
+                log::trace!(target: "lusna", "Will stream virtual file to: {:?}", &save_location);
                 let (reception_complete_tx, success_receiving_rx) = tokio::sync::oneshot::channel::<()>();
                 let entry = InboundFileTransfer {
                     last_group_finish_time: Instant::now(),
@@ -811,7 +811,7 @@ impl StateContainerInner {
                 let _ = tx_status.unbounded_send(FileTransferStatus::ReceptionBeginning(save_location, metadata));
                 self.file_transfer_handles.insert(key, tx_status.clone());
                 // finally, alert the kernel (receiver)
-                let _ = self.kernel_tx.unbounded_send(HdpServerResult::FileTransferHandle(ticket, handle));
+                let _ = self.kernel_tx.unbounded_send(NodeResult::FileTransferHandle(ticket, handle));
 
                 // now that the InboundFileTransfer is loaded, we just need to spawn the async task that takes the results and streams it to the HD.
                 // This is safe since no mutation/reading on the state container or session takes place. This only streams to the hard drive without interrupting
@@ -821,12 +821,12 @@ impl StateContainerInner {
                     let mut reader = tokio_util::io::StreamReader::new(tokio_stream::wrappers::UnboundedReceiverStream::new(stream_to_hd_rx).map(|r| Ok(std::io::Cursor::new(r)) as Result<std::io::Cursor<Vec<u8>>, std::io::Error>));
 
                     if let Err(err) = tokio::io::copy(&mut reader, &mut writer).await {
-                        log::error!("Error while copying from reader to writer: {}", err);
+                        log::error!(target: "lusna", "Error while copying from reader to writer: {}", err);
                     }
 
                     match writer.shutdown().await {
                         Ok(()) => {
-                            log::info!("Successfully synced file to HD");
+                            log::trace!(target: "lusna", "Successfully synced file to HD");
                             let status = match success_receiving_rx.await {
                                 Ok(_) => {
                                     FileTransferStatus::ReceptionComplete
@@ -840,7 +840,7 @@ impl StateContainerInner {
                             let _ = tx_status.unbounded_send(status);
                         },
                         Err(err) => {
-                            log::error!("Unable to shut down streamer: {}", err);
+                            log::error!(target: "lusna", "Unable to shut down streamer: {}", err);
                         },
                     };
                 };
@@ -849,11 +849,11 @@ impl StateContainerInner {
 
                 true
             } else {
-                log::error!("Unable to obtain file handle to {:?}", &save_location);
+                log::error!(target: "lusna", "Unable to obtain file handle to {:?}", &save_location);
                 false
             }
         } else {
-            log::error!("Duplicate file HEADER detected");
+            log::error!(target: "lusna", "Duplicate file HEADER detected");
             false
         }
     }
@@ -870,7 +870,7 @@ impl StateContainerInner {
             }
 
             _ => {
-                log::error!("HyperWAN functionality not yet enabled");
+                log::error!(target: "lusna", "HyperWAN functionality not yet enabled");
                 return None;
             }
         };
@@ -884,9 +884,9 @@ impl StateContainerInner {
                 tx.unbounded_send(FileTransferStatus::TransferBeginning).ok()?;
                 let _ = self.file_transfer_handles.insert(key, tx);
                 // alert the kernel that file transfer has begun
-                self.kernel_tx.unbounded_send(HdpServerResult::FileTransferHandle(ticket, handle)).ok()?;
+                self.kernel_tx.unbounded_send(NodeResult::FileTransferHandle(ticket, handle)).ok()?;
             } else {
-                log::error!("Attempted to obtain OutboundFileTransfer for {:?}, but it didn't exist", key);
+                log::error!(target: "lusna", "Attempted to obtain OutboundFileTransfer for {:?}, but it didn't exist", key);
             }
         } else {
             // remove the inbound file transfer, send the signals to end async loops, and tell the kernel
@@ -896,7 +896,7 @@ impl StateContainerInner {
                 // stop the async task pulling from the async cryptscrambler
                 file_transfer.start?.send(false).ok()?;
             } else {
-                log::error!("Attempted to remove OutboundFileTransfer for {:?}, but it didn't exist", key);
+                log::error!(target: "lusna", "Attempted to remove OutboundFileTransfer for {:?}, but it didn't exist", key);
             }
         }
 
@@ -929,7 +929,7 @@ impl StateContainerInner {
             // file-transfer, or TCP only mode since next_window is none. Use TCP
             return outbound_container.burst_transmitter.transmit_tcp_file_transfer();
         } else {
-            log::error!("Outbound transmitter for {:?} does not exist", key);
+            log::error!(target: "lusna", "Outbound transmitter for {:?} does not exist", key);
         }
 
         true
@@ -958,7 +958,7 @@ impl StateContainerInner {
 
         match grc.receiver.on_packet_received(group_id, true_sequence, header.wave_id.get(), hr,&payload[2..]) {
             GroupReceiverStatus::GROUP_COMPLETE(_last_wid) => {
-                log::info!("GROUP {} COMPLETE. Total groups: {}", group_id, file_container.total_groups);
+                log::trace!(target: "lusna", "GROUP {} COMPLETE. Total groups: {}", group_id, file_container.total_groups);
                 let chunk = self.inbound_groups.remove(&group_key).unwrap().receiver.finalize();
                 file_container.stream_to_hd.unbounded_send(chunk).map_err(|err| NetworkError::Generic(err.to_string()))?;
 
@@ -987,12 +987,12 @@ impl StateContainerInner {
             }
 
             res => {
-                log::error!("INVALID GroupReceiverStatus obtained: {:?}", res)
+                log::error!(target: "lusna", "INVALID GroupReceiverStatus obtained: {:?}", res)
             }
         }
 
         if complete {
-            log::info!("Finished receiving file {:?}", file_key);
+            log::trace!(target: "lusna", "Finished receiving file {:?}", file_key);
             let _ = self.inbound_files.remove(&file_key);
             let _ = self.file_transfer_handles.remove(&file_key);
         }
@@ -1029,12 +1029,12 @@ impl StateContainerInner {
                 // Group is finished. Delete it
                 let elapsed_sec = transmitter_container.transmission_start_time.elapsed().as_secs_f32();
                 let rate_mb_per_s = (transmitter_container.group_plaintext_length as f32 / 1_000_000f32)/elapsed_sec;
-                log::info!("Transmitter received final wave ack. Alerting local node to continue transmission of next group");
+                log::trace!(target: "lusna", "Transmitter received final wave ack. Alerting local node to continue transmission of next group");
                 // if there is n=1 waves, then the below must be ran. The other use of object notifier in this function only applies for multiple waves
                 if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
                     let _ = next_group_notifier.unbounded_send(());
                     // alert kernel (transmitter side)
-                    log::warn!("Notified object sender to begin sending the next group");
+                    log::warn!(target: "lusna", "Notified object sender to begin sending the next group");
                 }
 
                 let file_key = FileKey::new(target_cid, object_id as u32);
@@ -1047,18 +1047,18 @@ impl StateContainerInner {
                     };
 
                     if let Err(err) = tx.unbounded_send(status.clone()) {
-                        log::error!("FileTransfer receiver handle cannot be reached {:?}", err);
+                        log::error!(target: "lusna", "FileTransfer receiver handle cannot be reached {:?}", err);
                         // drop local async sending subroutines
                         let _ = self.file_transfer_handles.remove(&file_key);
                     }
 
                     if matches!(status, FileTransferStatus::TransferComplete) {
                         // remove the transmitter. Dropping will stop related futures
-                        log::info!("FileTransfer is complete!");
+                        log::trace!(target: "lusna", "FileTransfer is complete!");
                         let _ = self.file_transfer_handles.remove(&file_key);
                     }
                 } else {
-                    log::error!("Unable to find FileTransferHandle for {:?}", file_key);
+                    log::error!(target: "lusna", "Unable to find FileTransferHandle for {:?}", file_key);
                 }
 
                 delete_group = true;
@@ -1071,15 +1071,15 @@ impl StateContainerInner {
             if transmitter.is_atleast_fifty_percent_done() {
                 if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
                     let _ = next_group_notifier.unbounded_send(());
-                    log::warn!("Notified object sender to begin sending the next group");
+                    log::warn!(target: "lusna", "Notified object sender to begin sending the next group");
                 }
             }
         } else {
-            log::error!("File-transfer for object {} does not map to a transmitter container", object_id);
+            log::error!(target: "lusna", "File-transfer for object {} does not map to a transmitter container", object_id);
         }
 
         if delete_group {
-            log::info!("Group is done transmitting! Freeing memory ...");
+            log::trace!(target: "lusna", "Group is done transmitting! Freeing memory ...");
             self.outbound_transmitters.remove(&key);
         }
 
@@ -1106,7 +1106,7 @@ impl StateContainerInner {
 
     /// Returns true if a packet was sent, false otherwise. This should only be called when a packet is received
     pub(crate) fn poll_next_enqueued(&mut self, target_cid: u64) -> Result<bool, NetworkError> {
-        log::info!("Polling next for {}", target_cid);
+        log::trace!(target: "lusna", "Polling next for {}", target_cid);
         let secrecy_mode = self.get_secrecy_mode(target_cid).ok_or(NetworkError::InternalError("Secrecy mode not loaded"))?;
         match secrecy_mode {
             SecrecyMode::BestEffort => {}
@@ -1118,18 +1118,18 @@ impl StateContainerInner {
                 // We have to make sure when this is called, it also sets update_in_progress to true to place a lock. We will also need to reinforce this via a force_mode inside the get_next_constructor fn in the crypt container
                 // it's possible in high-stress loads, a new inbound packet triggers update_in_progress to true right after checking below. The fetch_nand w/false helps us achieve this
                 if update_in_progress {
-                    log::info!("Cannot send packet at this time since update_in_progress"); // in this case, update will happen upon reception of TRUNCATE packet
+                    log::trace!(target: "lusna", "Cannot send packet at this time since update_in_progress"); // in this case, update will happen upon reception of TRUNCATE packet
                     return Ok(false);
                 }
 
                 let queue = self.enqueued_packets.entry(target_cid).or_default();
-                log::info!("Queue has: {} items", queue.len());
+                log::trace!(target: "lusna", "Queue has: {} items", queue.len());
                 // since we have a mutable lock on the session, no other attempts will happen. We can safely pop the front of the queue and rest assured that it won't be denied a send this time
                 if let Some((ticket, packet, virtual_target, security_level)) = queue.pop_front() {
                     //std::mem::drop(enqueued);
                     return self.process_outbound_message(ticket, packet, virtual_target, security_level, true).map(|_| true);
                 } else {
-                    log::info!("NO packets enqueued for target {}", target_cid);
+                    log::trace!(target: "lusna", "NO packets enqueued for target {}", target_cid);
                 }
             }
         }
@@ -1166,7 +1166,7 @@ impl StateContainerInner {
                 //let mut enqueued = inner_mut!(this.enqueued_packets);
                 if this.has_enqueued(virtual_target.get_target_cid()) || this.updates_in_progress.get(&virtual_target.get_target_cid()).map(|r| r.load(Ordering::SeqCst)).ok_or_else(|| NetworkError::InternalError("Update in progress not loaded for client"))? {
                     // If there are packets enqueued, it doesn't matter if an update is in progress or not. Queue this packet
-                    //log::info!("[ABX] enqueuing packet for {:?}", virtual_target);
+                    //log::trace!(target: "lusna", "[ABX] enqueuing packet for {:?}", virtual_target);
                     this.enqueue_packet(virtual_target.get_target_cid(), ticket, packet, virtual_target, security_level);
                     return Ok(());
                 }
@@ -1214,7 +1214,7 @@ impl StateContainerInner {
                         Either::Right(packet) => {
                             // store inside hashmap
                             //let mut enqueued_packets = inner_mut!(this.enqueued_packets);
-                            log::info!("[ATC] Enqueuing c2s packet");
+                            log::trace!(target: "lusna", "[ATC] Enqueuing c2s packet");
                             this.enqueue_packet(C2S_ENCRYPTION_ONLY, ticket, packet, virtual_target, security_level);
                             return Ok(());
                         }
@@ -1222,7 +1222,7 @@ impl StateContainerInner {
                 }
 
                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                    log::info!("Maybe sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
+                    log::trace!(target: "lusna", "Maybe sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
                     // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and Toolset
                     let default_primary_stream = this.get_primary_stream().cloned().unwrap();
 
@@ -1230,9 +1230,9 @@ impl StateContainerInner {
                         if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
                             //let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
                             let to_primary_stream_preferred = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| {
-                                log::info!("Reverting to primary stream since p2p conn not loaded");
+                                log::trace!(target: "lusna", "Reverting to primary stream since p2p conn not loaded");
                                 if cfg!(feature = "localhost-testing-assert-no-proxy") {
-                                    log::error!("*** Feature flag asserted no proxying, yet, message requires proxy ***");
+                                    log::error!(target: "lusna", "*** Feature flag asserted no proxying, yet, message requires proxy ***");
                                     std::process::exit(1);
                                 }
 
@@ -1253,18 +1253,18 @@ impl StateContainerInner {
                                     // Note: we can't just add/send here. What if there are packets in the queue? We thus must poll before calling the below function
                                     if constructor.is_some() {
                                         let group_id = endpoint_container.endpoint_crypto.get_and_increment_group_id();
-                                        log::info!("[Perfect] will send group {}", group_id);
+                                        log::trace!(target: "lusna", "[Perfect] will send group {}", group_id);
                                         (GroupTransmitter::new_message(to_primary_stream_preferred, OBJECT_SINGLETON,RatchetPacketCrafterContainer::new(latest_usable_ratchet, constructor), packet, security_level, group_id, ticket, time_tracker).ok_or_else(|| NetworkError::InternalError("Unable to create the outbound transmitter"))?, group_id, target_cid)
                                     } else {
                                         //assert!(!called_from_poll);
                                         // Being called from poll should only happen when a packet needs to be sent, and is ready to be sent. Further, being called from the poll adds a lock ensuring it gets sent
                                         if called_from_poll {
-                                            log::error!("Should not happen (CFP). {:?}", endpoint_container.endpoint_crypto.lock_set_by_alice.clone());
+                                            log::error!(target: "lusna", "Should not happen (CFP). {:?}", endpoint_container.endpoint_crypto.lock_set_by_alice.clone());
                                             std::process::exit(1); // for dev purposes
                                         }
 
                                         //std::mem::drop(state_container);
-                                        log::info!("[Perfect] will enqueue packet");
+                                        log::trace!(target: "lusna", "[Perfect] will enqueue packet");
                                         //let mut enqueued_packets = inner_mut!(this.enqueued_packets);
                                         this.enqueue_packet(target_cid, ticket, packet, virtual_target, security_level);
                                         return Ok(());
@@ -1275,7 +1275,7 @@ impl StateContainerInner {
                             return Err(NetworkError::InternalError("Endpoint container not found"));
                         }
                     } else {
-                        log::error!("Unable to find active vconn for the channel");
+                        log::error!(target: "lusna", "Unable to find active vconn for the channel");
                         return Ok(());
                     }
                 }
@@ -1287,7 +1287,7 @@ impl StateContainerInner {
 
 
             // We manually send the header. The tails get sent automatically
-            log::info!("[message] Sending GROUP HEADER through primary stream for group {} as {}", group_id, this.is_server.then(|| "Server").unwrap_or("Client"));
+            log::trace!(target: "lusna", "[message] Sending GROUP HEADER through primary stream for group {} as {}", group_id, this.is_server.then(|| "Server").unwrap_or("Client"));
             let group_len = transmitter.get_total_plaintext_bytes();
             transmitter.transmit_group_header(virtual_target)?;
 
@@ -1307,10 +1307,10 @@ impl StateContainerInner {
                     let ref transmitter = transmitter.burst_transmitter.group_transmitter;
                     if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
                         if state_container.meta_expiry_state.expired() {
-                            log::warn!("Outbound group {} has expired; dropping from map", group_id);
+                            log::warn!(target: "lusna", "Outbound group {} has expired; dropping from map", group_id);
                             QueueWorkerResult::Complete
                         } else {
-                            log::info!("Other outbound groups being processed; patiently awaiting group {}", group_id);
+                            log::trace!(target: "lusna", "Other outbound groups being processed; patiently awaiting group {}", group_id);
                             QueueWorkerResult::Incomplete
                         }
                     } else {
@@ -1330,7 +1330,7 @@ impl StateContainerInner {
     #[allow(unused_results)]
     pub(crate) fn initiate_drill_update(&mut self, timestamp: i64, virtual_target: VirtualTargetType, ticket: Option<Ticket>) -> Result<(), NetworkError> {
         if !self.meta_expiry_state.expired() {
-            log::info!("Drill update will be omitted since packets are being sent");
+            log::trace!(target: "lusna", "Drill update will be omitted since packets are being sent");
             return Ok(());
         }
 
@@ -1356,7 +1356,7 @@ impl StateContainerInner {
                     }
 
                     None => {
-                        log::info!("Won't perform update b/c concurrent update occurring");
+                        log::trace!(target: "lusna", "Won't perform update b/c concurrent update occurring");
                         Ok(())
                     }
                 }
@@ -1377,7 +1377,7 @@ impl StateContainerInner {
                         to_primary_stream_preferred.unbounded_send(stage0_packet).map_err(|err| NetworkError::Generic(err.to_string()))?;
 
                         if let Some(_) = self.ratchet_update_state.p2p_updates.insert(peer_cid, alice_constructor) {
-                            log::error!("Overwrote pre-existing peer kem. Report to developers");
+                            log::error!(target: "lusna", "Overwrote pre-existing peer kem. Report to developers");
                         }
 
                         // to_primary_stream_preferred.unbounded_send(stage0_packet).map_err(|err| NetworkError::Generic(err.to_string()))
@@ -1385,7 +1385,7 @@ impl StateContainerInner {
                     }
 
                     None => {
-                        log::info!("Won't perform update b/c concurrent update occurring");
+                        log::trace!(target: "lusna", "Won't perform update b/c concurrent update occurring");
                         Ok(())
                     }
                 }

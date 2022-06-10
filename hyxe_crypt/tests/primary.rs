@@ -19,10 +19,10 @@ mod tests {
     fn setup_log() {
         std::env::set_var("RUST_LOG", "info");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     #[tokio::test]
@@ -30,8 +30,8 @@ mod tests {
         setup_log();
         let start_time = Instant::now();
         let final_cfg = calculate_optimal_argon_params(500_u16, Some(32), None).await.unwrap();
-        log::info!("DONE. Elapsed time: {:?}", start_time.elapsed());
-        log::info!("{:?}", final_cfg)
+        log::trace!(target: "lusna", "DONE. Elapsed time: {:?}", start_time.elapsed());
+        log::trace!(target: "lusna", "{:?}", final_cfg)
     }
 
     #[tokio::test]
@@ -43,7 +43,7 @@ mod tests {
         // client hashes their password
         match AsyncArgon::hash(SecBuffer::from("password"), client_config.clone()).await.unwrap() {
             ArgonStatus::HashSuccess(hashed_password) => {
-                log::info!("Hash success!");
+                log::trace!(target: "lusna", "Hash success!");
                 // now, the client stores the config in their CNAC to be able to hash again in the future. Next, client sends the hashed password through an encrypted stream to the server
                 let server_recv = hashed_password;
                 // The server creates their own version of the settings, which should be dependent on the capabilities of that server. (Aim for 0.5s < x < 1.0s hash time)
@@ -60,30 +60,30 @@ mod tests {
                                 // client sends to server to verify
                                 match AsyncArgon::verify(hashed_password_v2, server_argon_container.clone()).await.unwrap() {
                                     ArgonStatus::VerificationSuccess => {
-                                        log::info!("Verification success!");
+                                        log::trace!(target: "lusna", "Verification success!");
                                         return;
                                     }
 
                                     n => {
-                                        log::error!("{:?}", n);
+                                        log::error!(target: "lusna", "{:?}", n);
                                     }
                                 }
                             }
 
                             n => {
-                                log::error!("{:?}", n);
+                                log::error!(target: "lusna", "{:?}", n);
                             }
                         }
                     }
 
                     n => {
-                        log::error!("{:?}", n);
+                        log::error!(target: "lusna", "{:?}", n);
                     }
                 }
             }
 
             n => {
-                log::error!("{:?}", n);
+                log::error!(target: "lusna", "{:?}", n);
             }
         }
 
@@ -118,7 +118,7 @@ mod tests {
                 container
             }));
 
-        log::info!("Generated chain!");
+        log::trace!(target: "lusna", "Generated chain!");
 
         let onion_packet = chain.encrypt(message, 0, HEADER_LEN, |_ratchet, _target_cid, buffer| {
             for x in 0..HEADER_LEN {
@@ -188,8 +188,8 @@ mod tests {
         setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
-                hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
-                hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), false);
+                let _ = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
+                let _ = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), false);
             }
         }
     }
@@ -199,15 +199,30 @@ mod tests {
         setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
-                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), true);
-                hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), true);
+                let _ = hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), true);
+                let _ = hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), true);
             }
         }
     }
 
-    fn hyper_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(algorithm: Z, security_level: Option<SecurityLevel>, is_fcm: bool) {
+    #[test]
+    fn security_levels() {
+        setup_log();
+        for sec in 0..SecurityLevel::DIVINE.value() {
+            let ratchet = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::Firesaber + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
+            for x in 0..sec {
+                assert!(ratchet.verify_level(Some(x.into())).is_ok())
+            }
+
+            for x in (sec+1)..SecurityLevel::CUSTOM(255).value() {
+                assert!(ratchet.verify_level(Some(x.into())).is_err())
+            }
+        }
+    }
+
+    fn hyper_ratchet<R: Ratchet, Z: Into<CryptoParameters>>(algorithm: Z, security_level: Option<SecurityLevel>, is_fcm: bool) -> R {
         let algorithm = algorithm.into();
-        log::info!("Using {:?} with {:?} @ {:?} security level | is FCM: {}", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level, is_fcm);
+        log::trace!(target: "lusna", "Using {:?} with {:?} @ {:?} security level | is FCM: {}", algorithm.kem_algorithm, algorithm.encryption_algorithm, security_level, is_fcm);
         let algorithm = Some(algorithm);
         let count = (security_level.unwrap_or_default().value() + 1) as usize;
         let mut alice_hyper_ratchet = R::Constructor::new_alice(ConstructorOpts::new_vec_init(algorithm, count), 99, 0, security_level).unwrap();
@@ -243,6 +258,7 @@ mod tests {
         header.unsplit(packet);
 
         assert_eq!(header, plaintext_packet);
+        alice_hyper_ratchet
     }
 
     #[test]
@@ -382,10 +398,10 @@ mod tests {
 
             let config = scramble_transmitter.get_receiver_config();
             let mut receiver = GroupReceiver::new(config.clone(), 0, 0);
-            log::info!("{:?}", &config);
+            log::trace!(target: "lusna", "{:?}", &config);
 
             while let Some(mut packet) = scramble_transmitter.get_next_packet() {
-                //log::info!("Packet {} (wave id: {}) obtained and ready to transmit to receiver", packet.vector.true_sequence, packet.vector.wave_id);
+                //log::trace!(target: "lusna", "Packet {} (wave id: {}) obtained and ready to transmit to receiver", packet.vector.true_sequence, packet.vector.wave_id);
                 let packet_payload = packet.packet.split_off(HEADER_SIZE_BYTES);
                 let _result = receiver.on_packet_received(0, packet.vector.true_sequence, packet.vector.wave_id, &ratchet_bob, packet_payload);
                 //println!("Wave {} result: {:?}", packet.vector.wave_id, result);
@@ -443,7 +459,7 @@ mod tests {
             let now = Instant::now();
             let mut retransmission_resimulate_container = Vec::new();
             while let Some(mut packet) = scramble_transmitter.get_next_packet() {
-                //log::info!("Packet {} (wave id: {}) obtained and ready to transmit to receiver", packet.vector.true_sequence, packet.vector.wave_id);
+                //log::trace!(target: "lusna", "Packet {} (wave id: {}) obtained and ready to transmit to receiver", packet.vector.true_sequence, packet.vector.wave_id);
 
                 // Don't transmit the 11, 12, 13, 14th packets to simulate packet loss
                 if seq <= 1 || seq > 5 {

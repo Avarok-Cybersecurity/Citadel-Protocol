@@ -1,4 +1,4 @@
-use crate::hdp::hdp_node::{NodeRemote, Ticket, HdpServerRequest};
+use crate::hdp::hdp_node::{NodeRemote, Ticket, NodeRequest};
 use hyxe_crypt::drill::SecurityLevel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,7 +11,7 @@ use tokio::macros::support::Pin;
 use std::fmt::Debug;
 use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal};
 use hyxe_crypt::prelude::SecBuffer;
-use crate::hdp::hdp_packet_processor::raw_primary_packet::ReceivePortType;
+use crate::hdp::packet_processor::raw_primary_packet::ReceivePortType;
 use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
 use hyxe_user::re_imports::__private::Formatter;
 
@@ -48,35 +48,6 @@ impl PeerChannel {
 
         PeerChannel { send_half, recv_half }
     }
-
-    /*
-        pub(crate) fn new(server_remote: HdpServerRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>, to_outbound: Sender<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) -> Self {
-        let implicated_cid = vconn_type.get_implicated_cid();
-        let recv_type = ReceivePortType::OrderedReliable;
-
-        let send_half = PeerChannelSendHalf {
-            tx: to_outbound,
-            target_cid,
-            vconn_type,
-            implicated_cid,
-            channel_id,
-            security_level,
-            is_alive: is_alive.clone()
-        };
-
-        let recv_half = PeerChannelRecvHalf {
-            server_remote,
-            receiver,
-            target_cid,
-            vconn_type,
-            channel_id,
-            is_alive,
-            recv_type
-        };
-
-        PeerChannel { send_half, recv_half }
-    }
-     */
 
     /// Gets the CID of the endpoint
     pub fn get_peer_cid(&self) -> u64 {
@@ -183,13 +154,13 @@ impl Stream for PeerChannelRecvHalf {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if !self.is_alive.load(Ordering::SeqCst) {
             // close the stream
-            log::info!("[POLL] closing PeerChannel RecvHalf");
+            log::trace!(target: "lusna", "[POLL] closing PeerChannel RecvHalf");
             Poll::Ready(None)
         } else {
             match futures::ready!(Pin::new(&mut self.receiver).poll_recv(cx)) {
                 Some(data) => Poll::Ready(Some(data)),
                 _ => {
-                    log::info!("[PeerChannelRecvHalf] ending");
+                    log::trace!(target: "lusna", "[PeerChannelRecvHalf] ending");
                     Poll::Ready(None)
                 }
             }
@@ -201,21 +172,21 @@ impl Drop for PeerChannelRecvHalf {
     fn drop(&mut self) {
         match self.vconn_type {
             VirtualConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid) => {
-                log::info!("[PeerChannelRecvHalf] Dropping {:?} type. Will maybe set is_alive to false if this is a tcp p2p connection", self.recv_type);
+                log::trace!(target: "lusna", "[PeerChannelRecvHalf] Dropping {:?} type. Will maybe set is_alive to false if this is a tcp p2p connection", self.recv_type);
 
                 let command = match self.recv_type {
                     ReceivePortType::OrderedReliable => {
                         self.is_alive.store(false, Ordering::SeqCst);
-                        HdpServerRequest::PeerCommand(local_cid, PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), None))
+                        NodeRequest::PeerCommand(local_cid, PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid), None))
                     }
 
                     ReceivePortType::UnorderedUnreliable => {
-                        HdpServerRequest::PeerCommand(local_cid, PeerSignal::DisconnectUDP(self.vconn_type))
+                        NodeRequest::PeerCommand(local_cid, PeerSignal::DisconnectUDP(self.vconn_type))
                     }
                 };
 
                 if let Err(err) = self.server_remote.try_send(command) {
-                    log::warn!("[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
+                    log::warn!(target: "lusna", "[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
                 }
             }
 
@@ -270,7 +241,7 @@ pub struct WebRTCCompatChannel {
 #[cfg(feature = "webrtc")]
 mod rtc_impl {
     use async_trait::async_trait;
-    use crate::hdp::hdp_packet_processor::includes::SocketAddr;
+    use crate::hdp::packet_processor::includes::SocketAddr;
     use bytes::BytesMut;
     use crate::hdp::peer::channel::WebRTCCompatChannel;
     use crate::error::NetworkError;

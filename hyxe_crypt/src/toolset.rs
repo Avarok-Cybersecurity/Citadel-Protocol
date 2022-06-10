@@ -66,12 +66,12 @@ impl<R: Ratchet> Toolset<R> {
         let latest_hr_version = self.get_most_recent_hyper_ratchet_version();
 
         if new_hyper_ratchet.get_cid() != self.cid {
-            log::error!("The supplied hyper ratchet does not belong to the expected CID (expected: {}, obtained: {})", self.cid, new_hyper_ratchet.get_cid());
+            log::error!(target: "lusna", "The supplied hyper ratchet does not belong to the expected CID (expected: {}, obtained: {})", self.cid, new_hyper_ratchet.get_cid());
             return None;
         }
 
         if latest_hr_version != new_hyper_ratchet.version().wrapping_sub(1) {
-            log::error!("The supplied hyper ratchet is not precedent to the drill update object (expected: {}, obtained: {})", latest_hr_version + 1, new_hyper_ratchet.version());
+            log::error!(target: "lusna", "The supplied hyper ratchet is not precedent to the drill update object (expected: {}, obtained: {})", latest_hr_version + 1, new_hyper_ratchet.version());
             return None;
         }
 
@@ -83,7 +83,7 @@ impl<R: Ratchet> Toolset<R> {
         self.most_recent_hyper_ratchet_version = cur_version;
 
         let prev_version = self.most_recent_hyper_ratchet_version.wrapping_sub(1);
-        log::info!("[{}] Upgraded {} to {}. Adjusted index of current: {}. Adjusted index of (current - 1): {} || OLDEST: {} || LEN: {}", MAX_HYPER_RATCHETS_IN_MEMORY, prev_version, cur_version, self.get_adjusted_index(cur_version), self.get_adjusted_index(prev_version), self.get_oldest_hyper_ratchet_version(), self.map.len());
+        log::trace!(target: "lusna", "[{}] Upgraded {} to {}. Adjusted index of current: {}. Adjusted index of (current - 1): {} || OLDEST: {} || LEN: {}", MAX_HYPER_RATCHETS_IN_MEMORY, prev_version, cur_version, self.get_adjusted_index(cur_version), self.get_adjusted_index(prev_version), self.get_oldest_hyper_ratchet_version(), self.map.len());
         Some(update_status)
     }
 
@@ -114,7 +114,7 @@ impl<R: Ratchet> Toolset<R> {
         self.map.push_front(hyper_ratchet);
         if self.map.len() > MAX_HYPER_RATCHETS_IN_MEMORY {
             let old_version = self.get_oldest_hyper_ratchet_version();
-            log::info!("[Toolset Update] Needs Truncation. Old version: {}", old_version);
+            log::trace!(target: "lusna", "[Toolset Update] Needs Truncation. Old version: {}", old_version);
             UpdateStatus::CommittedNeedsSynchronization { new_version, old_version }
         } else {
             UpdateStatus::Committed { new_version }
@@ -138,7 +138,7 @@ impl<R: Ratchet> Toolset<R> {
         } else {
             self.map.pop_back().ok_or(CryptError::OutOfBoundsError)?;
             self.oldest_hyper_ratchet_version = self.oldest_hyper_ratchet_version.wrapping_add(1);
-            log::info!("[Toolset] Deregistered version {}. New oldest: {} | LEN: {}", version, self.oldest_hyper_ratchet_version, self.len());
+            log::trace!(target: "lusna", "[Toolset] Deregistered version {}. New oldest: {} | LEN: {}", version, self.oldest_hyper_ratchet_version, self.len());
             Ok(())
         }
     }
@@ -195,7 +195,7 @@ impl<R: Ratchet> Toolset<R> {
 
         let res = self.map.get(idx);
         if res.is_none() {
-            log::error!("Attempted to get ratchet v{}, but does not exist! len: {}. Oldest: {}. Newest: {}", version, &self.map.len(), self.oldest_hyper_ratchet_version, self.most_recent_hyper_ratchet_version);
+            log::error!(target: "lusna", "Attempted to get ratchet v{}, but does not exist! len: {}. Oldest: {}. Newest: {}", version, &self.map.len(), self.oldest_hyper_ratchet_version, self.most_recent_hyper_ratchet_version);
         }
 
         res

@@ -97,7 +97,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     pub async fn register_impersonal_hyperlan_client_network_account(&self, reserved_cid: u64, nac_other: NetworkAccount<R, Fcm>, creds: ProposedCredentials, init_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         let server_auth_store = creds.derive_server_container(&self.node_argon_settings, reserved_cid, self.get_misc_settings()).await?;
         let new_cnac = self.get_local_nac().create_client_account(reserved_cid, Some(nac_other), server_auth_store, init_hyper_ratchet, fcm_keys).await?;
-        log::info!("Created impersonal CNAC ...");
+        log::trace!(target: "lusna", "Created impersonal CNAC ...");
         self.persistence_handler.store_cnac(new_cnac.clone());
 
         Ok(new_cnac)
@@ -168,7 +168,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// returns true if success, false otherwise
     pub async fn register_hyperlan_p2p_at_endpoints<T: Into<String>>(&self, implicated_cid: u64, peer_cid: u64, adjacent_username: T) -> Result<(), AccountError> {
         let adjacent_username = adjacent_username.into();
-        log::info!("Registering {} ({}) to {} (local/endpoints)", &adjacent_username, peer_cid, implicated_cid);
+        log::trace!(target: "lusna", "Registering {} ({}) to {} (local/endpoints)", &adjacent_username, peer_cid, implicated_cid);
         self.persistence_handler.register_p2p_as_client(implicated_cid, peer_cid, adjacent_username).await
     }
 
@@ -248,6 +248,14 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         }
     }
 
+    /// Converts a user identifier into its cid
+    pub async fn find_cnac_by_identifier(&self, implicated_user: impl Into<UserIdentifier>) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
+        match implicated_user.into() {
+            UserIdentifier::ID(cid) => self.get_client_by_cid(cid).await,
+            UserIdentifier::Username(username) => self.get_client_by_username(username).await
+        }
+    }
+
     /// Saves all the CNACs safely. This should be called during the shutdowns sequence.
     pub async fn save(&self) -> Result<(), AccountError> {
         self.persistence_handler.save_all().await
@@ -267,7 +275,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     pub async fn purge_home_directory(&self) -> Result<(), AccountError> {
         let _ = self.purge().await?;
         let home = self.get_directory_store().inner.read().hyxe_home.clone();
-        log::info!("Purging program home directory: {:?}", &home);
+        log::trace!(target: "lusna", "Purging program home directory: {:?}", &home);
         tokio::fs::remove_dir_all(home).await.map_err(|err| AccountError::Generic(err.to_string()))
     }
 

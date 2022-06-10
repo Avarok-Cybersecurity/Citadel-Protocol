@@ -23,10 +23,7 @@ jwt-testing = []
 #futures-preview = { version = "=0.3.0-alpha.19", features = ["compat", "async-await"]}
 serde = { version = "1.0.104", features=["rc", "derive"] }
 serde_millis = "0.1.1"
-#async-std = "1.6.0-beta.2"
-#tokio = "0.2.21"
-#tokio = {version = "^0.2.22", features=["rt-core"] }
-tokio = "1.10.1"
+tokio = "1.19.0"
 async-trait = "^0.1.48"
 futures = "0.3.5"
 #future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
@@ -52,8 +49,7 @@ openssl = { version = "0.10.36", features = ["vendored"] }
 uuid = { version = "1.0.0", features = ["v4"] }
 
 [dev-dependencies]
-#tokio = { version = "^0.2.22", features = ["full"] }
-tokio = { version = "1.10.1", features = ["macros"] }
+tokio = { version = "1.19.0", features = ["macros"] }
 env_logger = "0.8.2"
 dirs2 = "3.0.1"
 rstest = "0.12.0"

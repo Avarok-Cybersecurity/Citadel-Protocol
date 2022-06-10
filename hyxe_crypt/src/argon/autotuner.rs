@@ -9,6 +9,12 @@ use crate::prelude::SecBuffer;
 /// until one hashing operation takes less than your desired duration. Next, advance the
 /// number of iterations to approach the desired execution time as close as possible"
 pub async fn calculate_optimal_argon_params(millis_minimum: u16, hash_length: Option<u32>, secret: Option<Vec<u8>>) -> Result<ArgonDefaultServerSettings, CryptError<String>> {
+    if cfg!(debug_assertions) {
+        log::warn!(target: "lusna", "You are running the argon autotuner in a debug build. \
+        This will give inaccurate results. Use a release build to ensure the best possible performance. \
+        Additionally, make sure to only run this autotuner on the CPU that you expect to hash on")
+    }
+
     let system = sysinfo::System::new_all();
     let total_memory_kb = std::cmp::max(system.available_memory(), 1024*512); // ensure we don't start at too low of a value
     let hash_length = hash_length.unwrap_or(DEFAULT_HASH_LENGTH);
@@ -16,7 +22,7 @@ pub async fn calculate_optimal_argon_params(millis_minimum: u16, hash_length: Op
     let lanes: u32 = num_cpus::get() as _;
 
     let mut iters = 0;
-    let fake_password = SecBuffer::from(vec![0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    let fake_password = SecBuffer::from((0u8..15u8).into_iter().collect::<Vec<u8>>());
 
     let mut mem_cost_tuned = false;
     // start with 1
@@ -26,12 +32,12 @@ pub async fn calculate_optimal_argon_params(millis_minimum: u16, hash_length: Op
     loop {
         let init_time = tokio::time::Instant::now();
         let settings_this_round = ArgonSettings::new_gen_salt(vec![], lanes, hash_length, mem_cost as _, time_cost, secret.clone().unwrap_or_default());
-        log::info!("Settings current: {:?}", settings_this_round);
+        log::trace!(target: "lusna", "Settings current: {:?}", settings_this_round);
 
         match AsyncArgon::hash(fake_password.clone(), settings_this_round).await.map_err(|err| CryptError::Encrypt(err.to_string()))? {
             ArgonStatus::HashSuccess(_) => {
                 let elapsed = init_time.elapsed().as_millis();
-                log::info!("Iteration {}: {}ms (Mem cost (KB): {} | time cost: {})", iters, elapsed, mem_cost, time_cost);
+                log::trace!(target: "lusna", "Iteration {}: {}ms (Mem cost (KB): {} | time cost: {})", iters, elapsed, mem_cost, time_cost);
                 iters += 1;
 
                 if mem_cost_tuned {
@@ -56,7 +62,7 @@ pub async fn calculate_optimal_argon_params(millis_minimum: u16, hash_length: Op
                         time_cost += 1;
                     } else {
                         let times_over = (elapsed as f32 / millis_minimum as f32).ceil();
-                        log::info!("Times over: {}", times_over);
+                        log::trace!(target: "lusna", "Times over: {}", times_over);
 
                         let diff = if times_over > 2f32 {
                             mem_cost - (mem_cost as f32 / times_over).floor() as u64
@@ -64,7 +70,7 @@ pub async fn calculate_optimal_argon_params(millis_minimum: u16, hash_length: Op
                             (0.20f32 * (mem_cost as f32)) as u64
                         };
 
-                        log::info!("DIFF: {}", diff);
+                        log::trace!(target: "lusna", "DIFF: {}", diff);
                         mem_cost -= diff;
                     }
                 }

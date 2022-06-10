@@ -43,13 +43,13 @@ pub mod test_utils {
 
     #[cfg(test)]
     pub(crate) fn setup_log() {
-        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        std::env::set_var("RUST_LOG", "lusna=trace");
         //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     pub struct TcpCodecFramed {
@@ -121,33 +121,6 @@ pub mod test_utils {
 
     pub async fn create_streams_with_addrs() -> (NetworkEndpoint, NetworkEndpoint) {
         create_streams_with_addrs_and_lag(0).await
-    }
-
-    pub fn deadlock_detector() {
-        log::info!("Deadlock function called ...");
-        use std::thread;
-        use std::time::Duration;
-        use parking_lot::deadlock;
-        // Create a background thread which checks for deadlocks every 10s
-        thread::spawn(move || {
-            log::info!("Deadlock detector spawned ...");
-            loop {
-                thread::sleep(Duration::from_secs(8));
-                let deadlocks = deadlock::check_deadlock();
-                if deadlocks.is_empty() {
-                    continue;
-                }
-
-                log::info!("{} deadlocks detected", deadlocks.len());
-                for (i, threads) in deadlocks.iter().enumerate() {
-                    log::info!("Deadlock #{}", i);
-                    for t in threads {
-                        //println!("Thread Id {:#?}", t.thread_id());
-                        log::info!("{:#?}", t.backtrace());
-                    }
-                }
-            }
-        });
     }
 }
 

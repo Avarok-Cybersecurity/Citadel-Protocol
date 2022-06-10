@@ -5,6 +5,7 @@ use crate::remote_ext::user_ids::{TargetLockedRemote, SymmetricIdentifierHandleR
 use hyxe_net::auth::AuthenticationRequest;
 use crate::prelude::results::{PeerConnectSuccess, PeerRegisterStatus};
 use crate::remote_ext::results::HyperlanPeer;
+use std::time::Duration;
 
 pub(crate) mod user_ids {
     use crate::prelude::*;
@@ -127,10 +128,10 @@ pub trait ProtocolRemoteExt: Remote {
     /// Returns a ticket which is used to uniquely identify the request in the protocol
     async fn register<T: std::net::ToSocketAddrs + Send, R: Into<String> + Send, V: Into<String> + Send, K: Into<SecBuffer> + Send>(&mut self, addr: T, full_name: R, username: V, proposed_password: K, fcm_keys: Option<FcmKeys>, default_security_settings: SessionSecuritySettings) -> Result<RegisterSuccess, NetworkError> {
         let creds = ProposedCredentials::new_register(full_name, username, proposed_password.into()).await?;
-        let register_request = HdpServerRequest::RegisterToHypernode(addr.to_socket_addrs()?.next().ok_or(NetworkError::InternalError("Invalid socket addr"))?, creds, fcm_keys, default_security_settings);
+        let register_request = NodeRequest::RegisterToHypernode(addr.to_socket_addrs()?.next().ok_or(NetworkError::InternalError("Invalid socket addr"))?, creds, fcm_keys, default_security_settings);
 
         match map_errors(self.send_callback(register_request).await?)? {
-            HdpServerResult::RegisterOkay(..) => Ok(RegisterSuccess {}),
+            NodeResult::RegisterOkay(..) => Ok(RegisterSuccess {}),
             _ => Err(NetworkError::msg("An unexpected response occurred"))
         }
     }
@@ -143,14 +144,14 @@ pub trait ProtocolRemoteExt: Remote {
 
     /// Connects with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
-    async fn connect(&mut self, auth: AuthenticationRequest, connect_mode: ConnectMode, fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_sec: Option<u32>, session_security_settings: SessionSecuritySettings) -> Result<ConnectSuccess, NetworkError> {
+    async fn connect(&mut self, auth: AuthenticationRequest, connect_mode: ConnectMode, fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout: Option<Duration>, session_security_settings: SessionSecuritySettings) -> Result<ConnectSuccess, NetworkError> {
         //let fcm_keys = fcm_keys.or_else(||cnac.get_fcm_keys()); // use the specified keys, or else get the fcm keys created during the registration phase
 
-        let connect_request = HdpServerRequest::ConnectToHypernode(auth, connect_mode, fcm_keys, udp_mode, keep_alive_timeout_sec, session_security_settings);
+        let connect_request = NodeRequest::ConnectToHypernode(auth, connect_mode, fcm_keys, udp_mode, keep_alive_timeout.map(|r| r.as_secs()), session_security_settings);
 
         match map_errors(self.send_callback(connect_request).await?)? {
-            HdpServerResult::ConnectSuccess(_,cid,_,_,_,_,services,_,channel,udp_channel_rx) => Ok(ConnectSuccess { channel, udp_channel_rx, services, cid }),
-            HdpServerResult::ConnectFail(_, _, err) => Err(NetworkError::Generic(err)),
+            NodeResult::ConnectSuccess(_, cid, _, _, _, _, services, _, channel, udp_channel_rx) => Ok(ConnectSuccess { channel, udp_channel_rx, services, cid }),
+            NodeResult::ConnectFail(_, _, err) => Err(NetworkError::Generic(err)),
             _ => Err(NetworkError::msg("An unexpected response occurred"))
         }
     }
@@ -194,13 +195,13 @@ pub trait ProtocolRemoteExt: Remote {
     /// - limit: if None, all peers are obtained. If Some, at most the specified number of peers will be obtained
     async fn get_hyperlan_peers<T: Into<UserIdentifier> + Send>(&mut self, local_user: T, limit: Option<usize>) -> Result<Vec<HyperlanPeer>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
-        let command = HdpServerRequest::PeerCommand(local_cid, PeerSignal::GetRegisteredPeers(HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid), None, limit.map(|r| r as i32)));
+        let command = NodeRequest::PeerCommand(local_cid, PeerSignal::GetRegisteredPeers(HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid), None, limit.map(|r| r as i32)));
 
         let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
-                HdpServerResult::PeerEvent(PeerSignal::GetRegisteredPeers(_, Some(PeerResponse::RegisteredCids(cids, is_onlines)),_), _) => {
+                NodeResult::PeerEvent(PeerSignal::GetRegisteredPeers(_, Some(PeerResponse::RegisteredCids(cids, is_onlines)), _), _) => {
                     return Ok(cids.into_iter().zip(is_onlines.into_iter()).map(|(cid, is_online)| HyperlanPeer { cid, is_online }).collect())
                 }
 
@@ -214,13 +215,13 @@ pub trait ProtocolRemoteExt: Remote {
     /// Returns a list of mutually-registered peers with the local_user
     async fn get_hyperlan_mutual_peers<T: Into<UserIdentifier> + Send>(&mut self, local_user: T) -> Result<Vec<HyperlanPeer>, NetworkError> {
         let local_cid = self.get_implicated_cid(local_user).await?;
-        let command = HdpServerRequest::PeerCommand(local_cid, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid), None));
+        let command = NodeRequest::PeerCommand(local_cid, PeerSignal::GetMutuals(HypernodeConnectionType::HyperLANPeerToHyperLANServer(local_cid), None));
 
         let mut stream = self.send_callback_subscription(command).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
-                HdpServerResult::PeerEvent(PeerSignal::GetMutuals(_, Some(PeerResponse::RegisteredCids(cids, is_onlines))), _) => {
+                NodeResult::PeerEvent(PeerSignal::GetMutuals(_, Some(PeerResponse::RegisteredCids(cids, is_onlines))), _) => {
                     return Ok(cids.into_iter().zip(is_onlines.into_iter()).map(|(cid, is_online)| HyperlanPeer { cid, is_online }).collect())
                 }
 
@@ -241,10 +242,10 @@ pub trait ProtocolRemoteExt: Remote {
     }
 }
 
-pub(crate) fn map_errors(result: HdpServerResult) -> Result<HdpServerResult, NetworkError> {
+pub(crate) fn map_errors(result: NodeResult) -> Result<NodeResult, NetworkError> {
     match result {
-        HdpServerResult::InternalServerError(_, err) => Err(NetworkError::Generic(err)),
-        HdpServerResult::PeerEvent(PeerSignal::SignalError(_, err), _) => Err(NetworkError::Generic(err)),
+        NodeResult::InternalServerError(_, err) => Err(NetworkError::Generic(err)),
+        NodeResult::PeerEvent(PeerSignal::SignalError(_, err), _) => Err(NetworkError::Generic(err)),
         res => Ok(res)
     }
 }
@@ -265,18 +266,18 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let user = *self.user();
         let remote = self.remote();
 
-        let result = remote.send_callback(HdpServerRequest::SendFile(path.into(), chunk_size,implicated_cid, user)).await?;
+        let result = remote.send_callback(NodeRequest::SendFile(path.into(), chunk_size, implicated_cid, user)).await?;
         match map_errors(result)? {
-            HdpServerResult::FileTransferHandle(_ticket, mut handle) => {
+            NodeResult::FileTransferHandle(_ticket, mut handle) => {
                 while let Some(res) = handle.next().await {
-                    log::info!("Client received RES {:?}", res);
+                    log::trace!(target: "lusna", "Client received RES {:?}", res);
                     if let FileTransferStatus::TransferComplete = res {
                         return Ok(())
                     }
                 }
             }
 
-            res => log::error!("Invalid HdpServerResult for FileTransfer request received: {:?}", res)
+            res => log::error!(target: "lusna", "Invalid HdpServerResult for FileTransfer request received: {:?}", res)
         }
 
         Err(NetworkError::InternalError("File transfer stream died"))
@@ -292,15 +293,15 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let implicated_cid = self.user().get_implicated_cid();
         let peer_target = self.try_as_peer_connection().await?;
 
-        let mut stream = self.remote().send_callback_subscription(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostConnect(peer_target, None, None, session_security_settings, udp_mode))).await?;
+        let mut stream = self.remote().send_callback_subscription(NodeRequest::PeerCommand(implicated_cid, PeerSignal::PostConnect(peer_target, None, None, session_security_settings, udp_mode))).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
-                HdpServerResult::PeerChannelCreated(_, channel, udp_rx_opt) => {
+                NodeResult::PeerChannelCreated(_, channel, udp_rx_opt) => {
                     return Ok(PeerConnectSuccess { channel, udp_rx_opt })
                 }
 
-                HdpServerResult::PeerEvent(PeerSignal::PostConnect(_,_,Some(PeerResponse::Decline), ..), ..) => {
+                NodeResult::PeerEvent(PeerSignal::PostConnect(_, _, Some(PeerResponse::Decline), ..), ..) => {
                     return Err(NetworkError::msg("Peer declined to connect"))
                 }
 
@@ -324,11 +325,11 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let local_username = self.remote().account_manager().get_username_by_cid(implicated_cid).await?.ok_or_else(||NetworkError::msg("Unable to find username for local user"))?;
         let peer_username_opt = self.target_username().cloned();
 
-        let mut stream = self.remote().send_callback_subscription(HdpServerRequest::PeerCommand(implicated_cid, PeerSignal::PostRegister(peer_target, local_username, peer_username_opt,None, None, FcmPostRegister::Disable))).await?;
+        let mut stream = self.remote().send_callback_subscription(NodeRequest::PeerCommand(implicated_cid, PeerSignal::PostRegister(peer_target, local_username, peer_username_opt, None, None, FcmPostRegister::Disable))).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
-                HdpServerResult::PeerEvent(PeerSignal::PostRegister(_, _,_,_,Some(resp), ..), _) => {
+                NodeResult::PeerEvent(PeerSignal::PostRegister(_, _, _, _, Some(resp), ..), _) => {
                     match resp {
                         PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
                         PeerResponse::Decline => return Ok(PeerRegisterStatus::Declined),
@@ -426,7 +427,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::builder::node_builder::{NodeBuilder, NodeFuture};
-    use crate::prelude::{ProtocolRemoteTargetExt, NetKernel, NodeRemote, NetworkError, HdpServerResult, FileTransferStatus};
+    use crate::prelude::{ProtocolRemoteTargetExt, NetKernel, NodeRemote, NetworkError, NodeResult, FileTransferStatus};
     use crate::remote_ext::map_errors;
     use rstest::rstest;
     use futures::StreamExt;
@@ -448,14 +449,14 @@ mod tests {
             Ok(())
         }
 
-        async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
-            log::info!("SERVER received {:?}", message);
-            if let HdpServerResult::FileTransferHandle(_, mut handle) = map_errors(message)? {
+        async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
+            log::trace!(target: "lusna", "SERVER received {:?}", message);
+            if let NodeResult::FileTransferHandle(_, mut handle) = map_errors(message)? {
                 let mut path = None;
                 while let Some(status) = handle.next().await {
                     match status {
                         FileTransferStatus::ReceptionComplete => {
-                            log::info!("Server has finished receiving the file!");
+                            log::trace!(target: "lusna", "Server has finished receiving the file!");
                             SERVER_SUCCESS.store(true, Ordering::Relaxed);
                             let cmp = include_bytes!("../../resources/TheBridge.pdf");
                             let streamed_data = tokio::fs::read(path.clone().unwrap()).await.unwrap();
@@ -481,7 +482,7 @@ mod tests {
         }
     }
 
-    pub fn server_info() -> (NodeFuture<ServerFileTransferKernel>, SocketAddr) {
+    pub fn server_info<'a>() -> (NodeFuture<'a, ServerFileTransferKernel>, SocketAddr) {
         let port = crate::test_common::get_unused_tcp_port();
         let bind_addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
         let server = crate::test_common::server_test_node(bind_addr, ServerFileTransferKernel(None));
@@ -501,9 +502,9 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(uuid, server_addr, |_channel, mut remote| async move {
-            log::info!("***CLIENT LOGIN SUCCESS :: File transfer next ***");
+            log::trace!(target: "lusna", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
             remote.send_file_with_custom_chunking("../resources/TheBridge.pdf", 32*1024).await.unwrap();
-            log::info!("***CLIENT FILE TRANSFER SUCCESS***");
+            log::trace!(target: "lusna", "***CLIENT FILE TRANSFER SUCCESS***");
             CLIENT_SUCCESS.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });

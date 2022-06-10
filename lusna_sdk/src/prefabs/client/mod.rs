@@ -12,14 +12,14 @@ pub mod peer_connection;
 pub mod broadcast;
 
 #[async_trait]
-pub trait PrefabFunctions<Arg: Send + 'static>: Sized {
-    type UserLevelInputFunction: Send + 'static;
+pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized {
+    type UserLevelInputFunction: Send + 'a;
     /// Shared between the kernel and the on_c2s_channel_received function
-    type SharedBundle: Send + 'static;
+    type SharedBundle: Send + 'a;
 
     fn get_shared_bundle(&mut self) -> Self::SharedBundle;
     async fn on_c2s_channel_received(connect_success: ConnectSuccess, remote: ClientServerRemote, arg: Arg, fx: Self::UserLevelInputFunction, shared: Self::SharedBundle) -> Result<(), NetworkError>;
-    fn construct(kernel: Box<dyn NetKernel>) -> Self;
+    fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self;
 
     /// Creates a new connection with a central server entailed by the user information
     fn new_connect<T: Into<String>, P: Into<SecBuffer>>(username: T, password: P, arg: Arg, udp_mode: UdpMode, session_security_settings: SessionSecuritySettings, on_channel_received: Self::UserLevelInputFunction) -> Self {

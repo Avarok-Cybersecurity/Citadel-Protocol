@@ -13,8 +13,7 @@ localhost-testing = []
 
 [dependencies]
 igd = { version = "^0.12.0", features = ["aio"] }
-#tokio = { version = "^0.2.22", features = ["macros", "rt-util", "time", "net"] }
-tokio = "1.18.2"
+tokio = "1.19.0"
 futures = "0.3.16"
 async-trait = "0.1.36"
 async-trait-with-sync = "0.1.36"

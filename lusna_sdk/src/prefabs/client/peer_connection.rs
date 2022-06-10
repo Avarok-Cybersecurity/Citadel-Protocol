@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::prelude::{NodeRemote, NetworkError, NetKernel, ConnectSuccess, HdpServerResult, ProtocolRemoteExt, UserIdentifier, ProtocolRemoteTargetExt};
+use crate::prelude::{NodeRemote, NetworkError, NetKernel, ConnectSuccess, NodeResult, ProtocolRemoteExt, UserIdentifier, ProtocolRemoteTargetExt};
 use crate::prelude::results::PeerConnectSuccess;
 use futures::{Future, TryStreamExt};
 use crate::prefabs::ClientServerRemote;
@@ -14,14 +14,14 @@ use crate::test_common::wait_for_peers;
 ///
 /// After establishing a connection to the central node, this kernel then begins connecting to the desired
 /// peer(s)
-pub struct PeerConnectionKernel<F, Fut> {
-    inner_kernel: Box<dyn NetKernel>,
+pub struct PeerConnectionKernel<'a, F, Fut> {
+    inner_kernel: Box<dyn NetKernel + 'a>,
     // by using fn() -> Fut, the future does not need to be Sync
     _pd: PhantomData<fn() -> (F, Fut)>
 }
 
 #[async_trait]
-impl<F: 'static, Fut: 'static> NetKernel for PeerConnectionKernel<F, Fut> {
+impl<F, Fut> NetKernel for PeerConnectionKernel<'_, F, Fut> {
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
         self.inner_kernel.load_remote(server_remote)
     }
@@ -30,7 +30,7 @@ impl<F: 'static, Fut: 'static> NetKernel for PeerConnectionKernel<F, Fut> {
         self.inner_kernel.on_start().await
     }
 
-    async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         self.inner_kernel.on_node_event_received(message).await
     }
 
@@ -61,10 +61,10 @@ impl PeerIDAggregator {
 
 
 #[async_trait]
-impl<F, Fut> PrefabFunctions<Vec<UserIdentifier>> for PeerConnectionKernel<F, Fut>
+impl<'a, F, Fut> PrefabFunctions<'a, Vec<UserIdentifier>> for PeerConnectionKernel<'a, F, Fut>
     where
-        F: FnOnce(Receiver<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'static,
-        Fut: Future<Output=Result<(), NetworkError>> + Send + 'static {
+        F: FnOnce(Receiver<Result<PeerConnectSuccess, NetworkError>>, ClientServerRemote) -> Fut + Send + 'a,
+        Fut: Future<Output=Result<(), NetworkError>> + Send + 'a {
     type UserLevelInputFunction = F;
     type SharedBundle = ();
 
@@ -101,7 +101,7 @@ impl<F, Fut> PrefabFunctions<Vec<UserIdentifier>> for PeerConnectionKernel<F, Fu
                         // TODO: optimize peer registration + connection in one go
                         let mut handle = remote.propose_target(implicated_cid, peer_to_connect.clone()).await?;
                         let _reg_success = handle.register_to_peer().await?;
-                        log::info!("Peer {:?} registered || success -> now connecting", peer_to_connect);
+                        log::trace!(target: "lusna", "Peer {:?} registered || success -> now connecting", peer_to_connect);
                         handle.connect_to_peer().await
                     }
                 };
@@ -120,7 +120,7 @@ impl<F, Fut> PrefabFunctions<Vec<UserIdentifier>> for PeerConnectionKernel<F, Fu
             .map(|_| ())
     }
 
-    fn construct(kernel: Box<dyn NetKernel>) -> Self {
+    fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self {
         Self {
             inner_kernel: kernel,
             _pd: Default::default()
@@ -149,8 +149,7 @@ mod tests {
         crate::test_common::setup_log();
         TestBarrier::setup(peer_count);
 
-        static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
-        CLIENT_SUCCESS.store(0, Ordering::Relaxed);
+        let ref client_success = AtomicUsize::new(0);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
@@ -165,7 +164,7 @@ mod tests {
                 let mut success = 0;
 
                 while let Some(conn) = results.recv().await {
-                    log::info!("User {} received {:?}", username, conn);
+                    log::trace!(target: "lusna", "User {} received {:?}", username, conn);
                     let _conn = conn?;
                     success += 1;
                     if success == peer_count-1 {
@@ -173,8 +172,8 @@ mod tests {
                     }
                 }
 
-                log::info!("***PEER {} CONNECT RESULT: {}***", username, success);
-                let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", username, success);
+                let _ = client_success.fetch_add(1, Ordering::Relaxed);
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             });
@@ -190,7 +189,7 @@ mod tests {
         });
 
         assert!(futures::future::try_select(server, clients).await.is_ok());
-        assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), peer_count);
+        assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
     }
 
     #[rstest]
@@ -203,8 +202,7 @@ mod tests {
         crate::test_common::setup_log();
         TestBarrier::setup(peer_count);
 
-        static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);
-        CLIENT_SUCCESS.store(0, Ordering::Relaxed);
+        let ref client_success = AtomicUsize::new(0);
         let (server, server_addr) = server_info();
 
         let client_kernels = FuturesUnordered::new();
@@ -218,7 +216,7 @@ mod tests {
                 let mut success = 0;
 
                 while let Some(conn) = results.recv().await {
-                    log::info!("User {} received {:?}", uuid, conn);
+                    log::trace!(target: "lusna", "User {} received {:?}", uuid, conn);
                     let _conn = conn?;
                     success += 1;
                     if success == peer_count-1 {
@@ -226,8 +224,8 @@ mod tests {
                     }
                 }
 
-                log::info!("***PEER {} CONNECT RESULT: {}***", uuid, success);
-                let _ = CLIENT_SUCCESS.fetch_add(1, Ordering::Relaxed);
+                log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", uuid, success);
+                let _ = client_success.fetch_add(1, Ordering::Relaxed);
                 wait_for_peers().await;
                 remote.shutdown_kernel().await
             });
@@ -243,6 +241,6 @@ mod tests {
         });
 
         assert!(futures::future::try_select(server, clients).await.is_ok());
-        assert_eq!(CLIENT_SUCCESS.load(Ordering::Relaxed), peer_count);
+        assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
     }
 }

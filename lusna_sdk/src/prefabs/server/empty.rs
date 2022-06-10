@@ -15,7 +15,7 @@ impl NetKernel for EmptyKernel {
         Ok(())
     }
 
-    async fn on_node_event_received(&self, _message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, _message: NodeResult) -> Result<(), NetworkError> {
         Ok(())
     }
 

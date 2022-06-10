@@ -72,7 +72,7 @@ impl GoogleAuth {
         claims.insert("uid", &implicated_cid);
         //claims.insert("claims", final_claim.as_str());
 
-        log::info!("{:?}", &claims);
+        log::trace!(target: "lusna", "{:?}", &claims);
 
         claims.sign_with_key(&*key as &PKeyWithDigest<Private>).map_err(|err| AccountError::Generic(err.to_string()))
     }

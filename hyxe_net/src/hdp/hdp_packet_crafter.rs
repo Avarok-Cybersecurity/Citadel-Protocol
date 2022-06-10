@@ -107,7 +107,7 @@ impl GroupTransmitter {
     /// Creates a new stream for a request
     pub fn new_message(to_primary_stream: OutboundPrimaryStreamSender, object_id: u32, hyper_ratchet: RatchetPacketCrafterContainer, input_packet: SecureProtocolPacket, security_level: SecurityLevel, group_id: u64, ticket: Ticket, time_tracker: TimeTracker) -> Option<Self> {
         // Gets the latest drill version by default for this operation
-        log::trace!("Will use HyperRatchet v{} to encrypt group {}", hyper_ratchet.base.version(), group_id);
+        log::trace!(target: "lusna", "Will use HyperRatchet v{} to encrypt group {}", hyper_ratchet.base.version(), group_id);
 
         let bytes_encrypted = input_packet.inner.message_len(); //the number of bytes that will be encrypted
         // + 1 byte source port offset (needed for sending across port-address-translation networks)
@@ -135,7 +135,7 @@ impl GroupTransmitter {
             }
 
             Err(_err) => {
-                log::error!("The wavepacket processor stream was unable to generate the sender for group {}. Aborting", group_id);
+                log::error!(target: "lusna", "The wavepacket processor stream was unable to generate the sender for group {}. Aborting", group_id);
                 None
             }
         }
@@ -165,18 +165,18 @@ impl GroupTransmitter {
     #[allow(unused_results)]
     pub fn transmit_tcp_file_transfer(&mut self) -> bool {
         let ref to_primary_stream = self.to_primary_stream;
-        log::info!("[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
+        log::trace!(target: "lusna", "[Q-TCP] Payload packets to send: {} | Max packets per wave: {}", self.group_config.packets_needed, self.group_config.max_packets_per_wave);
         let to_primary_stream = to_primary_stream.clone();
         let packets = self.group_transmitter.take_all_packets();
 
-        log::info!("Will transfer {} packets", packets.len());
+        log::trace!(target: "lusna", "Will transfer {} packets", packets.len());
         for packet in packets {
             if let Err(err) = to_primary_stream.unbounded_send(packet.packet) {
-                log::error!("[FILE] to_primary_stream died {:?}", err);
+                log::error!(target: "lusna", "[FILE] to_primary_stream died {:?}", err);
             }
         }
 
-        log::info!("Group {} has finished transmission", self.group_id);
+        log::trace!(target: "lusna", "Group {} has finished transmission", self.group_id);
 
         true
     }
@@ -1090,7 +1090,7 @@ pub(crate) mod peer_cmd {
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use crate::hdp::peer::peer_layer::ChannelPacket;
-    use crate::hdp::hdp_packet_processor::peer::group_broadcast::GroupBroadcast;
+    use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_fs::io::SyncIO;
@@ -1210,7 +1210,7 @@ pub(crate) mod peer_cmd {
 }
 
 pub(crate) mod file {
-    use crate::hdp::hdp_packet_processor::includes::{SecurityLevel, HdpHeader, packet_flags};
+    use crate::hdp::packet_processor::includes::{SecurityLevel, HdpHeader, packet_flags};
     use crate::hdp::hdp_node::Ticket;
     use crate::hdp::state_container::VirtualTargetType;
     use crate::hdp::file_transfer::VirtualFileMetadata;
@@ -1347,7 +1347,7 @@ pub(crate) mod hole_punch {
     /// This strips the header, since it's only relevant to the networking protocol and NOT the hole-puncher
     pub fn decrypt_packet(hyper_ratchet: &HyperRatchet, packet: &[u8], security_level: SecurityLevel) -> Option<BytesMut> {
         if packet.len() < HDP_HEADER_BYTE_LEN {
-            log::warn!("Bad hole-punch packet size. Len: {} | {:?}", packet.len(), packet);
+            log::warn!(target: "lusna", "Bad hole-punch packet size. Len: {} | {:?}", packet.len(), packet);
             return None;
         }
 
