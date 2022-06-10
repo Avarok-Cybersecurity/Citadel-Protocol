@@ -13,7 +13,7 @@ pub fn load_and_execute_ffi_static(port: i64, home_dir: &str, database: &str) ->
     let obj = FFIObject::from(port);
     let old_opt = FFI_STATIC.lock().replace(obj);
     if let Some(_) = old_opt {
-        log::warn!("FFI_STATIC has been replaced! Check the calling program's logic");
+        log::warn!(target: "lusna", "FFI_STATIC has been replaced! Check the calling program's logic");
 
         return -1;
     }
@@ -33,7 +33,7 @@ impl FFIObject {
     ) -> Arc<Box<dyn Fn(Result<Option<KernelResponse>, ConsoleError>) + Send + Sync + 'static>>
     {
         Arc::new(Box::new(|res| {
-            log::info!("About to send {:?}", &res);
+            log::trace!(target: "lusna", "About to send {:?}", &res);
             let json_packet = KernelResponse::from(res).serialize_json().unwrap();
             match FFI_STATIC
                 .lock()
@@ -42,11 +42,11 @@ impl FFIObject {
                 .send_to_dart(json_packet)
             {
                 true => {
-                    log::info!("Successfully sent FFI Message")
+                    log::trace!(target: "lusna", "Successfully sent FFI Message")
                 }
 
                 false => {
-                    log::error!("Unable to send to dart! [FATAL]");
+                    log::error!(target: "lusna", "Unable to send to dart! [FATAL]");
                 }
             }
         }))
@@ -62,11 +62,11 @@ impl FFIObject {
 
         // spawn a new thread to not block the FFI call
         std::thread::spawn(move || {
-            log::info!("Started SatoriNET main thread ...");
+            log::trace!(target: "lusna", "Started SatoriNET main thread ...");
             if let Err(err) =
                 hyxewave::ffi::ffi_entry::execute_lusna_kernel(config, to_ffi_frontier.clone())
             {
-                log::error!("Err executing kernel: {:?}", &err);
+                log::error!(target: "lusna", "Err executing kernel: {:?}", &err);
                 *FFI_STATIC.lock() = None;
 
                 (to_ffi_frontier)(Ok(Some(KernelResponse::KernelShutdown(

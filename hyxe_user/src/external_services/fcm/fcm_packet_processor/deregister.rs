@@ -10,9 +10,9 @@ use crate::misc::AccountError;
 /// the entries in the cnac
 #[allow(unused_results)]
 pub fn process(peer_cid: u64, local_cid: u64, ticket: u128, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>) -> Result<FcmProcessorResult, AccountError> {
-    log::info!("FCM RECV DEREGISTER");
+    log::trace!(target: "lusna", "FCM RECV DEREGISTER");
     if fcm_crypt_container.remove(&peer_cid).is_none() {
-        log::warn!("[Deregister] Unable to remove fcm crypt container");
+        log::warn!(target: "lusna", "[Deregister] Unable to remove fcm crypt container");
     }
 
     if let Err(err) = mutuals.get_vec_mut(&HYPERLAN_IDX).ok_or(AccountError::Generic("Zero mutuals".to_string())).and_then(|vec| {
@@ -23,7 +23,7 @@ pub fn process(peer_cid: u64, local_cid: u64, ticket: u128, fcm_crypt_container:
             Err(AccountError::Generic("Unable to find peer in map".to_string()))
         }
     }) {
-        log::warn!("Unable to remove peer: {:?}", &err);
+        log::warn!(target: "lusna", "Unable to remove peer: {:?}", &err);
         Err(err)
     } else {
         // requestor is the peer, since we are receiving the notification here that the other endpoint deregistered

@@ -120,7 +120,7 @@ impl HolePunchConfig {
                 // mode, AND, both 'nodes' are behind an unpredictable NAT, simply connect to the internal
                 // addr
                 if cfg!(feature = "localhost-testing") {
-                    log::info!("Simulating peer has port preserved config");
+                    log::trace!(target: "lusna", "Simulating peer has port preserved config");
                     // pretend the peer NAT has a PortPreserved config
                     let direct_addr = _addr.clone().ok_or_else(||anyhow::Error::msg("unable to simulate PortPreserved config"))?;
                     let simulated_peer_nat = NatType::PortPreserved(direct_addr.internal_ipv4, Some(direct_addr), *_is_v6_allowed);

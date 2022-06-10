@@ -159,7 +159,7 @@ pub mod macros {
             match $opt {
                 Some(val) => val,
                 _ => {
-                    log::warn!("[X-03] NoneError: {}", $err);
+                    log::warn!(target: "lusna", "[X-03] NoneError: {}", $err);
                     return Ok(PrimaryProcessorResult::Void);
                 }
             }
@@ -286,7 +286,7 @@ pub mod macros {
         if tokio::runtime::Handle::try_current().is_ok() {
             std::mem::drop(crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn($future)));
         } else {
-            log::warn!("Unable to spawn future: {:?}", stringify!($future));
+            log::warn!(target: "lusna", "Unable to spawn future: {:?}", stringify!($future));
         }
         //tokio::task::spawn($future)
     };
@@ -314,7 +314,7 @@ pub mod macros {
             match $opt {
                 Some(val) => val,
                 _ => {
-                    log::warn!("[X-03] NoneError in file {}:{}: {}", file!(), line!(), $err);
+                    log::warn!(target: "lusna", "[X-03] NoneError in file {}:{}: {}", file!(), line!(), $err);
                     return Ok(PrimaryProcessorResult::Void);
                 }
             }

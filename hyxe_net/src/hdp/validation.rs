@@ -11,7 +11,7 @@ pub(crate) mod do_connect {
         // Now, validate the username and password. The payload is already decrypted
         let payload = DoConnectStage0Packet::deserialize_from_vector(payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
         cnac.validate_credentials(payload.proposed_credentials).await.map_err(|err| NetworkError::Generic(err.into_string()))?;
-        log::info!("Success validating credentials!");
+        log::trace!(target: "lusna", "Success validating credentials!");
         Ok(payload.fcm_keys)
     }
 
@@ -68,7 +68,7 @@ pub(crate) mod group {
         match &mut group_header {
             GroupHeader::Standard(group_receiver_config, _) => {
                 if group_receiver_config.plaintext_length > hyxe_user::prelude::MAX_BYTES_PER_GROUP {
-                    log::error!("The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");
+                    log::error!(target: "lusna", "The provided GroupReceiverConfiguration contains an oversized allocation request. Dropping ...");
                     return None
                 }
             }
@@ -243,7 +243,7 @@ pub(crate) mod pre_connect {
         let packet = SynAckPacket::deserialize_from_vector(&payload).ok()?;
 
         let lvl = packet.transfer.security_level;
-        log::info!("Session security level based-on returned transfer: {:?}", lvl);
+        log::trace!(target: "lusna", "Session security level based-on returned transfer: {:?}", lvl);
         alice_constructor.stage1_alice(&BobToAliceTransferType::Default(packet.transfer))?;
 
         let new_hyper_ratchet = alice_constructor.finish()?;
@@ -276,7 +276,7 @@ pub(crate) mod pre_connect {
         let (_,payload, hyper_ratchet) = super::aead::validate(cnac, &header, payload)?;
 
         if payload.len() != packet_sizes::do_preconnect::STAGE_SUCCESS_ACK - HDP_HEADER_BYTE_LEN {
-            log::error!("Bad payload len");
+            log::error!(target: "lusna", "Bad payload len");
             return None;
         }
 
@@ -339,7 +339,7 @@ pub(crate) mod aead {
         let header_bytes = header.as_ref();
         let header = LayoutVerified::new(header_bytes)? as LayoutVerified<&[u8], HdpHeader>;
         if let Err(err) = hyper_ratchet.validate_message_packet_in_place_split(Some(header.security_level.into()), header_bytes, &mut payload) {
-            log::error!("AES-GCM stage failed: {:?}. Supplied Ratchet Version: {} | Expected Ratchet Version: {} | Header CID: {} | Target CID: {}\nPacket: {:?}\nPayload len: {}", err, hyper_ratchet.version(), header.drill_version.get(), header.session_cid.get(), header.target_cid.get(), &header, payload.len());
+            log::error!(target: "lusna", "AES-GCM stage failed: {:?}. Supplied Ratchet Version: {} | Expected Ratchet Version: {} | Header CID: {} | Target CID: {}\nPacket: {:?}\nPayload len: {}", err, hyper_ratchet.version(), header.drill_version.get(), header.session_cid.get(), header.target_cid.get(), &header, payload.len());
             return None;
         }
 

@@ -17,7 +17,7 @@ pub async fn handle_response_phase(peer_layer: &mut HyperNodePeerLayerInner, pee
                                   let task = async move {
                                       if let Err(err) = account_manager.register_hyperlan_p2p_as_server(implicated_cid, target_cid).await {
                                           // TODO: route error
-                                          log::error!("Unable to register hyperlan p2p at server: {:?}", err);
+                                          log::error!(target: "lusna", "Unable to register hyperlan p2p at server: {:?}", err);
                                       }
                                   };
 

@@ -26,7 +26,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
     let session = session_orig.clone();
 
     if !session.is_provisional() {
-        log::error!("Pre-Connect packet received, but the system is not in a provisional state. Dropping");
+        log::error!(target: "lusna", "Pre-Connect packet received, but the system is not in a provisional state. Dropping");
         return Ok(PrimaryProcessorResult::Void);
     }
 
@@ -38,7 +38,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
 
         match header.cmd_aux {
             packet_flags::cmd::aux::do_preconnect::SYN => {
-                log::info!("RECV STAGE SYN PRE_CONNECT PACKET");
+                log::trace!(target: "lusna", "RECV STAGE SYN PRE_CONNECT PACKET");
                 // first make sure the cid isn't already connected
 
                 let account_manager = session.account_manager.clone();
@@ -56,10 +56,10 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
 
                             // TODO: prevent logins if versions out of sync. For now, don't
                             if proto_version_out_of_sync(adjacent_proto_version) {
-                                log::warn!("\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", crate::constants::BUILD_VERSION, adjacent_proto_version);
+                                log::warn!(target: "lusna", "\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", crate::constants::BUILD_VERSION, adjacent_proto_version);
                             }
 
-                            log::info!("Synchronizing toolsets. UDP mode: {:?}. Session security level: {:?}", udp_mode, new_session_sec_lvl);
+                            log::trace!(target: "lusna", "Synchronizing toolsets. UDP mode: {:?}. Session security level: {:?}", udp_mode, new_session_sec_lvl);
                             // TODO: Rate limiting to prevent SYN flooding
                             let timestamp = session.time_tracker.get_global_time_ns();
 
@@ -95,7 +95,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                         }
 
                         Err(err) => {
-                            log::error!("Invalid SYN packet received: {:?}", &err);
+                            log::error!(target: "lusna", "Invalid SYN packet received: {:?}", &err);
                             let packet = hdp_packet_crafter::pre_connect::craft_halt(&header_if_err_occurs, err.into_string());
                             Ok(PrimaryProcessorResult::ReplyToSender(packet))
                         }
@@ -109,7 +109,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
             }
 
             packet_flags::cmd::aux::do_preconnect::SYN_ACK => {
-                log::info!("RECV STAGE SYN_ACK PRE_CONNECT PACKET");
+                log::trace!(target: "lusna", "RECV STAGE SYN_ACK PRE_CONNECT PACKET");
                 let ref cnac = return_if_none!(inner_state!(session.state_container).cnac.clone(), "SESS Cnac not loaded");
 
                 let (stream, new_hyper_ratchet) = {
@@ -147,27 +147,27 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                             let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, C2S_ENCRYPTION_ONLY, new_hyper_ratchet.clone(), security_level);
                             (stream, new_hyper_ratchet)
                         } else {
-                            log::error!("Invalid SYN_ACK");
+                            log::error!(target: "lusna", "Invalid SYN_ACK");
                             return Ok(PrimaryProcessorResult::Void)
                         }
                     } else {
-                        log::error!("Expected stage SYN_ACK, but local state was not valid");
+                        log::error!(target: "lusna", "Expected stage SYN_ACK, but local state was not valid");
                         return Ok(PrimaryProcessorResult::Void)
                     }
                 };
 
                 let ref conn = NetworkEndpoint::register(RelativeNodeType::Initiator, stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-                log::info!("Initiator created");
+                log::trace!(target: "lusna", "Initiator created");
                 let res = conn.begin_udp_hole_punch(generate_hole_punch_crypt_container(new_hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY)).await;
 
                 match res {
                     Ok(ret) => {
-                        log::info!("Initiator finished NAT traversal ...");
+                        log::trace!(target: "lusna", "Initiator finished NAT traversal ...");
                         send_success_as_initiator(get_raw_udp_interface(ret), &new_hyper_ratchet, session, security_level, cnac, &mut *inner_mut_state!(session.state_container))
                     }
 
                     Err(err) => {
-                        log::warn!("Hole punch attempt failed {:?}", err.to_string());
+                        log::warn!(target: "lusna", "Hole punch attempt failed {:?}", err.to_string());
                         // Note: the session will automatically close, if needed
                         Ok(PrimaryProcessorResult::Void)
                     }
@@ -175,7 +175,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
             }
 
             packet_flags::cmd::aux::do_preconnect::STAGE0 => {
-                log::info!("RECV STAGE 0 PRE_CONNECT PACKET");
+                log::trace!(target: "lusna", "RECV STAGE 0 PRE_CONNECT PACKET");
 
                 // At this point, the user's static-key identity has been verified. We can now check the online status to ensure no double-logins
                 let ref cnac = return_if_none!(inner_state!(session.state_container).cnac.clone(), "Sess CNAC not loaded");
@@ -209,17 +209,17 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                             let stream = ReliableOrderedCompatStream::new(to_primary_stream, &mut *state_container, C2S_ENCRYPTION_ONLY, hyper_ratchet.clone(), security_level);
                             stream
                         } else {
-                            log::error!("Unable to validate stage 0 packet");
+                            log::error!(target: "lusna", "Unable to validate stage 0 packet");
                             return Ok(PrimaryProcessorResult::Void)
                         }
                     } else {
-                        log::error!("Packet state 0, last stage not 0. Dropping");
+                        log::error!(target: "lusna", "Packet state 0, last stage not 0. Dropping");
                         return Ok(PrimaryProcessorResult::Void)
                     }
                 };
 
                 let ref conn = NetworkEndpoint::register(RelativeNodeType::Receiver, stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-                log::info!("Receiver created");
+                log::trace!(target: "lusna", "Receiver created");
 
                 let res = conn.begin_udp_hole_punch(generate_hole_punch_crypt_container(hyper_ratchet.clone(), SecurityLevel::LOW, C2S_ENCRYPTION_ONLY)).await;
 
@@ -229,7 +229,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                     }
 
                     Err(err) => {
-                        log::info!("Hole punch attempt failed ({}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange", err.to_string());
+                        log::trace!(target: "lusna", "Hole punch attempt failed ({}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange", err.to_string());
                         // We await the initiator to choose a method
                         let mut state_container = inner_mut_state!(session.state_container);
                         state_container.udp_mode = UdpMode::Disabled;
@@ -244,9 +244,9 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                 let success = header.cmd_aux == packet_flags::cmd::aux::do_preconnect::SUCCESS;
 
                 if success {
-                    log::info!("RECV STAGE SUCCESS PRE CONNECT PACKET");
+                    log::trace!(target: "lusna", "RECV STAGE SUCCESS PRE CONNECT PACKET");
                 } else {
-                    log::info!("RECV STAGE FAILURE PRE CONNECT PACKET");
+                    log::trace!(target: "lusna", "RECV STAGE FAILURE PRE CONNECT PACKET");
                 }
 
                 let timestamp = session.time_tracker.get_global_time_ns();
@@ -261,7 +261,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
 
                     // if we are using tcp_only, skip the rest and go straight to sending the packet
                     if tcp_only {
-                        log::warn!("Received signal to fall-back to TCP only mode");
+                        log::warn!(target: "lusna", "Received signal to fall-back to TCP only mode");
                         let begin_connect = hdp_packet_crafter::pre_connect::craft_begin_connect(&hyper_ratchet, timestamp, security_level);
                         return Ok(PrimaryProcessorResult::ReplyToSender(begin_connect));
                     }
@@ -270,7 +270,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                     // server node will need to mirror the opposite side and setup a UDP conn internally
                     if state_container.udp_mode == UdpMode::Enabled {
                         if let Some(quic_conn) = inner_mut!(session.primary_stream_quic_conn).take() {
-                            log::info!("[Server/QUIC-UDP] Loading ...");
+                            log::trace!(target: "lusna", "[Server/QUIC-UDP] Loading ...");
                             let _ = handle_success_as_receiver(get_quic_udp_interface(quic_conn, session.local_bind_addr), session, cnac, &mut *state_container)?;
                         }
                     }
@@ -287,14 +287,14 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                         Ok(PrimaryProcessorResult::ReplyToSender(begin_connect))
                     }
                 } else {
-                    log::error!("Unable to validate success packet. Dropping");
+                    log::error!(target: "lusna", "Unable to validate success packet. Dropping");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
 
             // the client gets this. The client must now begin the connect process
             packet_flags::cmd::aux::do_preconnect::BEGIN_CONNECT => {
-                log::info!("RECV STAGE BEGIN_CONNECT PRE CONNECT PACKET");
+                log::trace!(target: "lusna", "RECV STAGE BEGIN_CONNECT PRE CONNECT PACKET");
                 let mut state_container = inner_mut_state!(session.state_container);
                 let ref cnac = return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded");
 
@@ -305,11 +305,11 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
                         // now, begin stage 0 connect
                         begin_connect_process(&session, &hyper_ratchet, security_level)
                     } else {
-                        log::error!("Unable to validate success_ack packet. Dropping");
+                        log::error!(target: "lusna", "Unable to validate success_ack packet. Dropping");
                         Ok(PrimaryProcessorResult::Void)
                     }
                 } else {
-                    log::error!("Last stage is not SUCCESS, yet a BEGIN_CONNECT packet was received. Dropping");
+                    log::error!(target: "lusna", "Last stage is not SUCCESS, yet a BEGIN_CONNECT packet was received. Dropping");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
@@ -323,7 +323,7 @@ pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processo
             }
 
             _ => {
-                log::error!("Invalid auxiliary command");
+                log::error!(target: "lusna", "Invalid auxiliary command");
                 Ok(PrimaryProcessorResult::Void)
             }
         }
@@ -346,7 +346,7 @@ fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, sec
     std::mem::drop(state_container);
     session.state.store(SessionState::ConnectionProcess, Ordering::Relaxed);
 
-    log::info!("Successfully sent stage0 connect packet outbound");
+    log::trace!(target: "lusna", "Successfully sent stage0 connect packet outbound");
 
     // Keep the session open even though we transitioned from the pre-connect to connect stage
     Ok(PrimaryProcessorResult::ReplyToSender(stage0_connect_packet))
@@ -388,7 +388,7 @@ pub fn calculate_sync_time(current: i64, header: i64) -> (Instant, i64) {
     let delta = delta as i64;
     // we send this timestamp, allowing the other end to begin the hole-punching process once this moment is reached
     let sync_time_ns = current + delta;
-    log::info!("Sync time: {}", sync_time_ns);
+    log::trace!(target: "lusna", "Sync time: {}", sync_time_ns);
     let sync_time_instant = Instant::now() + Duration::from_nanos(delta as u64);
     (sync_time_instant, sync_time_ns)
 }
@@ -398,11 +398,11 @@ fn proto_version_out_of_sync(adjacent_proto_version: u64) -> bool {
 }
 
 fn get_raw_udp_interface(socket: HolePunchedUdpSocket) -> UdpSplittableTypes {
-    log::info!("Will use Raw UDP for UDP transmission");
+    log::trace!(target: "lusna", "Will use Raw UDP for UDP transmission");
     UdpSplittableTypes::Raw(RawUdpSocketConnector::new(socket.socket, socket.addr.receive_address))
 }
 
 fn get_quic_udp_interface(quic_conn: NewConnection, local_addr: SocketAddr) -> UdpSplittableTypes {
-    log::info!("Will use QUIC UDP for UDP transmission");
+    log::trace!(target: "lusna", "Will use QUIC UDP for UDP transmission");
     UdpSplittableTypes::QUIC(QuicUdpSocketConnector::new(quic_conn, local_addr))
 }

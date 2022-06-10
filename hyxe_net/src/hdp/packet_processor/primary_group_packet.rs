@@ -36,7 +36,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
     } = session.inner.deref();
 
     if state.load(Ordering::Relaxed) != SessionState::Connected {
-        log::error!("Group packet dropped; session not connected");
+        log::error!(target: "lusna", "Group packet dropped; session not connected");
         return Ok(PrimaryProcessorResult::Void);
     }
 
@@ -55,10 +55,10 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
     let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to load header [PGP]") as LayoutVerified<&[u8], HdpHeader>;
     let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess, &state_container, proxy_cid_info), "Unable to get proper HyperRatchet [PGP]");
     let security_level = header.security_level.into();
-    //log::info!("[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
+    //log::trace!(target: "lusna", "[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
     match header.cmd_aux {
         packet_flags::cmd::aux::group::GROUP_PAYLOAD => {
-            log::info!("RECV GROUP PAYLOAD {:?}", header);
+            log::trace!(target: "lusna", "RECV GROUP PAYLOAD {:?}", header);
             // These packets do not get encrypted with the message key. They get scrambled and encrypted
             match state_container.on_group_payload_received(&*header, payload.freeze(), &hyper_ratchet) {
                 Ok(res) => {
@@ -67,7 +67,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                 }
 
                 Err(err) => {
-                    log::error!("on_group_payload_received error: {:?}", err);
+                    log::error!(target: "lusna", "on_group_payload_received error: {:?}", err);
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
@@ -80,15 +80,15 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
 
                     match cmd_aux {
                         packet_flags::cmd::aux::group::GROUP_HEADER => {
-                            log::info!("RECV GROUP HEADER");
+                            log::trace!(target: "lusna", "RECV GROUP HEADER");
                             let is_message = header.algorithm == 1;
                             if is_message {
                                 let (plaintext, transfer) = return_if_none!(validation::group::validate_message(&mut payload), "Bad message packet");
-                                log::info!("Recv FastMessage. version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
+                                log::trace!(target: "lusna", "Recv FastMessage. version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
                                 // Here, we do not go through all the fiasco like above. We just forward the message to the kernel, then send an ACK
                                 // so that the sending side can be notified of a successful send
                                 let resp_target_cid = get_resp_target_cid_from_header(&header);
-                                log::info!("Resp target cid {} obtained. version {} w/ CID {} (local CID: {})", resp_target_cid, hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
+                                log::trace!(target: "lusna", "Resp target cid {} obtained. version {} w/ CID {} (local CID: {})", resp_target_cid, hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
                                 let object_id = header.wave_id.get();
                                 let ticket = header.context_info.get().into();
                                 // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
@@ -103,7 +103,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                 };
 
                                 if !state_container.forward_data_to_ordered_channel(target_cid, header.group.get(), plaintext) {
-                                    log::error!("Unable to forward data to channel (peer: {})", target_cid);
+                                    log::error!(target: "lusna", "Unable to forward data to channel (peer: {})", target_cid);
                                     return Ok(PrimaryProcessorResult::Void);
                                 }
 
@@ -137,14 +137,14 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                                     if group.has_begun {
                                                         if group.receiver.has_expired(GROUP_EXPIRE_TIME_MS) {
                                                             if state_container.meta_expiry_state.expired() {
-                                                                log::error!("Inbound group {} has expired; removing for {}.", group_id, peer_cid);
+                                                                log::error!(target: "lusna", "Inbound group {} has expired; removing for {}.", group_id, peer_cid);
                                                                 if let Some(group) = state_container.inbound_groups.remove(&key) {
                                                                     if group.object_id != 0 {
                                                                         // belongs to a file. Delete file; stop transmission
                                                                         let key = FileKey::new(peer_cid, group.object_id);
                                                                         if let Some(_file) = state_container.inbound_files.remove(&key) {
                                                                             // dropping this will automatically drop the future streaming to HD
-                                                                            log::warn!("File transfer expired");
+                                                                            log::warn!(target: "lusna", "File transfer expired");
                                                                             // TODO: Create file FIN
                                                                         }
 
@@ -154,7 +154,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
 
                                                                 QueueWorkerResult::Complete
                                                             } else {
-                                                                log::info!("[X-04] Other inbound groups being processed; patiently awaiting group {}", group_id);
+                                                                log::trace!(target: "lusna", "[X-04] Other inbound groups being processed; patiently awaiting group {}", group_id);
                                                                 QueueWorkerResult::Incomplete
                                                             }
                                                         } else {
@@ -180,7 +180,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                         }
 
                         packet_flags::cmd::aux::group::GROUP_HEADER_ACK => {
-                            log::info!("RECV GROUP HEADER ACK");
+                            log::trace!(target: "lusna", "RECV GROUP HEADER ACK");
                             match validation::group::validate_header_ack(&payload) {
                                 Some(GroupHeaderAck::ReadyToReceive { initial_window, transfer, fast_msg }) => {
                                     // we need to begin sending the data
@@ -210,7 +210,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
 
                                     if state_container.on_group_header_ack_received(secrecy_mode, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg, cnac_sess) {
                                         //std::mem::drop(state_container);
-                                        log::info!("[Toolset Update] Needs truncation? {:?}", &needs_truncate);
+                                        log::trace!(target: "lusna", "[Toolset Update] Needs truncation? {:?}", &needs_truncate);
 
                                         //session.send_to_kernel(HdpServerResult::MessageDelivered(header.context_info.get().into()))?;
                                         // now, we need to do one last thing. We need to send a truncate packet to atleast allow bob to begin sending packets using the latest HR
@@ -218,7 +218,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                         if transfer_occured {
                                             let target_cid = if target_cid != C2S_ENCRYPTION_ONLY { peer_cid } else { C2S_ENCRYPTION_ONLY };
                                             let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&hyper_ratchet, needs_truncate, target_cid, timestamp, security_level);
-                                            log::info!("About to send TRUNCATE packet to MAYBE remove v {:?} | HR v {} | HR CID {}", needs_truncate, hyper_ratchet.version(), hyper_ratchet.get_cid());
+                                            log::trace!(target: "lusna", "About to send TRUNCATE packet to MAYBE remove v {:?} | HR v {} | HR CID {}", needs_truncate, hyper_ratchet.version(), hyper_ratchet.get_cid());
                                             session.send_to_primary_stream(None, truncate_packet)?;
                                         }
 
@@ -226,7 +226,7 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
 
                                         // if a transfer occured, we will get polled once we get an TRUNCATE_ACK. No need to double poll
                                         if secrecy_mode == SecrecyMode::Perfect {
-                                            log::info!("Polling next in pgp");
+                                            log::trace!(target: "lusna", "Polling next in pgp");
                                             let _ = state_container.poll_next_enqueued(resp_target_cid)?;
                                         }
 
@@ -247,13 +247,13 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
                                     let group = header.group.get();
                                     let key = GroupKey::new(header.session_cid.get(), group);
                                     if let None = state_container.outbound_transmitters.remove(&key) {
-                                        log::error!("Unable to remove outbound transmitter for group {} (non-existent)", group);
+                                        log::error!(target: "lusna", "Unable to remove outbound transmitter for group {} (non-existent)", group);
                                     }
                                     //std::mem::drop(state_container);
 
                                     if !fast_msg {
                                         let ticket = header.context_info.get();
-                                        log::info!("Header ACK was valid, but the receiving end is not receiving the packet at this time. Clearing local memory ...");
+                                        log::trace!(target: "lusna", "Header ACK was valid, but the receiving end is not receiving the packet at this time. Clearing local memory ...");
                                         session.send_to_kernel(NodeResult::OutboundRequestRejected(ticket.into(), Some(Vec::from("Adjacent node unable to accept request"))))?;
                                     }
 
@@ -262,51 +262,51 @@ pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_c
 
                                 None => {
                                     // invalid packet
-                                    log::error!("Invalid GROUP HEADER ACK");
+                                    log::error!(target: "lusna", "Invalid GROUP HEADER ACK");
                                     Ok(PrimaryProcessorResult::Void)
                                 }
                             }
                         }
 
                         packet_flags::cmd::aux::group::WAVE_ACK => {
-                            log::info!("RECV WAVE ACK");
+                            log::trace!(target: "lusna", "RECV WAVE ACK");
                             match validation::group::validate_wave_ack(&payload) {
                                 Some(WaveAck { range }) => {
                                     if range.is_some() {
-                                        log::info!("WAVE_ACK implies window completion");
+                                        log::trace!(target: "lusna", "WAVE_ACK implies window completion");
                                     }
 
                                     // the window is done. Since this node is the transmitter, we then make a call to begin sending the next wave
                                     if !state_container.on_wave_ack_received(hyper_ratchet.get_cid(), &header) {
                                         if udp_mode == UdpMode::Disabled {
-                                            log::error!("There was an error sending the TCP window; Cancelling connection");
+                                            log::error!(target: "lusna", "There was an error sending the TCP window; Cancelling connection");
                                         } else {
-                                            log::error!("There was an error sending the UDP window; Cancelling connection");
+                                            log::error!(target: "lusna", "There was an error sending the UDP window; Cancelling connection");
                                         }
 
                                         Ok(PrimaryProcessorResult::EndSession("Sockets disconnected"))
                                     } else {
-                                        log::info!("Successfully sent next window in response to WAVE ACK");
+                                        log::trace!(target: "lusna", "Successfully sent next window in response to WAVE ACK");
                                         Ok(PrimaryProcessorResult::Void)
                                     }
                                 }
 
                                 None => {
-                                    log::error!("Error validating WAVE_ACK");
+                                    log::error!(target: "lusna", "Error validating WAVE_ACK");
                                     Ok(PrimaryProcessorResult::Void)
                                 }
                             }
                         }
 
                         _ => {
-                            log::trace!("Primary port GROUP packet has an invalid auxiliary command. Dropping");
+                            log::trace!(target: "lusna", "Primary port GROUP packet has an invalid auxiliary command. Dropping");
                             Ok(PrimaryProcessorResult::Void)
                         }
                     }
                 }
 
                 _ => {
-                    log::warn!("Packet failed AES-GCM validation stage (self node: {})", session.is_server.if_true("server").if_false("client"));
+                    log::warn!(target: "lusna", "Packet failed AES-GCM validation stage (self node: {})", session.is_server.if_true("server").if_false("client"));
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
@@ -322,10 +322,10 @@ pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, sess_cnac: &Clien
         // inside the target_cid (that way the packet routes correctly to this node). However, this is problematic here
         // since we use the original implicated CID
         if let Some(vconn) = state_container.active_virtual_connections.get(&original_implicated_cid) {
-            //log::info!("[Peer HyperRatchet] v{} from vconn w/ {}", header_drill_vers, original_implicated_cid);
+            //log::trace!(target: "lusna", "[Peer HyperRatchet] v{} from vconn w/ {}", header_drill_vers, original_implicated_cid);
             vconn.borrow_endpoint_hyper_ratchet(Some(header_drill_vers)).cloned()
         } else {
-            log::error!("Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
+            log::error!(target: "lusna", "Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
             return None;
         }
     } else {
@@ -353,7 +353,7 @@ pub fn get_resp_target_cid(virtual_target: &VirtualConnectionType) -> Option<u64
         }
 
         _ => {
-            log::error!("HyperWAN functionality is not yet implemented");
+            log::error!(target: "lusna", "HyperWAN functionality is not yet implemented");
             None
         }
     }
@@ -501,18 +501,18 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
         KemTransferStatus::Some(transfer, ..) => {
             if let Some(mut constructor) = constructor {
                 if let None = constructor.stage1_alice(&transfer) {
-                    log::error!("Unable to construct hyper ratchet");
+                    log::error!(target: "lusna", "Unable to construct hyper ratchet");
                     return Err(()); // return true, otherwise, the session ends
                 }
 
                 if let Err(_) = toolset_update_method.update(constructor, true) {
-                    log::error!("Unable to update container (X-01)");
+                    log::error!(target: "lusna", "Unable to update container (X-01)");
                     return Err(());
                 }
 
                 if let Some(version) = requires_truncation {
                     if let Err(err) = toolset_update_method.deregister(version) {
-                        log::error!("[Toolset Update] Unable to update Alice's toolset: {:?}", err);
+                        log::error!(target: "lusna", "[Toolset Update] Unable to update Alice's toolset: {:?}", err);
                         return Err(());
                     }
                 }
@@ -537,13 +537,13 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
                     }*/
                 }
             } else {
-                log::error!("No constructor, yet, KemTransferStatus is Some??");
+                log::error!(target: "lusna", "No constructor, yet, KemTransferStatus is Some??");
                 Ok(None)
             }
         }
 
         KemTransferStatus::Omitted => {
-            log::warn!("KEM was omitted (is adjacent node's hold not being released (unexpected), or tight concurrency (expected)?)");
+            log::warn!(target: "lusna", "KEM was omitted (is adjacent node's hold not being released (unexpected), or tight concurrency (expected)?)");
             //Ok(Some(toolset_update_method.get_latest_ratchet().ok_or(())?))
             match secrecy_mode {
                 SecrecyMode::Perfect => {
@@ -558,7 +558,7 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
         }
 
         KemTransferStatus::StatusNoTransfer(_status) => {
-            log::error!("Unaccounted program logic @ StatusNoTransfer! Report to developers");
+            log::error!(target: "lusna", "Unaccounted program logic @ StatusNoTransfer! Report to developers");
             return Err(());
         }
 

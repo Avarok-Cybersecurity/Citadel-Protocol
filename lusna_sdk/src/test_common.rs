@@ -13,10 +13,10 @@ use tokio::net::TcpListener;
 pub fn setup_log() {
     std::env::set_var("RUST_LOG", "error,warn,info");
     let _ = env_logger::try_init();
-    log::trace!("TRACE enabled");
-    log::info!("INFO enabled");
-    log::warn!("WARN enabled");
-    log::error!("ERROR enabled");
+    log::trace!(target: "lusna", "TRACE enabled");
+    log::trace!(target: "lusna", "INFO enabled");
+    log::warn!(target: "lusna", "WARN enabled");
+    log::error!(target: "lusna", "ERROR enabled");
 }
 
 #[allow(dead_code)]

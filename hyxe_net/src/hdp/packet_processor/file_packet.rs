@@ -24,7 +24,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(
         Some(payload) => {
             match header.cmd_aux {
                 packet_flags::cmd::aux::file::FILE_HEADER => {
-                    log::info!("RECV FILE HEADER");
+                    log::trace!(target: "lusna", "RECV FILE HEADER");
                     match validation::file::validate_file_header(&header, &payload[..]) {
                         Some((v_target,vfm)) => {
                             let object_id = vfm.object_id;
@@ -41,7 +41,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(
                                 }
 
                                 _ => {
-                                    log::error!("HyperWAN functionality not yet enabled");
+                                    log::error!(target: "lusna", "HyperWAN functionality not yet enabled");
                                     return Ok(PrimaryProcessorResult::Void);
                                 }
                             };
@@ -51,42 +51,42 @@ pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(
                         }
 
                         _ => {
-                            log::error!("Unable to validate payload of file header");
+                            log::error!(target: "lusna", "Unable to validate payload of file header");
                             Ok(PrimaryProcessorResult::Void)
                         }
                     }
                 }
 
                 packet_flags::cmd::aux::file::FILE_HEADER_ACK => {
-                    log::info!("RECV FILE HEADER ACK");
+                    log::trace!(target: "lusna", "RECV FILE HEADER ACK");
                     match validation::file::validate_file_header_ack(&header, &payload[..]) {
                         Some((success, object_id, v_target)) => {
                             // the target is the implicated cid of THIS receiving node
                             let implicated_cid = header.target_cid.get();
                             // conclude by passing this data into the state container
                             if let None = state_container.on_file_header_ack_received(success, implicated_cid,header.context_info.get().into(), object_id, v_target) {
-                                log::error!("on_file_header_ack_received failed. File transfer attempt invalidated");
+                                log::error!(target: "lusna", "on_file_header_ack_received failed. File transfer attempt invalidated");
                             }
 
                             Ok(PrimaryProcessorResult::Void)
                         }
 
                         _ => {
-                            log::error!("Unable to validate FILE HEADER ACK");
+                            log::error!(target: "lusna", "Unable to validate FILE HEADER ACK");
                             Ok(PrimaryProcessorResult::Void)
                         }
                     }
                 }
 
                 _ => {
-                    log::error!("Invalid FILE auxiliary command received");
+                    log::error!(target: "lusna", "Invalid FILE auxiliary command received");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
         }
 
         _ => {
-            log::error!("Unable to AES-GCM validate FILE packet");
+            log::error!(target: "lusna", "Unable to AES-GCM validate FILE packet");
             Ok(PrimaryProcessorResult::Void)
         }
     }

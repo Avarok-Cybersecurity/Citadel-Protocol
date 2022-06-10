@@ -27,14 +27,14 @@ pub fn load_file_types_by_ext<D: DeserializeOwned, P: AsRef<Path>>(ext: &str, pa
     let mut ret = Vec::new();
 
     for file in files {
-        //log::info!("[SystemFileManager] Checking {}", file.clone().into_os_string().into_string().unwrap());
+        //log::trace!(target: "lusna", "[SystemFileManager] Checking {}", file.clone().into_os_string().into_string().unwrap());
         match read::<D, _>(&file) {
             Ok(val) => {
                 ret.push((val, std::path::PathBuf::from(file.as_path())));
             },
 
             Err(err) => {
-                log::error!("Error loading: {}", err.to_string());
+                log::error!(target: "lusna", "Error loading: {}", err.to_string());
             }
         }
     }

@@ -154,13 +154,13 @@ impl Stream for PeerChannelRecvHalf {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if !self.is_alive.load(Ordering::SeqCst) {
             // close the stream
-            log::info!("[POLL] closing PeerChannel RecvHalf");
+            log::trace!(target: "lusna", "[POLL] closing PeerChannel RecvHalf");
             Poll::Ready(None)
         } else {
             match futures::ready!(Pin::new(&mut self.receiver).poll_recv(cx)) {
                 Some(data) => Poll::Ready(Some(data)),
                 _ => {
-                    log::info!("[PeerChannelRecvHalf] ending");
+                    log::trace!(target: "lusna", "[PeerChannelRecvHalf] ending");
                     Poll::Ready(None)
                 }
             }
@@ -172,7 +172,7 @@ impl Drop for PeerChannelRecvHalf {
     fn drop(&mut self) {
         match self.vconn_type {
             VirtualConnectionType::HyperLANPeerToHyperLANPeer(local_cid, peer_cid) => {
-                log::info!("[PeerChannelRecvHalf] Dropping {:?} type. Will maybe set is_alive to false if this is a tcp p2p connection", self.recv_type);
+                log::trace!(target: "lusna", "[PeerChannelRecvHalf] Dropping {:?} type. Will maybe set is_alive to false if this is a tcp p2p connection", self.recv_type);
 
                 let command = match self.recv_type {
                     ReceivePortType::OrderedReliable => {
@@ -186,7 +186,7 @@ impl Drop for PeerChannelRecvHalf {
                 };
 
                 if let Err(err) = self.server_remote.try_send(command) {
-                    log::warn!("[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
+                    log::warn!(target: "lusna", "[PeerChannelRecvHalf] unable to send stop signal to session: {:?}", err);
                 }
             }
 

@@ -270,14 +270,14 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         match map_errors(result)? {
             NodeResult::FileTransferHandle(_ticket, mut handle) => {
                 while let Some(res) = handle.next().await {
-                    log::info!("Client received RES {:?}", res);
+                    log::trace!(target: "lusna", "Client received RES {:?}", res);
                     if let FileTransferStatus::TransferComplete = res {
                         return Ok(())
                     }
                 }
             }
 
-            res => log::error!("Invalid HdpServerResult for FileTransfer request received: {:?}", res)
+            res => log::error!(target: "lusna", "Invalid HdpServerResult for FileTransfer request received: {:?}", res)
         }
 
         Err(NetworkError::InternalError("File transfer stream died"))
@@ -450,13 +450,13 @@ mod tests {
         }
 
         async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
-            log::info!("SERVER received {:?}", message);
+            log::trace!(target: "lusna", "SERVER received {:?}", message);
             if let NodeResult::FileTransferHandle(_, mut handle) = map_errors(message)? {
                 let mut path = None;
                 while let Some(status) = handle.next().await {
                     match status {
                         FileTransferStatus::ReceptionComplete => {
-                            log::info!("Server has finished receiving the file!");
+                            log::trace!(target: "lusna", "Server has finished receiving the file!");
                             SERVER_SUCCESS.store(true, Ordering::Relaxed);
                             let cmp = include_bytes!("../../resources/TheBridge.pdf");
                             let streamed_data = tokio::fs::read(path.clone().unwrap()).await.unwrap();
@@ -502,9 +502,9 @@ mod tests {
         let uuid = Uuid::new_v4();
 
         let client_kernel = SingleClientServerConnectionKernel::new_passwordless_defaults(uuid, server_addr, |_channel, mut remote| async move {
-            log::info!("***CLIENT LOGIN SUCCESS :: File transfer next ***");
+            log::trace!(target: "lusna", "***CLIENT LOGIN SUCCESS :: File transfer next ***");
             remote.send_file_with_custom_chunking("../resources/TheBridge.pdf", 32*1024).await.unwrap();
-            log::info!("***CLIENT FILE TRANSFER SUCCESS***");
+            log::trace!(target: "lusna", "***CLIENT FILE TRANSFER SUCCESS***");
             CLIENT_SUCCESS.store(true, Ordering::Relaxed);
             remote.shutdown_kernel().await
         });

@@ -10,7 +10,7 @@ use std::sync::atomic::Ordering;
 
 pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
-        log::error!("Session state is not connected; dropping drill update packet");
+        log::error!(target: "lusna", "Session state is not connected; dropping drill update packet");
         return Ok(PrimaryProcessorResult::Void);
     }
 
@@ -35,7 +35,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
     match header.cmd_aux {
         // Bob
         packet_flags::cmd::aux::do_drill_update::STAGE0 => {
-            log::info!("DO_DRILL_UPDATE STAGE 0 PACKET RECV");
+            log::trace!(target: "lusna", "DO_DRILL_UPDATE STAGE 0 PACKET RECV");
             match validation::do_drill_update::validate_stage0(payload) {
                 Some(transfer) => {
                     let resp_target_cid = get_resp_target_cid_from_header(header);
@@ -45,7 +45,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                 }
 
                 _ => {
-                    log::error!("Invalid stage0 DO_DRILL_UPDATE packet");
+                    log::error!(target: "lusna", "Invalid stage0 DO_DRILL_UPDATE packet");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
@@ -54,7 +54,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
 
         // Alice
         packet_flags::cmd::aux::do_drill_update::STAGE1 => {
-            log::info!("DO_DRILL_UPDATE STAGE 1 PACKET RECV");
+            log::trace!(target: "lusna", "DO_DRILL_UPDATE STAGE 1 PACKET RECV");
             match validation::do_drill_update::validate_stage1(payload) {
                 Some(transfer) => {
                     //let mut state_container = inner_mut!(session.state_container);
@@ -63,7 +63,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                     let resp_target_cid = get_resp_target_cid_from_header(header);
                     let needs_truncate = transfer.update_status.requires_truncation();
                     let constructor = if target_cid != C2S_ENCRYPTION_ONLY { return_if_none!(state_container.ratchet_update_state.p2p_updates.remove(&peer_cid)) } else { return_if_none!(state_container.ratchet_update_state.alice_hyper_ratchet.take()) };
-                    log::info!("Obtained constructor for {}", resp_target_cid);
+                    log::trace!(target: "lusna", "Obtained constructor for {}", resp_target_cid);
                     let secrecy_mode = return_if_none!(state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone());
 
                     let latest_hr = return_if_none!(return_if_none!(attempt_kem_as_alice_finish(secrecy_mode, peer_cid, target_cid, transfer.update_status, &mut state_container.active_virtual_connections, Some(ConstructorType::Default(constructor)), cnac_sess).ok(), "Unable to attempt KEM as alice finish")
@@ -73,7 +73,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
                 }
 
                 _ => {
-                    log::error!("Invalid stage1 DO_DRILL_UPDATE packet");
+                    log::error!(target: "lusna", "Invalid stage1 DO_DRILL_UPDATE packet");
                     Ok(PrimaryProcessorResult::Void)
                 }
             }
@@ -81,7 +81,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
 
         // Bob will always receive this, whether the toolset being upgraded or not. This allows Bob to begin using the latest drill version
         packet_flags::cmd::aux::do_drill_update::TRUNCATE => {
-            log::info!("DO_DRILL_UPDATE TRUNCATE PACKET RECV");
+            log::trace!(target: "lusna", "DO_DRILL_UPDATE TRUNCATE PACKET RECV");
             let truncate_packet = return_if_none!(validation::do_drill_update::validate_truncate(payload), "Invalid truncate");
             let resp_target_cid = get_resp_target_cid_from_header(header);
 
@@ -99,10 +99,10 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
             if let Some(truncate_vers) = truncate_packet.truncate_version {
                 match method.deregister(truncate_vers) {
                     Ok(_) => {
-                        log::info!("[Toolset Update] Successfully truncated version {}", truncate_vers)
+                        log::trace!(target: "lusna", "[Toolset Update] Successfully truncated version {}", truncate_vers)
                     },
                     Err(err) => {
-                        log::error!("[Toolset Update] Error truncating vers {}: {:?}", truncate_vers, err);
+                        log::error!(target: "lusna", "[Toolset Update] Error truncating vers {}: {:?}", truncate_vers, err);
                     }
                 }
             }
@@ -134,9 +134,9 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
         }
 
         packet_flags::cmd::aux::do_drill_update::TRUNCATE_ACK => {
-            log::info!("DO_DRILL_UPDATE TRUNCATE_ACK PACKET RECV");
+            log::trace!(target: "lusna", "DO_DRILL_UPDATE TRUNCATE_ACK PACKET RECV");
             let truncate_ack_packet = return_if_none!(validation::do_drill_update::validate_truncate_ack(payload), "Unable to validate truncate ack");
-            log::info!("Adjacent node has finished deregistering version {}", truncate_ack_packet.truncated_version);
+            log::trace!(target: "lusna", "Adjacent node has finished deregistering version {}", truncate_ack_packet.truncated_version);
 
             let resp_target_cid = get_resp_target_cid_from_header(header);
 
@@ -162,7 +162,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, 
         }
 
         _ => {
-            log::error!("Invalid auxiliary command for DO_DRILL_UPDATE packet. Dropping");
+            log::error!(target: "lusna", "Invalid auxiliary command for DO_DRILL_UPDATE packet. Dropping");
             Ok(PrimaryProcessorResult::Void)
         }
     }

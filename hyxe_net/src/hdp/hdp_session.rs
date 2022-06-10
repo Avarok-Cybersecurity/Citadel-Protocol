@@ -324,7 +324,7 @@ impl HdpSession {
     /// `tcp_stream`: this goes to the adjacent HyperNode
     /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
     pub async fn execute(&self, mut primary_stream: GenericNetworkStream, peer_addr: SocketAddr) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
-        log::info!("HdpSession is executing ...");
+        log::trace!(target: "lusna", "HdpSession is executing ...");
         let this = self.clone();
         let this_outbound = self.clone();
         let this_inbound = self.clone();
@@ -389,7 +389,7 @@ impl HdpSession {
 
 
         if let Err(err) = handle_zero_state.await {
-            log::error!("Unable to proceed past session zero-state. Stopping session: {:?}", &err);
+            log::error!(target: "lusna", "Unable to proceed past session zero-state. Stopping session: {:?}", &err);
             return Err((err, implicated_cid.get()));
         }
 
@@ -397,7 +397,7 @@ impl HdpSession {
 
         match res {
             Ok(_) => {
-                log::info!("Done EXECUTING sess (Ok(())) | cid: {:?} | is_server: {}", this_close.implicated_cid.get(), this_close.is_server);
+                log::trace!(target: "lusna", "Done EXECUTING sess (Ok(())) | cid: {:?} | is_server: {}", this_close.implicated_cid.get(), this_close.is_server);
                 Ok(implicated_cid.get())
             }
 
@@ -406,7 +406,7 @@ impl HdpSession {
                 let reason = err.to_string();
                 let cid = implicated_cid.get();
 
-                log::info!("Session {} connected to {} is ending! Reason: {}. (strong count: {})", ticket.0, peer_addr, reason.as_str(), this_close.strong_count());
+                log::trace!(target: "lusna", "Session {} connected to {} is ending! Reason: {}. (strong count: {})", ticket.0, peer_addr, reason.as_str(), this_close.strong_count());
 
                 this_close.send_session_dc_signal(Some(ticket), false, "Inbound stream ending");
 
@@ -437,7 +437,7 @@ impl HdpSession {
 
         match state {
             SessionState::NeedsRegister => {
-                log::info!("Beginning registration subroutine!");
+                log::trace!(target: "lusna", "Beginning registration subroutine!");
                 let potential_cids_alice = persistence_handler.client_only_generate_possible_cids().await.map_err(|err| NetworkError::Generic(err.into_string()))?;
                 let session_ref = session;
                 let mut state_container = inner_mut_state!(session_ref.state_container);
@@ -447,7 +447,7 @@ impl HdpSession {
                 let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), 0, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
-                log::info!("Running stage0 alice");
+                log::trace!(target: "lusna", "Running stage0 alice");
                 let transfer = alice_constructor.stage0_alice();
 
                 let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(session_security_settings.crypto_params.into(), timestamp, local_nid, transfer, potential_cids_alice, passwordless);
@@ -456,7 +456,7 @@ impl HdpSession {
                 }
 
                 state_container.register_state.constructor = Some(alice_constructor);
-                log::info!("Successfully sent stage0 register packet outbound");
+                log::trace!(target: "lusna", "Successfully sent stage0 register packet outbound");
             }
 
             SessionState::NeedsConnect => {
@@ -465,7 +465,7 @@ impl HdpSession {
 
             // This implies this node received a new incoming connection. It is up to the other node, Alice, to send a stage 0 packet
             SessionState::SocketJustOpened => {
-                log::info!("No actions needed on primary TCP port; beginning outbound listening subroutine ...");
+                log::trace!(target: "lusna", "No actions needed on primary TCP port; beginning outbound listening subroutine ...");
                 // If somebody makes a connection to this node, but doesn't send anything, we need a way to remove
                 // such a stale connection. By setting the value below, we ensure the possibility that the session
                 // timer removes it
@@ -473,7 +473,7 @@ impl HdpSession {
             }
 
             _ => {
-                log::error!("Invalid initial state. Check program logic");
+                log::error!(target: "lusna", "Invalid initial state. Check program logic");
                 std::process::exit(-1);
             }
         }
@@ -482,7 +482,7 @@ impl HdpSession {
     }
 
     pub(crate) fn begin_connect(session: &HdpSession, cnac: &ClientNetworkAccount) -> Result<(), NetworkError> {
-        log::info!("Beginning pre-connect subroutine!");
+        log::trace!(target: "lusna", "Beginning pre-connect subroutine!");
         let session_ref = session;
         let connect_mode = inner!(session.connect_mode).clone().ok_or_else(||NetworkError::InternalError("Connect mode not loaded"))?;
         let mut state_container = inner_mut_state!(session_ref.state_container);
@@ -516,7 +516,7 @@ impl HdpSession {
 
         session.send_to_primary_stream(None, syn)?;
 
-        log::info!("Successfully sent SYN pre-connect packet");
+        log::trace!(target: "lusna", "Successfully sent SYN pre-connect packet");
         Ok(())
     }
 
@@ -559,11 +559,11 @@ impl HdpSession {
                                 sender.send(channel).map_err(|_| NetworkError::InternalError("Unable to send UdpChannel through"))?;
                                 EndpointCryptoAccessor::C2S(cnac, sess.state_container.clone())
                             } else {
-                                log::error!("Tried loading UDP channel, but, the state container had no UDP sender");
+                                log::error!(target: "lusna", "Tried loading UDP channel, but, the state container had no UDP sender");
                                 return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had no UDP sender"))
                             }
                         } else {
-                            log::error!("Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
+                            log::error!(target: "lusna", "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
                             return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ..."))
                         }
                     }
@@ -578,15 +578,15 @@ impl HdpSession {
                                     sender.send(channel).map_err(|_| NetworkError::InternalError("Unable to send UdpChannel through"))?;
                                     EndpointCryptoAccessor::P2P(target_cid, sess.state_container.clone())
                                 } else {
-                                    log::error!("Tried loading UDP channel, but, the state container had no UDP sender");
+                                    log::error!(target: "lusna", "Tried loading UDP channel, but, the state container had no UDP sender");
                                     return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had no UDP sender"))
                                 }
                             } else {
-                                log::error!("Tried loading the peer kem state, but was absent");
+                                log::error!(target: "lusna", "Tried loading the peer kem state, but was absent");
                                 return Err(NetworkError::InternalError("Tried loading the peer kem state, but was absent"))
                             }
                         } else {
-                            log::error!("Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
+                            log::error!(target: "lusna", "Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ...");
                             return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had an invalid configuration. Make sure TCP is loaded first ..."))
                         }
                     }
@@ -602,14 +602,14 @@ impl HdpSession {
 
                 let listener = Self::listen_udp_port(sess.clone(), hole_punched_addr_ip, local_bind_addr.port(), reader, accessor.clone());
 
-                log::info!("Server established UDP Port {}", local_bind_addr);
+                log::trace!(target: "lusna", "Server established UDP Port {}", local_bind_addr);
 
                 //futures.push();
                 let udp_sender_future = Self::udp_outbound_sender(outbound_sender_rx, addr, writer, accessor);
                 (listener, udp_sender_future, stopper_rx)
             };
 
-            log::info!("[Q-UDP] Initiated UDP subsystem...");
+            log::trace!(target: "lusna", "[Q-UDP] Initiated UDP subsystem...");
 
             let stopper = async move {
                 stopper_rx.await.map_err(|err| NetworkError::Generic(err.to_string()))
@@ -631,7 +631,7 @@ impl HdpSession {
 
     /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
     pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>) -> Result<(), NetworkError> {
-        log::info!("HdpSession async inbound-stream subroutine executed");
+        log::trace!(target: "lusna", "HdpSession async inbound-stream subroutine executed");
         let (ref remote_peer, ref local_primary_port, ref implicated_cid, ref kernel_tx, ref primary_stream, p2p) = if let Some(p2p) = p2p_handle {
             (p2p.remote_peer, p2p.local_bind_port, p2p.implicated_cid, p2p.kernel_tx, p2p.to_primary_stream, true)
         } else {
@@ -652,12 +652,12 @@ impl HdpSession {
                 }
 
                 Err(reason) => {
-                    log::error!("[PrimaryProcessor] session ending: {:?}", reason);
+                    log::error!(target: "lusna", "[PrimaryProcessor] session ending: {:?}", reason);
                     Err(std::io::Error::new(std::io::ErrorKind::Other, reason.into_string()))
                 }
 
                 Ok(PrimaryProcessorResult::EndSession(reason)) => {
-                    log::warn!("[PrimaryProcessor] session ending: {}", reason);
+                    log::warn!(target: "lusna", "[PrimaryProcessor] session ending: {}", reason);
                     Err(std::io::Error::new(std::io::ErrorKind::Other, reason))
                 }
 
@@ -676,7 +676,7 @@ impl HdpSession {
             let error = err.raw_os_error().unwrap_or(-1);
             // error != WINDOWS_FORCE_SHUTDOWN && error != RST && error != ECONN_RST &&
             if error != -1 {
-                log::error!("primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), is_server, p2p);
+                log::error!(target: "lusna", "primary port reader error {}: {}. is server: {}. P2P: {}", error, err.to_string(), is_server, p2p);
             }
 
             NetworkError::Generic(err.to_string())
@@ -728,7 +728,7 @@ impl HdpSession {
     }
 
     async fn execute_queue_worker(this_main: HdpSession) -> Result<(), NetworkError> {
-        log::info!("HdpSession async timer subroutine executed");
+        log::trace!(target: "lusna", "HdpSession async timer subroutine executed");
 
         let queue_worker = {
             //let this_interval = this_main.clone();
@@ -779,13 +779,13 @@ impl HdpSession {
                             // now, call for each p2p session
                             for vconn in p2p_sessions {
                                 if let Err(err) = state_container.initiate_drill_update(timestamp, vconn, None) {
-                                    log::warn!("Unable to initiate drill update for {:?}: {:?}", vconn, err);
+                                    log::warn!(target: "lusna", "Unable to initiate drill update for {:?}: {:?}", vconn, err);
                                 }
                             }
 
                             QueueWorkerResult::AdjustPeriodicity(calculate_update_frequency(security_level.value(), &state_container.transfer_stats))
                         } else {
-                            log::warn!("initiate_drill_update subroutine signalled failure");
+                            log::warn!(target: "lusna", "initiate_drill_update subroutine signalled failure");
                             QueueWorkerResult::EndSession
                         }
                     } else {
@@ -799,13 +799,13 @@ impl HdpSession {
                 if state_container.state.load(Ordering::SeqCst) == SessionState::Connected {
                     if state_container.keep_alive_timeout_ns != 0 {
                         if state_container.keep_alive_subsystem_timed_out(timestamp) && state_container.meta_expiry_state.expired() {
-                            log::error!("The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
+                            log::error!(target: "lusna", "The keep alive subsystem has timed out. Executing shutdown phase (skipping proper disconnect)");
                             QueueWorkerResult::EndSession
                         } else {
                             QueueWorkerResult::Incomplete
                         }
                     } else {
-                        log::error!("Keep alive subsystem will not be used for this session as requested");
+                        log::error!(target: "lusna", "Keep alive subsystem will not be used for this session as requested");
                         QueueWorkerResult::Complete
                     }
                 } else {
@@ -819,7 +819,7 @@ impl HdpSession {
             queue_worker.insert_reserved_fn(Some(QueueWorkerTicket::Periodic(FIREWALL_KEEP_ALIVE, 0)), FIREWALL_KEEP_ALIVE_UDP, move |state_container| {
                 if state_container.state.load(Ordering::SeqCst) == SessionState::Connected {
                     if state_container.udp_mode == UdpMode::Disabled {
-                        //log::info!("TCP only mode detected. Removing FIREWALL_KEEP_ALIVE subroutine");
+                        //log::trace!(target: "lusna", "TCP only mode detected. Removing FIREWALL_KEEP_ALIVE subroutine");
                         return QueueWorkerResult::Complete;
                     }
 
@@ -858,7 +858,7 @@ impl HdpSession {
                 let mut state_container = inner_mut_state!(this.state_container);
                 let cnac = state_container.cnac.clone().ok_or(NetworkError::InvalidRequest("CNAC not loaded"))?;
 
-                log::info!("Transmit file name: {}", &file_name);
+                log::trace!(target: "lusna", "Transmit file name: {}", &file_name);
                 // the key cid must be differentiated from the target cid because the target_cid needs to be zero if
                 // there is no proxying. the key cid cannot be zero; if client -> server, key uses implicated cid
                 let (to_primary_stream, file_header, object_id, target_cid, key_cid, groups_needed) = match virtual_target {
@@ -893,7 +893,7 @@ impl HdpSession {
                     }
 
                     VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
-                        log::info!("Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
+                        log::trace!(target: "lusna", "Sending HyperLAN peer ({}) <-> HyperLAN Peer ({})", implicated_cid, target_cid);
                         // here, we don't use the base session's PQC. Instead, we use the vconn's pqc and
                         if let Some(vconn) = state_container.active_virtual_connections.get_mut(&target_cid) {
                             if let Some(endpoint_container) = vconn.endpoint_container.as_mut() {
@@ -925,17 +925,17 @@ impl HdpSession {
 
                                 (preferred_primary_stream, file_header, object_id, target_cid, target_cid, groups_needed)
                             } else {
-                                log::error!("Endpoint container not found");
+                                log::error!(target: "lusna", "Endpoint container not found");
                                 return Err(NetworkError::InternalError("Endpoint container not found"));
                             }
                         } else {
-                            log::error!("Unable to find active vconn for the channel");
+                            log::error!(target: "lusna", "Unable to find active vconn for the channel");
                             return Err(NetworkError::InternalError("Virtual connection not found for channel"));
                         }
                     }
 
                     _ => {
-                        log::error!("HyperWAN functionality not yet implemented");
+                        log::error!(target: "lusna", "HyperWAN functionality not yet implemented");
                         return Err(NetworkError::InternalError("HyperWAN functionality not yet implemented"));
                     }
                 };
@@ -973,16 +973,16 @@ impl HdpSession {
                     // this future will resolve when the sender drops in the file_crypt_scrambler
                     match start_rx.await {
                         Ok(false) => {
-                            log::warn!("start_rx signalled to NOT begin streaming process. Ending async subroutine");
+                            log::warn!(target: "lusna", "start_rx signalled to NOT begin streaming process. Ending async subroutine");
                             return;
                         }
                         Err(err) => {
-                            log::error!("start_rx error occurred: {:?}", err);
+                            log::error!(target: "lusna", "start_rx error occurred: {:?}", err);
                             return;
                         }
 
                         _ => {
-                            log::info!("Outbound file transfer async subroutine signalled to begin!");
+                            log::trace!(target: "lusna", "Outbound file transfer async subroutine signalled to begin!");
                         }
                     }
 
@@ -1004,7 +1004,7 @@ impl HdpSession {
                                     // construct the OutboundTransmitters
                                     let sess = this;
                                     if sess.state.load(Ordering::Relaxed) != SessionState::Connected {
-                                        log::warn!("Since transmitting the file, the session ended");
+                                        log::warn!(target: "lusna", "Since transmitting the file, the session ended");
                                         return;
                                     }
 
@@ -1019,20 +1019,20 @@ impl HdpSession {
                                                 }
 
                                                 None => {
-                                                    log::warn!("Since transmitting the file, the peer session ended");
+                                                    log::warn!(target: "lusna", "Since transmitting the file, the peer session ended");
                                                     return;
                                                 }
                                             }
                                         }
 
                                         _ => {
-                                            log::error!("HyperWAN Functionality not implemented");
+                                            log::error!(target: "lusna", "HyperWAN Functionality not implemented");
                                             return;
                                         }
                                     };
 
                                     if proper_latest_hyper_ratchet.is_none() {
-                                        log::error!("Unable to unwrap HyperRatchet (X-05)");
+                                        log::error!(target: "lusna", "Unable to unwrap HyperRatchet (X-05)");
                                         return;
                                     }
 
@@ -1043,9 +1043,9 @@ impl HdpSession {
                                     let group_id = transmitter.group_id;
 
                                     // We manually send the header. The tails get sent automatically
-                                    log::info!("Sending GROUP HEADER through primary stream for group {}", group_id);
+                                    log::trace!(target: "lusna", "Sending GROUP HEADER through primary stream for group {}", group_id);
                                     if let Err(err) = sess.try_action(Some(ticket), || transmitter.transmit_group_header(virtual_target)) {
-                                        log::error!("Unable to send through primary stream: {}", err.to_string());
+                                        log::error!(target: "lusna", "Unable to send through primary stream: {}", err.to_string());
                                         return;
                                     }
                                     let group_byte_len = transmitter.get_total_plaintext_bytes();
@@ -1076,26 +1076,26 @@ impl HdpSession {
                                             let ref transmitter = transmitter.burst_transmitter.group_transmitter;
                                             if transmitter.has_expired(GROUP_EXPIRE_TIME_MS) {
                                                 if state_container.meta_expiry_state.expired() {
-                                                    log::error!("Outbound group {} has expired; dropping entire transfer", group_id);
+                                                    log::error!(target: "lusna", "Outbound group {} has expired; dropping entire transfer", group_id);
                                                     //std::mem::drop(transmitter);
                                                     if let Some(mut outbound_container) = state_container.outbound_files.remove(&file_key) {
                                                         if let Some(stop) = outbound_container.stop_tx.take() {
                                                             if let Err(_) = stop.send(()) {
-                                                                log::error!("Unable to send stop signal");
+                                                                log::error!(target: "lusna", "Unable to send stop signal");
                                                             }
                                                         }
                                                     } else {
-                                                        log::warn!("Attempted to remove {:?}, but was already absent from map", &file_key);
+                                                        log::warn!(target: "lusna", "Attempted to remove {:?}, but was already absent from map", &file_key);
                                                     }
 
                                                     if let Err(_) = kernel_tx2.unbounded_send(NodeResult::InternalServerError(Some(ticket), format!("Timeout on ticket {}", ticket))) {
-                                                        log::error!("[File] Unable to send kernel error signal. Ending session");
+                                                        log::error!(target: "lusna", "[File] Unable to send kernel error signal. Ending session");
                                                         QueueWorkerResult::EndSession
                                                     } else {
                                                         QueueWorkerResult::Complete
                                                     }
                                                 } else {
-                                                    log::info!("[X-04] Other outbound groups being processed; patiently awaiting group {}", group_id);
+                                                    log::trace!(target: "lusna", "[X-04] Other outbound groups being processed; patiently awaiting group {}", group_id);
                                                     QueueWorkerResult::Incomplete
                                                 }
                                             } else {
@@ -1116,7 +1116,7 @@ impl HdpSession {
                                 // received a signal here
 
                                 if let None = next_gs_alerter_rx.next().await {
-                                    log::warn!("next_gs_alerter: steam ended");
+                                    log::warn!(target: "lusna", "next_gs_alerter: steam ended");
                                     return;
                                 }
                             }
@@ -1169,7 +1169,7 @@ impl HdpSession {
 
     #[allow(unused_results)]
     pub(crate) async fn dispatch_peer_command(&self, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
-        log::info!("Dispatching peer command ...");
+        log::trace!(target: "lusna", "Dispatching peer command ...");
         let this = self;
         let timestamp = this.time_tracker.get_global_time_ns();
         let mut do_save = false;
@@ -1185,14 +1185,14 @@ impl HdpSession {
                         let signal_processed = match peer_command {
                             PeerSignal::DisconnectUDP(v_conn) => {
                                 // disconnect UDP locally
-                                log::info!("Closing UDP subsystem locally ...");
+                                log::trace!(target: "lusna", "Closing UDP subsystem locally ...");
                                 state_container.remove_udp_channel(v_conn.get_target_cid());
                                 PeerSignal::DisconnectUDP(v_conn)
                             }
                             // case 1: user just initiated a post-register request that has Fcm enabled
                             PeerSignal::PostRegister(vconn, a, b, c,d, FcmPostRegister::Enable) => {
                                 let target_cid = vconn.get_original_target_cid();
-                                log::info!("[FCM] client {} requested FCM post-register with {}", inner.cid, target_cid);
+                                log::trace!(target: "lusna", "[FCM] client {} requested FCM post-register with {}", inner.cid, target_cid);
 
                                 if state_container.peer_kem_states.contains_key(&target_cid) || inner.fcm_crypt_container.contains_key(&target_cid) {
                                     return Err(NetworkError::InvalidRequest("Cannot register to the specified client because a concurrent registration process is already occurring, or already registered"));
@@ -1204,7 +1204,7 @@ impl HdpSession {
                                 let fcm_post_register = FcmPostRegister::AliceToBobTransfer(fcm_constructor.stage0_alice().serialize_to_vector().unwrap(), inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidRequest("Fcm not configured for this client"))?, this_cid);
                                 // finally, store the constructor inside the state container
                                 if let Some(_) = inner.kem_state_containers.insert(target_cid, ConstructorType::Fcm(fcm_constructor)) {
-                                    log::error!("Overwrote pre-existing FCM KEM container. Report to developers")
+                                    log::error!(target: "lusna", "Overwrote pre-existing FCM KEM container. Report to developers")
                                 }
 
                                 do_save = true;
@@ -1215,7 +1215,7 @@ impl HdpSession {
                             PeerSignal::PostRegister(vconn, a, b, ticket, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, _this_cid)) => {
                                 let target_cid = vconn.get_original_target_cid();
                                 let local_cid = inner.cid;
-                                log::info!("[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
+                                log::trace!(target: "lusna", "[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
                                 if inner.fcm_crypt_container.contains_key(&target_cid) {
                                     return Err(NetworkError::InvalidRequest("Cannot register to the specified client because crypt container already exists"));
                                 }
@@ -1234,7 +1234,7 @@ impl HdpSession {
 
                             PeerSignal::PostConnect(a, b, None, d, e) => {
                                 if state_container.outgoing_peer_connect_attempts.contains_key(&a.get_original_target_cid()) {
-                                    log::warn!("{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
+                                    log::warn!(target: "lusna", "{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
                                 }
 
                                 // in case the ticket gets mapped during simultaneous_connect, store locally
@@ -1272,9 +1272,9 @@ impl HdpSession {
         while let Some(res) = stream.next().await {
             match res {
                 Ok((packet, remote_peer)) => {
-                    log::info!("packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
+                    log::trace!(target: "lusna", "packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
                     if remote_peer.ip() != hole_punched_addr_ip {
-                        log::warn!("The packet received is not part of the firewall session. Dropping");
+                        log::warn!(target: "lusna", "The packet received is not part of the firewall session. Dropping");
                     } else {
                         let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
                         this.process_inbound_packet_wave(packet, peer_session_accessor)?;
@@ -1282,13 +1282,13 @@ impl HdpSession {
                 }
 
                 Err(err) => {
-                    log::warn!("UDP Stream error: {:#?}", err);
+                    log::warn!(target: "lusna", "UDP Stream error: {:#?}", err);
                     break;
                 }
             }
         }
 
-        log::info!("Ending waveport listener on {}", local_port);
+        log::trace!(target: "lusna", "Ending waveport listener on {}", local_port);
 
         Ok(())
     }
@@ -1300,11 +1300,11 @@ impl HdpSession {
         while let Some((cmd_aux, packet)) = receiver.next().await {
             let send_addr = hole_punched_addr.send_address;
             let packet = peer_session_accessor.borrow_hr(None, |hr, _| hdp_packet_crafter::udp::craft_udp_packet(hr, cmd_aux,packet, target_cid, SecurityLevel::LOW))?;
-            log::trace!("About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);
+            log::trace!(target: "lusna", "About to send packet w/len {} | Dest: {:?}", packet.len(), &send_addr);
             sink.send(packet.freeze()).await.map_err(|_| NetworkError::InternalError("UDP sink unable to receive outbound requests"))?;
         }
 
-        log::info!("Outbound wave sender ending");
+        log::trace!(target: "lusna", "Outbound wave sender ending");
 
         Ok(())
     }
@@ -1332,13 +1332,13 @@ impl HdpSession {
 
                         Ok(PrimaryProcessorResult::EndSession(err)) => {
                             // stop the UDP stream
-                            log::warn!("UDP session ending: {:?}", err);
+                            log::warn!(target: "lusna", "UDP session ending: {:?}", err);
                             Err(NetworkError::Generic(err.to_string()))
                         }
 
                         Err(err) => {
                             // stop the UDP stream
-                            log::warn!("UDP session ending: {:?}", err);
+                            log::warn!(target: "lusna", "UDP session ending: {:?}", err);
                             Err(err)
                         }
 
@@ -1353,7 +1353,7 @@ impl HdpSession {
                 }
             }
         } else {
-            log::error!("A packet was unable to be parsed");
+            log::error!(target: "lusna", "A packet was unable to be parsed");
             Ok(())
         }
     }
@@ -1362,7 +1362,7 @@ impl HdpSession {
     pub fn initiate_disconnect(&self, ticket: Ticket, _target: VirtualConnectionType) -> Result<bool, NetworkError> {
         let session = self;
         if session.state.load(Ordering::Relaxed) != SessionState::Connected {
-            log::error!("Must be connected to HyperLAN in order to start disconnect")
+            log::error!(target: "lusna", "Must be connected to HyperLAN in order to start disconnect")
         }
 
         let state_container = inner_state!(session.state_container);
@@ -1456,7 +1456,7 @@ impl HdpSessionInner {
     }
 
     pub(crate) fn initiate_deregister(&self, _virtual_connection_type: VirtualConnectionType, ticket: Ticket) -> Result<(), NetworkError> {
-        log::info!("Initiating deregister process ...");
+        log::trace!(target: "lusna", "Initiating deregister process ...");
         let mut state_container = inner_mut_state!(self.state_container);
         let timestamp = self.time_tracker.get_global_time_ns();
         let cnac = state_container.cnac.as_ref().ok_or_else(|| NetworkError::InternalError("CNAC not loaded"))?;
@@ -1489,9 +1489,9 @@ impl HdpSessionInner {
 
 impl Drop for HdpSessionInner {
     fn drop(&mut self) {
-        log::info!("*** Dropping HdpSession {:?} ***", self.implicated_cid.get());
+        log::trace!(target: "lusna", "*** Dropping HdpSession {:?} ***", self.implicated_cid.get());
         if let Err(_) = self.on_drop.unbounded_send(()) {
-            //log::error!("Unable to cleanly alert node that session ended: {:?}", err);
+            //log::error!(target: "lusna", "Unable to cleanly alert node that session ended: {:?}", err);
         }
 
         let _ = inner!(self.stopper_tx).send(());

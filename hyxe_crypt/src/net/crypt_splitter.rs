@@ -364,7 +364,7 @@ impl GroupReceiver {
     /// The drill is needed in order to get the multiport width (determines max packets per wave)
     #[allow(unused_results)]
     pub fn new(ref cfg: GroupReceiverConfig, wave_timeout_ms: usize, group_timeout_ms: usize) -> Self {
-        log::trace!("Creating new group receiver. Anticipated plaintext slab length: {}", cfg.plaintext_length);
+        log::trace!(target: "lusna", "Creating new group receiver. Anticipated plaintext slab length: {}", cfg.plaintext_length);
         let unified_plaintext_slab = vec![0u8; cfg.plaintext_length];
         let packets_received_order = bitvec::bitvec![0; cfg.packets_needed];
         let waves_received = bitvec::bitvec![0; cfg.wave_count];
@@ -426,7 +426,7 @@ impl GroupReceiver {
             let wave_store = self.temp_wave_store.get_mut(&(wave_id as usize));
 
             if wave_store.is_none() {
-                log::info!("Packet {} (Parent wave: {}) does not have a wave store", true_sequence, wave_id);
+                log::trace!(target: "lusna", "Packet {} (Parent wave: {}) does not have a wave store", true_sequence, wave_id);
                 return GroupReceiverStatus::INVALID_PACKET;
             }
 
@@ -484,7 +484,7 @@ impl GroupReceiver {
                     }
 
                     Err(err) => {
-                        log::error!("Unable to decrypt wave {}. Reason: {}", wave_id, err.into_string());
+                        log::error!(target: "lusna", "Unable to decrypt wave {}. Reason: {}", wave_id, err.into_string());
                         GroupReceiverStatus::CORRUPT_WAVE
                     }
                 }
@@ -493,7 +493,7 @@ impl GroupReceiver {
                 GroupReceiverStatus::INSERT_SUCCESS
             }
         } else {
-            log::info!("Packet {} (Parent Wave: {}) already received", true_sequence, wave_id);
+            log::trace!(target: "lusna", "Packet {} (Parent Wave: {}) already received", true_sequence, wave_id);
             GroupReceiverStatus::ALREADY_RECEIVED
         }
     }
@@ -680,7 +680,7 @@ impl<const N: usize> GroupSenderDevice<N> {
 
         let end = offset + packets_in_this_wave;
 
-        log::info!("Wave tail received for wave {}. Removing entries from {} to {}", wave_id, offset, end);
+        log::trace!(target: "lusna", "Wave tail received for wave {}. Removing entries from {} to {}", wave_id, offset, end);
 
         for idx in offset..end {
             self.packets_in_ram.remove(&idx);
@@ -714,7 +714,7 @@ impl<const N: usize> GroupSenderDevice<N> {
         for _ in 0..missing_packet_count {
             let src_port = cursor.read_u16::<BigEndian>().ok()?;
             let remote_port = cursor.read_u16::<BigEndian>().ok()?;
-            //log::info!("Obtained src/remote port: {} -> {}", src_port, remote_port);
+            //log::trace!(target: "lusna", "Obtained src/remote port: {} -> {}", src_port, remote_port);
             // The below line ensures that the provided coordinate is valid
             let _vector = generate_packet_coordinates_inv(wave_id, src_port, remote_port, scramble_drill)?;
 
@@ -734,7 +734,7 @@ impl<const N: usize> GroupSenderDevice<N> {
             }
 
             if missing_coords.len() == start_count {
-                log::error!("Possibly invalid src/dest port combo listed");
+                log::error!(target: "lusna", "Possibly invalid src/dest port combo listed");
                 return None;
             }
         }

@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 #[inline]
 pub fn process(session: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
-        log::error!("disconnect packet received, but session state is not connected. Dropping");
+        log::error!(target: "lusna", "disconnect packet received, but session state is not connected. Dropping");
         return Ok(PrimaryProcessorResult::Void);
     }
 
@@ -20,21 +20,21 @@ pub fn process(session: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcess
 
         match header.cmd_aux {
             packet_flags::cmd::aux::do_disconnect::STAGE0 => {
-                log::info!("STAGE 0 DISCONNECT PACKET RECEIVED");
+                log::trace!(target: "lusna", "STAGE 0 DISCONNECT PACKET RECEIVED");
                 let packet = hdp_packet_crafter::do_disconnect::craft_final(&hyper_ratchet, ticket, timestamp, security_level);
                 return_if_none!(session.to_primary_stream.as_ref(), "Primary stream not loaded").unbounded_send(packet)?;
                 Ok(PrimaryProcessorResult::EndSession("Successfully disconnected"))
             }
 
             packet_flags::cmd::aux::do_disconnect::FINAL => {
-                log::info!("STAGE 1 DISCONNECT PACKET RECEIVED (ticket: {})", ticket);
+                log::trace!(target: "lusna", "STAGE 1 DISCONNECT PACKET RECEIVED (ticket: {})", ticket);
                 session.kernel_ticket.set(ticket);
                 session.state.store(SessionState::Disconnected, Ordering::Relaxed);
                 Ok(PrimaryProcessorResult::EndSession("Successfully disconnected"))
             }
 
             _ => {
-                log::error!("Invalid aux command on disconnect packet");
+                log::error!(target: "lusna", "Invalid aux command on disconnect packet");
                 Ok(PrimaryProcessorResult::Void)
             }
         }

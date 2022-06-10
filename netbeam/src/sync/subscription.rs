@@ -74,18 +74,18 @@ impl<R: SubscriptionBiStream + ?Sized> ReliableOrderedStreamToTarget for R {
 }
 
 pub(crate) fn close_sequence_for_multiplexed_bistream<S: Subscribable<ID=K> + 'static, K: MultiplexedConnKey + 'static>(id: K, ptr: S) {
-    log::info!("Running DROP on {:?}", id);
+    log::trace!(target: "lusna", "Running DROP on {:?}", id);
 
     fn close<S: Subscribable<ID=K>, K: MultiplexedConnKey>(id: K, ptr: &S) {
         let _ = ptr.subscriptions().write().remove(&id);
-        log::info!("DROPPED id = {:?}", id);
+        log::trace!(target: "lusna", "DROPPED id = {:?}", id);
     }
 
     // the runtime may not exist while dropping
     if let Ok(rt) = tokio::runtime::Handle::try_current() {
         rt.spawn(async move {
             if let Err(err) = PostActionSync::new(&ptr, id).await {
-                log::warn!("[MetaActionSync/close] error: {:?}", err.to_string())
+                log::warn!(target: "lusna", "[MetaActionSync/close] error: {:?}", err.to_string())
             }
 
             close(id, &ptr)
