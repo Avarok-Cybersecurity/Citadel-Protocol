@@ -5,8 +5,8 @@ use async_ip::IpAddressInfo;
 
 #[derive(Debug)]
 pub struct HolePunchConfig {
-    // The IP address that must be connected to based on NAT traversal
-    bands: Vec<AddrBand>,
+    /// The IP address that must be connected to based on NAT traversal
+    pub bands: Vec<AddrBand>,
     // sockets bound to ports specially prepared for NAT traversal
     pub(crate) locally_bound_sockets: Option<Vec<UdpSocket>>
 }
@@ -49,13 +49,13 @@ impl HolePunchConfig {
                 // NOTE: since a QUIC connection may be established, using up the UDP port,
                 // it is necessary that *before* the peer sends their info to this node, the port
                 // is accurately reflected in this direct addr
-                let ports = vec![direct_addr.port()];
-                let direct_addr_ip = direct_addr.ip();
 
-                Self::generate_alternate_bands_const_ports(&mut bands, direct_addr_ip, other_addrs.clone(), ports.clone());
+                Self::load_alternate_bands(&mut bands, other_addrs.clone(), direct_addr.ip(), peer_declared_internal_port);
+
+                // add the default external addr
                 bands.push(AddrBand {
-                    necessary_ip: direct_addr_ip,
-                    anticipated_ports: ports
+                    necessary_ip: direct_addr.ip(),
+                    anticipated_ports: vec![peer_declared_internal_port]
                 });
 
                 let locally_bound_sockets = Self::generate_local_sockets(local_nat_info, first_local_socket)?;
@@ -69,12 +69,11 @@ impl HolePunchConfig {
             NatType::PortPreserved(direct_addr, other_addrs, ..) => {
                 let mut bands = Vec::new();
                 // since there is no port translation, we assume the port below
-                let ports = vec![peer_declared_internal_port];
-                Self::generate_alternate_bands_const_ports(&mut bands, *direct_addr, other_addrs.clone(), ports.clone());
-                // we connect to direct_addr:peer_remote_port
+                Self::load_alternate_bands(&mut bands, other_addrs.clone(), *direct_addr,peer_declared_internal_port);
+
                 bands.push(AddrBand {
                     necessary_ip: *direct_addr,
-                    anticipated_ports: ports
+                    anticipated_ports: vec![peer_declared_internal_port]
                 });
 
                 let locally_bound_sockets = Self::generate_local_sockets(local_nat_info, first_local_socket)?;
@@ -121,7 +120,7 @@ impl HolePunchConfig {
                 // mode, AND, both 'nodes' are behind an unpredictable NAT, simply connect to the internal
                 // addr
                 if cfg!(feature = "localhost-testing") {
-                    log::info!("Simulating peer has port preserved config");
+                    log::trace!(target: "lusna", "Simulating peer has port preserved config");
                     // pretend the peer NAT has a PortPreserved config
                     let direct_addr = _addr.clone().ok_or_else(||anyhow::Error::msg("unable to simulate PortPreserved config"))?;
                     let simulated_peer_nat = NatType::PortPreserved(direct_addr.internal_ipv4, Some(direct_addr), *_is_v6_allowed);
@@ -134,40 +133,42 @@ impl HolePunchConfig {
                 }
             }
 
+            NatType::EDMRandomIPPortPreserved(addrs, other_addrs, _) => {
+                // the peer has semi-predictable addrs, each with a spread of 1
+                // port is preserved, therefore, internal=external
+                let first_addr = addrs[0];
+                match first_addr {
+                    IpAddr::V4(v4) => {
+                        let mut octets = v4.octets();
+                        let mut bands = vec![];
+
+                        // use the first last external addr, mostly arbitrary
+                        Self::load_alternate_bands(&mut bands, other_addrs.clone(), addrs[0].clone(), peer_declared_internal_port);
+
+                        for _ in 0..4 {
+                            // increment the last octet by 1
+                            octets[3] = octets[3].wrapping_add(1);
+                            bands.push(AddrBand { necessary_ip: IpAddr::from(octets), anticipated_ports: vec![peer_declared_internal_port] })
+                        }
+
+                        Ok(Self {
+                            bands,
+                            locally_bound_sockets: Some(vec![first_local_socket])
+                        })
+                    },
+
+                    _ => {
+                        Err(anyhow::Error::msg("Should not be an ipv6 addr in this block ..."))
+                    }
+                }
+            }
+
             _ => {
                 Err(anyhow::Error::msg("This function should not be called since one or more of the peers cannot be reached via STUN-like traversal"))
             }
         }
     }
 
-    // NOTE: only for EIM and PortPreserved
-    fn generate_alternate_bands_const_ports(ret: &mut Vec<AddrBand>, direct_addr: IpAddr, other_addrs: Option<IpAddressInfo>, ports: Vec<u16>) {
-        log::info!("Will extract addrs from: {:?}", other_addrs);
-        if let Some(other_addrs) = other_addrs {
-            if other_addrs.internal_ipv4 != direct_addr {
-                ret.push(AddrBand {
-                    necessary_ip: other_addrs.internal_ipv4,
-                    anticipated_ports: ports.clone()
-                });
-            }
-
-            if other_addrs.external_ipv4 != direct_addr {
-                ret.push(AddrBand {
-                    necessary_ip: other_addrs.external_ipv4,
-                    anticipated_ports: ports.clone()
-                });
-            }
-
-            if let Some(external_v6) = other_addrs.external_ipv6 {
-                if external_v6 != direct_addr {
-                    ret.push(AddrBand {
-                        necessary_ip: external_v6,
-                        anticipated_ports: ports
-                    });
-                }
-            }
-        }
-    }
 
     // `first_local_socket` is needed since it contains information vital for the adjacent node to connect,
     // especially if behind the same LAN. For maximum likelihood of NAT traversal, it is recommended that if
@@ -176,33 +177,7 @@ impl HolePunchConfig {
         // one addr will bind on 0.0.0.0 (or [::]), and the other on 127.0.0.1 (or [::1])
         let _local_bind_addr = first_local_socket.local_addr()?;
         let ret = vec![first_local_socket];
-
-        // NOTE: We only bind to a single addr now, since that's all that's needed
-        /*
-        match local_nat_info {
-            NatType::EIM(..) | NatType::PortPreserved(..) => {
-                // we alter nothing
-            }
-
-            NatType::EDM(.., delta, _) => {
-                Self::generate_bind_for_delta_config(&mut ret, *delta as u16, local_bind_addr)?;
-            }
-
-            NatType::EDMRandomPort(..) => {
-                let delta = local_nat_info.get_average_delta_for_rand_port().ok_or_else(||anyhow::Error::msg("Expected acceptable average delta in local"))?;
-                Self::generate_bind_for_delta_config(&mut ret, delta, local_bind_addr)?;
-            }
-
-            NatType::EDMRandomIp(..) => {
-                // local is unpredictable. However, thanks to the logic preceeding this function,
-                // we know the other address is predictable. Thus, we can bind to any address we want.
-                // Thus, we keep the current socket and add nothing
-            }
-
-            _ => {
-                return Err(anyhow::Error::msg("This function should not be called since one or more of the peers cannot be reached via STUN-like traversal"))
-            }
-        }*/
+        // note: we only bind to a single addr now, to drastically reduce complexity
 
         Ok(ret)
     }
@@ -242,38 +217,7 @@ impl HolePunchConfig {
         let ending_port = beginning_port.wrapping_add(ports_to_target_count);
         let ports = (beginning_port..ending_port).into_iter().collect::<Vec<u16>>();
 
-        // add the default alternate band
-        if let Some(other_addrs) = other_addrs {
-            if other_addrs.internal_ipv4 != last_external_addr.ip() {
-                bands.push(AddrBand {
-                    necessary_ip: other_addrs.internal_ipv4,
-                    // note: Here, we don't use the external ports above. We use the internal one
-                    // declared by the peer (note: this means the peer must deterministically generate this
-                    // prior to sending its information here. This means it must first bind to a new UDP socket
-                    // before sending over its information)
-                    anticipated_ports: vec![peer_declared_internal_port]
-                });
-            }
-
-            if other_addrs.external_ipv4 != last_external_addr.ip() {
-                bands.push(AddrBand {
-                    necessary_ip: other_addrs.external_ipv4,
-                    anticipated_ports: ports.clone()
-                });
-            }
-
-            if let Some(external_v6) = other_addrs.external_ipv6 {
-                if external_v6 != last_external_addr.ip() {
-                    bands.push(AddrBand {
-                        necessary_ip: external_v6,
-                        // since this is an external v6 addr, we assume no need for port mapping
-                        // (v6 addresses have no need for predictive NAT traversal). We can then assume a 1:1 port
-                        // mapping from the peer declared internal port to its external port
-                        anticipated_ports: vec![peer_declared_internal_port]
-                    });
-                }
-            }
-        }
+        Self::load_alternate_bands(bands, other_addrs, last_external_addr.ip(), peer_declared_internal_port);
 
         // add the default external band
         // note: this ASSUMES last_external_addr is ipv4 (which it should be, since the NAT identification
@@ -282,6 +226,44 @@ impl HolePunchConfig {
             necessary_ip: last_external_addr.ip(),
             anticipated_ports: ports
         });
+    }
+
+    /// Loads alternate bands, assuming port preservation mostly accounting for internal LANS
+    fn load_alternate_bands(bands: &mut Vec<AddrBand>, other_addrs: Option<IpAddressInfo>, last_external_addr: IpAddr, peer_declared_internal_port: u16) {
+        // add the default alternate band
+        if let Some(other_addrs) = other_addrs {
+            let anticipated_ports = vec![peer_declared_internal_port];
+
+            if other_addrs.internal_ipv4 != last_external_addr {
+                bands.push(AddrBand {
+                    necessary_ip: other_addrs.internal_ipv4,
+                    // note: Here, we don't use the external ports above. We use the internal one
+                    // declared by the peer (note: this means the peer must deterministically generate this
+                    // prior to sending its information here. This means it must first bind to a new UDP socket
+                    // before sending over its information)
+                    anticipated_ports: anticipated_ports.clone()
+                });
+            }
+
+            if other_addrs.external_ipv4 != last_external_addr {
+                bands.push(AddrBand {
+                    necessary_ip: other_addrs.external_ipv4,
+                    anticipated_ports: anticipated_ports.clone()
+                });
+            }
+
+            if let Some(external_v6) = other_addrs.external_ipv6 {
+                if external_v6 != last_external_addr {
+                    bands.push(AddrBand {
+                        necessary_ip: external_v6,
+                        // since this is an external v6 addr, we assume no need for port mapping
+                        // (v6 addresses have no need for predictive NAT traversal). We can then assume a 1:1 port
+                        // mapping from the peer declared internal port to its external port
+                        anticipated_ports
+                    });
+                }
+            }
+        }
     }
 }
 
@@ -313,5 +295,101 @@ impl Iterator for AddrBand {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.anticipated_ports.pop().map(|port| SocketAddr::new(self.necessary_ip, port))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{SocketAddr, IpAddr};
+    use std::str::FromStr;
+    use crate::nat_identification::NatType;
+    use crate::udp_traversal::hole_punch_config::HolePunchConfig;
+    use crate::udp_traversal::udp_hole_puncher::get_optimal_bind_socket;
+    use async_ip::IpAddressInfo;
+
+    #[tokio::test]
+    async fn test_hole_punch_config() {
+        let dummy_addr = SocketAddr::from_str("127.0.0.1:1234").unwrap();
+        let dummy_ip0_ok = IpAddr::from_str("123.100.200.100").unwrap();
+        let dummy_ip1_ok = IpAddr::from_str("123.100.200.101").unwrap();
+        let dummy_ip2_ok = IpAddr::from_str("123.100.200.102").unwrap();
+        let dummy_ip3_err = IpAddr::from_str("100.100.200.103").unwrap();
+
+        let ip_addr_info_dummy = Some(IpAddressInfo {
+            internal_ipv4: IpAddr::from([0, 0, 0, 0]),
+            external_ipv4: IpAddr::from([127, 0, 0, 0]),
+            external_ipv6: None
+        });
+
+        let eim = &NatType::EIM(dummy_addr, ip_addr_info_dummy.clone(), true);
+        let edm = &NatType::EDM(dummy_addr, ip_addr_info_dummy.clone(), 1, true);
+        let port_preserved = &NatType::PortPreserved(dummy_addr.ip(), ip_addr_info_dummy.clone(), true);
+        let random_port_compat = &NatType::EDMRandomPort(dummy_addr, ip_addr_info_dummy.clone(), vec![10, 20, 30, 40], true);
+        let random_port_bad = &NatType::EDMRandomPort(dummy_addr, ip_addr_info_dummy.clone(), vec![40, 80, 120], true);
+        let random_ip = &NatType::EDMRandomIp(vec![dummy_addr.ip()], ip_addr_info_dummy.clone(), true);
+        let random_ip_port_preserved_ok = &NatType::EDMRandomIPPortPreserved(vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip2_ok], ip_addr_info_dummy.clone(), true);
+        let random_ip_port_preserved_err = &NatType::EDMRandomIPPortPreserved(vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip3_err], ip_addr_info_dummy.clone(), true);
+
+        // Start with EIM
+        inner_test(eim, eim);
+        inner_test(eim, edm);
+        inner_test(eim, port_preserved);
+        inner_test(eim, random_port_compat);
+
+        inner_test(eim, random_port_bad);
+        inner_test(eim, random_ip);
+
+        inner_test(eim, random_ip_port_preserved_ok);
+        inner_test(eim, random_ip_port_preserved_err);
+
+        // EDM
+        inner_test(edm, edm);
+        inner_test(edm, port_preserved);
+        inner_test(edm, random_port_compat);
+
+        inner_test(edm, random_port_bad);
+        inner_test(edm, random_ip);
+        inner_test(edm, random_ip_port_preserved_ok);
+        inner_test(edm, random_ip_port_preserved_err);
+
+        // PortPreserved
+        inner_test(port_preserved, port_preserved);
+        inner_test(port_preserved, random_port_compat);
+
+        inner_test(port_preserved, random_port_bad);
+        inner_test(port_preserved, random_ip);
+        inner_test(port_preserved, random_ip_port_preserved_ok);
+        inner_test(port_preserved, random_ip_port_preserved_err);
+
+        // Random port (compat)
+        inner_test(random_port_compat, random_port_compat);
+        inner_test(random_port_compat, random_port_bad);
+        inner_test(random_port_compat, random_ip);
+        inner_test(random_port_compat, random_ip_port_preserved_ok);
+        inner_test(random_port_compat, random_ip_port_preserved_err);
+
+        // Random port (bad)
+        inner_test(random_port_bad, random_ip_port_preserved_ok);
+
+        // Random ip
+        inner_test(random_ip, random_ip_port_preserved_ok);
+
+        // random ip, port preserved, delta ok
+        inner_test(random_ip_port_preserved_ok, random_ip_port_preserved_ok);
+        inner_test(random_ip_port_preserved_ok, random_ip_port_preserved_err);
+    }
+
+    fn inner_test(local_nat_type: &NatType, peer_nat_type: &NatType) {
+        assert!(local_nat_type.stun_compatible(peer_nat_type));
+        let initial_socket_local = get_optimal_bind_socket(local_nat_type, peer_nat_type).unwrap();
+        let internal_bind_port_local = initial_socket_local.local_addr().unwrap().port();
+
+        let initial_socket_remote = get_optimal_bind_socket(peer_nat_type, local_nat_type).unwrap();
+        let internal_bind_port_remote = initial_socket_remote.local_addr().unwrap().port();
+        // TODO: assertions
+        // local
+        HolePunchConfig::new(local_nat_type, peer_nat_type, initial_socket_local, internal_bind_port_remote).unwrap();
+        // remote
+        HolePunchConfig::new(peer_nat_type, local_nat_type, initial_socket_remote, internal_bind_port_local).unwrap();
     }
 }

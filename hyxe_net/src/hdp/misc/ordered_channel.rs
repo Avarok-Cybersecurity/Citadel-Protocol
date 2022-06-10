@@ -23,19 +23,6 @@ impl OrderedChannel {
         if next_expected_message_id == id {
             // we send this packet, then scan sequentially for any other packets that may have been delivered until hitting discontinuity
             self.send_then_scan(id, packet)?;
-
-            /*
-            if id == 0 {
-                let ptr = self as *const OrderedChannel;
-                tokio::task::spawn(async move {
-                    use futures::StreamExt;
-                    while let Some(_) = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(std::time::Duration::from_millis(5000))).next().await {
-                        let this = unsafe { &*ptr };
-                        log::error!("Looking for: {:?}. Map has {} items", this.last_message_received.clone().map(|r| r.wrapping_add(1)), this.map.len());
-                    }
-                });
-            }*/
-
             Ok(())
         } else {
             // we store. Since the next needed packet in order is not yet received, we store and return
@@ -105,13 +92,13 @@ mod tests {
     use rand::Rng;
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "error,warn,info,trace");
+        std::env::set_var("RUST_LOG", "lusna=trace");
         //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     #[tokio::test]
@@ -158,7 +145,7 @@ mod tests {
 
         let values_unordered = values_ordered;
 
-        //log::info!("Unordered input: {:?}", &values_unordered);
+        //log::trace!(target: "lusna", "Unordered input: {:?}", &values_unordered);
         let recv_task = async move {
             let mut id: usize = 0;
             while let Some(value) = rx.recv().await {
@@ -196,7 +183,7 @@ mod tests {
 
         let ref ordered_channel = Arc::new(RwLock::new(ordered_channel));
 
-        //log::info!("Unordered input: {:?}", &values_unordered);
+        //log::trace!(target: "lusna", "Unordered input: {:?}", &values_unordered);
         let recv_task = async move {
             let mut id: usize = 0;
             while let Some(value) = rx.recv().await {

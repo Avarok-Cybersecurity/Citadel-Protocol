@@ -73,10 +73,10 @@ impl<S: Subscribable + 'static, T: NetObject> NetMutex<T, S> {
 
         tokio::task::spawn(async move {
             if let Err(err) = passive_background_handler::<S, T>(channel, shared_state, stop_rx, active_to_bg_rx).await {
-                log::error!("[NetMutex] Err: {:?}", err.to_string());
+                log::error!(target: "lusna", "[NetMutex] Err: {:?}", err.to_string());
             }
 
-            log::info!("[NetMutex] Passive background handler ending")
+            log::trace!(target: "lusna", "[NetMutex] Passive background handler ending")
         });
 
         Ok(this)
@@ -218,17 +218,17 @@ impl Future for NetMutexGuardDropCode {
 }
 
 async fn net_mutex_drop_code<T: NetObject, S: Subscribable + 'static>(conn: Arc<InnerChannel<S>>, lock: LocalLockHolder<T>) -> Result<(), anyhow::Error> {
-    log::info!("[NetMutex] Drop code initialized for {:?}...", conn.node_type());
+    log::trace!(target: "lusna", "[NetMutex] Drop code initialized for {:?}...", conn.node_type());
     conn.send_serialized(UpdatePacket::Released(bincode2::serialize(&lock.deref().0)?)).await?;
 
     let mut adjacent_trying_to_acquire = false;
 
     loop {
         let packet = conn.recv_serialized::<UpdatePacket>().await?;
-        log::info!("[NetMutex] [Drop Code] RECV {:?} on {:?}", &packet, conn.node_type());
+        log::trace!(target: "lusna", "[NetMutex] [Drop Code] RECV {:?} on {:?}", &packet, conn.node_type());
         match packet {
             UpdatePacket::ReleasedVerified => {
-                log::info!("[NetMutex] [Drop Code] Release has been verified for {:?}. Adjacent node updated; will drop local lock", conn.node_type());
+                log::trace!(target: "lusna", "[NetMutex] [Drop Code] Release has been verified for {:?}. Adjacent node updated; will drop local lock", conn.node_type());
 
                 if adjacent_trying_to_acquire {
                     return yield_lock::<S, T>(&conn, lock).await.map(|_| ());
@@ -280,11 +280,11 @@ impl<T: NetObject + 'static, S: Subscribable + 'static> Future for NetMutexGuard
 async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex: &NetMutex<T, S>) -> Result<NetMutexGuard<T, S>, anyhow::Error> {
     // first step is always to acquire the local lock. If local has a NetMutexGuard, then it will hold an owned lock until it drops, ensuring no local process can progress past this point
     // until after the lock is dropped. Further, the lock ensures the drop process is complete and that both nodes have a symmetric value
-    log::info!("Attempting to acquire lock for {:?}", mutex.node_type());
+    log::trace!(target: "lusna", "Attempting to acquire lock for {:?}", mutex.node_type());
     // first, ensure background isn't already awaiting for a packet
     mutex.bg_stop_signaller.send(()).await?;
     let mut owned_local_lock = LocalLockHolder(Some(mutex.shared_state.clone().lock_owned().await), false);
-    log::info!("{:?} acquired local lock", mutex.node_type());
+    log::trace!(target: "lusna", "{:?} acquired local lock", mutex.node_type());
 
 
     let conn = &mutex.app;
@@ -296,7 +296,7 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex
         let (value,  _bg_alerter) = &mut **owned_local_lock.deref_mut();
 
         let packet = conn.recv_serialized().await?;
-        log::info!("{:?}/active-channel || obtained packet {:?}", mutex.node_type(), &packet);
+        log::trace!(target: "lusna", "{:?}/active-channel || obtained packet {:?}", mutex.node_type(), &packet);
 
         // the adjacent side will return one of two packets. In the first case, we wait until it drops the adjacent lock, in which case,
         // we get a Released packet. The side that gets this will automatically be allowed to acquire the mutex lock
@@ -315,7 +315,7 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex
             }
 
             UpdatePacket::TryAcquire(remote_request_time) => {
-                log::info!("BOTH trying to acquire!");
+                log::trace!(target: "lusna", "BOTH trying to acquire!");
                 // in this case both are trying to acquire, give to the node that requested first, OR, if it was given preference in case of the next conflict
                 if remote_request_time <= local_request_time {
                     // remote gets the lock. We send the local value first. Then, we must continue looping
@@ -363,7 +363,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(channel: &Arc<Inner
             }
 
             p => {
-                log::warn!("Received invalid packet type in inner_loop! {:?}", p)
+                log::warn!(target: "lusna", "Received invalid packet type in inner_loop! {:?}", p)
             }
         }
     }
@@ -429,10 +429,10 @@ mod tests {
         std::env::set_var("RUST_LOG", "error,warn");
         //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
-        log::trace!("TRACE enabled");
-        log::info!("INFO enabled");
-        log::warn!("WARN enabled");
-        log::error!("ERROR enabled");
+        log::trace!(target: "lusna", "TRACE enabled");
+        log::trace!(target: "lusna", "INFO enabled");
+        log::warn!(target: "lusna", "WARN enabled");
+        log::error!(target: "lusna", "ERROR enabled");
     }
 
     #[tokio::test]
@@ -453,17 +453,17 @@ mod tests {
 
         let server = tokio::spawn(async move {
             let mutex = &server_stream.mutex(Some(init_value)).await.unwrap();
-            log::info!("Success establishing mutex on server");
+            log::trace!(target: "lusna", "Success establishing mutex on server");
             client_done_rx.await.unwrap();
             let guard = mutex.lock().await.unwrap();
             assert_eq!(*guard, final_value);
-            log::info!("Server ASSERT_EQ valid");
+            log::trace!(target: "lusna", "Server ASSERT_EQ valid");
             std::mem::drop(guard);
 
             for idx in 1..COUNT {
-                log::info!("Server obtaining lock {}", idx);
+                log::trace!(target: "lusna", "Server obtaining lock {}", idx);
                 let mut lock = mutex.lock().await.unwrap();
-                log::info!("****Server obtained lock {} w/val {:?}", idx, &*lock);
+                log::trace!(target: "lusna", "****Server obtained lock {} w/val {:?}", idx, &*lock);
                 assert_eq!(idx + init_value, *lock);
 
                 *lock += 1;
@@ -475,9 +475,9 @@ mod tests {
 
         let client = tokio::spawn(async move {
             let mutex = &client_stream.mutex::<u64>(None).await.unwrap();
-            log::info!("Success establishing mutex on client");
+            log::trace!(target: "lusna", "Success establishing mutex on client");
             let mut guard = mutex.lock().await.unwrap();
-            log::info!("Client has successfully established a mutex lock");
+            log::trace!(target: "lusna", "Client has successfully established a mutex lock");
             *guard = 1001;
             client_ref.store(*guard, Ordering::SeqCst);
             std::mem::drop(guard);
@@ -487,7 +487,7 @@ mod tests {
                 let val = mutex.lock().await.unwrap();
                 let loaded = client_ref.load(Ordering::SeqCst);
                 if *val != loaded {
-                    log::error!("Mutex value {} != loaded value {}", *val, loaded);
+                    log::error!(target: "lusna", "Mutex value {} != loaded value {}", *val, loaded);
                     std::process::exit(-1);
                 }
             }

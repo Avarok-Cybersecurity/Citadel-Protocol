@@ -27,18 +27,21 @@ pub struct NodeBuilder {
 }
 
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
-pub struct NodeFuture<K> {
-    inner: Pin<Box<dyn Future<Output=Result<K, NetworkError>> + 'static>>,
+pub struct NodeFuture<'a, K> {
+    inner: Pin<Box<dyn Future<Output=Result<K, NetworkError>> + 'a>>,
     _pd: PhantomData<fn() -> K>
 }
 
-impl<K> Debug for NodeFuture<K> {
+#[cfg(feature = "localhost-testing")]
+unsafe impl<K> Send for NodeFuture<'_, K> {}
+
+impl<K> Debug for NodeFuture<'_, K> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "NodeFuture")
     }
 }
 
-impl<K> Future for NodeFuture<K> {
+impl<K> Future for NodeFuture<'_, K> {
     type Output = Result<K, NetworkError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -181,7 +184,7 @@ impl ServerConfigBuilder<'_> {
 
 impl NodeBuilder {
     /// Returns a future that represents the both the protocol and kernel execution
-    pub fn build<K: NetKernel>(&mut self, kernel: K) -> Result<NodeFuture<K>, NodeBuilderError> {
+    pub fn build<'a, 'b: 'a, K: NetKernel + 'b>(&'a mut self, kernel: K) -> Result<NodeFuture<'b, K>, NodeBuilderError> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
         let home_dir = self.home_directory.take();
@@ -202,13 +205,13 @@ impl NodeBuilder {
         Ok(NodeFuture {
             _pd: Default::default(),
             inner: Box::pin(async move {
-                log::info!("[NodeBuilder] Checking Tokio runtime ...");
+                log::trace!(target: "lusna", "[NodeBuilder] Checking Tokio runtime ...");
                 let rt = tokio::runtime::Handle::try_current().map_err(|err| NetworkError::Generic(err.to_string()))?;
-                log::info!("[NodeBuilder] Creating account manager ...");
+                log::trace!(target: "lusna", "[NodeBuilder] Creating account manager ...");
                 let account_manager = AccountManager::new(hypernode_type.bind_addr().unwrap_or_else(|| SocketAddr::from_str("127.0.0.1:25021").unwrap()), home_dir, backend_type, server_argon_settings, server_services_cfg, server_misc_settings).await?;
-                log::info!("[NodeBuilder] Creating KernelExecutor ...");
+                log::trace!(target: "lusna", "[NodeBuilder] Creating KernelExecutor ...");
                 let kernel_executor = KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto, client_config, kernel_executor_settings).await?;
-                log::info!("[NodeBuilder] Executing kernel");
+                log::trace!(target: "lusna", "[NodeBuilder] Executing kernel");
                 kernel_executor.execute().await
             })
         })

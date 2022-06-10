@@ -20,7 +20,7 @@ localhost-testing-assert-no-proxy = ["hyxe_net/localhost-testing-assert-no-proxy
 
 [dependencies]
 hyxe_net = { path = "../hyxe_net", default-features = false }
-tokio = { version = "1.18.0", features = ["full"] }
+tokio = { version = "1.19.0", features = ["full"] }
 futures = "0.3.19"
 parking_lot = "0.12.0"
 log = { version = "0.4.14", features = ["std"] }

@@ -90,7 +90,7 @@ impl Drill {
     /// The nonce is 96 bits or 12 bytes in size. We assume each nonce version is unique
     pub fn get_aes_gcm_nonce(&self, nonce_version: usize) -> ArrayVec<u8, LARGEST_NONCE_LEN> {
         let nonce = self.get_nonce(nonce_version);
-        log::trace!("Generated nonce v{}: {:?}", nonce_version, &nonce);
+        log::trace!(target: "lusna", "Generated nonce v{}: {:?}", nonce_version, &nonce);
         nonce
     }
 
@@ -293,19 +293,10 @@ impl From<u8> for SecurityLevel {
 }
 
 
-use serde_big_array::big_array;
+use serde_big_array::BigArray;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
 use ez_pqcrypto::algorithm_dictionary::EncryptionAlgorithm;
 use arrayvec::ArrayVec;
-/* Use the bellow version if BYTES_PER_3D_ARRAY is a value not automatically implied
-big_array! {
-    BigArray;
-    +BYTES_PER_3D_ARRAY,
-}*/
-
-big_array! {
-    BigArray;
-}
 
 /// A drill is a fundamental encryption dataset that continually morphs into new future sets
 #[repr(C)]

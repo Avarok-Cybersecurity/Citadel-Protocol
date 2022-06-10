@@ -120,22 +120,22 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
         let mut lock = rebuilder.lock().await;
         // first, check local failures
         if let Some(mut failure) = lock.local_failures.remove(&local_id) {
-            log::info!("[Rebuild] While searching local_failures, found match");
+            log::trace!(target: "lusna", "[Rebuild] While searching local_failures, found match");
             if let Some(rebuilt) = failure.recovery_mode_generate_socket_by_remote_id(peer_id) {
                 return Ok(rebuilt)
             } else {
-                log::warn!("[Rebuild] Found in local_failures, but, failed to find rebuilt socket");
+                log::warn!(target: "lusna", "[Rebuild] Found in local_failures, but, failed to find rebuilt socket");
             }
         }
 
         let _receivers = kill_signal_tx.send((local_id, peer_id))?;
         let mut post_rebuild_rx = lock.post_rebuild_rx.take().ok_or_else(||anyhow::Error::msg("post_rebuild_rx has already been taken"))?;
-        log::info!("*** Will now await post_rebuild_rx ... {} have finished", finished_count.lock());
+        log::trace!(target: "lusna", "*** Will now await post_rebuild_rx ... {} have finished", finished_count.lock());
         let mut count = 0;
         // Note: if properly implemented, the below should return almost instantly
         loop {
             if let Some(current_enqueued) = current_enqueued.lock().await.take() {
-                log::info!("Grabbed the currently enqueued socket!");
+                log::trace!(target: "lusna", "Grabbed the currently enqueued socket!");
                 return Ok(current_enqueued)
             }
 
@@ -146,14 +146,14 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
 
                 Some(None) => {
                     count += 1;
-                    log::info!("*** [rebuild] So-far, {}/{} have finished", count, hole_puncher_count);
+                    log::trace!(target: "lusna", "*** [rebuild] So-far, {}/{} have finished", count, hole_puncher_count);
                     if count == hole_puncher_count {
-                        log::info!("This should not happen")
+                        log::trace!(target: "lusna", "This should not happen")
                     }
                 }
 
                 Some(Some(res)) => {
-                    log::info!("*** [rebuild] complete");
+                    log::trace!(target: "lusna", "*** [rebuild] complete");
                     return Ok(res)
                 }
             }
@@ -177,14 +177,14 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
             futures_tx.send(res).map_err(|_| anyhow::Error::msg("futures_tx send error"))?;
         }
 
-        log::info!("Finished polling all futures");
+        log::trace!(target: "lusna", "Finished polling all futures");
         Ok(reader_done_rx_3.recv().await?) as Result<(), anyhow::Error>
     };
 
     // the goal of the sender is just to send results as local finishes, nothing else
     let futures_resolver = async move {
         while let Some((res, hole_puncher)) = futures_rx.recv().await {
-            log::info!("[Future resolver loop] Received {:?}", res);
+            log::trace!(target: "lusna", "[Future resolver loop] Received {:?}", res);
             *finished_count.lock() += 1;
             match res {
                 Ok(socket) => {
@@ -192,9 +192,9 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
                     let local_id = hole_puncher.get_unique_id();
 
                     if let Some((pre_local, pre_remote)) = *loser_value_set.lock() {
-                        log::info!("*** Local did not win, and, already received a MutexSet: ({:?}, {:?})", pre_local, pre_remote);
+                        log::trace!(target: "lusna", "*** Local did not win, and, already received a MutexSet: ({:?}, {:?})", pre_local, pre_remote);
                         if local_id == pre_local && peer_unique_id == pre_remote {
-                            log::info!("*** Local did not win, and, is currently waiting for the current value! (returning)");
+                            log::trace!(target: "lusna", "*** Local did not win, and, is currently waiting for the current value! (returning)");
                             // this implies local is already waiting for this result. Submit and finish here
                             post_rebuild_tx.send(Some(socket))?;
                         }
@@ -213,30 +213,30 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
 
                     if let Some(socket) = current_enqueued.lock().await.take() {
                         if net_lock.as_ref().is_none() {
-                            log::info!("*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
+                            log::trace!(target: "lusna", "*** Local won! Will command other side to use ({:?}, {:?})", peer_unique_id, local_id);
                             *net_lock = Some(());
                             socket.cleanse()?;
                             submit_final_candidate(socket)?;
                             // Hold the mutex to prevent the other side from accessing the data. It will need to end via the other means
                             send(DualStackCandidate::MutexSet(peer_unique_id, local_id), conn).await?;
-                            log::info!("*** [winner] Awaiting the signal ...");
+                            log::trace!(target: "lusna", "*** [winner] Awaiting the signal ...");
                             winner_can_end_rx.await?;
-                            log::info!("*** [winner] received the signal");
+                            log::trace!(target: "lusna", "*** [winner] received the signal");
                             return signal_done();
                         } else {
                             unreachable!("Should not happen since the winner holds the mutex until complete");
                         }
                     } else {
-                        log::info!("While looping, detected that the socket was taken")
+                        log::trace!(target: "lusna", "While looping, detected that the socket was taken")
                     }
                 }
 
                 Err(FirewallError::Skip) => {
-                    log::info!("Rebuilt socket; Will not add to failures")
+                    log::trace!(target: "lusna", "Rebuilt socket; Will not add to failures")
                 }
 
                 Err(err) => {
-                    log::warn!("[non-terminating] Hole-punch for local bind addr {:?} failed: {:?}", hole_puncher.get_unique_id(), err);
+                    log::warn!(target: "lusna", "[non-terminating] Hole-punch for local bind addr {:?} failed: {:?}", hole_puncher.get_unique_id(), err);
                     rebuilder.lock().await.local_failures.insert(hole_puncher.get_unique_id(), hole_puncher);
                 }
             }
@@ -250,10 +250,10 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
     let reader = async move {
         loop {
             let next_packet = receive::<DualStackCandidate, _>(conn).await?;
-            log::info!("DualStack RECV {:?}", next_packet);
+            log::trace!(target: "lusna", "DualStack RECV {:?}", next_packet);
             match next_packet {
                 DualStackCandidate::MutexSet(local, remote) => {
-                    log::info!("*** received MutexSet. Will unconditionally end ...");
+                    log::trace!(target: "lusna", "*** received MutexSet. Will unconditionally end ...");
                     assert!(loser_value_set.lock().replace((local, remote)).is_none());
                     let hole_punched_socket = assert_rebuild_ready(local, remote).await?;
                     hole_punched_socket.cleanse()?;
@@ -271,7 +271,7 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
         }
     };
 
-    log::info!("[DualStack] Executing hole-puncher ....");
+    log::trace!(target: "lusna", "[DualStack] Executing hole-puncher ....");
     let sender_reader_combo = futures::future::try_join(futures_resolver, reader);
 
     tokio::select! {
@@ -280,7 +280,7 @@ async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNode
         res2 = futures_executor => res2?
     };
 
-    log::info!("*** ENDING DualStack ***");
+    log::trace!(target: "lusna", "*** ENDING DualStack ***");
 
     let sock = final_candidate_rx.await?;
     sock.cleanse()?;

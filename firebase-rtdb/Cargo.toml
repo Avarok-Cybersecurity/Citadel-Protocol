@@ -12,5 +12,5 @@ log = { version = "0.4.8", features = ["std"] }
 serde = "1.0.126"
 
 [dev-dependencies]
-tokio = { version = "^1.7.0", features = ["full"] }
+tokio = { version = "1.19.0", features = ["full"] }
 env_logger = "0.8.4"

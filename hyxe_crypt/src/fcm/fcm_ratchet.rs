@@ -118,7 +118,7 @@ impl EndpointRatchetConstructor<FcmRatchet> for FcmRatchetConstructor {
             }
 
             _ => {
-                log::error!("Incompatible Ratchet Type passed! [X-43]");
+                log::error!(target: "lusna", "Incompatible Ratchet Type passed! [X-43]");
                 None
             }
         }
@@ -139,7 +139,7 @@ impl EndpointRatchetConstructor<FcmRatchet> for FcmRatchetConstructor {
             }
 
             _ => {
-                log::error!("Incompatible Ratchet Type passed! [X-44]");
+                log::error!(target: "lusna", "Incompatible Ratchet Type passed! [X-44]");
                 None
             }
         }

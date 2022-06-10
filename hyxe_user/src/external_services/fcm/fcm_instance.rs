@@ -43,7 +43,7 @@ impl FCMInstance {
 
     #[allow(unused_results)]
     async fn send_to_fcm_user_inner<T: Serialize>(server_api_key: &str, target_reg_id: &str, client: &Client, data: T, cfg: impl FnOnce(&mut MessageBuilder<'_>)) -> Result<FcmResponse, AccountError> {
-        log::info!("[FCM] sending to: {}", target_reg_id);
+        log::trace!(target: "lusna", "[FCM] sending to: {}", target_reg_id);
         let mut builder = MessageBuilder::new(server_api_key, target_reg_id);
         builder.data(&data)?;
         builder.content_available(true); // for IOS only: awakens app if required using APN

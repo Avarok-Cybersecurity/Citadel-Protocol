@@ -217,7 +217,7 @@ impl HyperRatchet {
     pub fn verify_level(&self, security_level: Option<SecurityLevel>) -> Result<usize, CryptError<String>> {
         let security_level = security_level.unwrap_or(SecurityLevel::LOW);
         if security_level.value() as usize >= self.inner.message.inner.len() {
-            log::warn!("OOB: Security value: {}, max: {} ({:?})|| Version: {}", security_level.value() as usize, self.inner.message.inner.len(), self.get_default_security_level(), self.version());
+            log::warn!(target: "lusna", "OOB: Security value: {}, max: {} (default: {:?})|| Version: {}", security_level.value() as usize, self.inner.message.inner.len() - 1, self.get_default_security_level(), self.version());
             Err(CryptError::OutOfBoundsError)
         } else {
             Ok(security_level.value() as usize)
@@ -547,7 +547,7 @@ pub mod constructor {
                 }
 
                 _ => {
-                    log::error!("Incompatible Ratchet Type passed! [X-22]");
+                    log::error!(target: "lusna", "Incompatible Ratchet Type passed! [X-22]");
                     None
                 }
             }
@@ -683,7 +683,7 @@ pub mod constructor {
         /// Called during the initialization stage
         pub fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Option<Self> {
             let security_level = security_level.unwrap_or(SecurityLevel::LOW);
-            log::info!("[ALICE] creating container with {:?} security level", security_level);
+            log::trace!(target: "lusna", "[ALICE] creating container with {:?} security level", security_level);
             //let count = security_level.value() as usize + 1;
             let len = opts.len();
             let params = opts[0].cryptography.unwrap_or_default();
@@ -707,13 +707,13 @@ pub mod constructor {
 
         /// Called when bob receives alice's pk's
         pub fn new_bob(cid: u64, new_drill_vers: u32, opts: Vec<ConstructorOpts>, transfer: AliceToBobTransfer) -> Option<Self> {
-            log::info!("[BOB] creating container with {:?} security level", transfer.security_level);
+            log::trace!(target: "lusna", "[BOB] creating container with {:?} security level", transfer.security_level);
             let count = transfer.security_level.value() as usize + 1;
             let params = transfer.params;
             let keys: Vec<MessageRatchetConstructorInner> = transfer.pks.into_iter().zip(opts.into_iter()).filter_map(|(pk, opts)| Some(MessageRatchetConstructorInner { drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?), pqc: PostQuantumContainer::new_bob(opts, pk).ok()? })).collect();
 
             if keys.len() != count {
-                log::error!("[BOB] not all keys parsed correctly. {} != {}", keys.len(), count);
+                log::error!(target: "lusna", "[BOB] not all keys parsed correctly. {} != {}", keys.len(), count);
                 return None;
             }
 
@@ -820,7 +820,7 @@ pub mod constructor {
 
                 Some(())
             } else {
-                log::error!("Incompatible Ratchet Type passed! [X-40]");
+                log::error!(target: "lusna", "Incompatible Ratchet Type passed! [X-40]");
                 None
             }
         }

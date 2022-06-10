@@ -1,4 +1,3 @@
-#![forbid(unsafe_code)]
 //! Software development kit for creating high performance, extremely-secure, and post-quantum network applications. Supports p2p (NAT traversal + WebRTC) and standard client/server architectures for
 //! messaging and streaming. The underlying asynchronous runtime is [Tokio](https://tokio.rs).
 //!
@@ -25,7 +24,7 @@
 //! - `plus`: Uses a multi-threaded Send executor for the inner protocol
 //! - `enterprise-lite`: Uses a single-threaded !Send executor for the inner protocol coupled with an optional SQL backend
 //! - `enterprise`: Uses a multi-threaded Send executor for the inner protocol coupled with an optional SQL backend
-//! - `webrtc`: enables interoperability with webrtc via the [`UdpChannel`] (see: [UdpChannel::into_webrtc_compat](crate::prelude::UdpChannel::into_webrtc_compat))
+//! - `webrtc`: enables *limited* interoperability with webrtc via the [`UdpChannel`] (see: [UdpChannel::into_webrtc_compat](crate::prelude::UdpChannel::into_webrtc_compat))
 //!
 //!
 //! # Post-quantum key encapsulation mechanisms
@@ -127,6 +126,8 @@ pub mod prelude {
     pub use crate::prefabs::client::PrefabFunctions;
     pub use crate::builder::node_builder::*;
     pub use crate::remote_ext::*;
+    pub use crate::responses;
+    pub use crate::builder::request_builder::*;
 }
 
 /// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)
@@ -134,5 +135,7 @@ pub mod remote_ext;
 /// A list of prefabricated kernels designed for common use cases. If a greater degree of control is required for an application, a custom implementation of [NetKernel](crate::prelude::NetKernel) is desirable
 pub mod prefabs;
 mod builder;
+/// For easy construction of replies to common message types
+pub mod responses;
 #[doc(hidden)]
 pub mod test_common;

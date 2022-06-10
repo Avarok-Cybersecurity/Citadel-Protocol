@@ -19,7 +19,6 @@ impl AuthenticationRequest {
 
     /// No credentials will be used for login, only a one-time device-dependent cryptographic bundle
     pub fn passwordless(uuid: Uuid, server_addr: SocketAddr) -> Self {
-        // TODO: derive from public key ?
         Self::Passwordless { username: uuid.to_string(), server_addr }
     }
 }

@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::prelude::{ConnectSuccess, NetworkError, NetKernel, NodeRemote, HdpServerResult};
+use crate::prelude::{ConnectSuccess, NetworkError, NetKernel, NodeRemote, NodeResult};
 use crate::prefabs::ClientServerRemote;
 use futures::Future;
 use hyxe_net::prelude::async_trait;
@@ -14,8 +14,8 @@ pub struct ClientConnectListenerKernel<F, Fut> {
 
 impl<F, Fut> ClientConnectListenerKernel<F, Fut>
     where
-        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output=Result<(), NetworkError>> + Send + Sync + 'static {
+        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
+        Fut: Future<Output=Result<(), NetworkError>> + Send + Sync {
 
     pub fn new(on_channel_received: F) -> Self {
         Self { on_channel_received, node_remote: None, _pd: Default::default() }
@@ -25,8 +25,8 @@ impl<F, Fut> ClientConnectListenerKernel<F, Fut>
 #[async_trait]
 impl<F, Fut> NetKernel for ClientConnectListenerKernel<F, Fut>
     where
-        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output=Result<(), NetworkError>> + Send + Sync + 'static {
+        F: Fn(ConnectSuccess, ClientServerRemote) -> Fut + Send + Sync,
+        Fut: Future<Output=Result<(), NetworkError>> + Send + Sync {
 
     fn load_remote(&mut self, server_remote: NodeRemote) -> Result<(), NetworkError> {
         self.node_remote = Some(server_remote);
@@ -37,9 +37,9 @@ impl<F, Fut> NetKernel for ClientConnectListenerKernel<F, Fut>
         Ok(())
     }
 
-    async fn on_node_event_received(&self, message: HdpServerResult) -> Result<(), NetworkError> {
+    async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match message {
-            HdpServerResult::ConnectSuccess(_, cid, _, _, conn_type,_,services,_,channel, udp_channel_rx) => {
+            NodeResult::ConnectSuccess(_, cid, _, _, conn_type, _, services, _, channel, udp_channel_rx) => {
                 let client_server_remote = ClientServerRemote { inner: self.node_remote.clone().unwrap(), conn_type };
                 (&self.on_channel_received)(ConnectSuccess {
                     channel,
@@ -50,7 +50,7 @@ impl<F, Fut> NetKernel for ClientConnectListenerKernel<F, Fut>
             },
 
             other => {
-                log::info!("Unhandled server signal: {:?}", other);
+                log::trace!(target: "lusna", "Unhandled server signal: {:?}", other);
                 Ok(())
             }
         }
