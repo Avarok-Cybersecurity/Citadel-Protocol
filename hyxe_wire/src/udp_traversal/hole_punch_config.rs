@@ -305,6 +305,7 @@ mod tests {
     use crate::nat_identification::NatType;
     use crate::udp_traversal::hole_punch_config::HolePunchConfig;
     use crate::udp_traversal::udp_hole_puncher::get_optimal_bind_socket;
+    use async_ip::IpAddressInfo;
 
     #[tokio::test]
     async fn test_hole_punch_config() {
@@ -314,14 +315,20 @@ mod tests {
         let dummy_ip2_ok = IpAddr::from_str("123.100.200.102").unwrap();
         let dummy_ip3_err = IpAddr::from_str("100.100.200.103").unwrap();
 
-        let eim = &NatType::EIM(dummy_addr, None, true);
-        let edm = &NatType::EDM(dummy_addr, None, 1, true);
-        let port_preserved = &NatType::PortPreserved(dummy_addr.ip(), None, true);
-        let random_port_compat = &NatType::EDMRandomPort(dummy_addr, None, vec![10, 20, 30, 40], true);
-        let random_port_bad = &NatType::EDMRandomPort(dummy_addr, None, vec![40, 80, 120], true);
-        let random_ip = &NatType::EDMRandomIp(vec![dummy_addr.ip()], None, true);
-        let random_ip_port_preserved_ok = &NatType::EDMRandomIPPortPreserved(vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip2_ok], None, true);
-        let random_ip_port_preserved_err = &NatType::EDMRandomIPPortPreserved(vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip3_err], None, true);
+        let ip_addr_info_dummy = Some(IpAddressInfo {
+            internal_ipv4: IpAddr::from([0, 0, 0, 0]),
+            external_ipv4: IpAddr::from([127, 0, 0, 0]),
+            external_ipv6: None
+        });
+
+        let eim = &NatType::EIM(dummy_addr, ip_addr_info_dummy.clone(), true);
+        let edm = &NatType::EDM(dummy_addr, ip_addr_info_dummy.clone(), 1, true);
+        let port_preserved = &NatType::PortPreserved(dummy_addr.ip(), ip_addr_info_dummy.clone(), true);
+        let random_port_compat = &NatType::EDMRandomPort(dummy_addr, ip_addr_info_dummy.clone(), vec![10, 20, 30, 40], true);
+        let random_port_bad = &NatType::EDMRandomPort(dummy_addr, ip_addr_info_dummy.clone(), vec![40, 80, 120], true);
+        let random_ip = &NatType::EDMRandomIp(vec![dummy_addr.ip()], ip_addr_info_dummy.clone(), true);
+        let random_ip_port_preserved_ok = &NatType::EDMRandomIPPortPreserved(vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip2_ok], ip_addr_info_dummy.clone(), true);
+        let random_ip_port_preserved_err = &NatType::EDMRandomIPPortPreserved(vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip3_err], ip_addr_info_dummy.clone(), true);
 
         // Start with EIM
         inner_test(eim, eim);
