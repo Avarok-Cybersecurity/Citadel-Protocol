@@ -1632,6 +1632,7 @@ dependencies = [
  "openssl",
  "parking_lot 0.12.1",
  "rand 0.7.3",
+ "redis-async",
  "rstest 0.12.0",
  "serde",
  "serde_bytes",
@@ -2841,6 +2842,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "678054eb77286b51581ba43620cc911abf02758c91f93f479767aed0f90458b2"
 dependencies = [
  "rand_core 0.3.1",
+]
+
+[[package]]
+name = "redis-async"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2777130e406c74c28b6cddc0194fcdc2553b5a8795eef9f6384bd3b70a07ba3f"
+dependencies = [
+ "bytes",
+ "futures-channel",
+ "futures-sink",
+ "futures-util",
+ "log",
+ "tokio",
+ "tokio-util 0.7.2",
 ]
 
 [[package]]
