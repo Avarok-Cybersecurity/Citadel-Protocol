@@ -104,7 +104,7 @@ jobs:
             await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
-  valgrind:
+  valgrind_and_checks:
     name: valgrind secmem
     runs-on: ubuntu-latest
     steps:
@@ -124,6 +124,7 @@ jobs:
       # Run with valgrind
       - name: Run valgrind secmem_string
         run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
+      - run: cargo check --package lusna_sdk --release
 #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
 #      # Run with valgrind
@@ -142,8 +143,6 @@ jobs:
   cargo_deny_and_coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 80
-    env:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - run: cargo install --locked cargo-deny && cargo deny check all
@@ -151,10 +150,10 @@ jobs:
         uses: actions-rs/tarpaulin@v0.1
         with:
           args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=localhost-testing -- --test-threads=1 --skip stress_test --skip argon_autotuner'
-      - uses: codecov/codecov-action@v3
+      - uses: codecov/codecov-action@master
         with:
-          files: cobertura.xml
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: cobertura.xml
       - uses: actions/github-script@v6
         if: failure()
         with:
