@@ -15,8 +15,6 @@ pub mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "lusna=trace");
-        //std::env::set_var("RUST_LOG", "error");
         let _ = env_logger::try_init();
         log::trace!(target: "lusna", "TRACE enabled");
         log::trace!(target: "lusna", "INFO enabled");
