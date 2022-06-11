@@ -36,3 +36,5 @@ rstest = { git = "https://github.com/la10736/rstest", branch="master" }
 serde = { version = "1.0.137", features = ["derive"] }
 rand = "0.8.5"
 
+[lib]
+doctest = false
