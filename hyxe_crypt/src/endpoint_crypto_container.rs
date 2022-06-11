@@ -260,7 +260,6 @@ mod tests {
     use crate::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "info");
         let _ = env_logger::try_init();
         log::trace!(target: "lusna", "TRACE enabled");
         log::trace!(target: "lusna", "INFO enabled");

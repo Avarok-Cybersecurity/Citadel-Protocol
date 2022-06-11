@@ -30,7 +30,7 @@ chacha20poly1305 = { version = "0.9.0", features = ["heapless"] }
 bytes = "1.1.0"
 #circular-queue = { version = "*", features = ["serde_support"], optional = true }
 parking_lot = { version = "0.12.0", features = ["serde"], optional = true }
-log = { version = "0.4.14", features = ["std"] }
+log = "0.4.8"
 env_logger = "0.9.0"
 strum = { version = "0.24.0", features = ["derive"] }
 sha3 = "0.10.1"

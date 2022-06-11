@@ -75,7 +75,6 @@ mod tests {
     use futures::StreamExt;
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "lusna=trace");
         let _ = env_logger::try_init();
         log::trace!(target: "lusna", "TRACE enabled");
         log::trace!(target: "lusna", "INFO enabled");

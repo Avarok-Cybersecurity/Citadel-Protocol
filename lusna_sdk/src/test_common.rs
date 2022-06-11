@@ -11,7 +11,6 @@ use tokio::net::TcpListener;
 
 #[allow(dead_code)]
 pub fn setup_log() {
-    std::env::set_var("RUST_LOG", "error,warn,info");
     let _ = env_logger::try_init();
     log::trace!(target: "lusna", "TRACE enabled");
     log::trace!(target: "lusna", "INFO enabled");
