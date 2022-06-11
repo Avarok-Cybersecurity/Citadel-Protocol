@@ -8,7 +8,6 @@ mod tests {
     use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverStatus};
 
     fn setup_log() {
-        std::env::set_var("RUST_LOG", "trace");
         env_logger::init();
         log::trace!(target: "lusna", "TRACE enabled");
         log::trace!(target: "lusna", "INFO enabled");
