@@ -15,7 +15,7 @@ hyxewave = { path = "../../../hyxewave", version = "0.1.0", default-features=fal
 parking_lot = "0.11.1"
 
 android_logger = "0.9.0"
-log = { version = "0.4.8", features = ["std"] }
+log = "0.4.8"
 
 [build-dependencies]
 cbindgen = "0.14.3"
