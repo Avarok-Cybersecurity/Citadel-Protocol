@@ -22,7 +22,7 @@ localhost-testing-assert-no-proxy = []
 futures = "0.3.12"
 #rav1e = {version = "0.4.0-alpha", default-features=false, features = ["binaries", "signal_support"]}
 bstr = "0.2.13"
-log = { version = "0.4.8", features = ["std"] }
+log = "0.4.8"
 async-trait = "0.1.31"
 #tokio-util = { version = "0.3.1", features = ["udp", "codec"] }
 tokio-util = { version = "0.7.2", features = ["net", "codec", "time", "io"] }
