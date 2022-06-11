@@ -877,6 +877,7 @@ checksum = "f2fb860ca6fafa5552fb6d0e816a69c8e49f0908bf524e30a90d97c85892d506"
 dependencies = [
  "block-buffer 0.10.2",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -1421,6 +1422,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest 0.10.3",
+]
+
+[[package]]
 name = "http"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1767,18 +1777,18 @@ dependencies = [
 
 [[package]]
 name = "jwt"
-version = "0.14.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7487a802642fa9b162acacad3ed52c7e47ed4108d5fac6125cc7742dfaf622bf"
+checksum = "6204285f77fe7d9784db3fdc449ecce1a0114927a51d5a41c4c7a292011c015f"
 dependencies = [
  "base64",
- "crypto-mac",
- "digest 0.9.0",
- "hmac",
+ "crypto-common",
+ "digest 0.10.3",
+ "hmac 0.12.1",
  "openssl",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.10.2",
 ]
 
 [[package]]
@@ -3329,6 +3339,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha2"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55deaec60f81eefe3cce0dc50bda92d6d8e88f2a27df7c5033b42afeb1ed2676"
+dependencies = [
+ "cfg-if 1.0.0",
+ "cpufeatures",
+ "digest 0.10.3",
+]
+
+[[package]]
 name = "sha3"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3447,7 +3468,7 @@ dependencies = [
  "generic-array",
  "hashlink",
  "hex",
- "hmac",
+ "hmac 0.11.0",
  "indexmap",
  "itoa 1.0.2",
  "libc",
@@ -3465,7 +3486,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha-1",
- "sha2",
+ "sha2 0.9.9",
  "smallvec",
  "sqlformat",
  "sqlx-rt",
@@ -3489,7 +3510,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "sha2",
+ "sha2 0.9.9",
  "sqlx-core",
  "sqlx-rt",
  "syn",
