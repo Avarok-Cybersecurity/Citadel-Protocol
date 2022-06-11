@@ -11,7 +11,7 @@ env:
   RUST_BACKTRACE: full
   # 20 MiB stack
   RUST_MIN_STACK: 20971520
-  RUST_LOG: "lusna=trace"
+  RUST_LOG: "lusna"
 
 jobs:
   core_libs:

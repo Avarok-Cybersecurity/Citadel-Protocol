@@ -23,7 +23,7 @@ hyxe_net = { path = "../hyxe_net", default-features = false }
 tokio = { version = "1.19.0", features = ["full"] }
 futures = "0.3.19"
 parking_lot = "0.12.0"
-log = { version = "0.4.14", features = ["std"] }
+log = "0.4.8"
 env_logger = "0.9.0"
 lazy_static = "1.4.0"
 uuid = { version = "1.0.0", features = ["v4"] }

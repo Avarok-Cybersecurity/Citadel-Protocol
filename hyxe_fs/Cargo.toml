@@ -21,7 +21,7 @@ rand = "0.7.0"
 zerocopy = "0.5.0"
 bytes = "^1.0.1"
 futures = "0.3.8"
-log = { version = "0.4.8", features = ["std"] }
+log = "0.4.8"
 tokio = { version = "1.19.0", features = ["fs", "macros"] }
 tokio-stream = "0.1.7"
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0" }
