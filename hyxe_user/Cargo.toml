@@ -9,9 +9,9 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+redis = ["redis-async"]
 default = ["single-threaded"]
 enterprise = ["sqlx"]
-#google-auth = ["jwt", "openssl"]
 multi-threaded = ["hyxe_crypt/multi-threaded"]
 single-threaded = ["hyxe_crypt/single-threaded"]
 
@@ -43,6 +43,7 @@ serde_bytes = "0.11.5"
 zerocopy = "0.5.0"
 byteorder = "1.4.2"
 sqlx = { version = "0.5.11", features = ["all-databases", "runtime-tokio-native-tls"], optional = true }
+redis-async = { version = "0.13.0", optional=true }
 firebase-rtdb = { path = "../firebase-rtdb", version = "0.1.0" }
 jwt = { version = "0.14.0", features = ["openssl"] }
 openssl = { version = "0.10.36", features = ["vendored"] }
