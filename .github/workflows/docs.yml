@@ -9,12 +9,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=localhost-testing -- --test-threads=1 --skip stress_test --skip argon_autotuner'
+      - uses: codecov/codecov-action@master
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: cobertura.xml
   docs:
-#    needs:
-#      - proto
-#      - nat
-#      - lusna_sdk
-#      - coverage
+    needs:
+      - coverage
     runs-on: ubuntu-latest
     strategy:
       matrix:
