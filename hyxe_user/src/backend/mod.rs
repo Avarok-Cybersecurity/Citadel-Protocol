@@ -10,13 +10,18 @@ use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
 use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::fcm::keys::FcmKeys;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "sql")]
 use crate::backend::mysql_backend::SqlConnectionOptions;
 use parking_lot::RwLock;
+#[cfg(feature = "redis")]
+use crate::backend::redis_backend::RedisConnectionOptions;
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "sql")]
 /// Implementation for the SQL backend
 pub mod mysql_backend;
+#[cfg(feature = "redis")]
+/// Implementation for the redis backend
+pub mod redis_backend;
 /// Implementation for the default filesystem backend
 pub mod filesystem_backend;
 
@@ -25,9 +30,12 @@ pub mod filesystem_backend;
 pub enum BackendType {
     /// Synchronization will occur on the filesystem
     Filesystem,
-    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "sql")]
     /// Synchronization will occur on a remote SQL database
-    SQLDatabase(String, SqlConnectionOptions)
+    SQLDatabase(String, SqlConnectionOptions),
+    #[cfg(feature = "redis")]
+    /// Synchronization will occur on a remote redis database
+    Redis(String, RedisConnectionOptions)
 }
 
 impl Default for BackendType {
@@ -42,19 +50,34 @@ impl BackendType {
         BackendType::Filesystem
     }
 
+    #[cfg(feature = "redis")]
+    /// For requesting the use of the redis backend driver.
+    /// URL format: redis://[<username>][:<password>@]<hostname>[:port][/<db>]
+    /// If unix socket support is available:
+    /// URL format: redis+unix:///<path>[?db=<db>[&pass=<password>][&user=<username>]]
+    pub fn redis<T: Into<String>>(url: T) -> BackendType {
+        Self::redis_with(url, Default::default())
+    }
+
+    #[cfg(feature = "redis")]
+    /// Like [`Self::redis`], but with custom options
+    pub fn redis_with<T: Into<String>>(url: T, opts: RedisConnectionOptions) -> BackendType {
+        BackendType::Redis(url.into(), opts)
+    }
+
     /// For requesting the use of the SqlBackend driver. Url should be in the form:
     /// "mysql://username:password@ip/database"
     /// "postgres:// [...]"
     /// "sqlite:// [...]"
     ///
     /// PostgreSQL, MySQL, SqLite supported
-    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "sql")]
     pub fn sql<T: Into<String>>(url: T) -> BackendType {
         BackendType::SQLDatabase(url.into(), Default::default())
     }
 
-    /// Like [sql], but with custom options
-    #[cfg(feature = "enterprise")]
+    /// Like [`Self::sql`], but with custom options
+    #[cfg(feature = "sql")]
     pub fn sql_with<T: Into<String>>(url: T, opts: SqlConnectionOptions) -> BackendType {
         BackendType::SQLDatabase(url.into(), opts)
     }
