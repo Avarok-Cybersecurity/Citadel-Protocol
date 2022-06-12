@@ -101,7 +101,7 @@ mod tests {
         log::error!(target: "lusna", "ERROR enabled");
     }
 
-    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "sql")]
     fn get_possible_backends(env: &str, ty: &str) -> Vec<BackendType> {
         let mut backends = vec![BackendType::Filesystem];
 

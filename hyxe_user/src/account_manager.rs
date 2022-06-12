@@ -47,7 +47,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
                 PersistenceHandler::new(backend, directory_store)
             }
 
-            #[cfg(feature = "enterprise")]
+            #[cfg(feature = "sql")]
             BackendType::SQLDatabase(..) => {
                 use crate::backend::mysql_backend::SqlBackend;
                 use std::convert::TryFrom;
@@ -55,9 +55,23 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
                 backend.connect(&directory_store).await?;
                 PersistenceHandler::new(backend, directory_store)
             }
+
+            #[cfg(feature = "redis")]
+            BackendType::Redis(url, opts) => {
+                use crate::backend::redis_backend::RedisBackend;
+                let mut backend = RedisBackend::new(url.clone(), opts.clone());
+                backend.connect(&directory_store).await?;
+                PersistenceHandler::new(backend, directory_store)
+            }
         };
 
         persistence_handler.post_connect(&persistence_handler).await?;
+
+        if persistence_handler.uses_remote_db() {
+            if !persistence_handler.is_connected().await? {
+                return Err(AccountError::msg("Unable to connect to remote database via account manager"))
+            }
+        }
 
         let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
 
