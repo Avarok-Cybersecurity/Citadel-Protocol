@@ -67,10 +67,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         persistence_handler.post_connect(&persistence_handler).await?;
 
-        if persistence_handler.uses_remote_db() {
-            if !persistence_handler.is_connected().await? {
-                return Err(AccountError::msg("Unable to connect to remote database via account manager"))
-            }
+        if !persistence_handler.is_connected().await? {
+            return Err(AccountError::msg("Unable to connect to remote database via account manager"))
         }
 
         let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
