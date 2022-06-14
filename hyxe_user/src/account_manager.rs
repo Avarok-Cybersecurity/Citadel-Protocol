@@ -98,12 +98,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         &self.services_handler.fcm_client
     }
 
-    /// For testing purposes only
-    pub fn debug_insert_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> bool {
-        self.persistence_handler.store_cnac(cnac);
-        true
-    }
-
     /// Once a valid and decrypted stage 4 packet gets received by the server (Bob), this function should be called
     /// to create the new CNAC. The generated CNAC will be assumed to be an impersonal hyperlan client
     ///
@@ -112,7 +106,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let server_auth_store = creds.derive_server_container(&self.node_argon_settings, reserved_cid, self.get_misc_settings()).await?;
         let new_cnac = self.get_local_nac().create_client_account(reserved_cid, Some(nac_other), server_auth_store, init_hyper_ratchet, fcm_keys).await?;
         log::trace!(target: "lusna", "Created impersonal CNAC ...");
-        self.persistence_handler.store_cnac(new_cnac.clone());
+        self.persistence_handler.save_cnac(new_cnac.clone()).await?;
 
         Ok(new_cnac)
     }
@@ -126,7 +120,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(valid_cid, hyper_ratchet, client_auth_store, adjacent_nac, self.persistence_handler.clone(), fcm_keys).await?;
 
         self.persistence_handler.register_cid_in_nac(cnac.get_id(), username.as_str()).await?;
-        self.persistence_handler.store_cnac(cnac.clone());
+        self.persistence_handler.save_cnac(cnac.clone()).await?;
 
         self.get_local_nac().save_to_local_fs()?;
 
@@ -158,14 +152,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// Instead, use get_client_by_cid, as the cid is unique unlike the cid
     pub async fn get_client_by_username<T: AsRef<str>>(&self, username: T) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         self.persistence_handler.get_client_by_username(username.as_ref()).await
-    }
-
-    /// Allows a function to visit each value without cloning. This will be a no-op if probing a database, since that would be horribly performant
-    #[cfg(debug_assertions)]
-    pub fn visit_all_users_blocking_debug(&self, fx: impl FnMut(&ClientNetworkAccount<R, Fcm>)) {
-        if let Some(map) = self.persistence_handler.get_local_map() {
-            map.read().values().for_each(fx)
-        }
     }
 
     /// Gets the CID by username
