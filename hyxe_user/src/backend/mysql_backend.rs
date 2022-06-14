@@ -219,10 +219,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         Ok(query.len() == 1)
     }
 
-    async fn delete_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
-        self.delete_cnac_by_cid(cnac.get_cid()).await
-    }
-
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
         let conn = &(self.get_conn().await?);
         let query: AnyQueryResult = sqlx::query(self.format("DELETE FROM cnacs WHERE cid = ?").as_str()).bind(cid.to_string()).execute(conn).await?;
@@ -244,11 +240,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         Ok(query.rows_affected() as usize)
     }
 
-    async fn client_count(&self) -> Result<usize, AccountError> {
+    /*async fn client_count(&self) -> Result<usize, AccountError> {
         let conn = &(self.get_conn().await?);
         let query: AnyRow = sqlx::query("SELECT COUNT(*) as count FROM cnacs").fetch_one(conn).await?;
         Ok(query.get::<i64, _>("count") as usize)
-    }
+    }*/
 
     fn maybe_generate_cnac_local_save_path(&self, _cid: u64, _is_personal: bool) -> Option<PathBuf> {
         None
@@ -750,16 +746,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             .execute(conn).await?;
 
         Ok(values)
-    }
-
-    fn store_cnac(&self, _cnac: ClientNetworkAccount<R, Fcm>) {}
-
-    fn uses_remote_db(&self) -> bool {
-        true
-    }
-
-    fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>, RandomState>>>> {
-        None
     }
 
     fn local_nac(&self) -> &NetworkAccount<R, Fcm> {

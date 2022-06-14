@@ -12,7 +12,6 @@ use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
 use hyxe_crypt::fcm::keys::FcmKeys;
 #[cfg(feature = "sql")]
 use crate::backend::mysql_backend::SqlConnectionOptions;
-use parking_lot::RwLock;
 #[cfg(feature = "redis")]
 use crate::backend::redis_backend::RedisConnectionOptions;
 
@@ -101,15 +100,15 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Determines if a CID is registered
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError>;
     /// deletes a CNAC
-    async fn delete_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError>;
+    async fn delete_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
+        self.delete_cnac_by_cid(cnac.get_cid()).await
+    }
     /// Removes a CNAC by cid
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError>;
     /// Saves all CNACs and local NACs
     async fn save_all(&self) -> Result<(), AccountError>;
     /// Removes all CNACs
     async fn purge(&self) -> Result<usize, AccountError>;
-    /// Returns the number of clients
-    async fn client_count(&self) -> Result<usize, AccountError>;
     /// Maybe generates a local save path, only if required by the implementation
     fn maybe_generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> Option<PathBuf>;
     /// Returns a list of unused CIDS
@@ -179,12 +178,6 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn get_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError>;
     /// Obtains a list of K,V pairs such that `needle` is a subset of the K value
     async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError>;
-    /// Stores the CNAC inside the hashmap, if possible (may be no-op on database)
-    fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>);
-    /// Determines if a remote db is used
-    fn uses_remote_db(&self) -> bool;
-    /// Returns the filesystem list
-    fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>>;
     /// Returns the local nac
     fn local_nac(&self) -> &NetworkAccount<R, Fcm>;
 }
