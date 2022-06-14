@@ -57,7 +57,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         let bytes = cnac.generate_proper_bytes()?;
-        Ok(write_bytes_to(bytes, self.maybe_generate_cnac_local_save_path(cnac.get_cid(), cnac.is_personal()).ok_or(AccountError::Generic("Cannot generate a save path for the CNAC".into()))?)?)
+        let cid = cnac.get_cid();
+        write_bytes_to(bytes, self.maybe_generate_cnac_local_save_path(cnac.get_cid(), cnac.is_personal()).ok_or(AccountError::Generic("Cannot generate a save path for the CNAC".into()))?)?;
+        self.write_map().insert(cid, cnac);
+        Ok(())
     }
 
     async fn get_cnac_by_cid(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
@@ -71,13 +74,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError> {
         Ok(self.local_nac().cid_exists_filesystem(cid))
-    }
-
-    #[allow(unused_results)]
-    async fn delete_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
-        let mut map = self.write_map();
-        let removed_client = map.remove(&cnac.get_cid()).ok_or(AccountError::ClientNonExists(cnac.get_cid()))?;
-        self.delete_removed_cnac(removed_client, map)
     }
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
@@ -116,10 +112,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         self.local_nac().save_to_local_fs()?;
 
         Ok(count)
-    }
-
-    async fn client_count(&self) -> Result<usize, AccountError> {
-        Ok(self.read_map().len())
     }
 
     fn maybe_generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> Option<PathBuf> {
@@ -173,7 +165,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     async fn delete_client_by_username(&self, username: &str) -> Result<(), AccountError> {
         let cnac = self.read_map().values().find(|cnac| cnac.get_username() == username).ok_or(AccountError::InvalidUsername)?.clone();
-        self.delete_cnac(cnac).await
+        self.delete_cnac(&cnac).await
     }
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
@@ -301,22 +293,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         let mut lock = cnac.write();
         let submap = lock.byte_map.entry(peer_cid).or_default().remove(key).unwrap_or_default();
         Ok(submap)
-    }
-
-    fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) {
-        if let Some(cnac) = self.write_map().insert(cnac.get_id(), cnac) {
-            log::error!(target: "lusna", "Overwrote pre-existing account {} in the CNAC map. Please report to developers", cnac.get_id());
-        } else {
-            log::trace!(target: "lusna", "Successfully added client to FilesystemBackend Hashmap");
-        }
-    }
-
-    fn uses_remote_db(&self) -> bool {
-        false
-    }
-
-    fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>, RandomState>>>> {
-        self.clients_map.clone()
     }
 
     fn local_nac(&self) -> &NetworkAccount<R, Fcm> {

@@ -6,17 +6,18 @@ use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::path::PathBuf;
 use hyxe_crypt::fcm::keys::FcmKeys;
 use std::collections::HashMap;
-use std::sync::Arc;
-use parking_lot::{RwLock, Mutex};
+use parking_lot::Mutex;
 use crate::network_account::NetworkAccount;
 use hyxe_fs::prelude::SyncIO;
-use redis_base::{Client, ErrorKind, AsyncCommands, ToRedisArgs, FromRedisValue};
+use redis_base::{Client, ErrorKind, AsyncCommands, ToRedisArgs, FromRedisValue, LposOptions};
 use mobc::{Pool, Connection};
 use mobc::async_trait;
 use mobc::Manager;
 use crate::prelude::ClientNetworkAccountInner;
 use std::time::Duration;
 use crate::account_loader::load_node_nac;
+use futures::StreamExt;
+use serde::{Serialize, Deserialize};
 
 /// Backend struct for redis
 pub struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
@@ -131,14 +132,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         let bytes = cnac.generate_proper_bytes()?;
-        let key = cnac.get_cid();
+        let key = get_cid_to_cnac_key(cnac.get_cid());
+        let username = cnac.get_username();
         let mut conn = self.get_conn().await?;
         redis_base::pipe()
             .atomic()
             // username points to cid key
-            .set(cnac.get_username(), key)
+            .set(get_username_key(&username), key.clone()).ignore()
             // cid key points to bytes
-            .set(key, bytes)
+            .set(key, bytes).ignore()
+            .set(get_cid_to_username_key(cnac.get_cid()), &username).ignore()
             .query_async(&mut conn)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
@@ -150,24 +153,28 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn get_client_by_username(&self, username: &str) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         let mut conn = self.get_conn().await?;
-        // TODO: investiagte optimizing this into one down-and-back to the server
-        if let Some(key) = self.get_with::<&str, u64>(username, &mut conn).await? {
-            self.fetch_cnac(key).await
+        let bytes: Option<Vec<u8>> = redis_base::Script::new(r"
+            return redis.call('get',redis.call('get',KEYS[1]))
+        ").key(get_username_key(username))
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|err| AccountError::msg(err.to_string()))?;
+
+        if let Some(bytes) = bytes {
+            self.cnac_bytes_to_cnac(bytes)
+                .map(Some)
         } else {
             Ok(None)
         }
     }
 
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError> {
-        self.key_exists(cid).await
-    }
-
-    async fn delete_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
-        self.delete_cnac_by_cid(cnac.get_cid()).await
+        self.key_exists(get_cid_to_cnac_key(cid)).await
     }
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
-        self.delete_entry::<u64, Vec<u8>>(cid).await
+        // TODO: delete related entries
+        self.delete_entry::<_, Vec<u8>>(get_cid_to_cnac_key(cid)).await
             .map(|_| ())
     }
 
@@ -186,52 +193,127 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .map_err(|err| AccountError::msg(err.to_string()))
     }
 
-    async fn client_count(&self) -> Result<usize, AccountError> {
-        // NOTE: this will require changing the key name for either username (yes) or cid
-    }
-
     fn maybe_generate_cnac_local_save_path(&self, _cid: u64, _is_personal: bool) -> Option<PathBuf> {
         None
     }
 
     async fn client_only_generate_possible_cids(&self) -> Result<Vec<u64>, AccountError> {
-        todo!()
+        let mut conn = self.get_conn().await?;
+        let mut pipe = redis_base::pipe();
+        let pipe = pipe.atomic();
+
+        let mut possible_cids = std::iter::repeat_with(||rand::random::<u64>()).take(10).collect::<Vec<u64>>();
+
+        for cid in &possible_cids {
+            pipe.exists(*cid);
+        }
+
+        let mut ret = vec![];
+
+        if let redis_base::Value::Bulk(vals) = pipe.query_async::<_, redis_base::Value>(&mut conn).await? {
+            for (idx, val) in vals.into_iter().enumerate() {
+                if let redis_base::Value::Int(0) = val {
+                    ret.push(possible_cids[idx])
+                }
+            }
+
+            Ok(ret)
+        } else {
+            Err(AccountError::msg("expected Value::Bulk, received unexpected type"))
+        }
     }
 
     async fn find_first_valid_cid(&self, possible_cids: &Vec<u64>) -> Result<Option<u64>, AccountError> {
-        todo!()
+        let mut conn = self.get_conn().await?;
+        let mut pipe = redis_base::pipe();
+        let pipe = pipe.atomic();
+
+        for cid in possible_cids {
+            pipe.exists(*cid);
+        }
+
+        if let redis_base::Value::Bulk(vals) = pipe.query_async::<_, redis_base::Value>(&mut conn).await? {
+            for (idx, val) in vals.into_iter().enumerate() {
+                if let redis_base::Value::Int(0) = val {
+                    return Ok(possible_cids.get(idx).cloned())
+                }
+            }
+
+            Ok(None)
+        } else {
+            Ok(None)
+        }
     }
 
     async fn username_exists(&self, username: &str) -> Result<bool, AccountError> {
-        todo!()
+        self.key_exists(get_username_key(username)).await
     }
 
-    async fn register_cid_in_nac(&self, cid: u64, username: &str) -> Result<(), AccountError> {
-        todo!()
+    async fn register_cid_in_nac(&self, _cid: u64, _username: &str) -> Result<(), AccountError> {
+        // we don't register here since we don't need to store inside the local nac
+        Ok(())
     }
 
-    async fn get_registered_impersonal_cids(&self, limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError> {
-        todo!()
+    async fn get_registered_impersonal_cids(&self, _limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError> {
+        let mut conn = self.get_conn().await?;
+        let result = conn.scan_match::<_, u64>(LOCAL_CID_PREFIX).await
+            .map_err(|err| AccountError::msg(err.to_string()))?
+            .collect::<Vec<u64>>().await;
+
+        Ok(Some(result))
     }
 
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
-        todo!()
+        self.get(get_cid_to_username_key(cid)).await
     }
 
     async fn get_cid_by_username(&self, username: &str) -> Result<Option<u64>, AccountError> {
-        todo!()
+        self.get(get_username_key(username)).await
     }
 
     async fn delete_client_by_username(&self, username: &str) -> Result<(), AccountError> {
-        todo!()
+        let mut conn = self.get_conn().await?;
+        // TODO: delete all related items
+        redis_base::Script::new(r"
+            redis.call('del', redis.call('get',KEYS[1]));
+            redis.call('del', KEYS[1]);
+        ").key(get_username_key(username))
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
-        todo!()
+        let mut conn = self.get_conn().await?;
+        redis_base::Script::new(&format!(r"
+            username_1 = redis.call('get', KEYS[3]);
+            username_2 = redis.call('get', KEYS[4]);
+            redis.call('lpush', KEYS[5], KEYS[2]);
+            redis.call('lpush', KEYS[6], KEYS[1]);
+            redis.call('lpush', KEYS[7], username2);
+            redis.call('lpush', KEYS[8], username1);
+        ")).key(cid0) // 1
+            .key(cid1) // 2
+            .key(get_cid_to_username_key(cid0)) // 3
+            .key(get_cid_to_username_key(cid1)) // 4
+            .key(get_peer_key(cid0)) // 5
+            .key(get_peer_key(cid1)) // 6
+            .key(get_peer_username_key(cid0)) // 7
+            .key(get_peer_username_key(cid1)) // 8
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn register_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64, peer_username: String) -> Result<(), AccountError> {
-        todo!()
+        let mut conn = self.get_conn().await?;
+        redis_base::pipe()
+            .atomic()
+            .lpush(get_peer_key(implicated_cid), peer_cid).ignore()
+            .lpush(get_peer_username_key(implicated_cid), peer_username)
+            .query_async(&mut conn)
+            .await
+            .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
@@ -255,7 +337,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn get_client_metadata(&self, implicated_cid: u64) -> Result<Option<CNACMetadata>, AccountError> {
-        todo!()
+        Ok(self.fetch_cnac(implicated_cid)
+            .await?
+            .map(|r| r.get_metadata()))
     }
 
     async fn get_clients_metadata(&self, limit: Option<i32>) -> Result<Vec<CNACMetadata>, AccountError> {
@@ -267,7 +351,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn hyperlan_peer_exists(&self, implicated_cid: u64, peer_cid: u64) -> Result<bool, AccountError> {
-        todo!()
+        self.get_conn().await?
+            .lpos(get_peer_key(implicated_cid), peer_cid, LposOptions::default().count(1))
+            .await
+            .map(|r | r.is_some())
+            .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn hyperlan_peers_are_mutuals(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<bool>, AccountError> {
@@ -310,18 +398,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         todo!()
     }
 
-    fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) {
-        todo!()
-    }
-
-    fn uses_remote_db(&self) -> bool {
-        true
-    }
-
-    fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>> {
-        None
-    }
-
     fn local_nac(&self) -> &NetworkAccount<R, Fcm> {
         self.local_nac.as_ref().unwrap()
     }
@@ -333,10 +409,10 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R , Fcm> {
     }
 
     async fn get<K: ToRedisArgs + Send + Sync, RV: FromRedisValue>(&self, key: K) -> Result<Option<RV>, AccountError> {
-        self.get_with(key, &mut self.get_conn().await?)
+        self.get_with(key, &mut self.get_conn().await?).await
     }
 
-    async fn get_with<K: ToRedisArgs + Send + Sync, RV: FromRedisValue>(&self, key: K, client: &mut RedisConn) -> Result<Option<RV>, AccountError> {
+    async fn get_with<K: ToRedisArgs + Send + Sync, RV: FromRedisValue>(&self, key: K, client: &mut redis_base::aio::Connection) -> Result<Option<RV>, AccountError> {
         client
             .get(key).await
             .map_err(|err| AccountError::msg(err.to_string()))
@@ -353,22 +429,27 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R , Fcm> {
 
 
     async fn fetch_cnac(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        if let Some(value) = self.get::<u64, Vec<u8>>(cid).await? {
-            let deserialized = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_vector(value.as_ref())
-                .map_err(|err| AccountError::msg(err.to_string()))?;
-            let pers = self.pers.lock().clone().ok_or_else(|| AccountError::msg("Persistence handler is not loaded"))?;
-
-            ClientNetworkAccount::<R, Fcm>::load_safe(deserialized, None, Some(pers))
+        if let Some(value) = self.get::<_, Vec<u8>>(get_cid_to_cnac_key(cid)).await? {
+            self.cnac_bytes_to_cnac(value)
                 .map(Some)
         } else {
             Ok(None)
         }
     }
 
-    async fn get_conn(&self) -> Result<RedisConn, AccountError> {
+    fn cnac_bytes_to_cnac(&self, bytes: Vec<u8>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+        let deserialized = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_vector(bytes.as_ref())
+            .map_err(|err| AccountError::msg(err.to_string()))?;
+        let pers = self.pers.lock().clone().ok_or_else(|| AccountError::msg("Persistence handler is not loaded"))?;
+
+        ClientNetworkAccount::<R, Fcm>::load_safe(deserialized, None, Some(pers))
+    }
+
+    async fn get_conn(&self) -> Result<redis_base::aio::Connection, AccountError> {
         Ok(self.conn.as_ref().ok_or_else(|| AccountError::msg("Redis client not loaded"))?
             .get().await
             .map_err(|err| AccountError::msg(err.to_string()))?)
+            .map(|conn| conn.into_inner())
     }
 
     async fn key_exists<K: ToRedisArgs + Send + Sync>(&self, key: K) -> Result<bool, AccountError> {
@@ -388,6 +469,28 @@ fn key_does_not_exist(key: &str) -> AccountError {
     AccountError::msg(format!("Key '{}' does not exist", key))
 }
 
-fn get_cnac_key(cid: u64) -> String {
-    format!("{}", cid)
+const LOCAL_USERNAME_PREFIX: &str = "username.local";
+const LOCAL_CID_PREFIX: &str = "cid.local";
+const LOCAL_CID_TO_USERNAME: &str = "cid.to.username.local";
+const PEER_CID_PREFIX: &str = "peers_for.cid";
+const PEER_USERNAME_PREFIX: &str = "peers_for.username";
+
+fn get_username_key(username: &str) -> String {
+    format!("{}.{}", LOCAL_USERNAME_PREFIX, username)
+}
+
+fn get_cid_to_cnac_key(cid: u64) -> String {
+    format!("{}.{}", LOCAL_CID_PREFIX, cid)
+}
+
+fn get_cid_to_username_key(cid: u64) -> String {
+    format!("{}.{}", LOCAL_CID_TO_USERNAME, cid)
+}
+
+fn get_peer_key(implicated_cid: u64) -> String {
+    format!("{}.{}", PEER_CID_PREFIX, implicated_cid)
+}
+
+fn get_peer_username_key(implicated_cid: u64) -> String {
+    format!("{}.{}", PEER_USERNAME_PREFIX, implicated_cid)
 }
