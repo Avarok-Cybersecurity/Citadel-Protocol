@@ -16,8 +16,8 @@ env:
 jobs:
   core_libs:
     env:
-      TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db"
-      TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db"
+      TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
+      TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-2019]
@@ -43,6 +43,11 @@ jobs:
           app_user: nologik
           app_user_password: password
           app_db: hyxewave hyxewave2
+      - name: Start Redis
+        uses: supercharge/redis-github-action@1.4.0
+        with:
+          redis-version: 6
+          redis-port: 6379
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - name: Run user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')

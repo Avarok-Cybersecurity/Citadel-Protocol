@@ -49,6 +49,28 @@ impl BackendType {
         BackendType::Filesystem
     }
 
+    /// Creates a new [`BackendType`] given the provided `url`. Returns an error
+    /// if the URL could not be parsed
+    pub fn new<T: Into<String>>(url: T) -> Result<Self, AccountError> {
+        // TODO: handle filesystem:// url syntax
+        let addr = url.into();
+        #[cfg(feature = "redis")] {
+            if addr.starts_with("redis") {
+                return Ok(BackendType::redis(addr))
+            }
+        }
+
+         #[cfg(feature = "sql")] {
+            if addr.starts_with("mysql") ||
+                addr.starts_with("postgres") ||
+                addr.starts_with("sqlite") {
+                return Ok(BackendType::sql(addr))
+            }
+        }
+
+        Err(AccountError::msg(format!("The addr '{}' is not a valid target", addr)))
+    }
+
     #[cfg(feature = "redis")]
     /// For requesting the use of the redis backend driver.
     /// URL format: redis://[<username>][:<password>@]<hostname>[:port][/<db>]

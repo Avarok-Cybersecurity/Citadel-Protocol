@@ -101,15 +101,16 @@ mod tests {
         log::error!(target: "lusna", "ERROR enabled");
     }
 
-    #[cfg(feature = "sql")]
-    fn get_possible_backends(env: &str, ty: &str) -> Vec<BackendType> {
+    #[cfg(any(feature = "sql", feature = "redis"))]
+    fn get_possible_backends(env: &str, _ty: &str) -> Vec<BackendType> {
         let mut backends = vec![BackendType::Filesystem];
 
         match std::env::var(&env) {
             Ok(addr) => {
                 for addr in  addr.split(',') {
-                    log::trace!(target: "lusna", "Testing SQL ADDR ({}): {}", ty, addr);
-                    backends.push(BackendType::sql(addr))
+                    log::trace!(target: "lusna", "Adding testing addr: {}", addr);
+                    let backend = BackendType::new(addr).unwrap();
+                    backends.push(backend);
                 }
             }
             _ => {
@@ -121,7 +122,7 @@ mod tests {
         backends
     }
 
-    #[cfg(not(feature = "enterprise"))]
+    #[cfg(not(any(feature = "sql", feature = "redis")))]
     fn get_possible_backends(_env: &str, _ty: &str) -> Vec<BackendType> {
         vec![BackendType::Filesystem]
     }
@@ -135,8 +136,8 @@ mod tests {
     }
 
     async fn test_harness<T, F>(mut t: T) -> Result<(), AccountError>
-        where T: FnMut(TestContainer, PersistenceHandler, PersistenceHandler) -> F,
-        F: Future<Output=Result<(), AccountError>> {
+        where T: Send + 'static + FnMut(TestContainer, PersistenceHandler, PersistenceHandler) -> F,
+        F: Future<Output=Result<(), AccountError>> + Send + 'static {
         setup_log();
         let _lock = TEST_MUTEX.lock().await;
 
@@ -148,9 +149,10 @@ mod tests {
                 log::trace!(target: "lusna", "Trying combination: client={:?} w/ server={:?}", client_backend, server_backend);
                 let container = TestContainer::new(server_backend.clone(), client_backend.clone()).await;
                 let (pers_cl, pers_se) = (container.client_acc_mgr.get_persistence_handler().clone(), container.server_acc_mgr.get_persistence_handler().clone());
-                let res = (t)(container.clone(), pers_cl, pers_se).await;
+                let res = tokio::task::spawn((t)(container.clone(), pers_cl, pers_se)).await.map_err(|err| AccountError::Generic(err.to_string()));
+                log::info!(target: "lusna", "About to clear test container ...");
                 container.deinit().await;
-                res?;
+                res??;
             }
         }
 

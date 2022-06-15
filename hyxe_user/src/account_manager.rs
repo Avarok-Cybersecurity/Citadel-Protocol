@@ -71,6 +71,12 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             return Err(AccountError::msg("Unable to connect to remote database via account manager"))
         }
 
+        #[cfg(feature = "localhost-testing")] {
+            let _ = persistence_handler.purge().await?;
+        }
+
+        log::info!(target: "lusna", "Successfully established connection to backend ...");
+
         let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
 
         Ok(this)
