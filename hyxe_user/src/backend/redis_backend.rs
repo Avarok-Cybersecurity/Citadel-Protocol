@@ -279,8 +279,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         let mut conn = self.get_conn().await?;
         // TODO: delete all related items
         redis_base::Script::new(r"
-            redis.call('del', redis.call('get',KEYS[1]));
-            redis.call('del', KEYS[1]);
+            redis.call('del', redis.call('get',KEYS[1]))
+            redis.call('del', KEYS[1])
         ").key(get_username_key(username))
             .invoke_async(&mut conn)
             .await
@@ -290,12 +290,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let mut conn = self.get_conn().await?;
         redis_base::Script::new(&r"
-            username_1 = redis.call('get', KEYS[3]);
-            username_2 = redis.call('get', KEYS[4]);
-            redis.call('hset', KEYS[5], KEYS[2], username2);
-            redis.call('hset', KEYS[5], username2, KEYS[2]);
-            redis.call('hset', KEYS[6], KEYS[1], username1);
-            redis.call('hset', KEYS[6], username1, KEYS[1]);
+            username_1 = redis.call('get', KEYS[3])
+            username_2 = redis.call('get', KEYS[4])
+            redis.call('hset', KEYS[5], KEYS[2], username2)
+            redis.call('hset', KEYS[5], username2, KEYS[2])
+            redis.call('hset', KEYS[6], KEYS[1], username1)
+            redis.call('hset', KEYS[6], username1, KEYS[1])
         ").key(cid0) // 1
             .key(cid1) // 2
             .key(get_cid_to_username_key(cid0)) // 3
@@ -321,12 +321,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let mut conn = self.get_conn().await?;
         redis_base::Script::new(&r"
-            peer_username1 = redis.call('get', KEYS[5]);
-            peer_username2 = redis.call('get', KEYS[6]);
-            redis.call('hdel', KEYS[3], KEYS[2]);
-            redis.call('hdel', KEYS[4], KEYS[1]);
-            redis.call('hdel', KEYS[3], peer_username2);
-            redis.call('hdel', KEYS[4], peer_username1);
+            peer_username1 = redis.call('get', KEYS[5])
+            peer_username2 = redis.call('get', KEYS[6])
+            redis.call('hdel', KEYS[3], KEYS[2])
+            redis.call('hdel', KEYS[4], KEYS[1])
+            redis.call('hdel', KEYS[3], peer_username2)
+            redis.call('hdel', KEYS[4], peer_username1)
         ").key(cid0) // 1
             .key(cid1) // 2
             .key(get_peer_key(cid0)) // 3
@@ -341,10 +341,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
         let mut conn = self.get_conn().await?;
         redis_base::Script::new(&r"
-            peer_username = redis.call('hget', KEYS[3], KEYS[2]);
-            redis.call('hdel', KEYS[3], KEYS[2]);
-            redis.call('hdel', KEYS[3], peer_username);
-            return peer_username;
+            peer_username = redis.call('hget', KEYS[3], KEYS[2])
+            redis.call('hdel', KEYS[3], KEYS[2])
+            redis.call('hdel', KEYS[3], peer_username)
+            return peer_username
         ").key(implicated_cid) // 1
             .key(peer_cid) // 2
             .key(get_peer_key(implicated_cid)) // 3
@@ -373,6 +373,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn update_fcm_keys(&self, cnac: &ClientNetworkAccount<R, Fcm>, new_keys: FcmKeys) -> Result<(), AccountError> {
+        // TODO: this is invalid, fcm keys for oneself makes no sense
         self.get_conn().await?
             .hset(get_fcm_key(cnac.get_cid()), cnac.get_cid(), new_keys.serialize_to_vector().map_err(|err|AccountError::msg(err.to_string()))?)
             .await
@@ -515,12 +516,55 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .map_err(|err| AccountError::msg(err.to_string()))
     }
 
-    async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, _implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError> {
-        todo!()
+    async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError> {
+        let mut conn = self.get_conn().await?;
+        let (map, usernames_map): (HashMap<u64, Vec<u8>>, HashMap<u64, String>) = redis_base::pipe()
+            .atomic()
+            .hgetall(get_fcm_key(implicated_cid)) // get all (peer_cid, fcm key bytes)
+            .get(get_peer_key(implicated_cid))
+            .query_async(&mut conn)
+            .await
+            .map_err(|err| AccountError::msg(err.to_string()))?;
+
+        let mut ret = Vec::with_capacity(map.len());
+        for (cid, username) in usernames_map {
+            let fcm_keys = if let Some(fcm_bytes) = map.get(&cid) {
+                Some(FcmKeys::deserialize_from_vector(&fcm_bytes).map_err(|err| AccountError::msg(err.to_string()))?)
+            } else {
+                None
+            };
+
+            ret.push((cid, Some(username), fcm_keys))
+        }
+
+        Ok(Some(ret))
     }
 
-    async fn synchronize_hyperlan_peer_list_as_client(&self, _cnac: &ClientNetworkAccount<R, Fcm>, _peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError> {
-        todo!()
+    #[allow(unused_results)]
+    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError> {
+        let mut conn = self.get_conn().await?;
+        let mut pipe = redis_base::pipe();
+        let implicated_cid = cnac.get_cid();
+        let peer_key = get_peer_key(implicated_cid);
+        let fcm_key = get_fcm_key(implicated_cid);
+
+        pipe.atomic();
+
+        for (peer_cid, username, fcm_keys) in peers {
+            if let Some(username) = username {
+                pipe.hset(&peer_key, peer_cid, &username);
+                pipe.hset(&peer_key, &username, peer_cid);
+            }
+
+            if let Some(fcm_keys) = fcm_keys {
+                pipe.hset(&fcm_key, peer_cid, fcm_keys.serialize_to_vector().map_err(|err| AccountError::msg(err.to_string()))?);
+            }
+        }
+
+        let _: () = pipe.query_async(&mut conn).await.map_err(|err| AccountError::msg(err.to_string()))?;
+
+        // return false to signal no saving
+        Ok(false)
     }
 
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
