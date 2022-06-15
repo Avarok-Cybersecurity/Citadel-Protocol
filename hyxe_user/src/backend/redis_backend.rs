@@ -10,7 +10,7 @@ use parking_lot::Mutex;
 use crate::network_account::NetworkAccount;
 use hyxe_fs::prelude::SyncIO;
 use redis_base::{Client, ErrorKind, AsyncCommands, ToRedisArgs, FromRedisValue};
-use mobc::{Pool, Connection};
+use mobc::Pool;
 use mobc::async_trait;
 use mobc::Manager;
 use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
@@ -19,7 +19,7 @@ use crate::account_loader::load_node_nac;
 use futures::StreamExt;
 
 /// Backend struct for redis
-pub struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
+pub(crate) struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
     url: String,
     conn_options: RedisConnectionOptions,
     conn: Option<RedisPool>,
@@ -27,31 +27,36 @@ pub struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
     local_nac: Option<NetworkAccount<R, Fcm>>
 }
 
-pub type RedisPool = Pool<RedisConnectionManager>;
-pub type RedisConn = Connection<RedisConnectionManager>;
+type RedisPool = Pool<RedisConnectionManager>;
 
 #[derive(Debug, Default, Clone)]
+/// For setting custom options for the internal redis connection pool
 pub struct RedisConnectionOptions {
     /// Sets the number of connections. Default 10
     pub max_open: Option<u64>,
+    /// Sets the max idle time per connection
     pub max_idle: Option<u64>,
+    /// Sets the max lifetime per connection
     pub max_lifetime: Option<Duration>,
+    /// Sets the maximum lifetime of connection to be idle in the pool,
+    /// resetting the timer when connection is used.
     pub max_idle_lifetime: Option<Duration>,
+    /// Sets the get timeout used by the inner pool
     pub get_timeout: Option<Duration>,
+    /// Sets the interval how often a connection will be checked when returning
+    /// an existing connection from the pool. If set to None, a connection is
+    /// checked every time when returning from the pool. Must be used together
+    /// with test_on_check_out set to true, otherwise does nothing.
     pub health_check_interval: Option<Duration>,
+    /// If true, the health of a connection will be verified via a call to
+    /// Manager::check before it is checked out of the pool.
     pub health_check: Option<bool>,
     /// When enabled, will use the clustering algorithms for redis
     pub clustering_support: bool
 }
 
-pub struct RedisConnectionManager {
+struct RedisConnectionManager {
     client: Client,
-}
-
-impl RedisConnectionManager {
-    pub fn new(c: Client) -> Self {
-        Self { client: c }
-    }
 }
 
 #[async_trait]
@@ -79,7 +84,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         let client = redis_base::Client::open(self.url.as_str())
             .map_err(|err| AccountError::msg(err.to_string()))?;
 
-        let manager = RedisConnectionManager::new(client);
+        let manager = RedisConnectionManager { client };
         let mut builder = Pool::builder();
 
         if let (Some(max_open), Some(max_idle)) = (self.conn_options.max_open.as_ref(), self.conn_options.max_idle.as_ref()) {
@@ -196,32 +201,32 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         None
     }
 
+    #[allow(unused_results)]
     async fn client_only_generate_possible_cids(&self) -> Result<Vec<u64>, AccountError> {
         let mut conn = self.get_conn().await?;
         let mut pipe = redis_base::pipe();
         let pipe = pipe.atomic();
 
-        let mut possible_cids = std::iter::repeat_with(||rand::random::<u64>()).take(10).collect::<Vec<u64>>();
+        let possible_cids = std::iter::repeat_with(||rand::random::<u64>()).take(10).collect::<Vec<u64>>();
 
         for cid in &possible_cids {
             pipe.exists(*cid);
         }
 
-        let mut ret = vec![];
-
-        if let redis_base::Value::Bulk(vals) = pipe.query_async::<_, redis_base::Value>(&mut conn).await? {
-            for (idx, val) in vals.into_iter().enumerate() {
-                if let redis_base::Value::Int(0) = val {
-                    ret.push(possible_cids[idx])
-                }
-            }
-
-            Ok(ret)
-        } else {
-            Err(AccountError::msg("expected Value::Bulk, received unexpected type"))
-        }
+        pipe.query_async(&mut conn).await.map_err(|err| AccountError::msg(err.to_string()))
+            .map(|r: Vec<bool> | possible_cids
+                .into_iter()
+                .zip(r.into_iter())
+                .filter_map(|(cid, exists)| {
+                    if exists {
+                        None
+                    } else {
+                        Some(cid)
+                    }
+                }).collect())
     }
 
+    #[allow(unused_results)]
     async fn find_first_valid_cid(&self, possible_cids: &Vec<u64>) -> Result<Option<u64>, AccountError> {
         let mut conn = self.get_conn().await?;
         let mut pipe = redis_base::pipe();
@@ -284,14 +289,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let mut conn = self.get_conn().await?;
-        redis_base::Script::new(&format!(r"
+        redis_base::Script::new(&r"
             username_1 = redis.call('get', KEYS[3]);
             username_2 = redis.call('get', KEYS[4]);
             redis.call('hset', KEYS[5], KEYS[2], username2);
             redis.call('hset', KEYS[5], username2, KEYS[2]);
             redis.call('hset', KEYS[6], KEYS[1], username1);
             redis.call('hset', KEYS[6], username1, KEYS[1]);
-        ")).key(cid0) // 1
+        ").key(cid0) // 1
             .key(cid1) // 2
             .key(get_cid_to_username_key(cid0)) // 3
             .key(get_cid_to_username_key(cid1)) // 4
@@ -315,14 +320,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let mut conn = self.get_conn().await?;
-        redis_base::Script::new(&format!(r"
+        redis_base::Script::new(&r"
             peer_username1 = redis.call('get', KEYS[5]);
             peer_username2 = redis.call('get', KEYS[6]);
             redis.call('hdel', KEYS[3], KEYS[2]);
             redis.call('hdel', KEYS[4], KEYS[1]);
             redis.call('hdel', KEYS[3], peer_username2);
             redis.call('hdel', KEYS[4], peer_username1);
-        ")).key(cid0) // 1
+        ").key(cid0) // 1
             .key(cid1) // 2
             .key(get_peer_key(cid0)) // 3
             .key(get_peer_key(cid1)) // 4
@@ -335,12 +340,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
         let mut conn = self.get_conn().await?;
-        redis_base::Script::new(&format!(r"
+        redis_base::Script::new(&r"
             peer_username = redis.call('hget', KEYS[3], KEYS[2]);
             redis.call('hdel', KEYS[3], KEYS[2]);
             redis.call('hdel', KEYS[3], peer_username);
             return peer_username;
-        ")).key(implicated_cid) // 1
+        ").key(implicated_cid) // 1
             .key(peer_cid) // 2
             .key(get_peer_key(implicated_cid)) // 3
             .invoke_async(&mut conn)
@@ -375,19 +380,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError> {
-        /*self.get_conn().await?
+        self.get_conn().await?
             .hvals(get_peer_key(implicated_cid))
             .await
-            .map(|res: Vec<redis_base::Value>| {
-                res.into_iter().map(|r| {
-                    r.
-                    match r {
-                        redis_base::Value::
-                    }
-                })
-            })
-            .map_err(|err| AccountError::msg(err.to_string()))*/
-        todo!()
+            .map(|res: Vec<u64>| res)
+            .map(Some)
+            .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn get_client_metadata(&self, implicated_cid: u64) -> Result<Option<CNACMetadata>, AccountError> {
@@ -441,12 +439,66 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .map_err(|err| AccountError::msg(err.to_string()))
     }
 
+    #[allow(unused_results)]
     async fn hyperlan_peers_are_mutuals(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<bool>, AccountError> {
-        todo!()
+        let mut conn = self.get_conn().await?;
+        let script = redis_base::Script::new(&r"
+            ret = {}
+            for idx,value in ipairs(KEYS)
+            do
+                if idx > 1 then
+                    ret[#ret+1] = redis.call('hexists', KEYS[1], value)
+                end
+            end
+
+            return ret
+        ");
+
+        let mut script = script.key(get_peer_key(implicated_cid));
+
+        for peer in peers {
+            script.key(*peer);
+        }
+
+        script
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|err| AccountError::msg(err.to_string()))
     }
 
+    #[allow(unused_results)]
     async fn get_hyperlan_peers(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<MutualPeer>, AccountError> {
-        todo!()
+        let mut conn = self.get_conn().await?;
+        let script = redis_base::Script::new(&r"
+            ret = {}
+            for idx,value in ipairs(KEYS)
+            do
+                if idx > 1 then
+                    ret[#ret+1] = redis.call('hget', KEYS[1], value)
+                end
+            end
+
+            return ret
+        ");
+
+        let mut script = script.key(get_peer_key(implicated_cid));
+
+        for peer in peers {
+            script.key(*peer);
+        }
+
+        script
+            .invoke_async(&mut conn)
+            .await
+            .map(|ret: Vec<String> | {
+                ret.into_iter().zip(peers.into_iter())
+                    .map(|(username, cid) | MutualPeer {
+                        parent_icid: HYPERLAN_IDX,
+                        cid: *cid,
+                        username: Some(username)
+                    }).collect()
+            })
+            .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError> {
@@ -463,11 +515,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .map_err(|err| AccountError::msg(err.to_string()))
     }
 
-    async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError> {
+    async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, _implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError> {
         todo!()
     }
 
-    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError> {
+    async fn synchronize_hyperlan_peer_list_as_client(&self, _cnac: &ClientNetworkAccount<R, Fcm>, _peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError> {
         todo!()
     }
 
@@ -498,10 +550,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn get_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
-        let map: redis_base::Value = self.get_conn().await?.hgetall(get_byte_map_key(implicated_cid, peer_cid, key)).await
-            .map_err(|err| AccountError::msg(err.to_string()))?;
-        let iter = map.as_map_iter().ok_or_else(|| AccountError::msg("byte map return type is not a map"))?;
-        Ok(iter.collect())
+        self.get_conn().await?.hgetall(get_byte_map_key(implicated_cid, peer_cid, key)).await
+            .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
@@ -510,7 +560,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         redis_base::pipe()
             .atomic()
             .hgetall(&key)
-            .hdel(&key, sub_key).ignore()
+            .del(&key).ignore()
             .query_async(&mut conn)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
@@ -535,16 +585,6 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R , Fcm> {
             .get(key).await
             .map_err(|err| AccountError::msg(err.to_string()))
     }
-
-    async fn set<K: ToRedisArgs + Send + Sync, V: ToRedisArgs + Send + Sync>(&self, key: K, value: V) -> Result<(), AccountError> {
-        let mut client = self.get_conn().await?;
-        client.set(key, value).await.map_err(|err| AccountError::msg(err.to_string()))
-    }
-
-    async fn get_required(&self, key: &str) -> Result<bytes::Bytes, AccountError> {
-        self.get(key).await?.ok_or_else(|| key_does_not_exist(key))
-    }
-
 
     async fn fetch_cnac(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
         if let Some(value) = self.get::<_, Vec<u8>>(get_cid_to_cnac_key(cid)).await? {
@@ -581,10 +621,6 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R , Fcm> {
             .del(key).await
             .map_err(|err| AccountError::msg(err.to_string()))
     }
-}
-
-fn key_does_not_exist(key: &str) -> AccountError {
-    AccountError::msg(format!("Key '{}' does not exist", key))
 }
 
 const LOCAL_USERNAME_PREFIX: &str = "username.local";
