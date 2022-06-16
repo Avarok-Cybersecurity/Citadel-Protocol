@@ -181,9 +181,32 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
-        // TODO: delete related entries
-        self.delete_entry::<_, Vec<u8>>(get_cid_to_cnac_key(cid)).await
-            .map(|_| ())
+        // TODO: delete cid_to_username and bytemap entries
+        let mut conn = self.get_conn().await?;
+        redis_base::Script::new(&format!(r"
+            local username = redis.call('get', KEYS[5])
+            local username_key = '{}.' .. username
+            local peers = redis.call('hgetall', KEYS[4])
+            redis.call('del', username_key)
+            redis.call('del', KEYS[2])
+            redis.call('del', KEYS[3])
+            redis.call('del', KEYS[4])
+            redis.call('del', KEYS[5])
+
+            for _,value in ipairs(peers)
+            do
+                local maybehkey = '{}.' .. value
+                redis.call('hdel', maybehkey, KEYS[1])
+                redis.call('hdel', maybehkey, username)
+            end
+        ", LOCAL_USERNAME_PREFIX, PEER_CID_PREFIX)).key(cid) // 1
+            .key(get_cid_to_cnac_key(cid)) // 2
+            .key(get_fcm_key(cid)) // 3
+            .key(get_peer_key(cid)) // 4
+            .key(get_cid_to_username_key(cid)) // 5
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn save_all(&self) -> Result<(), AccountError> {
@@ -295,8 +318,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let mut conn = self.get_conn().await?;
         redis_base::Script::new(&r"
-            local username_1 = redis.call('get', KEYS[3])
-            local username_2 = redis.call('get', KEYS[4])
+            local username1 = redis.call('get', KEYS[3])
+            local username2 = redis.call('get', KEYS[4])
             redis.call('hset', KEYS[5], KEYS[2], username2)
             redis.call('hset', KEYS[5], username2, KEYS[2])
             redis.call('hset', KEYS[6], KEYS[1], username1)
@@ -378,7 +401,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn update_fcm_keys(&self, cnac: &ClientNetworkAccount<R, Fcm>, new_keys: FcmKeys) -> Result<(), AccountError> {
-        // TODO: this is invalid, fcm keys for oneself makes no sense
         self.get_conn().await?
             .hset(get_fcm_key(cnac.get_cid()), cnac.get_cid(), new_keys.serialize_to_vector().map_err(|err|AccountError::msg(err.to_string()))?)
             .await
@@ -420,11 +442,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn get_hyperlan_peer_by_cid(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
-        let mut conn = self.get_conn().await?;
-        redis_base::pipe()
-            .atomic()
+        self.get_conn().await?
             .hget(get_peer_key(implicated_cid), peer_cid)
-            .query_async(&mut conn)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
             .map(|peer_username: Option<String>| {
@@ -555,6 +574,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
         pipe.atomic();
 
+        // delete all local peer records for this user
+        let _: () = conn.del(&peer_key).await.map_err(|err| AccountError::msg(err.to_string()))?;
+
+        // now, add back everything fresh
         for (peer_cid, username, fcm_keys) in peers {
             if let Some(username) = username {
                 pipe.hset(&peer_key, peer_cid, &username);
@@ -582,11 +605,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
         let mut conn = self.get_conn().await?;
         let key = get_byte_map_key(implicated_cid, peer_cid, key);
-        redis_base::pipe()
-            .atomic()
-            .hget(&key, sub_key)
-            .hdel(&key, sub_key).ignore()
-            .query_async(&mut conn)
+        redis_base::Script::new(r"
+            local ret = redis.call('hget', KEYS[1], KEYS[2])
+            redis.call('hdel', KEYS[1], KEYS[2])
+            return ret
+        ").key(key)
+            .key(sub_key)
+            .invoke_async(&mut conn)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
     }
@@ -594,19 +619,15 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError> {
         let mut conn = self.get_conn().await?;
         let key = get_byte_map_key(implicated_cid, peer_cid, key);
-        redis_base::pipe()
-            .atomic()
-            .hget(&key, sub_key)
-            .hset(&key, sub_key, value).ignore()
-            .query_async(&mut conn)
+        redis_base::Script::new(r"
+            local ret = redis.call('hget', KEYS[1], KEYS[2])
+            redis.call('hset', KEYS[1], KEYS[2], ARGV[1])
+            return ret
+        ").key(key)
+            .key(sub_key)
+            .arg(value)
+            .invoke_async(&mut conn)
             .await
-            .map(|res: Vec<u8>| {
-                if res.is_empty() {
-                    None
-                } else {
-                    Some(res)
-                }
-            })
             .map_err(|err| AccountError::msg(err.to_string()))
     }
 
@@ -649,7 +670,7 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R , Fcm> {
     }
 
     async fn fetch_cnac(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        if let Some(value) = self.get::<_, Vec<u8>>(get_cid_to_cnac_key(cid)).await? {
+        if let Some(value) = self.get_conn().await?.get::<_, Option<Vec<u8>>>(get_cid_to_cnac_key(cid)).await? {
             self.cnac_bytes_to_cnac(value)
                 .map(Some)
         } else {
@@ -675,12 +696,6 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R , Fcm> {
     async fn key_exists<K: ToRedisArgs + Send + Sync>(&self, key: K) -> Result<bool, AccountError> {
         self.get_conn().await?
             .exists(key).await
-            .map_err(|err| AccountError::msg(err.to_string()))
-    }
-
-    async fn delete_entry<K: ToRedisArgs + Send + Sync, RV: FromRedisValue>(&self, key: K) -> Result<RV, AccountError> {
-        self.get_conn().await?
-            .del(key).await
             .map_err(|err| AccountError::msg(err.to_string()))
     }
 }
