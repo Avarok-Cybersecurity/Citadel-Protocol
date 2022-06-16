@@ -199,13 +199,16 @@ mod tests {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let dummy = Vec::from("Hello, world!");
+            let dummy2 = Vec::from("Hello, world!");
+
             assert!(pers_cl.store_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key", dummy.clone()).await.unwrap().is_none());
             assert_eq!(pers_cl.get_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key").await.unwrap().unwrap(), dummy.clone());
             assert_eq!(pers_cl.get_byte_map_values_by_key(client.get_cid(), 1234, "thekey").await.unwrap().remove("sub_key").unwrap(), dummy.clone());
             assert_eq!(pers_cl.remove_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key").await.unwrap().unwrap(), dummy.clone());
             assert!(pers_cl.remove_byte_map_value(client.get_cid(), 1234, "thekey", "sub_key").await.unwrap().is_none());
 
-            assert!(pers_se.store_byte_map_value(server.get_cid(), 1234, "helloworld", "sub_key", dummy.clone()).await.unwrap().is_none());
+            assert!(pers_se.store_byte_map_value(server.get_cid(), 1234, "helloworld", "sub_key", dummy2.clone()).await.unwrap().is_none());
+            assert_eq!(pers_se.store_byte_map_value(server.get_cid(), 1234, "helloworld", "sub_key", dummy.clone()).await.unwrap().unwrap(), dummy2.clone());
             assert_eq!(pers_se.get_byte_map_value(server.get_cid(), 1234, "helloworld","sub_key").await.unwrap().unwrap(), dummy.clone());
             assert_eq!(pers_se.get_byte_map_values_by_key(server.get_cid(), 1234, "helloworld").await.unwrap().remove("sub_key").unwrap(), dummy.clone());
             assert_eq!(pers_se.remove_byte_map_value(server.get_cid(), 1234, "helloworld", "sub_key").await.unwrap().unwrap(), dummy.clone());
