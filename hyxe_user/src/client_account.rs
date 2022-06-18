@@ -20,27 +20,12 @@ use hyxe_fs::hyxe_crypt::toolset::UpdateStatus;
 use hyxe_fs::hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use std::ops::RangeInclusive;
 
-use std::collections::{HashMap, BTreeMap};
-use hyxe_crypt::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmRatchet};
-use hyxe_crypt::endpoint_crypto_container::EndpointRatchetConstructor;
-use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, AliceToBobTransferType};
-use fcm::{Client, FcmResponse};
-use crate::external_services::fcm::fcm_instance::FCMInstance;
-use crate::external_services::fcm::data_structures::{FcmTicket, RawExternalPacket};
-use crate::external_services::fcm::fcm_packet_processor::{FcmProcessorResult, FcmResult};
-use crate::external_services::fcm::fcm_packet_processor::peer_post_register::InvitationType;
-use crate::external_services::fcm::kem::FcmPostRegister;
-use hyxe_crypt::fcm::keys::FcmKeys;
-use futures::stream::FuturesUnordered;
-use futures::StreamExt;
+use std::collections::HashMap;
+use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use crate::backend::PersistenceHandler;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::auth::proposed_credentials::ProposedCredentials;
-use std::sync::atomic::Ordering;
-use crate::external_services::rtdb::{RtdbClientConfig, RtdbInstance};
-use crate::external_services::ExternalService;
-use crate::external_services::service_interface::ExternalServiceChannel;
-use hyxe_crypt::prelude::ConstructorOpts;
+use crate::external_services::rtdb::RtdbClientConfig;
 use crate::auth::DeclaredAuthenticationMode;
 
 
@@ -74,7 +59,7 @@ impl PartialEq for MutualPeer {
 ///use futures::{TryFutureExt, TryStreamExt};
 #[derive(Serialize, Deserialize)]
 /// Inner device
-pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     /// The client identification number
     pub cid: u64,
     /// While this NAC should be session-oriented, it may be replaced if [PINNED_IP_MODE] is disabled, meaning, a new IP
@@ -102,17 +87,6 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
     /// Toolset which contains all the drills
     #[serde(bound = "")]
     pub crypt_container: PeerSessionCrypto<R>,
-    /// A session-invariant container that stores the crypto container for a specific peer cid
-    #[serde(bound = "")]
-    pub fcm_crypt_container: HashMap<u64, PeerSessionCrypto<Fcm>>,
-    /// For keeping track of KEX'es
-    #[serde(bound = "")]
-    pub kem_state_containers: HashMap<u64, ConstructorType<R, Fcm>>,
-    /// For storing FCM invites
-    pub fcm_invitations: HashMap<u64, InvitationType>,
-    /// Only the server should store these values. The first key is the peer cid, the second key is the raw ticket ID, used for organizing proper order
-    /// TODO: Consider removing this, as the 2nd version below is newer
-    fcm_packet_store: Option<HashMap<u64, BTreeMap<u128, RawExternalPacket>>>,
     #[serde(with = "crate::external_services::fcm::data_structures::none")]
     pub(crate) persistence_handler: Option<PersistenceHandler<R, Fcm>>,
     /// RTDB config for client-side communications
@@ -127,12 +101,12 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = F
 /// 
 /// SAFETY: The `cid`, `adjacent_nid`, and `is_personal` is private. These values
 /// should NEVER be edited within this source file
-pub struct ClientNetworkAccount<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+pub struct ClientNetworkAccount<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     /// The inner thread-safe device
     inner: Arc<MetaInner<R, Fcm>>
 }
 
-struct MetaInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+struct MetaInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     cid: u64,
     adjacent_nid: u64,
     is_personal: bool,
@@ -143,15 +117,14 @@ struct MetaInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
 impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Note: This should ONLY be called from a server node.
     #[allow(unused_results)]
-    pub async fn new(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount<R, Fcm>, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
+    pub async fn new(valid_cid: u64, is_personal: bool, adjacent_nac: NetworkAccount<R, Fcm>, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R, persistence_handler: PersistenceHandler<R, Fcm>) -> Result<Self, AccountError> {
         log::trace!(target: "lusna", "Creating CNAC w/valid cid: {:?}", valid_cid);
 
         check_credential_formatting::<_, &str, _>(auth_store.username(), None, auth_store.full_name())?;
 
         let creation_date = get_present_formatted_timestamp();
         // the static & f(0) hyper ratchets will be the provided hyper ratchet
-        let mut crypt_container = PeerSessionCrypto::<R>::new(Toolset::<R>::new(valid_cid, base_hyper_ratchet), is_personal);
-        crypt_container.fcm_keys = fcm_keys;
+        let crypt_container = PeerSessionCrypto::<R>::new(Toolset::<R>::new(valid_cid, base_hyper_ratchet), is_personal);
         //debug_assert_eq!(is_personal, is_client);
 
 
@@ -160,14 +133,10 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let mutuals = MultiMap::new();
         let persistence_handler = Some(persistence_handler);
 
-        let fcm_crypt_container = HashMap::with_capacity(0);
-        let kem_state_containers = HashMap::with_capacity(0);
-        let fcm_invitations = HashMap::with_capacity(0);
         let byte_map = HashMap::with_capacity(0);
-        let fcm_packet_store = None;
         let client_rtdb_config = None;
 
-        let inner = ClientNetworkAccountInner::<R, Fcm> { client_rtdb_config, fcm_packet_store, fcm_invitations, kem_state_containers, fcm_crypt_container, persistence_handler, creation_date, cid: valid_cid, auth_store, adjacent_nac, is_local_personal: is_personal, mutuals, local_save_path, crypt_container, byte_map };
+        let inner = ClientNetworkAccountInner::<R, Fcm> { client_rtdb_config, persistence_handler, creation_date, cid: valid_cid, auth_store, adjacent_nac, is_local_personal: is_personal, mutuals, local_save_path, crypt_container, byte_map };
         let this = Self::from(inner);
 
         this.save().await?;
@@ -210,11 +179,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Towards the end of the registration phase, the [`ClientNetworkAccountInner`] gets transmitted to Alice.
-    pub async fn new_from_network_personal(valid_cid: u64, hyper_ratchet: R, auth_store: DeclaredAuthenticationMode, adjacent_nac: NetworkAccount<R, Fcm>, persistence_handler: PersistenceHandler<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<Self, AccountError> {
+    pub async fn new_from_network_personal(valid_cid: u64, hyper_ratchet: R, auth_store: DeclaredAuthenticationMode, adjacent_nac: NetworkAccount<R, Fcm>, persistence_handler: PersistenceHandler<R, Fcm>) -> Result<Self, AccountError> {
         const IS_PERSONAL: bool = true;
 
         // We supply none to the valid cid
-        Self::new(valid_cid, IS_PERSONAL, adjacent_nac, auth_store,hyper_ratchet, persistence_handler, fcm_keys).await
+        Self::new(valid_cid, IS_PERSONAL, adjacent_nac, auth_store,hyper_ratchet, persistence_handler).await
     }
 
     /// When the client received its inner CNAC, it will not have the NAC of the server. Therefore, the client-version of the CNAC must be updated
@@ -264,11 +233,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         };
 
         ProposedCredentials::new_connect(full_name, username, password_raw, settings).await
-    }
-
-    /// Returns the FCM keys for the c2s connection
-    pub fn get_fcm_keys(&self) -> Option<FcmKeys> {
-        self.read().crypt_container.fcm_keys.clone()
     }
 
     /// If no version is supplied, the latest drill will be retrieved
@@ -359,20 +323,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Returns a set of hyperlan peers
-    pub(crate) fn get_hyperlan_peer_list_with_fcm_keys(&self) -> Option<Vec<(u64, Option<String>, Option<FcmKeys>)>> {
+    pub(crate) fn get_hyperlan_peer_mutuals(&self) -> Option<Vec<MutualPeer>> {
         let this = self.read();
-        let hyperlan_peers = this.mutuals.get_vec(&HYPERLAN_IDX)?;
-
-        Some(hyperlan_peers.iter()
-            .map(|peer| {
-                if let Some(fcm_crypt_container) = this.fcm_crypt_container.get(&peer.cid) {
-                    if let Some(keys) = fcm_crypt_container.fcm_keys.clone() {
-                        return (peer.cid, peer.username.clone(), Some(keys))
-                    }
-                }
-
-                (peer.cid, peer.username.clone(), None)
-            }).collect())
+        this.mutuals.get_vec(&HYPERLAN_IDX).cloned()
     }
 
     /// Returns a set of hyperlan peers
@@ -395,29 +348,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let read = self.read();
         let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
         Some(peers.iter().filter_map(|peer_wanted| hyperlan_peers.iter().find(|peer| peer.cid == *peer_wanted).cloned()).collect())
-    }
-
-    /// Returns the wanted peers with fcm keys, if existent
-    pub(crate) fn get_hyperlan_peers_with_fcm_keys(&self, peers: &Vec<u64>) -> Option<Vec<(MutualPeer, Option<FcmKeys>)>> {
-        let read = self.read();
-        let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
-        let mut fcm_keys = Vec::new();
-        for peer in peers {
-            if let Some(container) = read.fcm_crypt_container.get(peer) {
-                fcm_keys.push(container.fcm_keys.clone())
-            }
-            else {
-                fcm_keys.push(None)
-            }
-        }
-
-        Some(peers.iter().zip(fcm_keys.into_iter()).filter_map(|peer_wanted| {
-            if let Some(peer) = hyperlan_peers.iter().find(|peer| peer.cid == *peer_wanted.0) {
-                Some((peer.clone(), peer_wanted.1))
-            } else {
-                None
-            }
-        }).collect())
     }
 
     /// Gets the desired HyperLAN peer by username (clones)
@@ -463,15 +393,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         other_orig.save().await
     }
 
-    /// Stores the FCM keys for a certain peer
-    #[allow(dead_code)]
-    pub(crate) fn store_fcm_keys_for_peer(&self, peer_cid: u64, keys: Option<FcmKeys>) {
-        let mut write = self.write();
-        if let Some(crypt) = write.fcm_crypt_container.get_mut(&peer_cid) {
-            crypt.fcm_keys = keys;
-        }
-    }
-
     /// Deregisters two peers as server
     #[allow(unused_results)]
     pub(crate) fn deregister_hyperlan_p2p_as_server_filesystem(&self, other: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
@@ -504,12 +425,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         }
     }
 
-    /// Returns true if a registration is currently pending. Since this datatype is always stored inside the CNAC, we allow non-async access
-    pub fn fcm_hyperlan_peer_registration_pending(&self, target_cid: u64) -> bool {
-        let read = self.read();
-        read.kem_state_containers.contains_key(&target_cid) || read.fcm_invitations.contains_key(&target_cid)
-    }
-
     /// Returns a set of registration statuses (true/false) for each co-responding peer. True if registered, false otherwise
     pub(crate) fn hyperlan_peers_exist(&self, peers: &Vec<u64>) -> Vec<bool> {
         let read = self.read();
@@ -525,39 +440,14 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// obtained from the HyperLAN Server
     ///
     /// Returns true if the data was mutated
-    pub(crate) fn synchronize_hyperlan_peer_list(&self, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> bool {
+    pub(crate) fn synchronize_hyperlan_peer_list(&self, peers: Vec<MutualPeer>) -> bool {
         let mut this = self.write();
         let ClientNetworkAccountInner::<R, Fcm> {
             mutuals,
-            fcm_crypt_container,
             ..
         } = &mut *this;
 
-        let replace = |mutuals: &mut MultiMap<u64, MutualPeer>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>| {
-            mutuals.insert_many(HYPERLAN_IDX, peers.into_iter().map(|(peer_cid, username, _keys)|{
-                MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username }
-            }).collect::<Vec<MutualPeer>>())
-        };
-
-        if !mutuals.contains_key(&HYPERLAN_IDX) {
-            replace(mutuals, peers);
-            return true;
-        }
-
-        if let Some(hyperlan_peers) = mutuals.get_vec_mut(&HYPERLAN_IDX) {
-            for (peer_cid, _username, fcm_keys) in &peers {
-                if let Some(fcm_keys) = fcm_keys {
-                    if let Some(fcm_crypt_container) = fcm_crypt_container.get_mut(peer_cid) {
-                        fcm_crypt_container.fcm_keys = Some(fcm_keys.clone());
-                    } else {
-                        log::warn!(target: "lusna", "Attempted to synchronize peer list, but local's state is corrupt (fcm)");
-                    }
-                }
-            }
-
-            hyperlan_peers.clear();
-            replace(mutuals, peers);
-        }
+        mutuals.insert_many(HYPERLAN_IDX, peers);
 
         true
     }
@@ -590,8 +480,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
             if let Some(idx) = hyperlan_peers.iter().position(|peer| peer.cid == cid) {
                 let removed_peer = hyperlan_peers.remove(idx);
-                // now, remove the fcm just incase we're at the endpoints
-                write.fcm_crypt_container.remove(&cid);
                 std::mem::drop(write);
 
                 self.spawn_save_task_on_threadpool();
@@ -608,184 +496,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
          End of the mutual peer-related functions
      */
 
-    #[allow(unused_results, dead_code)]
-    /// Replaces the internal FCM device
-    pub(crate) fn replace_fcm_crypt_container(&self, peer_cid: u64, container: PeerSessionCrypto<Fcm>) {
-        let mut write = self.write();
-        write.fcm_crypt_container.insert(peer_cid, container);
-    }
-
-    /// Gets the FCM keys of the peer
-    pub(crate) fn get_peer_fcm_keys(&self, peer_cid: u64) -> Option<FcmKeys> {
-        self.read().fcm_crypt_container.get(&peer_cid)?.fcm_keys.clone()
-    }
-
-    #[allow(unused_results)]
-    /// Returns the FcmPostRegister instance meant to be sent through the ordinary network. Additionally, returns the ticket associated with the transaction
-    pub async fn fcm_prepare_accept_register_as_endpoint(&self, peer_cid: u64, accept: bool) -> Result<(FcmPostRegister, u128), AccountError> {
-        let mut write = self.write();
-        let local_cid = write.cid;
-
-        let local_fcm_keys = write.crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Local client cannot accept an FCM request since local has no FCM keys to reciprocate".to_string()))?;
-        // remove regardless
-        log::trace!(target: "lusna", "[FCM PostRegister] Will search for invitation from {}", peer_cid);
-        let invite = write.fcm_invitations.remove(&peer_cid).ok_or(AccountError::Generic("Invitation for client does not exist, or, expired".to_string()))?;
-
-        /*if write.fcm_crypt_container.contains_key(&peer_cid) {
-            return Err(AccountError::ClientExists(peer_cid))
-        }*/
-
-        match invite {
-            InvitationType::PostRegister(FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, ..), username, ticket) => {
-
-                if accept {
-                    // now, construct the endpoint container
-                    // there is no previous ratchet, thus, use default opts
-                    let opts = ConstructorOpts::default();
-                    let bob_constructor = Fcm::Constructor::new_bob(local_cid, 0, vec![opts], AliceToBobTransferType::Fcm(FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| AccountError::Generic(err.to_string()))?)).ok_or(AccountError::IoError("Bad ratchet container".to_string()))?;
-                    let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(AccountError::IoError("Stage0/Bob failed".to_string()))?.assume_fcm().unwrap(), local_fcm_keys, local_cid);
-                    let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(AccountError::IoError("Unable to construct Bob's ratchet".to_string()))?;
-
-                    write.fcm_crypt_container.insert(peer_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, peer_fcm_keys));
-                    write.mutuals.insert(HYPERLAN_IDX, MutualPeer { parent_icid: HYPERLAN_IDX, cid: peer_cid, username: Some(username.clone()) });
-                    let persistence_handler = write.persistence_handler.clone().ok_or_else(||AccountError::Generic("Persistence handler not loaded".into()))?;
-                    std::mem::drop(write);
-                    //self.blocking_save_to_local_fs()?;
-                    self.save().await?;
-                    // We need to call the below function to allow calls to get_peer_username_by_cid and friends
-                    persistence_handler.register_p2p_as_client(local_cid, peer_cid, username).await?;
-                    Ok((fcm_post_register, ticket))
-                } else {
-                    Ok((FcmPostRegister::Disable, ticket))
-                }
-            }
-
-            _ => {
-                Err(AccountError::Generic("package is not a valid post-register type".to_string()))
-            }
-        }
-    }
-
-    /// For sending a pre-prepared packet. Specifying a nonzero target cid will send to target's FCM. If target cid is zero, then will send to self
-    pub async fn fcm_raw_send(&self, target_cid: u64, raw_fcm_packet: RawExternalPacket, fcm_client: &Arc<Client>) -> Result<FcmResponse, AccountError> {
-        let read = self.read();
-        let fcm_keys = if target_cid == 0 {
-            read.crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?
-        } else {
-            read.fcm_crypt_container.get(&target_cid).ok_or(AccountError::ClientNonExists(target_cid))?.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?
-        };
-
-        let instance = FCMInstance::new(fcm_keys, fcm_client.clone());
-        instance.send_to_fcm_user(raw_fcm_packet).await
-    }
-
-    /// For sending a raw packet obtained as a result of using the function-supplied ratchet. Target_cid must be nonzero
-    pub async fn fcm_raw_send_to_peer(&self, target_cid: u64, raw_fcm_packet: impl FnOnce(&Fcm) -> RawExternalPacket, fcm_client: &Arc<Client>) -> Result<FcmResponse, AccountError> {
-        if target_cid == 0 {
-            return Err(AccountError::Generic("Target CID cannot be zero".to_string()))
-        }
-
-        let (instance, ref latest_fcm_ratchet) = {
-            let read = self.read();
-            let crypt_container = read.fcm_crypt_container.get(&target_cid).ok_or(AccountError::ClientNonExists(target_cid))?;
-
-            let fcm_keys = crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?;
-
-            let latest_fcm_ratchet = crypt_container.get_hyper_ratchet(None).cloned().ok_or(AccountError::Generic("Ratchet missing".to_string()))?;
-
-            let instance = FCMInstance::new(fcm_keys, fcm_client.clone());
-            (instance, latest_fcm_ratchet)
-        };
-
-        instance.send_to_fcm_user(raw_fcm_packet(latest_fcm_ratchet)).await
-    }
-
-    /// Sends to all FCM-registered peers. Enforces the use of endpoint encryption
-    pub async fn fcm_raw_broadcast_to_all_peers(&self, fcm_client: Arc<Client>, raw_fcm_constructor: impl Fn(&Fcm, u64) -> RawExternalPacket) -> Result<(), AccountError> {
-
-        let tasks = FuturesUnordered::new();
-
-        {
-            let read = self.read();
-            for (peer_cid, container) in &read.fcm_crypt_container {
-                if let Some(fcm_keys) = container.fcm_keys.clone() {
-                    let instance = FCMInstance::new(fcm_keys, fcm_client.clone());
-                    let packet = (raw_fcm_constructor)(container.get_hyper_ratchet(None).unwrap(), *peer_cid);
-                    let future = instance.send_to_fcm_user_by_value(packet);
-                    tasks.push(Box::pin(future));
-                }
-            }
-
-            std::mem::drop(read);
-        }
-
-        tasks.map(|_| ()).collect::<()>().await;
-        Ok(())
-    }
-
-    /// Sends the request to the FCM server, returns the ticket for the request
-    pub async fn send_message_to_external(&self, service: ExternalService, target_peer_cid: u64, message: SecBuffer, ticket: u128) -> Result<FcmProcessorResult, AccountError> {
-        let (ticket, mut sender, packet) = self.prepare_external_service_send_message(service, target_peer_cid, message, ticket).await?;
-        sender.send(packet, self.get_cid(), target_peer_cid).await.map(|_| FcmProcessorResult::Value(FcmResult::MessageSent { ticket }))
-    }
-
-    /// Stores the new FCM keys inside the CNAC (operation used by both fs and db)
-    pub(crate) fn store_fcm_keys(&self, new_fcm_keys: FcmKeys) {
-        let mut write = self.write();
-        write.crypt_container.fcm_keys = Some(new_fcm_keys);
-    }
-
-    /// Prepares the requires abstractions needed to send data
-    async fn prepare_external_service_send_message(&self, service: ExternalService, target_peer_cid: u64, message: SecBuffer, ticket_id: u128) -> Result<(FcmTicket, Box<dyn ExternalServiceChannel>, RawExternalPacket), AccountError> {
-        let mut write = self.write();
-        let ClientNetworkAccountInner::<R, Fcm> {
-            fcm_crypt_container,
-            kem_state_containers,
-            cid,
-            client_rtdb_config,
-            ..
-        } = &mut *write;
-
-        let crypt_container = fcm_crypt_container.get_mut(&target_peer_cid).ok_or(AccountError::ClientNonExists(target_peer_cid))?;
-
-        // We may not be able to send a message. We don't want to initiate a send when we are still waiting for the intermediary packets to send
-        if crypt_container.update_in_progress.load(Ordering::Relaxed) {
-            return Err(AccountError::Generic("Cannot send packet yet; update still in progress".to_string()))
-        }
-
-        // construct the instance
-        let sender = match service {
-            ExternalService::Fcm => {
-                Box::new(FCMInstance::new(crypt_container.fcm_keys.clone().ok_or(AccountError::Generic("Target peer cannot received FCM messages at this time".to_string()))?, Arc::new(Client::new()))) as Box<dyn ExternalServiceChannel>
-            }
-
-            ExternalService::Rtdb => {
-                Box::new(RtdbInstance::new(client_rtdb_config.as_ref().ok_or_else(|| AccountError::Generic("RTDB is not available on this node".to_string()))?)?)
-            }
-        };
-
-        let ratchet = &crypt_container.get_hyper_ratchet(None).unwrap().clone();
-        let object_id = crypt_container.get_and_increment_object_id();
-        let group_id = crypt_container.get_and_increment_group_id();
-
-        let ticket = FcmTicket::new(*cid, target_peer_cid, ticket_id);
-
-        let constructor = crypt_container.get_next_constructor( false);
-        let transfer = constructor.as_ref().map(|con| con.stage0_alice());
-        let packet = crate::external_services::fcm::fcm_packet_crafter::craft_group_header(ratchet, object_id, group_id, target_peer_cid, ticket_id, message, transfer).ok_or(AccountError::Generic("Report to developers (x-77)".to_string()))?;
-
-        // store constructor if required (may not be required if an update is already in progress)
-        if let Some(constructor) = constructor {
-            if kem_state_containers.insert(target_peer_cid, ConstructorType::Fcm(constructor)).is_some() {
-                log::warn!(target: "lusna", "[FCM] overwrote pre-existing KEM constructor. Please report to developers")
-            }
-
-            std::mem::drop(write);
-            self.save().await?;
-        }
-
-        Ok((ticket, sender, packet))
-    }
 
     /// Generates the serialized bytes
     pub fn generate_proper_bytes(&self) -> Result<Vec<u8>, AccountError> where ClientNetworkAccountInner<R, Fcm>: SyncIO {
@@ -825,53 +535,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         fx(self.write())
     }
 
-    /// This should only be called by the server. The `from_peer_cid` argument should be from whom the packet was sent, while this CNAC should be the recipient
-    ///
-    /// NOTE: Ordering should be consequent. I.e.. no missing values, 3,4,5,6 is OK, 3,4,6,7 is not
-    #[allow(unused_results)]
-    pub async fn store_raw_fcm_packet_into_recipient(&self, ticket: FcmTicket, packet: RawExternalPacket) -> Result<(), AccountError> {
-        {
-            let mut write = self.write();
-
-            if write.fcm_packet_store.is_none() {
-                write.fcm_packet_store = Some(HashMap::new());
-            }
-
-            let map = write.fcm_packet_store.as_mut().unwrap();
-
-            map.entry(ticket.source_cid).or_insert_with(BTreeMap::new);
-
-            let peer_store = map.get_mut(&ticket.source_cid).unwrap();
-            if peer_store.contains_key(&ticket.ticket) {
-                return Err(AccountError::Generic(format!("Packet with ID {} already stored", ticket.ticket)))
-            }
-
-            peer_store.insert(ticket.ticket, packet);
-
-            std::mem::drop(write);
-        }
-
-        self.save().await
-    }
-
-    /// Retrieves the raw packets delivered to this CNAC
-    pub async fn retrieve_raw_fcm_packets(&self) -> Result<Option<HashMap<u64, BTreeMap<u128, RawExternalPacket>>>, AccountError> {
-        let ret = self.write().fcm_packet_store.take();
-
-        if ret.is_some() {
-            self.save().await?;
-        }
-
-        Ok(ret)
-    }
-
-    /// Saves, capturing by value
-    pub async fn save_by_value(self) -> Result<(), AccountError> where ClientNetworkAccountInner<R, Fcm>: SyncIO, NetworkAccountInner<R, Fcm>: SyncIO {
-        self.save().await
-    }
-
     /// Blocking version of `async_save_to_local_fs`
     pub async fn save(&self) -> Result<(), AccountError> where ClientNetworkAccountInner<R, Fcm>: SyncIO, NetworkAccountInner<R, Fcm>: SyncIO {
+        // TODO: get rid of this, should be handled by pers handler
         let persistence_handler = {
             let ptr = self.write();
             ptr.persistence_handler.clone().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".to_string()))?

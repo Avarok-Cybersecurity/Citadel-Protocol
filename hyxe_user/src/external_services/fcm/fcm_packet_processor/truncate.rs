@@ -10,7 +10,7 @@ pub async fn process<Fcm: Ratchet>(svc_params: InstanceParameter<'_>, endpoint_c
     let mut instance = svc_params.create_instance(endpoint_crypto)?;
     if let Some(truncate_vers) = truncate_vers {
         endpoint_crypto.deregister_oldest_hyper_ratchet(truncate_vers).map_err(|err| AccountError::Generic(err.to_string()))?;
-        log::trace!(target: "lusna", "[FCM] Successfully deregistered FcmRatchet v {} locally, sending TRUNCATE_ACK", truncate_vers);
+        log::trace!(target: "lusna", "[FCM] Successfully deregistered ThinRatchet v {} locally, sending TRUNCATE_ACK", truncate_vers);
     }
 
     let _ = endpoint_crypto.maybe_unlock(false).map_empty_err()?; // unconditional unlock

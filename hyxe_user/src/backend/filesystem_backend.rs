@@ -13,7 +13,6 @@ use crate::server_config_handler::sync_cnacs_and_nac_filesystem;
 use std::collections::hash_map::RandomState;
 use crate::hypernode_account::HyperNodeAccountInformation;
 use std::sync::Arc;
-use hyxe_crypt::fcm::keys::FcmKeys;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// For handling I/O with the local filesystem
@@ -164,11 +163,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
             .map(|(cid, _)| *cid))
     }
 
-    async fn delete_client_by_username(&self, username: &str) -> Result<(), AccountError> {
-        let cnac = self.read_map().values().find(|cnac| cnac.get_username() == username).ok_or(AccountError::InvalidUsername)?.clone();
-        self.delete_cnac(&cnac).await
-    }
-
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let (cnac0, cnac1) = {
             let read = self.read_map();
@@ -198,15 +192,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
         Ok(self.get_cnac(implicated_cid)?.remove_hyperlan_peer(peer_cid))
-    }
-
-    async fn get_fcm_keys_for_as_server(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError> {
-        Ok(self.get_cnac(implicated_cid)?.get_peer_fcm_keys(peer_cid))
-    }
-
-    async fn update_fcm_keys(&self, cnac: &ClientNetworkAccount<R, Fcm>, new_keys: FcmKeys) -> Result<(), AccountError> {
-        cnac.store_fcm_keys(new_keys);
-        self.save_cnac(cnac.clone()).await
     }
 
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError> {
@@ -256,11 +241,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok(cnac.get_hyperlan_peer_by_username(username))
     }
 
-    async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError> {
-        Ok(self.get_cnac(implicated_cid)?.get_hyperlan_peer_list_with_fcm_keys())
+    async fn get_hyperlan_peer_list_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<MutualPeer>>, AccountError> {
+        Ok(self.get_cnac(implicated_cid)?.get_hyperlan_peer_mutuals())
     }
 
-    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError> {
+    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<bool, AccountError> {
         Ok(cnac.synchronize_hyperlan_peer_list(peers))
     }
 
@@ -302,11 +287,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 }
 
 impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
-    #[allow(dead_code)]
-    fn clients_map(&self) -> Result<&Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>, AccountError> {
-        self.clients_map.as_ref().ok_or(AccountError::msg("Clients Map not loaded"))
-    }
-
     fn read_map(&self) -> RwLockReadGuard<HashMap<u64, ClientNetworkAccount<R, Fcm>, RandomState>> {
         self.clients_map.as_ref().unwrap().read()
     }
