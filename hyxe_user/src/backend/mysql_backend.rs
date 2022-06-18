@@ -628,6 +628,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError> {
+        // TODO: This, and related functions, are not good. They need to return the prev value if exists
         let conn = &(self.get_conn().await?);
         let bytes_base64 = base64::encode(value);
         let _query = sqlx::query(self.format("INSERT INTO bytemap (cid, peer_cid, id, sub_id, bin) VALUES (?, ?, ?, ?, ?)").as_str())
