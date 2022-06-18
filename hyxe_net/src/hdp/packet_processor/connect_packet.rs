@@ -76,7 +76,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                             async move {
                                 let mailbox_items = session.session_manager.register_session_with_peer_layer(cid).await?;
                                 let _ = handle_client_fcm_keys(fcm_keys, &cnac, account_manager.get_persistence_handler()).await?;
-                                let peers = account_manager.get_persistence_handler().get_hyperlan_peer_list_with_fcm_keys_as_server(cid).await?.unwrap_or(Vec::new());
+                                let peers = account_manager.get_persistence_handler().get_hyperlan_peer_list_as_server(cid).await?.unwrap_or_default();
                                 let post_login_object = account_manager.services_handler().on_post_login_serverside(cid).await?;
 
                                 let fcm_packets = cnac.retrieve_raw_fcm_packets().await?;

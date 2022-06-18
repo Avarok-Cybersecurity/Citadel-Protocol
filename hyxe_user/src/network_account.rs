@@ -8,8 +8,7 @@ use parking_lot::{RwLock, RwLockWriteGuard, RwLockReadGuard};
 use rand::{random, RngCore, thread_rng};
 use serde::{Deserialize, Serialize};
 
-use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
-use hyxe_crypt::fcm::keys::FcmKeys;
+use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
 use hyxe_fs::env::DirectoryStore;
 use hyxe_fs::misc::get_pathbuf;
@@ -66,7 +65,7 @@ impl ConnectProtocol {
 
 /// Thread-safe handle
 #[derive(Clone, Serialize, Deserialize)]
-pub struct NetworkAccount<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+pub struct NetworkAccount<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     /// the inner device
     #[serde(bound = "")]
     inner: Arc<(u64, RwLock<NetworkAccountInner<R, Fcm>>)>
@@ -172,7 +171,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
     ///
     /// Note: If the local node is the server node, then nac_other should be the client's NAC. This should always be made at a server anyways
     #[allow(unused_results)]
-    pub async fn create_client_account(&self, reserved_cid: u64, nac_other: Option<NetworkAccount<R, Fcm>>, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+    pub async fn create_client_account(&self, reserved_cid: u64, nac_other: Option<NetworkAccount<R, Fcm>>, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         if nac_other.is_none() {
             log::trace!(target: "lusna", "WARNING: You are using debug mode. The supplied NAC is none, and will receive THIS nac in its place (unit tests only)");
         }
@@ -189,7 +188,7 @@ impl<R: Ratchet, Fcm: Ratchet> NetworkAccount<R, Fcm> {
         }
 
         // cnac gets saved below
-        let cnac = ClientNetworkAccount::<R, Fcm>::new(reserved_cid, false, nac_other.unwrap_or_else(|| self.clone()), auth_store, base_hyper_ratchet, persistence_handler.clone(), fcm_keys).await?;
+        let cnac = ClientNetworkAccount::<R, Fcm>::new(reserved_cid, false, nac_other.unwrap_or_else(|| self.clone()), auth_store, base_hyper_ratchet, persistence_handler.clone()).await?;
 
         // So long as the CNAC creation succeeded, we can confidently add the CID into the config
         persistence_handler.register_cid_in_nac(reserved_cid, &username).await.map(|_| cnac)

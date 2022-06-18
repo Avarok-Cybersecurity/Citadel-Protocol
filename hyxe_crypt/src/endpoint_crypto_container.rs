@@ -6,7 +6,6 @@ use crate::hyper_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransf
 use crate::misc::CryptError;
 use serde::{Serialize, Deserialize};
 use crate::prelude::SecurityLevel;
-use crate::fcm::keys::FcmKeys;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
@@ -19,7 +18,6 @@ use ez_pqcrypto::constructor_opts::ConstructorOpts;
 pub struct PeerSessionCrypto<R: Ratchet = HyperRatchet> {
     #[serde(bound = "")]
     pub toolset: Toolset<R>,
-    pub fcm_keys: Option<FcmKeys>,
     pub update_in_progress: Arc<AtomicBool>,
     // if local is initiator, then in the case both nodes send a FastMessage at the same time (causing an update to the keys), the initiator takes preference, and the non-initiator's upgrade attempt gets dropped (if update_in_progress)
     pub local_is_initiator: bool,
@@ -37,11 +35,7 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
     /// `local_is_initiator`: May also be "local_is_server", or any constant designation used to determine
     /// priority in case of concurrent conflicts
     pub fn new(toolset: Toolset<R>, local_is_initiator: bool) -> Self {
-        Self { toolset, update_in_progress: Arc::new(AtomicBool::new(false)), local_is_initiator, rolling_object_id: 1, rolling_group_id: 0, fcm_keys: None, lock_set_by_alice: None, latest_usable_version: 0 }
-    }
-
-    pub fn new_fcm(toolset: Toolset<R>, local_is_initiator: bool, fcm_keys: FcmKeys) -> Self {
-        Self { toolset, update_in_progress: Arc::new(AtomicBool::new(false)), local_is_initiator, rolling_object_id: 1, rolling_group_id: 0, fcm_keys: Some(fcm_keys), lock_set_by_alice: None, latest_usable_version: 0 }
+        Self { toolset, update_in_progress: Arc::new(AtomicBool::new(false)), local_is_initiator, rolling_object_id: 1, rolling_group_id: 0, lock_set_by_alice: None, latest_usable_version: 0 }
     }
 
     /// Gets a specific drill version, or, gets the latest version comitted
