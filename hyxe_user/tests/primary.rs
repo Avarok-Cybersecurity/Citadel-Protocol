@@ -8,7 +8,6 @@ mod tests {
     use hyxe_user::client_account::ClientNetworkAccount;
     use dirs2::home_dir;
     use hyxe_crypt::hyper_ratchet::constructor::{BobToAliceTransferType, HyperRatchetConstructor};
-    use hyxe_crypt::fcm::fcm_ratchet::{FcmRatchet, FcmRatchetConstructor};
     use hyxe_user::backend::{BackendType, PersistenceHandler};
     use rand::random;
     use hyxe_crypt::prelude::{SecBuffer, ConstructorOpts};
@@ -18,7 +17,7 @@ mod tests {
     use hyxe_user::auth::proposed_credentials::ProposedCredentials;
     use futures::Future;
     
-    use hyxe_user::misc::AccountError;
+    use hyxe_user::misc::{AccountError, CNACMetadata};
     use std::sync::Arc;
     use hyxe_user::prelude::MutualPeer;
     use std::collections::HashMap;
@@ -52,8 +51,8 @@ mod tests {
             let client_nac = self.client_acc_mgr.get_local_nac().clone();
             let cid = random::<u64>();
             let (client_hr, server_hr) = gen(cid, 0, None);
-            let server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(cid, client_nac.clone(), ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), server_hr, None).await.unwrap();
-            let client_vers = self.client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), client_nac, None).await.unwrap();
+            let server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(cid, client_nac.clone(), ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), server_hr).await.unwrap();
+            let client_vers = self.client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), client_nac).await.unwrap();
 
             (client_vers, server_vers)
         }
@@ -69,8 +68,8 @@ mod tests {
             let cid = random::<u64>();
             let (client_hr, server_hr) = gen(cid, 0, None);
 
-            let _server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(cid, client_nac.clone(), ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), server_hr, None).await.unwrap();
-            let client_vers = client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), client_nac, None).await.unwrap();
+            let _server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(cid, client_nac.clone(), ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), server_hr).await.unwrap();
+            let client_vers = client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), client_nac).await.unwrap();
             let client_test_container = TestContainer {
                 server_acc_mgr,
                 client_acc_mgr,
@@ -178,8 +177,41 @@ mod tests {
 
     #[tokio::test]
     async fn test_cnac_creation() -> Result<(), AccountError> {
-        test_harness(|container, _, _| async move {
+        test_harness(|container, pers_cl, pers_se| async move {
             let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+
+            assert_eq!(pers_cl.get_client_metadata(client.get_cid()).await.unwrap().unwrap(), CNACMetadata {
+                cid: client.get_cid(),
+                username: USERNAME.to_string(),
+                full_name: FULL_NAME.to_string(),
+                is_personal: true, // true from the perspective of client pers
+                creation_date: "".to_string()
+            });
+
+            assert_eq!(pers_se.get_client_metadata(client.get_cid()).await.unwrap().unwrap(), CNACMetadata {
+                cid: client.get_cid(),
+                username: USERNAME.to_string(),
+                full_name: FULL_NAME.to_string(),
+                is_personal: false, // false from the perspective of server pers
+                creation_date: "".to_string()
+            });
+
+            assert_eq!(pers_cl.get_clients_metadata(None).await.unwrap(), vec![CNACMetadata {
+                cid: client.get_cid(),
+                username: USERNAME.to_string(),
+                full_name: FULL_NAME.to_string(),
+                is_personal: true, // true from the perspective of client pers
+                creation_date: "".to_string()
+            }]);
+
+            assert_eq!(pers_se.get_clients_metadata(None).await.unwrap(), vec![CNACMetadata {
+                cid: client.get_cid(),
+                username: USERNAME.to_string(),
+                full_name: FULL_NAME.to_string(),
+                is_personal: false, // false from the perspective of server pers
+                creation_date: "".to_string()
+            }]);
+
             let lock_server = server.write();
             let lock_client = client.write();
 
@@ -190,6 +222,7 @@ mod tests {
             assert_eq!(lock_client.auth_store.full_name(), FULL_NAME);
             assert_eq!(lock_server.auth_store.full_name(), FULL_NAME);
             assert_eq!(lock_server.cid, lock_server.cid);
+
             Ok(())
         }).await
     }
@@ -284,6 +317,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_cid_generation() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            let random_cids = vec![client.get_cid(), 999, 456];
+            assert!(pers_se.get_cnac_by_cid(client.get_cid()).await.unwrap().is_some());
+            let value = pers_se.find_first_valid_cid(&random_cids).await.unwrap().unwrap();
+            assert_ne!(value, client.get_cid());
+            assert!(value == 999 || value == 456);
+
+            let value = pers_cl.find_first_valid_cid(&random_cids).await.unwrap().unwrap();
+            assert_ne!(value, client.get_cid());
+            assert!(value == 999 || value == 456);
+
+            let randoms = pers_se.client_only_generate_possible_cids().await.unwrap();
+            for rand in randoms {
+                assert!(pers_se.get_cnac_by_cid(rand).await.unwrap().is_none());
+            }
+
+            let randoms = pers_cl.client_only_generate_possible_cids().await.unwrap();
+            for rand in randoms {
+                assert!(pers_cl.get_cnac_by_cid(rand).await.unwrap().is_none());
+            }
+
+            Ok(())
+        }).await
+    }
+
+    #[tokio::test]
     async fn test_register_p2p() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
@@ -298,6 +359,9 @@ mod tests {
                 peer.1.as_str(),
                 &pers_se
             ).await;
+
+            assert_eq!(pers_cl.get_hyperlan_peer_list(client.get_cid()).await.unwrap().unwrap(), vec![peer_cnac.get_cid()]);
+            assert_eq!(peer_pers.get_hyperlan_peer_list(peer_cnac.get_cid()).await.unwrap().unwrap(), vec![client.get_cid()]);
 
             assert_eq!(peer_pers.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
                 parent_icid: 0,
@@ -322,6 +386,34 @@ mod tests {
                 cid: client.get_cid(),
                 username: Some(USERNAME.to_string())
             });
+
+            assert_eq!(pers_cl.get_hyperlan_peers(client.get_cid(), &vec![peer_cnac.get_cid()]).await.unwrap(), vec![MutualPeer{
+                parent_icid: 0,
+                cid: peer_cnac.get_cid(),
+                username: Some(peer.1.to_string())
+            }]);
+
+            assert_eq!(peer_pers.get_hyperlan_peers(peer_cnac.get_cid(), &vec![client.get_cid()]).await.unwrap(), vec![MutualPeer{
+                parent_icid: 0,
+                cid: client.get_cid(),
+                username: Some(USERNAME.to_string())
+            }]);
+
+            assert_eq!(pers_cl.get_hyperlan_peers(client.get_cid(), &vec![peer_cnac.get_cid()]).await.unwrap(), vec![MutualPeer{
+                parent_icid: 0,
+                cid: peer_cnac.get_cid(),
+                username: Some(peer.1.to_string())
+            }]);
+
+            assert_eq!(peer_pers.hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &vec![client.get_cid()]).await.unwrap(), vec![true]);
+            assert_eq!(pers_cl.hyperlan_peers_are_mutuals(client.get_cid(), &vec![peer_cnac.get_cid()]).await.unwrap(), vec![true]);
+            assert_eq!(pers_se.hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &vec![client.get_cid()]).await.unwrap(), vec![true]);
+            assert_eq!(pers_se.hyperlan_peers_are_mutuals(client.get_cid(), &vec![peer_cnac.get_cid()]).await.unwrap(), vec![true]);
+
+            assert!(peer_pers.hyperlan_peer_exists(peer_cnac.get_cid(), client.get_cid()).await.unwrap());
+            assert!(pers_cl.hyperlan_peer_exists(client.get_cid(), peer_cnac.get_cid()).await.unwrap());
+            assert!(pers_se.hyperlan_peer_exists(peer_cnac.get_cid(), client.get_cid()).await.unwrap());
+            assert!(pers_se.hyperlan_peer_exists(client.get_cid(), peer_cnac.get_cid()).await.unwrap());
 
             peer_container.client_acc_mgr.purge_home_directory().await?;
             Ok(())
@@ -384,6 +476,8 @@ mod tests {
             assert!(pers_se.get_cnac_by_cid(client.get_cid()).await.unwrap().is_none());
             assert!(pers_se.get_cnac_by_cid(peer_cnac.get_cid()).await.unwrap().is_some());
             assert!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().is_none());
+            // TODO: ensure below line isn't an error on filesystem type
+            //assert!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().is_none());
 
             peer_container.client_acc_mgr.purge_home_directory().await?;
             Ok(())
@@ -508,77 +602,6 @@ mod tests {
     async fn deregister_client_from_server(pers_cl: &PersistenceHandler, client_cid: u64, server_pers: &PersistenceHandler) {
         pers_cl.delete_cnac_by_cid(client_cid).await.unwrap();
         server_pers.delete_cnac_by_cid(client_cid).await.unwrap();
-    }
-
-    /*
-    #[tokio::test]
-    async fn test_register_p2p() -> Result<(), AccountError> {
-        test_harness(|container, pers_cl, pers_se| async move {
-            let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
-            let peer = container.server_acc_mgr.
-            pers_cl.delete_cnac_by_cid(client.get_cid()).await?;
-            pers_se.delete_cnac_by_cid(server.get_cid()).await?;
-
-            assert!(pers_cl.get_cnac_by_cid(client.get_cid()).await?.is_none());
-            assert!(pers_se.get_cnac_by_cid(server.get_cid()).await?.is_none());
-            Ok(())
-        }).await
-    }*/
-
-    /*
-    #[tokio::test]
-    async fn fcm() {
-
-        let acc_mgr_0 = acc_mgr(Some("1.2.2.0"), backend()).await;
-        let acc_mgr_1 = acc_mgr(Some("1.2.2.1"), backend()).await;
-        let user0 = create_cnac(Some(acc_mgr_0.clone())).await;
-        let user1 = create_cnac(Some(acc_mgr_1.clone())).await;
-        acc_mgr_0.register_hyperlan_p2p_at_endpoints(user0.get_cid(), user1.get_cid(), user1.get_username()).await.unwrap();
-        acc_mgr_1.register_hyperlan_p2p_at_endpoints(user1.get_cid(), user0.get_cid(), user0.get_username()).await.unwrap();
-
-        // now, create an HR for both
-        let (hr_alice, hr_bob) = gen_fcm(user0.get_cid(), 0, Some(user1.get_cid()));
-        assert_eq!(hr_alice.get_cid(), user0.get_cid());
-        assert_eq!(hr_bob.get_cid(), user1.get_cid());
-        assert_eq!(hr_alice.version(), hr_bob.version());
-
-        let api_key = "AAAAsdc2buM:APA91bFGIgSp9drZGpM6rsTVWD_4A28QZVjBG9ty0ijwXn0k-peMNiivzCuSzojR7ESN13txcD7pZMyYJC_LPdjRk56EdXnUfIYDgVVbTN8VmWiVd82uJv2kEgcoGL-Flh1HXWZlVSf8";
-        let alice_cl_key = "abcdefgh";
-        let bob_cl_key = "e2xixMK2SKe66ryMXa1HUR:APA91bFeFWyYjh_9tPRGlDleBfUwiOLsBDXhA8__LmyYYiI8a9P4U2JcBPHtWjEnTbLxeF0ImX0nNemVZDBGxw3OYMb_UD0i2FG4UsqiOqbrMvY6dlWVYxWOy4PSDSSQS0cAgyndyR14";
-        let alice_keys = FcmKeys::new(api_key, alice_cl_key);
-        let bob_keys = FcmKeys::new(api_key, bob_cl_key);
-
-        user0.visit_mut(|mut inner| {
-            let toolset = Toolset::new(hr_alice.get_cid(), hr_alice.clone());
-            let endpoint_container = PeerSessionCrypto::new_fcm(toolset, true, bob_keys);
-            inner.fcm_crypt_container.insert(user1.get_cid(), endpoint_container);
-        });
-
-        user1.visit_mut(|mut inner| {
-            let toolset = Toolset::new(hr_bob.get_cid(), hr_bob.clone());
-            let endpoint_container = PeerSessionCrypto::new_fcm(toolset, false, alice_keys);
-            inner.fcm_crypt_container.insert(user0.get_cid(), endpoint_container);
-        });
-
-        let input = "s6ZxbnhOXhcAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAADAAAAUAcAn+RvpBzkXNKr3cklyUhh/7Y/a/FcfEbgCguo//43hgR1C5QH9wnQobwnBj21htBMQV/Et9BKijQzudTdZbLXd8/DeMdQ4xlb3/XJXN6u+mEA12RnjySShx7AIYV+ZfKAT6VdKpLOHguUigjAOFjOlaaLFjTsLx6KtwyYiQ4/svwIUaBTnH5mYrRAjQOn1e+E8oeHoEOznw4scn/mVDIwhhCJ9oimmdEKVz5GVqhq9g5WZYUntT0hOgj4+WYtvqqu8rS0EqGWf16ODNGFmsW55+3kLxMm4Daw5S5QNVXSMId77Eoni+rcjepZeJebEo8yhqO3C3tbeBhcFJjuoMBt3tb3efk6mDY41oiRqZaTZfHUOTedZ3sguyPEZMrVa62ngRUcHHFheqe/7kHdrNtPuFLbI3+bIudNEaUqG/gk+H+6c3+4+/7mFXIItmyF1/+qRN0sOiv2BqUeE+IcKyvnpBWjWNBgJRBvzV31V2ayT0D1M/0Y2b4maULZA/7XHlwyF4qofTQBjPI+6bLs/jZky0DgPkU/9XP+56N30d5wKfGDyyhezFO2lDP4YG1W3udwMB2Mo0yM9C+Nwjs5bB4AUB4+Dmt/qLy2GyBDAIHMb87ULazfy3ZtfgOwnBNebwu+XmGJiA92Q0nn5LVjqvMuW/GPvdQXRF8f58DYLF758EO4GRwDXOYwY2sC468dGWdiGaNOezAZbK0wXvzsesEi6vMNEYuXsH3yvZwI6zyb4XlXZ32x/EG3+36EvAVUJArzlkWOuReToJKcMSFM0LUQYaLhqMHkMhO+pxsePcKuL4DQSIQVg9QxjITUuqDTTk3Wnj2m2hj2ujeHtKi2NPbVN9Sauzk7Tlgiz9c20FMDjfyH9WFpWZUu1pwdKYKIrvq4HF8gSX7As1Q7tG0fs/ikAAcE2c9ShMseax4zJ70d23qkdZqpgStT19l7upN2snm9/OU9ujXGgUQx7XF1XiusrVpEn+LoGMVPR2SzZpzbZ7Zjrx8pALscaOMM9Ud8nWYjCAsOPwxRShz0QGTm3rSKsU/0idza46czc8uZeJv3DVraF7hnhh8yZ+t29rql/2gbecr7F1JBtD/KrbM0u0EH+F0XUaB0aXIfA9YGL/aUR7WftfV045H1r+vwlBDme2UoXIIvTfK/uFS6vi8TSP9jBeYdzOQzwEWNaiB6kYGMVUaS94OWzgn3gTN3zNbhZJvOXVgtsj1U67N4GPmFaiYuy1TyRw1IlZLosvxjOn4mRmqa4wf+Ku0iBdSfklCt7PT0AJyxLYjemT255mx4euzGu8Z3ap4w5uUvOWNDiZJHDwnY+9jCox0TRzyVCImbdID43XsyLVEMoFBwPcAyrxTKi2DhXSR0es6+URWZWE3wqhbty8Km11oxI/2GfwtiwfMOnkypDszMglpXsDgzy6oZqzdbHeCzyJwQC4y+2NOlnTgzII9I3dh6alAudz41YE+VbL8nfP1RndFXEa03biSr9MBrXQ3Hpv9RHUdDwreT11CYu1HvL01ysROdtqejA1E9ZAG2Ihbz9i4pjYemxLgUchRKEq5b36udHpniCrAUkhRziNos26WaZX7MaI0xnNZmYlQ3hXkwCDe1/9MGYiqhou4J/ekWtFverTyqDrq+I2QTV0mAEF14hRrW+PXSjWK24JGklWHnRXTWGda6zmp+17rc+NzcN7cxzJMosXtWRwTE8kvCfpvK5JatKo6cq131c3WbqpsbV8hOISFcNXi6MooJGViyR3cHQbbEA0CYoxrZVhFXfLQDsaEJXyCXyB7robsgQHV+imyQ7NP/iwNKYOitrgI1xdhIp9PHBEgo4lE0CEc++LGY3/tvWdC8Uph/MUo1jI8G6CFJthjt+S2IXmUnrgQ/wQ36kL4gEzjV";
-        // test blocking process
-        log::trace!(target: "lusna", "{:?}", hyxe_user::fcm::fcm_packet_processor::process(input, acc_mgr_0.clone()).await);
-
-        // now, start the simulation
-        user0.fcm_send_message_to(user1.get_cid(), SecBuffer::from("Hello, bob! From alice"), 0,acc_mgr_0.fcm_client()).await.unwrap();
-
-        let _ = acc_mgr_0.purge().await.unwrap();
-        let _ = acc_mgr_1.purge().await.unwrap();
-    }*/
-
-    #[allow(dead_code)]
-    fn gen_fcm(cid: u64, version: u32, endpoint_bob_cid: Option<u64>) -> (FcmRatchet, FcmRatchet) {
-        let opts = ConstructorOpts::new_init(None as Option<CryptoParameters>);
-        let mut alice = FcmRatchetConstructor::new_alice(cid, version, opts.clone()).unwrap();
-        let bob = FcmRatchetConstructor::new_bob(opts,alice.stage0_alice()).unwrap();
-        alice.stage1_alice(&bob.stage0_bob().unwrap()).unwrap();
-        let bob = if let Some(cid) = endpoint_bob_cid { bob.finish_with_custom_cid(cid).unwrap() } else { bob.finish().unwrap() };
-        (alice.finish().unwrap(), bob)
     }
 
     fn gen(cid: u64, version: u32, endpoint_bob_cid: Option<u64>) -> (HyperRatchet, HyperRatchet) {

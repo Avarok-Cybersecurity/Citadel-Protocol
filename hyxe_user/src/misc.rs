@@ -131,13 +131,13 @@ pub mod constructor_map {
     use std::collections::HashMap;
     use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
     use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
-    use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
+    use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
     use std::ops::{Deref, DerefMut};
     use serde::{Serialize, Serializer, Deserialize, Deserializer};
     use serde::ser::SerializeMap;
 
     /// A no-serialization container (except for FCM, since we need to preserve them)
-    pub struct ConstructorMap<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+    pub struct ConstructorMap<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
         inner: HashMap<u64, ConstructorType<R, Fcm>>
     }
 
@@ -197,5 +197,14 @@ pub struct CNACMetadata {
     pub is_personal: bool,
     /// Date created
     pub creation_date: String
+}
+
+impl PartialEq for CNACMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.cid == other.cid &&
+            &self.username == &other.username &&
+            &self.full_name == &other.full_name &&
+            self.is_personal == other.is_personal
+    }
 }
 

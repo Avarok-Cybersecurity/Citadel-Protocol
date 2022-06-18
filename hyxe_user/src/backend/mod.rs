@@ -8,8 +8,7 @@ use hyxe_fs::env::DirectoryStore;
 use crate::prelude::NetworkAccount;
 use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
-use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
-use hyxe_crypt::fcm::keys::FcmKeys;
+use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 #[cfg(feature = "sql")]
 use crate::backend::mysql_backend::SqlConnectionOptions;
 #[cfg(feature = "redis")]
@@ -147,8 +146,6 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError>;
     /// Gets the CID by username
     async fn get_cid_by_username(&self, username: &str) -> Result<Option<u64>, AccountError>;
-    /// Deletes a client by username
-    async fn delete_client_by_username(&self, username: &str) -> Result<(), AccountError>;
     /// Registers two peers together
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError>;
     /// registers p2p as client
@@ -157,10 +154,6 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError>;
     /// Deregisters two peers from each other
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError>;
-    /// Gets the FCM keys for a peer
-    async fn get_fcm_keys_for_as_server(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError>;
-    /// Updates the FCM keys
-    async fn update_fcm_keys(&self, cnac: &ClientNetworkAccount<R, Fcm>, new_keys: FcmKeys) -> Result<(), AccountError>;
     /// Returns a list of hyperlan peers for the client
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError>;
     /// Returns the metadata for a client
@@ -175,21 +168,12 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn hyperlan_peers_are_mutuals(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<bool>, AccountError>;
     /// Returns a set of PeerMutual containers
     async fn get_hyperlan_peers(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<MutualPeer>, AccountError>;
-    /// Returns a set of PeerMutual containers. Should only be called on the endpoints
-    async fn get_hyperlan_peers_with_fcm_keys_as_client(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<(MutualPeer, Option<FcmKeys>)>, AccountError> {
-        if peers.is_empty() {
-            return Ok(Vec::new())
-        }
-
-        let cnac = self.get_cnac_by_cid(implicated_cid).await?.ok_or(AccountError::ClientNonExists(implicated_cid))?;
-        Ok(cnac.get_hyperlan_peers_with_fcm_keys(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
-    }
     /// Gets hyperland peer by username
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError>;
-    /// Gets all peer cids with fcm keys
-    async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError>;
+    /// Gets all peers for client
+    async fn get_hyperlan_peer_list_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<MutualPeer>>, AccountError>;
     /// Synchronizes the list locally. Returns true if needs to be saved
-    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError>;
+    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<bool, AccountError>;
     /// Returns a vector of bytes from the byte map
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError>;
     /// Removes a value from the byte map, returning the previous value
@@ -205,7 +189,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations
-pub struct PersistenceHandler<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+pub struct PersistenceHandler<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     inner: Arc<dyn BackendConnection<R, Fcm>>,
     directory_store: DirectoryStore
 }

@@ -12,10 +12,8 @@ use crate::backend::{BackendType, PersistenceHandler};
 use crate::backend::filesystem_backend::FilesystemBackend;
 use crate::backend::BackendConnection;
 use hyxe_crypt::hyper_ratchet::Ratchet;
-use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
-use hyxe_crypt::fcm::keys::FcmKeys;
+use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use hyxe_crypt::argon::argon_container::{ArgonSettings, ArgonDefaultServerSettings};
-use crate::external_services::fcm::fcm_packet_processor::block_on_async;
 use crate::external_services::{ServicesHandler, ServicesConfig};
 use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::server_misc_settings::ServerMiscSettings;
@@ -23,7 +21,7 @@ use crate::server_misc_settings::ServerMiscSettings;
 /// The default manager for handling the list of users stored locally. It also allows for user creation, and is used especially
 /// for when creating a new user via the registration service.
 #[derive(Clone)]
-pub struct AccountManager<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+pub struct AccountManager<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     services_handler: ServicesHandler,
     persistence_handler: PersistenceHandler<R, Fcm>,
     node_argon_settings: ArgonSettings,
@@ -71,20 +69,15 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             return Err(AccountError::msg("Unable to connect to remote database via account manager"))
         }
 
+        log::info!(target: "lusna", "Successfully established connection to backend ...");
+
         #[cfg(feature = "localhost-testing")] {
             let _ = persistence_handler.purge().await?;
         }
 
-        log::info!(target: "lusna", "Successfully established connection to backend ...");
-
         let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
 
         Ok(this)
-    }
-
-    /// Using an internal single-threaded executor, creates the account manager. NOTE: It is best not to mix executors. This should be used only in background modes that need to poll
-    pub fn new_blocking(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType, argon_server_settings: Option<ArgonDefaultServerSettings>, services_config: Option<ServicesConfig>, server_misc_settings: Option<ServerMiscSettings>) -> Result<Self, AccountError> {
-        block_on_async(move || Self::new(bind_addr, home_dir, backend_type, argon_server_settings, services_config, server_misc_settings))?
     }
 
     /// Returns the directory store for this local node session
@@ -106,9 +99,9 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// to create the new CNAC. The generated CNAC will be assumed to be an impersonal hyperlan client
     ///
     /// This also generates the argon-2id password hash
-    pub async fn register_impersonal_hyperlan_client_network_account(&self, reserved_cid: u64, nac_other: NetworkAccount<R, Fcm>, creds: ProposedCredentials, init_hyper_ratchet: R, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+    pub async fn register_impersonal_hyperlan_client_network_account(&self, reserved_cid: u64, nac_other: NetworkAccount<R, Fcm>, creds: ProposedCredentials, init_hyper_ratchet: R) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         let server_auth_store = creds.derive_server_container(&self.node_argon_settings, reserved_cid, self.get_misc_settings()).await?;
-        let new_cnac = self.get_local_nac().create_client_account(reserved_cid, Some(nac_other), server_auth_store, init_hyper_ratchet, fcm_keys).await?;
+        let new_cnac = self.get_local_nac().create_client_account(reserved_cid, Some(nac_other), server_auth_store, init_hyper_ratchet).await?;
         log::trace!(target: "lusna", "Created impersonal CNAC ...");
         self.persistence_handler.save_cnac(new_cnac.clone()).await?;
 
@@ -117,11 +110,11 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
     /// whereas the HyperLAN server (Bob) runs `register_impersonal_hyperlan_client_network_account`, the registering
     /// HyperLAN Client (Alice) runs this function below
-    pub async fn register_personal_hyperlan_server(&self, valid_cid: u64, hyper_ratchet: R, creds: ProposedCredentials, adjacent_nac: NetworkAccount<R, Fcm>, fcm_keys: Option<FcmKeys>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+    pub async fn register_personal_hyperlan_server(&self, valid_cid: u64, hyper_ratchet: R, creds: ProposedCredentials, adjacent_nac: NetworkAccount<R, Fcm>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         let client_auth_store = creds.into_auth_store(valid_cid);
 
         let username = client_auth_store.username().to_string();
-        let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(valid_cid, hyper_ratchet, client_auth_store, adjacent_nac, self.persistence_handler.clone(), fcm_keys).await?;
+        let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(valid_cid, hyper_ratchet, client_auth_store, adjacent_nac, self.persistence_handler.clone()).await?;
 
         self.persistence_handler.register_cid_in_nac(cnac.get_id(), username.as_str()).await?;
         self.persistence_handler.save_cnac(cnac.clone()).await?;
@@ -202,11 +195,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// Deregisters the two peers from each other
     pub async fn deregister_hyperlan_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         self.persistence_handler.deregister_p2p_as_server(cid0, cid1).await
-    }
-
-    /// Deletes a client by username
-    pub async fn delete_client_by_username<T: AsRef<str>>(&self, username: T) -> Result<(), AccountError> {
-        self.persistence_handler.delete_client_by_username(username.as_ref()).await
     }
 
     /// Deletes a client by cid. Returns true if a success

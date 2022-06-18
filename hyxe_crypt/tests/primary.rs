@@ -198,8 +198,8 @@ mod tests {
         setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
-                let _ = hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), true);
-                let _ = hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), true);
+                let _ = hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), true);
+                let _ = hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::Xchacha20Poly_1305, Some(sec.into()), true);
             }
         }
     }
@@ -264,7 +264,7 @@ mod tests {
     fn toolsets() {
         toolset::<HyperRatchet>();
         #[cfg(feature = "fcm")]
-        toolset::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+        toolset::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet>();
     }
 
     fn toolset<R: Ratchet>() {
@@ -324,7 +324,7 @@ mod tests {
     fn toolset_wrapping_vers_all() {
         toolset_wrapping_vers::<HyperRatchet>();
         #[cfg(feature = "fcm")]
-            toolset_wrapping_vers::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+            toolset_wrapping_vers::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet>();
     }
 
     fn toolset_wrapping_vers<R: Ratchet>() {
@@ -367,7 +367,7 @@ mod tests {
     fn scrambler_transmission_all() {
         scrambler_transmission::<HyperRatchet>();
         #[cfg(feature = "fcm")]
-            scrambler_transmission::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+            scrambler_transmission::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet>();
     }
 
     fn scrambler_transmission<R: Ratchet>() {
@@ -418,7 +418,7 @@ mod tests {
     fn simulate_packet_loss_all() {
         simulate_packet_loss::<HyperRatchet>();
         #[cfg(feature = "fcm")]
-            simulate_packet_loss::<hyxe_crypt::fcm::fcm_ratchet::FcmRatchet>();
+            simulate_packet_loss::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet>();
     }
 
     fn simulate_packet_loss<R: Ratchet>() {

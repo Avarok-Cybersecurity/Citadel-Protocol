@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use hyxe_crypt::toolset::Toolset;
-use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
+use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use multimap::MultiMap;
 use crate::client_account::{MutualPeer, HYPERLAN_IDX};
 use crate::backend::PersistenceHandler;
@@ -65,7 +65,7 @@ pub struct FcmPostRegisterResponse {
 }
 
 #[allow(unused_results)]
-pub async fn process(persistence_handler: &PersistenceHandler, post_register_store: &mut HashMap<u64, InvitationType>, kem_state_containers: &mut HashMap<u64, ConstructorType>, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<FcmRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>, local_cid: u64, source_cid: u64, ticket: u128, transfer: FcmPostRegister, username: String) -> Result<FcmProcessorResult, AccountError> {
+pub async fn process(persistence_handler: &PersistenceHandler, post_register_store: &mut HashMap<u64, InvitationType>, kem_state_containers: &mut HashMap<u64, ConstructorType>, fcm_crypt_container: &mut HashMap<u64, PeerSessionCrypto<ThinRatchet>>, mutuals: &mut MultiMap<u64, MutualPeer>, local_cid: u64, source_cid: u64, ticket: u128, transfer: FcmPostRegister, username: String) -> Result<FcmProcessorResult, AccountError> {
     log::trace!(target: "lusna", "FCM RECV PEER_POST_REGISTER");
     match &transfer {
         FcmPostRegister::AliceToBobTransfer(_transfer_bytes, _keys, source_cid) => {
