@@ -145,11 +145,14 @@ mod tests {
 
         for client_backend in &client_backends {
             for server_backend in &server_backends {
-                log::trace!(target: "lusna", "Trying combination: client={:?} w/ server={:?}", client_backend, server_backend);
+                log::info!(target: "lusna", "Trying combination: client={:?} w/ server={:?}", client_backend, server_backend);
                 let container = TestContainer::new(server_backend.clone(), client_backend.clone()).await;
                 let (pers_cl, pers_se) = (container.client_acc_mgr.get_persistence_handler().clone(), container.server_acc_mgr.get_persistence_handler().clone());
                 let res = tokio::task::spawn((t)(container.clone(), pers_cl, pers_se)).await.map_err(|err| AccountError::Generic(err.to_string()));
                 log::info!(target: "lusna", "About to clear test container ...");
+                if res.is_err() {
+                    log::error!(target: "lusna", "Task failed! {:?}", res);
+                }
                 container.deinit().await;
                 res??;
             }
@@ -179,6 +182,8 @@ mod tests {
     async fn test_cnac_creation() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            assert!(pers_cl.cid_is_registered(client.get_cid()).await.unwrap());
+            assert!(pers_se.cid_is_registered(client.get_cid()).await.unwrap());
 
             assert_eq!(pers_cl.get_client_metadata(client.get_cid()).await.unwrap().unwrap(), CNACMetadata {
                 cid: client.get_cid(),
@@ -282,13 +287,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_serialization_of_cnac() -> Result<(), AccountError> {
+    async fn test_cnac_meta() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let cl2 = pers_cl.get_client_by_username(USERNAME).await?.unwrap();
             let se2 = pers_se.get_client_by_username(USERNAME).await?.unwrap();
+
             assert_eq!(client.get_cid(), cl2.get_cid());
             assert_eq!(server.get_cid(), se2.get_cid());
+
+            assert_eq!(pers_se.get_username_by_cid(client.get_cid()).await.unwrap().unwrap(), USERNAME);
+            assert_eq!(pers_cl.get_username_by_cid(client.get_cid()).await.unwrap().unwrap(), USERNAME);
+
+            assert_eq!(pers_se.get_cid_by_username(USERNAME).await.unwrap().unwrap(), client.get_cid());
+            assert_eq!(pers_cl.get_cid_by_username(USERNAME).await.unwrap().unwrap(), client.get_cid());
+
             let lock_server = se2.write();
             let lock_client = cl2.write();
 
@@ -312,6 +325,12 @@ mod tests {
 
             assert!(pers_cl.get_cnac_by_cid(client.get_cid()).await?.is_none());
             assert!(pers_se.get_cnac_by_cid(server.get_cid()).await?.is_none());
+
+            assert!(pers_cl.get_client_by_username(USERNAME).await?.is_none());
+            assert!(pers_se.get_client_by_username(USERNAME).await?.is_none());
+
+            assert!(pers_se.get_registered_impersonal_cids(None).await?.is_none());
+            assert!(pers_se.get_client_metadata(client.get_cid()).await.unwrap().is_none());
             Ok(())
         }).await
     }
@@ -356,7 +375,7 @@ mod tests {
                            USERNAME,
                            peer_pers,
             peer_cnac.get_cid(),
-                peer.1.as_str(),
+                peer.0.as_str(),
                 &pers_se
             ).await;
 
@@ -372,13 +391,13 @@ mod tests {
             assert_eq!(pers_cl.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
                 parent_icid: 0,
                 cid: peer_cnac.get_cid(),
-                username: Some(peer.1.to_string())
+                username: Some(peer.0.to_string())
             });
 
             assert_eq!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
                 parent_icid: 0,
                 cid: peer_cnac.get_cid(),
-                username: Some(peer.1.to_string())
+                username: Some(peer.0.to_string())
             });
 
             assert_eq!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
@@ -390,7 +409,7 @@ mod tests {
             assert_eq!(pers_cl.get_hyperlan_peers(client.get_cid(), &vec![peer_cnac.get_cid()]).await.unwrap(), vec![MutualPeer{
                 parent_icid: 0,
                 cid: peer_cnac.get_cid(),
-                username: Some(peer.1.to_string())
+                username: Some(peer.0.to_string())
             }]);
 
             assert_eq!(peer_pers.get_hyperlan_peers(peer_cnac.get_cid(), &vec![client.get_cid()]).await.unwrap(), vec![MutualPeer{
@@ -402,7 +421,7 @@ mod tests {
             assert_eq!(pers_cl.get_hyperlan_peers(client.get_cid(), &vec![peer_cnac.get_cid()]).await.unwrap(), vec![MutualPeer{
                 parent_icid: 0,
                 cid: peer_cnac.get_cid(),
-                username: Some(peer.1.to_string())
+                username: Some(peer.0.to_string())
             }]);
 
             assert_eq!(peer_pers.hyperlan_peers_are_mutuals(peer_cnac.get_cid(), &vec![client.get_cid()]).await.unwrap(), vec![true]);
@@ -432,9 +451,22 @@ mod tests {
                            USERNAME,
                            peer_pers,
                            peer_cnac.get_cid(),
-                           peer.1.as_str(),
+                           peer.0.as_str(),
                            &pers_se
             ).await;
+
+            let server_seen_peers = pers_se.get_hyperlan_peer_list_as_server(client.get_cid()).await.unwrap().unwrap();
+            assert_eq!(server_seen_peers, vec![
+                MutualPeer {
+                    parent_icid: 0,
+                    cid: peer_cnac.get_cid(),
+                    username: Some(peer.0.to_string())
+                }
+            ]);
+
+            // TODO: Change the below function
+            let _ = pers_cl.synchronize_hyperlan_peer_list_as_client(&client, server_seen_peers).await.unwrap();
+            assert_eq!(pers_cl.get_hyperlan_peer_list(client.get_cid()).await.unwrap().unwrap(), vec![peer_cnac.get_cid()]);
 
             deregister_peers(&pers_cl,
                            client.get_cid(),
@@ -448,11 +480,24 @@ mod tests {
             assert!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().is_none());
             assert!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().is_none());
 
+            assert!(peer_pers.get_hyperlan_peer_by_username(peer_cnac.get_cid(), USERNAME).await.unwrap().is_none());
+            assert!(pers_cl.get_hyperlan_peer_by_username(client.get_cid(), peer.0.as_str()).await.unwrap().is_none());
+            assert!(pers_se.get_hyperlan_peer_by_username(peer_cnac.get_cid(), USERNAME).await.unwrap().is_none());
+            assert!(pers_se.get_hyperlan_peer_by_username(client.get_cid(), peer.0.as_str()).await.unwrap().is_none());
 
             peer_container.client_acc_mgr.purge_home_directory().await?;
             Ok(())
         }).await
     }
+
+    /*
+    #[tokio::test]
+    async fn test_synchronize_p2p_list() -> Result<(), AccountError> {
+        test_harness(|container, pers_cl, pers_se| async move {
+            let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+
+        }).await
+    }*/
 
     #[tokio::test]
     async fn test_deregister_client_from_server() -> Result<(), AccountError> {
@@ -476,8 +521,14 @@ mod tests {
             assert!(pers_se.get_cnac_by_cid(client.get_cid()).await.unwrap().is_none());
             assert!(pers_se.get_cnac_by_cid(peer_cnac.get_cid()).await.unwrap().is_some());
             assert!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().is_none());
-            // TODO: ensure below line isn't an error on filesystem type
-            //assert!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().is_none());
+            assert!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().is_none());
+
+            deregister_client_from_server(peer_pers, peer_cnac.get_cid(), &pers_se).await;
+
+            assert!(!pers_se.username_exists(USERNAME).await.unwrap());
+            assert!(!pers_se.username_exists(peer.0.as_str()).await.unwrap());
+            assert!(!pers_cl.username_exists(USERNAME).await.unwrap());
+            assert!(!peer_pers.username_exists(peer.0.as_str()).await.unwrap());
 
             peer_container.client_acc_mgr.purge_home_directory().await?;
             Ok(())
@@ -488,17 +539,27 @@ mod tests {
     async fn test_register_p2p_many() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
+            let mut peer_map = HashMap::new();
+
+            let mut peer_containers = vec![];
+
             for peer in PEERS.iter() {
                 let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+                assert!(peer_map.insert(peer.0.to_string(), peer_cnac.get_cid()).is_none());
                 let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
                 register_peers(&pers_cl,
                                client.get_cid(),
                                USERNAME,
                                peer_pers,
                                peer_cnac.get_cid(),
-                               peer.1.as_str(),
+                               peer.0.as_str(),
                                &pers_se
                 ).await;
+
+                assert!(pers_se.username_exists(USERNAME).await.unwrap());
+                assert!(pers_se.username_exists(peer.0.as_str()).await.unwrap());
+                assert!(pers_cl.username_exists(USERNAME).await.unwrap());
+                assert!(peer_pers.username_exists(peer.0.as_str()).await.unwrap());
 
                 assert_eq!(peer_pers.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
                     parent_icid: 0,
@@ -509,13 +570,13 @@ mod tests {
                 assert_eq!(pers_cl.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
                     parent_icid: 0,
                     cid: peer_cnac.get_cid(),
-                    username: Some(peer.1.to_string())
+                    username: Some(peer.0.to_string())
                 });
 
                 assert_eq!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
                     parent_icid: 0,
                     cid: peer_cnac.get_cid(),
-                    username: Some(peer.1.to_string())
+                    username: Some(peer.0.to_string())
                 });
 
                 assert_eq!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
@@ -524,6 +585,46 @@ mod tests {
                     username: Some(USERNAME.to_string())
                 });
 
+                assert_eq!(pers_se.get_hyperlan_peer_by_username(client.get_cid(), peer.0.as_str()).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: peer_cnac.get_cid(),
+                    username: Some(peer.0.to_string())
+                });
+
+                assert_eq!(pers_cl.get_hyperlan_peer_by_username(client.get_cid(), peer.0.as_str()).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: peer_cnac.get_cid(),
+                    username: Some(peer.0.to_string())
+                });
+
+                assert_eq!(pers_se.get_hyperlan_peer_by_username(peer_cnac.get_cid(), USERNAME).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: client.get_cid(),
+                    username: Some(USERNAME.to_string())
+                });
+
+                assert_eq!(peer_pers.get_hyperlan_peer_by_username(peer_cnac.get_cid(), USERNAME).await.unwrap().unwrap(), MutualPeer {
+                    parent_icid: 0,
+                    cid: client.get_cid(),
+                    username: Some(USERNAME.to_string())
+                });
+
+                peer_containers.push(peer_container);
+            }
+
+            let list = pers_se.get_hyperlan_peer_list_as_server(client.get_cid()).await.unwrap().unwrap();
+
+            assert_eq!(list.len(), peer_map.len());
+
+            for peer in PEERS.iter() {
+                assert!(list.contains(&MutualPeer {
+                    parent_icid: 0,
+                    cid: peer_map.get(peer.0.as_str()).cloned().unwrap(),
+                    username: Some(peer.0.to_string())
+                }))
+            }
+
+            for peer_container in peer_containers {
                 peer_container.client_acc_mgr.purge_home_directory().await?;
             }
 
@@ -536,16 +637,20 @@ mod tests {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let mut peer_containers = vec![];
+            let mut peer_cids = vec![client.get_cid()];
 
             for peer in PEERS.iter() {
                 let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
                 let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
+
+                peer_cids.push(peer_cnac.get_cid());
+
                 register_peers(&pers_cl,
                                client.get_cid(),
                                USERNAME,
                                peer_pers,
                                peer_cnac.get_cid(),
-                               peer.1.as_str(),
+                               peer.0.as_str(),
                                &pers_se
                 ).await;
 
@@ -558,13 +663,13 @@ mod tests {
                 assert_eq!(pers_cl.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
                     parent_icid: 0,
                     cid: peer_cnac.get_cid(),
-                    username: Some(peer.1.to_string())
+                    username: Some(peer.0.to_string())
                 });
 
                 assert_eq!(pers_se.get_hyperlan_peer_by_cid(client.get_cid(), peer_cnac.get_cid()).await.unwrap().unwrap(), MutualPeer {
                     parent_icid: 0,
                     cid: peer_cnac.get_cid(),
-                    username: Some(peer.1.to_string())
+                    username: Some(peer.0.to_string())
                 });
 
                 assert_eq!(pers_se.get_hyperlan_peer_by_cid(peer_cnac.get_cid(), client.get_cid()).await.unwrap().unwrap(), MutualPeer {
@@ -578,6 +683,11 @@ mod tests {
 
             let client_peers = pers_cl.get_hyperlan_peer_list(client.get_cid()).await.unwrap().unwrap();
             assert_eq!(client_peers.len(), PEERS.len());
+            let impersonals = pers_se.get_registered_impersonal_cids(None).await.unwrap().unwrap();
+            assert_eq!(impersonals.len(), peer_cids.len());
+            for cid in peer_cids {
+                assert!(impersonals.contains(&cid));
+            }
 
             for peer_container in peer_containers {
                 peer_container.client_acc_mgr.purge_home_directory().await?;

@@ -52,7 +52,9 @@ pub struct MutualPeer {
 
 impl PartialEq for MutualPeer {
     fn eq(&self, other: &Self) -> bool {
-        self.parent_icid == other.parent_icid && self.cid == other.cid
+        self.parent_icid == other.parent_icid
+            && self.cid == other.cid
+            && self.username.as_ref() == other.username.as_ref()
     }
 }
 
@@ -447,6 +449,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
             ..
         } = &mut *this;
 
+        let _ = mutuals.remove(&HYPERLAN_IDX);
         mutuals.insert_many(HYPERLAN_IDX, peers);
 
         true

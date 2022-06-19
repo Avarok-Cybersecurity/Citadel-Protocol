@@ -120,14 +120,8 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn get_client_by_username(&self, username: &str) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError>;
     /// Determines if a CID is registered
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError>;
-    /// deletes a CNAC
-    async fn delete_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
-        self.delete_cnac_by_cid(cnac.get_cid()).await
-    }
     /// Removes a CNAC by cid
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError>;
-    /// Saves all CNACs and local NACs
-    async fn save_all(&self) -> Result<(), AccountError>;
     /// Removes all CNACs
     async fn purge(&self) -> Result<usize, AccountError>;
     /// Maybe generates a local save path, only if required by the implementation

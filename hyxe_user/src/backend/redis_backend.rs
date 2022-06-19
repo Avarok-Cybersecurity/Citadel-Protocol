@@ -15,7 +15,6 @@ use mobc::Manager;
 use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
 use std::time::Duration;
 use crate::account_loader::load_node_nac;
-use futures::StreamExt;
 
 /// Backend struct for redis
 pub(crate) struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
@@ -142,6 +141,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         let key = get_cid_to_cnac_key();
         let username = cnac.get_username();
         let mut conn = self.get_conn().await?;
+        let is_personals_key = if cnac.is_personal() {
+            get_personal_status_key()
+        } else {
+            get_impersonal_status_key()
+        };
+
         redis_base::pipe()
             .atomic()
             // username points to cid key
@@ -149,6 +154,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             // cid key points to bytes
             .hset(key, cnac.get_cid(), bytes).ignore()
             .set(get_cid_to_username_key(cnac.get_cid()), &username).ignore()
+            .sadd(is_personals_key, cnac.get_cid())
             .query_async(&mut conn)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
@@ -162,6 +168,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         let mut conn = self.get_conn().await?;
         let bytes: Option<Vec<u8>> = redis_base::Script::new(r#"
             local cid = redis.call('get', KEYS[1])
+            if tonumber(cid) == nil then
+                return
+            end
+
             return redis.call('hget', KEYS[2], cid)
         "#).key(get_username_key(username))
             .key(get_cid_to_cnac_key())
@@ -190,30 +200,33 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         redis_base::Script::new(&format!(r"
             local username = redis.call('get', KEYS[4])
             local username_key = '{}.' .. username
-            local peers = redis.call('hgetall', KEYS[3])
+            local peer_cids = redis.call('hvals', KEYS[3])
             redis.call('del', username_key)
+            redis.call('del', KEYS[7])
             redis.call('hdel', KEYS[2], KEYS[1])
             redis.call('del', KEYS[3])
             redis.call('del', KEYS[4])
+            redis.call('srem', KEYS[5], KEYS[1])
+            redis.call('srem', KEYS[6], KEYS[1])
 
-            for _,value in ipairs(peers)
+            for _,peer_cid in ipairs(peer_cids)
             do
-                local maybehkey = '{}.' .. value
-                redis.call('hdel', maybehkey, KEYS[1])
-                redis.call('hdel', maybehkey, username)
+                local hkey_cid = '{}.' .. peer_cid
+                local hkey_username = '{}.' .. peer_cid
+                redis.call('hdel', hkey_cid, username)
+                redis.call('hdel', hkey_username, KEYS[1])
             end
-        ", LOCAL_USERNAME_PREFIX, PEER_CID_PREFIX))
+        ", LOCAL_USERNAME_PREFIX, PEER_CID_PREFIX, PEER_USERNAME_PREFIX))
             .key(cid) // 1
             .key(get_cid_to_cnac_key()) // 2
-            .key(get_peer_key(cid)) // 3
+            .key(get_peer_cid_key(cid)) // 3
             .key(get_cid_to_username_key(cid)) // 4
+            .key(get_personal_status_key()) // 5
+            .key(get_impersonal_status_key()) // 6
+            .key(get_peer_username_key(cid)) // 7
             .invoke_async(&mut conn)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
-    }
-
-    async fn save_all(&self) -> Result<(), AccountError> {
-        Ok(())
     }
 
     async fn purge(&self) -> Result<usize, AccountError> {
@@ -295,12 +308,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn get_registered_impersonal_cids(&self, _limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError> {
-        let mut conn = self.get_conn().await?;
-        let result = conn.scan_match::<_, u64>(LOCAL_CID_PREFIX).await
-            .map_err(|err| AccountError::msg(err.to_string()))?
-            .collect::<Vec<u64>>().await;
-
-        Ok(Some(result))
+        // TODO: include limit
+        self.get_conn().await?.smembers(get_impersonal_status_key()).await
+            .map(|r: Vec<u64>| {
+                if r.is_empty() {
+                    None
+                } else {
+                    Some(r)
+                }
+            })
+            .map_err(|err| AccountError::msg(err.to_string()))
     }
 
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
@@ -316,16 +333,18 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         redis_base::Script::new(&r"
             local username1 = redis.call('get', KEYS[3])
             local username2 = redis.call('get', KEYS[4])
-            redis.call('hset', KEYS[5], KEYS[2], username2)
+            redis.call('hset', KEYS[7], KEYS[2], username2)
+            redis.call('hset', KEYS[8], KEYS[1], username1)
             redis.call('hset', KEYS[5], username2, KEYS[2])
-            redis.call('hset', KEYS[6], KEYS[1], username1)
             redis.call('hset', KEYS[6], username1, KEYS[1])
         ").key(cid0) // 1
             .key(cid1) // 2
             .key(get_cid_to_username_key(cid0)) // 3
             .key(get_cid_to_username_key(cid1)) // 4
-            .key(get_peer_key(cid0)) // 5
-            .key(get_peer_key(cid1)) // 6
+            .key(get_peer_cid_key(cid0)) // 5
+            .key(get_peer_cid_key(cid1)) // 6
+            .key(get_peer_username_key(cid0)) // 7
+            .key(get_peer_username_key(cid1)) // 8
             .invoke_async(&mut conn)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
@@ -335,8 +354,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         let mut conn = self.get_conn().await?;
         redis_base::pipe()
             .atomic()
-            .hset(get_peer_key(implicated_cid), peer_cid, &peer_username).ignore()
-            .hset(get_peer_key(implicated_cid), &peer_username, peer_cid).ignore()
+            .hset(get_peer_username_key(implicated_cid), peer_cid, &peer_username).ignore()
+            .hset(get_peer_cid_key(implicated_cid), &peer_username, peer_cid).ignore()
             .query_async(&mut conn)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
@@ -344,19 +363,22 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
         let mut conn = self.get_conn().await?;
+        // TODO: delete bytemap entries for p2p
         redis_base::Script::new(&r"
             local peer_username1 = redis.call('get', KEYS[5])
             local peer_username2 = redis.call('get', KEYS[6])
-            redis.call('hdel', KEYS[3], KEYS[2])
-            redis.call('hdel', KEYS[4], KEYS[1])
             redis.call('hdel', KEYS[3], peer_username2)
             redis.call('hdel', KEYS[4], peer_username1)
+            redis.call('hdel', KEYS[7], KEYS[2])
+            redis.call('hdel', KEYS[8], KEYS[1])
         ").key(cid0) // 1
             .key(cid1) // 2
-            .key(get_peer_key(cid0)) // 3
-            .key(get_peer_key(cid1)) // 4
+            .key(get_peer_cid_key(cid0)) // 3
+            .key(get_peer_cid_key(cid1)) // 4
             .key(get_cid_to_username_key(cid0)) // 5
             .key(get_cid_to_username_key(cid1)) // 6
+            .key(get_peer_username_key(cid0)) // 7
+            .key(get_peer_username_key(cid1)) // 8
             .invoke_async(&mut conn)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
@@ -365,13 +387,14 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
         let mut conn = self.get_conn().await?;
         redis_base::Script::new(&r"
-            local peer_username = redis.call('hget', KEYS[3], KEYS[2])
-            redis.call('hdel', KEYS[3], KEYS[2])
+            local peer_username = redis.call('hget', KEYS[4], KEYS[2])
             redis.call('hdel', KEYS[3], peer_username)
+            redis.call('hdel', KEYS[4], KEYS[2])
             return peer_username
         ").key(implicated_cid) // 1
             .key(peer_cid) // 2
-            .key(get_peer_key(implicated_cid)) // 3
+            .key(get_peer_cid_key(implicated_cid)) // 3
+            .key(get_peer_username_key(implicated_cid)) // 4
             .invoke_async(&mut conn)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
@@ -388,7 +411,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError> {
         self.get_conn().await?
-            .hvals(get_peer_key(implicated_cid))
+            .hkeys(get_peer_username_key(implicated_cid))
             .await
             .map(|res: Vec<u64>| res)
             .map(Some)
@@ -430,7 +453,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn get_hyperlan_peer_by_cid(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
         self.get_conn().await?
-            .hget(get_peer_key(implicated_cid), peer_cid)
+            .hget(get_peer_username_key(implicated_cid), peer_cid)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
             .map(|peer_username: Option<String>| {
@@ -446,7 +469,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn hyperlan_peer_exists(&self, implicated_cid: u64, peer_cid: u64) -> Result<bool, AccountError> {
         self.get_conn().await?
-            .hexists(get_peer_key(implicated_cid), peer_cid)
+            .hexists(get_peer_username_key(implicated_cid), peer_cid)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))
     }
@@ -466,7 +489,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             return ret
         ");
 
-        let mut script = script.key(get_peer_key(implicated_cid));
+        let mut script = script.key(get_peer_username_key(implicated_cid));
 
         for peer in peers {
             script.key(*peer);
@@ -493,7 +516,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             return ret
         ");
 
-        let mut script = script.key(get_peer_key(implicated_cid));
+        let mut script = script.key(get_peer_username_key(implicated_cid));
 
         for peer in peers {
             script.key(*peer);
@@ -515,7 +538,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError> {
         self.get_conn().await?
-            .hget(get_peer_key(implicated_cid), username)
+            .hget(get_peer_cid_key(implicated_cid), username)
             .await
             .map(|peer_cid: Option<u64>| Some(
                 MutualPeer {
@@ -528,14 +551,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
     }
 
     async fn get_hyperlan_peer_list_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<MutualPeer>>, AccountError> {
-        let mut conn = self.get_conn().await?;
-        // TODO: This is wrong. Key may be either string or u64
-        let usernames_map: HashMap<u64, String> = redis_base::pipe()
-            .atomic()
-            .hgetall(get_peer_key(implicated_cid)) // get all (peer_cid, username)
-            .query_async(&mut conn)
+        let usernames_map: HashMap<u64, String> = self.get_conn().await?
+            .hgetall(get_peer_username_key(implicated_cid)) // get all (peer_cid, username)
             .await
             .map_err(|err| AccountError::msg(err.to_string()))?;
+
+        log::error!(target: "lusna", "username_map len: {}", usernames_map.len());
+        log::error!(target: "lusna", "username_map {:?}", usernames_map);
 
         let mut ret = Vec::with_capacity(usernames_map.len());
         for (cid, username) in usernames_map {
@@ -554,18 +576,19 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         let mut conn = self.get_conn().await?;
         let mut pipe = redis_base::pipe();
         let implicated_cid = cnac.get_cid();
-        let peer_key = get_peer_key(implicated_cid);
+        let peer_cid_key = get_peer_cid_key(implicated_cid);
+        let peer_username_key = get_peer_username_key(implicated_cid);
 
         pipe.atomic();
 
         // delete all local peer records for this user
-        let _: () = conn.del(&peer_key).await.map_err(|err| AccountError::msg(err.to_string()))?;
+        let _: () = conn.del(&[&peer_cid_key, &peer_username_key]).await.map_err(|err| AccountError::msg(err.to_string()))?;
 
         // now, add back everything fresh
         for MutualPeer { cid, username, .. } in peers {
             if let Some(username) = username {
-                pipe.hset(&peer_key, cid, &username);
-                pipe.hset(&peer_key, &username, cid);
+                pipe.hset(&peer_username_key, cid, &username);
+                pipe.hset(&peer_cid_key, &username, cid);
             }
         }
 
@@ -684,7 +707,10 @@ const LOCAL_USERNAME_PREFIX: &str = "username.local";
 const LOCAL_CID_PREFIX: &str = "clients";
 const LOCAL_CID_TO_USERNAME: &str = "cid.to.username.local";
 const PEER_CID_PREFIX: &str = "peers_for.cid";
+const PEER_USERNAME_PREFIX: &str = "peers_for.username";
 const BYTE_MAP_PREFIX: &str = "byte_map";
+const CID_TO_IMPERSONALS: &str = "clients.impersonals";
+const CID_TO_PERSONALS: &str = "clients.personals";
 
 fn get_username_key(username: &str) -> String {
     format!("{}.{}", LOCAL_USERNAME_PREFIX, username)
@@ -698,10 +724,22 @@ fn get_cid_to_username_key(cid: u64) -> String {
     format!("{}.{}", LOCAL_CID_TO_USERNAME, cid)
 }
 
-fn get_peer_key(implicated_cid: u64) -> String {
+fn get_peer_cid_key(implicated_cid: u64) -> String {
     format!("{}.{}", PEER_CID_PREFIX, implicated_cid)
+}
+
+fn get_peer_username_key(implicated_cid: u64) -> String {
+    format!("{}.{}", PEER_USERNAME_PREFIX, implicated_cid)
 }
 
 fn get_byte_map_key(implicated_cid: u64, peer_cid: u64, key: &str) -> String {
     format!("{}.{}.{}.{}", BYTE_MAP_PREFIX, implicated_cid, peer_cid, key)
+}
+
+fn get_impersonal_status_key() -> &'static str {
+    CID_TO_IMPERSONALS
+}
+
+fn get_personal_status_key() -> &'static str {
+    CID_TO_PERSONALS
 }
