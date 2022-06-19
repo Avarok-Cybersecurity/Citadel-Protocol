@@ -129,14 +129,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         // TODO: Create trigger for byte_map
 
-        //let joined: String = [cmd, cmd2, cmd3, cmd4.to_string()].join(";");
-        //let _result = conn.execute(&*joined).await?;
-
-        let _ = conn.execute(&*cmd).await?;
-        let _ = conn.execute(&*cmd2).await?;
-        let _ = conn.execute(&*cmd3).await?;
-        let _ = conn.execute(cmd4).await?;
-
+        let joined: String = [cmd, cmd2, cmd3, cmd4.to_string()].join(";");
+        let _result = conn.execute(&*joined).await?;
 
         self.local_nac = Some(load_node_nac(directory_store)?);
 
@@ -212,12 +206,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let conn = &(self.get_conn().await?);
         let query: AnyQueryResult = sqlx::query(self.format("DELETE FROM cnacs WHERE cid = ?").as_str()).bind(cid.to_string()).execute(conn).await?;
         if query.rows_affected() != 0 { Ok(()) } else { Err(AccountError::ClientNonExists(cid)) }
-    }
-
-    async fn save_all(&self) -> Result<(), AccountError> {
-        self.local_nac().save_to_local_fs()?;
-        // we don't have to save any cnacs, since those are already saved on the database
-        Ok(())
     }
 
     async fn purge(&self) -> Result<usize, AccountError> {
@@ -530,9 +518,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
         if let Some(query) = query {
             match query.try_get::<String, _>("peer_cid") {
-                Ok(username) => {
-                    let peer_cid = u64::from_str(username.as_str())?;
-                    Ok(Some(MutualPeer { username: Some(username), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
+                Ok(peer_cid) => {
+                    let peer_cid = u64::from_str(peer_cid.as_str())?;
+                    Ok(Some(MutualPeer { username: Some(username.to_string()), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
                 }
 
                 _ => {
@@ -546,7 +534,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
 
     async fn get_hyperlan_peer_list_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<MutualPeer>>, AccountError> {
         let conn = &(self.get_conn().await?);
-        let query: Vec<AnyRow> = sqlx::query(self.format("SELECT peers.peer_cid, peers.username, FROM cnacs INNER JOIN peers ON cnacs.cid = peers.cid WHERE peers.cid = ?").as_str()).bind(implicated_cid.to_string()).fetch_all(conn).await?;
+        let query: Vec<AnyRow> = sqlx::query(self.format("SELECT peers.peer_cid, peers.username FROM cnacs INNER JOIN peers ON cnacs.cid = peers.cid WHERE peers.cid = ?").as_str()).bind(implicated_cid.to_string()).fetch_all(conn).await?;
         let mut ret = Vec::with_capacity(query.len());
 
         for row in query {
@@ -628,18 +616,39 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError> {
-        // TODO: This, and related functions, are not good. They need to return the prev value if exists
-        let conn = &(self.get_conn().await?);
+        let conn = self.get_conn().await?;
+        let mut tx = conn.begin().await?;
         let bytes_base64 = base64::encode(value);
-        let _query = sqlx::query(self.format("INSERT INTO bytemap (cid, peer_cid, id, sub_id, bin) VALUES (?, ?, ?, ?, ?)").as_str())
+        let get_query = self.format("SELECT bin FROM bytemap WHERE cid = ? AND peer_cid = ? AND id = ? AND sub_id = ? LIMIT 1");
+        let set_query = self.format("INSERT INTO bytemap (cid, peer_cid, id, sub_id, bin) VALUES (?, ?, ?, ?, ?)");
+
+        let row: Option<AnyRow> = sqlx::query(&get_query)
+            .bind(implicated_cid.to_string())
+            .bind(peer_cid.to_string())
+            .bind(key)
+            .bind(sub_key).fetch_optional(&mut tx).await?;
+
+        let _query = sqlx::query(&set_query)
             .bind(implicated_cid.to_string())
             .bind(peer_cid.to_string())
             .bind(key)
             .bind(sub_key)
             .bind(bytes_base64)
-            .execute(conn).await?;
-        // TODO: optimize this step to return any previous value
-        Ok(None)
+            .execute(&mut tx).await?;
+
+        tx.commit().await?;
+
+        if let Some(row) = row {
+            match row.try_get::<String, _>("bin") {
+                Ok(val) => {
+                    Ok(Some(base64::decode(val)?))
+                }
+
+                _ => Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {

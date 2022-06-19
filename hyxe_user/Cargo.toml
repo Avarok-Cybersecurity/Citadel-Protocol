@@ -10,7 +10,7 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 [features]
 redis = ["redis-base", "mobc"]
-default = ["single-threaded", "redis"]
+default = ["single-threaded"]
 sql = ["sqlx"]
 fcm = []
 multi-threaded = ["hyxe_crypt/multi-threaded"]

@@ -244,9 +244,9 @@ impl HdpSessionManager {
 
             if cnac.passwordless() {
                 // delete
-                let cnac = cnac.clone();
+                let cid = cnac.get_cid();
                 let task = async move {
-                    pers.delete_cnac(&cnac).await
+                    pers.delete_cnac_by_cid(cid).await
                 };
                 let _ = spawn!(task);
                 log::trace!(target: "lusna", "Deleting passwordless CNAC ...");

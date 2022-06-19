@@ -248,11 +248,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
         }
     }
 
-    /// Saves all the CNACs safely. This should be called during the shutdowns sequence.
-    pub async fn save(&self) -> Result<(), AccountError> {
-        self.persistence_handler.save_all().await
-    }
-
     /// returns the local nac
     pub fn get_local_nac(&self) -> &NetworkAccount<R, Fcm> {
         self.persistence_handler.local_nac()
