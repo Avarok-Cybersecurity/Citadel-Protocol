@@ -2,6 +2,7 @@ use crate::hdp::hdp_node::{NodeRemote, Ticket, NodeRequest};
 use hyxe_crypt::drill::SecurityLevel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use crate::error::NetworkError;
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::hdp::outbound_sender::{UnboundedReceiver, OutboundUdpSender, Sender};
 use futures::Stream;
@@ -243,7 +244,6 @@ mod rtc_impl {
     use crate::hdp::packet_processor::includes::SocketAddr;
     use bytes::BytesMut;
     use crate::hdp::peer::channel::WebRTCCompatChannel;
-    use crate::error::NetworkError;
     use crate::hdp::peer::channel::UdpChannel;
 
     impl From<UdpChannel> for WebRTCCompatChannel {
