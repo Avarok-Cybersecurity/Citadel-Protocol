@@ -29,12 +29,6 @@ jobs:
         with:
           mysql-version: '8.0'
           root-password: 'password'
-      - name: Add mysql databases
-        if: startsWith(matrix.os, 'ubuntu')
-        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
-      - name: Add sqlite databases
-        if: startsWith(matrix.os, 'ubuntu')
-        run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
       - name: Setup Postgres database (1)
         if: startsWith(matrix.os, 'ubuntu')
         uses: Daniel-Marynicz/postgresql-action@master
@@ -43,6 +37,15 @@ jobs:
           app_user: nologik
           app_user_password: password
           app_db: hyxewave hyxewave2
+      - name: Add mysql databases
+        if: startsWith(matrix.os, 'ubuntu')
+        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
+      - name: Augment connection size for psql
+        if: startsWith(matrix.os, 'ubuntu')
+        run:  psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://nologik:password@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://nologik:password@localhost/hyxewave2
+      - name: Add sqlite databases
+        if: startsWith(matrix.os, 'ubuntu')
+        run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
       - name: Start Redis
         if: startsWith(matrix.os, 'ubuntu')
         uses: supercharge/redis-github-action@1.4.0
