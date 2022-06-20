@@ -44,6 +44,7 @@ jobs:
           app_user_password: password
           app_db: hyxewave hyxewave2
       - name: Start Redis
+        if: startsWith(matrix.os, 'ubuntu')
         uses: supercharge/redis-github-action@1.4.0
         with:
           redis-version: 4
