@@ -9,7 +9,7 @@ use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::error::NetworkError;
 use std::collections::HashMap;
-use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
+use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use crate::hdp::hdp_node::SecrecyMode;
 use crate::functional::IfTrueConditional;
 use std::ops::Deref;
@@ -368,7 +368,7 @@ pub fn get_resp_target_cid_from_header(header: &HdpHeader) -> u64 {
 }
 
 #[allow(unused)]
-pub enum ToolsetUpdate<'a, R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+pub enum ToolsetUpdate<'a, R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     E2E { crypt: &'a mut PeerSessionCrypto<R>, local_cid: u64 },
     SessCNAC(&'a ClientNetworkAccount<R, Fcm>),
     FCM { fcm_crypt_container: &'a mut PeerSessionCrypto<Fcm>, peer_cid: u64, local_cid: u64 },
@@ -591,7 +591,7 @@ pub(crate) fn update_toolset_as_bob(mut update_method: ToolsetUpdate<'_>, transf
     //let opts = ConstructorOpts::new_vec_init(Some(crypto_params), (session_security_level.value() + 1) as usize);
     let opts = hr.get_next_constructor_opts();
     if transfer.is_fcm() {
-        let constructor = EndpointRatchetConstructor::<FcmRatchet>::new_bob(cid, new_version, opts, transfer)?;
+        let constructor = EndpointRatchetConstructor::<ThinRatchet>::new_bob(cid, new_version, opts, transfer)?;
         Some(update_method.update(ConstructorType::Fcm(constructor), false).ok()?)
     } else {
         let constructor = EndpointRatchetConstructor::<HyperRatchet>::new_bob(cid, new_version, opts, transfer)?;
