@@ -10,19 +10,13 @@ use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
 
 use hyxe_crypt::drill::SecurityLevel;
-use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
-use hyxe_crypt::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmRatchetConstructor};
-use hyxe_crypt::fcm::keys::FcmKeys;
-use hyxe_crypt::hyper_ratchet::constructor::{ConstructorType, HyperRatchetConstructor};
+use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
 use hyxe_crypt::hyper_ratchet::Ratchet;
-use hyxe_crypt::toolset::Toolset;
-use hyxe_fs::io::SyncIO;
 use hyxe_wire::hypernode_type::NodeType;
 use netbeam::time_tracker::TimeTracker;
 use hyxe_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
-use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use hyxe_user::network_account::ConnectProtocol;
 use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 use hyxe_user::re_imports::scramble_encrypt_file;
@@ -47,7 +41,7 @@ use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::outbound_sender::{channel, SendError, unbounded, UnboundedReceiver, UnboundedSender};
 use crate::hdp::outbound_sender::{OutboundPrimaryStreamReceiver, OutboundPrimaryStreamSender, OutboundUdpSender};
 use crate::hdp::peer::p2p_conn_handler::P2PInboundHandle;
-use crate::hdp::peer::peer_layer::{PeerResponse, PeerSignal, UdpMode, HyperNodePeerLayer};
+use crate::hdp::peer::peer_layer::{PeerSignal, UdpMode, HyperNodePeerLayer};
 use crate::hdp::session_queue_handler::{DRILL_REKEY_WORKER, FIREWALL_KEEP_ALIVE, KEEP_ALIVE_CHECKER, PROVISIONAL_CHECKER, QueueWorkerResult, QueueWorkerTicket, RESERVED_CID_IDX, SessionQueueWorker, SessionQueueWorkerHandle};
 use crate::hdp::state_container::{FileKey, GroupKey, OutboundFileTransfer, OutboundTransmitterContainer, StateContainer, StateContainerInner, VirtualConnectionType, VirtualTargetType};
 use crate::hdp::state_subcontainers::drill_update_container::calculate_update_frequency;
@@ -172,7 +166,6 @@ pub struct HdpSessionInner {
     pub(super) is_server: bool,
     pub(super) stopper_tx: DualRwLock<tokio::sync::broadcast::Sender<()>>,
     pub(super) queue_handle: DualLateInit<SessionQueueWorkerHandle>,
-    pub(super) fcm_keys: Option<FcmKeys>,
     pub(super) peer_only_connect_protocol: DualRwLock<Option<ConnectProtocol>>,
     pub(super) primary_stream_quic_conn: DualRwLock<Option<NewConnection>>,
     pub(super) local_nat_type: NatType,
@@ -213,14 +206,13 @@ pub enum HdpSessionInitMode {
 impl HdpSession {
     /// Creates a new session.
     /// 'implicated_cid': Supply None if you expect to register. If Some, will check the account manager
-    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<NodeResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, mut fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings, connect_mode: Option<ConnectMode>, client_config: Arc<rustls::ClientConfig>, hypernode_peer_layer: HyperNodePeerLayer) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
+    pub(crate) fn new(init_mode: HdpSessionInitMode, local_nat_type: NatType, peer_only_connect_proto: ConnectProtocol, cnac: Option<ClientNetworkAccount>, remote_peer: SocketAddr, proposed_credentials: ProposedCredentials, on_drop: UnboundedSender<()>, hdp_remote: NodeRemote, local_bind_addr: SocketAddr, local_node_type: NodeType, kernel_tx: UnboundedSender<NodeResult>, session_manager: HdpSessionManager, account_manager: AccountManager, time_tracker: TimeTracker, kernel_ticket: Ticket, udp_mode: UdpMode, keep_alive_timeout_ns: i64, security_settings: SessionSecuritySettings, connect_mode: Option<ConnectMode>, client_config: Arc<rustls::ClientConfig>, hypernode_peer_layer: HyperNodePeerLayer) -> Result<(tokio::sync::broadcast::Sender<()>, Self), NetworkError> {
         let (cnac, state, implicated_cid) = match &init_mode {
             HdpSessionInitMode::Connect(auth) => {
                 match auth {
                     AuthenticationRequest::Credentialed { .. } => {
                         let cnac = cnac.ok_or(NetworkError::InvalidRequest("Client does not exist"))?;
                         let cid = cnac.get_cid();
-                        fcm_keys = fcm_keys.or_else(|| cnac.get_fcm_keys()); // use the provided FCM, otherwise, use the default FCM keys
                         (Some(cnac), Arc::new(Atomic::new(SessionState::NeedsConnect)), Some(cid))
                     }
 
@@ -265,7 +257,6 @@ impl HdpSession {
             is_server: false,
             stopper_tx: stopper_tx.clone().into(),
             queue_handle: DualLateInit::default(),
-            fcm_keys,
             client_config
         };
 
@@ -311,7 +302,6 @@ impl HdpSession {
             is_server: true,
             stopper_tx: stopper_tx.clone().into(),
             queue_handle: DualLateInit::default(),
-            fcm_keys: None,
             client_config
         };
 
@@ -1169,103 +1159,50 @@ impl HdpSession {
 
     #[allow(unused_results)]
     pub(crate) async fn dispatch_peer_command(&self, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
-        log::trace!(target: "lusna", "Dispatching peer command ...");
+        log::trace!(target: "lusna", "Dispatching peer command {:?} ...", peer_command);
         let this = self;
         let timestamp = this.time_tracker.get_global_time_ns();
-        let mut do_save = false;
 
-        let (cnac, res) = {
-            let mut state_container = inner_mut_state!(this.state_container);
+        let mut state_container = inner_mut_state!(this.state_container);
+        if let Some(cnac) = state_container.cnac.clone() {
+            if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
+                let packet = cnac.visit(|inner| {
+                    let signal_processed = match peer_command {
+                        PeerSignal::DisconnectUDP(v_conn) => {
+                            // disconnect UDP locally
+                            log::trace!(target: "lusna", "Closing UDP subsystem locally ...");
+                            state_container.remove_udp_channel(v_conn.get_target_cid());
+                            PeerSignal::DisconnectUDP(v_conn)
+                        }
 
-            if let Some(cnac) = state_container.cnac.clone() {
-                if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
-                    // move into the closure without cloning the drill
-                    let packet = cnac.visit_mut(|mut inner| {
-                        let this_cid = inner.cid;
-                        let signal_processed = match peer_command {
-                            PeerSignal::DisconnectUDP(v_conn) => {
-                                // disconnect UDP locally
-                                log::trace!(target: "lusna", "Closing UDP subsystem locally ...");
-                                state_container.remove_udp_channel(v_conn.get_target_cid());
-                                PeerSignal::DisconnectUDP(v_conn)
-                            }
-                            // case 1: user just initiated a post-register request that has Fcm enabled
-                            PeerSignal::PostRegister(vconn, a, b, c,d, FcmPostRegister::Enable) => {
-                                let target_cid = vconn.get_original_target_cid();
-                                log::trace!(target: "lusna", "[FCM] client {} requested FCM post-register with {}", inner.cid, target_cid);
-
-                                if state_container.peer_kem_states.contains_key(&target_cid) || inner.fcm_crypt_container.contains_key(&target_cid) {
-                                    return Err(NetworkError::InvalidRequest("Cannot register to the specified client because a concurrent registration process is already occurring, or already registered"));
-                                }
-
-                                // create constructor
-                                // TODO: Extend FCM to include custom params (within reason, ofc)
-                                let fcm_constructor = FcmRatchetConstructor::new_alice(inner.cid, 0, ConstructorOpts::default()).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
-                                let fcm_post_register = FcmPostRegister::AliceToBobTransfer(fcm_constructor.stage0_alice().serialize_to_vector().unwrap(), inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidRequest("Fcm not configured for this client"))?, this_cid);
-                                // finally, store the constructor inside the state container
-                                if let Some(_) = inner.kem_state_containers.insert(target_cid, ConstructorType::Fcm(fcm_constructor)) {
-                                    log::error!(target: "lusna", "Overwrote pre-existing FCM KEM container. Report to developers")
-                                }
-
-                                do_save = true;
-                                PeerSignal::PostRegister(vconn, a, b, c, d,fcm_post_register)
+                        PeerSignal::PostConnect(a, b, None, d, e) => {
+                            if state_container.outgoing_peer_connect_attempts.contains_key(&a.get_original_target_cid()) {
+                                log::warn!(target: "lusna", "{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
                             }
 
-                            // case 2: local just accepted, fcm is enabled. But, signal was not sent via FCM. Instead, was sent via normal network
-                            PeerSignal::PostRegister(vconn, a, b, ticket, Some(PeerResponse::Accept(Some(c))), FcmPostRegister::AliceToBobTransfer(transfer, peer_fcm_keys, _this_cid)) => {
-                                let target_cid = vconn.get_original_target_cid();
-                                let local_cid = inner.cid;
-                                log::trace!(target: "lusna", "[FCM] client {} accepted FCM post-register with {}", local_cid, target_cid);
-                                if inner.fcm_crypt_container.contains_key(&target_cid) {
-                                    return Err(NetworkError::InvalidRequest("Cannot register to the specified client because crypt container already exists"));
-                                }
+                            // in case the ticket gets mapped during simultaneous_connect, store locally
+                            let _ = state_container.outgoing_peer_connect_attempts.insert(a.get_original_target_cid(), ticket);
+                            PeerSignal::PostConnect(a, b, None, d, e)
+                        }
 
-                                let fcm_keys_local = inner.crypt_container.fcm_keys.clone().ok_or(NetworkError::InvalidRequest("Local node does not have FCM keys to share with the endpoint"))?;
+                        n => {
+                            n
+                        }
+                    };
 
-                                let bob_constructor = FcmRatchetConstructor::new_bob(ConstructorOpts::default(), FcmAliceToBobTransfer::deserialize_from_vector(&transfer[..]).map_err(|err| NetworkError::Generic(err.to_string()))?).ok_or(NetworkError::InvalidRequest("Invalid FCM ratchet constructor"))?;
-                                let fcm_post_register = FcmPostRegister::BobToAliceTransfer(bob_constructor.stage0_bob().ok_or(NetworkError::InvalidRequest("Invalid FCM ratchet constructor"))?, fcm_keys_local.clone(), local_cid);
-                                let fcm_ratchet = bob_constructor.finish_with_custom_cid(local_cid).ok_or(NetworkError::InvalidRequest("Invalid FCM Ratchet constructor"))?;
-                                // no state container, we just add the peer crypt container straight-away
-                                inner.fcm_crypt_container.insert(target_cid, PeerSessionCrypto::new_fcm(Toolset::new(local_cid, fcm_ratchet), false, peer_fcm_keys)); // local is NOT initiator in this case
-                                do_save = true;
+                    // TODO: move into state container
+                    let hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).unwrap();
+                    let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
+                    Ok::<_, NetworkError>(packet)
+                })?;
 
-                                PeerSignal::PostRegister(vconn, a, b, ticket,Some(PeerResponse::Accept(Some(c))), fcm_post_register)
-                            }
-
-                            PeerSignal::PostConnect(a, b, None, d, e) => {
-                                if state_container.outgoing_peer_connect_attempts.contains_key(&a.get_original_target_cid()) {
-                                    log::warn!(target: "lusna", "{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
-                                }
-
-                                // in case the ticket gets mapped during simultaneous_connect, store locally
-                                let _ = state_container.outgoing_peer_connect_attempts.insert(a.get_original_target_cid(), ticket);
-                                PeerSignal::PostConnect(a, b, None, d, e)
-                            }
-
-                            n => {
-                                n
-                            }
-                        };
-
-                        let hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).unwrap();
-                        let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
-                        Ok(packet)
-                    })?;
-
-                    (cnac, to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string())))
-                } else {
-                    return Err(NetworkError::InternalError("Invalid configuration"))
-                }
+                to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string()))
             } else {
-                return Err(NetworkError::InternalError("Invalid configuration"))
+                Err(NetworkError::InternalError("Invalid configuration"))
             }
-        };
-
-        if do_save {
-            cnac.save().await?;
+        } else {
+            Err(NetworkError::InternalError("Invalid configuration (no CNAC)"))
         }
-
-        res
     }
 
     async fn listen_udp_port<S: UdpStream>(this: HdpSession, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {

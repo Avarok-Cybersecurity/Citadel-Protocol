@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -6,16 +6,12 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
-use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::SecurityLevel;
 use hyxe_wire::hypernode_type::NodeType;
 use hyxe_wire::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
-use hyxe_user::external_services::fcm::data_structures::RawExternalPacket;
-use hyxe_user::external_services::fcm::fcm_instance::FCMInstance;
-use hyxe_user::misc::AccountError;
 use hyxe_user::prelude::ConnectProtocol;
 use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 
@@ -36,7 +32,7 @@ use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroupOptions};
 use crate::hdp::peer::peer_layer::{HyperNodePeerLayer, MailboxTransfer, PeerConnectionType, PeerResponse, PeerSignal, UdpMode, HyperNodePeerLayerInner};
 use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
 use crate::kernel::RuntimeFuture;
-use crate::macros::{ContextRequirements, SyncContextRequirements};
+use crate::macros::SyncContextRequirements;
 use crate::auth::AuthenticationRequest;
 use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
 use std::sync::Arc;
@@ -56,24 +52,11 @@ pub struct HdpSessionManagerInner {
     /// in the state of NeedsRegister. Once they leave that state, they are eventually polled
     /// by the [HdpSessionManager] and thereafter placed inside an appropriate session
     provisional_connections: HashMap<SocketAddr, (Instant, Sender<()>, HdpSession)>,
-    fcm_post_registrations: HashSet<FcmPeerRegisterTicket>,
     kernel_tx: UnboundedSender<NodeResult>,
     time_tracker: TimeTracker,
     clean_shutdown_tracker_tx: UnboundedSender<()>,
     clean_shutdown_tracker: Option<UnboundedReceiver<()>>,
     client_config: Arc<rustls::ClientConfig>
-}
-
-#[derive(Copy, Clone, Hash, Eq, PartialEq)]
-struct FcmPeerRegisterTicket {
-    initiator: u64,
-    receiver: u64
-}
-
-impl FcmPeerRegisterTicket {
-    fn create_bidirectional(a: u64, b: u64) -> (Self, Self) {
-        (FcmPeerRegisterTicket { initiator: a, receiver: b }, FcmPeerRegisterTicket { initiator: b, receiver: a })
-    }
 }
 
 impl HdpSessionManager {
@@ -84,7 +67,6 @@ impl HdpSessionManager {
         let inner = HdpSessionManagerInner {
             clean_shutdown_tracker_tx,
             clean_shutdown_tracker: Some(clean_shutdown_tracker_rx),
-            fcm_post_registrations: Default::default(),
             hypernode_peer_layer: HyperNodePeerLayer::new(account_manager.get_persistence_handler().clone()),
             server_remote: None,
             local_node_type,
@@ -114,19 +96,13 @@ impl HdpSessionManager {
         this.sessions.contains_key(&cid)
     }
 
-    /// Obtains the HdpSession. Beware of locking!
-    pub fn get_session_by_cid(&self, cid: u64) -> Option<HdpSession> {
-        let this = inner!(self);
-        this.sessions.get(&cid).map(|r| r.1.clone())
-    }
-
     /// Called by the higher-level [HdpServer] async writer loop
     /// `nid_local` is only needed incase a provisional id is needed.
     ///
     /// This is initiated by the local HyperNode's request to connect to an external server
     /// `proposed_credentials`: Must be Some if implicated_cid is None!
     #[allow(unused_results)]
-    pub async fn initiate_connection(&self, local_node_type: NodeType, local_nat_type: NatType, init_mode: HdpSessionInitMode, ticket: Ticket, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, fcm_keys: Option<FcmKeys>, udp_mode: Option<UdpMode>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings, default_client_config: &Arc<ClientConfig>) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
+    pub async fn initiate_connection(&self, local_node_type: NodeType, local_nat_type: NatType, init_mode: HdpSessionInitMode, ticket: Ticket, connect_mode: Option<ConnectMode>, listener_underlying_proto: UnderlyingProtocol, udp_mode: Option<UdpMode>, keep_alive_timeout_ns: Option<i64>, security_settings: SessionSecuritySettings, default_client_config: &Arc<ClientConfig>) -> Result<Pin<Box<dyn RuntimeFuture>>, NetworkError> {
         let (session_manager, new_session, peer_addr, primary_stream) = {
             let session_manager_clone = self.clone();
 
@@ -196,7 +172,7 @@ impl HdpSessionManager {
 
             //let peer_only_connect_mode = match listener_underlying_proto { UnderlyingProtocol::Tcp => ConnectProtocol::Tcp, UnderlyingProtocol::Tls(_, domain) => ConnectProtocol::Tls(domain) };
 
-            let (stopper, new_session) = HdpSession::new(init_mode, local_nat_type, peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket, fcm_keys, udp_mode.unwrap_or(UDP_MODE), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings, connect_mode, default_client_config.clone(), peer_layer)?;
+            let (stopper, new_session) = HdpSession::new(init_mode, local_nat_type, peer_only_connect_mode, cnac, peer_addr, proposed_credentials, on_drop,remote, local_bind_addr, local_node_type, kernel_tx, session_manager_clone.clone(), account_manager, tt, ticket,udp_mode.unwrap_or(UDP_MODE), keep_alive_timeout_ns.unwrap_or(KEEP_ALIVE_TIMEOUT_NS), security_settings, connect_mode, default_client_config.clone(), peer_layer)?;
 
             inner_mut!(self).provisional_connections.insert(peer_addr, (Instant::now(), stopper, new_session.clone()));
 
@@ -244,9 +220,9 @@ impl HdpSessionManager {
 
             if cnac.passwordless() {
                 // delete
-                let cnac = cnac.clone();
+                let cid = cnac.get_cid();
                 let task = async move {
-                    pers.delete_cnac(cnac).await
+                    pers.delete_cnac_by_cid(cid).await
                 };
                 let _ = spawn!(task);
                 log::trace!(target: "lusna", "Deleting passwordless CNAC ...");
@@ -490,66 +466,6 @@ impl HdpSessionManager {
         }
     }
 
-    /// Sends to user, but does not block. Once the send is complete, will run ``on_send_complete``, which gives the sender the option to return a packet back to the initiator
-    ///
-    /// This is usually to send packets to another client who may or may not have an endpoint crypt container yet. It doesn't matter here, since we're only using the base ratchet
-    ///
-    /// Since the user may or may not be online, we use the static aux ratchet
-    #[allow(unused_results)]
-    pub async fn fcm_post_register_to(&self, implicated_cid: u64, peer_cid: u64, is_response: bool, packet_crafter: impl FnOnce(&HyperRatchet) -> RawExternalPacket, on_send_complete: impl FnOnce(Result<(), AccountError>) + ContextRequirements) -> Result<(), NetworkError> {
-        let this_ref = self.clone();
-
-        if implicated_cid != peer_cid {
-            let (account_manager, tickets) = {
-                let this = inner!(self);
-                let tickets = FcmPeerRegisterTicket::create_bidirectional(implicated_cid, peer_cid);
-                if !is_response {
-                    if this.fcm_post_registrations.contains(&tickets.0) || this.fcm_post_registrations.contains(&tickets.1) {
-                        return Err(NetworkError::InvalidRequest("A concurrent registration request between the two peers is already occurring"))
-                    }
-                }
-
-                let account_manager = this.account_manager.clone();
-                std::mem::drop(this);
-                (account_manager, tickets)
-            };
-
-            let peer_cnac = account_manager.get_client_by_cid(peer_cid).await?.ok_or(NetworkError::InvalidRequest("Peer CID does not exist"))?;
-            let (keys, static_aux_ratchet) = {
-                let inner = peer_cnac.read();
-                let keys = inner.crypt_container.fcm_keys.clone();
-                let static_aux_ratchet = inner.crypt_container.toolset.get_static_auxiliary_ratchet().clone();
-
-                (keys, static_aux_ratchet)
-            };
-
-            let fcm_instance = FCMInstance::new(keys.ok_or(NetworkError::InvalidRequest("Client cannot receive FCM messages at this time"))?, account_manager.fcm_client().clone());
-            let packet = packet_crafter(&static_aux_ratchet);
-
-            {
-                let mut this = inner_mut!(this_ref);
-
-                if is_response {
-                    // remove the tickets
-                    this.fcm_post_registrations.remove(&tickets.0);
-                    this.fcm_post_registrations.remove(&tickets.1);
-                } else {
-                    // add the tickets
-                    this.fcm_post_registrations.insert(tickets.0);
-                    this.fcm_post_registrations.insert(tickets.1);
-                }
-
-                std::mem::drop(this);
-            }
-
-
-            on_send_complete(fcm_instance.send_to_fcm_user(packet).await.map(|_| ()));
-            Ok(())
-        } else {
-            Err(NetworkError::InvalidRequest("implicated cid == peer_cid"))
-        }
-    }
-
     /// Creates a new message group. Returns a key if successful
     pub async fn create_message_group_and_notify(&self, timestamp: i64, ticket: Ticket, implicated_cid: u64, peers_to_notify: Vec<u64>, security_level: SecurityLevel, options: MessageGroupOptions) -> Option<MessageGroupKey> {
         let peer_layer = {
@@ -787,7 +703,7 @@ impl HdpSessionManager {
                 })
             } else {
                 // session is not active, but user is registered (thus offline). Setup return ticket tracker on implicated_cid
-                // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: FCM route alternative, if available
+                // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: external svc route, if available
                 peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal.clone(), on_timeout).await;
                 HyperNodePeerLayer::try_add_mailbox(&pers, target_cid, signal).await.map_err(|err| err.into_string())
             }

@@ -15,12 +15,12 @@ use arrayvec::ArrayVec;
 use ez_pqcrypto::constructor_opts::ConstructorOpts;
 
 #[derive(Clone, Serialize, Deserialize)]
-/// A compact ratchet meant for FCM messages
-pub struct FcmRatchet {
-    inner: Arc<FcmRatchetInner>
+/// A compact ratchet meant for thin protocol messages
+pub struct ThinRatchet {
+    inner: Arc<ThinRatchetInner>
 }
 
-impl FcmRatchet {
+impl ThinRatchet {
     /// decrypts using a custom nonce configuration
     pub fn decrypt_custom<T: AsRef<[u8]>>(&self, wave_id: u32, group_id: u64, contents: T) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
@@ -36,13 +36,13 @@ impl FcmRatchet {
 
 #[derive(Serialize, Deserialize)]
 ///
-pub struct FcmRatchetInner {
+pub struct ThinRatchetInner {
     drill: Drill,
     pqc: PostQuantumContainer
 }
 
-impl Ratchet for FcmRatchet {
-    type Constructor = FcmRatchetConstructor;
+impl Ratchet for ThinRatchet {
+    type Constructor = ThinRatchetConstructor;
 
     fn get_cid(&self) -> u64 {
         self.inner.drill.cid
@@ -97,7 +97,7 @@ impl Ratchet for FcmRatchet {
 
 /// Used for constructing the ratchet
 #[derive(Serialize, Deserialize)]
-pub struct FcmRatchetConstructor {
+pub struct ThinRatchetConstructor {
     params: CryptoParameters,
     pqc: PostQuantumContainer,
     drill: Option<Drill>,
@@ -106,15 +106,15 @@ pub struct FcmRatchetConstructor {
     version: u32
 }
 
-impl EndpointRatchetConstructor<FcmRatchet> for FcmRatchetConstructor {
+impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
     fn new_alice(mut opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, _security_level: Option<SecurityLevel>) -> Option<Self> {
-        FcmRatchetConstructor::new_alice(cid, new_version, opts.remove(0))
+        ThinRatchetConstructor::new_alice(cid, new_version, opts.remove(0))
     }
 
     fn new_bob(_cid: u64, _new_drill_vers: u32, mut opts: Vec<ConstructorOpts>, transfer: AliceToBobTransferType<'_>) -> Option<Self> {
         match transfer {
             AliceToBobTransferType::Fcm(transfer) => {
-                FcmRatchetConstructor::new_bob(opts.remove(0), transfer)
+                ThinRatchetConstructor::new_bob(opts.remove(0), transfer)
             }
 
             _ => {
@@ -149,11 +149,11 @@ impl EndpointRatchetConstructor<FcmRatchet> for FcmRatchetConstructor {
         self.update_version(version)
     }
 
-    fn finish_with_custom_cid(self, cid: u64) -> Option<FcmRatchet> {
+    fn finish_with_custom_cid(self, cid: u64) -> Option<ThinRatchet> {
         self.finish_with_custom_cid(cid)
     }
 
-    fn finish(self) -> Option<FcmRatchet> {
+    fn finish(self) -> Option<ThinRatchet> {
         self.finish()
     }
 }
@@ -176,7 +176,7 @@ pub struct FcmBobToAliceTransfer {
     encrypted_drill_bytes: Vec<u8>
 }
 
-impl FcmRatchetConstructor {
+impl ThinRatchetConstructor {
     /// FCM limits messages to 4Kb, so we need to use firesaber alone
     pub fn new_alice(cid: u64, version: u32, opts: ConstructorOpts) -> Option<Self> {
         let params = opts.cryptography.unwrap_or_default();
@@ -247,25 +247,25 @@ impl FcmRatchetConstructor {
     }
 
     ///
-    pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<FcmRatchet> {
+    pub fn finish_with_custom_cid(mut self, cid: u64) -> Option<ThinRatchet> {
         self.cid = cid;
         self.drill.as_mut()?.cid = cid;
         self.finish()
     }
 
     ///
-    pub fn finish(self) -> Option<FcmRatchet> {
-        FcmRatchet::try_from(self).ok()
+    pub fn finish(self) -> Option<ThinRatchet> {
+        ThinRatchet::try_from(self).ok()
     }
 }
 
-impl TryFrom<FcmRatchetConstructor> for FcmRatchet {
+impl TryFrom<ThinRatchetConstructor> for ThinRatchet {
     type Error = ();
 
-    fn try_from(value: FcmRatchetConstructor) -> Result<Self, Self::Error> {
+    fn try_from(value: ThinRatchetConstructor) -> Result<Self, Self::Error> {
         let drill = value.drill.ok_or(())?;
         let pqc = value.pqc;
-        let inner = FcmRatchetInner { drill, pqc };
-        Ok(FcmRatchet { inner: Arc::new(inner) })
+        let inner = ThinRatchetInner { drill, pqc };
+        Ok(ThinRatchet { inner: Arc::new(inner) })
     }
 }

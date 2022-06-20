@@ -8,7 +8,6 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::ConstructorOpts;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_fs::prelude::SyncIO;
-use hyxe_user::external_services::fcm::kem::FcmPostRegister;
 use netbeam::sync::RelativeNodeType;
 
 use crate::error::NetworkError;
@@ -67,15 +66,6 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                 if !session.is_server {
                     // forward the signal to the kernel, with some exceptions.
                     match &signal {
-                        PeerSignal::FcmTokenUpdate(new_keys) => {
-                            let persistence_handler = session.account_manager.get_persistence_handler().clone();
-                            let to_kernel = session.kernel_tx.clone();
-
-                            persistence_handler.update_fcm_keys(&cnac, new_keys.clone()).await?;
-                            to_kernel.unbounded_send(NodeResult::PeerEvent(PeerSignal::SignalReceived(ticket), ticket))?;
-                            return Ok(PrimaryProcessorResult::Void);
-                        }
-
                         PeerSignal::Disconnect(vconn, resp) => {
                             // below line is confusing. The logic is answered in the server block for PeerSignal::Disconnect
                             let target = resp.as_ref().map(|_| vconn.get_original_implicated_cid()).unwrap_or(vconn.get_original_target_cid());
@@ -127,83 +117,22 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                             return Ok(PrimaryProcessorResult::Void)
                         }
 
-                        PeerSignal::DeregistrationSuccess(peer_cid, used_fcm) => {
+                        PeerSignal::DeregistrationSuccess(peer_cid) => {
                             log::trace!(target: "lusna", "[Deregistration] about to remove peer {} from {} at the endpoint", peer_cid, cnac.get_cid());
                             let acc_mgr = session.account_manager.clone();
                             let kernel_tx = session.kernel_tx.clone();
                             let cnac = cnac.clone();
                             let this_cid = cnac.get_cid();
 
-                            if *used_fcm {
-                                let peer_cid = *peer_cid;
-                                // now, send an FCM dereg signal. Then, create FCM dereg signal+handler. Finally, remove the kernel's dereg operation
-                                match cnac.fcm_raw_send_to_peer(peer_cid, |fcm_ratchet| hyxe_user::external_services::fcm::fcm_packet_crafter::craft_deregistered(fcm_ratchet, peer_cid, ticket.0), acc_mgr.fcm_client()).await {
-                                    Ok(_) => {
-                                        log::trace!(target: "lusna", "Successfully alerted peer {} that deregistration occurred", peer_cid);
-                                    }
-
-                                    Err(err) => {
-                                        log::warn!(target: "lusna", "Unable to alert peer {} that deregistration occurred: {:?}", peer_cid, err);
-                                    }
-                                }
-                            } else { // just remove the peer
-                            }
-
                             if let None = acc_mgr.get_persistence_handler().deregister_p2p_as_client(this_cid, *peer_cid).await? {
                                 log::warn!(target: "lusna", "Unable to remove hyperlan peer {}", peer_cid);
                             }
 
-                            kernel_tx.unbounded_send(NodeResult::PeerEvent(PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), *peer_cid), *used_fcm), ticket))?;
+                            kernel_tx.unbounded_send(NodeResult::PeerEvent(PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), *peer_cid)), ticket))?;
                             return Ok(PrimaryProcessorResult::Void)
                         }
 
-                        PeerSignal::PostRegister(vconn, peer_username, _, ticket_opt, peer_resp, FcmPostRegister::BobToAliceTransfer(transfer, fcm_keys, _cid)) => {
-                            // When using FCM, post-register requires syncing to the HD to establish static key pairs. Otherwise, normal post-registers do not since keys are re-established during post-connect stage
-                            log::trace!(target: "lusna", "[FCM] Received bob to alice transfer from {}", vconn.get_original_implicated_cid());
-                            let peer_cid = vconn.get_original_implicated_cid();
-                            let this_cid = vconn.get_original_target_cid();
-                            // we need to get the peer kem state container
-                            return_if_none!(cnac.visit_mut(|mut inner| {
-                                let mut fcm_constructor = inner.kem_state_containers.remove(&peer_cid)?.assume_fcm()?;
-                                fcm_constructor.stage1_alice(transfer)?;
-                                let fcm_ratchet = fcm_constructor.finish_with_custom_cid(this_cid)?;
-                                let fcm_endpoint_container = PeerSessionCrypto::new_fcm(Toolset::new(this_cid, fcm_ratchet), true, fcm_keys.clone());
-                                inner.fcm_crypt_container.insert(peer_cid, fcm_endpoint_container);
-                                Some(())
-                            }));
-
-                            let to_kernel = session.kernel_tx.clone();
-                            let account_manager = session.account_manager.clone();
-                            let cnac = cnac.clone();
-
-                            if let Some(peer_resp_) = peer_resp.as_ref() {
-                                match peer_resp_ {
-                                    PeerResponse::Accept(Some(peer_uname)) => {
-
-                                        match account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_uname).await {
-                                            Ok(_) => {
-                                                log::trace!(target: "lusna", "[FCM] Successfully finished registration!");
-                                                to_kernel.unbounded_send(NodeResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), None, ticket_opt.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
-                                                return Ok(PrimaryProcessorResult::Void);
-                                            },
-
-                                            Err(err) => {
-                                                log::error!(target: "lusna", "Unable to register hyperlan p2p at endpoint: {:#?}", err);
-                                            }
-                                        }
-                                    }
-
-                                    _ => {}
-                                }
-                            }
-
-                            cnac.save().await?;
-                            log::trace!(target: "lusna", "[FCM] Successfully finished registration!");
-                            to_kernel.unbounded_send(NodeResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), None, ticket_opt.clone(), peer_resp.clone(), FcmPostRegister::Enable), ticket))?;
-                            return Ok(PrimaryProcessorResult::Void);
-                        }
-
-                        PeerSignal::PostRegister(vconn, _peer_username, _, ticket0, Some(PeerResponse::Accept(Some(peer_username))), FcmPostRegister::Disable) => {
+                        PeerSignal::PostRegister(vconn, _peer_username, _, ticket0, Some(PeerResponse::Accept(Some(peer_username)))) => {
                             let to_kernel = session.kernel_tx.clone();
                             let account_manager = session.account_manager.clone();
 
@@ -213,7 +142,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                             match account_manager.register_hyperlan_p2p_at_endpoints(this_cid, peer_cid, peer_username).await {
                                 Ok(_) => {
                                     log::trace!(target: "lusna", "Success registering at endpoints");
-                                    to_kernel.unbounded_send(NodeResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), None, *ticket0, Some(PeerResponse::Accept(Some(peer_username.clone()))), FcmPostRegister::Disable), ticket))?;
+                                    to_kernel.unbounded_send(NodeResult::PeerEvent(PeerSignal::PostRegister(*vconn, peer_username.clone(), None, *ticket0, Some(PeerResponse::Accept(Some(peer_username.clone())))), ticket))?;
                                 }
 
                                 Err(err) => {
@@ -523,7 +452,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             }
         }
 
-        PeerSignal::PostRegister(peer_conn_type, username, peer_username_opt, _ticket_opt, peer_response, fcm) => {
+        PeerSignal::PostRegister(peer_conn_type, username, peer_username_opt, _ticket_opt, peer_response) => {
             // check to see if the client is connected, and if not, send to HypernodePeerLayer
             match peer_conn_type {
                 PeerConnectionType::HyperLANPeerToHyperLANPeer(_implicated_cid, target_cid) => {
@@ -531,42 +460,8 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                     const TIMEOUT: Duration = Duration::from_secs(60 * 60); // 1 hour
                     // if the peer response is some, then HyperLAN Client B responded
                     if let Some(peer_response) = peer_response {
-                        match fcm {
-                            tx @ FcmPostRegister::BobToAliceTransfer(..) | tx @ FcmPostRegister::Decline => {
-                                // Now, register the two account together
-                                let sess_mgr = session.session_manager.clone();
-                                let decline = tx == FcmPostRegister::Decline;
-                                let account_manager = session.account_manager.clone();
-
-                                if !decline {
-                                    if let Err(err) = account_manager.register_hyperlan_p2p_as_server(peer_conn_type.get_original_implicated_cid(), peer_conn_type.get_original_target_cid()).await {
-                                        return reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level);
-                                    }
-                                }
-
-                                let res = sess_mgr.clone().fcm_post_register_to(header.session_cid.get(), peer_conn_type.get_original_target_cid(), true, move |static_hr| { hyxe_user::external_services::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, tx, username) },
-                                                                                move |res| {
-                                                                                           post_fcm_send(res, sess_mgr.clone(), ticket, implicated_cid, security_level, &cnac)
-                                                                                       }).await;
-
-                                match res {
-                                    Ok(_) => {
-                                        // response will occur in the future via on_send_complete
-                                        Ok(PrimaryProcessorResult::Void)
-                                    }
-
-                                    Err(err) => {
-                                        log::warn!(target: "lusna", "Unable to return accept/deny request packet: {:?}", &err);
-                                        reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level)
-                                    }
-                                }
-                            }
-
-                            _ => {
-                                // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
-                                super::server::post_register::handle_response_phase(&mut *session.hypernode_peer_layer.inner.write().await, peer_conn_type, username, peer_response, ticket, fcm, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level).await
-                            }
-                        }
+                        // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
+                        super::server::post_register::handle_response_phase(&mut *session.hypernode_peer_layer.inner.write().await, peer_conn_type, username, peer_response, ticket, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level).await
                     } else {
                         // We route the signal from alice to bob. We send directly to Bob if FCM is not specified. If FCM is being used, then will route to target's FCM credentials
                         let target_cid = if let Some(peer_username) = peer_username_opt {
@@ -583,55 +478,30 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                             target_cid
                         };
 
-                        match &fcm {
-                            FcmPostRegister::AliceToBobTransfer(..) => {
-                                let implicated_cid = header.session_cid.get();
-                                let sess_mgr = session.session_manager.clone(); // we must clone since the session may end after the FCM send occurs. We don't want to hold a strong ref
+                        // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase). No FCM
+                        // NOTE: we MUST redefine peer_conn_type since it may be overwritten if only a username is given
+                        let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid);
 
-                                let res = sess_mgr.clone().fcm_post_register_to(implicated_cid, target_cid, false, move |static_hr| { hyxe_user::external_services::fcm::fcm_packet_crafter::craft_post_register(static_hr, ticket.0, implicated_cid, fcm, username) }, move |res| {
-                                    post_fcm_send(res, sess_mgr, ticket, implicated_cid, security_level, &cnac)
-                                }).await;
+                        let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
 
-                                match res {
-                                    Ok(_) => {
-                                        // We won't reply until AFTER the fcm message send
-                                        Ok(PrimaryProcessorResult::Void)
-                                    }
+                        if let Some(ticket_new) = peer_layer.check_simultaneous_register(implicated_cid, target_cid) {
+                            log::trace!(target: "lusna", "Simultaneous register detected! Simulating implicated_cid={} sent an accept_register to target={}", implicated_cid, target_cid);
+                            // route signal to peer
+                            let _ = super::server::post_register::handle_response_phase(&mut *peer_layer, peer_conn_type, username.clone(), PeerResponse::Accept(Some(username)), ticket_new, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level).await?;
+                            // rebound accept packet
+                            let username = session.account_manager.get_username_by_cid(target_cid).await?;
+                            let accept = PeerResponse::Accept(username.clone());
+                            // TODO: get rid of multiple username fields
+                            // we have to flip the ordering for here alone since the endpoint handler for this signal expects do
+                            let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
+                            let cmd = PeerSignal::PostRegister(peer_conn_type, username.clone().unwrap_or_default(), username, Some(ticket), Some(accept));
 
-                                    Err(err) => {
-                                        log::warn!(target: "lusna", "Unable to post-register: {:?}", &err);
-                                        reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level)
-                                    }
-                                }
-                            }
-
-                            _ => {
-                                // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase). No FCM
-                                // NOTE: we MUST redefine peer_conn_type since it may be overwritten if only a username is given
-                                let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid);
-
-                                let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
-
-                                if let Some(ticket_new) = peer_layer.check_simultaneous_register(implicated_cid, target_cid) {
-                                    log::trace!(target: "lusna", "Simultaneous register detected! Simulating implicated_cid={} sent an accept_register to target={}", implicated_cid, target_cid);
-                                    // route signal to peer
-                                    let _ = super::server::post_register::handle_response_phase(&mut *peer_layer, peer_conn_type, username.clone(), PeerResponse::Accept(Some(username)), ticket_new, fcm, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level).await?;
-                                    // rebound accept packet
-                                    let username = session.account_manager.get_username_by_cid(target_cid).await?;
-                                    let accept = PeerResponse::Accept(username.clone());
-                                    // TODO: get rid of multiple username fields
-                                    // we have to flip the ordering for here alone since the endpoint handler for this signal expects do
-                                    let peer_conn_type = PeerConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid);
-                                    let cmd = PeerSignal::PostRegister(peer_conn_type, username.clone().unwrap_or_default(), username, Some(ticket), Some(accept), FcmPostRegister::Disable);
-
-                                    let rebound_accept = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, cmd, ticket, timestamp, security_level);
-                                    Ok(PrimaryProcessorResult::ReplyToSender(rebound_accept))
-                                } else {
-                                    let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
-                                    let sess_mgr = session.session_manager.clone();
-                                    route_signal_and_register_ticket_forwards(&mut *peer_layer, PeerSignal::PostRegister(peer_conn_type, username, None,Some(ticket), None, fcm), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr, &sess_hyper_ratchet, security_level).await
-                                }
-                            }
+                            let rebound_accept = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, cmd, ticket, timestamp, security_level);
+                            Ok(PrimaryProcessorResult::ReplyToSender(rebound_accept))
+                        } else {
+                            let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
+                            let sess_mgr = session.session_manager.clone();
+                            route_signal_and_register_ticket_forwards(&mut *peer_layer, PeerSignal::PostRegister(peer_conn_type, username, None,Some(ticket), None), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr, &sess_hyper_ratchet, security_level).await
                         }
                     }
                 }
@@ -643,7 +513,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             }
         }
 
-        PeerSignal::Deregister(peer_conn_type, use_fcm) => {
+        PeerSignal::Deregister(peer_conn_type) => {
             // in deregistration, we send a Deregister signal to the peer (if connected)
             // then, delete the cid entry from the CNAC and save to the local FS
             match peer_conn_type {
@@ -656,13 +526,13 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                             Ok(_) => {
                                 // route the original signal to the other end. If not connected, don't bother
                                 // FCM note: the endpoint's duty is to send an FCM signal before completing deregistration
-                                let peer_alert_signal = PeerSignal::DeregistrationSuccess(implicated_cid, use_fcm);
+                                let peer_alert_signal = PeerSignal::DeregistrationSuccess(implicated_cid);
                                 if !session_manager.send_signal_to_peer(target_cid, ticket, peer_alert_signal, timestamp, security_level) {
                                     log::warn!(target: "lusna", "Unable to send packet to {} (maybe not connected)", target_cid);
                                 }
 
                                 // now, send a success packet to the client
-                                let success_cmd = PeerSignal::DeregistrationSuccess(target_cid, use_fcm);
+                                let success_cmd = PeerSignal::DeregistrationSuccess(target_cid);
                                 let rebound_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, success_cmd, ticket, timestamp, security_level);
                                 Ok(PrimaryProcessorResult::ReplyToSender(rebound_packet))
                             }
@@ -873,50 +743,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
             inner_mut_state!(session.state_container).remove_udp_channel(v_conn.get_target_cid());
             Ok(PrimaryProcessorResult::Void)
         }
-
-        PeerSignal::Fcm(fcm_ticket, raw_fcm_packet) => {
-            // since we are at the server, the raw fcm packet can't be accessed. We only need to store the packet inside
-            let account_manager = session.account_manager.clone();
-
-            if let Some(recipient_cnac) = account_manager.get_client_by_cid(fcm_ticket.target_cid).await? {
-                match recipient_cnac.store_raw_fcm_packet_into_recipient(fcm_ticket, raw_fcm_packet).await {
-                    Ok(_) => {
-                        reply_to_sender(PeerSignal::SignalReceived(ticket), &sess_hyper_ratchet, ticket, timestamp, security_level)
-                    }
-
-                    Err(err) => {
-                        reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level)
-                    }
-                }
-            } else {
-                reply_to_sender_err(format!("Peer {} does not exist on this server", fcm_ticket.target_cid), &sess_hyper_ratchet, ticket, timestamp, security_level)
-            }
-        }
-
-        PeerSignal::FcmFetch(..) => {
-            // TODO: This will be invalid since it doesn't poll the backend (uses local CNAC)
-            //let ref cnac = return_if_none!(session.cnac.get());
-
-            reply_to_sender(PeerSignal::FcmFetch(cnac.retrieve_raw_fcm_packets().await?), &sess_hyper_ratchet, ticket, timestamp, security_level)
-        }
-
-        PeerSignal::FcmTokenUpdate(new_keys) => {
-            let _implicated_cid = header.session_cid.get();
-            let account_manager = session.account_manager.clone();
-            let tt = session.time_tracker.clone();
-
-            let res = account_manager.get_persistence_handler().update_fcm_keys(&cnac, new_keys.clone()).await;
-            let timestamp = tt.get_global_time_ns();
-            match res {
-                Ok(_) => {
-                    reply_to_sender(PeerSignal::FcmTokenUpdate(new_keys), &sess_hyper_ratchet, ticket, timestamp, security_level)
-                }
-
-                Err(err) => {
-                    reply_to_sender_err(err.into_string(), &sess_hyper_ratchet, ticket, timestamp, security_level)
-                }
-            }
-        }
     }
 }
 
@@ -925,14 +751,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
 fn reply_to_sender(signal: PeerSignal, hyper_ratchet: &HyperRatchet, ticket: Ticket, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
     Ok(PrimaryProcessorResult::ReplyToSender(packet))
-}
-
-fn reply_to_sender_via_primary_stream(packet: BytesMut, primary_stream: &OutboundPrimaryStreamSender) {
-    if let Err(err) = primary_stream.unbounded_send(packet) {
-        log::warn!(target: "lusna", "Unable to send to primary stream: {:?}", err);
-    } else {
-        log::trace!(target: "lusna", "Successfully sent to primary stream");
-    }
 }
 
 fn reply_to_sender_err<E: ToString>(err: E, hyper_ratchet: &HyperRatchet, ticket: Ticket, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -993,29 +811,6 @@ pub(crate) async fn route_signal_response(signal: PeerSignal, implicated_cid: u6
         Err(err) => {
             log::warn!(target: "lusna", "Unable to route signal! {:?}", err);
             reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp, security_level)
-        }
-    }
-}
-
-fn post_fcm_send(res: Result<(), AccountError>, session_manager: HdpSessionManager, ticket: Ticket, implicated_cid: u64, security_level: SecurityLevel, cnac: &ClientNetworkAccount) {
-    log::trace!(target: "lusna", "[FCM] Done sending FCM message");
-    // After the send is complete, we go here
-    if let Some(sess) = session_manager.get_session_by_cid(implicated_cid) {
-        let timestamp = sess.time_tracker.get_global_time_ns();
-        if let Some(primary_stream) = sess.to_primary_stream.as_ref() {
-                let latest_hr = cnac.get_hyper_ratchet(None).unwrap();
-                let packet = match res {
-                    Ok(_) => {
-                        hdp_packet_crafter::peer_cmd::craft_peer_signal(&latest_hr, PeerSignal::SignalReceived(ticket), ticket, timestamp, security_level)
-                    }
-
-                    Err(err) => {
-                        hdp_packet_crafter::peer_cmd::craft_peer_signal(&latest_hr, PeerSignal::SignalError(ticket, err.into_string()), ticket, timestamp, security_level)
-                    }
-                };
-
-                reply_to_sender_via_primary_stream(packet, primary_stream);
-
         }
     }
 }

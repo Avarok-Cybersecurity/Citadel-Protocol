@@ -131,13 +131,13 @@ pub mod constructor_map {
     use std::collections::HashMap;
     use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
     use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
-    use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
+    use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
     use std::ops::{Deref, DerefMut};
     use serde::{Serialize, Serializer, Deserialize, Deserializer};
     use serde::ser::SerializeMap;
 
     /// A no-serialization container (except for FCM, since we need to preserve them)
-    pub struct ConstructorMap<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+    pub struct ConstructorMap<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
         inner: HashMap<u64, ConstructorType<R, Fcm>>
     }
 
@@ -199,3 +199,51 @@ pub struct CNACMetadata {
     pub creation_date: String
 }
 
+impl PartialEq for CNACMetadata {
+    fn eq(&self, other: &Self) -> bool {
+        self.cid == other.cid &&
+            &self.username == &other.username &&
+            &self.full_name == &other.full_name &&
+            self.is_personal == other.is_personal
+    }
+}
+
+#[allow(missing_docs)]
+pub mod none {
+    use serde::{Serializer, Deserializer};
+    use serde::{Serialize, Deserialize};
+    use std::marker::PhantomData;
+
+    #[derive(Serialize, Deserialize)]
+    struct Empty<T> {
+        _pd: PhantomData<T>
+    }
+
+    pub fn serialize<T, S>(_value: &T, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        let empty = Empty::<T>{ _pd: Default::default() };
+        Empty::serialize(&empty, serializer)
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error> where D: Deserializer<'de> {
+        let _ = Empty::<T>::deserialize(deserializer)?;
+        Ok(None)
+    }
+}
+
+#[allow(missing_docs)]
+pub mod base64_string {
+    use serde::{Serializer, Deserializer, Deserialize};
+
+    pub fn serialize<T, S>(value: &T, serializer: S) -> Result<S::Ok, S::Error>
+        where T: AsRef<[u8]>,
+              S: Serializer
+    {
+        serializer.collect_str(&base64::encode(value))
+    }
+
+    pub fn deserialize<'de, D>(value: D) -> Result<Vec<u8>, D::Error> where D: Deserializer<'de> {
+        base64::decode(String::deserialize(value).map_err(|_| serde::de::Error::custom("Deser err"))?).map_err(|_| serde::de::Error::custom("Deser err"))
+    }
+}

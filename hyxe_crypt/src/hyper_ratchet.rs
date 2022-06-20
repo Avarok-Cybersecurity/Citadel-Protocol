@@ -8,7 +8,7 @@ use crate::misc::CryptError;
 use serde::{Serialize, Deserialize};
 use crate::net::crypt_splitter::calculate_nonce_version;
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
-use crate::fcm::fcm_ratchet::FcmRatchet;
+use crate::fcm::fcm_ratchet::ThinRatchet;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
 use ez_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
 use sha3::Digest;
@@ -47,7 +47,7 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
 }
 
 /// For returning a variable hyper ratchet from a function
-pub enum RatchetType<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+pub enum RatchetType<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     Default(R),
     Fcm(Fcm)
 }
@@ -410,7 +410,7 @@ pub mod constructor {
     use bytes::BytesMut;
     use bytes::BufMut;
     use crate::endpoint_crypto_container::EndpointRatchetConstructor;
-    use crate::fcm::fcm_ratchet::{FcmRatchet, FcmAliceToBobTransfer, FcmBobToAliceTransfer};
+    use crate::fcm::fcm_ratchet::{ThinRatchet, FcmAliceToBobTransfer, FcmBobToAliceTransfer};
     use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
     use ez_pqcrypto::LARGEST_NONCE_LEN;
     use arrayvec::ArrayVec;
@@ -431,7 +431,7 @@ pub mod constructor {
 
     /// For differentiating between two types when inputting into function parameters
     #[derive(Serialize, Deserialize)]
-    pub enum ConstructorType<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+    pub enum ConstructorType<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
         Default(R::Constructor),
         Fcm(Fcm::Constructor)
     }
