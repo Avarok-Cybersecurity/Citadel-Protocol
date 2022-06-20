@@ -335,6 +335,7 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex
             }
 
             UpdatePacket::ReleasedVerified => {
+                // TODO: Figure out why this got called
                 unreachable!("RELEASED_VERIFIED should only be received by the drop_lock subroutine")
             }
         }

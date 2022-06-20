@@ -1025,15 +1025,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "erased-serde"
-version = "0.3.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad132dd8d0d0b546348d7d86cb3191aad14b34e5f979781fc005c80d4ac67ffd"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "ez_pqcrypto"
 version = "0.1.1"
 dependencies = [
@@ -1084,20 +1075,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3fcf0cee53519c866c09b5de1f6c56ff9d647101f81c1964fa632e148896cdf"
 dependencies = [
  "instant",
-]
-
-[[package]]
-name = "fcm"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c46f94d59c4fa82857b7c8727d67dccfe0dd889cfdf8743bfa3e36b24a22530f"
-dependencies = [
- "chrono",
- "erased-serde",
- "log",
- "reqwest",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1650,7 +1627,6 @@ dependencies = [
  "dirs2",
  "env_logger 0.8.4",
  "ez_pqcrypto",
- "fcm",
  "firebase-rtdb",
  "futures",
  "hyxe_crypt",

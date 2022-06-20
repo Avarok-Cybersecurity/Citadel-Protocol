@@ -12,7 +12,6 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 redis = ["redis-base", "mobc"]
 default = ["single-threaded"]
 sql = ["sqlx"]
-fcm = []
 multi-threaded = ["hyxe_crypt/multi-threaded"]
 single-threaded = ["hyxe_crypt/single-threaded"]
 
@@ -35,7 +34,6 @@ log = { version = "0.4.8" }
 
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }
-fcm = { version ="0.9.1", default-features=false, features = ["vendored-tls"] }
 serde_json = "1.0.62"
 base64 = "0.13.0"
 bytes = "1.0.1"
