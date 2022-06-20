@@ -15,14 +15,12 @@ use tokio::io::AsyncRead;
 use tokio::task::LocalSet;
 
 use hyxe_crypt::drill::SecurityLevel;
-use hyxe_crypt::fcm::keys::FcmKeys;
 use hyxe_wire::hypernode_type::NodeType;
 use hyxe_wire::local_firewall_handler::{FirewallProtocol, open_local_firewall_port, remove_firewall_rule};
 use hyxe_wire::nat_identification::NatType;
 use netbeam::time_tracker::TimeTracker;
 use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
-use hyxe_user::external_services::fcm::data_structures::RawFcmPacketStore;
 use hyxe_user::external_services::ServicesObject;
 use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 
@@ -504,8 +502,8 @@ impl HdpServer {
                     }
                 }
 
-                NodeRequest::RegisterToHypernode(peer_addr, credentials, fcm_keys, security_settings) => {
-                    match session_manager.initiate_connection(local_node_type, local_nat_type.clone(), HdpSessionInitMode::Register(peer_addr, credentials),ticket_id, None, listener_underlying_proto.clone(), fcm_keys, None,None, security_settings, &default_client_config).await {
+                NodeRequest::RegisterToHypernode(peer_addr, credentials, security_settings) => {
+                    match session_manager.initiate_connection(local_node_type, local_nat_type.clone(), HdpSessionInitMode::Register(peer_addr, credentials),ticket_id, None, listener_underlying_proto.clone(), None,None, security_settings, &default_client_config).await {
                         Ok(session) => {
                             session_spawner.unbounded_send(session).map_err(|err| NetworkError::Generic(err.to_string()))?;
                         }
@@ -516,8 +514,8 @@ impl HdpServer {
                     }
                 }
 
-                NodeRequest::ConnectToHypernode(authentication_request, connect_mode, fcm_keys, udp_mode, keep_alive_timeout, security_settings) => {
-                    match session_manager.initiate_connection(local_node_type, local_nat_type.clone(), HdpSessionInitMode::Connect(authentication_request), ticket_id,  Some(connect_mode), listener_underlying_proto.clone(), fcm_keys, Some(udp_mode), keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000), security_settings, &default_client_config).await {
+                NodeRequest::ConnectToHypernode(authentication_request, connect_mode, udp_mode, keep_alive_timeout, security_settings) => {
+                    match session_manager.initiate_connection(local_node_type, local_nat_type.clone(), HdpSessionInitMode::Connect(authentication_request), ticket_id,  Some(connect_mode), listener_underlying_proto.clone(), Some(udp_mode), keep_alive_timeout.map(|val| (val as i64) * 1_000_000_000), security_settings, &default_client_config).await {
                         Ok(session) => {
                             session_spawner.unbounded_send(session).map_err(|err| NetworkError::Generic(err.to_string()))?;
                         }
@@ -783,13 +781,13 @@ impl Sink<NodeRequest> for NodeRemote {
 #[allow(variant_size_differences)]
 pub enum NodeRequest {
     /// Sends a request to the underlying HdpSessionManager to begin connecting to a new client
-    RegisterToHypernode(SocketAddr, ProposedCredentials, Option<FcmKeys>, SessionSecuritySettings),
+    RegisterToHypernode(SocketAddr, ProposedCredentials, SessionSecuritySettings),
     /// A high-level peer command. Can be used to facilitate communications between nodes in the HyperLAN
     PeerCommand(u64, PeerSignal),
     /// For submitting a de-register request
     DeregisterFromHypernode(u64, VirtualConnectionType),
     /// Implicated CID, creds, connect mode, fcm keys, TCP/TLS only, keep alive timeout, security settings
-    ConnectToHypernode(AuthenticationRequest, ConnectMode, Option<FcmKeys>, UdpMode, Option<u64>, SessionSecuritySettings),
+    ConnectToHypernode(AuthenticationRequest, ConnectMode, UdpMode, Option<u64>, SessionSecuritySettings),
     /// Updates the drill for the given CID
     ReKey(VirtualTargetType),
     /// Send a file
@@ -829,7 +827,7 @@ pub enum NodeResult {
     /// When de-registration occurs. Third is_personal, Fourth is true if success, false otherwise
     DeRegistration(VirtualConnectionType, Option<Ticket>, bool, bool),
     /// Connection succeeded for the cid self.0. bool is "is personal"
-    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, Option<RawFcmPacketStore>, ServicesObject, String, PeerChannel, Option<tokio::sync::oneshot::Receiver<UdpChannel>>),
+    ConnectSuccess(Ticket, u64, SocketAddr, bool, VirtualConnectionType, ServicesObject, String, PeerChannel, Option<tokio::sync::oneshot::Receiver<UdpChannel>>),
     /// The connection was a failure
     ConnectFail(Ticket, Option<u64>, String),
     /// The outbound request was rejected

@@ -108,7 +108,7 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
         let auth = match auth_info {
             ConnectionType::Register { full_name, server_addr, username, password } => {
                 if !remote.account_manager().get_persistence_handler().username_exists(&username).await? {
-                    let _reg_success = remote.register(server_addr, full_name.as_str(), username.as_str(), password.clone(), None, self.session_security_settings).await?;
+                    let _reg_success = remote.register(server_addr, full_name.as_str(), username.as_str(), password.clone(), self.session_security_settings).await?;
                 }
 
                 AuthenticationRequest::credentialed(username, password)
@@ -123,7 +123,7 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
             }
         };
 
-        let connect_success = remote.connect(auth, Default::default(), None, self.udp_mode, None, self.session_security_settings).await?;
+        let connect_success = remote.connect(auth, Default::default(), self.udp_mode, None, self.session_security_settings).await?;
         let conn_type = VirtualTargetType::HyperLANPeerToHyperLANServer(connect_success.cid);
 
         (handler)(connect_success, ClientServerRemote { inner: remote, conn_type }).await

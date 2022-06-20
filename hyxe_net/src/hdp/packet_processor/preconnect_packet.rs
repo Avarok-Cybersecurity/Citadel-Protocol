@@ -337,9 +337,8 @@ fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, sec
     let mut state_container = inner_mut_state!(session.state_container);
     let timestamp = session.time_tracker.get_global_time_ns();
     let proposed_credentials = return_if_none!(state_container.connect_state.proposed_credentials.take(), "Proposed creds not loaded");
-    let fcm_keys = session.fcm_keys.clone();
 
-    let stage0_connect_packet = crate::hdp::hdp_packet_crafter::do_connect::craft_stage0_packet(&hyper_ratchet, proposed_credentials, fcm_keys, timestamp, security_level);
+    let stage0_connect_packet = crate::hdp::hdp_packet_crafter::do_connect::craft_stage0_packet(&hyper_ratchet, proposed_credentials, timestamp, security_level);
     state_container.connect_state.last_stage = packet_flags::cmd::aux::do_connect::STAGE1;
     // we now store the pqc temporarily in the state container
     //session.post_quantum = Some(new_pqc);

@@ -10,7 +10,7 @@ use crate::prelude::{PeerSignal, Remote, PeerResponse, NetworkError, NodeRequest
 
 /// Given the `input_signal` from the peer, this function sends a register response to the target peer
 pub async fn peer_register(input_signal: PeerSignal, accept: bool, remote: &mut impl Remote) -> Result<Ticket, NetworkError> {
-    if let PeerSignal::PostRegister(v_conn, username, username_opt, ticket, None, fcm) = input_signal {
+    if let PeerSignal::PostRegister(v_conn, username, username_opt, ticket, None) = input_signal {
         let this_cid = v_conn.get_original_target_cid();
         let ticket = get_ticket(ticket)?;
         let resp = if accept {
@@ -23,7 +23,7 @@ pub async fn peer_register(input_signal: PeerSignal, accept: bool, remote: &mut 
         };
 
         // v_conn must be reversed when rebounding a signal
-        let signal = PeerSignal::PostRegister(v_conn.reverse(), username, username_opt, Some(ticket), Some(resp), fcm);
+        let signal = PeerSignal::PostRegister(v_conn.reverse(), username, username_opt, Some(ticket), Some(resp));
         remote.send_with_custom_ticket(ticket, NodeRequest::PeerCommand(this_cid, signal)).await
             .map(|_| ticket)
     } else {

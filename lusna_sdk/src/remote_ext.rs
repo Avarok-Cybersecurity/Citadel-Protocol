@@ -126,9 +126,9 @@ pub struct RegisterSuccess {}
 pub trait ProtocolRemoteExt: Remote {
     /// Registers with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
-    async fn register<T: std::net::ToSocketAddrs + Send, R: Into<String> + Send, V: Into<String> + Send, K: Into<SecBuffer> + Send>(&mut self, addr: T, full_name: R, username: V, proposed_password: K, fcm_keys: Option<FcmKeys>, default_security_settings: SessionSecuritySettings) -> Result<RegisterSuccess, NetworkError> {
+    async fn register<T: std::net::ToSocketAddrs + Send, R: Into<String> + Send, V: Into<String> + Send, K: Into<SecBuffer> + Send>(&mut self, addr: T, full_name: R, username: V, proposed_password: K, default_security_settings: SessionSecuritySettings) -> Result<RegisterSuccess, NetworkError> {
         let creds = ProposedCredentials::new_register(full_name, username, proposed_password.into()).await?;
-        let register_request = NodeRequest::RegisterToHypernode(addr.to_socket_addrs()?.next().ok_or(NetworkError::InternalError("Invalid socket addr"))?, creds, fcm_keys, default_security_settings);
+        let register_request = NodeRequest::RegisterToHypernode(addr.to_socket_addrs()?.next().ok_or(NetworkError::InternalError("Invalid socket addr"))?, creds, default_security_settings);
 
         match map_errors(self.send_callback(register_request).await?)? {
             NodeResult::RegisterOkay(..) => Ok(RegisterSuccess {}),
@@ -139,18 +139,18 @@ pub trait ProtocolRemoteExt: Remote {
     /// Registers using the default settings. The default uses No Google FCM keys and the default session security settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
     async fn register_with_defaults<T: std::net::ToSocketAddrs + Send, R: Into<String> + Send, V: Into<String> + Send, K: Into<SecBuffer> + Send>(&mut self, addr: T, full_name: R, username: V, proposed_password: K) -> Result<RegisterSuccess, NetworkError> {
-        self.register(addr, full_name, username, proposed_password, None, Default::default()).await
+        self.register(addr, full_name, username, proposed_password, Default::default()).await
     }
 
     /// Connects with custom settings
     /// Returns a ticket which is used to uniquely identify the request in the protocol
-    async fn connect(&mut self, auth: AuthenticationRequest, connect_mode: ConnectMode, fcm_keys: Option<FcmKeys>, udp_mode: UdpMode, keep_alive_timeout: Option<Duration>, session_security_settings: SessionSecuritySettings) -> Result<ConnectSuccess, NetworkError> {
+    async fn connect(&mut self, auth: AuthenticationRequest, connect_mode: ConnectMode, udp_mode: UdpMode, keep_alive_timeout: Option<Duration>, session_security_settings: SessionSecuritySettings) -> Result<ConnectSuccess, NetworkError> {
         //let fcm_keys = fcm_keys.or_else(||cnac.get_fcm_keys()); // use the specified keys, or else get the fcm keys created during the registration phase
 
-        let connect_request = NodeRequest::ConnectToHypernode(auth, connect_mode, fcm_keys, udp_mode, keep_alive_timeout.map(|r| r.as_secs()), session_security_settings);
+        let connect_request = NodeRequest::ConnectToHypernode(auth, connect_mode, udp_mode, keep_alive_timeout.map(|r| r.as_secs()), session_security_settings);
 
         match map_errors(self.send_callback(connect_request).await?)? {
-            NodeResult::ConnectSuccess(_, cid, _, _, _, _, services, _, channel, udp_channel_rx) => Ok(ConnectSuccess { channel, udp_channel_rx, services, cid }),
+            NodeResult::ConnectSuccess(_, cid, _, _, _, services, _, channel, udp_channel_rx) => Ok(ConnectSuccess { channel, udp_channel_rx, services, cid }),
             NodeResult::ConnectFail(_, _, err) => Err(NetworkError::Generic(err)),
             _ => Err(NetworkError::msg("An unexpected response occurred"))
         }
@@ -159,7 +159,7 @@ pub trait ProtocolRemoteExt: Remote {
     /// Connects with the default settings
     /// If FCM keys were created during the registration phase, then those keys will be used for the session. If new FCM keys need to be used, consider using [`Self::connect`]
     async fn connect_with_defaults(&mut self, auth: AuthenticationRequest) -> Result<ConnectSuccess, NetworkError> {
-        self.connect(auth, Default::default(), None, Default::default(), None, Default::default()).await
+        self.connect(auth, Default::default(), Default::default(), None, Default::default()).await
     }
 
     /// Creates a valid target identifier used to make protocol requests. Raw user IDs or usernames can be used
@@ -325,11 +325,11 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
         let local_username = self.remote().account_manager().get_username_by_cid(implicated_cid).await?.ok_or_else(||NetworkError::msg("Unable to find username for local user"))?;
         let peer_username_opt = self.target_username().cloned();
 
-        let mut stream = self.remote().send_callback_subscription(NodeRequest::PeerCommand(implicated_cid, PeerSignal::PostRegister(peer_target, local_username, peer_username_opt, None, None, FcmPostRegister::Disable))).await?;
+        let mut stream = self.remote().send_callback_subscription(NodeRequest::PeerCommand(implicated_cid, PeerSignal::PostRegister(peer_target, local_username, peer_username_opt, None, None))).await?;
 
         while let Some(status) = stream.next().await {
             match map_errors(status)? {
-                NodeResult::PeerEvent(PeerSignal::PostRegister(_, _, _, _, Some(resp), ..), _) => {
+                NodeResult::PeerEvent(PeerSignal::PostRegister(_, _, _, _, Some(resp)), _) => {
                     match resp {
                         PeerResponse::Accept(..) => return Ok(PeerRegisterStatus::Accepted),
                         PeerResponse::Decline => return Ok(PeerRegisterStatus::Declined),
