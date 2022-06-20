@@ -1,5 +1,3 @@
-use std::sync::Arc;
-use ::fcm::Client;
 use serde::{Deserialize, Serialize};
 use crate::misc::AccountError;
 use std::path::Path;
@@ -7,9 +5,6 @@ use crate::external_services::google_auth::JsonWebToken;
 use crate::external_services::rtdb::RtdbInstance;
 use firebase_rtdb::FirebaseRTDB;
 
-/// For handling FCM related communications
-#[allow(missing_docs)]
-pub mod fcm;
 /// For services
 pub mod google_auth;
 /// for traits
@@ -19,8 +14,6 @@ pub mod rtdb;
 
 /// For denoting a type
 pub enum ExternalService {
-    /// Denotes use of Firebase Cloud Messenger
-    Fcm,
     /// Denotes use of Google's Realtime Database
     Rtdb
 }
@@ -28,8 +21,6 @@ pub enum ExternalService {
 /// A container for handling external services
 #[derive(Clone)]
 pub struct ServicesHandler {
-    /// The FCM client
-    pub fcm_client: Arc<Client>,
     /// Serverside only
     pub google_auth: Option<crate::external_services::google_auth::GoogleAuth>,
     /// serverside only
@@ -83,8 +74,6 @@ pub struct RtdbConfig {
 impl ServicesConfig {
     /// Creates a [ServicesHandler] from the given internal configuration
     pub async fn into_services_handler(self) -> Result<ServicesHandler, AccountError> {
-        let fcm_client = Arc::new(Client::new());
-
         let (google_auth, rtdb_root_instance) = if let Some(path) = self.google_services_json_path {
             let path = Path::new(&path);
             let auth = crate::external_services::google_auth::GoogleAuth::load_from_google_services_file(path).await?;
@@ -104,6 +93,6 @@ impl ServicesConfig {
 
         let rtdb_config = self.google_rtdb;
 
-        Ok(ServicesHandler { fcm_client, google_auth, rtdb_config, rtdb_root_instance })
+        Ok(ServicesHandler { google_auth, rtdb_config, rtdb_root_instance })
     }
 }

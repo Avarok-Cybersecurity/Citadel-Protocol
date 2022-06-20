@@ -42,7 +42,7 @@ pub struct ThinRatchetInner {
 }
 
 impl Ratchet for ThinRatchet {
-    type Constructor = FcmRatchetConstructor;
+    type Constructor = ThinRatchetConstructor;
 
     fn get_cid(&self) -> u64 {
         self.inner.drill.cid
@@ -97,7 +97,7 @@ impl Ratchet for ThinRatchet {
 
 /// Used for constructing the ratchet
 #[derive(Serialize, Deserialize)]
-pub struct FcmRatchetConstructor {
+pub struct ThinRatchetConstructor {
     params: CryptoParameters,
     pqc: PostQuantumContainer,
     drill: Option<Drill>,
@@ -106,15 +106,15 @@ pub struct FcmRatchetConstructor {
     version: u32
 }
 
-impl EndpointRatchetConstructor<ThinRatchet> for FcmRatchetConstructor {
+impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
     fn new_alice(mut opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, _security_level: Option<SecurityLevel>) -> Option<Self> {
-        FcmRatchetConstructor::new_alice(cid, new_version, opts.remove(0))
+        ThinRatchetConstructor::new_alice(cid, new_version, opts.remove(0))
     }
 
     fn new_bob(_cid: u64, _new_drill_vers: u32, mut opts: Vec<ConstructorOpts>, transfer: AliceToBobTransferType<'_>) -> Option<Self> {
         match transfer {
             AliceToBobTransferType::Fcm(transfer) => {
-                FcmRatchetConstructor::new_bob(opts.remove(0), transfer)
+                ThinRatchetConstructor::new_bob(opts.remove(0), transfer)
             }
 
             _ => {
@@ -176,7 +176,7 @@ pub struct FcmBobToAliceTransfer {
     encrypted_drill_bytes: Vec<u8>
 }
 
-impl FcmRatchetConstructor {
+impl ThinRatchetConstructor {
     /// FCM limits messages to 4Kb, so we need to use firesaber alone
     pub fn new_alice(cid: u64, version: u32, opts: ConstructorOpts) -> Option<Self> {
         let params = opts.cryptography.unwrap_or_default();
@@ -259,10 +259,10 @@ impl FcmRatchetConstructor {
     }
 }
 
-impl TryFrom<FcmRatchetConstructor> for ThinRatchet {
+impl TryFrom<ThinRatchetConstructor> for ThinRatchet {
     type Error = ();
 
-    fn try_from(value: FcmRatchetConstructor) -> Result<Self, Self::Error> {
+    fn try_from(value: ThinRatchetConstructor) -> Result<Self, Self::Error> {
         let drill = value.drill.ok_or(())?;
         let pqc = value.pqc;
         let inner = ThinRatchetInner { drill, pqc };
