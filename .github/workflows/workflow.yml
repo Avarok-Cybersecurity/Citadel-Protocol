@@ -96,10 +96,10 @@ jobs:
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - name: Single-threaded testing
-        run: cargo test --package lusna_sdk --features=standard,localhost-testing -- --test-threads=1
+        run: cargo test --package lusna_sdk --features=single-threaded,localhost-testing -- --test-threads=1
       - name: Multi-threaded testing
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo test --package lusna_sdk --features=plus,localhost-testing -- --test-threads=1
+        run: cargo test --package lusna_sdk --features=multi-threaded,localhost-testing -- --test-threads=1
       - uses: actions/github-script@v6
         if: failure()
         with:
