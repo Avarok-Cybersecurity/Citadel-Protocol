@@ -32,7 +32,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, concurrent_processor
 
             packet_flags::cmd::aux::do_deregister::SUCCESS => {
                 log::trace!(target: "lusna", "STAGE SUCCESS DEREGISTER PACKET RECV");
-                deregister_from_hyperlan_server_as_client(cnac, implicated_cid, session).await
+                deregister_from_hyperlan_server_as_client(implicated_cid, session).await
             }
 
             packet_flags::cmd::aux::do_deregister::FAILURE => {
@@ -93,20 +93,16 @@ async fn deregister_client_from_self(implicated_cid: u64, session_ref: &HdpSessi
     Ok(ret)
 }
 
-async fn deregister_from_hyperlan_server_as_client(cnac: &ClientNetworkAccount, implicated_cid: u64, session_ref: &HdpSession) -> Result<PrimaryProcessorResult, NetworkError> {
+async fn deregister_from_hyperlan_server_as_client(implicated_cid: u64, session_ref: &HdpSession) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
-    let (fcm_client, acc_manager, cnac, dereg_ticket) = {
+    let (acc_manager, dereg_ticket) = {
         let state_container = inner_state!(session.state_container);
         let acc_manager = session.account_manager.clone();
-        let fcm_client = acc_manager.fcm_client().clone();
+        //let fcm_client = acc_manager.fcm_client().clone();
         let dereg_ticket = state_container.deregister_state.current_ticket;
 
-        (fcm_client, acc_manager, cnac, dereg_ticket)
+        (acc_manager, dereg_ticket)
     };
-
-    if let Err(err) = cnac.fcm_raw_broadcast_to_all_peers(fcm_client, |fcm, peer_cid| hyxe_user::external_services::fcm::fcm_packet_crafter::craft_deregistered(fcm, peer_cid, 0)).await {
-        log::error!(target: "lusna", "Error when fcm broadcasting: {:#?}", err);
-    }
 
     let success = match acc_manager.delete_client_by_cid(implicated_cid).await {
         Ok(_) => {

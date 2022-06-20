@@ -244,7 +244,6 @@ mod rtc_impl {
     use crate::hdp::packet_processor::includes::SocketAddr;
     use bytes::BytesMut;
     use crate::hdp::peer::channel::WebRTCCompatChannel;
-    use crate::error::NetworkError;
     use crate::hdp::peer::channel::UdpChannel;
 
     impl From<UdpChannel> for WebRTCCompatChannel {
@@ -255,12 +254,12 @@ mod rtc_impl {
 
     #[async_trait]
     impl webrtc_util::Conn for WebRTCCompatChannel {
-        async fn connect(&self, _addr: SocketAddr) -> Result<(), anyhow::Error> {
+        async fn connect(&self, _addr: SocketAddr) -> Result<(), webrtc_util::Error> {
             // we assume we are already connected to the target addr by the time we get the UdpChannel
             Ok(())
         }
 
-        async fn recv(&self, buf: &mut [u8]) -> Result<usize, anyhow::Error> {
+        async fn recv(&self, buf: &mut [u8]) -> Result<usize, webrtc_util::Error> {
             match self.recv_half.lock().await.receiver.recv().await {
                 Some(input) => {
                     buf.copy_from_slice(input.as_ref());
@@ -268,27 +267,28 @@ mod rtc_impl {
                 }
 
                 None => {
-                    Err(NetworkError::InternalError("Stream ended").into())
+                    Err(webrtc_util::Error::Other("WebRTC Receiver stream ended".to_string()))
                 }
             }
         }
 
-        async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), anyhow::Error> {
+        async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), webrtc_util::Error> {
             let remote = self.send_half.remote_addr();
             let len = self.recv(buf).await?;
             Ok((len, remote))
         }
 
-        async fn send(&self, buf: &[u8]) -> Result<usize, anyhow::Error> {
-            self.send_half.unbounded_send(BytesMut::from(buf)).map_err(|err| NetworkError::Generic(err.into_string()))?;
+        async fn send(&self, buf: &[u8]) -> Result<usize, webrtc_util::Error> {
+            self.send_half.unbounded_send(BytesMut::from(buf))
+                .map_err(|err| webrtc_util::Error::Other(err.into_string()))?;
             Ok(buf.len())
         }
 
-        async fn send_to(&self, buf: &[u8], _target: SocketAddr) -> Result<usize, anyhow::Error> {
+        async fn send_to(&self, buf: &[u8], _target: SocketAddr) -> Result<usize, webrtc_util::Error> {
             self.send(buf).await
         }
 
-        async fn local_addr(&self) -> Result<SocketAddr, anyhow::Error> {
+        async fn local_addr(&self) -> Result<SocketAddr, webrtc_util::Error> {
             Ok(self.send_half.local_addr())
         }
 
@@ -296,7 +296,7 @@ mod rtc_impl {
             Some(self.send_half.remote_addr())
         }
 
-        async fn close(&self) -> Result<(), anyhow::Error> {
+        async fn close(&self) -> Result<(), webrtc_util::Error> {
             // the conn will automatically get closed on drop of recv half
             Ok(())
         }

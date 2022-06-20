@@ -1,4 +1,4 @@
-use crate::prelude::{NodeRequest, NetworkError, UdpMode, SessionSecuritySettings, ConnectMode, ProposedCredentials, Remote, PeerSignal, UserIdentifier, PeerConnectionType, FcmPostRegister};
+use crate::prelude::{NodeRequest, NetworkError, UdpMode, SessionSecuritySettings, ConnectMode, ProposedCredentials, Remote, PeerSignal, UserIdentifier, PeerConnectionType};
 use hyxe_net::auth::AuthenticationRequest;
 use std::time::Duration;
 use std::net::ToSocketAddrs;
@@ -30,9 +30,8 @@ impl RegistrationBuilder {
         self.validate()?;
         let addr = server_addr.to_socket_addrs().map_err(|err| NetworkError::Generic(err.to_string()))?
             .next().ok_or(NetworkError::InvalidRequest("No addresses found"))?;
-        let fcm_keys = None;
         let sess_security_settings = self.registration_security_settings.unwrap_or_default();
-        Ok(NodeRequest::RegisterToHypernode(addr, proposed_credentials, fcm_keys, sess_security_settings))
+        Ok(NodeRequest::RegisterToHypernode(addr, proposed_credentials, sess_security_settings))
     }
 
     fn validate(&self) -> Result<(), NetworkError> {
@@ -94,7 +93,6 @@ impl ConnectionBuilder {
         let sess_sec_settings = self.session_security_settings.unwrap_or_default();
         let connect_mode = self.connect_mode.unwrap_or_default();
         let ka = self.keep_alive_interval_secs;
-        let fcm_keys = None;
 
         if let AuthenticationRequest::Credentialed { id, .. } = &authentication_request {
             // validate that the security level is valid
@@ -108,7 +106,7 @@ impl ConnectionBuilder {
                 .map_err(|_| NetworkError::InvalidRequest("The security level is too high"))?;
         }
 
-        Ok(NodeRequest::ConnectToHypernode(authentication_request, connect_mode, fcm_keys, udp_mode, ka, sess_sec_settings))
+        Ok(NodeRequest::ConnectToHypernode(authentication_request, connect_mode, udp_mode, ka, sess_sec_settings))
     }
 }
 
@@ -129,7 +127,7 @@ impl PeerRegistrationBuilder {
         };
 
         let peer_conn = PeerConnectionType::HyperLANPeerToHyperLANPeer(local_user.get_cid(), remote_cid);
-        let peer_signal = PeerSignal::PostRegister(peer_conn, local_username, username_opt, None, None, FcmPostRegister::Disable);
+        let peer_signal = PeerSignal::PostRegister(peer_conn, local_username, username_opt, None, None);
 
         Ok(NodeRequest::PeerCommand(local_user.get_cid(), peer_signal))
     }

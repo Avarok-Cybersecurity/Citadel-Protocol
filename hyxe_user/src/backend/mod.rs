@@ -8,15 +8,18 @@ use hyxe_fs::env::DirectoryStore;
 use crate::prelude::NetworkAccount;
 use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
-use hyxe_crypt::fcm::fcm_ratchet::FcmRatchet;
-use hyxe_crypt::fcm::keys::FcmKeys;
-#[cfg(feature = "enterprise")]
+use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
+#[cfg(feature = "sql")]
 use crate::backend::mysql_backend::SqlConnectionOptions;
-use parking_lot::RwLock;
+#[cfg(feature = "redis")]
+use crate::backend::redis_backend::RedisConnectionOptions;
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "sql")]
 /// Implementation for the SQL backend
 pub mod mysql_backend;
+#[cfg(feature = "redis")]
+/// Implementation for the redis backend
+pub mod redis_backend;
 /// Implementation for the default filesystem backend
 pub mod filesystem_backend;
 
@@ -25,9 +28,12 @@ pub mod filesystem_backend;
 pub enum BackendType {
     /// Synchronization will occur on the filesystem
     Filesystem,
-    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "sql")]
     /// Synchronization will occur on a remote SQL database
-    SQLDatabase(String, SqlConnectionOptions)
+    SQLDatabase(String, SqlConnectionOptions),
+    #[cfg(feature = "redis")]
+    /// Synchronization will occur on a remote redis database
+    Redis(String, RedisConnectionOptions)
 }
 
 impl Default for BackendType {
@@ -42,19 +48,56 @@ impl BackendType {
         BackendType::Filesystem
     }
 
+    /// Creates a new [`BackendType`] given the provided `url`. Returns an error
+    /// if the URL could not be parsed
+    pub fn new<T: Into<String>>(url: T) -> Result<Self, AccountError> {
+        // TODO: handle filesystem:// url syntax
+        let addr = url.into();
+        #[cfg(feature = "redis")] {
+            if addr.starts_with("redis") {
+                return Ok(BackendType::redis(addr))
+            }
+        }
+
+         #[cfg(feature = "sql")] {
+            if addr.starts_with("mysql") ||
+                addr.starts_with("postgres") ||
+                addr.starts_with("sqlite") {
+                return Ok(BackendType::sql(addr))
+            }
+        }
+
+        Err(AccountError::msg(format!("The addr '{}' is not a valid target", addr)))
+    }
+
+    #[cfg(feature = "redis")]
+    /// For requesting the use of the redis backend driver.
+    /// URL format: redis://[<username>][:<password>@]<hostname>[:port][/<db>]
+    /// If unix socket support is available:
+    /// URL format: redis+unix:///<path>[?db=<db>[&pass=<password>][&user=<username>]]
+    pub fn redis<T: Into<String>>(url: T) -> BackendType {
+        Self::redis_with(url, Default::default())
+    }
+
+    #[cfg(feature = "redis")]
+    /// Like [`Self::redis`], but with custom options
+    pub fn redis_with<T: Into<String>>(url: T, opts: RedisConnectionOptions) -> BackendType {
+        BackendType::Redis(url.into(), opts)
+    }
+
     /// For requesting the use of the SqlBackend driver. Url should be in the form:
     /// "mysql://username:password@ip/database"
     /// "postgres:// [...]"
     /// "sqlite:// [...]"
     ///
     /// PostgreSQL, MySQL, SqLite supported
-    #[cfg(feature = "enterprise")]
+    #[cfg(feature = "sql")]
     pub fn sql<T: Into<String>>(url: T) -> BackendType {
         BackendType::SQLDatabase(url.into(), Default::default())
     }
 
-    /// Like [sql], but with custom options
-    #[cfg(feature = "enterprise")]
+    /// Like [`Self::sql`], but with custom options
+    #[cfg(feature = "sql")]
     pub fn sql_with<T: Into<String>>(url: T, opts: SqlConnectionOptions) -> BackendType {
         BackendType::SQLDatabase(url.into(), opts)
     }
@@ -77,16 +120,10 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn get_client_by_username(&self, username: &str) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError>;
     /// Determines if a CID is registered
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError>;
-    /// deletes a CNAC
-    async fn delete_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError>;
     /// Removes a CNAC by cid
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError>;
-    /// Saves all CNACs and local NACs
-    async fn save_all(&self) -> Result<(), AccountError>;
     /// Removes all CNACs
     async fn purge(&self) -> Result<usize, AccountError>;
-    /// Returns the number of clients
-    async fn client_count(&self) -> Result<usize, AccountError>;
     /// Maybe generates a local save path, only if required by the implementation
     fn maybe_generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> Option<PathBuf>;
     /// Returns a list of unused CIDS
@@ -103,8 +140,6 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError>;
     /// Gets the CID by username
     async fn get_cid_by_username(&self, username: &str) -> Result<Option<u64>, AccountError>;
-    /// Deletes a client by username
-    async fn delete_client_by_username(&self, username: &str) -> Result<(), AccountError>;
     /// Registers two peers together
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError>;
     /// registers p2p as client
@@ -113,10 +148,6 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError>;
     /// Deregisters two peers from each other
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError>;
-    /// Gets the FCM keys for a peer
-    async fn get_fcm_keys_for_as_server(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<FcmKeys>, AccountError>;
-    /// Updates the FCM keys
-    async fn update_fcm_keys(&self, cnac: &ClientNetworkAccount<R, Fcm>, new_keys: FcmKeys) -> Result<(), AccountError>;
     /// Returns a list of hyperlan peers for the client
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError>;
     /// Returns the metadata for a client
@@ -131,21 +162,12 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn hyperlan_peers_are_mutuals(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<bool>, AccountError>;
     /// Returns a set of PeerMutual containers
     async fn get_hyperlan_peers(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<MutualPeer>, AccountError>;
-    /// Returns a set of PeerMutual containers. Should only be called on the endpoints
-    async fn get_hyperlan_peers_with_fcm_keys_as_client(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<(MutualPeer, Option<FcmKeys>)>, AccountError> {
-        if peers.is_empty() {
-            return Ok(Vec::new())
-        }
-
-        let cnac = self.get_cnac_by_cid(implicated_cid).await?.ok_or(AccountError::ClientNonExists(implicated_cid))?;
-        Ok(cnac.get_hyperlan_peers_with_fcm_keys(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
-    }
     /// Gets hyperland peer by username
     async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError>;
-    /// Gets all peer cids with fcm keys
-    async fn get_hyperlan_peer_list_with_fcm_keys_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<(u64, Option<String>, Option<FcmKeys>)>>, AccountError>;
+    /// Gets all peers for client
+    async fn get_hyperlan_peer_list_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<MutualPeer>>, AccountError>;
     /// Synchronizes the list locally. Returns true if needs to be saved
-    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>) -> Result<bool, AccountError>;
+    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<bool, AccountError>;
     /// Returns a vector of bytes from the byte map
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError>;
     /// Removes a value from the byte map, returning the previous value
@@ -156,18 +178,12 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn get_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError>;
     /// Obtains a list of K,V pairs such that `needle` is a subset of the K value
     async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError>;
-    /// Stores the CNAC inside the hashmap, if possible (may be no-op on database)
-    fn store_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>);
-    /// Determines if a remote db is used
-    fn uses_remote_db(&self) -> bool;
-    /// Returns the filesystem list
-    fn get_local_map(&self) -> Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>>;
     /// Returns the local nac
     fn local_nac(&self) -> &NetworkAccount<R, Fcm>;
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations
-pub struct PersistenceHandler<R: Ratchet = HyperRatchet, Fcm: Ratchet = FcmRatchet> {
+pub struct PersistenceHandler<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     inner: Arc<dyn BackendConnection<R, Fcm>>,
     directory_store: DirectoryStore
 }

@@ -39,7 +39,7 @@ impl<F, Fut> NetKernel for ClientConnectListenerKernel<F, Fut>
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match message {
-            NodeResult::ConnectSuccess(_, cid, _, _, conn_type, _, services, _, channel, udp_channel_rx) => {
+            NodeResult::ConnectSuccess(_, cid, _, _, conn_type, services, _, channel, udp_channel_rx) => {
                 let client_server_remote = ClientServerRemote { inner: self.node_remote.clone().unwrap(), conn_type };
                 (&self.on_channel_received)(ConnectSuccess {
                     channel,

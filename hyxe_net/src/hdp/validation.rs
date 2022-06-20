@@ -4,15 +4,14 @@ pub(crate) mod do_connect {
     use crate::error::NetworkError;
     use hyxe_fs::prelude::SyncIO;
     use crate::hdp::hdp_packet_crafter::do_connect::{DoConnectStage0Packet, DoConnectFinalStatusPacket};
-    use hyxe_crypt::fcm::keys::FcmKeys;
 
     /// Here, Bob receives a payload of the encrypted username + password. We must verify the login data is valid
-    pub(crate) async fn validate_stage0_packet(cnac: &ClientNetworkAccount, payload: &[u8]) -> Result<Option<FcmKeys>, NetworkError> {
+    pub(crate) async fn validate_stage0_packet(cnac: &ClientNetworkAccount, payload: &[u8]) -> Result<(), NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
         let payload = DoConnectStage0Packet::deserialize_from_vector(payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
         cnac.validate_credentials(payload.proposed_credentials).await.map_err(|err| NetworkError::Generic(err.into_string()))?;
         log::trace!(target: "lusna", "Success validating credentials!");
-        Ok(payload.fcm_keys)
+        Ok(())
     }
 
     pub(crate) fn validate_final_status_packet(payload: &[u8]) -> Option<DoConnectFinalStatusPacket> {

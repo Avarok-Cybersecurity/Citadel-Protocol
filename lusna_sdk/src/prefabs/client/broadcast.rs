@@ -118,7 +118,7 @@ impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'
                 // cid for this group owner
                 while let Some(reg_request) = reg_rx.recv().await {
                     log::trace!(target: "lusna", "owner recv reg_request: {:?}", reg_request);
-                    if let PeerSignal::PostRegister(peer_conn, _, _, _, None, _) = &reg_request {
+                    if let PeerSignal::PostRegister(peer_conn, _, _, _, None) = &reg_request {
                         let cid = peer_conn.get_original_target_cid();
                         if cid != implicated_cid {
                             log::warn!(target: "lusna", "Received the wrong CID. Will not accept request");
@@ -188,7 +188,7 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
         match &message {
-            NodeResult::PeerEvent(ps @ PeerSignal::PostRegister(_, _, _, _, _, _), _) => {
+            NodeResult::PeerEvent(ps @ PeerSignal::PostRegister(..), _) => {
                 if self.shared.route_registers.load(Ordering::Relaxed) {
                     return self.shared.register_tx.send(ps.clone()).map_err(|err| NetworkError::Generic(err.to_string()));
                 }

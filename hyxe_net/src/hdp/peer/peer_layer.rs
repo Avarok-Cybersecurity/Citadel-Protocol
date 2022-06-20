@@ -1,4 +1,4 @@
-use std::collections::{HashMap, BTreeMap};
+use std::collections::HashMap;
 use crate::hdp::file_transfer::VirtualFileMetadata;
 use crate::hdp::hdp_node::Ticket;
 use tokio::time::error::Error;
@@ -17,9 +17,6 @@ use hyxe_fs::prelude::SyncIO;
 use crate::macros::SyncContextRequirements;
 use itertools::Itertools;
 use futures::task::AtomicWaker;
-use hyxe_user::external_services::fcm::kem::FcmPostRegister;
-use hyxe_user::external_services::fcm::data_structures::{RawExternalPacket, FcmTicket};
-use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::state_container::VirtualConnectionType;
 use hyxe_user::backend::PersistenceHandler;
@@ -320,7 +317,7 @@ impl HyperNodePeerLayerInner {
         peer_map
             .iter()
             // PeerConnectionType, Username, Option<Username>, Option<Ticket>, Option<PeerResponse>, FcmPostRegister
-            .find(|(_, posting)| if let PeerSignal::PostRegister(conn, _, _, _, None, _) = &posting.signal {
+            .find(|(_, posting)| if let PeerSignal::PostRegister(conn, _, _, _, None) = &posting.signal {
                 log::trace!(target: "lusna", "Checking if posting from conn={:?} ~ {:?}", conn, implicated_cid);
                 if let PeerConnectionType::HyperLANPeerToHyperLANPeer(_, b) = conn {
                     *b == implicated_cid
@@ -430,9 +427,9 @@ impl futures::Future for HyperNodePeerLayerExecutor {
 #[allow(variant_size_differences)]
 pub enum PeerSignal {
     // implicated_cid, icid (0 if hyperlan), target_cid (0 if all), use fcm
-    PostRegister(PeerConnectionType, Username, Option<Username>, Option<Ticket>, Option<PeerResponse>, FcmPostRegister),
-    // implicated_cid, icid, target_cid, use_fcm
-    Deregister(PeerConnectionType, bool),
+    PostRegister(PeerConnectionType, Username, Option<Username>, Option<Ticket>, Option<PeerResponse>),
+    // implicated_cid, icid, target_cid
+    Deregister(PeerConnectionType),
     // implicated_cid, icid, target_cid, udp enabled
     PostConnect(PeerConnectionType, Option<Ticket>, Option<PeerResponse>, SessionSecuritySettings, UdpMode),
     // implicated_cid, icid, target cid
@@ -451,17 +448,11 @@ pub enum PeerSignal {
     // Returned when an error occurs
     SignalError(Ticket, String),
     // deregistration succeeded (contains peer cid)
-    DeregistrationSuccess(u64, bool),
+    DeregistrationSuccess(u64),
     // Signal has been processed; response may or may not occur
     SignalReceived(Ticket),
     // for key-exchange
     Kem(PeerConnectionType, KeyExchangeProcess),
-    // For redundant fcm transfers, ensuring no loss of packets when using FCM
-    Fcm(FcmTicket, RawExternalPacket),
-    // For polling for packets
-    FcmFetch(Option<HashMap<u64, BTreeMap<u128, RawExternalPacket>>>),
-    // For denoting that reg info changed
-    FcmTokenUpdate(FcmKeys)
 }
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone, Eq, PartialEq)]

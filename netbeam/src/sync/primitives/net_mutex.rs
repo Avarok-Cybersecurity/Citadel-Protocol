@@ -335,7 +335,8 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex
             }
 
             UpdatePacket::ReleasedVerified => {
-                unreachable!("RELEASED_VERIFIED should only be received by the drop_lock subroutine")
+                // TODO: Figure out why this got called
+                log::warn!(target: "lusna", "RELEASED_VERIFIED should only be received by the drop_lock subroutine")
             }
         }
     }
