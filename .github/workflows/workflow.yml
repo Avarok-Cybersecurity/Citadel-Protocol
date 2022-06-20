@@ -42,7 +42,7 @@ jobs:
         run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
       - name: Augment connection size for psql
         if: startsWith(matrix.os, 'ubuntu')
-        run:  psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://nologik:password@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://nologik:password@localhost/hyxewave2
+        run:  psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave2
       - name: Add sqlite databases
         if: startsWith(matrix.os, 'ubuntu')
         run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
