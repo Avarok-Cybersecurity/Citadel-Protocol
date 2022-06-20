@@ -7,11 +7,11 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["plus"]
-standard = ["hyxe_net/single-threaded"]
-plus = ["hyxe_net/multi-threaded"]
-enterprise-lite = ["hyxe_net/single-threaded", "hyxe_net/enterprise"]
-enterprise = ["hyxe_net/multi-threaded", "hyxe_net/enterprise"]
+default = ["multi-threaded"]
+single-threaded = ["hyxe_net/single-threaded"]
+multi-threaded = ["hyxe_net/multi-threaded"]
+sql = ["hyxe_net/sql"]
+redis = ["hyxe_net/redis"]
 webrtc = ["hyxe_net/webrtc"]
 
 # for testing only

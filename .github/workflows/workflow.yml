@@ -16,8 +16,8 @@ env:
 jobs:
   core_libs:
     env:
-      TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db"
-      TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db"
+      TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
+      TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-2019]
@@ -29,12 +29,6 @@ jobs:
         with:
           mysql-version: '8.0'
           root-password: 'password'
-      - name: Add mysql databases
-        if: startsWith(matrix.os, 'ubuntu')
-        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
-      - name: Add sqlite databases
-        if: startsWith(matrix.os, 'ubuntu')
-        run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
       - name: Setup Postgres database (1)
         if: startsWith(matrix.os, 'ubuntu')
         uses: Daniel-Marynicz/postgresql-action@master
@@ -43,10 +37,25 @@ jobs:
           app_user: nologik
           app_user_password: password
           app_db: hyxewave hyxewave2
+      - name: Add mysql databases
+        if: startsWith(matrix.os, 'ubuntu')
+        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
+      - name: Augment connection size for psql
+        if: startsWith(matrix.os, 'ubuntu')
+        run:  psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave2
+      - name: Add sqlite databases
+        if: startsWith(matrix.os, 'ubuntu')
+        run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
+      - name: Start Redis
+        if: startsWith(matrix.os, 'ubuntu')
+        uses: supercharge/redis-github-action@1.4.0
+        with:
+          redis-version: 4
+          redis-port: 6379
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - name: Run user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo test --package hyxe_user --features enterprise,localhost-testing -- --test-threads=1
+        run: cargo test --package hyxe_user --features sql,redis,localhost-testing -- --test-threads=1
       #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
       - run: cargo test --features=localhost-testing --package ez_pqcrypto --package hyxe_crypt --package hyxe_fs --package hyxe_net
       - uses: actions/github-script@v6
@@ -90,10 +99,10 @@ jobs:
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - name: Single-threaded testing
-        run: cargo test --package lusna_sdk --features=standard,localhost-testing -- --test-threads=1
+        run: cargo test --package lusna_sdk --features=single-threaded,localhost-testing -- --test-threads=1
       - name: Multi-threaded testing
         if: startsWith(matrix.os, 'ubuntu')
-        run: cargo test --package lusna_sdk --features=plus,localhost-testing -- --test-threads=1
+        run: cargo test --package lusna_sdk --features=multi-threaded,localhost-testing -- --test-threads=1
       - uses: actions/github-script@v6
         if: failure()
         with:
@@ -124,7 +133,7 @@ jobs:
       # Run with valgrind
       - name: Run valgrind secmem_string
         run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
-      - run: cargo check --package lusna_sdk --release
+      - run: cargo check --package lusna_sdk --release --features=webrtc
 #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
 #      # Run with valgrind
@@ -141,15 +150,40 @@ jobs:
             return 'stop'
           result-encoding: string
   cargo_deny_and_coverage:
+    env:
+      TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
+      TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
       - run: cargo install --locked cargo-deny && cargo deny check all
+      - uses: shogo82148/actions-setup-mysql@v1
+        with:
+          mysql-version: '8.0'
+          root-password: 'password'
+      - name: Setup Postgres database (1)
+        uses: Daniel-Marynicz/postgresql-action@master
+        with:
+          postgres_image_tag: latest
+          app_user: nologik
+          app_user_password: password
+          app_db: hyxewave hyxewave2
+      - name: Add mysql databases
+        run: mysql -uroot -h127.0.0.1 -ppassword -e 'CREATE DATABASE hyxewave; CREATE DATABASE hyxewave2;'
+      - name: Augment connection size for psql
+        run:  psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave && psql -c 'ALTER SYSTEM SET max_connections TO 1000' postgresql://postgres:postgres@localhost/hyxewave2
+      - name: Add sqlite databases
+        run: touch /home/runner/hyxewave.db && touch /home/runner/hyxewave2.db
+      - name: Start Redis
+        uses: supercharge/redis-github-action@1.4.0
+        with:
+          redis-version: 4
+          redis-port: 6379
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=localhost-testing -- --test-threads=1 --skip stress_test --skip argon_autotuner'
+          args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=redis,sql,localhost-testing -- --test-threads=1 --skip stress_test --skip argon_autotuner'
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

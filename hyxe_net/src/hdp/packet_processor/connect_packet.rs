@@ -1,8 +1,6 @@
 use super::includes::*;
 use crate::hdp::state_container::VirtualConnectionType;
-use hyxe_crypt::fcm::keys::FcmKeys;
 use crate::hdp::hdp_node::ConnectMode;
-use hyxe_user::backend::PersistenceHandler;
 use crate::error::NetworkError;
 use hyxe_user::external_services::ServicesObject;
 use hyxe_user::external_services::rtdb::RtdbClientConfig;
@@ -45,7 +43,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                 log::trace!(target: "lusna", "STAGE 2 CONNECT PACKET");
                 let task = {
                     match validation::do_connect::validate_stage0_packet(&cnac, &*payload).await {
-                        Ok(fcm_keys) => {
+                        Ok(_) => {
                             let mut state_container = inner_mut_state!(session.state_container);
 
                             let cid = hyper_ratchet.get_cid();
@@ -75,19 +73,16 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
 
                             async move {
                                 let mailbox_items = session.session_manager.register_session_with_peer_layer(cid).await?;
-                                let _ = handle_client_fcm_keys(fcm_keys, &cnac, account_manager.get_persistence_handler()).await?;
-                                let peers = account_manager.get_persistence_handler().get_hyperlan_peer_list_with_fcm_keys_as_server(cid).await?.unwrap_or(Vec::new());
+                                let peers = account_manager.get_persistence_handler().get_hyperlan_peer_list_as_server(cid).await?.unwrap_or_default();
                                 let post_login_object = account_manager.services_handler().on_post_login_serverside(cid).await?;
 
-                                let fcm_packets = cnac.retrieve_raw_fcm_packets().await?;
-
-                                let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items, fcm_packets, post_login_object.clone(), session.create_welcome_message(cid), peers, success_time, security_level);
+                                let success_packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, true, mailbox_items,post_login_object.clone(), session.create_welcome_message(cid), peers, success_time, security_level);
 
                                 session.implicated_cid.set(Some(cid));
                                 session.state.store(SessionState::Connected, Ordering::Relaxed);
 
                                 let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
-                                let channel_signal = NodeResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, None, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel, udp_channel_rx);
+                                let channel_signal = NodeResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, post_login_object, format!("Client {} successfully established a connection to the local HyperNode", cid), channel, udp_channel_rx);
                                 // safe unwrap. Store the signal
                                 inner_mut_state!(session.state_container).c2s_channel_container.as_mut().unwrap().channel_signal = Some(channel_signal);
                                 Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
@@ -99,7 +94,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                             let fail_time = time_tracker.get_global_time_ns();
 
                             //session.state = SessionState::NeedsConnect;
-                            let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, None, ServicesObject::default(), err.to_string(), Vec::new(), fail_time, security_level);
+                            let packet = hdp_packet_crafter::do_connect::craft_final_status_packet(&hyper_ratchet, false, None, ServicesObject::default(), err.to_string(), Vec::new(), fail_time, security_level);
                             return Ok(PrimaryProcessorResult::ReplyToSender(packet))
                         }
                     }
@@ -176,7 +171,7 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                             //session.post_quantum = pqc;
                             let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
                             let peers = payload.peers;
-                            session.send_to_kernel(NodeResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type, payload.fcm_packets.map(|v| v.into()), payload.post_login_object, message, channel, udp_channel_rx))?;
+                            session.send_to_kernel(NodeResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type,payload.post_login_object, message, channel, udp_channel_rx))?;
 
                             let timestamp = session.time_tracker.get_global_time_ns();
 
@@ -189,7 +184,6 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
 
                             let persistence_handler = session.account_manager.get_persistence_handler().clone();
                             //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
-                            let fcm_keys = session.fcm_keys.clone();
                             session.state.store(SessionState::Connected, Ordering::Relaxed);
 
                             let success_ack = hdp_packet_crafter::do_connect::craft_success_ack(&hyper_ratchet, timestamp, security_level);
@@ -197,7 +191,6 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
 
                             // TODO: Clean this up to prevent multiple saves
                             async move {
-                                let _ = handle_client_fcm_keys(fcm_keys, &cnac, &persistence_handler).await?;
                                 let _ = persistence_handler.synchronize_hyperlan_peer_list_as_client(&cnac, peers).await?;
                                 match (post_login_object.rtdb, post_login_object.google_auth_jwt) {
                                     (Some(rtdb_cfg), Some(jwt)) => {
@@ -277,14 +270,4 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
     };
 
     to_concurrent_processor!(concurrent_processor_tx, task)
-}
-
-/// returns true if saving occured
-pub(super) async fn handle_client_fcm_keys(fcm_keys: Option<FcmKeys>, cnac: &ClientNetworkAccount, persistence_handler: &PersistenceHandler) -> Result<bool, NetworkError> {
-    if let Some(fcm_keys) = fcm_keys {
-        log::trace!(target: "lusna", "[FCM KEYS]: {:?}", &fcm_keys);
-        persistence_handler.update_fcm_keys(cnac, fcm_keys).await.map(|_| true).map_err(|err| NetworkError::Generic(err.into_string()))
-    } else {
-        Ok(false)
-    }
 }

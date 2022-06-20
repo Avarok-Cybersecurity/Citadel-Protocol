@@ -339,20 +339,17 @@ pub(crate) mod do_connect {
     use hyxe_crypt::prelude::SecurityLevel;
     use hyxe_fs::prelude::SyncIO;
     use serde::{Serialize, Deserialize};
-    use hyxe_crypt::fcm::keys::FcmKeys;
-    use std::collections::{HashMap, BTreeMap};
-    use hyxe_user::external_services::fcm::data_structures::RawExternalPacket;
     use hyxe_user::external_services::ServicesObject;
+    use hyxe_user::prelude::MutualPeer;
 
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectStage0Packet {
-        pub proposed_credentials: ProposedCredentials,
-        pub fcm_keys: Option<FcmKeys>
+        pub proposed_credentials: ProposedCredentials
     }
 
     /// Alice receives the nonce from Bob. She must now inscribe her username/password
     #[allow(unused_results)]
-    pub(crate) fn craft_stage0_packet(hyper_ratchet: &HyperRatchet, proposed_credentials: ProposedCredentials, fcm_keys: Option<FcmKeys>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_stage0_packet(hyper_ratchet: &HyperRatchet, proposed_credentials: ProposedCredentials, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_CONNECT,
             cmd_aux: packet_flags::cmd::aux::do_connect::STAGE0,
@@ -368,7 +365,7 @@ pub(crate) mod do_connect {
             target_cid: U64::new(0)
         };
 
-        let payload = DoConnectStage0Packet { proposed_credentials, fcm_keys };
+        let payload = DoConnectStage0Packet { proposed_credentials };
 
         let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + payload.serialized_size().unwrap());
         header.inscribe_into(&mut packet);
@@ -381,16 +378,15 @@ pub(crate) mod do_connect {
     #[derive(Serialize, Deserialize)]
     pub struct DoConnectFinalStatusPacket<'a> {
         pub mailbox: Option<MailboxTransfer>,
-        pub fcm_packets: Option<HashMap<u64, BTreeMap<u128, RawExternalPacket>>>,
-        pub peers: Vec<(u64, Option<String>, Option<FcmKeys>)>,
+        pub peers: Vec<MutualPeer>,
         pub post_login_object: ServicesObject,
         #[serde(borrow)]
         pub message: &'a [u8]
     }
 
     #[allow(unused_results)]
-    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, success: bool, mailbox: Option<MailboxTransfer>, fcm_packets: Option<HashMap<u64, BTreeMap<u128, RawExternalPacket>>>, post_login_object: ServicesObject, message: T, peers: Vec<(u64, Option<String>, Option<FcmKeys>)>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
-        let payload = DoConnectFinalStatusPacket { mailbox, fcm_packets, peers, message: message.as_ref(), post_login_object };
+    pub(crate) fn craft_final_status_packet<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, success: bool, mailbox: Option<MailboxTransfer>, post_login_object: ServicesObject, message: T, peers: Vec<MutualPeer>, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+        let payload = DoConnectFinalStatusPacket { mailbox, peers, message: message.as_ref(), post_login_object };
 
         let cmd_aux = if success {
             packet_flags::cmd::aux::do_connect::SUCCESS
@@ -487,7 +483,6 @@ pub(crate) mod do_register {
     use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
-    use hyxe_crypt::fcm::keys::FcmKeys;
     use hyxe_fs::io::SyncIO;
     use serde::{Serialize, Deserialize};
 
@@ -553,13 +548,12 @@ pub(crate) mod do_register {
 
     #[derive(Serialize, Deserialize)]
     pub struct DoRegisterStage2Packet {
-        pub credentials: ProposedCredentials,
-        pub fcm_keys: Option<FcmKeys>
+        pub credentials: ProposedCredentials
     }
 
     /// Alice sends this. The stage 3 packet contains the encrypted username, password, and full name of the registering client
     #[allow(unused_results)]
-    pub(crate) fn craft_stage2(hyper_ratchet: &HyperRatchet, algorithm: u8, local_nid: u64, timestamp: i64, credentials: &ProposedCredentials, fcm_keys: Option<FcmKeys>, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_stage2(hyper_ratchet: &HyperRatchet, algorithm: u8, local_nid: u64, timestamp: i64, credentials: &ProposedCredentials, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE2,
@@ -576,7 +570,7 @@ pub(crate) mod do_register {
 
         let total_len = HDP_HEADER_BYTE_LEN;
         let mut packet = BytesMut::with_capacity(total_len);
-        let payload = DoRegisterStage2Packet { credentials: credentials.clone(), fcm_keys };
+        let payload = DoRegisterStage2Packet { credentials: credentials.clone() };
         header.inscribe_into(&mut packet);
         payload.serialize_into_buf(&mut packet).unwrap();
 
