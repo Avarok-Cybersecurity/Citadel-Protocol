@@ -1,10 +1,9 @@
 use serde::{Serialize, Deserialize};
 use firebase_rtdb::{FirebaseRTDB, AuthResponsePayload, DEFAULT_EXPIRE_BUFFER_SECS};
 use std::ops::{Deref, DerefMut};
-use crate::external_services::service_interface::ExternalServiceChannel;
+use crate::external_services::service_interface::{ExternalServiceChannel, RawExternalPacket};
 use async_trait::async_trait;
 use crate::misc::AccountError;
-use crate::external_services::fcm::data_structures::RawExternalPacket;
 use std::time::Instant;
 use crate::external_services::google_auth::JsonWebToken;
 

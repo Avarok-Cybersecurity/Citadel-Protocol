@@ -1,13 +1,11 @@
 use crate::network_account::NetworkAccount;
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
-use std::sync::Arc;
 use std::net::SocketAddr;
 use crate::prelude::{HyperNodeAccountInformation, UserIdentifier};
 use crate::misc::AccountError;
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::hypernode_account::NAC_SERIALIZED_EXTENSION;
 use hyxe_fs::env::DirectoryStore;
-use fcm::Client;
 use crate::backend::{BackendType, PersistenceHandler};
 use crate::backend::filesystem_backend::FilesystemBackend;
 use crate::backend::BackendConnection;
@@ -88,11 +86,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// Returns a reference to the services handler
     pub fn services_handler(&self) -> &ServicesHandler {
         &self.services_handler
-    }
-
-    /// Returns the fcm client
-    pub fn fcm_client(&self) -> &Arc<Client> {
-        &self.services_handler.fcm_client
     }
 
     /// Once a valid and decrypted stage 4 packet gets received by the server (Bob), this function should be called

@@ -18,8 +18,6 @@ warnings
 
 /// Standard imports for this library
 pub mod prelude {
-    pub use fcm::Client;
-
     pub use hyxe_fs::file_crypt_scrambler::MAX_BYTES_PER_GROUP;
 
     pub use crate::client_account::*;
