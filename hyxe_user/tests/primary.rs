@@ -143,19 +143,28 @@ mod tests {
         let client_backends = client_backends();
         let server_backends = server_backends();
 
-        for client_backend in &client_backends {
-            for server_backend in &server_backends {
-                log::info!(target: "lusna", "Trying combination: client={:?} w/ server={:?}", client_backend, server_backend);
-                let container = TestContainer::new(server_backend.clone(), client_backend.clone()).await;
-                let (pers_cl, pers_se) = (container.client_acc_mgr.get_persistence_handler().clone(), container.server_acc_mgr.get_persistence_handler().clone());
-                let res = tokio::task::spawn((t)(container.clone(), pers_cl, pers_se)).await.map_err(|err| AccountError::Generic(err.to_string()));
-                log::info!(target: "lusna", "About to clear test container ...");
-                if res.is_err() {
-                    log::error!(target: "lusna", "Task failed! {:?}", res);
-                }
-                container.deinit().await;
-                res??;
+
+        async fn harness_inner<T, F>(client_backend: &BackendType, server_backend: &BackendType, t: &mut T) -> Result<(), AccountError>
+            where T: Send + 'static + FnMut(TestContainer, PersistenceHandler, PersistenceHandler) -> F,
+                  F: Future<Output=Result<(), AccountError>> + Send + 'static {
+            log::info!(target: "lusna", "Trying combination: client={:?} w/ server={:?}", client_backend, server_backend);
+            let container = TestContainer::new(server_backend.clone(), client_backend.clone()).await;
+            let (pers_cl, pers_se) = (container.client_acc_mgr.get_persistence_handler().clone(), container.server_acc_mgr.get_persistence_handler().clone());
+            let res = tokio::task::spawn((t)(container.clone(), pers_cl, pers_se)).await.map_err(|err| AccountError::Generic(err.to_string()));
+            log::info!(target: "lusna", "About to clear test container ...");
+            if res.is_err() {
+                log::error!(target: "lusna", "Task failed! {:?}", res);
             }
+            container.deinit().await;
+            res?
+        }
+
+        for client_backend in &client_backends {
+            harness_inner(client_backend, &BackendType::Filesystem, &mut t).await?
+        }
+
+        for server_backend in &server_backends {
+            harness_inner(&BackendType::Filesystem, server_backend, &mut t).await?;
         }
 
         Ok(())
