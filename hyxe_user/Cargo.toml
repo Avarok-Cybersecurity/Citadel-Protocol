@@ -47,7 +47,7 @@ mobc = { version = "0.7.3", optional = true }
 firebase-rtdb = { path = "../firebase-rtdb", version = "0.1.0" }
 jwt = { version = "0.16.0", features = ["openssl"] }
 openssl = { version = "0.10.36", features = ["vendored"] }
-uuid = { version = "1.0.0", features = ["v4"] }
+uuid = { version = "1.1.2", features = ["v4"] }
 
 [dev-dependencies]
 tokio = { version = "1.19.0", features = ["macros"] }
