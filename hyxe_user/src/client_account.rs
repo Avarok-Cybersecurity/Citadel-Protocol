@@ -89,7 +89,7 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = T
     /// Toolset which contains all the drills
     #[serde(bound = "")]
     pub crypt_container: PeerSessionCrypto<R>,
-    #[serde(with = "crate::external_services::fcm::data_structures::none")]
+    #[serde(with = "crate::misc::none")]
     pub(crate) persistence_handler: Option<PersistenceHandler<R, Fcm>>,
     /// RTDB config for client-side communications
     pub client_rtdb_config: Option<RtdbClientConfig>,
