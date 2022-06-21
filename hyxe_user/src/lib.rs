@@ -56,13 +56,8 @@ pub mod client_account;
 
 /// This provides methods to load all locally-stored files
 pub mod account_loader;
-
-/// The [Server] in legacy_hyxe_net requires a means of handling the user database. This module contains the means of achieving this
+/// The server in legacy_hyxe_net requires a means of handling the user database. This module contains the means of achieving this
 pub mod account_manager;
-
-/// The server needs to keep track of existing clients and implied CID values when creating users etc.
-/// The server can keep track of this between runtimes by saving data to the disk
-pub mod server_config_handler;
 /// For errors
 pub mod misc;
 /// For handling different I/O operations

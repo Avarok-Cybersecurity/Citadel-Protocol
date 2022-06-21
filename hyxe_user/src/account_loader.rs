@@ -9,43 +9,6 @@ use std::collections::HashMap;
 use hyxe_fs::env::*;
 use hyxe_crypt::hyper_ratchet::Ratchet;
 
-/// This is called during the program init. This closure will install a new NAC if one does not
-/// exist locally.
-/// `cnacs_loaded` must also be present in order to validate that the local node's listed clients map to locally-existant CNACs. A "feed two birds with one scone" scenario
-#[allow(unused_results)]
-pub fn load_node_nac<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError> {
-    log::trace!(target: "lusna", "[NAC-loader] Detecting local NAC...");
-    // First, set the NAC_NODE_DEFAULT_STORE_LOCATION
-    let file_location = directory_store.inner.read().nac_node_default_store_location.clone();
-
-    let create_nac = |err: String| {
-        if let Ok(nac) = NetworkAccount::<R, Fcm>::new(directory_store) {
-            Ok(nac)
-        } else {
-            Err(AccountError::Generic(format!("[NAC-Loader] Unable to start application. Unable to create this node's NetworkAccount.\nError Message: {}", err)))
-        }
-    };
-
-    match std::fs::File::open(&file_location) {
-        Ok(_) => {
-            log::trace!(target: "lusna", "[NAC-Loader] Detected local NAC. Updating information...");
-            match read::<NetworkAccountInner<R, Fcm>, _>(&file_location).map(NetworkAccount::<R, Fcm>::from){
-                Ok(nac) => {
-                    Ok(nac)
-                }
-
-                Err(err) =>{
-                    create_nac(err.to_string())
-                }
-            }
-        },
-
-        Err(err) => {
-            create_nac(err.to_string())
-        }
-    }
-}
-
 /// Loads all locally-stored CNACs, as well as the highest CID (used to update local nac incase improper shutdown)
 #[allow(unused_results)]
 pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore) -> Result<HashMap<u64, ClientNetworkAccount<R, Fcm>>, FsError<String>> {

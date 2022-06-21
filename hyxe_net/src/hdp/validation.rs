@@ -120,27 +120,27 @@ pub(crate) mod do_register {
     use hyxe_fs::io::SyncIO;
     use crate::hdp::hdp_packet_crafter::do_register::{DoRegisterStage2Packet, DoRegisterStage0};
     use hyxe_user::backend::PersistenceHandler;
+    use hyxe_user::prelude::ConnectionInfo;
 
     pub(crate) fn validate_stage0<'a>(payload: &'a [u8]) -> Option<(AliceToBobTransfer<'a>, Vec<u64>, bool)> {
         DoRegisterStage0::deserialize_from_vector(payload).ok().map(|r| (r.transfer, r.potential_cids_alice, r.passwordless))
     }
 
     /// Returns the decrypted username, password, and full name
-    pub(crate) fn validate_stage2(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, peer_addr: SocketAddr, persistence_handler: &PersistenceHandler) -> Option<(DoRegisterStage2Packet, NetworkAccount)> {
+    pub(crate) fn validate_stage2(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, peer_addr: SocketAddr) -> Option<(DoRegisterStage2Packet, ConnectionInfo)> {
         let (_, plaintext_bytes) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
         let packet = DoRegisterStage2Packet::deserialize_from_vector(&plaintext_bytes[..]).ok()?;
 
         //let proposed_credentials = ProposedCredentials::new_from_hashed(full_name, username, SecVec::new(password.to_vec()), nonce);
-        let adjacent_nid = header.session_cid.get();
-        let adjacent_nac = NetworkAccount::new_from_recent_connection(adjacent_nid, peer_addr,persistence_handler.clone());
-        Some((packet, adjacent_nac))
+        let adjacent_addr = ConnectionInfo { addr: peer_addr };
+        Some((packet, adjacent_addr))
     }
 
     /// Returns the decrypted Toolset text, as well as the welcome message
-    pub(crate) fn validate_success(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr, persistence_handler: &PersistenceHandler) -> Option<(Vec<u8>, NetworkAccount)> {
+    pub(crate) fn validate_success(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr) -> Option<(Vec<u8>, ConnectionInfo)> {
         let (_, payload) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
-        let adjacent_nac = NetworkAccount::new_from_recent_connection(header.session_cid.get(), remote_addr, persistence_handler.clone());
-        Some((payload.to_vec(), adjacent_nac))
+        let adjacent_addr = ConnectionInfo { addr: remote_addr };
+        Some((payload.to_vec(), adjacent_addr))
     }
 
     /// Returns the error message
