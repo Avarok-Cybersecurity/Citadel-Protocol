@@ -1,13 +1,12 @@
 use crate::network_account::NetworkAccount;
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::net::SocketAddr;
-use crate::prelude::{HyperNodeAccountInformation, UserIdentifier};
+use crate::prelude::{HyperNodeAccountInformation, UserIdentifier, ConnectionInfo};
 use crate::misc::AccountError;
 use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::hypernode_account::NAC_SERIALIZED_EXTENSION;
 use hyxe_fs::env::DirectoryStore;
 use crate::backend::{BackendType, PersistenceHandler};
-use crate::backend::filesystem_backend::FilesystemBackend;
 use crate::backend::BackendConnection;
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
@@ -31,16 +30,17 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// `home_dir`: Optional. Overrides the default storage location for files
     /// `server_argon_settings`: Security settings used for saving the password to the backend. The AD will be replaced each time a new user is created, so it can be empty
     #[allow(unused_results)]
-    pub async fn new(bind_addr: SocketAddr, home_dir: Option<String>, backend_type: BackendType, server_argon_settings: Option<ArgonDefaultServerSettings>, services_cfg: Option<ServicesConfig>, server_misc_settings: Option<ServerMiscSettings>) -> Result<Self, AccountError> {
+    pub async fn new(backend_type: BackendType, server_argon_settings: Option<ArgonDefaultServerSettings>, services_cfg: Option<ServicesConfig>, server_misc_settings: Option<ServerMiscSettings>) -> Result<Self, AccountError> {
         // The below map should locally store: impersonal mode CNAC's, as well as personal remote server CNAC's
-        let directory_store = hyxe_fs::env::setup_directories(bind_addr, NAC_SERIALIZED_EXTENSION, home_dir)?;
         let services_handler = services_cfg.unwrap_or_default().into_services_handler().await?;
 
         let persistence_handler = match &backend_type {
-            BackendType::Filesystem => {
-                let mut backend = FilesystemBackend::from(directory_store.clone());
+            #[cfg(feature = "filesystem")]
+            BackendType::Filesystem(..) => {
+                use crate::backend::filesystem_backend::FilesystemBackend;
+                let mut backend = FilesystemBackend::from(backend_type);
                 backend.connect(&directory_store).await?;
-                PersistenceHandler::new(backend, directory_store)
+                PersistenceHandler::new(backend)
             }
 
             #[cfg(feature = "sql")]
@@ -48,7 +48,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
                 use crate::backend::mysql_backend::SqlBackend;
                 use std::convert::TryFrom;
                 let mut backend = SqlBackend::try_from(backend_type).map_err(|_| AccountError::Generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
-                backend.connect(&directory_store).await?;
+                backend.connect().await?;
                 PersistenceHandler::new(backend, directory_store)
             }
 
@@ -56,12 +56,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             BackendType::Redis(url, opts) => {
                 use crate::backend::redis_backend::RedisBackend;
                 let mut backend = RedisBackend::new(url.clone(), opts.clone());
-                backend.connect(&directory_store).await?;
-                PersistenceHandler::new(backend, directory_store)
+                backend.connect().await?;
+                PersistenceHandler::new(backend)
             }
         };
-
-        persistence_handler.post_connect(&persistence_handler).await?;
 
         if !persistence_handler.is_connected().await? {
             return Err(AccountError::msg("Unable to connect to remote database via account manager"))
@@ -69,6 +67,8 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         log::info!(target: "lusna", "Successfully established connection to backend ...");
 
+        // TODO: for inter-process restarts wrt unit testing, make sure the below doesn't happen.
+        // maybe check env var before purging, and, toggle on/off as necessary?
         #[cfg(feature = "localhost-testing")] {
             let _ = persistence_handler.purge().await?;
         }
@@ -92,9 +92,25 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// to create the new CNAC. The generated CNAC will be assumed to be an impersonal hyperlan client
     ///
     /// This also generates the argon-2id password hash
-    pub async fn register_impersonal_hyperlan_client_network_account(&self, reserved_cid: u64, nac_other: NetworkAccount<R, Fcm>, creds: ProposedCredentials, init_hyper_ratchet: R) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
-        let server_auth_store = creds.derive_server_container(&self.node_argon_settings, reserved_cid, self.get_misc_settings()).await?;
-        let new_cnac = self.get_local_nac().create_client_account(reserved_cid, Some(nac_other), server_auth_store, init_hyper_ratchet).await?;
+    pub async fn register_impersonal_hyperlan_client_network_account(&self, reserved_cid: u64, conn_info: ConnectionInfo, creds: ProposedCredentials, init_hyper_ratchet: R) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+        let auth_store = creds.derive_server_container(&self.node_argon_settings, reserved_cid, self.get_misc_settings()).await?;
+        let pers = &self.persistence_handler;
+
+        // We must lock the config to ensure that the obtained CID gets added into the database before any competing threads may get called
+        log::trace!(target: "lusna", "Checking username {} for correspondence ...", auth_store.username());
+
+        let username = auth_store.username().to_string();
+
+        if pers.username_exists(&username).await? {
+            return Err(AccountError::Generic(format!("Username {} already exists!", &username)))
+        }
+
+        // cnac gets saved below
+        let cnac = ClientNetworkAccount::<R, Fcm>::new(reserved_cid, false, conn_info, auth_store, init_hyper_ratchet).await?;
+
+        // So long as the CNAC creation succeeded, we can confidently add the CID into the config
+        // TODO: the below should be removed
+        let new_cnac = pers.register_cid_in_nac(reserved_cid, &username).await.map(|_| cnac)?;
         log::trace!(target: "lusna", "Created impersonal CNAC ...");
         self.persistence_handler.save_cnac(new_cnac.clone()).await?;
 

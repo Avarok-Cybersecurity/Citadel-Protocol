@@ -10,8 +10,9 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 [features]
 redis = ["redis-base", "mobc"]
-default = ["single-threaded"]
+default = ["single-threaded", "filesystem"]
 sql = ["sqlx"]
+filesystem = []
 multi-threaded = ["hyxe_crypt/multi-threaded"]
 single-threaded = ["hyxe_crypt/single-threaded"]
 
@@ -31,7 +32,7 @@ rand = "0.7.0"
 multimap = "^0.8.3"
 parking_lot = { version = "0.12.0", features = ["serde"] }
 log = { version = "0.4.8" }
-
+twox-hash = "1.6.3"
 hyxe_fs = { path = "../hyxe_fs", version = "0.1.0" }
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }
 serde_json = "1.0.62"
