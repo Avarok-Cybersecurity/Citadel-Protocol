@@ -4,8 +4,6 @@ use async_trait::async_trait;
 use crate::misc::{AccountError, CNACMetadata};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::path::PathBuf;
-use hyxe_fs::env::DirectoryStore;
-use crate::prelude::NetworkAccount;
 use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
@@ -13,6 +11,7 @@ use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use crate::backend::mysql_backend::SqlConnectionOptions;
 #[cfg(feature = "redis")]
 use crate::backend::redis_backend::RedisConnectionOptions;
+use std::hash::Hasher;
 
 #[cfg(feature = "sql")]
 /// Implementation for the SQL backend
@@ -21,13 +20,20 @@ pub mod mysql_backend;
 /// Implementation for the redis backend
 pub mod redis_backend;
 /// Implementation for the default filesystem backend
+#[cfg(feature = "filesystem")]
 pub mod filesystem_backend;
+pub mod memory;
 
 /// Used when constructing the account manager
 #[derive(Clone, Debug)]
 pub enum BackendType {
+    /// No true synchronization will occur; data is lost between program
+    /// executions. Ideal for WASM environments that don't have filesystem
+    /// access
+    InMemory,
     /// Synchronization will occur on the filesystem
-    Filesystem,
+    #[cfg(feature = "filesystem")]
+    Filesystem(String),
     #[cfg(feature = "sql")]
     /// Synchronization will occur on a remote SQL database
     SQLDatabase(String, SqlConnectionOptions),
@@ -36,22 +42,10 @@ pub enum BackendType {
     Redis(String, RedisConnectionOptions)
 }
 
-impl Default for BackendType {
-    fn default() -> Self {
-        Self::Filesystem
-    }
-}
-
 impl BackendType {
-    /// For requesting the use of the FilesystemBackend driver
-    pub const fn filesystem() -> BackendType {
-        BackendType::Filesystem
-    }
-
     /// Creates a new [`BackendType`] given the provided `url`. Returns an error
     /// if the URL could not be parsed
     pub fn new<T: Into<String>>(url: T) -> Result<Self, AccountError> {
-        // TODO: handle filesystem:// url syntax
         let addr = url.into();
         #[cfg(feature = "redis")] {
             if addr.starts_with("redis") {
@@ -67,7 +61,20 @@ impl BackendType {
             }
         }
 
-        Err(AccountError::msg(format!("The addr '{}' is not a valid target", addr)))
+        #[cfg(feature = "filesystem")] {
+            if addr.starts_with("file:") {
+                return Ok(Self::filesystem(addr))
+            }
+        }
+
+        Err(AccountError::msg(format!("The addr '{}' is not a valid target (hint: ensure either 'redis', 'sql' or 'filesystem' features are enabled when compiling", addr)))
+    }
+
+    #[cfg(feature = "filesystem")]
+    /// For requesting the use of the local filesystem as a backend
+    /// URL format: file:/path/to/directory (unix) or file:C\windows\dir (windows)
+    pub fn filesystem<T: Into<String>>(path: T) -> Self {
+        Self::Filesystem(path.into())
     }
 
     #[cfg(feature = "redis")]
@@ -107,9 +114,7 @@ impl BackendType {
 #[async_trait]
 pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// This should be run for handling any types of underlying connect operations
-    async fn connect(&mut self, directory_store: &DirectoryStore) -> Result<(), AccountError>;
-    /// This is called once the PersistenceHandler is loaded
-    async fn post_connect(&self, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<(), AccountError>;
+    async fn connect(&mut self) -> Result<(), AccountError>;
     /// Determines if connected or not
     async fn is_connected(&self) -> Result<bool, AccountError>;
     /// Saves the entire cnac to the DB
@@ -117,29 +122,27 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Find a CNAC by cid
     async fn get_cnac_by_cid(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError>;
     /// Gets the client by username
-    async fn get_client_by_username(&self, username: &str) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError>;
+    async fn get_client_by_username(&self, username: &str) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
+        self.get_cnac_by_cid(username_to_cid(username)).await
+    }
     /// Determines if a CID is registered
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError>;
     /// Removes a CNAC by cid
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError>;
     /// Removes all CNACs
     async fn purge(&self) -> Result<usize, AccountError>;
-    /// Maybe generates a local save path, only if required by the implementation
-    fn maybe_generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> Option<PathBuf>;
-    /// Returns a list of unused CIDS
-    async fn client_only_generate_possible_cids(&self) -> Result<Vec<u64>, AccountError>;
-    /// Searches the internal database/nac for the first cid that is unused
-    async fn find_first_valid_cid(&self, possible_cids: &Vec<u64>) -> Result<Option<u64>, AccountError>;
     /// Determines if a username exists
-    async fn username_exists(&self, username: &str) -> Result<bool, AccountError>;
-    /// Registers a CID to the db/fs, preventing future registrants from using the same values
-    async fn register_cid_in_nac(&self, cid: u64, username: &str) -> Result<(), AccountError>;
+    async fn username_exists(&self, username: &str) -> Result<bool, AccountError> {
+        self.cid_is_registered(username_to_cid(username)).await
+    }
     /// Returns a list of impersonal cids
     async fn get_registered_impersonal_cids(&self, limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError>;
     /// Gets the username by CID
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError>;
     /// Gets the CID by username
-    async fn get_cid_by_username(&self, username: &str) -> Result<Option<u64>, AccountError>;
+    fn get_cid_by_username(&self, username: &str) -> u64 {
+        username_to_cid(username)
+    }
     /// Registers two peers together
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError>;
     /// registers p2p as client
@@ -163,11 +166,13 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Returns a set of PeerMutual containers
     async fn get_hyperlan_peers(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<MutualPeer>, AccountError>;
     /// Gets hyperland peer by username
-    async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError>;
+    async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError> {
+        self.get_hyperlan_peer_by_cid(implicated_cid, username_to_cid(username)).await
+    }
     /// Gets all peers for client
     async fn get_hyperlan_peer_list_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<MutualPeer>>, AccountError>;
     /// Synchronizes the list locally. Returns true if needs to be saved
-    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<bool, AccountError>;
+    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<(), AccountError>;
     /// Returns a vector of bytes from the byte map
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError>;
     /// Removes a value from the byte map, returning the previous value
@@ -178,25 +183,17 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     async fn get_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError>;
     /// Obtains a list of K,V pairs such that `needle` is a subset of the K value
     async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError>;
-    /// Returns the local nac
-    fn local_nac(&self) -> &NetworkAccount<R, Fcm>;
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations
 pub struct PersistenceHandler<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
-    inner: Arc<dyn BackendConnection<R, Fcm>>,
-    directory_store: DirectoryStore
+    inner: Arc<dyn BackendConnection<R, Fcm>>
 }
 
 impl<R: Ratchet, Fcm: Ratchet> PersistenceHandler<R, Fcm> {
     /// Creates a new persistence handler
-    pub fn new<T: BackendConnection<R, Fcm> + 'static>(inner: T, directory_store: DirectoryStore) -> Self {
-        Self { inner: Arc::new(inner), directory_store }
-    }
-
-    /// Returns the inner directory store
-    pub fn directory_store(&self) -> &DirectoryStore {
-        &self.directory_store
+    pub fn new<T: BackendConnection<R, Fcm> + 'static>(inner: T) -> Self {
+        Self { inner: Arc::new(inner) }
     }
 }
 
@@ -210,6 +207,13 @@ impl<R: Ratchet, Fcm: Ratchet> Deref for PersistenceHandler<R, Fcm> {
 
 impl<R: Ratchet, Fcm: Ratchet> Clone for PersistenceHandler<R, Fcm> {
     fn clone(&self) -> Self {
-        Self { inner: self.inner.clone(), directory_store: self.directory_store.clone() }
+        Self { inner: self.inner.clone() }
     }
+}
+
+/// Generates a CID given a username
+pub fn username_to_cid(username: &str) -> u64 {
+    let mut hasher = twox_hash::XxHash64::default();
+    hasher.write(username.as_bytes());
+    hasher.finish()
 }

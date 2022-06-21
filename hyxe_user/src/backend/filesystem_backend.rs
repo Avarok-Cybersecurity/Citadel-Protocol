@@ -7,40 +7,31 @@ use hyxe_fs::system_file_manager::write_bytes_to;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use hyxe_fs::env::DirectoryStore;
-use crate::prelude::NetworkAccount;
+use crate::prelude::{NetworkAccount, CNAC_SERIALIZED_EXTENSION};
 use crate::account_loader::{load_cnac_files, load_node_nac};
 use crate::server_config_handler::sync_cnacs_and_nac_filesystem;
 use std::collections::hash_map::RandomState;
-use crate::hypernode_account::HyperNodeAccountInformation;
+use crate::hypernode_account::{HyperNodeAccountInformation, NAC_SERIALIZED_EXTENSION};
 use std::sync::Arc;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use hyxe_fs::misc::get_pathbuf;
+use crate::backend::memory::MemoryBackend;
 
 /// For handling I/O with the local filesystem
 pub struct FilesystemBackend<R: Ratchet, Fcm: Ratchet> {
-    clients_map: Option<Arc<RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>>>,
-    directory_store: DirectoryStore,
-    local_nac: Option<NetworkAccount<R, Fcm>>
+    memory_backend: MemoryBackend<R, Fcm>,
+    directory_store: Option<DirectoryStore>,
+    home_dir: String
 }
 
 #[async_trait]
 impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R, Fcm> {
-    async fn connect(&mut self, directory_store: &DirectoryStore) -> Result<(), AccountError> {
-        let mut map = load_cnac_files(directory_store)?;
-        let local_nac = load_node_nac(directory_store)?;
-        sync_cnacs_and_nac_filesystem(&local_nac, &mut map)?;
+    async fn connect(&mut self) -> Result<(), AccountError> {
+        let directory_store = hyxe_fs::env::setup_directories(NAC_SERIALIZED_EXTENSION, self.home_dir.clone())?;
+        let mut map = load_cnac_files(&directory_store)?;
         // NOTE: since we don't have access to the persistence handler yet, we will need to load it later
-        self.local_nac = Some(local_nac);
         self.clients_map = Some(Arc::new(RwLock::new(map)));
-
-        Ok(())
-    }
-
-    async fn post_connect(&self, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<(), AccountError> {
-        // We must share the persistence handler to the local nac AND all cnacs
-        self.local_nac().store_persistence_handler(persistence_handler);
-        self.local_nac().save_to_local_fs()?;
-        self.read_map().values().for_each(|cnac| cnac.store_persistence_handler(persistence_handler));
-
+        self.directory_store = Some(directory_store);
         Ok(())
     }
 
@@ -50,6 +41,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     #[allow(unused_results)]
     async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
+        // TODO: only for filesystem type
         let bytes = cnac.generate_proper_bytes()?;
         let cid = cnac.get_cid();
         write_bytes_to(bytes, self.maybe_generate_cnac_local_save_path(cnac.get_cid(), cnac.is_personal()).ok_or(AccountError::Generic("Cannot generate a save path for the CNAC".into()))?)?;
@@ -61,13 +53,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         Ok(self.read_map().get(&cid).cloned())
     }
 
-    async fn get_client_by_username(&self, username: &str) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        Ok(self.read_map().iter().find(|(_, cnac)| cnac.get_username().eq(username))
-            .map(|(_, cnac)| cnac.clone()))
-    }
-
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError> {
-        Ok(self.local_nac().cid_exists_filesystem(cid))
+        Ok(self.read_map().contains_key(&cid))
     }
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
@@ -80,41 +67,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         let mut write = self.write_map();
         let count = write.len();
 
-        for (cid, cnac) in write.drain() {
-            log::trace!(target: "lusna", "Purging cid {}", cid);
-            cnac.purge_from_fs_blocking()?;
-        }
-
-        let mut write = self.local_nac().write();
-        write.cids_registered.clear();
-
-        std::mem::drop(write);
-
-        self.local_nac().save_to_local_fs()?;
+        // TODO: for fs, delete all cnacs
 
         Ok(count)
     }
 
-    fn maybe_generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> Option<PathBuf> {
-        Some(ClientNetworkAccount::<R, Fcm>::generate_local_save_path(cid, is_personal, &self.directory_store))
-    }
-
-    async fn client_only_generate_possible_cids(&self) -> Result<Vec<u64>, AccountError> {
-        self.local_nac.as_ref().map(|r| r.client_only_generate_possible_cids()).ok_or_else(||AccountError::Generic("Local NAC not loaded".into()))
-    }
-
-    async fn find_first_valid_cid(&self, possible_cids: &Vec<u64>) -> Result<Option<u64>, AccountError> {
-        Ok(self.local_nac().find_first_valid_cid_filesystem(possible_cids))
-    }
-
-    async fn username_exists(&self, username: &str) -> Result<bool, AccountError> {
-        Ok(self.local_nac().username_exists_filesystem(username))
-    }
-
-    async fn register_cid_in_nac(&self, cid: u64, username: &str) -> Result<(), AccountError> {
-        self.local_nac().register_cid_filesystem(cid, username)?;
-        self.local_nac().save_to_local_fs()
-    }
 
     async fn get_registered_impersonal_cids(&self, limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError> {
         let read = self.read_map();
@@ -137,11 +94,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
         Ok(self.read_map().get(&cid).map(|cnac| cnac.get_username()))
-    }
-
-    async fn get_cid_by_username(&self, username: &str) -> Result<Option<u64>, AccountError> {
-        Ok(self.read_map().iter().find(|(_, cnac)| cnac.get_username().eq(username))
-            .map(|(cid, _)| *cid))
     }
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
@@ -236,14 +188,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         }
     }
 
-    async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            Ok(cnac.get_hyperlan_peer_by_username(username))
-        } else {
-            Ok(None)
-        }
-    }
-
     async fn get_hyperlan_peer_list_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<MutualPeer>>, AccountError> {
         if let Some(cnac) = self.get_cnac(implicated_cid) {
             Ok(cnac.get_hyperlan_peer_mutuals())
@@ -252,8 +196,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         }
     }
 
-    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<bool, AccountError> {
-        Ok(cnac.synchronize_hyperlan_peer_list(peers))
+    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<(), AccountError> {
+        cnac.synchronize_hyperlan_peer_list(peers);
+        Ok(())
     }
 
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
@@ -302,10 +247,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
             Ok(Default::default())
         }
     }
-
-    fn local_nac(&self) -> &NetworkAccount<R, Fcm> {
-        self.local_nac.as_ref().unwrap()
-    }
 }
 
 impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
@@ -347,10 +288,19 @@ impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
             Err(AccountError::Generic("Unable to remove registered CID from the filesystem".to_string()))
         }
     }
+
+    fn maybe_generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> PathBuf {
+        let dirs = &self.directory_store;
+        if is_personal {
+            get_pathbuf(format!("{}{}.{}", dirs.hyxe_nac_dir_personal.as_str(), cid, CNAC_SERIALIZED_EXTENSION))
+        } else {
+            get_pathbuf(format!("{}{}.{}", dirs.hyxe_nac_dir_impersonal.as_str(), cid, CNAC_SERIALIZED_EXTENSION))
+        }
+    }
 }
 
-impl<R: Ratchet, Fcm: Ratchet> From<DirectoryStore> for FilesystemBackend<R, Fcm> {
-    fn from(directory_store: DirectoryStore) -> Self {
-        Self { directory_store, clients_map: None, local_nac: None }
+impl<R: Ratchet, Fcm: Ratchet> From<String> for FilesystemBackend<R, Fcm> {
+    fn from(home_dir: String) -> Self {
+        Self {home_dir, memory_backend: MemoryBackend::default(), directory_store: None }
     }
 }
