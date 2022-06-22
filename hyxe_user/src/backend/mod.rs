@@ -3,7 +3,6 @@ use std::ops::Deref;
 use async_trait::async_trait;
 use crate::misc::{AccountError, CNACMetadata};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
-use std::path::PathBuf;
 use std::collections::HashMap;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
@@ -22,6 +21,8 @@ pub mod redis_backend;
 /// Implementation for the default filesystem backend
 #[cfg(feature = "filesystem")]
 pub mod filesystem_backend;
+/// Implementation for an in-memory backend. No synchronization occurs.
+/// This is useful for no-fs environments
 pub mod memory;
 
 /// Used when constructing the account manager
@@ -118,7 +119,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Determines if connected or not
     async fn is_connected(&self) -> Result<bool, AccountError>;
     /// Saves the entire cnac to the DB
-    async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError>;
+    async fn save_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError>;
     /// Find a CNAC by cid
     async fn get_cnac_by_cid(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError>;
     /// Gets the client by username
@@ -191,9 +192,11 @@ pub struct PersistenceHandler<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatc
 }
 
 impl<R: Ratchet, Fcm: Ratchet> PersistenceHandler<R, Fcm> {
-    /// Creates a new persistence handler
-    pub fn new<T: BackendConnection<R, Fcm> + 'static>(inner: T) -> Self {
-        Self { inner: Arc::new(inner) }
+    /// Creates a new persistence handler, connecting to the backend then
+    /// returning self
+    pub async fn create<T: BackendConnection<R, Fcm> + 'static>(mut inner: T) -> Result<Self, AccountError> {
+        inner.connect().await?;
+        Ok(Self { inner: Arc::new(inner) })
     }
 }
 

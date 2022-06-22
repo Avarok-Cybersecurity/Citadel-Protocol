@@ -1,19 +1,15 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use hyxe_fs::hyxe_crypt::prelude::*;
-use hyxe_fs::env::DirectoryStore;
 use hyxe_fs::prelude::SyncIO;
 
-use crate::hypernode_account::{CNAC_SERIALIZED_EXTENSION, HyperNodeAccountInformation};
 use crate::misc::{AccountError, check_credential_formatting, CNACMetadata};
 use multimap::MultiMap;
-use crate::prelude::{NetworkAccount, ConnectionInfo};
-use crate::network_account::NetworkAccountInner;
+use crate::prelude::ConnectionInfo;
 
 use std::fmt::Formatter;
-use hyxe_fs::misc::{get_present_formatted_timestamp, get_pathbuf};
+use hyxe_fs::misc::get_present_formatted_timestamp;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use hyxe_fs::hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_fs::hyxe_crypt::toolset::UpdateStatus;
@@ -22,7 +18,6 @@ use std::ops::RangeInclusive;
 
 use std::collections::HashMap;
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
-use crate::backend::PersistenceHandler;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::external_services::rtdb::RtdbClientConfig;
@@ -106,7 +101,6 @@ pub struct ClientNetworkAccount<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRa
 
 struct MetaInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     cid: u64,
-    adjacent_nid: u64,
     is_personal: bool,
     passwordless: bool,
     inner: RwLock<ClientNetworkAccountInner<R, Fcm>>
@@ -325,29 +319,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         Ok(())
     }
 
-    /// Returns the number of peers found
-    pub(crate) fn view_hyperlan_peers(&self, mut fx: impl FnMut(&Vec<MutualPeer>)) -> usize {
-        let read = self.read();
-        if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
-            fx(hyperlan_peers);
-            hyperlan_peers.len()
-        } else {
-            0
-        }
-    }
-
-    /// Determines if the specified hyperlan peer exists
-    pub(crate) fn hyperlan_peer_exists(&self, cid: u64) -> bool {
-        let read = self.read();
-        if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
-            //log::trace!(target: "lusna", "Checking through {} peers", hyperlan_peers.len());
-            hyperlan_peers.iter().any(|peer| peer.cid == cid)
-        } else {
-            log::trace!(target: "lusna", "No mutuals registered on this accounts");
-            false
-        }
-    }
-
     /// Returns a set of registration statuses (true/false) for each co-responding peer. True if registered, false otherwise
     pub(crate) fn hyperlan_peers_exist(&self, peers: &Vec<u64>) -> Vec<bool> {
         let read = self.read();
@@ -416,7 +387,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// This should be called after retrieving a CNAC from a database
     ///
     /// Note: if persistence handler is not specified, it will have to be loaded later, before any other program execution
-    pub(crate) fn load_safe(mut inner: ClientNetworkAccountInner<R, Fcm>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+    pub(crate) fn load_safe(inner: ClientNetworkAccountInner<R, Fcm>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         Ok(ClientNetworkAccount::<R, Fcm>::from(inner))
     }
 
@@ -446,12 +417,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
 
     /// Returns the CID
     pub fn get_cid(&self) -> u64 {
-        self.get_id()
-    }
-
-    /// This will panic if the adjacent NAC is not loaded
-    pub fn get_adjacent_nid(&self) -> u64 {
-        self.inner.adjacent_nid
+        self.inner.cid
     }
 
     /// Returns true if passwordless
@@ -460,15 +426,9 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 }
 
-impl<R: Ratchet, Fcm: Ratchet> HyperNodeAccountInformation for ClientNetworkAccount<R, Fcm> {
-    fn get_id(&self) -> u64 {
-        self.inner.cid
-    }
-}
-
 impl<R: Ratchet, Fcm: Ratchet> std::fmt::Debug for ClientNetworkAccount<R, Fcm> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "CNAC | CID: {}, Adjacent NID: {}", self.inner.cid, self.inner.adjacent_nid)
+        writeln!(f, "CNAC | CID: {}", self.inner.cid)
     }
 }
 
@@ -481,9 +441,8 @@ impl<R: Ratchet, Fcm: Ratchet> std::fmt::Display for ClientNetworkAccount<R, Fcm
 
 impl<R: Ratchet, Fcm: Ratchet> From<ClientNetworkAccountInner<R, Fcm>> for MetaInner<R, Fcm> {
     fn from(inner: ClientNetworkAccountInner<R, Fcm>) -> Self {
-        let adjacent_nid = inner.adjacent_nac.get_id();
         let authless = inner.auth_store.is_passwordless();
-        Self { cid: inner.cid, adjacent_nid, is_personal: inner.is_local_personal, passwordless: authless, inner: RwLock::new(inner) }
+        Self { cid: inner.cid, is_personal: inner.is_local_personal, passwordless: authless, inner: RwLock::new(inner) }
     }
 }
 
