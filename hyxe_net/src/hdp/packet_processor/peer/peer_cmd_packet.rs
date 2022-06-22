@@ -521,7 +521,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
 
-                    if cnac.get_id() == implicated_cid {
+                    if cnac.get_cid() == implicated_cid {
                         match account_manager.deregister_hyperlan_p2p_as_server(implicated_cid, target_cid).await {
                             Ok(_) => {
                                 // route the original signal to the other end. If not connected, don't bother

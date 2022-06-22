@@ -4,12 +4,19 @@ use std::collections::HashMap;
 use hyxe_fs::hyxe_crypt::hyper_ratchet::Ratchet;
 use crate::backend::BackendConnection;
 use crate::misc::{AccountError, CNACMetadata};
+use async_trait::async_trait;
 
-#[derive(Default)]
 pub(crate) struct MemoryBackend<R: Ratchet, Fcm: Ratchet> {
     pub(crate) clients: RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>
 }
 
+impl<R: Ratchet, Fcm: Ratchet> Default for MemoryBackend<R, Fcm> {
+    fn default() -> Self {
+        Self { clients: RwLock::new(HashMap::new()) }
+    }
+}
+
+#[async_trait]
 impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fcm> {
     async fn connect(&mut self) -> Result<(), AccountError> {
         Ok(())
@@ -20,9 +27,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
     }
 
     #[allow(unused_results)]
-    async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
+    async fn save_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         let cid = cnac.get_cid();
-        self.clients.write().insert(cid, cnac);
+        self.clients.write().insert(cid, cnac.clone());
         Ok(())
     }
 
@@ -48,15 +55,16 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
     }
 
     async fn get_registered_impersonal_cids(&self, limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError> {
-        let mut iter = self.clients.read()
+        let read = self.clients.read();
+        let iter = read
             .iter()
             .filter(|r| !r.1.is_personal())
             .map(|r| r.0);
 
         let ret: Vec<u64> = if let Some(limit) = limit {
-            iter.take(limit as _).collect()
+            iter.take(limit as _).copied().collect()
         } else {
-            iter.collect()
+            iter.copied().collect()
         };
 
         if ret.is_empty() {
@@ -67,7 +75,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
     }
 
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
-        Ok(self.clients.read().get(&cid).map(|r| r.get_username()).cloned())
+        Ok(self.clients.read().get(&cid).map(|r| r.get_username()))
     }
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
@@ -129,7 +137,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         if let Some(cnac) = read.get(&implicated_cid) {
             Ok(cnac.get_hyperlan_peer(peer_cid))
         } else {
-            None
+            Ok(None)
         }
     }
 

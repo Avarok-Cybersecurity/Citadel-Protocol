@@ -10,7 +10,6 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 [dependencies]
 #flate3 = "0.1.20"
-dirs-2 = "1.1.0"
 serde = { version = "1.0.104", features = ["derive", "rc"] }
 bincode2 = "2.0.1"
 async-trait = "0.1.11"

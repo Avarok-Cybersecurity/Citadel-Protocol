@@ -1,7 +1,4 @@
 use std::fs::create_dir_all as mkdir;
-use parking_lot::RwLock;
-use std::sync::Arc;
-use std::net::SocketAddr;
 use crate::io::FsError;
 use std::path::PathBuf;
 
@@ -32,9 +29,7 @@ pub struct DirectoryStore {
     /// Configuration files for either server or client
     pub hyxe_config_dir: String,
     /// Directory for the virtual file-sharing platform
-    pub hyxe_virtual_dir: String,
-    /// The default save path of the local node's NAC
-    pub nac_node_default_store_location: String
+    pub hyxe_virtual_dir: String
 }
 
 impl DirectoryStore {
@@ -55,14 +50,13 @@ impl DirectoryStore {
 }
 
 #[allow(unused_results)]
-fn setup_directory_w_bind_addr(nac_serialized_extension: &'static str, mut home_dir: String) -> Result<DirectoryStore, FsError<String>> {
+fn setup_directory(mut home_dir: String) -> Result<DirectoryStore, FsError<String>> {
      let home = {
-         #[cfg(not(target_os = "windows"))]
-             {
-                 if !home_dir.ends_with('/') {
-                     home_dir.push('/');
-                 }
+         {
+             if !home_dir.ends_with('/') {
+                 home_dir.push('/');
              }
+         }
          #[cfg(target_os = "windows")]
              {
                  if !home_dir.ends_with("\\") {
@@ -82,28 +76,12 @@ fn setup_directory_w_bind_addr(nac_serialized_extension: &'static str, mut home_
         hyxe_nac_dir_personal: append_to_path(home.clone(), "accounts/personal/"),
         hyxe_server_dir: hyxe_server_dir.clone(),
         hyxe_config_dir: append_to_path(home.clone(), "config/"),
-        hyxe_virtual_dir: append_to_path(home, "virtual/"),
-        nac_node_default_store_location:  hyxe_server_dir + "default_server." + nac_serialized_extension
+        hyxe_virtual_dir: append_to_path(home, "virtual/")
     };
 
 
 
     Ok(dirs)
-}
-
-/// Returns the default config dir
-pub fn get_default_config_dir() -> Option<String> {
-    Some(format!("{}/{}/settings.toml", dirs_2::home_dir()?.to_str()?, BASE_NAME))
-}
-
-#[cfg(not(target_os="windows"))]
-fn get_home_dir(bind_addr: &str) -> Option<String> {
-    Some(format!("{}/{}/{}/", dirs_2::home_dir()?.to_str()?, BASE_NAME, bind_addr))
-}
-
-#[cfg(any(target_os = "windows"))]
-fn get_home_dir(bind_addr: &str) -> Option<String> {
-    Some(format!("{}\\{}\\{}\\", dirs_2::home_dir()?.to_str()?, BASE_NAME, bind_addr))
 }
 
 #[cfg(not(target_os="windows"))]
@@ -123,8 +101,8 @@ fn append_to_path(base: String, addition: &str) -> String {
 }
 
 /// Sets up local directories that are pre-requisite to launching either client or server application
-pub fn setup_directories(nac_serialized_extension: &'static str, home_dir: String) -> Result<DirectoryStore, FsError<String>> {
-    let store = setup_directory_w_bind_addr(nac_serialized_extension, home_dir)?;
+pub fn setup_directories(home_dir: String) -> Result<DirectoryStore, FsError<String>> {
+    let store = setup_directory(home_dir)?;
     let base = mkdir(store.hyxe_home.as_str());
 
     base.and(mkdir(store.hyxe_nac_dir_base.as_str()))

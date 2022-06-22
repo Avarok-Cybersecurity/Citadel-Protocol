@@ -31,7 +31,6 @@ pub mod re_imports {
 
     pub use firebase_rtdb::FirebaseRTDB;
     pub use hyxe_fs::env::DirectoryStore;
-    pub use hyxe_fs::env::get_default_config_dir;
     pub use hyxe_fs::file_crypt_scrambler::*;
 }
 

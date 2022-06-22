@@ -17,7 +17,6 @@ warnings
 
 /// Conveniance import to access important I/O subroutines, including local and virtual
 pub mod prelude {
-    pub use crate::hyxe_file::*;
     pub use crate::io::*;
     pub use crate::async_io::*;
     pub use serde::{Serialize, Deserialize};
@@ -31,9 +30,6 @@ pub use hyxe_crypt;
 /// [1] Shutdown hooks
 /// [2] File scanning and HyxeFile loading
 pub mod system_file_manager;
-
-/// HyxeFiles are files that can be drilled-shut upon save, and undrilled upon load. They require a drill to use.
-pub mod hyxe_file;
 
 /// Environmental constants and subroutines for pre-checking the system
 pub mod env;
