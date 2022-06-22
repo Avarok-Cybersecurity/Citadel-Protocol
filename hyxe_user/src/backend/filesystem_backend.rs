@@ -29,9 +29,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     async fn connect(&mut self) -> Result<(), AccountError> {
         let directory_store = hyxe_fs::env::setup_directories(NAC_SERIALIZED_EXTENSION, self.home_dir.clone())?;
         let mut map = load_cnac_files(&directory_store)?;
-        // NOTE: since we don't have access to the persistence handler yet, we will need to load it later
-        self.clients_map = Some(Arc::new(RwLock::new(map)));
+        // ensure the in-memory database has the clients loaded
+        *self.memory_backend.clients.get_mut() = map;
         self.directory_store = Some(directory_store);
+
         Ok(())
     }
 
@@ -41,255 +42,168 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     #[allow(unused_results)]
     async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
-        // TODO: only for filesystem type
+        // save to filesystem, then, synchronize to memory
         let bytes = cnac.generate_proper_bytes()?;
         let cid = cnac.get_cid();
-        write_bytes_to(bytes, self.maybe_generate_cnac_local_save_path(cnac.get_cid(), cnac.is_personal()).ok_or(AccountError::Generic("Cannot generate a save path for the CNAC".into()))?)?;
-        self.write_map().insert(cid, cnac);
-        Ok(())
+        write_bytes_to(bytes, self.generate_cnac_local_save_path(cid, cnac.is_personal()).ok_or(AccountError::Generic("Cannot generate a save path for the CNAC".into()))?)?;
+        self.memory_backend.save_cnac(cnac).await
     }
 
     async fn get_cnac_by_cid(&self, cid: u64) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        Ok(self.read_map().get(&cid).cloned())
+        self.memory_backend.get_cnac_by_cid(cid).await
     }
 
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError> {
-        Ok(self.read_map().contains_key(&cid))
+        self.memory_backend.cid_is_registered(cid).await
     }
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
-        let mut map = self.write_map();
-        let cnac = map.remove(&cid).ok_or(AccountError::ClientNonExists(cid))?;
-        self.delete_removed_cnac(cnac, map)
+        // Remove all the CNACs from memory, then, remove from local filesystem
+        let mut write = self.memory_backend.clients.write();
+        let cnac = write.remove(&cid).ok_or(AccountError::ClientNonExists(cid))?;
+        if let Some(peers) = cnac.get_hyperlan_peer_list() {
+            // the below code is only meant for servers. On clients, this will not actually
+            // find any results
+            for peer in peers {
+                if let Some(cnac) = write.remove(&peer) {
+                    let path = self.generate_cnac_local_save_path(peer, cnac.is_personal());
+                    tokio::fs::remove_file(path).await
+                        .map_err(|err| AccountError::Generic(err.to_string()))?;
+                }
+            }
+
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 
     async fn purge(&self) -> Result<usize, AccountError> {
-        let mut write = self.write_map();
+        let mut write = self.memory_backend.clients.write();
         let count = write.len();
-
-        // TODO: for fs, delete all cnacs
+        for (cid, cnac) in write.drain() {
+            let path = self.generate_cnac_local_save_path(cid, cnac.is_personal());
+            tokio::fs::remove_file(path).await
+                .map_err(|err| AccountError::Generic(err.to_string()))?;
+        }
 
         Ok(count)
     }
 
 
     async fn get_registered_impersonal_cids(&self, limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError> {
-        let read = self.read_map();
-        let iter = read.iter()
-            .filter(|cnac| !cnac.1.is_personal())
-            .map(|res| *res.0);
-
-        let ret = if let Some(limit) = limit {
-            iter.take(limit.abs() as usize).collect::<Vec<u64>>()
-        } else {
-            iter.collect::<Vec<u64>>()
-        };
-
-        if ret.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(ret))
-        }
+        self.memory_backend.get_registered_impersonal_cids(limit).await
     }
 
     async fn get_username_by_cid(&self, cid: u64) -> Result<Option<String>, AccountError> {
-        Ok(self.read_map().get(&cid).map(|cnac| cnac.get_username()))
+        self.memory_backend.get_username_by_cid(cid).await
     }
 
     async fn register_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
+        self.memory_backend.register_p2p_as_server(cid0, cid1).await?;
         let (cnac0, cnac1) = {
-            let read = self.read_map();
+            let read = self.memory_backend.clients.read();
             let cnac0 = read.get(&cid0).cloned().ok_or(AccountError::ClientNonExists(cid0))?;
             let cnac1 = read.get(&cid1).cloned().ok_or(AccountError::ClientNonExists(cid1))?;
             (cnac0, cnac1)
         };
 
-        cnac0.register_hyperlan_p2p_as_server_filesystem(&cnac1).await
+        self.save_cnac(cnac0).await?;
+        self.save_cnac(cnac1).await
     }
 
     async fn register_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64, peer_username: String) -> Result<(), AccountError> {
-        let cnac = self.get_cnac(implicated_cid).ok_or(AccountError::ClientNonExists(implicated_cid))?;
-        cnac.insert_hyperlan_peer(peer_cid, peer_username);
-        cnac.save().await
+        self.memory_backend.register_p2p_as_client(implicated_cid, peer_cid, peer_username).await?;
+        self.save_cnac_by_cid(implicated_cid).await
     }
 
     async fn deregister_p2p_as_server(&self, cid0: u64, cid1: u64) -> Result<(), AccountError> {
-        let read = self.read_map();
-        let cnac0 = read.get(&cid0).ok_or(AccountError::ClientNonExists(cid0))?;
-        let cnac1 = read.get(&cid1).ok_or(AccountError::ClientNonExists(cid1))?;
+        self.memory_backend.deregister_p2p_as_server(cid0, cid1).await?;
+        let (cnac0, cnac1) = {
+            let read = self.memory_backend.clients.read();
+            let cnac0 = read.get(&cid0).cloned().ok_or(AccountError::ClientNonExists(implicated_cid))?;
+            let cnac1 = read.get(&cid1).cloned().ok_or(AccountError::ClientNonExists(implicated_cid))?;
+            (cnac0, cnac1)
+        };
 
-        cnac0.deregister_hyperlan_p2p_as_server_filesystem(cnac1)?;
-
-        Ok(())
+        self.save_cnac(cnac0).await?;
+        self.save_cnac(cnac1).await
     }
 
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
-        Ok(self.get_cnac(implicated_cid).ok_or(AccountError::ClientNonExists(implicated_cid))?.remove_hyperlan_peer(peer_cid))
+        let res = self.memory_backend.deregister_p2p_as_client(implicated_cid, peer_cid).await?;
+        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
     }
 
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            Ok(cnac.get_hyperlan_peer_list())
-        } else {
-            Ok(None)
-        }
+        self.memory_backend.get_hyperlan_peer_list(implicated_cid).await
     }
 
     async fn get_client_metadata(&self, implicated_cid: u64) -> Result<Option<CNACMetadata>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            Ok(Some(cnac.get_metadata()))
-        } else {
-            Ok(None)
-        }
+        self.memory_backend.get_client_metadata(implicated_cid).await
     }
 
     async fn get_clients_metadata(&self, limit: Option<i32>) -> Result<Vec<CNACMetadata>, AccountError> {
-        let read = self.read_map();
-        if let Some(limit) = limit {
-            Ok(read.values().into_iter().take(limit as _).map(|cnac| cnac.get_metadata()).collect())
-        } else {
-            Ok(read.values().into_iter().map(|cnac| cnac.get_metadata()).collect())
-        }
+        self.memory_backend.get_clients_metadata(limit).await
     }
 
     async fn get_hyperlan_peer_by_cid(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            Ok(cnac.get_hyperlan_peer(peer_cid))
-        } else {
-            Ok(None)
-        }
+        self.memory_backend.get_hyperlan_peer_by_cid(implicated_cid, peer_cid).await
     }
 
     async fn hyperlan_peer_exists(&self, implicated_cid: u64, peer_cid: u64) -> Result<bool, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            Ok(cnac.hyperlan_peer_exists(peer_cid))
-        } else {
-            Ok(false)
-        }
+        self.memory_backend.hyperlan_peer_exists(implicated_cid, peer_cid).await
     }
 
     async fn hyperlan_peers_are_mutuals(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<bool>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            Ok(cnac.hyperlan_peers_exist(peers))
-        } else {
-            Ok(Default::default())
-        }
+        self.memory_backend.hyperlan_peers_are_mutuals(implicated_cid, peers).await
     }
 
     async fn get_hyperlan_peers(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<MutualPeer>, AccountError> {
-        if peers.is_empty() {
-            return Ok(Vec::new())
-        }
-
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            Ok(cnac.get_hyperlan_peers(peers).ok_or(AccountError::Generic("No peers exist locally".into()))?)
-        } else {
-            Ok(Default::default())
-        }
+        self.memory_backend.get_hyperlan_peers(implicated_cid, peers).await
     }
 
     async fn get_hyperlan_peer_list_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<MutualPeer>>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            Ok(cnac.get_hyperlan_peer_mutuals())
-        } else {
-            Ok(None)
-        }
+        self.memory_backend.get_hyperlan_peer_list_as_server(implicated_cid).await
     }
 
     async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<(), AccountError> {
-        cnac.synchronize_hyperlan_peer_list(peers);
-        Ok(())
+        self.memory_backend.synchronize_hyperlan_peer_list_as_client(cnac, peers).await?;
+        self.save_cnac(cnac.clone()).await
     }
 
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            let mut lock = cnac.write();
-            Ok(lock.byte_map.entry(peer_cid).or_default().entry(key.to_string()).or_default().get(sub_key).cloned())
-        } else {
-            Ok(None)
-        }
+        self.memory_backend.get_byte_map_value(implicated_cid, peer_cid, key, sub_key).await
     }
 
     async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            let mut lock = cnac.write();
-            Ok(lock.byte_map.entry(peer_cid).or_default().entry(key.to_string()).or_default().remove(sub_key))
-        } else {
-            Ok(None)
-        }
+        let res = self.memory_backend.remove_byte_map_value(implicated_cid, peer_cid, key, sub_key).await?;
+        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
     }
 
     async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            let mut lock = cnac.write();
-            Ok(lock.byte_map.entry(peer_cid).or_default().entry(key.to_string()).or_default().insert(sub_key.to_string(), value))
-        } else {
-            Ok(None)
-        }
+        let res = self.memory_backend.store_byte_map_value(implicated_cid, peer_cid, key, sub_key, value).await?;
+        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
     }
 
     async fn get_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            let mut lock = cnac.write();
-            let map = lock.byte_map.entry(peer_cid).or_default().entry(key.to_string()).or_default().clone();
-            Ok(map)
-        } else {
-            Ok(Default::default())
-        }
+        let res = self.memory_backend.get_byte_map_values_by_key(implicated_cid, peer_cid, key).await?;
+        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
     }
 
     async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
-        if let Some(cnac) = self.get_cnac(implicated_cid) {
-            let mut lock = cnac.write();
-            let submap = lock.byte_map.entry(peer_cid).or_default().remove(key).unwrap_or_default();
-            Ok(submap)
-        } else {
-            Ok(Default::default())
-        }
+        let res = self.memory_backend.remove_byte_map_values_by_key(implicated_cid, peer_cid, key).await?;
+        self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
     }
 }
 
 impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
-    fn read_map(&self) -> RwLockReadGuard<HashMap<u64, ClientNetworkAccount<R, Fcm>, RandomState>> {
-        self.clients_map.as_ref().unwrap().read()
+    async fn save_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
+        let cnac = self.memory_backend.clients.read().get(&cid).cloned().ok_or(AccountError::ClientNonExists(implicated_cid))?;
+        self.save_cnac(cnac).await.map(|_| res)
     }
 
-    fn write_map(&self) -> RwLockWriteGuard<HashMap<u64, ClientNetworkAccount<R ,Fcm>, RandomState>> {
-        self.clients_map.as_ref().unwrap().write()
-    }
-
-    fn get_cnac(&self, ref implicated_cid: u64) -> Option<ClientNetworkAccount<R, Fcm>> {
-        let read = self.read_map();
-        read.get(implicated_cid).cloned()
-    }
-
-    // Called AFTER being removed from the hashmap
-    #[allow(unused_results)]
-    fn delete_removed_cnac(&self, removed_client: ClientNetworkAccount<R, Fcm>, write: RwLockWriteGuard<HashMap<u64, ClientNetworkAccount<R, Fcm>>>) -> Result<(), AccountError> {
-        let cid = removed_client.get_cid();
-        // Now, find any mutuals inside the removed client and clean them
-        removed_client.view_hyperlan_peers(|peers| {
-            for peer in peers {
-                let peer_cid = peer.cid;
-                if let Some(mutual) = write.get(&peer_cid) {
-                    if mutual.remove_hyperlan_peer(cid).is_some() {
-                        mutual.spawn_save_task_on_threadpool();
-                    }
-                }
-            }
-        });
-
-        // Now that the account is removed from the list, it won't be saved upon synchronization.
-        // The last step is to purge its existing content from the file system
-        removed_client.purge_from_fs_blocking()?;
-        if self.local_nac().remove_registered_cid_filesystem(removed_client.get_id()) {
-            self.local_nac().save_to_local_fs()
-        } else {
-            Err(AccountError::Generic("Unable to remove registered CID from the filesystem".to_string()))
-        }
-    }
-
-    fn maybe_generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> PathBuf {
+    fn generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> PathBuf {
         let dirs = &self.directory_store;
         if is_personal {
             get_pathbuf(format!("{}{}.{}", dirs.hyxe_nac_dir_personal.as_str(), cid, CNAC_SERIALIZED_EXTENSION))
