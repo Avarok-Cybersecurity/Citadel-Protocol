@@ -119,11 +119,11 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
     /// whereas the HyperLAN server (Bob) runs `register_impersonal_hyperlan_client_network_account`, the registering
     /// HyperLAN Client (Alice) runs this function below
-    pub async fn register_personal_hyperlan_server(&self, valid_cid: u64, hyper_ratchet: R, creds: ProposedCredentials, adjacent_nac: NetworkAccount<R, Fcm>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+    pub async fn register_personal_hyperlan_server(&self, valid_cid: u64, hyper_ratchet: R, creds: ProposedCredentials, conn_info: ConnectionInfo) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         let client_auth_store = creds.into_auth_store(valid_cid);
 
         let username = client_auth_store.username().to_string();
-        let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(valid_cid, hyper_ratchet, client_auth_store, adjacent_nac, self.persistence_handler.clone()).await?;
+        let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(valid_cid, hyper_ratchet, client_auth_store, conn_info).await?;
 
         self.persistence_handler.register_cid_in_nac(cnac.get_id(), username.as_str()).await?;
         self.persistence_handler.save_cnac(cnac.clone()).await?;
