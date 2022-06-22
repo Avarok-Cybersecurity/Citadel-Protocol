@@ -1,4 +1,4 @@
-use crate::backend::{BackendConnection, PersistenceHandler};
+use crate::backend::BackendConnection;
 use async_trait::async_trait;
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use crate::misc::{AccountError, CNACMetadata};
@@ -7,13 +7,8 @@ use hyxe_fs::system_file_manager::write_bytes_to;
 use std::path::PathBuf;
 use std::collections::HashMap;
 use hyxe_fs::env::DirectoryStore;
-use crate::prelude::{NetworkAccount, CNAC_SERIALIZED_EXTENSION};
-use crate::account_loader::{load_cnac_files, load_node_nac};
-use crate::server_config_handler::sync_cnacs_and_nac_filesystem;
-use std::collections::hash_map::RandomState;
-use crate::hypernode_account::{HyperNodeAccountInformation, NAC_SERIALIZED_EXTENSION};
-use std::sync::Arc;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use crate::prelude::CNAC_SERIALIZED_EXTENSION;
+use crate::account_loader::load_cnac_files;
 use hyxe_fs::misc::get_pathbuf;
 use crate::backend::memory::MemoryBackend;
 
@@ -27,8 +22,8 @@ pub struct FilesystemBackend<R: Ratchet, Fcm: Ratchet> {
 #[async_trait]
 impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R, Fcm> {
     async fn connect(&mut self) -> Result<(), AccountError> {
-        let directory_store = hyxe_fs::env::setup_directories(NAC_SERIALIZED_EXTENSION, self.home_dir.clone())?;
-        let mut map = load_cnac_files(&directory_store)?;
+        let directory_store = hyxe_fs::env::setup_directories(self.home_dir.clone())?;
+        let map = load_cnac_files(&directory_store)?;
         // ensure the in-memory database has the clients loaded
         *self.memory_backend.clients.get_mut() = map;
         self.directory_store = Some(directory_store);
@@ -41,11 +36,11 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     }
 
     #[allow(unused_results)]
-    async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
+    async fn save_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         // save to filesystem, then, synchronize to memory
         let bytes = cnac.generate_proper_bytes()?;
         let cid = cnac.get_cid();
-        write_bytes_to(bytes, self.generate_cnac_local_save_path(cid, cnac.is_personal()).ok_or(AccountError::Generic("Cannot generate a save path for the CNAC".into()))?)?;
+        write_bytes_to(bytes, self.generate_cnac_local_save_path(cid, cnac.is_personal()))?;
         self.memory_backend.save_cnac(cnac).await
     }
 
@@ -59,33 +54,40 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
         // Remove all the CNACs from memory, then, remove from local filesystem
-        let mut write = self.memory_backend.clients.write();
-        let cnac = write.remove(&cid).ok_or(AccountError::ClientNonExists(cid))?;
-        if let Some(peers) = cnac.get_hyperlan_peer_list() {
-            // the below code is only meant for servers. On clients, this will not actually
-            // find any results
-            for peer in peers {
-                if let Some(cnac) = write.remove(&peer) {
-                    let path = self.generate_cnac_local_save_path(peer, cnac.is_personal());
-                    tokio::fs::remove_file(path).await
-                        .map_err(|err| AccountError::Generic(err.to_string()))?;
-                }
-            }
+        let paths = {
+            let mut write = self.memory_backend.clients.write();
+            let cnac = write.remove(&cid).ok_or(AccountError::ClientNonExists(cid))?;
+            cnac.get_hyperlan_peer_list()
+                .map(|r| r.into_iter().map(|r| self.generate_cnac_local_save_path(r, cnac.is_personal())).collect::<Vec<PathBuf>>())
+                .unwrap_or_default()
+        };
 
-            Ok(())
-        } else {
-            Ok(())
-        }
-    }
-
-    async fn purge(&self) -> Result<usize, AccountError> {
-        let mut write = self.memory_backend.clients.write();
-        let count = write.len();
-        for (cid, cnac) in write.drain() {
-            let path = self.generate_cnac_local_save_path(cid, cnac.is_personal());
+        for path in paths {
             tokio::fs::remove_file(path).await
                 .map_err(|err| AccountError::Generic(err.to_string()))?;
         }
+
+        Ok(())
+    }
+
+    async fn purge(&self) -> Result<usize, AccountError> {
+        let paths = {
+            let mut write = self.memory_backend.clients.write();
+            write.drain()
+                .map(|(cid, cnac)| self.generate_cnac_local_save_path(cid, cnac.is_personal()))
+                .collect::<Vec<PathBuf>>()
+        };
+
+        let count = paths.len();
+
+        for path in paths {
+            tokio::fs::remove_file(path).await
+                .map_err(|err| AccountError::Generic(err.to_string()))?;
+        }
+
+        // delete the home directory
+        let home_dir = self.directory_store.as_ref().unwrap().hyxe_home.as_str();
+        tokio::fs::remove_dir_all(home_dir).await.map_err(|err| AccountError::Generic(err.to_string()))?;
 
         Ok(count)
     }
@@ -108,8 +110,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
             (cnac0, cnac1)
         };
 
-        self.save_cnac(cnac0).await?;
-        self.save_cnac(cnac1).await
+        self.save_cnac(&cnac0).await?;
+        self.save_cnac(&cnac1).await
     }
 
     async fn register_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64, peer_username: String) -> Result<(), AccountError> {
@@ -121,13 +123,13 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         self.memory_backend.deregister_p2p_as_server(cid0, cid1).await?;
         let (cnac0, cnac1) = {
             let read = self.memory_backend.clients.read();
-            let cnac0 = read.get(&cid0).cloned().ok_or(AccountError::ClientNonExists(implicated_cid))?;
-            let cnac1 = read.get(&cid1).cloned().ok_or(AccountError::ClientNonExists(implicated_cid))?;
+            let cnac0 = read.get(&cid0).cloned().ok_or(AccountError::ClientNonExists(cid0))?;
+            let cnac1 = read.get(&cid1).cloned().ok_or(AccountError::ClientNonExists(cid1))?;
             (cnac0, cnac1)
         };
 
-        self.save_cnac(cnac0).await?;
-        self.save_cnac(cnac1).await
+        self.save_cnac(&cnac0).await?;
+        self.save_cnac(&cnac1).await
     }
 
     async fn deregister_p2p_as_client(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
@@ -169,7 +171,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
     async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<(), AccountError> {
         self.memory_backend.synchronize_hyperlan_peer_list_as_client(cnac, peers).await?;
-        self.save_cnac(cnac.clone()).await
+        self.save_cnac(cnac).await
     }
 
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
@@ -199,12 +201,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
 
 impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
     async fn save_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
-        let cnac = self.memory_backend.clients.read().get(&cid).cloned().ok_or(AccountError::ClientNonExists(implicated_cid))?;
-        self.save_cnac(cnac).await.map(|_| res)
+        let cnac = self.memory_backend.clients.read().get(&cid).cloned().ok_or(AccountError::ClientNonExists(cid))?;
+        self.save_cnac(&cnac).await
     }
 
     fn generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> PathBuf {
-        let dirs = &self.directory_store;
+        let dirs = self.directory_store.as_ref().unwrap();
         if is_personal {
             get_pathbuf(format!("{}{}.{}", dirs.hyxe_nac_dir_personal.as_str(), cid, CNAC_SERIALIZED_EXTENSION))
         } else {

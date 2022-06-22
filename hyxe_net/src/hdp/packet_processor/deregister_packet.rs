@@ -18,7 +18,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, concurrent_processor
 
         let timestamp = session.time_tracker.get_global_time_ns();
         let ref cnac = return_if_none!(inner_state!(session.state_container).cnac.clone(), "Sess CNAC not loaded");
-        let implicated_cid = cnac.get_id();
+        let implicated_cid = cnac.get_cid();
         let (header, payload, _, _) = packet.decompose();
         let (header, _payload, hyper_ratchet) = return_if_none!(validation::aead::validate(cnac, &header, payload), "Unable to validate dereg packet");
         let ref header = header;

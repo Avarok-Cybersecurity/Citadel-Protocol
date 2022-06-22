@@ -150,7 +150,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                             async move {
                                 match account_manager.register_impersonal_hyperlan_client_network_account(reserved_true_cid, adjacent_nac, creds,  hyper_ratchet.clone()).await {
                                     Ok(peer_cnac) => {
-                                        log::trace!(target: "lusna", "Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_id());
+                                        log::trace!(target: "lusna", "Server successfully created a CNAC during the DO_REGISTER process! CID: {}", peer_cnac.get_cid());
 
                                         let success_message = session.create_register_success_message();
                                         let packet = hdp_packet_crafter::do_register::craft_success(&hyper_ratchet, algorithm, local_nid, timestamp, success_message, security_level);

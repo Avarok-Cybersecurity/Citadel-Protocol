@@ -128,7 +128,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
         self.get_conn().await.map(|_| true)
     }
 
-    async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
+    async fn save_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         let bytes = cnac.generate_proper_bytes()?;
         let key = get_cid_to_cnac_key();
         let username = cnac.get_username();
