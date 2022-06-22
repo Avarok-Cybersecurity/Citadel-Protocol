@@ -98,58 +98,134 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
     }
 
     async fn get_hyperlan_peer_list(&self, implicated_cid: u64) -> Result<Option<Vec<u64>>, AccountError> {
-        todo!()
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            Ok(cnac.get_hyperlan_peer_list())
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_client_metadata(&self, implicated_cid: u64) -> Result<Option<CNACMetadata>, AccountError> {
-        todo!()
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            Ok(Some(cnac.get_metadata()))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_clients_metadata(&self, limit: Option<i32>) -> Result<Vec<CNACMetadata>, AccountError> {
-        todo!()
+        let read = self.clients.read();
+        if let Some(limit) = limit {
+            Ok(read.values().take(limit as _).map(|r| r.get_metadata()).collect())
+        } else {
+            Ok(read.values().map(|r| r.get_metadata()).collect())
+        }
     }
 
     async fn get_hyperlan_peer_by_cid(&self, implicated_cid: u64, peer_cid: u64) -> Result<Option<MutualPeer>, AccountError> {
-        todo!()
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            Ok(cnac.get_hyperlan_peer(peer_cid))
+        } else {
+            None
+        }
     }
 
     async fn hyperlan_peer_exists(&self, implicated_cid: u64, peer_cid: u64) -> Result<bool, AccountError> {
-        todo!()
+        self.get_hyperlan_peer_by_cid(implicated_cid, peer_cid).await.map(|r| r.is_some())
     }
 
     async fn hyperlan_peers_are_mutuals(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<bool>, AccountError> {
-        todo!()
+        if peers.is_empty() {
+            return Ok(Default::default())
+        }
+
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            Ok(cnac.hyperlan_peers_exist(peers))
+        } else {
+            Ok(Default::default())
+        }
     }
 
     async fn get_hyperlan_peers(&self, implicated_cid: u64, peers: &Vec<u64>) -> Result<Vec<MutualPeer>, AccountError> {
-        todo!()
+        if peers.is_empty() {
+            return Ok(Default::default())
+        }
+
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            Ok(cnac.get_hyperlan_peers(peers).unwrap_or_default())
+        } else {
+            Ok(Default::default())
+        }
     }
 
     async fn get_hyperlan_peer_list_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<MutualPeer>>, AccountError> {
-        todo!()
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            Ok(cnac.get_hyperlan_peer_mutuals())
+        } else {
+            Ok(Default::default())
+        }
     }
 
     async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<(), AccountError> {
-        todo!()
+        cnac.synchronize_hyperlan_peer_list(peers);
+        Ok(())
     }
 
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
-        todo!()
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            let mut lock = cnac.write();
+            Ok(lock.byte_map.entry(peer_cid).or_default().entry(key.to_string()).or_default().get(sub_key).cloned())
+        } else {
+            Ok(None)
+        }
     }
 
     async fn remove_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
-        todo!()
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            let mut lock = cnac.write();
+            Ok(lock.byte_map.entry(peer_cid).or_default().entry(key.to_string()).or_default().remove(sub_key))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn store_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str, value: Vec<u8>) -> Result<Option<Vec<u8>>, AccountError> {
-        todo!()
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            let mut lock = cnac.write();
+            Ok(lock.byte_map.entry(peer_cid).or_default().entry(key.to_string()).or_default().insert(sub_key.to_string(), value))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
-        todo!()
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            let mut lock = cnac.write();
+            let map = lock.byte_map.entry(peer_cid).or_default().entry(key.to_string()).or_default().clone();
+            Ok(map)
+        } else {
+            Ok(Default::default())
+        }
     }
 
     async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
-        todo!()
+        let read = self.clients.read();
+        if let Some(cnac) = read.get(&implicated_cid) {
+            let mut lock = cnac.write();
+            let submap = lock.byte_map.entry(peer_cid).or_default().remove(key).unwrap_or_default();
+            Ok(submap)
+        } else {
+            Ok(Default::default())
+        }
     }
 }
