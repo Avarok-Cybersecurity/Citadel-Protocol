@@ -117,7 +117,7 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     #[allow(unused_results)]
     pub async fn new(valid_cid: u64, is_personal: bool, adjacent_nac: ConnectionInfo, auth_store: DeclaredAuthenticationMode, base_hyper_ratchet: R) -> Result<Self, AccountError> {
         log::trace!(target: "lusna", "Creating CNAC w/valid cid: {:?}", valid_cid);
-        // TODO: move this to validation for hyxe_net
+        // TODO: move this to validation in hyxe_net (or this may be redunant)
         check_credential_formatting::<_, &str, _>(auth_store.username(), None, auth_store.full_name())?;
         let creation_date = get_present_formatted_timestamp();
         let crypt_container = PeerSessionCrypto::<R>::new(Toolset::<R>::new(valid_cid, base_hyper_ratchet), is_personal);
@@ -144,28 +144,16 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     }
 
     /// Towards the end of the registration phase, the [`ClientNetworkAccountInner`] gets transmitted to Alice.
-    pub async fn new_from_network_personal(valid_cid: u64, hyper_ratchet: R, auth_store: DeclaredAuthenticationMode, adjacent_nac: NetworkAccount<R, Fcm>, persistence_handler: PersistenceHandler<R, Fcm>) -> Result<Self, AccountError> {
+    pub async fn new_from_network_personal(valid_cid: u64, hyper_ratchet: R, auth_store: DeclaredAuthenticationMode, conn_info: ConnectionInfo) -> Result<Self, AccountError> {
         const IS_PERSONAL: bool = true;
-
         // We supply none to the valid cid
-        Self::new(valid_cid, IS_PERSONAL, adjacent_nac, auth_store,hyper_ratchet, persistence_handler).await
+        Self::new(valid_cid, IS_PERSONAL, conn_info, auth_store,hyper_ratchet).await
     }
 
-    /// When the client received its inner CNAC, it will not have the NAC of the server. Therefore, the client-version of the CNAC must be updated
-    pub fn update_inner_nac(&self, server_nac_for_this_cnac: NetworkAccount<R, Fcm>) {
-        let mut write = self.write();
-        write.adjacent_nac = server_nac_for_this_cnac;
-    }
 
     /// Returns the username of this client
     pub fn get_username(&self) -> String {
         self.read().auth_store.username().to_string()
-    }
-
-    /// Returns the [NetworkAccount] associated with the [ClientNetworkAccount]. Before being called,
-    /// validate_ip should be ran in order to update the internal IP address for this session
-    pub fn get_nac(&self) -> NetworkAccount<R, Fcm> {
-        self.read().adjacent_nac.clone()
     }
 
     /// Checks the credentials for validity. Used for the login process.
@@ -252,20 +240,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         this.crypt_container.toolset.get_static_auxiliary_ratchet().clone()
     }
 
-    /// Purges this from the hard drive
-    pub(crate) fn purge_from_fs_blocking(&self) -> Result<(), AccountError> {
-        let read = self.read();
-        if let Some(ref path) = read.local_save_path {
-            if path.exists() {
-                std::fs::remove_file(path).map_err(|err| err.into())
-            } else {
-                Ok(())
-            }
-        } else {
-            Err(AccountError::Generic("Save path not loaded inside".into()))
-        }
-    }
-
     /// Allows shared interior access
     pub fn read(&self) -> RwLockReadGuard<ClientNetworkAccountInner<R, Fcm>> {
         self.inner.inner.read()
@@ -313,15 +287,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let read = self.read();
         let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
         Some(peers.iter().filter_map(|peer_wanted| hyperlan_peers.iter().find(|peer| peer.cid == *peer_wanted).cloned()).collect())
-    }
-
-    /// Gets the desired HyperLAN peer by username (clones)
-    pub(crate) fn get_hyperlan_peer_by_username<T: AsRef<str>>(&self, username: T) -> Option<MutualPeer> {
-        let read = self.read();
-        let hyperlan_peers = read.mutuals.get_vec(&HYPERLAN_IDX)?;
-        let username = username.as_ref();
-
-        hyperlan_peers.iter().find(|peer| peer.username.as_ref().map(|name| name == username).unwrap_or(false)).cloned()
     }
 
     /// This function handles the registration for BOTH CNACs. Then, it synchronizes both to
@@ -409,19 +374,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         mutuals.insert_many(HYPERLAN_IDX, peers);
     }
 
-    /// Determines if the username is a known hyperlan client to self
-    #[cfg(debug_assertions)]
-    pub fn hyperlan_peer_exists_by_username<T: AsRef<str>>(&self, username: T) -> bool {
-        let read = self.read();
-        let username = username.as_ref();
-
-        if let Some(hyperlan_peers) = read.mutuals.get_vec(&HYPERLAN_IDX) {
-            hyperlan_peers.iter().any(|peer| peer.username.as_ref().map(|uname| uname == username).unwrap_or(false))
-        } else {
-            false
-        }
-    }
-
     /// ONLY run this after you're sure the peer doesn't already exist
     pub(crate) fn insert_hyperlan_peer<T: Into<String>>(&self, cid: u64, username: T) {
         let mut write = self.write();
@@ -437,9 +389,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         if let Some(hyperlan_peers) = write.mutuals.get_vec_mut(&HYPERLAN_IDX) {
             if let Some(idx) = hyperlan_peers.iter().position(|peer| peer.cid == cid) {
                 let removed_peer = hyperlan_peers.remove(idx);
-                std::mem::drop(write);
-
-                self.spawn_save_task_on_threadpool();
                 return Some(removed_peer);
             } else {
                 log::warn!(target: "lusna", "Peer {} not found within cnac {}", cid, write.cid);
@@ -467,16 +416,8 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// This should be called after retrieving a CNAC from a database
     ///
     /// Note: if persistence handler is not specified, it will have to be loaded later, before any other program execution
-    pub(crate) fn load_safe(mut inner: ClientNetworkAccountInner<R, Fcm>, file_path: Option<PathBuf>, persistence_handler: Option<PersistenceHandler<R, Fcm>>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
-        inner.local_save_path = file_path;
-        inner.persistence_handler = persistence_handler;
-
+    pub(crate) fn load_safe(mut inner: ClientNetworkAccountInner<R, Fcm>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         Ok(ClientNetworkAccount::<R, Fcm>::from(inner))
-    }
-
-    /// Stores the persistence handler
-    pub(crate) fn store_persistence_handler(&self, persistence_handler: &PersistenceHandler<R, Fcm>) {
-        self.write().persistence_handler = Some(persistence_handler.clone());
     }
 
     /// Visit the inner device
@@ -490,17 +431,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// TODO: Make visit with restricted input parameter to reflect the above
     pub fn visit_mut<'a, 'b: 'a, J: 'b>(&'b self, fx: impl FnOnce(RwLockWriteGuard<'a, ClientNetworkAccountInner<R, Fcm>>) -> J) -> J {
         fx(self.write())
-    }
-
-    /// Blocking version of `async_save_to_local_fs`
-    pub async fn save(&self) -> Result<(), AccountError> where ClientNetworkAccountInner<R, Fcm>: SyncIO, NetworkAccountInner<R, Fcm>: SyncIO {
-        // TODO: get rid of this, should be handled by pers handler
-        let persistence_handler = {
-            let ptr = self.write();
-            ptr.persistence_handler.clone().ok_or_else(|| AccountError::Generic("Persistence handler not loaded".to_string()))?
-        };
-
-        persistence_handler.save_cnac(self.clone()).await
     }
 
     /// Returns the metadata for this CNAC
