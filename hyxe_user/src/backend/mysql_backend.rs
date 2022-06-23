@@ -1,29 +1,27 @@
 use async_trait::async_trait;
-use crate::backend::{BackendConnection, PersistenceHandler, BackendType};
+use crate::backend::{BackendConnection, BackendType};
 use crate::misc::{AccountError, MAX_USERNAME_LENGTH, CNACMetadata};
 use sqlx::{Arguments, Row, AnyPool, Executor};
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::ops::DerefMut;
 use sqlx::any::{AnyArguments, AnyRow, AnyQueryResult, AnyPoolOptions};
-use crate::prelude::{ClientNetworkAccountInner, NetworkAccount, HYPERLAN_IDX};
-use hyxe_fs::io::SyncIO;
-use std::path::PathBuf;
+use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
+use crate::serialization::SyncIO;
 use std::str::FromStr;
-use crate::re_imports::DirectoryStore;
-use crate::account_loader::load_node_nac;
 use std::collections::HashMap;
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
+use std::marker::PhantomData;
 
 /// A container for handling db conns
 pub struct SqlBackend<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     url: String,
     conn: Option<AnyPool>,
-    local_nac: Option<NetworkAccount<R, Fcm>>,
     variant: SqlVariant,
-    opts: SqlConnectionOptions
+    opts: SqlConnectionOptions,
+    _pd: PhantomData<(R, Fcm)>
 }
 
 #[derive(Eq, PartialEq)]
@@ -83,7 +81,7 @@ impl Into<AnyPoolOptions> for &'_ SqlConnectionOptions {
 
 #[async_trait]
 impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> {
-    async fn connect(&mut self, directory_store: &DirectoryStore) -> Result<(), AccountError> {
+    async fn connect(&mut self) -> Result<(), AccountError> {
         let conn = self.generate_conn().await?;
 
         if !self.opts.car_mode.unwrap_or(CAR_MODE_DEFAULT) {
@@ -558,8 +556,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
             log::trace!(target: "lusna", "[CNAC-Load] Base64 len: {} | sample: {:?} -> {:?}", bin.len(), &bin.as_str()[..10], &bin.as_str()[(bin.len() - 10)..]);
             let bin = base64::decode(bin)?;
             let cnac_inner = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_owned_vector(bin)?;
-            let pers = self.local_nac.as_ref().unwrap().persistence_handler().unwrap();
-            Ok(Some(ClientNetworkAccount::load_safe(cnac_inner, None, Some(pers))?))
+            Ok(Some(ClientNetworkAccount::load_safe(cnac_inner)?))
         } else {
             Ok(None)
         }
@@ -647,7 +644,7 @@ impl<R: Ratchet, Fcm:Ratchet> TryFrom<BackendType> for SqlBackend<R, Fcm> {
 
         match t {
             BackendType::SQLDatabase(url, opts) => {
-                Ok(Self { url, conn: None, local_nac: None, variant, opts })
+                Ok(Self { url, conn: None, variant, opts, _pd: Default::default() })
             }
 
             _ => Err(())

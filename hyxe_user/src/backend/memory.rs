@@ -1,7 +1,7 @@
 use parking_lot::RwLock;
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::collections::HashMap;
-use hyxe_fs::hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_crypt::hyper_ratchet::Ratchet;
 use crate::backend::BackendConnection;
 use crate::misc::{AccountError, CNACMetadata};
 use async_trait::async_trait;
@@ -43,14 +43,26 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
 
     #[allow(unused_results)]
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
-        self.clients.write().remove(&cid);
+        let mut write = self.clients.write();
+        let cl = write.remove(&cid)
+            .ok_or_else(||AccountError::ClientNonExists(cid))?;
+
+        // delete all related peer entries in other CNACs
+        if let Some(peers) = cl.get_hyperlan_peer_list() {
+            for peer in peers {
+                if let Some(peer) = write.get(&peer) {
+                    peer.remove_hyperlan_peer(cid);
+                }
+            }
+        }
+
         Ok(())
     }
 
     async fn purge(&self) -> Result<usize, AccountError> {
-        let write = self.clients.write();
+        let mut write = self.clients.write();
         let len = write.len();
-        self.clients.write().clear();
+        write.clear();
         Ok(len)
     }
 

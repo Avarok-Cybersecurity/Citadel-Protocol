@@ -1,19 +1,15 @@
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
-use hyxe_fs::hyxe_crypt::prelude::*;
-use hyxe_fs::prelude::SyncIO;
-
-use crate::misc::{AccountError, check_credential_formatting, CNACMetadata};
+use crate::misc::{AccountError, check_credential_formatting, CNACMetadata, get_present_formatted_timestamp};
 use multimap::MultiMap;
 use crate::prelude::ConnectionInfo;
 
 use std::fmt::Formatter;
-use hyxe_fs::misc::get_present_formatted_timestamp;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use hyxe_fs::hyxe_crypt::hyper_ratchet::Ratchet;
-use hyxe_fs::hyxe_crypt::toolset::UpdateStatus;
-use hyxe_fs::hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
+use hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_crypt::toolset::UpdateStatus;
+use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 use std::ops::RangeInclusive;
 
 use std::collections::HashMap;
@@ -23,6 +19,8 @@ use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::external_services::rtdb::RtdbClientConfig;
 use crate::auth::DeclaredAuthenticationMode;
 use std::marker::PhantomData;
+use hyxe_crypt::prelude::{SecBuffer, Toolset, CryptError};
+use crate::serialization::SyncIO;
 
 
 /// The password file needs to have a hard-to-guess password enclosing in the case it is accidentally exposed over the network

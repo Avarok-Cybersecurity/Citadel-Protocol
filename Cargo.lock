@@ -1465,6 +1465,7 @@ dependencies = [
  "log",
  "num-integer",
  "num_cpus",
+ "parking_lot 0.12.1",
  "rand 0.7.3",
  "rayon",
  "rust-argon2",
@@ -1474,31 +1475,9 @@ dependencies = [
  "sha3",
  "sysinfo",
  "tokio",
- "zerocopy",
- "zeroize",
-]
-
-[[package]]
-name = "hyxe_fs"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bincode2",
- "byteorder",
- "bytes",
- "chrono",
- "env_logger 0.8.4",
- "futures",
- "hyxe_crypt",
- "log",
- "num 0.4.0",
- "num-bigint 0.4.3",
- "parking_lot 0.12.1",
- "rand 0.7.3",
- "serde",
- "tokio",
  "tokio-stream",
  "zerocopy",
+ "zeroize",
 ]
 
 [[package]]
@@ -1522,13 +1501,12 @@ dependencies = [
  "ez_pqcrypto",
  "futures",
  "hyxe_crypt",
- "hyxe_fs",
  "hyxe_user",
  "hyxe_wire",
  "itertools",
  "log",
  "netbeam",
- "num 0.2.1",
+ "num",
  "num_cpus",
  "once_cell",
  "parking_lot 0.12.1",
@@ -1552,16 +1530,17 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64",
+ "bincode2",
  "bstr",
  "byteorder",
  "bytes",
+ "chrono",
  "dirs2",
  "env_logger 0.8.4",
  "ez_pqcrypto",
  "firebase-rtdb",
  "futures",
  "hyxe_crypt",
- "hyxe_fs",
  "jwt",
  "lazy_static",
  "log",
@@ -2019,24 +1998,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8536030f9fea7127f841b45bb6243b27255787fb4eb83958aa1ef9d2fdc0c36"
 dependencies = [
  "num-bigint 0.2.6",
- "num-complex 0.2.4",
+ "num-complex",
  "num-integer",
  "num-iter",
- "num-rational 0.2.4",
- "num-traits 0.2.15",
-]
-
-[[package]]
-name = "num"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43db66d1170d347f9a065114077f7dccb00c1b9478c89384490a3425279a4606"
-dependencies = [
- "num-bigint 0.4.3",
- "num-complex 0.4.1",
- "num-integer",
- "num-iter",
- "num-rational 0.4.0",
+ "num-rational",
  "num-traits 0.2.15",
 ]
 
@@ -2056,17 +2021,6 @@ name = "num-bigint"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f6f7833f2cbf2360a6cfd58cd41a53aa7a90bd4c202f5b1c7dd2ed73c57b2c3"
-dependencies = [
- "autocfg 1.1.0",
- "num-integer",
- "num-traits 0.2.15",
-]
-
-[[package]]
-name = "num-bigint"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f93ab6289c7b344a8a9f60f88d80aa20032336fe78da341afc91c8a2341fc75f"
 dependencies = [
  "autocfg 1.1.0",
  "num-integer",
@@ -2102,15 +2056,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-complex"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97fbc387afefefd5e9e39493299f3069e14a140dd34dc19b4c1c1a8fddb6a790"
-dependencies = [
- "num-traits 0.2.15",
-]
-
-[[package]]
 name = "num-integer"
 version = "0.1.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2139,18 +2084,6 @@ checksum = "5c000134b5dbf44adc5cb772486d335293351644b801551abe8f75c84cfa4aef"
 dependencies = [
  "autocfg 1.1.0",
  "num-bigint 0.2.6",
- "num-integer",
- "num-traits 0.2.15",
-]
-
-[[package]]
-name = "num-rational"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d41702bd167c2df5520b384281bc111a4b5efcf7fbc4c9c222c815b07e0a6a6a"
-dependencies = [
- "autocfg 1.1.0",
- "num-bigint 0.4.3",
  "num-integer",
  "num-traits 0.2.15",
 ]

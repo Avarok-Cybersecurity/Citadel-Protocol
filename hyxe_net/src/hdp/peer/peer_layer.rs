@@ -13,7 +13,7 @@ use std::fmt::{Display, Formatter};
 use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer, MessageGroupOptions, GroupType};
 use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
 use serde::{Serialize, Deserialize};
-use hyxe_fs::prelude::SyncIO;
+use hyxe_user::serialization::SyncIO;
 use crate::macros::SyncContextRequirements;
 use itertools::Itertools;
 use futures::task::AtomicWaker;

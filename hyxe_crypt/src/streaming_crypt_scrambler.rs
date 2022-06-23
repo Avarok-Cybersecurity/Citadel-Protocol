@@ -5,22 +5,22 @@ use futures::task::Context;
 use std::io::{BufReader, Read};
 use tokio::macros::support::Pin;
 
-use hyxe_crypt::drill::{Drill, SecurityLevel};
-use hyxe_crypt::net::crypt_splitter::{GroupSenderDevice, par_scramble_encrypt_group};
-use hyxe_crypt::prelude::PacketVector;
+use crate::drill::{Drill, SecurityLevel};
+use crate::net::crypt_splitter::{GroupSenderDevice, par_scramble_encrypt_group};
+use crate::packet_vector::PacketVector;
 
-use crate::io::FsError;
 use std::task::Poll;
 use tokio_stream::{Stream,StreamExt};
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use crate::hyper_ratchet::HyperRatchet;
 use tokio::task::{JoinHandle, JoinError};
-use hyxe_crypt::misc::CryptError;
+use crate::misc::CryptError;
 use futures::Future;
 use std::sync::Arc;
 use parking_lot::Mutex;
+use num_integer::Integer;
 
 /// 3Mb per group
-pub const MAX_BYTES_PER_GROUP: usize = hyxe_crypt::net::crypt_splitter::MAX_BYTES_PER_GROUP;
+pub const MAX_BYTES_PER_GROUP: usize = crate::net::crypt_splitter::MAX_BYTES_PER_GROUP;
 const DEFAULT_BYTES_PER_GROUP: usize = 1024 * 1024 * 3;
 
 /// Generic function for inscribing headers on packets
@@ -36,19 +36,19 @@ impl<T: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Se
 ///
 /// This is ran on a separate thread on the threadpool. Returns the number of bytes and number of groups
 #[allow(unused_results)]
-pub fn scramble_encrypt_file<F: HeaderInscriberFn, const N: usize>(std_file: std::fs::File, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<Result<GroupSenderDevice<N>, FsError<String>>>, stop: Receiver<()>, security_level: SecurityLevel, hyper_ratchet: HyperRatchet, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), FsError<String>> {
-    let metadata = std_file.metadata().map_err(|err| FsError::IoError(err.to_string()))?;
+pub fn scramble_encrypt_file<F: HeaderInscriberFn, const N: usize>(std_file: std::fs::File, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>, stop: Receiver<()>, security_level: SecurityLevel, hyper_ratchet: HyperRatchet, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), CryptError> {
+    let metadata = std_file.metadata().map_err(|err| CryptError::Encrypt(err.to_string()))?;
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
     if !metadata.is_file() {
-        return Err(FsError::IoError("Supplied entry is not a file".to_string()));
+        return Err(CryptError::Encrypt("Supplied entry is not a file".to_string()));
     }
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {
-        return Err(FsError::Generic(format!("Maximum group size cannot be larger than {} bytes", MAX_BYTES_PER_GROUP)))
+        return Err(CryptError::Encrypt(format!("Maximum group size cannot be larger than {} bytes", MAX_BYTES_PER_GROUP)))
     }
 
     let file_len = metadata.len() as usize;
-    let total_groups = num::Integer::div_ceil(&file_len, &max_bytes_per_group);
+    let total_groups = Integer::div_ceil(&file_len, &max_bytes_per_group);
 
     log::trace!(target: "lusna", "Will parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, file_len, (file_len as f32)/(1024f32*1024f32), total_groups);
     let reader = BufReader::with_capacity(std::cmp::min(file_len, max_bytes_per_group), std_file);
@@ -87,13 +87,13 @@ pub fn scramble_encrypt_file<F: HeaderInscriberFn, const N: usize>(std_file: std
     Ok((file_len, total_groups))
 }
 
-async fn stopper(stop: Receiver<()>) -> Result<(), FsError<String>> {
-    stop.await.map_err(|err| FsError::Generic(err.to_string()))
+async fn stopper(stop: Receiver<()>) -> Result<(), CryptError> {
+    stop.await.map_err(|err| CryptError::Encrypt(err.to_string()))
 }
 
-async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(group_sender: GroupChanneler<Result<GroupSenderDevice<N>, FsError<String>>>, mut file_scrambler: AsyncCryptScrambler<F, R, N>) -> Result<(), FsError<String>> {
+async fn file_streamer<F: HeaderInscriberFn, R: Read, const N: usize>(group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>, mut file_scrambler: AsyncCryptScrambler<F, R, N>) -> Result<(), CryptError> {
     while let Some(val) = file_scrambler.next().await {
-        group_sender.send(Ok(val)).await.map_err(|err| FsError::Generic(err.to_string()))?;
+        group_sender.send(Ok(val)).await.map_err(|err| CryptError::Encrypt(err.to_string()))?;
     }
 
     Ok(())

@@ -1,27 +1,23 @@
-use crate::backend::{BackendConnection, PersistenceHandler};
+use crate::backend::BackendConnection;
 use hyxe_crypt::hyper_ratchet::Ratchet;
-use crate::re_imports::DirectoryStore;
 use crate::misc::{AccountError, CNACMetadata};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
-use std::path::PathBuf;
 use std::collections::HashMap;
-use parking_lot::Mutex;
-use crate::network_account::NetworkAccount;
-use hyxe_fs::prelude::SyncIO;
+use crate::serialization::SyncIO;
 use redis_base::{Client, ErrorKind, AsyncCommands, ToRedisArgs, FromRedisValue};
 use mobc::Pool;
 use mobc::async_trait;
 use mobc::Manager;
 use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
 use std::time::Duration;
-use crate::account_loader::load_node_nac;
+use std::marker::PhantomData;
 
 /// Backend struct for redis
 pub(crate) struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
     url: String,
     conn_options: RedisConnectionOptions,
     conn: Option<RedisPool>,
-    pers: Mutex<Option<PersistenceHandler<R, Fcm>>>
+    _pd: PhantomData<(R, Fcm)>
 }
 
 type RedisPool = Pool<RedisConnectionManager>;
@@ -208,11 +204,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .await
             .map(|ret: Vec<usize> | ret[0])
             .map_err(|err| AccountError::msg(err.to_string()))
-    }
-
-    async fn register_cid_in_nac(&self, _cid: u64, _username: &str) -> Result<(), AccountError> {
-        // we don't register here since we don't need to store inside the local nac
-        Ok(())
     }
 
     async fn get_registered_impersonal_cids(&self, _limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError> {
@@ -544,7 +535,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
 
 impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R , Fcm> {
     pub(crate) fn new(url: String, conn_options: RedisConnectionOptions) -> Self {
-        Self { url, conn_options, conn: None, pers: Mutex::new(None), local_nac: None }
+        Self { url, conn_options, conn: None, _pd: Default::default() }
     }
 
     async fn get<K: ToRedisArgs + Send + Sync, RV: FromRedisValue>(&self, key: K) -> Result<Option<RV>, AccountError> {
@@ -567,11 +558,8 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R , Fcm> {
     }
 
     fn cnac_bytes_to_cnac(&self, bytes: Vec<u8>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
-        let deserialized = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_vector(bytes.as_ref())
-            .map_err(|err| AccountError::msg(err.to_string()))?;
-        let pers = self.pers.lock().clone().ok_or_else(|| AccountError::msg("Persistence handler is not loaded"))?;
-
-        ClientNetworkAccount::<R, Fcm>::load_safe(deserialized, None, Some(pers))
+        let deserialized = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_vector(bytes.as_ref())?;
+        ClientNetworkAccount::<R, Fcm>::load_safe(deserialized)
     }
 
     async fn get_conn(&self) -> Result<redis_base::aio::Connection, AccountError> {
@@ -579,12 +567,6 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R , Fcm> {
             .get().await
             .map_err(|err| AccountError::msg(err.to_string()))?)
             .map(|conn| conn.into_inner())
-    }
-
-    async fn key_exists<K: ToRedisArgs + Send + Sync>(&self, key: K) -> Result<bool, AccountError> {
-        self.get_conn().await?
-            .exists(key).await
-            .map_err(|err| AccountError::msg(err.to_string()))
     }
 }
 

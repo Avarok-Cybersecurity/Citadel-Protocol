@@ -18,20 +18,19 @@ warnings
 
 /// Standard imports for this library
 pub mod prelude {
-    pub use hyxe_fs::file_crypt_scrambler::MAX_BYTES_PER_GROUP;
-
     pub use crate::client_account::*;
     pub use crate::hypernode_account::*;
     pub use crate::network_account::*;
+    #[cfg(feature = "filesystem")]
+    pub use hyxe_crypt::streaming_crypt_scrambler::MAX_BYTES_PER_GROUP;
 }
 
 /// Serde and others
 pub mod re_imports {
     pub use serde::*;
-
     pub use firebase_rtdb::FirebaseRTDB;
-    pub use hyxe_fs::env::DirectoryStore;
-    pub use hyxe_fs::file_crypt_scrambler::*;
+    #[cfg(feature = "filesystem")]
+    pub use crate::directory_store::DirectoryStore;
 }
 
 /// The general trait for creating account types
@@ -53,6 +52,7 @@ pub mod network_account;
 /// evoc_null(web 3.0) => void && let void alloc finite && set network evoc_null(!HyperWAN)
 pub mod client_account;
 
+#[cfg(feature = "filesystem")]
 /// This provides methods to load all locally-stored files
 pub mod account_loader;
 /// The server in legacy_hyxe_net requires a means of handling the user database. This module contains the means of achieving this
@@ -67,3 +67,8 @@ pub mod external_services;
 pub mod auth;
 ///
 pub mod server_misc_settings;
+/// Contains basic subroutines for serialization
+pub mod serialization;
+#[cfg(feature = "filesystem")]
+/// Environmental constants and subroutines for pre-checking the system
+pub mod directory_store;

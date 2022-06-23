@@ -10,7 +10,6 @@ pub struct RegisterState {
     pub(crate) last_stage: u8,
     pub(crate) constructor: Option<HyperRatchetConstructor>,
     pub(crate) created_hyper_ratchet: Option<HyperRatchet>,
-    pub(crate) proposed_cid: Option<u64>,
     pub(crate) last_packet_time: Option<Instant>,
     pub(crate) passwordless: Option<bool>
 }
