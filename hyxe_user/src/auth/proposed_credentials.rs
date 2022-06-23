@@ -92,7 +92,7 @@ impl ProposedCredentials {
         openssl::sha::sha256(password_raw.as_ref()).into()
     }
 
-    pub(crate) fn into_auth_store(self, _cid: u64) -> DeclaredAuthenticationMode {
+    pub(crate) fn into_auth_store(self) -> DeclaredAuthenticationMode {
         match self {
             Self::Disabled { username } => DeclaredAuthenticationMode::Passwordless { username, full_name: "authless.client".to_string() },
             Self::Enabled { username, full_name, clientside_only_registration_settings, .. } => DeclaredAuthenticationMode::Argon { username, full_name, argon: ArgonContainerType::Client(clientside_only_registration_settings.unwrap_or_default().into()) }
@@ -106,16 +106,24 @@ impl ProposedCredentials {
             _ => false
         }
     }
+
+    /// Returns the username or uuid of the client
+    pub fn username(&self) -> &str {
+        match self {
+            ProposedCredentials::Enabled { username, .. } |
+            ProposedCredentials::Disabled { username } => username.as_str()
+        }
+    }
 }
 
 // Serverside impls
 impl ProposedCredentials {
     /// Called when the server registers the client-provided credentials
-    pub async fn derive_server_container(self, server_argon_settings: &ArgonSettings, cid: u64, server_misc_settings: &ServerMiscSettings) -> Result<DeclaredAuthenticationMode, AccountError> {
+    pub async fn derive_server_container(self, server_argon_settings: &ArgonSettings, server_misc_settings: &ServerMiscSettings) -> Result<DeclaredAuthenticationMode, AccountError> {
         match self {
             Self::Disabled { .. } => {
                 if server_misc_settings.allow_passwordless {
-                    Ok(self.into_auth_store(cid))
+                    Ok(self.into_auth_store())
                 } else {
                     Err(AccountError::msg("This node does not support passwordless connections"))
                 }

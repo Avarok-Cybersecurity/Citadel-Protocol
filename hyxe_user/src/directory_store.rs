@@ -1,5 +1,5 @@
 use std::fs::create_dir_all as mkdir;
-use crate::io::FsError;
+use crate::misc::AccountError;
 use std::path::PathBuf;
 
 /// Home directory
@@ -50,7 +50,7 @@ impl DirectoryStore {
 }
 
 #[allow(unused_results)]
-fn setup_directory(mut home_dir: String) -> Result<DirectoryStore, FsError<String>> {
+fn setup_directory(mut home_dir: String) -> Result<DirectoryStore, AccountError> {
      let home = {
          {
              if !home_dir.ends_with('/') {
@@ -101,7 +101,7 @@ fn append_to_path(base: String, addition: &str) -> String {
 }
 
 /// Sets up local directories that are pre-requisite to launching either client or server application
-pub fn setup_directories(home_dir: String) -> Result<DirectoryStore, FsError<String>> {
+pub fn setup_directories(home_dir: String) -> Result<DirectoryStore, AccountError> {
     let store = setup_directory(home_dir)?;
     let base = mkdir(store.hyxe_home.as_str());
 
@@ -111,7 +111,7 @@ pub fn setup_directories(home_dir: String) -> Result<DirectoryStore, FsError<Str
         .and(mkdir(store.hyxe_server_dir.as_str()))
         .and(mkdir(store.hyxe_config_dir.as_str()))
         .and(mkdir(store.hyxe_virtual_dir.as_str()))
-        .map_err(|err| FsError::IoError(err.to_string()))?;
+        .map_err(|err| AccountError::IoError(err.to_string()))?;
 
     Ok(store)
 }

@@ -7,7 +7,7 @@ use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTrans
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::ConstructorOpts;
 use hyxe_crypt::toolset::Toolset;
-use hyxe_fs::prelude::SyncIO;
+use hyxe_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
 use crate::error::NetworkError;

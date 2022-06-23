@@ -57,7 +57,7 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo test --package hyxe_user --features sql,redis,localhost-testing -- --test-threads=1
       #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
-      - run: cargo test --features=localhost-testing --package ez_pqcrypto --package hyxe_crypt --package hyxe_fs --package hyxe_net
+      - run: cargo test --features=localhost-testing --package ez_pqcrypto --package hyxe_crypt --package hyxe_net
       - uses: actions/github-script@v6
         if: failure()
         with:
@@ -183,7 +183,7 @@ jobs:
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=redis,sql,localhost-testing -- --test-threads=1 --skip stress_test --skip argon_autotuner'
+          args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=redis,sql,localhost-testing -- --test-threads=1 --skip stress_test --skip argon_autotuner'
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

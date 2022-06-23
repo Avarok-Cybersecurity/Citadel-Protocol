@@ -1,7 +1,7 @@
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use crate::prelude::{UserIdentifier, ConnectionInfo};
 use crate::misc::AccountError;
-use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::backend::{BackendType, PersistenceHandler};
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
@@ -65,16 +65,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         log::info!(target: "lusna", "Successfully established connection to backend ...");
 
-        // TODO: for inter-process restarts wrt unit testing, make sure the below doesn't happen.
-        // maybe check env var before purging, and, toggle on/off as necessary?
-        #[cfg(feature = "localhost-testing")] {
-            if std::env::var("TESTING_DO_NOT_PURGE").is_err() {
-                let _ = persistence_handler.purge().await?;
-            } else {
-                log::warn!(target: "lusna", "Will skip purging for localhost-testing since TESTING_DO_NOT_PURGE is set")
-            }
-        }
-
         let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
 
         Ok(this)
@@ -89,8 +79,9 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// to create the new CNAC. The generated CNAC will be assumed to be an impersonal hyperlan client
     ///
     /// This also generates the argon-2id password hash
-    pub async fn register_impersonal_hyperlan_client_network_account(&self, reserved_cid: u64, conn_info: ConnectionInfo, creds: ProposedCredentials, init_hyper_ratchet: R) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
-        let auth_store = creds.derive_server_container(&self.node_argon_settings, reserved_cid, self.get_misc_settings()).await?;
+    pub async fn register_impersonal_hyperlan_client_network_account(&self, conn_info: ConnectionInfo, creds: ProposedCredentials, init_hyper_ratchet: R) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+        let reserved_cid = self.persistence_handler.get_cid_by_username(creds.username());
+        let auth_store = creds.derive_server_container(&self.node_argon_settings, self.get_misc_settings()).await?;
         let pers = &self.persistence_handler;
 
         // We must lock the config to ensure that the obtained CID gets added into the database before any competing threads may get called
@@ -112,8 +103,9 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
     /// whereas the HyperLAN server (Bob) runs `register_impersonal_hyperlan_client_network_account`, the registering
     /// HyperLAN Client (Alice) runs this function below
-    pub async fn register_personal_hyperlan_server(&self, valid_cid: u64, hyper_ratchet: R, creds: ProposedCredentials, conn_info: ConnectionInfo) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
-        let client_auth_store = creds.into_auth_store(valid_cid);
+    pub async fn register_personal_hyperlan_server(&self, hyper_ratchet: R, creds: ProposedCredentials, conn_info: ConnectionInfo) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
+        let valid_cid = self.persistence_handler.get_cid_by_username(creds.username());
+        let client_auth_store = creds.into_auth_store();
         let cnac = ClientNetworkAccount::<R, Fcm>::new_from_network_personal(valid_cid, hyper_ratchet, client_auth_store, conn_info).await?;
         self.persistence_handler.save_cnac(&cnac).await?;
 
@@ -207,7 +199,6 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             }
 
             UserIdentifier::Username(uname) => {
-                // TODO: optimize this into a single step
                 self.get_persistence_handler().get_cid_by_username(&uname)
             }
         };

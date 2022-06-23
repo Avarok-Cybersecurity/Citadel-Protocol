@@ -5,7 +5,7 @@ use crate::hdp::hdp_node::Ticket;
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::functional::*;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use hyxe_fs::io::SyncIO;
+use hyxe_user::serialization::SyncIO;
 use crate::error::NetworkError;
 use crate::hdp::peer::group_channel::GroupBroadcastPayload;
 

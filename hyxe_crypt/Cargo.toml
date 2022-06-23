@@ -13,7 +13,8 @@ exclude = [
 ]
 
 [features]
-default = ["single-threaded"]
+default = ["single-threaded", "filesystem"]
+filesystem = []
 single-threaded = ["ez_pqcrypto/unordered"]
 multi-threaded = ["ez_pqcrypto/unordered"]
 
@@ -42,6 +43,8 @@ num_cpus = "1.13.0"
 linked-hash-map = "*"
 tokio = { version = "1.19.0", features = ["full"] }
 sha3 = "0.10.1"
+parking_lot = "0.12.1"
+tokio-stream = "0.1.7"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2.80"

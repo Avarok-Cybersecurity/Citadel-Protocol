@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
 use std::fmt::Formatter;
-use hyxe_fs::io::SyncIO;
+use hyxe_user::serialization::SyncIO;
 use crate::hdp::outbound_sender::{unbounded, UnboundedSender, UnboundedReceiver};
 use futures::Stream;
 use std::pin::Pin;

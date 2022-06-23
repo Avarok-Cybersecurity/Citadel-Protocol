@@ -491,28 +491,117 @@ mod tests {
             debug_assert_eq!(decrypted_descrambled_plaintext.as_slice(), input_data);
         }
     }
-}
 
-/*
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn encrypted_memory_compare() {
-        let val = 100;
-        let val2 = 101;
-        let _ptr = &val as *const i32 as *const u8;
-        let _ptr2 = &val2 as *const i32 as *const u8;
+    #[cfg(feature = "filesystem")]
+    #[tokio::test]
+    async fn encrypt_decrypt_test() {
+        use hyxe_crypt::drill::SecurityLevel;
+        use tokio::sync::mpsc::channel;
+        use bytes::{BufMut, BytesMut};
+        use std::time::Instant;
+        use hyxe_crypt::net::crypt_splitter::{GroupReceiver, GroupReceiverStatus};
 
-        let input = "Hello, world!";
-        let _bytes = input.as_bytes();
+        use hyxe_crypt::hyper_ratchet::HyperRatchet;
+        use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
+        use hyxe_crypt::prelude::algorithm_dictionary::{CryptoParameters, KemAlgorithm, EncryptionAlgorithm};
+        use hyxe_crypt::prelude::{ConstructorOpts, PacketVector, Drill};
+        use hyxe_crypt::streaming_crypt_scrambler::scramble_encrypt_file;
 
-        let (mut ema, key) = unsafe { EncryptedMemoryArtifact::new(input).unwrap() };
-        let input_sec = SecVec::new(input.as_bytes().to_vec());
-        let (status, new_key) = unsafe { ema.read_compare(key, input_sec) };
-        assert!(status);
-        let input_sec = SecVec::new(input.as_bytes().to_vec());
-        let (status, _new_key) = unsafe { ema.read_compare(new_key, input_sec) };
-        assert!(status);
+        setup_log();
+        fn gen(algo: impl Into<CryptoParameters>, drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
+            let opts = algo.into();
+            let mut alice_base = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(opts), 1), 0, 0, None).unwrap();
+            let bob_base = HyperRatchetConstructor::new_bob(0, drill_vers, ConstructorOpts::new_vec_init(Some(opts), 1), alice_base.stage0_alice()).unwrap();
+            alice_base.stage1_alice(&BobToAliceTransferType::Default(bob_base.stage0_bob().unwrap())).unwrap();
+
+            (alice_base.finish().unwrap(), bob_base.finish().unwrap())
+        }
+
+        fn header_inscribe(_: &PacketVector, _: &Drill, _: u32, _: u64, packet: &mut BytesMut) {
+            for x in 0..HEADER_LEN {
+                packet.put_u8((x % 255) as u8)
+            }
+        }
+
+        let (alice, bob) = gen(KemAlgorithm::Firesaber + EncryptionAlgorithm::Xchacha20Poly_1305, 0);
+        let security_level = SecurityLevel::LOW;
+        const HEADER_LEN: usize = 52;
+        let cmp = include_bytes!("../../resources/TheBridge.pdf");
+        let std_file = std::fs::File::open("../resources/TheBridge.pdf").unwrap();
+        let (group_sender_tx, mut group_sender_rx) = channel(1);
+        let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let (bytes, _num_groups) = scramble_encrypt_file::<_, HEADER_LEN>(std_file, None,99, group_sender_tx, stop_rx, security_level, alice.clone(), HEADER_LEN, 9, 0, header_inscribe).unwrap();
+
+        println!("Ran function, now awaiting results ...");
+        let mut _i: usize = 0;
+        let now = Instant::now();
+        let mut bytes_ret = Vec::new();
+        let _compressed_len: usize = 0;
+        let _decompressed_len: usize = 0;
+
+        while let Some(gs) =  group_sender_rx.recv().await {
+            let mut gs = gs.unwrap();
+            let config = gs.get_receiver_config();
+            //println!("RECEIVED GS {} w {} packets", i, gs.packets_in_ram.len());
+            let mut receiver = GroupReceiver::new(config.clone(),0, 0);
+            //println!("{:?}", &receiver);
+            let group_id = config.group_id;
+            let mut _seq = 0;
+            let _now = Instant::now();
+            'here: while let Some(mut packet) = gs.get_next_packet() {
+                let packet_payload = packet.packet.split_off(HEADER_LEN);
+                let result = receiver.on_packet_received(group_id as u64, packet.vector.true_sequence, packet.vector.wave_id, &bob, packet_payload);
+                //dbg!(&result);
+                match result {
+                    GroupReceiverStatus::GROUP_COMPLETE(_group_id) => {
+                        bytes_ret.extend_from_slice(receiver.finalize().as_slice());
+                        /*
+                        let mut bytes = receiver.finalize();
+                        //let slice = bytes.as_slice();
+                        println!("Compressed len: {}", bytes.len());
+                        compressed_len += bytes.len();
+                        //let len = flate2::bufread::DeflateDecoder::new(bytes.as_slice()).read_to_end(&mut bytes_ret).unwrap();
+                        let decompressed = flate3::inflate(bytes.as_slice());
+                        println!("Decompressed len: {:?}", decompressed.len());
+                        decompressed_len += decompressed.len();
+                        bytes_ret.extend(decompressed.into_iter());*/
+                        break 'here;
+                    }
+
+                    _ => {}
+                }
+                //seq += 1;
+            }
+            //i += 1;
+        }
+
+        let delta = now.elapsed();
+        let megabytes = bytes as f32 / 1_000_000f32;
+        let mbs = megabytes / delta.as_secs_f32();
+        println!("Done receiving all. {} time, {} bytes. {} Mb/s", delta.as_millis(), bytes, mbs);
+        //println!("Decompressed len: {} | Compressed len: {} | Ratio: {}", decompressed_len, compressed_len, (decompressed_len as f32 / compressed_len as f32));
+
+        assert_eq!(bytes, bytes_ret.len());
+        if bytes_ret.as_slice() != cmp as &[u8] {
+            println!("{:?} != {:?}", &bytes_ret.as_slice()[..10], &cmp[..10]);
+            println!("{:?} != {:?}", &bytes_ret.as_slice()[bytes_ret.len()-10..], &cmp[cmp.len()-10..]);
+            panic!("Vectors not equal")
+        }
     }
+
+    /*
+    #[test]
+    fn create_dummy_file() {
+        const LEN: usize = 4_187_593_113; // 3.9 gigabytes
+        let mut file = std::fs::File::create("C:/Users/tbrau/dummy.bin").unwrap();
+        let slab = (0..u8::MAX).into_iter().collect::<Vec<u8>>();
+        let mut written = 0;
+        while written < LEN {
+            file.write_all(slab.as_slice()).unwrap();
+            written += u8::MAX as usize;
+        }
+
+        file.flush().unwrap();
+        file.sync_all().unwrap();
+    }*/
 }
-*/

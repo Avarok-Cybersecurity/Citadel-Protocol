@@ -75,7 +75,7 @@ impl BackendType {
     /// For requesting the use of the local filesystem as a backend
     /// URL format: file:/path/to/directory (unix) or file:C\windows\dir (windows)
     pub fn filesystem<T: Into<String>>(path: T) -> Self {
-        Self::Filesystem(path.into())
+        Self::Filesystem(path.into().replace("file:", ""))
     }
 
     #[cfg(feature = "redis")]
