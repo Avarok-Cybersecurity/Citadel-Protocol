@@ -4,7 +4,6 @@ members = [
     "lusna_sdk",
     "hyxe_wire",
 	"hyxe_user",
-	"hyxe_fs",
 	"hyxe_crypt",
 	"async_ip",
 	"ez_pqcrypto",

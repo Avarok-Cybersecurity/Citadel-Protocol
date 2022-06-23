@@ -38,10 +38,10 @@ use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
 use crate::functional::IfEqConditional;
 use futures::StreamExt;
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
-use hyxe_fs::prelude::SyncIO;
+use hyxe_user::serialization::SyncIO;
 use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
 use crate::hdp::peer::peer_layer::{PeerConnectionType, UdpMode};
-use hyxe_fs::env::DirectoryStore;
+use hyxe_user::directory_store::DirectoryStore;
 //use crate::hdp::misc::dual_rwlock::DualRwLock;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::hdp_session::SessionState;
@@ -778,7 +778,7 @@ impl StateContainerInner {
 
     /// This creates an entry in the inbound_files hashmap
     #[allow(unused_results)]
-    pub fn on_file_header_received(&mut self, header: &LayoutVerified<&[u8], HdpHeader>, virtual_target: VirtualTargetType, metadata: VirtualFileMetadata, dirs: &DirectoryStore) -> bool {
+    pub fn on_file_header_received(&mut self, header: &LayoutVerified<&[u8], HdpHeader>, virtual_target: VirtualTargetType, metadata: VirtualFileMetadata) -> bool {
         let key = FileKey::new(header.session_cid.get(), metadata.object_id);
         let ticket = header.context_info.get().into();
 
@@ -786,7 +786,7 @@ impl StateContainerInner {
         if !self.inbound_files.contains_key(&key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
             let name = metadata.name.clone();
-            let save_location = dirs.inner.read().hyxe_virtual_dir.clone();
+            let save_location = dirs.hyxe_virtual_dir.clone();
             let save_location = format!("{}{}", save_location, name);
             let save_location = PathBuf::from(save_location);
             if let Ok(file) = std::fs::File::create(&save_location) {

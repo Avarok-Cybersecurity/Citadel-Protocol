@@ -3,13 +3,11 @@ use async_trait::async_trait;
 use hyxe_crypt::hyper_ratchet::Ratchet;
 use crate::misc::{AccountError, CNACMetadata};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
-use hyxe_fs::system_file_manager::write_bytes_to;
 use std::path::PathBuf;
 use std::collections::HashMap;
-use hyxe_fs::env::DirectoryStore;
+use crate::directory_store::DirectoryStore;
 use crate::prelude::CNAC_SERIALIZED_EXTENSION;
 use crate::account_loader::load_cnac_files;
-use hyxe_fs::misc::get_pathbuf;
 use crate::backend::memory::MemoryBackend;
 
 /// For handling I/O with the local filesystem
@@ -22,7 +20,7 @@ pub struct FilesystemBackend<R: Ratchet, Fcm: Ratchet> {
 #[async_trait]
 impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R, Fcm> {
     async fn connect(&mut self) -> Result<(), AccountError> {
-        let directory_store = hyxe_fs::env::setup_directories(self.home_dir.clone())?;
+        let directory_store = crate::directory_store::setup_directories(self.home_dir.clone())?;
         let map = load_cnac_files(&directory_store)?;
         // ensure the in-memory database has the clients loaded
         *self.memory_backend.clients.get_mut() = map;
@@ -40,7 +38,9 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
         // save to filesystem, then, synchronize to memory
         let bytes = cnac.generate_proper_bytes()?;
         let cid = cnac.get_cid();
-        write_bytes_to(bytes, self.generate_cnac_local_save_path(cid, cnac.is_personal()))?;
+        let path = self.generate_cnac_local_save_path(cid, cnac.is_personal());
+        // TODO: The below line of code fails
+        std::fs::write(path, bytes).map_err(|err| AccountError::Generic(err.to_string()))?;
         self.memory_backend.save_cnac(cnac).await
     }
 
@@ -53,21 +53,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     }
 
     async fn delete_cnac_by_cid(&self, cid: u64) -> Result<(), AccountError> {
-        // Remove all the CNACs from memory, then, remove from local filesystem
-        let paths = {
-            let mut write = self.memory_backend.clients.write();
-            let cnac = write.remove(&cid).ok_or(AccountError::ClientNonExists(cid))?;
-            cnac.get_hyperlan_peer_list()
-                .map(|r| r.into_iter().map(|r| self.generate_cnac_local_save_path(r, cnac.is_personal())).collect::<Vec<PathBuf>>())
-                .unwrap_or_default()
-        };
-
-        for path in paths {
-            tokio::fs::remove_file(path).await
-                .map_err(|err| AccountError::Generic(err.to_string()))?;
-        }
-
-        Ok(())
+        let is_personal = self.memory_backend.clients.read().get(&cid).ok_or(AccountError::ClientNonExists(cid))?.is_personal();
+        self.memory_backend.delete_cnac_by_cid(cid).await?;
+        let path = self.generate_cnac_local_save_path(cid, is_personal);
+        std::fs::remove_file(path).map_err(|err| AccountError::Generic(err.to_string()))
     }
 
     async fn purge(&self) -> Result<usize, AccountError> {
@@ -208,9 +197,9 @@ impl<R: Ratchet, Fcm: Ratchet> FilesystemBackend<R, Fcm> {
     fn generate_cnac_local_save_path(&self, cid: u64, is_personal: bool) -> PathBuf {
         let dirs = self.directory_store.as_ref().unwrap();
         if is_personal {
-            get_pathbuf(format!("{}{}.{}", dirs.hyxe_nac_dir_personal.as_str(), cid, CNAC_SERIALIZED_EXTENSION))
+            PathBuf::from(format!("{}{}.{}", dirs.hyxe_nac_dir_personal.as_str(), cid, CNAC_SERIALIZED_EXTENSION))
         } else {
-            get_pathbuf(format!("{}{}.{}", dirs.hyxe_nac_dir_impersonal.as_str(), cid, CNAC_SERIALIZED_EXTENSION))
+            PathBuf::from(format!("{}{}.{}", dirs.hyxe_nac_dir_impersonal.as_str(), cid, CNAC_SERIALIZED_EXTENSION))
         }
     }
 }

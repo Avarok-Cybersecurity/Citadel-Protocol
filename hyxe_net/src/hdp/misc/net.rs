@@ -17,7 +17,7 @@ use std::path::Path;
 use crate::error::NetworkError;
 use crate::hdp::hdp_node::TlsDomain;
 use serde::{Serialize, Deserialize};
-use hyxe_fs::io::SyncIO;
+use hyxe_user::serialization::SyncIO;
 use hyxe_wire::exports::{SendStream, RecvStream, Endpoint, NewConnection};
 use hyxe_wire::quic::{QuicNode, QuicEndpointListener};
 use crate::hdp::peer::p2p_conn_handler::generic_error;

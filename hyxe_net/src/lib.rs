@@ -375,7 +375,7 @@ pub mod prelude {
     pub use crate::re_imports::{async_trait, NodeType};
     pub use crate::hdp::peer::peer_layer::HypernodeConnectionType;
     pub use crate::hdp::misc::sync_future::*;
-    pub use hyxe_fs::io::SyncIO;
+    pub use hyxe_user::serialization::SyncIO;
     pub use crate::kernel::RuntimeFuture;
     pub use crate::hdp::peer::message_group::{MessageGroupOptions, GroupType};
     pub use crate::hdp::hdp_node::HdpServer;
