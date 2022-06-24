@@ -10,7 +10,7 @@ use crate::hdp::outbound_sender::OutboundPrimaryStreamSender;
 use crate::hdp::state_container::VirtualTargetType;
 use crate::error::NetworkError;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
-use hyxe_fs::hyxe_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
+use hyxe_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
 use hyxe_crypt::secure_buffer::sec_packet::SecureMessagePacket;
 
 #[derive(Debug)]
@@ -491,7 +491,6 @@ pub(crate) mod do_register {
     pub(crate) struct DoRegisterStage0<'a> {
         #[serde(borrow)]
         pub(crate) transfer: AliceToBobTransfer<'a>,
-        pub(crate) potential_cids_alice: Vec<u64>,
         pub(crate) passwordless: bool
     }
 
@@ -500,31 +499,31 @@ pub(crate) mod do_register {
     /// Since this is sent over TCP, the size of the packet can be up to ~64k bytes
     ///
     /// We also use the NID in place of the CID because the CID only exists AFTER registration completes
-    pub(crate) fn craft_stage0(algorithm: u8, timestamp: i64, local_nid: u64, transfer: AliceToBobTransfer<'_>, potential_cids_alice: Vec<u64>, passwordless: bool) -> BytesMut {
+    pub(crate) fn craft_stage0(algorithm: u8, timestamp: i64, transfer: AliceToBobTransfer<'_>, passwordless: bool, proposed_cid: u64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE0,
             algorithm,
             security_level: 0,
-            context_info: U128::new(potential_cids_alice.len() as _),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(local_nid),
+            session_cid: U64::new(proposed_cid),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)
         };
 
-        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + potential_cids_alice.len() * 8);
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         packet.put(header.into_packet());
 
-        DoRegisterStage0 { transfer, potential_cids_alice, passwordless }.serialize_into_buf(&mut packet).unwrap();
+        DoRegisterStage0 { transfer, passwordless }.serialize_into_buf(&mut packet).unwrap();
 
         packet
     }
 
     /// Bob crafts a packet with the ciphertext
-    pub(crate) fn craft_stage1(algorithm: u8, timestamp: i64, transfer: BobToAliceTransfer) -> BytesMut {
+    pub(crate) fn craft_stage1(algorithm: u8, timestamp: i64, transfer: BobToAliceTransfer, proposed_cid: u64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE1,
@@ -533,7 +532,7 @@ pub(crate) mod do_register {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(0),
+            session_cid: U64::new(proposed_cid),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)
@@ -563,7 +562,7 @@ pub(crate) mod do_register {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)
@@ -592,7 +591,7 @@ pub(crate) mod do_register {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(0),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)
@@ -609,7 +608,7 @@ pub(crate) mod do_register {
     }
 
     /// No encryption used for this packet
-    pub(crate) fn craft_failure<T: AsRef<[u8]>>(algorithm: u8, timestamp: i64, error_message: T) -> BytesMut {
+    pub(crate) fn craft_failure<T: AsRef<[u8]>>(algorithm: u8, timestamp: i64, error_message: T, proposed_cid: u64) -> BytesMut {
         let error_message = error_message.as_ref();
 
         let header = HdpHeader {
@@ -620,7 +619,7 @@ pub(crate) mod do_register {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(0),
+            session_cid: U64::new(proposed_cid),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)

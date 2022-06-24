@@ -467,12 +467,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         let target_cid = if let Some(peer_username) = peer_username_opt {
                             // since user did not know the CID, but only the CID, we have to find the cid
                             // here at the server
-                            if let Some(target_cid) = session.account_manager.get_persistence_handler().get_cid_by_username(peer_username.as_str()).await? {
-                                target_cid
-                            } else {
-                                // send error signal (USER DOES NOT EXIST)
-                                return reply_to_sender_err(format!("User {} does not exist!", peer_username), &sess_hyper_ratchet, ticket, timestamp, security_level)
-                            }
+                            session.account_manager.get_persistence_handler().get_cid_by_username(peer_username.as_str())
                         } else {
                             // peer knew the cid, therefore, use target_cid
                             target_cid

@@ -125,8 +125,7 @@ impl HdpSessionManager {
                                         };
 
                                         let cnac = id.search(&acc_mgr).await?.ok_or(NetworkError::InternalError("Client does not exist"))?;
-                                        let nac = cnac.get_nac();
-                                        let conn_info = nac.get_conn_info().ok_or(NetworkError::InternalError("IP address not loaded internally this account"))?;
+                                        let conn_info = cnac.get_connect_info();
                                         let peer_addr = conn_info.addr;
 
                                         let proposed_credentials = cnac.generate_connect_credentials(password.clone()).await.map_err(|err| NetworkError::Generic(err.into_string()))?;
