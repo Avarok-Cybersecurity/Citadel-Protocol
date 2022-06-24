@@ -27,7 +27,7 @@ use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 use crate::constants::{MAX_OUTGOING_UNPROCESSED_REQUESTS, TCP_CONN_TIMEOUT};
 use crate::error::NetworkError;
 use crate::functional::PairMap;
-use crate::hdp::file_transfer::FileTransferHandle;
+use hyxe_user::backend::utils::ObjectTransferHandle;
 use crate::hdp::packet_processor::includes::Duration;
 use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::hdp::hdp_session::{HdpSession, HdpSessionInitMode};
@@ -833,7 +833,7 @@ pub enum NodeResult {
     /// The outbound request was rejected
     OutboundRequestRejected(Ticket, Option<Vec<u8>>),
     /// For file transfers. Implicated CID, Peer/Target CID, object ID
-    FileTransferHandle(Ticket, FileTransferHandle),
+    ObjectTransferHandle(Ticket, ObjectTransferHandle),
     /// Data has been delivered for implicated cid self.0. The original outbound send request's ticket
     /// will be returned in the delivery, thus enabling higher-level abstractions to listen for data
     /// returns
@@ -875,7 +875,7 @@ impl NodeResult {
             NodeResult::ConnectSuccess(t, ..) => {Some(*t)}
             NodeResult::ConnectFail(t, _, _) => {Some(*t)}
             NodeResult::OutboundRequestRejected(t, _) => {Some(*t)}
-            NodeResult::FileTransferHandle(t, ..) => {Some(*t)}
+            NodeResult::ObjectTransferHandle(t, ..) => {Some(*t)}
             NodeResult::MessageDelivery(t, _, _) => {Some(*t)}
             NodeResult::MessageDelivered(t) => {Some(*t)}
             NodeResult::MailboxDelivery(_, t, _) => {t.clone()}

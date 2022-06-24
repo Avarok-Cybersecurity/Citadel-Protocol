@@ -1207,14 +1207,14 @@ pub(crate) mod file {
     use crate::hdp::packet_processor::includes::{SecurityLevel, HdpHeader, packet_flags};
     use crate::hdp::hdp_node::Ticket;
     use crate::hdp::state_container::VirtualTargetType;
-    use crate::hdp::file_transfer::VirtualFileMetadata;
+    use hyxe_user::backend::utils::VirtualObjectMetadata;
     use zerocopy::{U64, U32, I64, U128};
     use bytes::{BytesMut, BufMut};
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
-    pub(crate) fn craft_file_header_packet(hyper_ratchet: &HyperRatchet, group_start: u64, ticket: Ticket, security_level: SecurityLevel, virtual_target: VirtualTargetType, file_metadata: VirtualFileMetadata, timestamp: i64) -> BytesMut {
+    pub(crate) fn craft_file_header_packet(hyper_ratchet: &HyperRatchet, group_start: u64, ticket: Ticket, security_level: SecurityLevel, virtual_target: VirtualTargetType, file_metadata: VirtualObjectMetadata, timestamp: i64) -> BytesMut {
         let metadata_serialized = file_metadata.serialize();
         let serialized_vt = virtual_target.serialize();
         let header = HdpHeader {

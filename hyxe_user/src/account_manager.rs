@@ -47,7 +47,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             BackendType::SQLDatabase(..) => {
                 use crate::backend::mysql_backend::SqlBackend;
                 use std::convert::TryFrom;
-                let backend = SqlBackend::try_from(backend_type).map_err(|_| AccountError::Generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
+                let backend = SqlBackend::try_from(backend_type.clone()).map_err(|_| AccountError::Generic("Invalid database URL format. Please check documentation for preferred format".to_string()))?;
                 PersistenceHandler::create(backend).await?
             }
 
@@ -63,7 +63,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
             return Err(AccountError::msg("Unable to connect to remote database via account manager"))
         }
 
-        log::info!(target: "lusna", "Successfully established connection to backend ...");
+        log::info!(target: "lusna", "Successfully established connection to backend {:?}...", backend_type);
 
         let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
 
@@ -215,10 +215,13 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     }
 
     /// Converts a user identifier into its cid
-    pub fn find_local_user_information(&self, implicated_user: impl Into<UserIdentifier>) -> Result<Option<u64>, AccountError> {
+    pub async fn find_local_user_information(&self, implicated_user: impl Into<UserIdentifier>) -> Result<Option<u64>, AccountError> {
         match implicated_user.into() {
             UserIdentifier::ID(cid) => Ok(Some(cid)),
-            UserIdentifier::Username(username) => Ok(Some(self.persistence_handler.get_cid_by_username(username.as_str())))
+            UserIdentifier::Username(username) => {
+                let cid = self.persistence_handler.get_cid_by_username(&username);
+                Ok(self.persistence_handler.get_client_metadata(cid).await?.map(|r| r.cid))
+            }
         }
     }
 
