@@ -115,7 +115,7 @@ impl HyperNodePeerLayer {
         let items = pers.remove_byte_map_values_by_key(cid, 0, MAILBOX).await?;
         if items.len() != 0 {
             log::trace!(target: "lusna", "Returning enqueued mailbox items for {}", cid);
-            Ok(Some(MailboxTransfer::from(items.into_values().map(PeerSignal::deserialize_from_owned_vector).try_collect::<PeerSignal, Vec<PeerSignal>, _>().map_err(|err| NetworkError::Generic(err.to_string()))?)))
+            Ok(Some(MailboxTransfer::from(items.into_values().map(PeerSignal::deserialize_from_owned_vector).try_collect::<PeerSignal, Vec<PeerSignal>, _>().map_err(|err| NetworkError::Generic(err.into_string()))?)))
         } else {
             Ok(None)
         }
@@ -268,7 +268,7 @@ impl HyperNodePeerLayer {
     /// `target_cid`: Should be the destination
     #[allow(unused_results)]
     pub async fn try_add_mailbox(pers: &PersistenceHandler, target_cid: u64, signal: PeerSignal) -> Result<(), NetworkError> {
-        let serialized = signal.serialize_to_vector().map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let serialized = signal.serialize_to_vector().map_err(|err| NetworkError::Generic(err.into_string()))?;
         let sub_key = Uuid::new_v4().to_string();
 
         let _ = pers.store_byte_map_value(target_cid, 0, MAILBOX, &sub_key, serialized).await?;

@@ -6,6 +6,7 @@ use futures::Stream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::path::PathBuf;
+use hyxe_user::backend::utils::StreamableTargetInformation;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VirtualFileMetadata {
@@ -24,6 +25,12 @@ impl VirtualFileMetadata {
 
     pub fn deserialize_from<'a, T: AsRef<[u8]> + 'a>(input: T) -> Option<Self> {
         Self::deserialize_from_vector(input.as_ref()).ok()
+    }
+}
+
+impl StreamableTargetInformation for VirtualFileMetadata {
+    fn get_target_name(&self) -> &String {
+        &self.name
     }
 }
 

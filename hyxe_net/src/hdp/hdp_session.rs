@@ -19,7 +19,6 @@ use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::network_account::ConnectProtocol;
 use hyxe_user::auth::proposed_credentials::ProposedCredentials;
-use hyxe_user::re_imports::scramble_encrypt_file;
 
 use crate::constants::{DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME};
 use crate::error::NetworkError;
@@ -63,6 +62,7 @@ use atomic::Atomic;
 use crate::auth::AuthenticationRequest;
 use hyxe_wire::exports::tokio_rustls::rustls;
 use crate::prelude::SecureProtocolPacket;
+use hyxe_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
 
 //use crate::define_struct;
 
@@ -341,7 +341,6 @@ impl HdpSession {
             this.to_primary_stream.set_once(Some(primary_outbound_tx.clone()));
 
             let timestamp = this.time_tracker.get_global_time_ns();
-            let local_nid = this.account_manager.get_local_nid();
             let cnac_opt = inner_state!(this.state_container).cnac.clone();
             let implicated_cid = this.implicated_cid.clone();
             let persistence_handler = this.account_manager.get_persistence_handler().clone();
@@ -354,7 +353,7 @@ impl HdpSession {
             //let timer_future = Self::execute_timer(this.clone());
             let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
             let stopper_future = Self::stopper(stopper);
-            let handle_zero_state = Self::handle_zero_state(None, persistence_handler, primary_outbound_tx.clone(), this_outbound, this.state.load(Ordering::SeqCst), timestamp, local_nid, cnac_opt);
+            let handle_zero_state = Self::handle_zero_state(None, persistence_handler, primary_outbound_tx.clone(), this_outbound, this.state.load(Ordering::SeqCst), timestamp,cnac_opt);
 
             let session_future = spawn_handle!(async move {
                             tokio::select! {
@@ -420,7 +419,7 @@ impl HdpSession {
     }
 
     /// Before going through the usual loopy business, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
-    async fn handle_zero_state(zero_packet: Option<BytesMut>, persistence_handler: PersistenceHandler, to_outbound: OutboundPrimaryStreamSender, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
+    async fn handle_zero_state(zero_packet: Option<BytesMut>, persistence_handler: PersistenceHandler, to_outbound: OutboundPrimaryStreamSender, session: HdpSession, state: SessionState, timestamp: i64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
         if let Some(zero) = zero_packet {
             to_outbound.unbounded_send(zero).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
         }
@@ -428,19 +427,20 @@ impl HdpSession {
         match state {
             SessionState::NeedsRegister => {
                 log::trace!(target: "lusna", "Beginning registration subroutine!");
-                let potential_cids_alice = persistence_handler.client_only_generate_possible_cids().await.map_err(|err| NetworkError::Generic(err.into_string()))?;
                 let session_ref = session;
                 let mut state_container = inner_mut_state!(session_ref.state_container);
                 let session_security_settings = state_container.session_security_settings.clone().unwrap();
+                let proposed_username = state_container.connect_state.proposed_credentials.as_ref().ok_or_else(|| NetworkError::InternalError("Proposed credentials not loaded"))?.username();
+                let proposed_cid = persistence_handler.get_cid_by_username(proposed_username);
                 let passwordless = state_container.register_state.passwordless.clone().ok_or_else(|| NetworkError::InternalError("Passwordless state not loaded"))?;
                 // we supply 0,0 for cid and new drill vers by default, even though it will be reset by bob
-                let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), 0, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
+                let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), proposed_cid, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
                 log::trace!(target: "lusna", "Running stage0 alice");
                 let transfer = alice_constructor.stage0_alice();
 
-                let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(session_security_settings.crypto_params.into(), timestamp, local_nid, transfer, potential_cids_alice, passwordless);
+                let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(session_security_settings.crypto_params.into(), timestamp, transfer, passwordless, proposed_cid);
                 if let Err(err) = to_outbound.unbounded_send(stage0_register_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
                     return Err(err);
                 }
@@ -862,7 +862,7 @@ impl HdpSession {
 
                             let to_primary_stream = this.to_primary_stream.clone().unwrap();
                             let target_cid = 0;
-                            let (file_size, groups_needed) = scramble_encrypt_file(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_hr.clone(), HDP_HEADER_BYTE_LEN, target_cid, group_id_start, hdp_packet_crafter::group::craft_wave_payload_packet_into)
+                            let (file_size, groups_needed) = scramble_encrypt_source(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_hr.clone(), HDP_HEADER_BYTE_LEN, target_cid, group_id_start, hdp_packet_crafter::group::craft_wave_payload_packet_into)
                                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
                             let file_metadata = VirtualFileMetadata {
@@ -895,7 +895,7 @@ impl HdpSession {
 
                                 let preferred_primary_stream = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
 
-                                let (file_size, groups_needed) = scramble_encrypt_file(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_usable_ratchet.clone(), HDP_HEADER_BYTE_LEN, target_cid, start_group_id, hdp_packet_crafter::group::craft_wave_payload_packet_into)
+                                let (file_size, groups_needed) = scramble_encrypt_source(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_usable_ratchet.clone(), HDP_HEADER_BYTE_LEN, target_cid, start_group_id, hdp_packet_crafter::group::craft_wave_payload_packet_into)
                                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
                                 let file_metadata = VirtualFileMetadata {

@@ -55,6 +55,5 @@ pub mod argon;
 pub mod secure_buffer;
 ///
 pub mod sync_toggle;
-#[cfg(feature = "filesystem")]
 /// Allows thread-pooled asynchronous and parallel file processing
 pub mod streaming_crypt_scrambler;

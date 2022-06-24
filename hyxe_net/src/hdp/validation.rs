@@ -8,7 +8,7 @@ pub(crate) mod do_connect {
     /// Here, Bob receives a payload of the encrypted username + password. We must verify the login data is valid
     pub(crate) async fn validate_stage0_packet(cnac: &ClientNetworkAccount, payload: &[u8]) -> Result<(), NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
-        let payload = DoConnectStage0Packet::deserialize_from_vector(payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let payload = DoConnectStage0Packet::deserialize_from_vector(payload).map_err(|err| NetworkError::Generic(err.into_string()))?;
         cnac.validate_credentials(payload.proposed_credentials).await.map_err(|err| NetworkError::Generic(err.into_string()))?;
         log::trace!(target: "lusna", "Success validating credentials!");
         Ok(())
@@ -111,15 +111,12 @@ pub(crate) mod do_register {
     use std::net::SocketAddr;
     use zerocopy::LayoutVerified;
 
-    use hyxe_user::network_account::NetworkAccount;
-
     use crate::hdp::hdp_packet::HdpHeader;
     use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use bytes::BytesMut;
     use hyxe_user::serialization::SyncIO;
     use crate::hdp::hdp_packet_crafter::do_register::{DoRegisterStage2Packet, DoRegisterStage0};
-    use hyxe_user::backend::PersistenceHandler;
     use hyxe_user::prelude::ConnectionInfo;
 
     pub(crate) fn validate_stage0<'a>(payload: &'a [u8]) -> Option<(AliceToBobTransfer<'a>, bool)> {

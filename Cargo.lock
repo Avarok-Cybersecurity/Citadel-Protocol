@@ -1557,6 +1557,8 @@ dependencies = [
  "serde_millis",
  "sqlx",
  "tokio",
+ "tokio-stream",
+ "tokio-util 0.7.2",
  "twox-hash",
  "uuid 1.1.1",
  "zerocopy",

@@ -30,7 +30,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(
                             let object_id = vfm.object_id;
                             let ticket = Ticket(header.context_info.get());
                             let security_level = SecurityLevel::from(header.security_level);
-                            let success =  state_container.on_file_header_received(&header, v_target, vfm);
+                            let success =  state_container.on_file_header_received(&header, v_target, vfm, session.account_manager.get_persistence_handler());
                             let (target_cid, v_target_flipped) = match v_target {
                                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                                     (implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid))

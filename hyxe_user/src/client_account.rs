@@ -413,6 +413,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         CNACMetadata { cid, username, full_name, is_personal, creation_date }
     }
 
+    /// Returns the information related to the network endpoints (e.g., socket addrs)
+    pub fn get_connect_info(&self) -> ConnectionInfo {
+        self.inner.inner.read().adjacent_nac.clone()
+    }
+
     /// Returns the CID
     pub fn get_cid(&self) -> u64 {
         self.inner.cid

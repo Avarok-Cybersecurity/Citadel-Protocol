@@ -9,6 +9,10 @@ use crate::directory_store::DirectoryStore;
 use crate::prelude::CNAC_SERIALIZED_EXTENSION;
 use crate::account_loader::load_cnac_files;
 use crate::backend::memory::MemoryBackend;
+use tokio::sync::mpsc::UnboundedReceiver;
+use crate::backend::utils::StreamableTargetInformation;
+use tokio_stream::StreamExt;
+use tokio::io::AsyncWriteExt;
 
 /// For handling I/O with the local filesystem
 pub struct FilesystemBackend<R: Ratchet, Fcm: Ratchet> {
@@ -185,6 +189,25 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for FilesystemBackend<R
     async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError> {
         let res = self.memory_backend.remove_byte_map_values_by_key(implicated_cid, peer_cid, key).await?;
         self.save_cnac_by_cid(implicated_cid).await.map(|_| res)
+    }
+
+    async fn stream_object_to_backend(&self, source: UnboundedReceiver<Vec<u8>>, sink_metadata: Box<dyn StreamableTargetInformation>) -> Result<(), AccountError> {
+        let directory_store = self.directory_store.as_ref().unwrap();
+        let name = sink_metadata.get_target_name();
+        let save_path = directory_store.hyxe_virtual_dir.as_str();
+        let save_location = format!("{}{}", save_path, name);
+        let save_location = PathBuf::from(save_location);
+        log::info!(target: "lusna", "Will stream object to {:?}", save_location);
+        let file = tokio::fs::File::create(&save_location).await.map_err(|err| AccountError::IoError(err.to_string()))?;
+
+        let mut writer = tokio::io::BufWriter::new(file);
+        let mut reader = tokio_util::io::StreamReader::new(tokio_stream::wrappers::UnboundedReceiverStream::new(source).map(|r| Ok(std::io::Cursor::new(r)) as Result<std::io::Cursor<Vec<u8>>, std::io::Error>));
+
+        if let Err(err) = tokio::io::copy(&mut reader, &mut writer).await {
+            log::error!(target: "lusna", "Error while copying from reader to writer: {}", err);
+        }
+
+        writer.shutdown().await.map_err(|err| AccountError::IoError(err.to_string()))
     }
 }
 
