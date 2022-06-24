@@ -530,7 +530,7 @@ mod tests {
         let std_file = std::fs::File::open("../resources/TheBridge.pdf").unwrap();
         let (group_sender_tx, mut group_sender_rx) = channel(1);
         let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-        let (bytes, _num_groups) = scramble_encrypt_source::<_, HEADER_LEN>(std_file, None, 99, group_sender_tx, stop_rx, security_level, alice.clone(), HEADER_LEN, 9, 0, header_inscribe).unwrap();
+        let (bytes, _num_groups) = scramble_encrypt_source::<_,_, HEADER_LEN>(std_file, None, 99, group_sender_tx, stop_rx, security_level, alice.clone(), HEADER_LEN, 9, 0, header_inscribe).unwrap();
 
         println!("Ran function, now awaiting results ...");
         let mut _i: usize = 0;
