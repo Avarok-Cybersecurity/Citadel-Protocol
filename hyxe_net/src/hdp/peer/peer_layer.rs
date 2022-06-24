@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::hdp::file_transfer::VirtualFileMetadata;
+use hyxe_user::backend::utils::VirtualObjectMetadata;
 use crate::hdp::hdp_node::Ticket;
 use tokio::time::error::Error;
 use tokio_util::time::{delay_queue, delay_queue::DelayQueue};
@@ -438,7 +438,7 @@ pub enum PeerSignal {
     // implicated_cid, icid
     BroadcastConnected(GroupBroadcast),
     // implicated_cid, icid, target cid
-    PostFileUploadRequest(PeerConnectionType, VirtualFileMetadata, Ticket),
+    PostFileUploadRequest(PeerConnectionType, VirtualObjectMetadata, Ticket),
     // implicated_cid, icid, target cid
     AcceptFileUploadRequest(PeerConnectionType, Ticket),
     // Retrieves a list of registered peers

@@ -5,8 +5,10 @@ use hyxe_crypt::hyper_ratchet::Ratchet;
 use crate::backend::BackendConnection;
 use crate::misc::{AccountError, CNACMetadata};
 use async_trait::async_trait;
-use tokio::sync::mpsc::UnboundedReceiver;
-use crate::backend::utils::StreamableTargetInformation;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use super::utils::StreamableTargetInformation;
+use crate::backend::utils::ObjectTransferStatus;
+use std::sync::Arc;
 
 pub(crate) struct MemoryBackend<R: Ratchet, Fcm: Ratchet> {
     pub(crate) clients: RwLock<HashMap<u64, ClientNetworkAccount<R, Fcm>>>
@@ -251,12 +253,12 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for MemoryBackend<R, Fc
         }
     }
 
-    async fn stream_object_to_backend(&self, source: UnboundedReceiver<Vec<u8>>, sink_metadata: Box<dyn StreamableTargetInformation>) -> Result<(), AccountError> {
-        no_backend_streaming(source, sink_metadata).await
+    async fn stream_object_to_backend(&self, source: UnboundedReceiver<Vec<u8>>, sink_metadata: Arc<dyn StreamableTargetInformation>, status_tx: UnboundedSender<ObjectTransferStatus>) -> Result<(), AccountError> {
+        no_backend_streaming(source, sink_metadata, status_tx).await
     }
 }
 
-pub(crate) async fn no_backend_streaming(mut source: UnboundedReceiver<Vec<u8>>, _sink_metadata: Box<dyn StreamableTargetInformation>) -> Result<(), AccountError> {
+pub(crate) async fn no_backend_streaming(mut source: UnboundedReceiver<Vec<u8>>, _sink_metadata: Arc<dyn StreamableTargetInformation>, _status_tx: UnboundedSender<ObjectTransferStatus>) -> Result<(), AccountError> {
     log::warn!(target: "lusna", "Attempted to stream object to backend, but, streaming is not enabled for this backend");
 
     while let Some(_) = source.recv().await {

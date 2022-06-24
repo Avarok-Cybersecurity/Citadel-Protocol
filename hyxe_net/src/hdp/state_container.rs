@@ -31,7 +31,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::hdp::peer::channel::{PeerChannel, UdpChannel};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
-use crate::hdp::file_transfer::{VirtualFileMetadata, FileTransferStatus, FileTransferHandle, FileTransferOrientation};
+use hyxe_user::backend::utils::*;
 use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
 use crate::functional::IfEqConditional;
@@ -81,7 +81,7 @@ pub struct StateContainerInner {
     pub(super) updates_in_progress: HashMap<u64, Arc<AtomicBool>>,
     pub(super) inbound_files: HashMap<FileKey, InboundFileTransfer>,
     pub(super) outbound_files: HashMap<FileKey, OutboundFileTransfer>,
-    pub(super) file_transfer_handles: HashMap<FileKey, UnboundedSender<FileTransferStatus>>,
+    pub(super) file_transfer_handles: HashMap<FileKey, UnboundedSender<ObjectTransferStatus>>,
     pub(super) inbound_groups: HashMap<GroupKey, GroupReceiverContainer>,
     pub(super) outbound_transmitters: HashMap<GroupKey, OutboundTransmitterContainer>,
     pub(super) peer_kem_states: HashMap<u64, PeerKemStateContainer>,
@@ -132,7 +132,7 @@ pub(crate) struct InboundFileTransfer {
     pub last_group_finish_time: Instant,
     pub ticket: Ticket,
     pub virtual_target: VirtualTargetType,
-    pub metadata: VirtualFileMetadata,
+    pub metadata: VirtualObjectMetadata,
     pub stream_to_hd: UnboundedSender<Vec<u8>>,
     pub reception_complete_tx: tokio::sync::oneshot::Sender<()>
 }
@@ -774,7 +774,7 @@ impl StateContainerInner {
 
     /// This creates an entry in the inbound_files hashmap
     #[allow(unused_results)]
-    pub fn on_file_header_received<R: Ratchet, Fcm: Ratchet>(&mut self, header: &LayoutVerified<&[u8], HdpHeader>, virtual_target: VirtualTargetType, metadata_orig: VirtualFileMetadata, pers: &PersistenceHandler<R, Fcm>) -> bool {
+    pub fn on_file_header_received<R: Ratchet, Fcm: Ratchet>(&mut self, header: &LayoutVerified<&[u8], HdpHeader>, virtual_target: VirtualTargetType, metadata_orig: VirtualObjectMetadata, pers: &PersistenceHandler<R, Fcm>) -> bool {
         let key = FileKey::new(header.session_cid.get(), metadata_orig.object_id);
         let ticket = header.context_info.get().into();
 
@@ -798,27 +798,26 @@ impl StateContainerInner {
             };
 
             self.inbound_files.insert(key, entry);
-            let (handle, tx_status) = FileTransferHandle::new(header.session_cid.get(), header.target_cid.get(), FileTransferOrientation::Receiver);
-            let _ = tx_status.unbounded_send(FileTransferStatus::ReceptionBeginning(save_location, metadata_orig));
-            self.file_transfer_handles.insert(key, tx_status.clone());
+            let (handle, tx_status) = ObjectTransferHandle::new(header.session_cid.get(), header.target_cid.get(), ObjectTransferOrientation::Receiver);
+            self.file_transfer_handles.insert(key, crate::hdp::outbound_sender::UnboundedSender(tx_status.clone()));
             // finally, alert the kernel (receiver)
-            let _ = self.kernel_tx.unbounded_send(NodeResult::FileTransferHandle(ticket, handle));
+            let _ = self.kernel_tx.unbounded_send(NodeResult::ObjectTransferHandle(ticket, handle));
 
             let task = async move {
-                match pers.stream_object_to_backend(stream_to_hd_rx, Box::new(metadata)).await {
+                match pers.stream_object_to_backend(stream_to_hd_rx,  Arc::new(metadata), tx_status.clone()).await {
                     Ok(()) => {
                         log::trace!(target: "lusna", "Successfully synced file to backend");
                         let status = match success_receiving_rx.await {
                             Ok(_) => {
-                                FileTransferStatus::ReceptionComplete
+                                ObjectTransferStatus::ReceptionComplete
                             }
 
                             Err(_) => {
-                                FileTransferStatus::Fail(format!("An unknown error occurred while receiving file"))
+                                ObjectTransferStatus::Fail(format!("An unknown error occurred while receiving file"))
                             }
                         };
 
-                        let _ = tx_status.unbounded_send(status);
+                        let _ = tx_status.send(status);
                     },
                     Err(err) => {
                         log::error!(target: "lusna", "Unable to sync file to backend: {:?}", err);
@@ -856,11 +855,11 @@ impl StateContainerInner {
             if let Some(file_transfer) = self.outbound_files.get_mut(&key) {
                 // start the async task pulling from the async cryptscrambler
                 file_transfer.start.take()?.send(true).ok()?;
-                let (handle, tx) = FileTransferHandle::new(implicated_cid, receiver_cid, FileTransferOrientation::Sender);
-                tx.unbounded_send(FileTransferStatus::TransferBeginning).ok()?;
-                let _ = self.file_transfer_handles.insert(key, tx);
+                let (handle, tx) = ObjectTransferHandle::new(implicated_cid, receiver_cid, ObjectTransferOrientation::Sender);
+                tx.send(ObjectTransferStatus::TransferBeginning).ok()?;
+                let _ = self.file_transfer_handles.insert(key, crate::hdp::outbound_sender::UnboundedSender(tx));
                 // alert the kernel that file transfer has begun
-                self.kernel_tx.unbounded_send(NodeResult::FileTransferHandle(ticket, handle)).ok()?;
+                self.kernel_tx.unbounded_send(NodeResult::ObjectTransferHandle(ticket, handle)).ok()?;
             } else {
                 log::error!(target: "lusna", "Attempted to obtain OutboundFileTransfer for {:?}, but it didn't exist", key);
             }
@@ -949,7 +948,7 @@ impl StateContainerInner {
                 } else {
                     file_container.last_group_finish_time = Instant::now();
                     // TODO: Compute Mb/s
-                    let status = FileTransferStatus::ReceptionTick(group_id as usize, file_container.total_groups, 0 as f32);
+                    let status = ObjectTransferStatus::ReceptionTick(group_id as usize, file_container.total_groups, 0 as f32);
                     // sending the wave ack will complete the group on the initiator side
                     file_transfer_handle.unbounded_send(status).map_err(|err| NetworkError::Generic(err.to_string()))?;
                 }
@@ -1017,9 +1016,9 @@ impl StateContainerInner {
 
                 if let Some(tx) = self.file_transfer_handles.get(&file_key) {
                     let status = if relative_group_id as usize != transmitter_container.parent_object_total_groups - 1 {
-                        FileTransferStatus::TransferTick(relative_group_id as usize, transmitter_container.parent_object_total_groups, rate_mb_per_s)
+                        ObjectTransferStatus::TransferTick(relative_group_id as usize, transmitter_container.parent_object_total_groups, rate_mb_per_s)
                     } else {
-                        FileTransferStatus::TransferComplete
+                        ObjectTransferStatus::TransferComplete
                     };
 
                     if let Err(err) = tx.unbounded_send(status.clone()) {
@@ -1028,13 +1027,13 @@ impl StateContainerInner {
                         let _ = self.file_transfer_handles.remove(&file_key);
                     }
 
-                    if matches!(status, FileTransferStatus::TransferComplete) {
+                    if matches!(status, ObjectTransferStatus::TransferComplete) {
                         // remove the transmitter. Dropping will stop related futures
                         log::trace!(target: "lusna", "FileTransfer is complete!");
                         let _ = self.file_transfer_handles.remove(&file_key);
                     }
                 } else {
-                    log::error!(target: "lusna", "Unable to find FileTransferHandle for {:?}", file_key);
+                    log::error!(target: "lusna", "Unable to find ObjectTransferHandle for {:?}", file_key);
                 }
 
                 delete_group = true;

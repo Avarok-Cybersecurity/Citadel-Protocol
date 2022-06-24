@@ -268,10 +268,10 @@ pub trait ProtocolRemoteTargetExt: TargetLockedRemote {
 
         let result = remote.send_callback(NodeRequest::SendFile(path.into(), chunk_size, implicated_cid, user)).await?;
         match map_errors(result)? {
-            NodeResult::FileTransferHandle(_ticket, mut handle) => {
+            NodeResult::ObjectTransferHandle(_ticket, mut handle) => {
                 while let Some(res) = handle.next().await {
                     log::trace!(target: "lusna", "Client received RES {:?}", res);
-                    if let FileTransferStatus::TransferComplete = res {
+                    if let ObjectTransferStatus::TransferComplete = res {
                         return Ok(())
                     }
                 }
@@ -427,7 +427,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use crate::prefabs::client::single_connection::SingleClientServerConnectionKernel;
     use crate::builder::node_builder::{NodeBuilder, NodeFuture};
-    use crate::prelude::{ProtocolRemoteTargetExt, NetKernel, NodeRemote, NetworkError, NodeResult, FileTransferStatus};
+    use crate::prelude::{ProtocolRemoteTargetExt, NetKernel, NodeRemote, NetworkError, NodeResult};
     use crate::remote_ext::map_errors;
     use rstest::rstest;
     use futures::StreamExt;
@@ -451,11 +451,11 @@ mod tests {
 
         async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
             log::trace!(target: "lusna", "SERVER received {:?}", message);
-            if let NodeResult::FileTransferHandle(_, mut handle) = map_errors(message)? {
+            if let NodeResult::ObjectTransferHandle(_, mut handle) = map_errors(message)? {
                 let mut path = None;
                 while let Some(status) = handle.next().await {
                     match status {
-                        FileTransferStatus::ReceptionComplete => {
+                        ObjectTransferStatus::ReceptionComplete => {
                             log::trace!(target: "lusna", "Server has finished receiving the file!");
                             SERVER_SUCCESS.store(true, Ordering::Relaxed);
                             let cmp = include_bytes!("../../resources/TheBridge.pdf");
@@ -464,9 +464,9 @@ mod tests {
                             self.0.clone().unwrap().shutdown().await?;
                         }
 
-                        FileTransferStatus::ReceptionBeginning(file_path, vfm) => {
+                        ObjectTransferStatus::ReceptionBeginning(file_path, vfm) => {
                             path = Some(file_path);
-                            assert_eq!(vfm.name, "TheBridge.pdf")
+                            assert_eq!(vfm.get_target_name(), "TheBridge.pdf")
                         }
 
                         _ => {}
