@@ -7,7 +7,8 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["multi-threaded"]
+default = ["multi-threaded", "filesystem"]
+filesystem = ["hyxe_net/filesystem", "dirs2"]
 single-threaded = ["hyxe_net/single-threaded"]
 multi-threaded = ["hyxe_net/multi-threaded"]
 sql = ["hyxe_net/sql"]
@@ -27,6 +28,7 @@ log = "0.4.8"
 env_logger = "0.9.0"
 lazy_static = "1.4.0"
 uuid = { version = "1.0.0", features = ["v4"] }
+dirs2 = { version = "3.0.1", optional = true }
 
 [dev-dependencies]
 parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }

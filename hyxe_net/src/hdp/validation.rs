@@ -281,19 +281,19 @@ pub(crate) mod pre_connect {
 }
 
 pub(crate) mod file {
-    use crate::hdp::file_transfer::VirtualFileMetadata;
+    use hyxe_user::backend::utils::VirtualObjectMetadata;
     use crate::hdp::hdp_packet::HdpHeader;
     use crate::hdp::packet_processor::includes::LayoutVerified;
     use crate::hdp::state_container::VirtualTargetType;
 
-    pub fn validate_file_header(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(VirtualTargetType, VirtualFileMetadata)> {
+    pub fn validate_file_header(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(VirtualTargetType, VirtualObjectMetadata)> {
         let split_idx = header.wave_id.get() as usize;
         if payload.len() < split_idx {
             None
         } else {
             let (vtarget_bytes, vfm_bytes) = payload.split_at(split_idx);
             let vtarget = VirtualTargetType::deserialize_from(vtarget_bytes)?;
-            let vfm = VirtualFileMetadata::deserialize_from(vfm_bytes)?;
+            let vfm = VirtualObjectMetadata::deserialize_from(vfm_bytes)?;
             Some((vtarget, vfm))
         }
     }

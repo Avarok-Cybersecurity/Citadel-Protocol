@@ -11,9 +11,11 @@ use mobc::Manager;
 use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
 use std::time::Duration;
 use std::marker::PhantomData;
-use tokio::sync::mpsc::UnboundedReceiver;
-use crate::backend::utils::StreamableTargetInformation;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use super::utils::StreamableTargetInformation;
 use crate::backend::memory::no_backend_streaming;
+use crate::backend::utils::ObjectTransferStatus;
+use std::sync::Arc;
 
 /// Backend struct for redis
 pub(crate) struct RedisBackend<R: Ratchet, Fcm: Ratchet> {
@@ -535,8 +537,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .map_err(|err| AccountError::msg(err.to_string()))
     }
 
-    async fn stream_object_to_backend(&self, source: UnboundedReceiver<Vec<u8>>, sink_metadata: Box<dyn StreamableTargetInformation>) -> Result<(), AccountError> {
-        no_backend_streaming(source, sink_metadata).await
+    async fn stream_object_to_backend(&self, source: UnboundedReceiver<Vec<u8>>, sink_metadata: Arc<dyn StreamableTargetInformation>, status_tx: UnboundedSender<ObjectTransferStatus>) -> Result<(), AccountError> {
+        no_backend_streaming(source, sink_metadata, status_tx).await
     }
 }
 

@@ -3,8 +3,6 @@ use hyxe_net::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use futures::Future;
-use std::net::SocketAddr;
-use std::str::FromStr;
 use std::task::{Context, Poll};
 use std::fmt::{Debug, Formatter};
 use hyxe_net::re_imports::RustlsClientConfig;
@@ -16,7 +14,6 @@ use std::marker::PhantomData;
 /// Used to construct a running client/peer or server instance
 pub struct NodeBuilder {
     hypernode_type: Option<NodeType>,
-    home_directory: Option<String>,
     underlying_protocol: Option<UnderlyingProtocol>,
     backend_type: Option<BackendType>,
     server_argon_settings: Option<ArgonDefaultServerSettings>,
@@ -187,8 +184,16 @@ impl NodeBuilder {
     pub fn build<'a, 'b: 'a, K: NetKernel + 'b>(&'a mut self, kernel: K) -> Result<NodeFuture<'b, K>, NodeBuilderError> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
-        let home_dir = self.home_directory.take();
-        let backend_type = self.backend_type.take().unwrap_or_default();
+        let backend_type = self.backend_type.take().unwrap_or_else(||{
+            if cfg!(feature = "filesystem") {
+                // set the home dir for fs type to the home directory
+                let mut home_dir = dirs2::home_dir().unwrap();
+                home_dir.push(format!(".lusna/{}", uuid::Uuid::new_v4().as_u128()));
+                return BackendType::Filesystem(home_dir.to_str().unwrap().to_string())
+            }
+
+            BackendType::InMemory
+        });
         let server_argon_settings = self.server_argon_settings.take();
         let server_services_cfg = self.services.take();
         let server_misc_settings = self.server_misc_settings.take();
@@ -208,7 +213,7 @@ impl NodeBuilder {
                 log::trace!(target: "lusna", "[NodeBuilder] Checking Tokio runtime ...");
                 let rt = tokio::runtime::Handle::try_current().map_err(|err| NetworkError::Generic(err.to_string()))?;
                 log::trace!(target: "lusna", "[NodeBuilder] Creating account manager ...");
-                let account_manager = AccountManager::new(hypernode_type.bind_addr().unwrap_or_else(|| SocketAddr::from_str("127.0.0.1:25021").unwrap()), home_dir, backend_type, server_argon_settings, server_services_cfg, server_misc_settings).await?;
+                let account_manager = AccountManager::new(backend_type, server_argon_settings, server_services_cfg, server_misc_settings).await?;
                 log::trace!(target: "lusna", "[NodeBuilder] Creating KernelExecutor ...");
                 let kernel_executor = KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto, client_config, kernel_executor_settings).await?;
                 log::trace!(target: "lusna", "[NodeBuilder] Executing kernel");
@@ -228,13 +233,6 @@ impl NodeBuilder {
     /// ```
     pub fn with_node_type(&mut self, node_type: NodeType) -> &mut Self {
         self.hypernode_type = Some(node_type);
-        self
-    }
-
-    /// Sets a custom application home directory. This will be used to store all the critical files, and in the case of using a filesystem backend, is also where
-    /// the client data and hashed credentials are saved
-    pub fn with_home_directory<T: Into<String>>(&mut self, dir: T) -> &mut Self {
-        self.home_directory = Some(dir.into());
         self
     }
 

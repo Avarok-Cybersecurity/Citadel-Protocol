@@ -1,15 +1,20 @@
-use serde::{Serialize, Deserialize};
-use std::fmt::Formatter;
-use hyxe_user::serialization::SyncIO;
-use crate::hdp::outbound_sender::{unbounded, UnboundedSender, UnboundedReceiver};
 use futures::Stream;
+use crate::serialization::SyncIO;
+use serde::{Deserialize, Serialize};
+use std::fmt::Formatter;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::path::PathBuf;
-use hyxe_user::backend::utils::StreamableTargetInformation;
+pub use utils::StreamableTargetInformation;
+
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender, UnboundedReceiver};
+use std::sync::Arc;
+
+/// Misc utils/traits
+pub mod utils;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct VirtualFileMetadata {
+pub struct VirtualObjectMetadata {
     pub name: String,
     pub date_created: String,
     pub author: String,
@@ -18,7 +23,7 @@ pub struct VirtualFileMetadata {
     pub object_id: u32
 }
 
-impl VirtualFileMetadata {
+impl VirtualObjectMetadata {
     pub fn serialize(&self) -> Vec<u8> {
         Self::serialize_to_vector(self).unwrap()
     }
@@ -28,7 +33,7 @@ impl VirtualFileMetadata {
     }
 }
 
-impl StreamableTargetInformation for VirtualFileMetadata {
+impl StreamableTargetInformation for VirtualObjectMetadata {
     fn get_target_name(&self) -> &String {
         &self.name
     }
@@ -37,24 +42,24 @@ impl StreamableTargetInformation for VirtualFileMetadata {
 /// Used to keep track of file transfer progress for either
 /// sender or receiver orientation
 #[derive(Debug)]
-pub struct FileTransferHandle {
-    inner: UnboundedReceiver<FileTransferStatus>,
+pub struct ObjectTransferHandle {
+    inner: UnboundedReceiver<ObjectTransferStatus>,
     pub source: u64,
     pub receiver: u64,
-    pub orientation: FileTransferOrientation
+    pub orientation: ObjectTransferOrientation
 }
 
-impl Stream for FileTransferHandle {
-    type Item = FileTransferStatus;
+impl Stream for ObjectTransferHandle {
+    type Item = ObjectTransferStatus;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.inner).poll_recv(cx)
     }
 }
 
-impl FileTransferHandle {
-    pub fn new(source: u64, receiver: u64, orientation: FileTransferOrientation) -> (Self, UnboundedSender<FileTransferStatus>) {
-        let (tx, inner) = unbounded();
+impl ObjectTransferHandle {
+    pub fn new(source: u64, receiver: u64, orientation: ObjectTransferOrientation) -> (Self, UnboundedSender<ObjectTransferStatus>) {
+        let (tx, inner) = unbounded_channel();
 
         let this = Self {
             inner,
@@ -68,15 +73,15 @@ impl FileTransferHandle {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum FileTransferOrientation {
+pub enum ObjectTransferOrientation {
     Receiver, Sender
 }
 
 #[derive(Debug, Clone)]
 #[allow(variant_size_differences)]
-pub enum FileTransferStatus {
+pub enum ObjectTransferStatus {
     TransferBeginning,
-    ReceptionBeginning(PathBuf, VirtualFileMetadata),
+    ReceptionBeginning(PathBuf, Arc<dyn StreamableTargetInformation>),
     // relative group_id, total groups, Mb/s
     TransferTick(usize, usize, f32),
     ReceptionTick(usize, usize, f32),
@@ -85,10 +90,10 @@ pub enum FileTransferStatus {
     Fail(String)
 }
 
-impl FileTransferStatus {
+impl ObjectTransferStatus {
     pub fn is_tick_type(&self) -> bool {
         match self {
-            FileTransferStatus::TransferTick(_, _, _) | FileTransferStatus::ReceptionTick(_, _, _) => true,
+            ObjectTransferStatus::TransferTick(_, _, _) | ObjectTransferStatus::ReceptionTick(_, _, _) => true,
             _ => false
         }
     }
@@ -96,40 +101,40 @@ impl FileTransferStatus {
     /// Even if an error, returns true if the file transfer is done
     pub fn is_finished_type(&self) -> bool {
         match self {
-            FileTransferStatus::TransferComplete | FileTransferStatus::ReceptionComplete | FileTransferStatus::Fail(_) => true,
+            ObjectTransferStatus::TransferComplete | ObjectTransferStatus::ReceptionComplete | ObjectTransferStatus::Fail(_) => true,
             _ => false
         }
     }
 }
 
-impl std::fmt::Display for FileTransferStatus {
+impl std::fmt::Display for ObjectTransferStatus {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FileTransferStatus::TransferBeginning => {
+            ObjectTransferStatus::TransferBeginning => {
                 write!(f, "Transfer beginning")
             }
 
-            FileTransferStatus::ReceptionBeginning(_, vfm) => {
-                write!(f, "Download for object {} beginning | Total size: {} bytes | Name: {}", vfm.object_id, vfm.plaintext_length, vfm.name)
+            ObjectTransferStatus::ReceptionBeginning(_, vfm) => {
+                write!(f, "Download for object {:?} beginning", vfm)
             }
 
-            FileTransferStatus::TransferTick(relative_group_id, total_groups, transfer_rate) => {
+            ObjectTransferStatus::TransferTick(relative_group_id, total_groups, transfer_rate) => {
                 print_tick(f, *relative_group_id, *total_groups, *transfer_rate)
             }
 
-            FileTransferStatus::ReceptionTick(relative_group_id, total_groups, transfer_rate) => {
+            ObjectTransferStatus::ReceptionTick(relative_group_id, total_groups, transfer_rate) => {
                 print_tick(f, *relative_group_id, *total_groups, *transfer_rate)
             }
 
-            FileTransferStatus::TransferComplete => {
+            ObjectTransferStatus::TransferComplete => {
                 write!(f, "Transfer complete")
             }
 
-            FileTransferStatus::ReceptionComplete => {
+            ObjectTransferStatus::ReceptionComplete => {
                 write!(f, "Download complete")
             }
 
-            FileTransferStatus::Fail(reason) => {
+            ObjectTransferStatus::Fail(reason) => {
                 write!(f, "Failure. Reason: {}", reason)
             }
         }

@@ -14,9 +14,11 @@ use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
 use std::marker::PhantomData;
-use tokio::sync::mpsc::UnboundedReceiver;
-use crate::backend::utils::StreamableTargetInformation;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use super::utils::StreamableTargetInformation;
 use crate::backend::memory::no_backend_streaming;
+use crate::backend::utils::ObjectTransferStatus;
+use std::sync::Arc;
 
 /// A container for handling db conns
 pub struct SqlBackend<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
@@ -537,8 +539,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         Ok(values)
     }
 
-    async fn stream_object_to_backend(&self, source: UnboundedReceiver<Vec<u8>>, sink_metadata: Box<dyn StreamableTargetInformation>) -> Result<(), AccountError> {
-        no_backend_streaming(source, sink_metadata).await
+    async fn stream_object_to_backend(&self, source: UnboundedReceiver<Vec<u8>>, sink_metadata: Arc<dyn StreamableTargetInformation>, status_tx: UnboundedSender<ObjectTransferStatus>) -> Result<(), AccountError> {
+        no_backend_streaming(source, sink_metadata, status_tx).await
     }
 }
 

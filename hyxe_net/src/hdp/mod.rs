@@ -22,8 +22,6 @@ pub(crate) mod codec;
 pub(crate) mod state_subcontainers;
 /// A cloneable handle for sending data through UDP ports
 pub(crate) mod outbound_sender;
-/// For handling file-transfer
-pub(crate) mod file_transfer;
 ///
 pub(crate) mod peer;
 ///

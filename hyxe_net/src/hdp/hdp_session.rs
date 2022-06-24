@@ -22,7 +22,7 @@ use hyxe_user::auth::proposed_credentials::ProposedCredentials;
 
 use crate::constants::{DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME};
 use crate::error::NetworkError;
-use crate::hdp::file_transfer::VirtualFileMetadata;
+use hyxe_user::backend::utils::VirtualObjectMetadata;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
 use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
@@ -865,7 +865,7 @@ impl HdpSession {
                             let (file_size, groups_needed) = scramble_encrypt_source(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_hr.clone(), HDP_HEADER_BYTE_LEN, target_cid, group_id_start, hdp_packet_crafter::group::craft_wave_payload_packet_into)
                                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                            let file_metadata = VirtualFileMetadata {
+                            let file_metadata = VirtualObjectMetadata {
                                 object_id,
                                 name: file_name,
                                 date_created: "".to_string(),
@@ -898,7 +898,7 @@ impl HdpSession {
                                 let (file_size, groups_needed) = scramble_encrypt_source(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_usable_ratchet.clone(), HDP_HEADER_BYTE_LEN, target_cid, start_group_id, hdp_packet_crafter::group::craft_wave_payload_packet_into)
                                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                                let file_metadata = VirtualFileMetadata {
+                                let file_metadata = VirtualObjectMetadata {
                                     object_id,
                                     name: file_name,
                                     date_created: "".to_string(),

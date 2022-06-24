@@ -1,17 +1,22 @@
-use std::sync::Arc;
-use std::ops::Deref;
-use async_trait::async_trait;
-use crate::misc::{AccountError, CNACMetadata};
-use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::collections::HashMap;
-use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
+use std::hash::Hasher;
+use std::ops::Deref;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
+use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
+
 #[cfg(feature = "sql")]
 use crate::backend::mysql_backend::SqlConnectionOptions;
 #[cfg(feature = "redis")]
 use crate::backend::redis_backend::RedisConnectionOptions;
-use std::hash::Hasher;
-use crate::backend::utils::StreamableTargetInformation;
+use crate::client_account::{ClientNetworkAccount, MutualPeer};
+use crate::misc::{AccountError, CNACMetadata};
+use crate::backend::utils::utils::StreamableTargetInformation;
+use tokio::sync::mpsc::UnboundedSender;
+use crate::backend::utils::ObjectTransferStatus;
 
 #[cfg(feature = "sql")]
 /// Implementation for the SQL backend
@@ -25,7 +30,8 @@ pub mod filesystem_backend;
 /// Implementation for an in-memory backend. No synchronization occurs.
 /// This is useful for no-fs environments
 pub mod memory;
-/// Misc utils/traits
+/// Utils for the backend trait
+#[allow(missing_docs)]
 pub mod utils;
 
 /// Used when constructing the account manager
@@ -188,7 +194,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
     /// Obtains a list of K,V pairs such that `needle` is a subset of the K value
     async fn remove_byte_map_values_by_key(&self, implicated_cid: u64, peer_cid: u64, key: &str) -> Result<HashMap<String, Vec<u8>>, AccountError>;
     /// Streams an object to the backend
-    async fn stream_object_to_backend(&self, source: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>, sink_metadata: Box<dyn StreamableTargetInformation>) -> Result<(), AccountError>;
+    async fn stream_object_to_backend(&self, source: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>, sink_metadata: Arc<dyn StreamableTargetInformation>, status_tx: UnboundedSender<ObjectTransferStatus>) -> Result<(), AccountError>;
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations
