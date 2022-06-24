@@ -505,7 +505,7 @@ mod tests {
         use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
         use hyxe_crypt::prelude::algorithm_dictionary::{CryptoParameters, KemAlgorithm, EncryptionAlgorithm};
         use hyxe_crypt::prelude::{ConstructorOpts, PacketVector, Drill};
-        use hyxe_crypt::streaming_crypt_scrambler::scramble_encrypt_file;
+        use hyxe_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
 
         setup_log();
         fn gen(algo: impl Into<CryptoParameters>, drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
@@ -530,7 +530,7 @@ mod tests {
         let std_file = std::fs::File::open("../resources/TheBridge.pdf").unwrap();
         let (group_sender_tx, mut group_sender_rx) = channel(1);
         let (_stop_tx, stop_rx) = tokio::sync::oneshot::channel();
-        let (bytes, _num_groups) = scramble_encrypt_file::<_, HEADER_LEN>(std_file, None,99, group_sender_tx, stop_rx, security_level, alice.clone(), HEADER_LEN, 9, 0, header_inscribe).unwrap();
+        let (bytes, _num_groups) = scramble_encrypt_source::<_, HEADER_LEN>(std_file, None, 99, group_sender_tx, stop_rx, security_level, alice.clone(), HEADER_LEN, 9, 0, header_inscribe).unwrap();
 
         println!("Ran function, now awaiting results ...");
         let mut _i: usize = 0;

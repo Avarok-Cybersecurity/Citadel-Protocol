@@ -32,7 +32,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                         let algorithm = header.algorithm;
 
                         match validation::do_register::validate_stage0(&*payload) {
-                            Some((transfer, passwordless, username)) => {
+                            Some((transfer, passwordless)) => {
                                 // Now, create a stage 1 packet
                                 let timestamp = session.time_tracker.get_global_time_ns();
                                 state_container.register_state.passwordless = Some(passwordless);
@@ -40,23 +40,19 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                                 if passwordless {
                                     if !session.account_manager.get_misc_settings().allow_passwordless {
                                         // passwordless is not allowed on this node
-                                        let err = hdp_packet_crafter::do_register::craft_failure(algorithm, timestamp, "Passwordless connections are not enabled on the target node");
+                                        let err = hdp_packet_crafter::do_register::craft_failure(algorithm, timestamp, "Passwordless connections are not enabled on the target node", header.session_cid.get());
                                         return Ok(PrimaryProcessorResult::ReplyToSender(err));
                                     }
                                 }
 
-                                let account_manager = session.account_manager.clone();
-
                                 std::mem::drop(state_container);
 
                                 async move {
-                                    //let transfer = validation::do_register::validate_stage0(&*payload).ok_or_else(|| NetworkError::InternalError("Bad deser; should have worked"))?.0;
-                                    // TODO: Check if username exists here
-                                    let cid = account_manager.get_persistence_handler().get_cid_by_username(username);
+                                    let cid = header.session_cid.get();
                                     let bob_constructor = HyperRatchetConstructor::new_bob(cid, 0, ConstructorOpts::new_vec_init(Some(transfer.params), (transfer.security_level.value() + 1) as usize), transfer).ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
                                     let transfer = return_if_none!(bob_constructor.stage0_bob(), "Unable to advance past stage0-bob");
 
-                                    let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, transfer);
+                                    let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, transfer, header.session_cid.get());
 
                                     let mut state_container = inner_mut_state!(session.state_container);
                                     state_container.register_state.created_hyper_ratchet = Some(return_if_none!(bob_constructor.finish(), "Unable to finish bob constructor"));
@@ -109,7 +105,6 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                         let stage2_packet = hdp_packet_crafter::do_register::craft_stage2(&new_hyper_ratchet, algorithm, timestamp, proposed_credentials, security_level);
                         //let mut state_container = inner_mut!(session.state_container);
 
-                        state_container.register_state.proposed_cid = Some(reserved_true_cid);
                         state_container.register_state.created_hyper_ratchet = Some(new_hyper_ratchet);
                         state_container.register_state.last_stage = packet_flags::cmd::aux::do_register::STAGE2;
                         state_container.register_state.on_register_packet_received();
@@ -153,7 +148,7 @@ pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketA
                                     Err(err) => {
                                         let err = err.into_string();
                                         log::error!(target: "lusna", "Server unsuccessfully created a CNAC during the DO_REGISTER process. Reason: {}", &err);
-                                        let packet = hdp_packet_crafter::do_register::craft_failure(algorithm, timestamp, err);
+                                        let packet = hdp_packet_crafter::do_register::craft_failure(algorithm, timestamp, err, header.session_cid.get());
 
                                         Ok(PrimaryProcessorResult::ReplyToSender(packet))
                                     }

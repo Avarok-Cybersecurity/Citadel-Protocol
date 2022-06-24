@@ -19,9 +19,7 @@ pub mod includes {
     pub use hyxe_crypt::drill::SecurityLevel;
     pub use hyxe_crypt::prelude::SecBuffer;
     pub use hyxe_user::client_account::ClientNetworkAccount;
-    pub use hyxe_user::hypernode_account::HyperNodeAccountInformation;
     pub use hyxe_user::misc::AccountError;
-    pub use hyxe_user::network_account::NetworkAccount;
 
     pub use crate::constants::KEEP_ALIVE_INTERVAL_MS;
     pub(crate) use crate::hdp::{hdp_packet_crafter, validation};

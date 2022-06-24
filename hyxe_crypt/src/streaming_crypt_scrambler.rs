@@ -23,6 +23,18 @@ use num_integer::Integer;
 pub const MAX_BYTES_PER_GROUP: usize = crate::net::crypt_splitter::MAX_BYTES_PER_GROUP;
 const DEFAULT_BYTES_PER_GROUP: usize = 1024 * 1024 * 3;
 
+/// Used for streaming sources of a fixed size
+pub trait FixedSizedStream: Read + Send + 'static {
+    fn length(&self) -> std::io::Result<u64>;
+}
+
+#[cfg(feature = "filesystem")]
+impl FixedSizedStream for std::fs::File {
+    fn length(&self) -> std::io::Result<u64> {
+        self.metadata().map(|r| r.len())
+    }
+}
+
 /// Generic function for inscribing headers on packets
 pub trait HeaderInscriberFn: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static {}
 impl<T: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Send + Sync + 'static> HeaderInscriberFn for T {}
@@ -36,22 +48,18 @@ impl<T: for<'a> Fn(&'a PacketVector, &'a Drill, u32, u64, &'a mut BytesMut) + Se
 ///
 /// This is ran on a separate thread on the threadpool. Returns the number of bytes and number of groups
 #[allow(unused_results)]
-pub fn scramble_encrypt_file<F: HeaderInscriberFn, const N: usize>(std_file: std::fs::File, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>, stop: Receiver<()>, security_level: SecurityLevel, hyper_ratchet: HyperRatchet, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), CryptError> {
-    let metadata = std_file.metadata().map_err(|err| CryptError::Encrypt(err.to_string()))?;
+pub fn scramble_encrypt_source<S: FixedSizedStream, F: HeaderInscriberFn, const N: usize>(source: S, max_group_size: Option<usize>, object_id: u32, group_sender: GroupChanneler<Result<GroupSenderDevice<N>, CryptError>>, stop: Receiver<()>, security_level: SecurityLevel, hyper_ratchet: HyperRatchet, header_size_bytes: usize, target_cid: u64, group_id: u64, header_inscriber: F) -> Result<(usize, usize), CryptError> {
+    let file_len = source.length().map_err(|err| CryptError::Encrypt(err.to_string()))? as usize;
     let max_bytes_per_group = max_group_size.unwrap_or(DEFAULT_BYTES_PER_GROUP);
-    if !metadata.is_file() {
-        return Err(CryptError::Encrypt("Supplied entry is not a file".to_string()));
-    }
 
     if max_bytes_per_group > MAX_BYTES_PER_GROUP {
         return Err(CryptError::Encrypt(format!("Maximum group size cannot be larger than {} bytes", MAX_BYTES_PER_GROUP)))
     }
 
-    let file_len = metadata.len() as usize;
     let total_groups = Integer::div_ceil(&file_len, &max_bytes_per_group);
 
     log::trace!(target: "lusna", "Will parallel_scramble_encrypt file object {}, which is {} bytes or {} MB. {} groups total", object_id, file_len, (file_len as f32)/(1024f32*1024f32), total_groups);
-    let reader = BufReader::with_capacity(std::cmp::min(file_len, max_bytes_per_group), std_file);
+    let reader = BufReader::with_capacity(std::cmp::min(file_len, max_bytes_per_group), source);
 
     let buffer = Arc::new(Mutex::new(vec![0u8; std::cmp::min(file_len, max_bytes_per_group)]));
     let file_scrambler = AsyncCryptScrambler {
@@ -168,10 +176,10 @@ impl<F: HeaderInscriberFn, R: Read, const N: usize> AsyncCryptScrambler<F, R, N>
             let bytes = &mut lock[..poll_len];
             if let Ok(_) = reader.read_exact(bytes) {
                 let group_id_input = *group_id + (*groups_rendered as u64);
+                std::mem::drop(lock);
                 // let mut compressed = Vec::new();
                 // flate3::Compressor::new().deflate(bytes as &[u8])
                 // let len = flate2::bufread::DeflateEncoder::new(bytes as &[u8], flate2::Compression::fast()).read_to_end(&mut compressed).unwrap();
-                std::mem::drop(lock);
                 let header_inscriber = header_inscriber.clone();
                 let buffer = buffer.clone();
                 let security_level = *security_level;

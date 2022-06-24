@@ -212,9 +212,6 @@ pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx
                                     _ => {}
                                 };
 
-                                // TODO: second save here ... just do one save
-                                cnac.save().await?;
-
                                 match connect_mode {
                                     ConnectMode::Fetch { .. } => {
                                         log::trace!(target: "lusna", "[FETCH] complete ...");

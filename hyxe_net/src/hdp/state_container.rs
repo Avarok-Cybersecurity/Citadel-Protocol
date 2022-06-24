@@ -32,17 +32,13 @@ use crate::hdp::peer::channel::{PeerChannel, UdpChannel};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
 use crate::hdp::file_transfer::{VirtualFileMetadata, FileTransferStatus, FileTransferHandle, FileTransferOrientation};
-use tokio::io::{BufWriter, AsyncWriteExt};
 use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::peer::p2p_conn_handler::DirectP2PRemote;
 use crate::functional::IfEqConditional;
-use futures::StreamExt;
 use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
 use hyxe_user::serialization::SyncIO;
 use crate::hdp::state_subcontainers::meta_expiry_container::MetaExpiryState;
 use crate::hdp::peer::peer_layer::{PeerConnectionType, UdpMode};
-use hyxe_user::directory_store::DirectoryStore;
-//use crate::hdp::misc::dual_rwlock::DualRwLock;
 use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
 use crate::hdp::hdp_session::SessionState;
 use crate::hdp::misc::ordered_channel::OrderedChannel;
@@ -59,7 +55,7 @@ use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::prelude::MessageGroupKey;
 use crate::hdp::peer::group_channel::{GroupBroadcastPayload, GroupChannel};
 use crate::hdp::packet_processor::PrimaryProcessorResult;
-use std::path::PathBuf;
+use hyxe_user::backend::PersistenceHandler;
 
 impl Debug for StateContainer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -778,80 +774,60 @@ impl StateContainerInner {
 
     /// This creates an entry in the inbound_files hashmap
     #[allow(unused_results)]
-    pub fn on_file_header_received(&mut self, header: &LayoutVerified<&[u8], HdpHeader>, virtual_target: VirtualTargetType, metadata: VirtualFileMetadata) -> bool {
-        let key = FileKey::new(header.session_cid.get(), metadata.object_id);
+    pub fn on_file_header_received<R: Ratchet, Fcm: Ratchet>(&mut self, header: &LayoutVerified<&[u8], HdpHeader>, virtual_target: VirtualTargetType, metadata_orig: VirtualFileMetadata, pers: &PersistenceHandler<R, Fcm>) -> bool {
+        let key = FileKey::new(header.session_cid.get(), metadata_orig.object_id);
         let ticket = header.context_info.get().into();
 
         // TODO: Add file transfer accept request here. Once local accepts, then begin this subroutine
         if !self.inbound_files.contains_key(&key) {
             let (stream_to_hd, stream_to_hd_rx) = unbounded::<Vec<u8>>();
-            let name = metadata.name.clone();
-            let save_location = dirs.hyxe_virtual_dir.clone();
-            let save_location = format!("{}{}", save_location, name);
-            let save_location = PathBuf::from(save_location);
-            if let Ok(file) = std::fs::File::create(&save_location) {
-                let file = tokio::fs::File::from_std(file);
-                log::trace!(target: "lusna", "Will stream virtual file to: {:?}", &save_location);
-                let (reception_complete_tx, success_receiving_rx) = tokio::sync::oneshot::channel::<()>();
-                let entry = InboundFileTransfer {
-                    last_group_finish_time: Instant::now(),
-                    last_group_window_len: 0,
-                    object_id: metadata.object_id,
-                    total_groups: metadata.group_count,
-                    ticket,
-                    groups_rendered: 0,
-                    virtual_target,
-                    metadata: metadata.clone(),
-                    reception_complete_tx,
-                    stream_to_hd
-                };
+            let pers = pers.clone();
+            let metadata = metadata_orig.clone();
+            let (reception_complete_tx, success_receiving_rx) = tokio::sync::oneshot::channel::<()>();
+            let entry = InboundFileTransfer {
+                last_group_finish_time: Instant::now(),
+                last_group_window_len: 0,
+                object_id: metadata_orig.object_id,
+                total_groups: metadata_orig.group_count,
+                ticket,
+                groups_rendered: 0,
+                virtual_target,
+                metadata: metadata.clone(),
+                reception_complete_tx,
+                stream_to_hd
+            };
 
-                self.inbound_files.insert(key, entry);
-                let (handle, tx_status) = FileTransferHandle::new(header.session_cid.get(), header.target_cid.get(), FileTransferOrientation::Receiver);
-                let _ = tx_status.unbounded_send(FileTransferStatus::ReceptionBeginning(save_location, metadata));
-                self.file_transfer_handles.insert(key, tx_status.clone());
-                // finally, alert the kernel (receiver)
-                let _ = self.kernel_tx.unbounded_send(NodeResult::FileTransferHandle(ticket, handle));
+            self.inbound_files.insert(key, entry);
+            let (handle, tx_status) = FileTransferHandle::new(header.session_cid.get(), header.target_cid.get(), FileTransferOrientation::Receiver);
+            let _ = tx_status.unbounded_send(FileTransferStatus::ReceptionBeginning(save_location, metadata_orig));
+            self.file_transfer_handles.insert(key, tx_status.clone());
+            // finally, alert the kernel (receiver)
+            let _ = self.kernel_tx.unbounded_send(NodeResult::FileTransferHandle(ticket, handle));
 
-                // now that the InboundFileTransfer is loaded, we just need to spawn the async task that takes the results and streams it to the HD.
-                // This is safe since no mutation/reading on the state container or session takes place. This only streams to the hard drive without interrupting
-                // the HdpServer's single thread. This will end once a None signal is sent through
-                let stream_to_hd_task = async move {
-                    let mut writer = BufWriter::new(file);
-                    let mut reader = tokio_util::io::StreamReader::new(tokio_stream::wrappers::UnboundedReceiverStream::new(stream_to_hd_rx).map(|r| Ok(std::io::Cursor::new(r)) as Result<std::io::Cursor<Vec<u8>>, std::io::Error>));
+            let task = async move {
+                match pers.stream_object_to_backend(stream_to_hd_rx, Box::new(metadata)).await {
+                    Ok(()) => {
+                        log::trace!(target: "lusna", "Successfully synced file to backend");
+                        let status = match success_receiving_rx.await {
+                            Ok(_) => {
+                                FileTransferStatus::ReceptionComplete
+                            }
 
-                    if let Err(err) = tokio::io::copy(&mut reader, &mut writer).await {
-                        log::error!(target: "lusna", "Error while copying from reader to writer: {}", err);
-                    }
+                            Err(_) => {
+                                FileTransferStatus::Fail(format!("An unknown error occurred while receiving file"))
+                            }
+                        };
 
-                    match writer.shutdown().await {
-                        Ok(()) => {
-                            log::trace!(target: "lusna", "Successfully synced file to HD");
-                            let status = match success_receiving_rx.await {
-                                Ok(_) => {
-                                    FileTransferStatus::ReceptionComplete
-                                }
+                        let _ = tx_status.unbounded_send(status);
+                    },
+                    Err(err) => {
+                        log::error!(target: "lusna", "Unable to sync file to backend: {:?}", err);
+                    },
+                }
+            };
 
-                                Err(_) => {
-                                    FileTransferStatus::Fail(format!("An unknown error occurred while receiving file"))
-                                }
-                            };
-
-                            let _ = tx_status.unbounded_send(status);
-                        },
-                        Err(err) => {
-                            log::error!(target: "lusna", "Unable to shut down streamer: {}", err);
-                        },
-                    };
-                };
-
-                spawn!(stream_to_hd_task);
-
-                true
-            } else {
-                log::error!(target: "lusna", "Unable to obtain file handle to {:?}", &save_location);
-                false
-            }
+            spawn!(task);
+            true
         } else {
             log::error!(target: "lusna", "Duplicate file HEADER detected");
             false
