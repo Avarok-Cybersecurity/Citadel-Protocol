@@ -71,7 +71,7 @@ impl NatType {
 
     /// Identifies the NAT which the local node is behind
     pub async fn identify_timeout(timeout: Duration) -> Result<Self, FirewallError> {
-        tokio::time::timeout(timeout, get_nat_type()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?.map_err(|err| FirewallError::HolePunch(err.to_string()))
+        tokio::time::timeout(timeout, get_nat_type()).await.map_err(|_| FirewallError::HolePunch("NAT identification elapsed".to_string()))?.map_err(|err| FirewallError::HolePunch(err.to_string()))
     }
 
     /// Returns the NAT traversal type required to access self and other, respectively

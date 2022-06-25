@@ -143,7 +143,7 @@ mod tests {
     #[case(2)]
     #[case(3)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[tokio::test(flavor="multi_thread")]
     async fn peer_to_peer_connect(#[case] peer_count: usize) {
         assert!(peer_count > 1);
         crate::test_common::setup_log();
@@ -196,7 +196,7 @@ mod tests {
     #[case(2)]
     #[case(3)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[tokio::test(flavor="multi_thread")]
     async fn peer_to_peer_connect_passwordless(#[case] peer_count: usize) {
         assert!(peer_count > 1);
         crate::test_common::setup_log();

@@ -149,7 +149,7 @@ mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[tokio::test(flavor="multi_thread")]
     async fn single_connection_registered() {
         crate::test_common::setup_log();
 
@@ -179,7 +179,7 @@ mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[tokio::test(flavor="multi_thread")]
     async fn single_connection_passwordless() {
         crate::test_common::setup_log();
 

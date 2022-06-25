@@ -222,7 +222,7 @@ mod tests {
     #[case(3)]
     #[case(4)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[tokio::test(flavor="multi_thread")]
     async fn group_connect(#[case] peer_count: usize) {
         assert!(peer_count > 1);
         crate::test_common::setup_log();
