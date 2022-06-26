@@ -7,7 +7,7 @@ use stun::message::{Message, BINDING_REQUEST, Getter};
 use stun::agent::TransactionId;
 use stun::xoraddr::XorMappedAddress;
 use futures::stream::FuturesUnordered;
-use futures::StreamExt;
+use futures::{StreamExt, Future};
 use serde::{Serialize, Deserialize};
 use crate::error::FirewallError;
 use std::time::Duration;
@@ -16,6 +16,7 @@ use crate::socket_helpers::is_ipv6_enabled;
 use std::ops::Sub;
 use itertools::Itertools;
 use std::iter::Sum;
+use std::pin::Pin;
 
 // TODO: Make stun servers configurable
 const STUN_SERVERS: [&str; 3] = ["global.stun.twilio.com:3478",
@@ -324,9 +325,13 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
         }
     };
 
-    let ip_info = async_ip::get_all_multi_concurrent(None);
+    let ip_info_future = if cfg!(feature="localhost-testing") {
+        Box::pin(async move { Ok(async_ip::IpAddressInfo::localhost()) } ) as Pin<Box<dyn Future<Output=Result<IpAddressInfo, async_ip::IpRetrieveError>> + Send>>
+    } else {
+        Box::pin(async_ip::get_all_multi_concurrent(None))
+    };
 
-    let (nat_type, ip_info) = tokio::join!(nat_type, ip_info);
+    let (nat_type, ip_info) = tokio::join!(nat_type, ip_info_future);
     let mut nat_type = nat_type?;
     log::trace!(target: "lusna", "NAT Type: {:?}", nat_type);
     let ip_info = ip_info.map_err(|err| anyhow::Error::msg(err.to_string()))?;
