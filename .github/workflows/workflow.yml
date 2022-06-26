@@ -20,7 +20,7 @@ jobs:
       TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-2019]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 80
     steps:
@@ -57,7 +57,8 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo test --package hyxe_user --features sql,redis,localhost-testing -- --test-threads=1
       #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
-      - run: cargo test --features=localhost-testing --package ez_pqcrypto --package hyxe_crypt --package hyxe_net
+      - run: cargo test --features=localhost-testing --package ez_pqcrypto --package hyxe_crypt
+      - run: cargo test --features=localhost-testing --package hyxe_net -- --test-threads=1
       - uses: actions/github-script@v6
         if: failure()
         with:
@@ -72,7 +73,7 @@ jobs:
   nat:
     strategy:
       matrix:
-        os: [ ubuntu-latest, macos-latest, windows-2019 ]
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -93,7 +94,7 @@ jobs:
   lusna_sdk:
     strategy:
       matrix:
-        os: [ ubuntu-latest, macos-latest, windows-2019 ]
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 50
     steps:
