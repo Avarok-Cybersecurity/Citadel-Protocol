@@ -15,9 +15,6 @@ env:
 
 jobs:
   core_libs:
-    env:
-      TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
-      TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -53,10 +50,15 @@ jobs:
           redis-version: 4
           redis-port: 6379
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
-      - name: Run user library + SQL backend
+      - name: Run holistic user library + SQL backend
         if: startsWith(matrix.os, 'ubuntu')
+        env:
+          TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
+          TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
         run: cargo test --package hyxe_user --features sql,redis,localhost-testing -- --test-threads=1
-      #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
+      - name: Run minimal user library + SQL backend
+        if: !startsWith(matrix.os, 'ubuntu')
+        run: cargo test --package hyxe_user --features localhost-testing -- --test-threads=1
       - run: cargo test --package ez_pqcrypto --package hyxe_crypt
       - run: cargo test --features=localhost-testing --package hyxe_net -- --test-threads=1
       - uses: actions/github-script@v6
