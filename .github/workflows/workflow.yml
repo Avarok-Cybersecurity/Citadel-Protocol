@@ -58,6 +58,8 @@ jobs:
         run: cargo test --package hyxe_user --features sql,redis,localhost-testing -- --test-threads=1
       - name: Run minimal user library + SQL backend
         if: startsWith(matrix.os, 'windows') || startsWith(matrix.os, 'macos')
+        env:
+          SKIP_EXT_BACKENDS: "true"
         run: cargo test --package hyxe_user --features localhost-testing -- --test-threads=1
       - run: cargo test --package ez_pqcrypto --package hyxe_crypt
       - run: cargo test --features=localhost-testing --package hyxe_net -- --test-threads=1

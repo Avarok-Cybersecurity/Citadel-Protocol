@@ -106,8 +106,10 @@ mod tests {
                 }
             }
             _ => {
-                log::error!(target: "lusna", "Make sure {} is set in the environment", env);
-                std::process::exit(1)
+                if std::env::var("SKIP_EXT_BACKENDS").is_err() {
+                    log::error!(target: "lusna", "Make sure {} is set in the environment", env);
+                    std::process::exit(1)
+                }
             }
         }
 
