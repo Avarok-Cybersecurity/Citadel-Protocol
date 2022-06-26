@@ -204,7 +204,6 @@ fn average_delta<T: Ord + Copy + Sized + Sub>(vals: &Vec<T>) -> usize
 async fn get_nat_type() -> Result<NatType, anyhow::Error> {
     let nat_type = async move {
         let mut msg = Message::new();
-        //msg.add(ATTR_CHANGE_REQUEST, b"Hello to the world!!!!!!");
         msg.build(&[
             Box::new(TransactionId::default()),
             Box::new(BINDING_REQUEST)
