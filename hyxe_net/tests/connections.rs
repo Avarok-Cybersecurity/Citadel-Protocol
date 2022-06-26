@@ -49,7 +49,7 @@ pub mod tests {
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
-    #[tokio::test]
+    #[tokio::test(flavor="multi_thread")]
     async fn test_tcp_or_tls(#[case] addr: SocketAddr,
                              protocols: &Vec<UnderlyingProtocol>,
                              client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
@@ -100,7 +100,7 @@ pub mod tests {
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
-    #[tokio::test]
+    #[tokio::test(flavor="multi_thread")]
     async fn test_many_proto_conns(#[case] addr: SocketAddr,
                                    protocols: &Vec<UnderlyingProtocol>,
                                    client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
