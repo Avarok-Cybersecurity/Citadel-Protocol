@@ -9,8 +9,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
-  # 20 MiB stack
-  RUST_MIN_STACK: 20971520
+  # 40 MiB stack
+  RUST_MIN_STACK: 40971520
   RUST_LOG: "lusna"
 
 jobs:
