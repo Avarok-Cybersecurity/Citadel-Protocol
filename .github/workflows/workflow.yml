@@ -57,7 +57,7 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo test --package hyxe_user --features sql,redis,localhost-testing -- --test-threads=1
       #      - run: cargo install --locked cargo-deny && cargo deny init && cargo deny check advisories bans sources
-      - run: cargo test --features=localhost-testing --package ez_pqcrypto --package hyxe_crypt
+      - run: cargo test --package ez_pqcrypto --package hyxe_crypt
       - run: cargo test --features=localhost-testing --package hyxe_net -- --test-threads=1
       - uses: actions/github-script@v6
         if: failure()
