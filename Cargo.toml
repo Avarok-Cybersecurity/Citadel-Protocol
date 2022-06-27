@@ -10,7 +10,8 @@ members = [
 	"hyxe_net",
     "firebase-rtdb",
     "netbeam",
-	"dpb_kem"
+	"dpb_kem",
+	"lusna_logging"
 ]
 
 exclude = [

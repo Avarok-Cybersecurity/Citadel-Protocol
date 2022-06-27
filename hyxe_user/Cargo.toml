@@ -55,7 +55,7 @@ tokio-stream = { version = "0.1.7", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.19.0", features = ["macros"] }
-env_logger = "0.8.2"
+lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 dirs2 = "3.0.1"
 rstest = "0.12.0"
 lazy_static = "1.4.0"

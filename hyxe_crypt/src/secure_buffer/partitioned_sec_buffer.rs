@@ -111,24 +111,16 @@ impl DerefMut for SliceHandle<'_> {
 mod tests {
     use crate::secure_buffer::partitioned_sec_buffer::PartitionedSecBuffer;
 
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     #[test]
     #[should_panic]
     fn partitioned_sec_buffer_0() {
-        setup_log();
+        lusna_logging::setup_log();
         let _ = PartitionedSecBuffer::<0>::new().unwrap();
     }
 
     #[test]
     fn partitioned_sec_buffer_1_proper() {
-        setup_log();
+        lusna_logging::setup_log();
         let mut buf = PartitionedSecBuffer::<1>::new().unwrap();
         buf.reserve_partition(0, 10).unwrap();
         buf.partition_window(0).unwrap().fill(1);
@@ -138,7 +130,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn partitioned_sec_buffer_1_improper() {
-        setup_log();
+        lusna_logging::setup_log();
         let mut buf = PartitionedSecBuffer::<1>::new().unwrap();
         buf.reserve_partition(1, 10).unwrap();
     }
@@ -146,7 +138,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn partitioned_sec_buffer_1_improper_2() {
-        setup_log();
+        lusna_logging::setup_log();
         let mut buf = PartitionedSecBuffer::<1>::new().unwrap();
         buf.reserve_partition(0, 10).unwrap();
         buf.partition_window(1).unwrap().fill(1);
@@ -154,7 +146,7 @@ mod tests {
 
     #[test]
     fn partitioned_sec_buffer_2_proper() {
-        setup_log();
+        lusna_logging::setup_log();
         let mut buf = PartitionedSecBuffer::<2>::new().unwrap();
         buf.reserve_partition(0, 10).unwrap();
         buf.reserve_partition(1, 3).unwrap();
@@ -165,7 +157,7 @@ mod tests {
 
     #[test]
     fn partitioned_sec_buffer_2_proper_2() {
-        setup_log();
+        lusna_logging::setup_log();
         let mut buf = PartitionedSecBuffer::<2>::new().unwrap();
         buf.reserve_partition(0, 10).unwrap();
         buf.reserve_partition(1, 3).unwrap();
@@ -177,7 +169,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn partitioned_sec_buffer_2_improper() {
-        setup_log();
+        lusna_logging::setup_log();
         let mut buf = PartitionedSecBuffer::<2>::new().unwrap();
         //buf.reserve_partition(0, 10).unwrap();
         buf.reserve_partition(1, 3).unwrap();
@@ -185,7 +177,7 @@ mod tests {
 
     #[test]
     fn partitioned_sec_buffer_3_proper() {
-        setup_log();
+        lusna_logging::setup_log();
         let mut buf = PartitionedSecBuffer::<3>::new().unwrap();
         buf.reserve_partition(0, 10).unwrap();
         buf.reserve_partition(1, 3).unwrap();

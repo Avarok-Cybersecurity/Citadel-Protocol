@@ -8,6 +8,7 @@ use crate::error::NetworkError;
 use hyxe_crypt::drill::SecurityLevel;
 use crate::hdp::peer::peer_layer::HyperNodePeerLayerInner;
 
+#[cfg_attr(test, lusna_logging::instrument)]
 pub(crate) async fn handle_response_phase(peer_layer: &mut HyperNodePeerLayerInner, peer_conn_type: PeerConnectionType, ticket: Ticket, peer_response: PeerResponse, endpoint_security_level: SessionSecuritySettings, udp_enabled: UdpMode, implicated_cid: u64, target_cid: u64, timestamp: i64, session: &HdpSession, sess_hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
     route_signal_response(PeerSignal::PostConnect(peer_conn_type, Some(ticket), Some(peer_response), endpoint_security_level, udp_enabled), implicated_cid, target_cid, timestamp, ticket, peer_layer, session.clone(), &sess_hyper_ratchet,

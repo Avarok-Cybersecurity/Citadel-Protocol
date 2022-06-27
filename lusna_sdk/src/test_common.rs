@@ -10,15 +10,6 @@ use crate::prefabs::server::client_connect_listener::ClientConnectListenerKernel
 use tokio::net::TcpListener;
 
 #[allow(dead_code)]
-pub fn setup_log() {
-    let _ = env_logger::try_init();
-    log::trace!(target: "lusna", "TRACE enabled");
-    log::trace!(target: "lusna", "INFO enabled");
-    log::warn!(target: "lusna", "WARN enabled");
-    log::error!(target: "lusna", "ERROR enabled");
-}
-
-#[allow(dead_code)]
 pub fn server_test_node<'a, K: NetKernel + 'a>(bind_addr: SocketAddr, kernel: K) -> NodeFuture<'a, K> {
     NodeBuilder::default()
         .with_node_type(NodeType::Server(bind_addr))

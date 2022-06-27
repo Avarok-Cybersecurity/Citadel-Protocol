@@ -153,7 +153,7 @@ mod tests {
                                        #[values(EncryptionAlgorithm::AES_GCM_256_SIV, EncryptionAlgorithm::Xchacha20Poly_1305)]
                                        enx: EncryptionAlgorithm) {
 
-        lusna_sdk::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(2);
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         static SERVER_SUCCESS: AtomicBool = AtomicBool::new(false);
@@ -206,7 +206,7 @@ mod tests {
                                        #[values(EncryptionAlgorithm::AES_GCM_256_SIV, EncryptionAlgorithm::Xchacha20Poly_1305)]
                                        enx: EncryptionAlgorithm) {
 
-        lusna_sdk::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(2);
         let ref client0_success = AtomicBool::new(false);
         let ref client1_success = AtomicBool::new(false);
@@ -258,7 +258,7 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor="multi_thread")]
     async fn stress_test_group_broadcast(#[case] message_count: usize, #[case] peer_count: usize) {
-        lusna_sdk::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
         lusna_sdk::test_common::TestBarrier::setup(peer_count);
 
         static CLIENT_SUCCESS: AtomicUsize = AtomicUsize::new(0);

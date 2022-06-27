@@ -72,15 +72,6 @@ mod tests {
         }
     }
 
-    #[allow(unused_must_use)]
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     fn generate_random_filesystem_dir() -> BackendType {
         let mut home = dirs2::home_dir().unwrap();
         let rand = uuid::Uuid::new_v4().to_string();
@@ -134,7 +125,7 @@ mod tests {
     async fn test_harness<T, F>(mut t: T) -> Result<(), AccountError>
         where T: Send + 'static + FnMut(TestContainer, PersistenceHandler, PersistenceHandler) -> F,
         F: Future<Output=Result<(), AccountError>> + Send + 'static {
-        setup_log();
+        lusna_logging::setup_log();
         let _lock = TEST_MUTEX.lock().await;
 
         let client_backends = client_backends();

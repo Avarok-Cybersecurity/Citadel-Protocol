@@ -16,6 +16,7 @@ impl<T: Future<Output=Result<PrimaryProcessorResult, NetworkError>> + ContextReq
 pub type ConcurrentProcessorTx = UnboundedSender<Pin<Box<dyn ProcessorFuture>>>;
 
 /// For primary-port packet types. NOT for wave ports
+#[cfg_attr(test, lusna_logging::instrument)]
 pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
 

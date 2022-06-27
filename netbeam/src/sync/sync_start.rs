@@ -148,17 +148,9 @@ mod tests {
     use futures::{FutureExt, StreamExt};
     use crate::sync::test_utils::create_streams;
 
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     #[tokio::test]
     async fn run_parallel_many() {
-        setup_log();
+        lusna_logging::setup_log();
 
         let (server, client) = &create_streams().await;
         let (tx, rx) = futures::channel::mpsc::unbounded();
@@ -196,7 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_getter() {
-        setup_log();
+        lusna_logging::setup_log();
 
         let (server, client) = create_streams().await;
 

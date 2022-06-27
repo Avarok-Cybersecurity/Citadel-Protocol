@@ -345,17 +345,9 @@ mod tests {
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
 
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     #[tokio::test]
     async fn test_identify() {
-        setup_log();
+        lusna_logging::setup_log();
         let nat_type = NatType::identify().await.unwrap();
         let traversal_type = nat_type.traversal_type_required();
         log::trace!(target: "lusna", "NAT Type: {:?} | Reaching this node will require: {:?} NAT traversal | Hypothetical connect scenario", nat_type, traversal_type);

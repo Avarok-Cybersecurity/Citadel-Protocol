@@ -767,17 +767,9 @@ mod tests {
 
     use crate::sync::test_utils::create_streams;
 
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     #[tokio::test]
     async fn many_writes() {
-        setup_log();
+        lusna_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
 
@@ -841,7 +833,7 @@ mod tests {
 
     #[tokio::test]
     async fn many_reads() {
-        setup_log();
+        lusna_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
 
@@ -914,7 +906,7 @@ mod tests {
 
     #[tokio::test]
     async fn many_reads_no_initial_write() {
-        setup_log();
+        lusna_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
 
@@ -964,7 +956,7 @@ mod tests {
 
     #[tokio::test]
     async fn many_reads_end_with_write() {
-        setup_log();
+        lusna_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
 
@@ -1035,7 +1027,7 @@ mod tests {
 
     #[tokio::test]
     async fn many_interweaved() {
-        setup_log();
+        lusna_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams().await;
 

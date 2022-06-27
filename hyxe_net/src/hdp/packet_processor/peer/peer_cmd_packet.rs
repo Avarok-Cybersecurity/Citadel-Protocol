@@ -29,6 +29,7 @@ use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
 /// HyperLAN client and the HyperLAN Server
+#[cfg_attr(test, lusna_logging::instrument(fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header_drill_version: u32, endpoint_cid_info: Option<(u64, u64)>, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
     // ALL PEER_CMD packets require that the current session contain a CNAC (not anymore since switching to async)
     let session = session_orig.clone();
