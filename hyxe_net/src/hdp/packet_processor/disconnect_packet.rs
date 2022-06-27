@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 
 /// Stage 0: Alice sends Bob a DO_DISCONNECT request packet
 /// Stage 1: Bob sends Alice an FINAL, whereafter Alice may disconnect
-#[inline]
+#[cfg_attr(test, lusna_logging::instrument(fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process(session: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
         log::error!(target: "lusna", "disconnect packet received, but session state is not connected. Dropping");

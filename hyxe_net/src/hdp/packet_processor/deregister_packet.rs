@@ -5,6 +5,7 @@ use std::sync::atomic::Ordering;
 use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
+#[cfg_attr(test, lusna_logging::instrument(fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process(session_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref.clone();
 

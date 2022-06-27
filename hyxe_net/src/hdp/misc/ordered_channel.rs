@@ -91,17 +91,9 @@ mod tests {
     use std::time::Duration;
     use rand::Rng;
 
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     #[tokio::test]
     async fn smoke_ordered() -> Result<(), Box<dyn Error>> {
-        setup_log();
+        lusna_logging::setup_log();
         const COUNT: u8 = 100;
         let (tx, mut rx) = unbounded();
         let mut ordered_channel = OrderedChannel::new(tx.clone());
@@ -133,7 +125,7 @@ mod tests {
 
     #[tokio::test]
     async fn smoke_unordered() -> Result<(), Box<dyn Error>> {
-        setup_log();
+        lusna_logging::setup_log();
         const COUNT: usize = 1000;
         let (tx, mut rx) = unbounded();
         let mut ordered_channel = OrderedChannel::new(tx.clone());
@@ -169,7 +161,6 @@ mod tests {
 
     #[tokio::test]
     async fn smoke_unordered_concurrent() -> Result<(), Box<dyn Error>> {
-        //setup_log();
         const COUNT: usize = 10000;
         let (tx, mut rx) = unbounded();
         let ordered_channel = OrderedChannel::new(tx.clone());

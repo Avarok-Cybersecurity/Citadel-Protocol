@@ -25,6 +25,7 @@ use std::sync::atomic::Ordering;
 /// `proxy_cid_info`: is None if the packets were not proxied, and will thus use the session's pqcrypto to authenticate the data.
 /// If `proxy_cid_info` is Some, then a tuple of the original implicated cid (peer cid) and the original target cid (this cid)
 /// will be provided. In this case, we must use the virtual conn's crypto
+#[cfg_attr(test, lusna_logging::instrument(fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process(session_ref: &HdpSession, cmd_aux: u8, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
 
@@ -325,7 +326,7 @@ pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, sess_cnac: &Clien
             //log::trace!(target: "lusna", "[Peer HyperRatchet] v{} from vconn w/ {}", header_drill_vers, original_implicated_cid);
             vconn.borrow_endpoint_hyper_ratchet(Some(header_drill_vers)).cloned()
         } else {
-            log::error!(target: "lusna", "Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
+            log::warn!(target: "lusna", "Unable to find vconn for {}. Unable to process primary group packet", original_implicated_cid);
             return None;
         }
     } else {
@@ -543,15 +544,12 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
         }
 
         KemTransferStatus::Omitted => {
-            log::warn!(target: "lusna", "KEM was omitted (is adjacent node's hold not being released (unexpected), or tight concurrency (expected)?)");
-            //Ok(Some(toolset_update_method.get_latest_ratchet().ok_or(())?))
             match secrecy_mode {
                 SecrecyMode::Perfect => {
                     Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0))
                 }
 
                 SecrecyMode::BestEffort => {
-                    //Ok(Some(toolset_update_method.get_latest_ratchet().ok_or(())?))
                     Ok(Some(toolset_update_method.unlock(true).ok_or(())?.0))
                 }
             }

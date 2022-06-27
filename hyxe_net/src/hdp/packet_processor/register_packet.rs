@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// This will handle an HDP registration packet
-#[inline]
+#[cfg_attr(test, lusna_logging::instrument(fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref.clone();
     let state = session.state.load(Ordering::Relaxed);

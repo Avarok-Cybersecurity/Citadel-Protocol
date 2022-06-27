@@ -146,7 +146,7 @@ mod tests {
     #[tokio::test(flavor="multi_thread")]
     async fn peer_to_peer_connect(#[case] peer_count: usize) {
         assert!(peer_count > 1);
-        crate::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let ref client_success = AtomicUsize::new(0);
@@ -199,7 +199,7 @@ mod tests {
     #[tokio::test(flavor="multi_thread")]
     async fn peer_to_peer_connect_passwordless(#[case] peer_count: usize) {
         assert!(peer_count > 1);
-        crate::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let ref client_success = AtomicUsize::new(0);

@@ -5,17 +5,9 @@ use netbeam::sync::RelativeNodeType;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use std::sync::Arc;
 
-fn setup_log() {
-    let _ = env_logger::try_init();
-    log::trace!(target: "lusna", "TRACE enabled");
-    log::trace!(target: "lusna", "INFO enabled");
-    log::warn!(target: "lusna", "WARN enabled");
-    log::error!(target: "lusna", "ERROR enabled");
-}
-
 #[tokio::main]
 async fn main() {
-    setup_log();
+    //lusna_logging::setup_log();
 
     let server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025").await.unwrap();
 

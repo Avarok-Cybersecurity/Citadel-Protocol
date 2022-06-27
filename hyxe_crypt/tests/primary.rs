@@ -15,18 +15,9 @@ mod tests {
     use hyxe_crypt::argon::autotuner::calculate_optimal_argon_params;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
 
-
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     #[tokio::test]
     async fn argon_autotuner() {
-        setup_log();
+        lusna_logging::setup_log();
         let start_time = Instant::now();
         let final_cfg = calculate_optimal_argon_params(500_u16, Some(32), None).await.unwrap();
         log::trace!(target: "lusna", "DONE. Elapsed time: {:?}", start_time.elapsed());
@@ -35,7 +26,7 @@ mod tests {
 
     #[tokio::test]
     async fn argon() {
-        setup_log();
+        lusna_logging::setup_log();
 
         // Client config should be a weaker version that the server version, since the client doesn't actually store the password on their own device. Still, if login time can in total be kept under 2s, then it's good
         let client_config = ArgonSettings::new_gen_salt("Thomas P Braun".as_bytes().to_vec(), 8, 32,1024*64, 4, vec![0,1,2,3,4,5,6,7,8,9,0]);
@@ -99,7 +90,7 @@ mod tests {
     }
 
     fn onion_packet<R: Ratchet>() {
-        setup_log();
+        lusna_logging::setup_log();
         const LEN: usize = 5;
         const HEADER_LEN: usize = 50;
         let message = "Hello, world!";
@@ -141,7 +132,7 @@ mod tests {
 
     #[test]
     fn secstring() {
-        setup_log();
+        lusna_logging::setup_log();
         let mut val = SecString::new();
         assert_eq!(val.len(), 0);
         val.push('h');
@@ -164,7 +155,7 @@ mod tests {
 
     #[test]
     fn secbytes() {
-        setup_log();
+        lusna_logging::setup_log();
         let buf = SecBuffer::from("Hello, world!");
         let serde = bincode2::serialize(&buf).unwrap();
         std::mem::drop(buf);
@@ -184,7 +175,7 @@ mod tests {
 
     #[test]
     fn hyper_ratchets() {
-        setup_log();
+        lusna_logging::setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
                 let _ = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
@@ -195,7 +186,7 @@ mod tests {
 
     #[test]
     fn hyper_ratchets_fcm() {
-        setup_log();
+        lusna_logging::setup_log();
         for x in 0u8..KEM_ALGORITHM_COUNT {
             for sec in 0..SecurityLevel::DIVINE.value() {
                 let _ = hyper_ratchet::<hyxe_crypt::fcm::fcm_ratchet::ThinRatchet, _>(KemAlgorithm::try_from(x).unwrap() + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), true);
@@ -206,7 +197,7 @@ mod tests {
 
     #[test]
     fn security_levels() {
-        setup_log();
+        lusna_logging::setup_log();
         for sec in 0..SecurityLevel::DIVINE.value() {
             let ratchet = hyper_ratchet::<HyperRatchet, _>(KemAlgorithm::Firesaber + EncryptionAlgorithm::AES_GCM_256_SIV, Some(sec.into()), false);
             for x in 0..sec {
@@ -268,7 +259,7 @@ mod tests {
     }
 
     fn toolset<R: Ratchet>() {
-        setup_log();
+        lusna_logging::setup_log();
         const COUNT: u32 = 100;
         let security_level = SecurityLevel::LOW;
 
@@ -328,7 +319,7 @@ mod tests {
     }
 
     fn toolset_wrapping_vers<R: Ratchet>() {
-        setup_log();
+        lusna_logging::setup_log();
         let vers = u32::MAX - 1;
         let cid = 10;
         let hr = gen::<R>(cid, vers, SecurityLevel::LOW);
@@ -371,7 +362,7 @@ mod tests {
     }
 
     fn scrambler_transmission<R: Ratchet>() {
-        setup_log();
+        lusna_logging::setup_log();
 
         const SECURITY_LEVEL: SecurityLevel = SecurityLevel::LOW;
         const HEADER_SIZE_BYTES: usize = 44;
@@ -422,7 +413,7 @@ mod tests {
     }
 
     fn simulate_packet_loss<R: Ratchet>() {
-        setup_log();
+        lusna_logging::setup_log();
         let mut start_data = Vec::with_capacity(4 * 5000);
         for x in 0..5000i32 {
             for val in &x.to_be_bytes() {
@@ -507,7 +498,7 @@ mod tests {
         use hyxe_crypt::prelude::{ConstructorOpts, PacketVector, Drill};
         use hyxe_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
 
-        setup_log();
+        lusna_logging::setup_log();
         fn gen(algo: impl Into<CryptoParameters>, drill_vers: u32) -> (HyperRatchet, HyperRatchet) {
             let opts = algo.into();
             let mut alice_base = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(opts), 1), 0, 0, None).unwrap();

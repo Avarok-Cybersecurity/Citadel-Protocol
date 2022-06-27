@@ -4,17 +4,9 @@ use hyxe_wire::quic::QuicEndpointListener;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::RelativeNodeType;
 
-fn setup_log() {
-    let _ = env_logger::try_init();
-    log::trace!(target: "lusna", "TRACE enabled");
-    log::trace!(target: "lusna", "INFO enabled");
-    log::warn!(target: "lusna", "WARN enabled");
-    log::error!(target: "lusna", "ERROR enabled");
-}
-
 #[tokio::main]
 async fn main() {
-    setup_log();
+    //setup_log();
     let listener = tokio::net::TcpListener::bind("0.0.0.0:25025").await.unwrap();
     let (client_stream, peer_addr) = listener.accept().await.unwrap();
     log::trace!(target: "lusna", "Received client stream from {:?}", peer_addr);

@@ -153,7 +153,7 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor="multi_thread")]
     async fn single_connection_registered() {
-        crate::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
 
         let ref client_success = AtomicBool::new(false);
         let (server, server_addr) = server_info();
@@ -183,7 +183,7 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor="multi_thread")]
     async fn single_connection_passwordless() {
-        crate::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
 
         let ref client_success = AtomicBool::new(false);
         let (server, server_addr) = server_info();
