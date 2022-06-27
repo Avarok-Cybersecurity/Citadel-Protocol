@@ -7,6 +7,7 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::drill::SecurityLevel;
 use crate::hdp::peer::peer_layer::{Username, HyperNodePeerLayerInner};
 
+#[cfg_attr(test, lusna_logging::instrument)]
 pub async fn handle_response_phase(peer_layer: &mut HyperNodePeerLayerInner, peer_conn_type: PeerConnectionType, username: Username, peer_response: PeerResponse, ticket: Ticket, implicated_cid: u64, target_cid: u64, timestamp: i64, session: &HdpSession, sess_hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let decline = match &peer_response { PeerResponse::Decline => true, _ => false };
 

@@ -218,12 +218,12 @@ impl<T: NetObject, S: Subscribable + 'static> Future for ChannelLoader<'_, T, S>
 
 #[cfg(test)]
 mod tests {
-    use crate::sync::test_utils::{create_streams, setup_log};
+    use crate::sync::test_utils::create_streams;
     use futures::StreamExt;
 
     #[tokio::test]
     async fn bi_channel() {
-        setup_log();
+        lusna_logging::setup_log();
         let (server, client) = create_streams().await;
 
         let server = tokio::spawn(async move {

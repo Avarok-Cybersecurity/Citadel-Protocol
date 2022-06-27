@@ -132,7 +132,7 @@ pub trait ProtocolRemoteExt: Remote {
 
         match map_errors(self.send_callback(register_request).await?)? {
             NodeResult::RegisterOkay(..) => Ok(RegisterSuccess {}),
-            _ => Err(NetworkError::msg("An unexpected response occurred"))
+            res => Err(NetworkError::msg(format!("An unexpected response occurred: {:?}", res)))
         }
     }
 
@@ -152,7 +152,7 @@ pub trait ProtocolRemoteExt: Remote {
         match map_errors(self.send_callback(connect_request).await?)? {
             NodeResult::ConnectSuccess(_, cid, _, _, _, services, _, channel, udp_channel_rx) => Ok(ConnectSuccess { channel, udp_channel_rx, services, cid }),
             NodeResult::ConnectFail(_, _, err) => Err(NetworkError::Generic(err)),
-            _ => Err(NetworkError::msg("An unexpected response occurred"))
+            res => Err(NetworkError::msg(format!("[connect] An unexpected response occurred: {:?}", res)))
         }
     }
 
@@ -495,7 +495,7 @@ mod tests {
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test]
     async fn test_c2s_file_transfer() {
-        crate::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
 
         static CLIENT_SUCCESS: AtomicBool = AtomicBool::new(false);
         let (server, server_addr) = server_info();

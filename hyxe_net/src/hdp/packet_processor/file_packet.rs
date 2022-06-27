@@ -4,6 +4,7 @@ use crate::hdp::packet_processor::primary_group_packet::get_proper_hyper_ratchet
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
 
+#[cfg_attr(test, lusna_logging::instrument(fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
         return Ok(PrimaryProcessorResult::Void)

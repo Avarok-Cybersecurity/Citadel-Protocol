@@ -14,14 +14,6 @@ pub mod tests {
     use itertools::Itertools;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     #[fixture]
     #[once]
     fn protocols() -> Vec<UnderlyingProtocol> {
@@ -54,7 +46,7 @@ pub mod tests {
     async fn test_tcp_or_tls(#[case] addr: SocketAddr,
                              protocols: &Vec<UnderlyingProtocol>,
                              client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
-        setup_log();
+        lusna_logging::setup_log();
 
         if !is_ipv6_enabled() && addr.is_ipv6() {
             log::trace!(target: "lusna", "Skipping ipv6 test since ipv6 is not enabled locally");
@@ -106,7 +98,7 @@ pub mod tests {
     async fn test_many_proto_conns(#[case] addr: SocketAddr,
                                    protocols: &Vec<UnderlyingProtocol>,
                                    client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
-        setup_log();
+        lusna_logging::setup_log();
 
         if !is_ipv6_enabled() && addr.is_ipv6() {
             log::trace!(target: "lusna", "Skipping ipv6 test since ipv6 is not enabled locally");

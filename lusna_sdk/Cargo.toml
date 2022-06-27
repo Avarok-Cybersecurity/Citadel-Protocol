@@ -25,7 +25,6 @@ tokio = { version = "1.19.0", features = ["full"] }
 futures = "0.3.19"
 parking_lot = "0.12.0"
 log = "0.4.8"
-env_logger = "0.9.0"
 lazy_static = "1.4.0"
 uuid = { version = "1.0.0", features = ["v4"] }
 dirs2 = { version = "3.0.1", optional = true }
@@ -33,7 +32,7 @@ dirs2 = { version = "3.0.1", optional = true }
 [dev-dependencies]
 parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
 dirs2 = "3.0.1"
-env_logger = "0.9.0"
+lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 rstest = { git = "https://github.com/la10736/rstest", branch="master" }
 serde = { version = "1.0.137", features = ["derive"] }
 rand = "0.8.5"

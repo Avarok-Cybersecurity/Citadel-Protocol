@@ -21,7 +21,7 @@ use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 use hyxe_wire::exports::NewConnection;
 
 /// Handles preconnect packets. Handles the NAT traversal
-/// TODO: Cleanup and organize code
+#[cfg_attr(test, lusna_logging::instrument(fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
 pub fn process(session_orig: &HdpSession, packet: HdpPacket, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_orig.clone();
 

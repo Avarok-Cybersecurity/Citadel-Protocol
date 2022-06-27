@@ -46,7 +46,7 @@ uuid = { version = "0.8.2", features = ["v4", "serde"] }
 whoami = "1.2.1"
 
 [dev-dependencies]
-env_logger = "0.7.1"
+lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
 rand = "0.8.4"
 tokio-util = "0.6.7"

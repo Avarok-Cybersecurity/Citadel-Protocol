@@ -253,14 +253,6 @@ mod tests {
     use crate::drill::SecurityLevel;
     use crate::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
 
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     fn gen(enx: EncryptionAlgorithm, kem: KemAlgorithm, security_level: SecurityLevel, version: u32, opts: Option<Vec<ConstructorOpts>>) -> (HyperRatchet, HyperRatchet) {
         let opts = opts.unwrap_or_else(||ConstructorOpts::new_vec_init(Some(enx + kem), (security_level.value() + 1) as usize));
         let mut cx_alice = HyperRatchetConstructor::new_alice(opts.clone(), 0, version, Some(security_level));
@@ -273,7 +265,7 @@ mod tests {
     #[test]
     fn upgrades() {
         const NUM_UPDATES: usize = 1;
-        setup_log();
+        lusna_logging::setup_log();
         for level in 0..10u8 {
             let level = SecurityLevel::from(level);
             let (hr_alice, hr_bob) = gen(EncryptionAlgorithm::AES_GCM_256_SIV, KemAlgorithm::Firesaber, level, 0, None);
