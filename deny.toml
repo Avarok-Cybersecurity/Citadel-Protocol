@@ -161,6 +161,15 @@ license-files = [
 ]
 
 [[licenses.clarify]]
+name = "lusna_logging"
+expression = "MIT AND ISC AND OpenSSL"
+version = "*"
+license-files = [
+    # Each entry is a crate relative path, and the (opaque) hash of its contents
+    { path = "LICENSE-COMMERCIAL-USE.pdf", hash = 0xd0897add }
+]
+
+[[licenses.clarify]]
 name = "hyxe_crypt"
 expression = "MIT AND ISC AND OpenSSL"
 version = "*"
