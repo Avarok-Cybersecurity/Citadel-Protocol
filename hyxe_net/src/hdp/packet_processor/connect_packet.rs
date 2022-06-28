@@ -9,8 +9,8 @@ use std::sync::atomic::Ordering;
 use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// This will optionally return an HdpPacket as a response if deemed necessary
-#[cfg_attr(test, lusna_logging::instrument(fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = sess_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+pub fn process_connect(sess_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref.clone();
 
     let cnac = {

@@ -678,7 +678,7 @@ impl HdpSession {
             while let Some(packet) = reader.next().await {
                 let packet = packet.map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                if let Err(err) = evaulute_result(packet_processor::raw_primary_packet::process(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet, async_processor_tx), primary_stream, kernel_tx) {
+                if let Err(err) = evaulute_result(packet_processor::raw_primary_packet::process_raw_packet(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet, async_processor_tx), primary_stream, kernel_tx) {
                     return Err(handle_session_terminating_error(err, this_main.is_server, p2p))
                 }
             }
@@ -686,6 +686,7 @@ impl HdpSession {
             Ok(())
         };
 
+        // TODO: get rid of concurrent tx if possible
         let futures_concurrent_executor = async move {
             let reader = async_stream::stream! {
                 while let Some(value) = async_processor_rx.recv().await {
@@ -1262,7 +1263,7 @@ impl HdpSession {
             let mut endpoint_cid_info = None;
             match check_proxy(self.implicated_cid.get(), header.cmd_primary, header.cmd_aux, header.session_cid.get(), header.target_cid.get(), self, &mut endpoint_cid_info, ReceivePortType::UnorderedUnreliable, packet) {
                 Some(packet) => {
-                    match packet_processor::udp_packet::process(self, packet, hr_version, accessor) {
+                    match packet_processor::udp_packet::process_udp_packet(self, packet, hr_version, accessor) {
                         Ok(PrimaryProcessorResult::Void) => {
                             Ok(())
                         }
