@@ -53,8 +53,8 @@ pub enum GroupMemberAlterMode {
     Kick
 }
 
-#[cfg_attr(test, lusna_logging::instrument(fields(is_server = session_ref.is_server, src = header.session_cid.get(), target = header.target_cid.get())))]
-pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], HdpHeader>, payload: &[u8], sess_hyper_ratchet: &HyperRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session_ref.is_server, src = header.session_cid.get(), target = header.target_cid.get())))]
+pub async fn process_group_broadcast(session_ref: &HdpSession, header: LayoutVerified<&[u8], HdpHeader>, payload: &[u8], sess_hyper_ratchet: &HyperRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let signal = return_if_none!(GroupBroadcast::deserialize_from_vector(payload).ok(), "invalid GroupBroadcast packet");
     let timestamp = session.time_tracker.get_global_time_ns();

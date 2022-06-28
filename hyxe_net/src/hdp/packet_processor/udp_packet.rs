@@ -4,8 +4,8 @@ use crate::hdp::packet_processor::primary_group_packet::get_resp_target_cid_from
 use crate::error::NetworkError;
 
 /// This will handle an inbound group packet
-#[cfg_attr(test, lusna_logging::instrument(fields(is_server = _session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process(_session: &HdpSession, packet: HdpPacket, hr_version: u32, accessor: &EndpointCryptoAccessor) -> Result<PrimaryProcessorResult, NetworkError> {
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = _session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+pub fn process_udp_packet(_session: &HdpSession, packet: HdpPacket, hr_version: u32, accessor: &EndpointCryptoAccessor) -> Result<PrimaryProcessorResult, NetworkError> {
     let (header, payload, _, _) = packet.decompose();
 
     let res = accessor.borrow_hr(Some(hr_version), move |hr, state_container| -> PrimaryProcessorResult {
