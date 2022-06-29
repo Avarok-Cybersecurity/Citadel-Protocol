@@ -135,7 +135,7 @@ impl GroupTransmitter {
             }
 
             Err(_err) => {
-                log::error!(target: "lusna", "The wavepacket processor stream was unable to generate the sender for group {}. Aborting", group_id);
+                log::error!(target: "lusna", "The udp packet processor stream was unable to generate the sender for group {}. Aborting", group_id);
                 None
             }
         }
