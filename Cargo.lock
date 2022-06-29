@@ -1450,8 +1450,6 @@ dependencies = [
  "async-trait",
  "atomic",
  "auto_impl",
- "bitvec",
- "bstr",
  "byteorder",
  "bytes",
  "either",
@@ -1464,14 +1462,11 @@ dependencies = [
  "log",
  "lusna_logging",
  "netbeam",
- "num",
- "num_cpus",
  "once_cell",
  "parking_lot 0.12.1",
  "rand 0.7.3",
  "rstest 0.14.0",
  "serde",
- "sync_wrapper",
  "tokio",
  "tokio-stream",
  "tokio-util 0.7.2",
@@ -1490,7 +1485,6 @@ dependencies = [
  "base64",
  "bincode2",
  "bstr",
- "byteorder",
  "bytes",
  "chrono",
  "dirs2",
@@ -1510,7 +1504,6 @@ dependencies = [
  "redis",
  "rstest 0.12.0",
  "serde",
- "serde_bytes",
  "serde_json",
  "serde_millis",
  "sqlx",
@@ -1519,7 +1512,6 @@ dependencies = [
  "tokio-util 0.7.2",
  "twox-hash",
  "uuid 1.1.2",
- "zerocopy",
 ]
 
 [[package]]
@@ -1971,31 +1963,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8536030f9fea7127f841b45bb6243b27255787fb4eb83958aa1ef9d2fdc0c36"
-dependencies = [
- "num-bigint 0.2.6",
- "num-complex",
- "num-integer",
- "num-iter",
- "num-rational",
- "num-traits 0.2.15",
-]
-
-[[package]]
-name = "num-bigint"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "090c7f9998ee0ff65aa5b723e4009f7b217707f1fb5ea551329cc4d6231fb304"
-dependencies = [
- "autocfg 1.1.0",
- "num-integer",
- "num-traits 0.2.15",
-]
-
-[[package]]
 name = "num-bigint"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2025,16 +1992,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-complex"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6b19411a9719e753aff12e5187b74d60d3dc449ec3f4dc21e3989c3f554bc95"
-dependencies = [
- "autocfg 1.1.0",
- "num-traits 0.2.15",
-]
-
-[[package]]
 name = "num-integer"
 version = "0.1.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2051,18 +2008,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d03e6c028c5dc5cac6e2dec0efda81fc887605bb3d884578bb6d6bf7514e252"
 dependencies = [
  "autocfg 1.1.0",
- "num-integer",
- "num-traits 0.2.15",
-]
-
-[[package]]
-name = "num-rational"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c000134b5dbf44adc5cb772486d335293351644b801551abe8f75c84cfa4aef"
-dependencies = [
- "autocfg 1.1.0",
- "num-bigint 0.2.6",
  "num-integer",
  "num-traits 0.2.15",
 ]
@@ -3038,15 +2983,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_bytes"
-version = "0.11.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "212e73464ebcde48d723aa02eb270ba62eff38a9b732df31f33f1b4e145f3a54"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "serde_cbor"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3287,7 +3223,7 @@ dependencies = [
  "log",
  "md-5 0.9.1",
  "memchr",
- "num-bigint 0.3.3",
+ "num-bigint",
  "once_cell",
  "paste",
  "percent-encoding",
@@ -3425,12 +3361,6 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
-
-[[package]]
-name = "sync_wrapper"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20518fe4a4c9acf048008599e464deb21beeae3d3578418951a189c235a7a9a8"
 
 [[package]]
 name = "synstructure"
