@@ -197,7 +197,7 @@ mod tests {
     #[case(3)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor="multi_thread")]
-    async fn peer_to_peer_connect_passwordless(#[case] peer_count: usize) {
+    async fn peer_to_peer_connect_passwordless(#[case] peer_count: usize) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
         let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
@@ -240,7 +240,14 @@ mod tests {
             client_kernels.try_collect::<()>().await.map(|_| ())
         });
 
-        assert!(futures::future::try_select(server, clients).await.is_ok());
+        if let Err(err) = futures::future::try_select(server, clients).await {
+            return match err {
+                futures::future::Either::Left(res) => Err(res.0.into_string().into()),
+                futures::future::Either::Right(res) => Err(res.0.into_string().into()),
+            }
+        }
+
         assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
+        Ok(())
     }
 }

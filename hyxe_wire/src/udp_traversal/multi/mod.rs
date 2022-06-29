@@ -63,6 +63,7 @@ impl Future for DualStackUdpHolePuncher<'_> {
     }
 }
 
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
 async fn drive(hole_punchers: Vec<SingleUDPHolePuncher>, node_type: RelativeNodeType, app: &NetworkEndpoint) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     // We use a single mutex to resolve timing/priority conflicts automatically
     // Which ever node FIRST can set the value will "win"

@@ -406,7 +406,7 @@ impl HdpSession {
 
     async fn stopper(mut receiver: tokio::sync::broadcast::Receiver<()>) -> Result<(), NetworkError> {
         receiver.recv().await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-        Err(NetworkError::InternalError("Session stopper-rx triggered"))
+        Ok(())
     }
 
     /// Executes each session in parallel (or concurrent if using a LocalSet)
@@ -620,10 +620,10 @@ impl HdpSession {
     }
 
     /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
-    pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>) -> Result<(), NetworkError> {
+    pub async fn execute_inbound_stream(ref mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>) -> Result<(), NetworkError> {
         log::trace!(target: "lusna", "HdpSession async inbound-stream subroutine executed");
-        let (ref remote_peer, ref local_primary_port, ref implicated_cid, ref kernel_tx, ref primary_stream, p2p) = if let Some(p2p) = p2p_handle {
-            (p2p.remote_peer, p2p.local_bind_port, p2p.implicated_cid, p2p.kernel_tx, p2p.to_primary_stream, true)
+        let (ref remote_peer, ref local_primary_port, ref implicated_cid, ref kernel_tx, ref primary_stream, p2p, is_server) = if let Some(p2p) = p2p_handle {
+            (p2p.remote_peer, p2p.local_bind_port, p2p.implicated_cid, p2p.kernel_tx, p2p.to_primary_stream, true, false)
         } else {
             let borrow = this_main;
             let remote_peer = borrow.remote_peer.clone();
@@ -631,7 +631,8 @@ impl HdpSession {
             let implicated_cid = borrow.implicated_cid.clone();
             let kernel_tx = borrow.kernel_tx.clone();
             let primary_stream = borrow.to_primary_stream.clone().unwrap();
-            (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream, false)
+            let is_server = borrow.is_server;
+            (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream, false, is_server)
         };
 
         fn evaulute_result(result: Result<PrimaryProcessorResult, NetworkError>, primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<NodeResult>) -> std::io::Result<()> {
@@ -672,41 +673,16 @@ impl HdpSession {
             NetworkError::Generic(err.to_string())
         }
 
-        let (ref async_processor_tx, mut async_processor_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        let inbound_direct = async move {
+        let reader = async_stream::stream! {
             while let Some(packet) = reader.next().await {
-                let packet = packet.map_err(|err| NetworkError::Generic(err.to_string()))?;
-
-                if let Err(err) = evaulute_result(packet_processor::raw_primary_packet::process_raw_packet(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet, async_processor_tx), primary_stream, kernel_tx) {
-                    return Err(handle_session_terminating_error(err, this_main.is_server, p2p))
-                }
+                yield packet
             }
-
-            Ok(())
         };
 
-        // TODO: get rid of concurrent tx if possible
-        let futures_concurrent_executor = async move {
-            let reader = async_stream::stream! {
-                while let Some(value) = async_processor_rx.recv().await {
-                    yield Ok(value);
-                }
-            };
-
-            reader.try_for_each_concurrent(None, move |future| {
-                async move {
-                    evaulute_result(future.await, primary_stream, kernel_tx)
-                }
-            }).await.map_err(|err| {
-                handle_session_terminating_error(err, this_main.is_server, p2p)
-            })
-        };
-
-        tokio::select! {
-            res0 = inbound_direct => res0,
-            res1 = futures_concurrent_executor => res1
-        }
+        reader.try_for_each_concurrent(None, |packet| async move {
+            let result = packet_processor::raw_primary_packet::process_raw_packet(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet).await;
+            evaulute_result(result, primary_stream, kernel_tx)
+        }).map_err(|err| handle_session_terminating_error(err, is_server, p2p)).await
     }
 
     pub(crate) fn send_to_primary_stream_closure(to_primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<NodeResult>, msg: BytesMut, ticket: Option<Ticket>) -> Result<(), NetworkError> {

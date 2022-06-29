@@ -146,8 +146,11 @@ impl Stream for GroupChannelRecvHalf {
 impl Drop for GroupChannelRecvHalf {
     fn drop(&mut self) {
         log::trace!(target: "lusna", "Dropping group channel recv half for {:?} | {:?}", self.implicated_cid, self.key);
-        if let Err(err) = inner_mut_state!(self.state_container).process_outbound_broadcast_command(self.ticket, &GroupBroadcast::LeaveRoom(self.key)) {
+        let mut state_container = inner_mut_state!(self.state_container);
+        if let Err(err) = state_container.process_outbound_broadcast_command(self.ticket, &GroupBroadcast::LeaveRoom(self.key)) {
             log::warn!(target: "lusna", "Drop warning: {:?}", err)
         }
+
+        let _ = state_container.group_channels.remove(&self.key);
     }
 }

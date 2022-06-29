@@ -3,11 +3,10 @@ use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAlice
 use crate::error::NetworkError;
 use hyxe_crypt::prelude::ConstructorOpts;
 use std::sync::atomic::Ordering;
-use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// This will handle an HDP registration packet
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_register(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
+pub async fn process_register(session_ref: &HdpSession, packet: HdpPacket, remote_addr: SocketAddr) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref.clone();
     let state = session.state.load(Ordering::Relaxed);
 
@@ -202,7 +201,8 @@ pub fn process_register(session_ref: &HdpSession, packet: HdpPacket, remote_addr
                                             // Finally, alert the higher-level kernel about the success
                                             session.session_manager.clear_provisional_session(&remote_addr);
                                             kernel_tx.unbounded_send(NodeResult::RegisterOkay(reg_ticket.get(), new_cnac, success_message))?;
-                                            Ok(PrimaryProcessorResult::EndSession("Registration subroutine ended (STATUS: Success)"))
+                                            session.shutdown();
+                                            Ok(PrimaryProcessorResult::Void)
                                         }
                                     }
 
@@ -253,5 +253,5 @@ pub fn process_register(session_ref: &HdpSession, packet: HdpPacket, remote_addr
         }
     };
 
-    to_concurrent_processor!(concurrent_processor_tx, task)
+    to_concurrent_processor!(task)
 }

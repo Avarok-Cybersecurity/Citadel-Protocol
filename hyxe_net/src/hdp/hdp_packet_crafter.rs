@@ -144,7 +144,7 @@ impl GroupTransmitter {
     pub fn transmit_group_header(&mut self, virtual_target: VirtualTargetType) -> Result<(), NetworkError> {
         let header = self.generate_group_header(virtual_target);
         self.to_primary_stream.unbounded_send(header)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::msg(format!("Unable to transmit group header: {:?}", err)))
     }
 
     /// Generates the group header for this set using the pre-allocated slab. Since the group header is always sent through the primary port,
