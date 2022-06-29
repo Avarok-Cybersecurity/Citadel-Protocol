@@ -10,8 +10,6 @@ pub mod includes {
 
     pub use bytes::Bytes;
     pub use log::{trace, warn};
-    pub use rand::prelude::ThreadRng;
-    pub use rand::RngCore;
     pub use tokio::time::{Duration, Instant};
     pub use zerocopy::LayoutVerified;
 
