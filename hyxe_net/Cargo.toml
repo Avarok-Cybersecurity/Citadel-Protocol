@@ -14,8 +14,8 @@ multi-threaded = ["ez_pqcrypto/unordered", "hyxe_crypt/multi-threaded", "hyxe_us
 sql = ["hyxe_user/sql"]
 redis = ["hyxe_user/redis"]
 webrtc = ["webrtc-util"]
-localhost-testing = ["hyxe_wire/localhost-testing", "hyxe_user/localhost-testing", "lusna_logging", "tracing"]
-localhost-testing-assert-no-proxy = []
+localhost-testing = ["hyxe_wire/localhost-testing", "hyxe_user/localhost-testing", "tracing"]
+localhost-testing-assert-no-proxy = ["localhost-testing"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -56,15 +56,14 @@ once_cell = "1.8.0"
 webrtc-util = {version = "0.5.3", optional = true}
 uuid = { version = "1.0.0-alpha.1", features = ["serde", "v4"] }
 itertools = "0.10.3"
-lusna_logging = { path = "../lusna_logging", version = "0.1.0", optional = true }
-tracing = { version = "0.1.35", optional = true }
+tracing = { version = "=0.1.34", optional = true }
 #libp2p = { version = "0.43.0", default-features=false, features = ["tcp-tokio", "serde"] }
 
 
 
 [dev-dependencies]
 lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
-tracing = "0.1.35"
+tracing = "=0.1.34"
 ureq = "2.4.0"
 rstest = { git = "https://github.com/la10736/rstest", branch="master" }
 

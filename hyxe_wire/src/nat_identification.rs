@@ -201,6 +201,7 @@ fn average_delta<T: Ord + Copy + Sized + Sub>(vals: &Vec<T>) -> usize
     (average.abs() as usize)
 }
 
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
 async fn get_nat_type() -> Result<NatType, anyhow::Error> {
     let nat_type = async move {
         let mut msg = Message::new();

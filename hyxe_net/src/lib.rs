@@ -145,8 +145,8 @@ pub mod macros {
 }
 
     macro_rules! to_concurrent_processor {
-        ($executor:expr, $future:expr) => {
-            $executor.send(Box::pin($future)).map(|_| PrimaryProcessorResult::Void).map_err(|_| NetworkError::InternalError("Async concurrent executor died"))
+        ($future:expr) => {
+            return $future.await
         }
     }
 
@@ -299,8 +299,8 @@ pub mod macros {
     }
 
     macro_rules! to_concurrent_processor {
-        ($executor:expr, $future:expr) => {
-            $executor.send(Box::pin($future)).map(|_| PrimaryProcessorResult::Void).map_err(|_| NetworkError::InternalError("Async concurrent executor died"))
+        ($future:expr) => {
+            return $future.await
         }
     }
 

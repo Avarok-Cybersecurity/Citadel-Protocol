@@ -17,12 +17,11 @@ use super::includes::*;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use hyxe_wire::udp_traversal::udp_hole_puncher::EndpointHolePunchExt;
 use std::sync::atomic::Ordering;
-use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 use hyxe_wire::exports::NewConnection;
 
 /// Handles preconnect packets. Handles the NAT traversal
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
+pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_orig.clone();
 
     if !session.is_provisional() {
@@ -136,7 +135,7 @@ pub fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, concurre
 
                             // another check. If we are already using a QUIC connection for the primary stream, we don't need to hole-punch.
                             if let Some(quic_conn) = inner_mut!(session.primary_stream_quic_conn).take() {
-                                return send_success_as_initiator(get_quic_udp_interface(quic_conn, session.local_bind_addr), &new_hyper_ratchet, session, security_level, cnac, &mut *state_container);
+                                return send_success_as_initiator(Some(get_quic_udp_interface(quic_conn, session.local_bind_addr)), &new_hyper_ratchet, session, security_level, cnac, &mut *state_container);
                             }
 
                             let stage0_preconnect_packet = hdp_packet_crafter::pre_connect::craft_stage0(&new_hyper_ratchet, timestamp, local_node_type, security_level);
@@ -163,13 +162,12 @@ pub fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, concurre
                 match res {
                     Ok(ret) => {
                         log::trace!(target: "lusna", "Initiator finished NAT traversal ...");
-                        send_success_as_initiator(get_raw_udp_interface(ret), &new_hyper_ratchet, session, security_level, cnac, &mut *inner_mut_state!(session.state_container))
+                        send_success_as_initiator(Some(get_raw_udp_interface(ret)), &new_hyper_ratchet, session, security_level, cnac, &mut *inner_mut_state!(session.state_container))
                     }
 
                     Err(err) => {
                         log::warn!(target: "lusna", "Hole punch attempt failed {:?}", err.to_string());
-                        // Note: the session will automatically close, if needed
-                        Ok(PrimaryProcessorResult::Void)
+                        send_success_as_initiator(None, &new_hyper_ratchet, session, security_level, cnac, &mut *inner_mut_state!(session.state_container))
                     }
                 }
             }
@@ -225,7 +223,7 @@ pub fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, concurre
 
                 match res {
                     Ok(ret) => {
-                        handle_success_as_receiver(get_raw_udp_interface(ret), session, cnac, &mut *inner_mut_state!(session.state_container))
+                        handle_success_as_receiver(Some(get_raw_udp_interface(ret)), session, cnac, &mut *inner_mut_state!(session.state_container))
                     }
 
                     Err(err) => {
@@ -271,7 +269,7 @@ pub fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, concurre
                     if state_container.udp_mode == UdpMode::Enabled {
                         if let Some(quic_conn) = inner_mut!(session.primary_stream_quic_conn).take() {
                             log::trace!(target: "lusna", "[Server/QUIC-UDP] Loading ...");
-                            let _ = handle_success_as_receiver(get_quic_udp_interface(quic_conn, session.local_bind_addr), session, cnac, &mut *state_container)?;
+                            let _ = handle_success_as_receiver(Some(get_quic_udp_interface(quic_conn, session.local_bind_addr)), session, cnac, &mut *state_container)?;
                         }
                     }
 
@@ -329,7 +327,7 @@ pub fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket, concurre
         }
     };
 
-    to_concurrent_processor!(concurrent_processor_tx, task)
+    to_concurrent_processor!(task)
 }
 
 fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -351,22 +349,24 @@ fn begin_connect_process(session: &HdpSession, hyper_ratchet: &HyperRatchet, sec
     Ok(PrimaryProcessorResult::ReplyToSender(stage0_connect_packet))
 }
 
-fn send_success_as_initiator(udp_splittable: UdpSplittableTypes, hyper_ratchet: &HyperRatchet, session: &HdpSession, security_level: SecurityLevel, cnac: &ClientNetworkAccount, state_container: &mut StateContainerInner) -> Result<PrimaryProcessorResult, NetworkError> {
+fn send_success_as_initiator(udp_splittable: Option<UdpSplittableTypes>, hyper_ratchet: &HyperRatchet, session: &HdpSession, security_level: SecurityLevel, cnac: &ClientNetworkAccount, state_container: &mut StateContainerInner) -> Result<PrimaryProcessorResult, NetworkError> {
     let _ = handle_success_as_receiver(udp_splittable, session, cnac, state_container)?;
 
     let success_packet = hdp_packet_crafter::pre_connect::craft_stage_final(hyper_ratchet, true, false, session.time_tracker.get_global_time_ns(),  security_level);
     Ok(PrimaryProcessorResult::ReplyToSender(success_packet))
 }
 
-fn handle_success_as_receiver(udp_splittable: UdpSplittableTypes, session: &HdpSession, cnac: &ClientNetworkAccount, state_container: &mut StateContainerInner) -> Result<PrimaryProcessorResult, NetworkError> {
+fn handle_success_as_receiver(udp_splittable: Option<UdpSplittableTypes>, session: &HdpSession, cnac: &ClientNetworkAccount, state_container: &mut StateContainerInner) -> Result<PrimaryProcessorResult, NetworkError> {
     let tcp_loaded_alerter_rx = state_container.setup_tcp_alert_if_udp_c2s();
-    let peer_addr = udp_splittable.peer_addr();
 
     state_container.pre_connect_state.last_stage = packet_flags::cmd::aux::do_preconnect::SUCCESS;
     state_container.pre_connect_state.on_packet_received();
 
-    // the UDP subsystem will automatically engage at this point
-    HdpSession::udp_socket_loader(session.clone(), VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), udp_splittable, peer_addr, session.kernel_ticket.get(), Some(tcp_loaded_alerter_rx));
+    if let Some(udp_splittable) = udp_splittable {
+        let peer_addr = udp_splittable.peer_addr();
+        // the UDP subsystem will automatically engage at this point
+        HdpSession::udp_socket_loader(session.clone(), VirtualTargetType::HyperLANPeerToHyperLANServer(cnac.get_cid()), udp_splittable, peer_addr, session.kernel_ticket.get(), Some(tcp_loaded_alerter_rx));
+    }
     // the server will await for the client to send an initiation packeet
     Ok(PrimaryProcessorResult::Void)
 }

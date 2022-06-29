@@ -305,13 +305,16 @@ fn forward_signal(session: &HdpSession, ticket: Ticket, key: Option<MessageGroup
     if let Some(key) = key {
         // send to the dedicated channel
         if let Some(tx) = inner_mut_state!(session.state_container).group_channels.get(&key) {
-            tx.unbounded_send(broadcast.into()).map_err(|err| NetworkError::Generic(err.to_string()))?;
+            if let Err(err) = tx.unbounded_send(broadcast.into()) {
+                log::error!(target: "lusna", "Unable to forward group broadcast signal. Reason: {:?}", err);
+            }
+
             return Ok(PrimaryProcessorResult::Void)
         }
     }
 
     // send to kernel
-    session.send_to_kernel(NodeResult::GroupEvent(implicated_cid, ticket, broadcast)).map_err(|err| NetworkError::Generic(err.to_string()))?;
+    session.send_to_kernel(NodeResult::GroupEvent(implicated_cid, ticket, broadcast)).map_err(|err| NetworkError::msg(format!("Kernel TX is dead: {:?}", err)))?;
     Ok(PrimaryProcessorResult::Void)
 }
 
