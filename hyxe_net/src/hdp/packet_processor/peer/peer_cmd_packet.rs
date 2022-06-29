@@ -24,13 +24,12 @@ use crate::hdp::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal, UdpMode, HyperNodePeerLayerInner};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
-use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
 /// HyperLAN client and the HyperLAN Server
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header_drill_version: u32, endpoint_cid_info: Option<(u64, u64)>, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
+pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header_drill_version: u32, endpoint_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     // ALL PEER_CMD packets require that the current session contain a CNAC (not anymore since switching to async)
     let session = session_orig.clone();
     let (header, payload, _peer_addr, _) = packet.decompose();
@@ -302,8 +301,7 @@ pub fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacke
                                         let app = NetworkEndpoint::register(RelativeNodeType::Initiator, hole_punch_compat_stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
                                         //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
                                         let client_config = session.client_config.clone();
-                                        let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, app, encrypted_config_container, client_config);
-                                        let _ = spawn!(hole_punch_future);
+                                        let _ = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, app, encrypted_config_container, client_config).await;
                                     }
 
                                     //let _ = hole_punch_future.await;
@@ -361,8 +359,7 @@ pub fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacke
                                         let kernel_tx = session.kernel_tx.clone();
                                         let client_config = session.client_config.clone();
 
-                                        let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, app,   encrypted_config_container, client_config);
-                                        let _ = spawn!(hole_punch_future);
+                                        let _ = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, app,   encrypted_config_container, client_config).await;
                                     }
 
                                     //let _ = hole_punch_future.await;
@@ -404,7 +401,7 @@ pub fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacke
         }
     };
 
-    to_concurrent_processor!(concurrent_processor_tx, task)
+    to_concurrent_processor!(task)
 }
 
 
@@ -594,7 +591,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         let last_packet = v_conn.last_delivered_message_timestamp.clone();
                         let state_container_ref = session.state_container.clone();
                         let session_manager = session.session_manager.clone();
-                        let outbound_tx = return_if_none!(session.to_primary_stream.clone(), "Outbound sender not loaded");
 
                         std::mem::drop(state_container);
 
@@ -621,22 +617,10 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                             let signal_to_peer = PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid), resp);
                             // now, remove target CID's v_conn to `implicated_cid`
                             std::mem::drop(state_container);
-                            let res = session_manager.disconnect_virtual_conn(implicated_cid, target_cid, move |peer_hyper_ratchet| {
+                            let _ = session_manager.disconnect_virtual_conn(implicated_cid, target_cid, move |peer_hyper_ratchet| {
                                 // send signal to peer
                                 hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal_to_peer, ticket, timestamp, security_level)
                             });
-
-                            // now, send a packet back to the source
-                            match res.map_or_else(|err| reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp, security_level),
-                                            |_| reply_to_sender(PeerSignal::Disconnect(peer_conn_type, None), &sess_hyper_ratchet, ticket, timestamp, security_level)) {
-                                Ok(PrimaryProcessorResult::ReplyToSender(packet)) => {
-                                    if let Err(err) = outbound_tx.unbounded_send(packet) {
-                                        log::error!(target: "lusna", "Unable to send to outbound stream: {:?}", err);
-                                    }
-                                }
-
-                                _ => {}
-                            }
                         };
 
                         let _ = spawn!(task);

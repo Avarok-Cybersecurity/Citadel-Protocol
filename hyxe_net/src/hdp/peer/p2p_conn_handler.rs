@@ -183,6 +183,7 @@ async fn p2p_stopper(receiver: Receiver<()>) -> Result<(), NetworkError> {
 }
 
 /// Both sides need to begin this process at `sync_time`
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(implicated_cid=implicated_cid.get(), peer_cid=peer_connection_type.get_original_target_cid())))]
 pub(crate) async fn attempt_simultaneous_hole_punch(peer_connection_type: PeerConnectionType, ticket: Ticket, ref session: HdpSession, peer_nat_info: PeerNatInfo, implicated_cid: DualCell<Option<u64>>, ref kernel_tx: UnboundedSender<NodeResult>, channel_signal: NodeResult, sync_time: Instant,
                                                     ref app: NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer, client_config: Arc<rustls::ClientConfig>) -> std::io::Result<()> {
 

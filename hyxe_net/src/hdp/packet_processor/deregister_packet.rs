@@ -2,11 +2,10 @@ use super::includes::*;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
-use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 /// processes a deregister packet. The client must be connected to the HyperLAN Server in order to DeRegister
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session_ref.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
-pub fn process_deregister(session_ref: &HdpSession, packet: HdpPacket, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
+pub async fn process_deregister(session_ref: &HdpSession, packet: HdpPacket) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref.clone();
 
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
@@ -55,7 +54,7 @@ pub fn process_deregister(session_ref: &HdpSession, packet: HdpPacket, concurren
         }
     };
 
-    to_concurrent_processor!(concurrent_processor_tx, task)
+    to_concurrent_processor!(task)
 }
 
 async fn deregister_client_from_self(implicated_cid: u64, session_ref: &HdpSession, hyper_ratchet: &HyperRatchet, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {

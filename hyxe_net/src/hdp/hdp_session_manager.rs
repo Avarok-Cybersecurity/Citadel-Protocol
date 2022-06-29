@@ -184,11 +184,15 @@ impl HdpSessionManager {
 
     /// Ensures that the session is removed even if there is a technical error in the underlying stream
     /// TODO: Make this code less hacky, and make the removal process cleaner. Use RAII on HdpSessionInner?
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(implicated_cid=new_session.implicated_cid.get(), is_server=new_session.is_server, peer_addr=peer_addr.to_string())))]
     async fn execute_session_with_safe_shutdown(session_manager: HdpSessionManager, new_session: HdpSession, peer_addr: SocketAddr, tcp_stream: GenericNetworkStream) -> Result<(), NetworkError> {
         log::trace!(target: "lusna", "Beginning pre-execution of session");
-        match new_session.execute(tcp_stream, peer_addr).await {
+        let mut err = None;
+        let res = new_session.execute(tcp_stream, peer_addr).await;
+
+        match &res {
             Ok(cid_opt) | Err((_, cid_opt)) => {
-                if let Some(cid) = cid_opt {
+                if let Some(cid) = cid_opt.clone() {
                     //log::trace!(target: "lusna", "[safe] Deleting full connection from CID {} (IP: {})", cid, &peer_addr);
                     session_manager.clear_session(cid);
                     session_manager.clear_provisional_session(&peer_addr);
@@ -197,6 +201,10 @@ impl HdpSessionManager {
                     session_manager.clear_provisional_session(&peer_addr);
                 }
             }
+        }
+
+        if let Err(err_inner) = res {
+            err = Some(err_inner.0);
         }
 
         let sess_mgr = inner!(session_manager);
@@ -285,7 +293,11 @@ impl HdpSessionManager {
             state_container.end_connections();
         }
 
-        Ok(())
+        if let Some(err) = err {
+            Err(err)
+        } else {
+            Ok(())
+        }
     }
 
     // This future should be joined up higher at the [HdpServer] layer
