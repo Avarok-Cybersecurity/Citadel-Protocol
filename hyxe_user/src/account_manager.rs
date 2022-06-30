@@ -18,7 +18,8 @@ pub struct AccountManager<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet>
     services_handler: ServicesHandler,
     persistence_handler: PersistenceHandler<R, Fcm>,
     node_argon_settings: ArgonSettings,
-    server_misc_settings: ServerMiscSettings
+    server_misc_settings: ServerMiscSettings,
+    backend_ty: BackendType
 }
 
 impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
@@ -65,7 +66,7 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
 
         log::info!(target: "lusna", "Successfully established connection to backend {:?}...", backend_type);
 
-        let this = Self { persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
+        let this = Self { backend_ty: backend_type, persistence_handler, services_handler, node_argon_settings: server_argon_settings.unwrap_or_default().into(), server_misc_settings: server_misc_settings.unwrap_or_default() };
 
         Ok(this)
     }
@@ -241,5 +242,10 @@ impl<R: Ratchet, Fcm: Ratchet> AccountManager<R, Fcm> {
     /// Returns the misc settings
     pub fn get_misc_settings(&self) -> &ServerMiscSettings {
         &self.server_misc_settings
+    }
+
+    /// Gets the backend type
+    pub fn get_backend_type(&self) -> &BackendType {
+        &self.backend_ty
     }
 }
