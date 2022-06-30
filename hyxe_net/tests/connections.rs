@@ -135,6 +135,7 @@ pub mod tests {
 
             for _ in 0..count {
                 client.push(async move {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                     let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await?;
                     log::trace!(target: "lusna", "Client connected");
                     let _ = stream.write(&[0xfb]).await?;
