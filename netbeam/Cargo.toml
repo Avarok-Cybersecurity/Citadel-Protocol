@@ -19,7 +19,7 @@ parking_lot = "0.12.0"
 bincode2 = "2.0.1"
 serde = { version = "1.0.127", features = ["derive"] }
 anyhow = "1.0.57"
-tokio-util = { version = "0.6.7", features = ["codec"] }
+tokio-util = { version = "0.7.3", features = ["codec"] }
 rand = "0.8.4"
 async-stream = "0.3.2"
 
@@ -27,7 +27,7 @@ log = "0.4.8"
 
 [dev-dependencies]
 parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
-async-recursion = "0.3.2"
+async-recursion = "1.0.0"
 lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 rstest = "0.15.0"
 
