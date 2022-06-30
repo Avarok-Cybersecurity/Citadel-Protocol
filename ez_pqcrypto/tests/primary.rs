@@ -154,13 +154,10 @@ mod tests {
 
         let kem_algorithm = KemAlgorithm::Firesaber;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
-        let nonce_len = encryption_algorithm.nonce_len();
-
+        let nonce_len = encryption_algorithm.nonce_len() as u8;
         let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
-
-
-        let mut zeroth = Vec::default();
-        let mut zeroth_nonce = Vec::from_iter(0..nonce_len as u8);
+        let mut zeroth = Vec::<u8>::default();
+        let mut zeroth_nonce = Vec::<u8>::from_iter(0..nonce_len);
         for y in 0..(HISTORY_LEN + 10) {
             let mut buf = Vec::with_capacity(TOTAL_LEN);
             for x in 0..TOTAL_LEN {
@@ -170,7 +167,7 @@ mod tests {
             let mut buf2 = buf.clone();
 
             log::trace!(target: "lusna", "[{} @ {} ] {:?}", y, buf.len(), &buf[..]);
-            let nonce = Vec::from_iter(0..nonce_len as u8);
+            let nonce = vec![0; 12];
             alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
             alice_container.protect_packet_in_place(HEADER_LEN, &mut buf2, &nonce).unwrap();
 

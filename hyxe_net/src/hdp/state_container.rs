@@ -1374,7 +1374,8 @@ impl StateContainerInner {
 
     pub(crate) fn process_outbound_broadcast_command(&self, ticket: Ticket, command: &GroupBroadcast) -> Result<(), NetworkError> {
         if self.state.load(Ordering::Relaxed) != SessionState::Connected {
-            return Err(NetworkError::InternalError("Session not connected"));
+            log::warn!(target: "lusna", "Unable to execute group command since session is not connected");
+            return Ok(())
         }
 
         let cnac = self.cnac.as_ref().unwrap();
