@@ -12,6 +12,7 @@ mod tests {
     use std::iter::FromIterator;
     use std::convert::TryFrom;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
+    use lusna_logging::setup_log;
 
     fn gen(kem_algorithm: KemAlgorithm, encryption_algorithm: EncryptionAlgorithm) -> (PostQuantumContainer, PostQuantumContainer) {
         log::trace!(target: "lusna", "Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
@@ -149,6 +150,7 @@ mod tests {
     // this will work in ordered mode, but panic in unordered
     #[cfg(feature = "unordered")]
     fn in_place_out_of_order_for_unordered_mode() {
+        setup_log();
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;
 
