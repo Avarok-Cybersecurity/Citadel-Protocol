@@ -377,6 +377,9 @@ pub mod prelude {
     pub use crate::kernel::RuntimeFuture;
     pub use crate::hdp::peer::message_group::{MessageGroupOptions, GroupType};
     pub use crate::hdp::hdp_node::HdpServer;
+
+    #[doc(hidden)]
+    pub use crate::hdp::misc::net::{safe_split_stream, GenericNetworkStream};
 }
 
 /// Contains the streams for creating connections
