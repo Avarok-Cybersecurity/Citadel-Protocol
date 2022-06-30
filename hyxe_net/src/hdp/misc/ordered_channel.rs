@@ -188,7 +188,7 @@ mod tests {
         let recv_handle = tokio::task::spawn(recv_task);
 
         tokio_stream::iter(values_unordered).for_each_concurrent(None, |(id, packet)| async move {
-            let rnd = ThreadRng::default().gen_range(1, 10);
+            let rnd = ThreadRng::default().gen_range(1..10);
             tokio::time::sleep(Duration::from_millis(rnd)).await;
             ordered_channel.write().await.on_packet_received(id, packet).unwrap();
         }).await;
