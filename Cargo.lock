@@ -1925,6 +1925,7 @@ dependencies = [
  "lusna_logging",
  "parking_lot 0.12.1",
  "rand 0.8.5",
+ "rstest 0.15.0",
  "serde",
  "tokio",
  "tokio-util 0.6.10",
@@ -2773,8 +2774,33 @@ source = "git+https://github.com/la10736/rstest?branch=master#99762580819fc56a20
 dependencies = [
  "futures",
  "futures-timer",
- "rstest_macros",
+ "rstest_macros 0.14.0 (git+https://github.com/la10736/rstest?branch=master)",
  "rustc_version 0.4.0",
+]
+
+[[package]]
+name = "rstest"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9c9dc66cc29792b663ffb5269be669f1613664e69ad56441fdb895c2347b930"
+dependencies = [
+ "futures",
+ "futures-timer",
+ "rstest_macros 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustc_version 0.4.0",
+]
+
+[[package]]
+name = "rstest_macros"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5015e68a0685a95ade3eee617ff7101ab6a3fc689203101ca16ebc16f2b89c66"
+dependencies = [
+ "cfg-if 1.0.0",
+ "proc-macro2",
+ "quote",
+ "rustc_version 0.4.0",
+ "syn",
 ]
 
 [[package]]
