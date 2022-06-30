@@ -8,11 +8,11 @@ pub mod tests {
     use rstest::*;
     use futures::stream::FuturesUnordered;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use rand::{SeedableRng, Rng};
     use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
     use hyxe_wire::socket_helpers::is_ipv6_enabled;
     use itertools::Itertools;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use futures::TryStreamExt;
 
     #[fixture]
     #[once]
@@ -107,8 +107,6 @@ pub mod tests {
 
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
-            // give sleep to give time for conns to drop
-            tokio::time::sleep(Duration::from_millis(100)).await;
             log::trace!(target: "lusna", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
@@ -116,48 +114,49 @@ pub mod tests {
             log::trace!(target: "lusna", "Bind/connect addr: {:?}", addr);
 
             let server = async move {
-                loop {
-                    let next = listener.next().await;
-                    log::trace!(target: "lusna", "[Server] Next conn: {:?}", next);
-                    let (mut stream, peer_addr) = next.unwrap().unwrap();
-                    tokio::spawn(async move {
-                        log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
-                        let buf = &mut [0u8;64];
-                        let res = stream.read(buf).await;
-                        log::trace!(target: "lusna", "Server-res: {:?}", res);
-                        assert_eq!(buf[0], 0xfb, "Invalid read");
-                        let _ = stream.write(&[0xfa]).await.unwrap();
-                        stream.shutdown().await.unwrap();
-                    });
-                }
+                let stream = async_stream::stream! {
+                    while let Some(stream) = listener.next().await {
+                        yield stream.unwrap()
+                    }
+                };
+
+                stream.map(Ok).try_for_each_concurrent(None, |(mut stream, peer_addr)| async move {
+                    log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
+                    let buf = &mut [0u8;64];
+                    let res = stream.read(buf).await;
+                    log::trace!(target: "lusna", "Server-res: {:?}", res);
+                    assert_eq!(buf[0], 0xfb, "Invalid read"); // TODO: this apparently failed on mac
+                    let _ = stream.write(&[0xfa]).await.unwrap();
+                    stream.shutdown().await
+                }).await
             };
 
             let client = FuturesUnordered::new();
 
             for _ in 0..count {
                 client.push(async move {
-                    let mut rng = rand::rngs::StdRng::from_entropy();
-                    tokio::time::sleep(Duration::from_millis(rng.gen_range(10, 50))).await;
-                    let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await.unwrap();
+                    let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await?;
                     log::trace!(target: "lusna", "Client connected");
-                    let res = stream.write(&[0xfb]).await;
-                    log::trace!(target: "lusna", "Client connected - A02 {:?}", res);
+                    let _ = stream.write(&[0xfb]).await?;
                     let buf = &mut [0u8;64];
-                    let res = stream.read(buf).await;
-                    log::trace!(target: "lusna", "Client connected - AO3 {:?}", res);
-                    assert_eq!(buf[0], 0xfa, "Invalid read - client");
+                    let _ = stream.read(buf).await?;
+                    if buf[0] != 0xfa {
+                        return Err(generic_error("Invalid read - client"))
+                    }
+
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
                 });
             }
 
-            let client = client.collect::<Vec<()>>();
+            let client = client.try_collect::<Vec<()>>();
             // if server ends, bad. If client ends, maybe good
             let res = tokio::select! {
                 res0 = server => {
                     res0
                 },
                 res1 = client => {
-                    res1
+                    res1.map(|_| ())
                 }
             };
 
@@ -169,5 +168,9 @@ pub mod tests {
         }
 
         Ok(())
+    }
+
+    fn generic_error(msg: impl Into<String>) -> std::io::Error {
+        std::io::Error::new(std::io::ErrorKind::Other, msg.into())
     }
 }
