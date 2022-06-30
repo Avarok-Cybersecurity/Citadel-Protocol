@@ -1,7 +1,7 @@
 #[cfg(test)]
 pub mod tests {
     use std::sync::Arc;
-    use futures::StreamExt;
+    use futures::{StreamExt, SinkExt};
     use std::time::Duration;
     use std::net::SocketAddr;
     use hyxe_net::prelude::*;
@@ -11,8 +11,8 @@ pub mod tests {
     use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
     use hyxe_wire::socket_helpers::is_ipv6_enabled;
     use itertools::Itertools;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use futures::TryStreamExt;
+    use bytes::BytesMut;
 
     #[fixture]
     #[once]
@@ -62,25 +62,13 @@ pub mod tests {
             let server = async move {
                 let next = listener.next().await;
                 log::trace!(target: "lusna", "[Server] Next conn: {:?}", next);
-                let (mut stream, peer_addr) = next.unwrap().unwrap();
-                log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
-                let buf = &mut [0u8;64];
-                let res = stream.read(buf).await;
-                log::trace!(target: "lusna", "Server-res: {:?}", res);
-                assert_eq!(buf[0], 0xfb, "Invalid read");
-                let _ = stream.write(&[0xfa]).await.unwrap();
-                stream.shutdown().await.unwrap();
+                let (stream, peer_addr) = next.unwrap().unwrap();
+                on_server_received_connection(stream, peer_addr).await
             };
 
             let client = async move {
-                let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await.unwrap();
-                log::trace!(target: "lusna", "Client connected");
-                let res = stream.write(&[0xfb]).await;
-                log::trace!(target: "lusna", "Client connected - A02 {:?}", res);
-                let buf = &mut [0u8;64];
-                let res = stream.read(buf).await;
-                log::trace!(target: "lusna", "Client connected - AO3 {:?}", res);
-                assert_eq!(buf[0], 0xfa, "Invalid read - client");
+                let (stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await.unwrap();
+                on_client_received_stream(stream).await
             };
 
             let _ = tokio::join!(server, client);
@@ -120,14 +108,8 @@ pub mod tests {
                     }
                 };
 
-                stream.map(Ok).try_for_each_concurrent(None, |(mut stream, peer_addr)| async move {
-                    log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
-                    let buf = &mut [0u8;64];
-                    let res = stream.read(buf).await;
-                    log::trace!(target: "lusna", "Server-res: {:?}", res);
-                    assert_eq!(buf[0], 0xfb, "Invalid read"); // TODO: this apparently failed on mac
-                    let _ = stream.write(&[0xfa]).await.unwrap();
-                    stream.shutdown().await
+                stream.map(Ok).try_for_each_concurrent(None, |(stream, peer_addr)| async move {
+                    on_server_received_connection(stream, peer_addr).await
                 }).await
             };
 
@@ -135,16 +117,8 @@ pub mod tests {
 
             for _ in 0..count {
                 client.push(async move {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await?;
-                    log::trace!(target: "lusna", "Client connected");
-                    let _ = stream.write(&[0xfb]).await?;
-                    let buf = &mut [0u8;64];
-                    let _ = stream.read(buf).await?;
-                    if buf[0] != 0xfa {
-                        return Err(generic_error("Invalid read - client"))
-                    }
-
+                    let (stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await?;
+                    on_client_received_stream(stream).await?;
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
                     Ok(())
                 });
@@ -171,7 +145,21 @@ pub mod tests {
         Ok(())
     }
 
-    fn generic_error(msg: impl Into<String>) -> std::io::Error {
-        std::io::Error::new(std::io::ErrorKind::Other, msg.into())
+    async fn on_server_received_connection(stream: GenericNetworkStream, peer_addr: SocketAddr) -> std::io::Result<()> {
+        log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
+        let (mut sink, mut stream) = safe_split_stream(stream);
+        let packet = stream.next().await.unwrap()?;
+        assert_eq!(&packet[..], &[100u8]);
+        sink.send(BytesMut::from(&[100u8] as &[u8]).freeze()).await?;
+        Ok(())
+    }
+
+    async fn on_client_received_stream(stream: GenericNetworkStream) -> std::io::Result<()> {
+        let (mut sink, mut stream) = safe_split_stream(stream);
+        log::trace!(target: "lusna", "Client connected");
+        sink.send(BytesMut::from(&[100u8] as &[u8]).freeze()).await?;
+        let packet = stream.next().await.unwrap()?;
+        assert_eq!(&packet[..], &[100u8]);
+        Ok(())
     }
 }
