@@ -138,7 +138,7 @@ jobs:
       # Run with valgrind
       - name: Run valgrind secmem_string
         run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
-      - run: cargo check --package lusna_sdk --release --features=webrtc
+      - run: cargo check --package lusna_sdk --release --features=webrtc,sql,redis
 #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
 #      # Run with valgrind
