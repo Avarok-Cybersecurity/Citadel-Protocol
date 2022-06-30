@@ -1182,17 +1182,13 @@ impl HdpSession {
         }
     }
 
-    async fn listen_udp_port<S: UdpStream>(this: HdpSession, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
+    async fn listen_udp_port<S: UdpStream>(this: HdpSession, _hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
         while let Some(res) = stream.next().await {
             match res {
                 Ok((packet, remote_peer)) => {
                     log::trace!(target: "lusna", "packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
-                    if remote_peer.ip() != hole_punched_addr_ip {
-                        log::warn!(target: "lusna", "The packet received is not part of the firewall session. Dropping");
-                    } else {
-                        let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                        this.process_inbound_packet_wave(packet, peer_session_accessor)?;
-                    }
+                    let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
+                    this.process_inbound_packet_wave(packet, peer_session_accessor)?;
                 }
 
                 Err(err) => {

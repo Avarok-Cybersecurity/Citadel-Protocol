@@ -11,7 +11,6 @@ unused_results
 /// Convenient imports for external use
 pub mod prelude {
     pub use ::async_trait::async_trait;
-    pub use zerocopy::{ByteSlice, ByteSliceMut};
 
     pub use ez_pqcrypto::{algorithm_dictionary, bytes_in_place::EzBuffer, PostQuantumContainer};
     pub use ez_pqcrypto::constructor_opts::ConstructorOpts;

@@ -28,7 +28,7 @@ tokio = "1.19.0"
 async-trait = "^0.1.48"
 futures = "0.3.5"
 #future-parking_lot = { git = "https://github.com/nappa85/future-parking_lot" }
-rand = "0.7.0"
+rand = "0.8.5"
 multimap = "^0.8.3"
 parking_lot = { version = "0.12.0", features = ["serde"] }
 log = { version = "0.4.8" }
@@ -54,7 +54,7 @@ tokio-stream = { version = "0.1.7", optional = true }
 tokio = { version = "1.19.0", features = ["macros"] }
 lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 dirs2 = "3.0.1"
-rstest = "0.12.0"
+rstest = "0.15.0"
 lazy_static = "1.4.0"
 
 ez_pqcrypto = { version = "0.1.1", path = "../ez_pqcrypto" }

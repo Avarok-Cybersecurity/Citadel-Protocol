@@ -25,20 +25,18 @@ serde = { version="1.0.104", features=["rc", "derive"] }
 serde_derive = "1.0.104"
 futures = "0.3.5"
 log = "0.4.8"
-zerocopy = "0.5.0"
 byteorder = "1.3.2"
 bytes = { version = "^1.0.1", features = ["serde"] }
 num-integer = "0.1.43"
-rand = "0.7.0"
+rand = "0.8.5"
 rayon = "1.5.1"
 arrayvec = { version = "0.7.0", features = ["serde"] }
 ez_pqcrypto = { path = "../ez_pqcrypto", version = "0.1.1", default-features=false }
 #fcm = { path = "../fcm-rust", version = "0.8.1" }
-bitvec = "0.17.4"
+bitvec = "1.0.0"
 serde-big-array = "0.4.1"
 rust-argon2 = "1.0.0"
 sysinfo = "0.23.2"
-zeroize = "*"
 num_cpus = "1.13.0"
 linked-hash-map = "*"
 tokio = { version = "1.19.0", features = ["full"] }
