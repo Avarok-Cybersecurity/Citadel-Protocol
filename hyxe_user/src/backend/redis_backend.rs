@@ -442,9 +442,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for RedisBackend<R, Fcm
             .await
             .map_err(|err| AccountError::msg(err.to_string()))?;
 
-        log::error!(target: "lusna", "username_map len: {}", usernames_map.len());
-        log::error!(target: "lusna", "username_map {:?}", usernames_map);
-
         let mut ret = Vec::with_capacity(usernames_map.len());
         for (cid, username) in usernames_map {
             ret.push(MutualPeer {
