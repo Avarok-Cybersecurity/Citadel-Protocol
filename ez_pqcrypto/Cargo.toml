@@ -33,7 +33,6 @@ parking_lot = { version = "0.12.0", features = ["serde"], optional = true }
 log = "0.4.8"
 strum = { version = "0.24.0", features = ["derive"] }
 sha3 = "0.10.1"
-#oqs = { version = "0.7.1", default-features = false, features = ["std", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
 oqs = { git = "https://github.com/open-quantum-safe/liboqs-rust.git", default-features = false, features = ["std", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
 #pqcrypto = { git = "https://github.com/rustpq/pqcrypto.git", default-features = false, features = ["pqcrypto-saber", "pqcrypto-kyber", "pqcrypto-ntru"]}
 #typetag = "0.1.8"
