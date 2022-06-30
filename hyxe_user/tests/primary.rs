@@ -144,6 +144,7 @@ mod tests {
             if res.is_err() {
                 log::error!(target: "lusna", "Task failed! {:?}", res);
             }
+
             container.purge().await;
             res?
         }
@@ -174,6 +175,68 @@ mod tests {
             .iter().map(|base| (format!("{}.username", base), format!("{}.password", base), format!("{}.full_name", base)))
             .collect()
         };
+    }
+
+    #[tokio::test]
+    // test to make sure persistence works between Account manager loads
+    async fn test_interload_persistence() -> Result<(), AccountError> {
+        lazy_static::lazy_static! {
+            static ref CL_BACKENDS: parking_lot::Mutex<Vec<BackendType>> = parking_lot::Mutex::new(vec![]);
+            static ref SE_BACKENDS: parking_lot::Mutex<Vec<BackendType>> = parking_lot::Mutex::new(vec![]);
+        }
+
+        let client_backends = &client_backends();
+        let server_backends = &server_backends();
+
+        let mut containers = vec![];
+
+        for server_backend in server_backends {
+            // in memory does not persist, so skip them in this specific test
+            if !matches!(server_backend, BackendType::InMemory) {
+                let cont0 = TestContainer::new(server_backend.clone(), BackendType::InMemory).await;
+                for (username, password, full_name) in PEERS.iter() {
+                    let _ = cont0.create_cnac(username, password, full_name).await;
+                }
+
+                assert_eq!(cont0.client_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+                assert_eq!(cont0.server_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+
+                let cont_reloaded = TestContainer::new(server_backend.clone(), BackendType::InMemory).await;
+                assert_eq!(cont_reloaded.client_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), 0); // since in-memory does not persist
+                assert_eq!(cont_reloaded.server_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+                containers.push(cont0);
+            }
+        }
+
+        for container in &containers {
+            container.purge().await;
+        }
+
+        containers.clear();
+
+        for client_backend in client_backends {
+            // in memory does not persist, so skip them in this specific test
+            if !matches!(client_backend, BackendType::InMemory) {
+                let cont0 = TestContainer::new(BackendType::InMemory, client_backend.clone()).await;
+                for (username, password, full_name) in PEERS.iter() {
+                    let _ = cont0.create_cnac(username, password, full_name).await;
+                }
+
+                assert_eq!(cont0.client_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+                assert_eq!(cont0.server_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+
+                let cont_reloaded = TestContainer::new(BackendType::InMemory, client_backend.clone()).await;
+                assert_eq!(cont_reloaded.client_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+                assert_eq!(cont_reloaded.server_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), 0); // since in-memory does not persist
+                containers.push(cont0);
+            }
+        }
+
+        for container in &containers {
+            container.purge().await;
+        }
+
+        Ok(())
     }
 
     #[tokio::test]
