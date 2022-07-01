@@ -60,6 +60,7 @@ impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'
         self.shared.clone()
     }
 
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     async fn on_c2s_channel_received(connect_success: ConnectSuccess, mut remote: ClientServerRemote, arg: GroupInitRequestType, fx: Self::UserLevelInputFunction, shared: Arc<BroadcastShared>) -> Result<(), NetworkError> {
         let implicated_cid = connect_success.cid;
 
