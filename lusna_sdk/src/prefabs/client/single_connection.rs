@@ -101,6 +101,7 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
         Ok(())
     }
 
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     async fn on_start(&self) -> Result<(), NetworkError> {
         let mut remote = self.remote.clone().unwrap();
         let (auth_info, handler) = {
