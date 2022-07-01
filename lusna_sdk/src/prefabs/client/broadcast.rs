@@ -60,6 +60,7 @@ impl<'a, F, Fut> PrefabFunctions<'a, GroupInitRequestType> for BroadcastKernel<'
         self.shared.clone()
     }
 
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     async fn on_c2s_channel_received(connect_success: ConnectSuccess, mut remote: ClientServerRemote, arg: GroupInitRequestType, fx: Self::UserLevelInputFunction, shared: Arc<BroadcastShared>) -> Result<(), NetworkError> {
         let implicated_cid = connect_success.cid;
 
@@ -222,10 +223,10 @@ mod tests {
     #[case(3)]
     #[case(4)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
-    async fn group_connect(#[case] peer_count: usize) {
+    #[tokio::test(flavor="multi_thread")]
+    async fn group_connect(#[case] peer_count: usize) -> Result<(), Box<dyn std::error::Error>>{
         assert!(peer_count > 1);
-        crate::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let ref client_success = AtomicUsize::new(0);
@@ -270,18 +271,19 @@ mod tests {
         });
 
         let res = futures::future::try_select(server, clients).await;
-        if let Err(err) = &res {
-            match err {
+        if let Err(err) = res {
+            return match err {
                 futures::future::Either::Left(left) => {
-                    log::warn!(target: "lusna", "ERR-left: {:?}", &left.0);
+                    Err(left.0.into_string().into())
                 },
 
                 futures::future::Either::Right(right) => {
-                    log::warn!(target: "lusna", "ERR-right: {:?}", &right.0);
+                    Err(right.0.into_string().into())
                 }
             }
         }
-        assert!(res.is_ok());
+
         assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
+        Ok(())
     }
 }

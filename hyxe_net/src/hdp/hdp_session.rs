@@ -19,11 +19,10 @@ use hyxe_user::account_manager::AccountManager;
 use hyxe_user::client_account::ClientNetworkAccount;
 use hyxe_user::network_account::ConnectProtocol;
 use hyxe_user::auth::proposed_credentials::ProposedCredentials;
-use hyxe_user::re_imports::scramble_encrypt_file;
 
 use crate::constants::{DRILL_UPDATE_FREQUENCY_LOW_BASE, FIREWALL_KEEP_ALIVE_UDP, GROUP_EXPIRE_TIME_MS, HDP_HEADER_BYTE_LEN, INITIAL_RECONNECT_LOCKOUT_TIME_NS, KEEP_ALIVE_INTERVAL_MS, KEEP_ALIVE_TIMEOUT_NS, LOGIN_EXPIRATION_TIME};
 use crate::error::NetworkError;
-use crate::hdp::file_transfer::VirtualFileMetadata;
+use hyxe_user::backend::utils::VirtualObjectMetadata;
 use crate::hdp::hdp_packet::{HdpPacket, packet_flags};
 use crate::hdp::hdp_packet_crafter::{self, GroupTransmitter, RatchetPacketCrafterContainer};
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
@@ -63,6 +62,7 @@ use atomic::Atomic;
 use crate::auth::AuthenticationRequest;
 use hyxe_wire::exports::tokio_rustls::rustls;
 use crate::prelude::SecureProtocolPacket;
+use hyxe_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
 
 //use crate::define_struct;
 
@@ -341,7 +341,6 @@ impl HdpSession {
             this.to_primary_stream.set_once(Some(primary_outbound_tx.clone()));
 
             let timestamp = this.time_tracker.get_global_time_ns();
-            let local_nid = this.account_manager.get_local_nid();
             let cnac_opt = inner_state!(this.state_container).cnac.clone();
             let implicated_cid = this.implicated_cid.clone();
             let persistence_handler = this.account_manager.get_persistence_handler().clone();
@@ -354,7 +353,7 @@ impl HdpSession {
             //let timer_future = Self::execute_timer(this.clone());
             let queue_worker_future = Self::execute_queue_worker(this_queue_worker);
             let stopper_future = Self::stopper(stopper);
-            let handle_zero_state = Self::handle_zero_state(None, persistence_handler, primary_outbound_tx.clone(), this_outbound, this.state.load(Ordering::SeqCst), timestamp, local_nid, cnac_opt);
+            let handle_zero_state = Self::handle_zero_state(None, persistence_handler, primary_outbound_tx.clone(), this_outbound, this.state.load(Ordering::SeqCst), timestamp,cnac_opt);
 
             let session_future = spawn_handle!(async move {
                             tokio::select! {
@@ -407,7 +406,7 @@ impl HdpSession {
 
     async fn stopper(mut receiver: tokio::sync::broadcast::Receiver<()>) -> Result<(), NetworkError> {
         receiver.recv().await.map_err(|err| NetworkError::Generic(err.to_string()))?;
-        Err(NetworkError::InternalError("Session stopper-rx triggered"))
+        Ok(())
     }
 
     /// Executes each session in parallel (or concurrent if using a LocalSet)
@@ -420,7 +419,7 @@ impl HdpSession {
     }
 
     /// Before going through the usual loopy business, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
-    async fn handle_zero_state(zero_packet: Option<BytesMut>, persistence_handler: PersistenceHandler, to_outbound: OutboundPrimaryStreamSender, session: HdpSession, state: SessionState, timestamp: i64, local_nid: u64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
+    async fn handle_zero_state(zero_packet: Option<BytesMut>, persistence_handler: PersistenceHandler, to_outbound: OutboundPrimaryStreamSender, session: HdpSession, state: SessionState, timestamp: i64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
         if let Some(zero) = zero_packet {
             to_outbound.unbounded_send(zero).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
         }
@@ -428,19 +427,20 @@ impl HdpSession {
         match state {
             SessionState::NeedsRegister => {
                 log::trace!(target: "lusna", "Beginning registration subroutine!");
-                let potential_cids_alice = persistence_handler.client_only_generate_possible_cids().await.map_err(|err| NetworkError::Generic(err.into_string()))?;
                 let session_ref = session;
                 let mut state_container = inner_mut_state!(session_ref.state_container);
                 let session_security_settings = state_container.session_security_settings.clone().unwrap();
+                let proposed_username = state_container.connect_state.proposed_credentials.as_ref().ok_or_else(|| NetworkError::InternalError("Proposed credentials not loaded"))?.username();
+                let proposed_cid = persistence_handler.get_cid_by_username(proposed_username);
                 let passwordless = state_container.register_state.passwordless.clone().ok_or_else(|| NetworkError::InternalError("Passwordless state not loaded"))?;
                 // we supply 0,0 for cid and new drill vers by default, even though it will be reset by bob
-                let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), 0, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
+                let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), proposed_cid, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
                 log::trace!(target: "lusna", "Running stage0 alice");
                 let transfer = alice_constructor.stage0_alice();
 
-                let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(session_security_settings.crypto_params.into(), timestamp, local_nid, transfer, potential_cids_alice, passwordless);
+                let stage0_register_packet = crate::hdp::hdp_packet_crafter::do_register::craft_stage0(session_security_settings.crypto_params.into(), timestamp, transfer, passwordless, proposed_cid);
                 if let Err(err) = to_outbound.unbounded_send(stage0_register_packet).map_err(|_| NetworkError::InternalError("Writer stream corrupted")) {
                     return Err(err);
                 }
@@ -620,10 +620,10 @@ impl HdpSession {
     }
 
     /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
-    pub async fn execute_inbound_stream(mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>) -> Result<(), NetworkError> {
+    pub async fn execute_inbound_stream(ref mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>) -> Result<(), NetworkError> {
         log::trace!(target: "lusna", "HdpSession async inbound-stream subroutine executed");
-        let (ref remote_peer, ref local_primary_port, ref implicated_cid, ref kernel_tx, ref primary_stream, p2p) = if let Some(p2p) = p2p_handle {
-            (p2p.remote_peer, p2p.local_bind_port, p2p.implicated_cid, p2p.kernel_tx, p2p.to_primary_stream, true)
+        let (ref remote_peer, ref local_primary_port, ref implicated_cid, ref kernel_tx, ref primary_stream, p2p, is_server) = if let Some(p2p) = p2p_handle {
+            (p2p.remote_peer, p2p.local_bind_port, p2p.implicated_cid, p2p.kernel_tx, p2p.to_primary_stream, true, false)
         } else {
             let borrow = this_main;
             let remote_peer = borrow.remote_peer.clone();
@@ -631,7 +631,8 @@ impl HdpSession {
             let implicated_cid = borrow.implicated_cid.clone();
             let kernel_tx = borrow.kernel_tx.clone();
             let primary_stream = borrow.to_primary_stream.clone().unwrap();
-            (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream, false)
+            let is_server = borrow.is_server;
+            (remote_peer, local_primary_port, implicated_cid, kernel_tx, primary_stream, false, is_server)
         };
 
         fn evaulute_result(result: Result<PrimaryProcessorResult, NetworkError>, primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<NodeResult>) -> std::io::Result<()> {
@@ -672,40 +673,16 @@ impl HdpSession {
             NetworkError::Generic(err.to_string())
         }
 
-        let (ref async_processor_tx, mut async_processor_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        let inbound_direct = async move {
+        let reader = async_stream::stream! {
             while let Some(packet) = reader.next().await {
-                let packet = packet.map_err(|err| NetworkError::Generic(err.to_string()))?;
-
-                if let Err(err) = evaulute_result(packet_processor::raw_primary_packet::process(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet, async_processor_tx), primary_stream, kernel_tx) {
-                    return Err(handle_session_terminating_error(err, this_main.is_server, p2p))
-                }
+                yield packet
             }
-
-            Ok(())
         };
 
-        let futures_concurrent_executor = async move {
-            let reader = async_stream::stream! {
-                while let Some(value) = async_processor_rx.recv().await {
-                    yield Ok(value);
-                }
-            };
-
-            reader.try_for_each_concurrent(None, move |future| {
-                async move {
-                    evaulute_result(future.await, primary_stream, kernel_tx)
-                }
-            }).await.map_err(|err| {
-                handle_session_terminating_error(err, this_main.is_server, p2p)
-            })
-        };
-
-        tokio::select! {
-            res0 = inbound_direct => res0,
-            res1 = futures_concurrent_executor => res1
-        }
+        reader.try_for_each_concurrent(None, |packet| async move {
+            let result = packet_processor::raw_primary_packet::process_raw_packet(implicated_cid.get(), this_main, remote_peer.clone(), *local_primary_port, packet).await;
+            evaulute_result(result, primary_stream, kernel_tx)
+        }).map_err(|err| handle_session_terminating_error(err, is_server, p2p)).await
     }
 
     pub(crate) fn send_to_primary_stream_closure(to_primary_stream: &OutboundPrimaryStreamSender, kernel_tx: &UnboundedSender<NodeResult>, msg: BytesMut, ticket: Option<Ticket>) -> Result<(), NetworkError> {
@@ -862,10 +839,10 @@ impl HdpSession {
 
                             let to_primary_stream = this.to_primary_stream.clone().unwrap();
                             let target_cid = 0;
-                            let (file_size, groups_needed) = scramble_encrypt_file(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_hr.clone(), HDP_HEADER_BYTE_LEN, target_cid, group_id_start, hdp_packet_crafter::group::craft_wave_payload_packet_into)
+                            let (file_size, groups_needed) = scramble_encrypt_source(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_hr.clone(), HDP_HEADER_BYTE_LEN, target_cid, group_id_start, hdp_packet_crafter::group::craft_wave_payload_packet_into)
                                 .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                            let file_metadata = VirtualFileMetadata {
+                            let file_metadata = VirtualObjectMetadata {
                                 object_id,
                                 name: file_name,
                                 date_created: "".to_string(),
@@ -895,10 +872,10 @@ impl HdpSession {
 
                                 let preferred_primary_stream = endpoint_container.get_direct_p2p_primary_stream().cloned().unwrap_or_else(|| this.to_primary_stream.clone().unwrap());
 
-                                let (file_size, groups_needed) = scramble_encrypt_file(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_usable_ratchet.clone(), HDP_HEADER_BYTE_LEN, target_cid, start_group_id, hdp_packet_crafter::group::craft_wave_payload_packet_into)
+                                let (file_size, groups_needed) = scramble_encrypt_source(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_usable_ratchet.clone(), HDP_HEADER_BYTE_LEN, target_cid, start_group_id, hdp_packet_crafter::group::craft_wave_payload_packet_into)
                                     .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                                let file_metadata = VirtualFileMetadata {
+                                let file_metadata = VirtualObjectMetadata {
                                     object_id,
                                     name: file_name,
                                     date_created: "".to_string(),
@@ -1205,17 +1182,13 @@ impl HdpSession {
         }
     }
 
-    async fn listen_udp_port<S: UdpStream>(this: HdpSession, hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
+    async fn listen_udp_port<S: UdpStream>(this: HdpSession, _hole_punched_addr_ip: IpAddr, local_port: u16, mut stream: S, ref peer_session_accessor: EndpointCryptoAccessor) -> Result<(), NetworkError> {
         while let Some(res) = stream.next().await {
             match res {
                 Ok((packet, remote_peer)) => {
                     log::trace!(target: "lusna", "packet received on waveport {} has {} bytes (src: {:?})", local_port, packet.len(), &remote_peer);
-                    if remote_peer.ip() != hole_punched_addr_ip {
-                        log::warn!(target: "lusna", "The packet received is not part of the firewall session. Dropping");
-                    } else {
-                        let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
-                        this.process_inbound_packet_wave(packet, peer_session_accessor)?;
-                    }
+                    let packet = HdpPacket::new_recv(packet, remote_peer, local_port);
+                    this.process_inbound_packet_wave(packet, peer_session_accessor)?;
                 }
 
                 Err(err) => {
@@ -1262,7 +1235,7 @@ impl HdpSession {
             let mut endpoint_cid_info = None;
             match check_proxy(self.implicated_cid.get(), header.cmd_primary, header.cmd_aux, header.session_cid.get(), header.target_cid.get(), self, &mut endpoint_cid_info, ReceivePortType::UnorderedUnreliable, packet) {
                 Some(packet) => {
-                    match packet_processor::udp_packet::process(self, packet, hr_version, accessor) {
+                    match packet_processor::udp_packet::process_udp_packet(self, packet, hr_version, accessor) {
                         Ok(PrimaryProcessorResult::Void) => {
                             Ok(())
                         }

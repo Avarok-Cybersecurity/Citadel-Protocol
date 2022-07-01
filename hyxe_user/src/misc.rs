@@ -1,3 +1,5 @@
+use chrono::Utc;
+
 /// Default Error type for this crate
 #[derive(Debug)]
 pub enum AccountError {
@@ -233,6 +235,7 @@ pub mod none {
 }
 
 #[allow(missing_docs)]
+#[cfg(feature = "sql")]
 pub mod base64_string {
     use serde::{Serializer, Deserializer, Deserialize};
 
@@ -246,4 +249,9 @@ pub mod base64_string {
     pub fn deserialize<'de, D>(value: D) -> Result<Vec<u8>, D::Error> where D: Deserializer<'de> {
         base64::decode(String::deserialize(value).map_err(|_| serde::de::Error::custom("Deser err"))?).map_err(|_| serde::de::Error::custom("Deser err"))
     }
+}
+
+/// Returns the present timestamp in ISO 8601 format
+pub fn get_present_formatted_timestamp() -> String {
+    Utc::now().to_rfc3339()
 }

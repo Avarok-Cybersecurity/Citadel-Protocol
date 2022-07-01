@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::hdp::file_transfer::VirtualFileMetadata;
+use hyxe_user::backend::utils::VirtualObjectMetadata;
 use crate::hdp::hdp_node::Ticket;
 use tokio::time::error::Error;
 use tokio_util::time::{delay_queue, delay_queue::DelayQueue};
@@ -13,7 +13,7 @@ use std::fmt::{Display, Formatter};
 use crate::hdp::peer::message_group::{MessageGroupKey, MessageGroup, MessageGroupPeer, MessageGroupOptions, GroupType};
 use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
 use serde::{Serialize, Deserialize};
-use hyxe_fs::prelude::SyncIO;
+use hyxe_user::serialization::SyncIO;
 use crate::macros::SyncContextRequirements;
 use itertools::Itertools;
 use futures::task::AtomicWaker;
@@ -115,7 +115,7 @@ impl HyperNodePeerLayer {
         let items = pers.remove_byte_map_values_by_key(cid, 0, MAILBOX).await?;
         if items.len() != 0 {
             log::trace!(target: "lusna", "Returning enqueued mailbox items for {}", cid);
-            Ok(Some(MailboxTransfer::from(items.into_values().map(PeerSignal::deserialize_from_owned_vector).try_collect::<PeerSignal, Vec<PeerSignal>, _>().map_err(|err| NetworkError::Generic(err.to_string()))?)))
+            Ok(Some(MailboxTransfer::from(items.into_values().map(PeerSignal::deserialize_from_owned_vector).try_collect::<PeerSignal, Vec<PeerSignal>, _>().map_err(|err| NetworkError::Generic(err.into_string()))?)))
         } else {
             Ok(None)
         }
@@ -268,7 +268,7 @@ impl HyperNodePeerLayer {
     /// `target_cid`: Should be the destination
     #[allow(unused_results)]
     pub async fn try_add_mailbox(pers: &PersistenceHandler, target_cid: u64, signal: PeerSignal) -> Result<(), NetworkError> {
-        let serialized = signal.serialize_to_vector().map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let serialized = signal.serialize_to_vector().map_err(|err| NetworkError::Generic(err.into_string()))?;
         let sub_key = Uuid::new_v4().to_string();
 
         let _ = pers.store_byte_map_value(target_cid, 0, MAILBOX, &sub_key, serialized).await?;
@@ -438,7 +438,7 @@ pub enum PeerSignal {
     // implicated_cid, icid
     BroadcastConnected(GroupBroadcast),
     // implicated_cid, icid, target cid
-    PostFileUploadRequest(PeerConnectionType, VirtualFileMetadata, Ticket),
+    PostFileUploadRequest(PeerConnectionType, VirtualObjectMetadata, Ticket),
     // implicated_cid, icid, target cid
     AcceptFileUploadRequest(PeerConnectionType, Ticket),
     // Retrieves a list of registered peers

@@ -8,7 +8,8 @@ use std::ops::Deref;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
 
-pub fn process(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+pub fn process_rekey(session: &HdpSession, packet: HdpPacket, header_drill_vers: u32, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
         log::error!(target: "lusna", "Session state is not connected; dropping drill update packet");
         return Ok(PrimaryProcessorResult::Void);

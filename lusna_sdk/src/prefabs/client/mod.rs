@@ -18,7 +18,9 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized {
     type SharedBundle: Send + 'a;
 
     fn get_shared_bundle(&mut self) -> Self::SharedBundle;
+
     async fn on_c2s_channel_received(connect_success: ConnectSuccess, remote: ClientServerRemote, arg: Arg, fx: Self::UserLevelInputFunction, shared: Self::SharedBundle) -> Result<(), NetworkError>;
+
     fn construct(kernel: Box<dyn NetKernel + 'a>) -> Self;
 
     /// Creates a new connection with a central server entailed by the user information

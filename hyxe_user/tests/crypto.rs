@@ -6,18 +6,9 @@ mod tests {
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
 
-    #[allow(unused_must_use)]
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     #[tokio::test]
     async fn jwt() {
-        setup_log();
+        lusna_logging::setup_log();
         const USER: u64 = 999;
         const API_KEY: &str = "AIzaSyDtYt9f0c7x3uL7EhALL6isXXD0q_wGBpA";
         let auth = hyxe_user::external_services::google_auth::GoogleAuth::load_from_google_services_file("/Users/nologik/googlesvc.json").await.unwrap();

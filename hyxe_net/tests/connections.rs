@@ -1,26 +1,18 @@
 #[cfg(test)]
 pub mod tests {
     use std::sync::Arc;
-    use futures::StreamExt;
+    use futures::{StreamExt, SinkExt};
     use std::time::Duration;
     use std::net::SocketAddr;
     use hyxe_net::prelude::*;
     use rstest::*;
     use futures::stream::FuturesUnordered;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use rand::{SeedableRng, Rng};
     use hyxe_wire::exports::tokio_rustls::rustls::ClientConfig;
     use hyxe_wire::socket_helpers::is_ipv6_enabled;
     use itertools::Itertools;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
+    use futures::TryStreamExt;
+    use bytes::BytesMut;
 
     #[fixture]
     #[once]
@@ -49,11 +41,12 @@ pub mod tests {
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
-    #[tokio::test]
+    #[timeout(Duration::from_secs(240))]
+    #[tokio::test(flavor="multi_thread")]
     async fn test_tcp_or_tls(#[case] addr: SocketAddr,
                              protocols: &Vec<UnderlyingProtocol>,
                              client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
-        setup_log();
+        lusna_logging::setup_log();
 
         if !is_ipv6_enabled() && addr.is_ipv6() {
             log::trace!(target: "lusna", "Skipping ipv6 test since ipv6 is not enabled locally");
@@ -69,25 +62,13 @@ pub mod tests {
             let server = async move {
                 let next = listener.next().await;
                 log::trace!(target: "lusna", "[Server] Next conn: {:?}", next);
-                let (mut stream, peer_addr) = next.unwrap().unwrap();
-                log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
-                let buf = &mut [0u8;64];
-                let res = stream.read(buf).await;
-                log::trace!(target: "lusna", "Server-res: {:?}", res);
-                assert_eq!(buf[0], 0xfb, "Invalid read");
-                let _ = stream.write(&[0xfa]).await.unwrap();
-                stream.shutdown().await.unwrap();
+                let (stream, peer_addr) = next.unwrap().unwrap();
+                on_server_received_connection(stream, peer_addr).await
             };
 
             let client = async move {
-                let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await.unwrap();
-                log::trace!(target: "lusna", "Client connected");
-                let res = stream.write(&[0xfb]).await;
-                log::trace!(target: "lusna", "Client connected - A02 {:?}", res);
-                let buf = &mut [0u8;64];
-                let res = stream.read(buf).await;
-                log::trace!(target: "lusna", "Client connected - AO3 {:?}", res);
-                assert_eq!(buf[0], 0xfa, "Invalid read - client");
+                let (stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await.unwrap();
+                on_client_received_stream(stream).await
             };
 
             let _ = tokio::join!(server, client);
@@ -100,11 +81,12 @@ pub mod tests {
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
-    #[tokio::test]
+    #[timeout(Duration::from_secs(240))]
+    #[tokio::test(flavor="multi_thread")]
     async fn test_many_proto_conns(#[case] addr: SocketAddr,
                                    protocols: &Vec<UnderlyingProtocol>,
                                    client_config: &Arc<ClientConfig>) -> std::io::Result<()> {
-        setup_log();
+        lusna_logging::setup_log();
 
         if !is_ipv6_enabled() && addr.is_ipv6() {
             log::trace!(target: "lusna", "Skipping ipv6 test since ipv6 is not enabled locally");
@@ -113,8 +95,6 @@ pub mod tests {
 
         let count = 32; // keep this value low to ensure that runners don't get exhausted and run out of FD's
         for proto in protocols {
-            // give sleep to give time for conns to drop
-            tokio::time::sleep(Duration::from_millis(100)).await;
             log::trace!(target: "lusna", "Testing proto {:?}", &proto);
             let cnt = &AtomicUsize::new(0);
 
@@ -122,48 +102,36 @@ pub mod tests {
             log::trace!(target: "lusna", "Bind/connect addr: {:?}", addr);
 
             let server = async move {
-                loop {
-                    let next = listener.next().await;
-                    log::trace!(target: "lusna", "[Server] Next conn: {:?}", next);
-                    let (mut stream, peer_addr) = next.unwrap().unwrap();
-                    tokio::spawn(async move {
-                        log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
-                        let buf = &mut [0u8;64];
-                        let res = stream.read(buf).await;
-                        log::trace!(target: "lusna", "Server-res: {:?}", res);
-                        assert_eq!(buf[0], 0xfb, "Invalid read");
-                        let _ = stream.write(&[0xfa]).await.unwrap();
-                        stream.shutdown().await.unwrap();
-                    });
-                }
+                let stream = async_stream::stream! {
+                    while let Some(stream) = listener.next().await {
+                        yield stream.unwrap()
+                    }
+                };
+
+                stream.map(Ok).try_for_each_concurrent(None, |(stream, peer_addr)| async move {
+                    on_server_received_connection(stream, peer_addr).await
+                }).await
             };
 
             let client = FuturesUnordered::new();
 
             for _ in 0..count {
                 client.push(async move {
-                    let mut rng = rand::rngs::StdRng::from_entropy();
-                    tokio::time::sleep(Duration::from_millis(rng.gen_range(10, 50))).await;
-                    let (mut stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await.unwrap();
-                    log::trace!(target: "lusna", "Client connected");
-                    let res = stream.write(&[0xfb]).await;
-                    log::trace!(target: "lusna", "Client connected - A02 {:?}", res);
-                    let buf = &mut [0u8;64];
-                    let res = stream.read(buf).await;
-                    log::trace!(target: "lusna", "Client connected - AO3 {:?}", res);
-                    assert_eq!(buf[0], 0xfa, "Invalid read - client");
+                    let (stream, _) = HdpServer::c2s_connect_defaults(None, addr, client_config).await?;
+                    on_client_received_stream(stream).await?;
                     let _ = cnt.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
                 });
             }
 
-            let client = client.collect::<Vec<()>>();
+            let client = client.try_collect::<Vec<()>>();
             // if server ends, bad. If client ends, maybe good
             let res = tokio::select! {
                 res0 = server => {
                     res0
                 },
                 res1 = client => {
-                    res1
+                    res1.map(|_| ())
                 }
             };
 
@@ -174,6 +142,24 @@ pub mod tests {
             log::trace!(target: "lusna", "Ended proto test for singular proto successfully");
         }
 
+        Ok(())
+    }
+
+    async fn on_server_received_connection(stream: GenericNetworkStream, peer_addr: SocketAddr) -> std::io::Result<()> {
+        log::trace!(target: "lusna", "[Server] Received stream from {}", peer_addr);
+        let (mut sink, mut stream) = safe_split_stream(stream);
+        let packet = stream.next().await.unwrap()?;
+        assert_eq!(&packet[..], &[100u8]);
+        sink.send(BytesMut::from(&[100u8] as &[u8]).freeze()).await?;
+        Ok(())
+    }
+
+    async fn on_client_received_stream(stream: GenericNetworkStream) -> std::io::Result<()> {
+        let (mut sink, mut stream) = safe_split_stream(stream);
+        log::trace!(target: "lusna", "Client connected");
+        sink.send(BytesMut::from(&[100u8] as &[u8]).freeze()).await?;
+        let packet = stream.next().await.unwrap()?;
+        assert_eq!(&packet[..], &[100u8]);
         Ok(())
     }
 }

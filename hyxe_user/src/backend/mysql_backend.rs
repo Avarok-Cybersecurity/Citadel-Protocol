@@ -1,29 +1,32 @@
 use async_trait::async_trait;
-use crate::backend::{BackendConnection, PersistenceHandler, BackendType};
+use crate::backend::{BackendConnection, BackendType};
 use crate::misc::{AccountError, MAX_USERNAME_LENGTH, CNACMetadata};
 use sqlx::{Arguments, Row, AnyPool, Executor};
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::ops::DerefMut;
 use sqlx::any::{AnyArguments, AnyRow, AnyQueryResult, AnyPoolOptions};
-use crate::prelude::{ClientNetworkAccountInner, NetworkAccount, HYPERLAN_IDX};
-use hyxe_fs::io::SyncIO;
-use std::path::PathBuf;
+use crate::prelude::{ClientNetworkAccountInner, HYPERLAN_IDX};
+use crate::serialization::SyncIO;
 use std::str::FromStr;
-use crate::re_imports::DirectoryStore;
-use crate::account_loader::load_node_nac;
 use std::collections::HashMap;
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use std::convert::{TryFrom, TryInto};
 use std::time::Duration;
+use std::marker::PhantomData;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use super::utils::StreamableTargetInformation;
+use crate::backend::memory::no_backend_streaming;
+use crate::backend::utils::ObjectTransferStatus;
+use std::sync::Arc;
 
 /// A container for handling db conns
 pub struct SqlBackend<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
     url: String,
     conn: Option<AnyPool>,
-    local_nac: Option<NetworkAccount<R, Fcm>>,
     variant: SqlVariant,
-    opts: SqlConnectionOptions
+    opts: SqlConnectionOptions,
+    _pd: PhantomData<(R, Fcm)>
 }
 
 #[derive(Eq, PartialEq)]
@@ -83,7 +86,7 @@ impl Into<AnyPoolOptions> for &'_ SqlConnectionOptions {
 
 #[async_trait]
 impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> {
-    async fn connect(&mut self, directory_store: &DirectoryStore) -> Result<(), AccountError> {
+    async fn connect(&mut self) -> Result<(), AccountError> {
         let conn = self.generate_conn().await?;
 
         if !self.opts.car_mode.unwrap_or(CAR_MODE_DEFAULT) {
@@ -132,14 +135,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let joined: String = [cmd, cmd2, cmd3, cmd4.to_string()].join(";");
         let _result = conn.execute(&*joined).await?;
 
-        self.local_nac = Some(load_node_nac(directory_store)?);
-
-        Ok(())
-    }
-
-    async fn post_connect(&self, persistence_handler: &PersistenceHandler<R, Fcm>) -> Result<(), AccountError> {
-        // we just need to insert the persistence handler inside the nac
-        self.local_nac().store_persistence_handler(persistence_handler);
         Ok(())
     }
 
@@ -148,7 +143,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         Ok(!conn.is_closed())
     }
 
-    async fn save_cnac(&self, cnac: ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
+    async fn save_cnac(&self, cnac: &ClientNetworkAccount<R, Fcm>) -> Result<(), AccountError> {
         let conn = &(self.get_conn().await?);
         // The issue: at endpoints, mutuals are being saved inside CNAC, but not the database. We see here that mutuals are not synced to database
         let serded = base64::encode(cnac.generate_proper_bytes()?);
@@ -190,12 +185,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         self.row_to_cnac(query)
     }
 
-    async fn get_client_by_username(&self, username: &str) -> Result<Option<ClientNetworkAccount<R, Fcm>>, AccountError> {
-        let conn = &(self.get_conn().await?);
-        let query: Option<AnyRow> = sqlx::query(self.format("SELECT bin FROM cnacs WHERE username = ? LIMIT 1").as_str()).bind(username).fetch_optional(conn).await?;
-        self.row_to_cnac(query)
-    }
-
     async fn cid_is_registered(&self, cid: u64) -> Result<bool, AccountError> {
         let conn = &(self.get_conn().await?);
         let query = sqlx::query(self.format("SELECT cid FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(cid.to_string()).fetch_all(conn).await?;
@@ -216,108 +205,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         Ok(query.rows_affected() as usize)
     }
 
-    fn maybe_generate_cnac_local_save_path(&self, _cid: u64, _is_personal: bool) -> Option<PathBuf> {
-        None
-    }
-
-    async fn client_only_generate_possible_cids(&self) -> Result<Vec<u64>, AccountError> {
-        let conn = &(self.get_conn().await?);
-        // cids are stored in the DB, not below, and as such, we call this function just to get a rand list
-        let mut possible_cids = self.local_nac.as_ref().map(|r| r.client_only_generate_possible_cids()).ok_or_else(|| AccountError::Generic("Local NAC not loaded".into()))?;
-        let len = possible_cids.len();
-
-        if len == 0 {
-            return Err(AccountError::Generic("Possible CIDs vector contains no items".to_string()))
-        }
-
-
-        let cmd = match self.variant {
-            SqlVariant::MySQL => {
-                let insert = self.construct_arg_insert_mysql(&possible_cids);
-                format!("SELECT Column_0 as cid FROM (SELECT * FROM (VALUES {}) TMP) VALS LEFT JOIN cnacs ON VALS.Column_0 = cnacs.cid WHERE cnacs.cid IS NULL LIMIT {}", insert, len)
-            },
-
-            SqlVariant::Postgre => {
-                let insert = self.construct_arg_insert_postgre(&possible_cids);
-                format!("SELECT Column_0 as cid FROM (SELECT * FROM (VALUES {}) TMP) as VALS(Column_0) LEFT JOIN cnacs ON VALS.Column_0 = cnacs.cid WHERE cnacs.cid IS NULL LIMIT {}", insert, len)
-            }
-
-            SqlVariant::Sqlite => {
-                let insert = self.construct_arg_insert_sqlite(&possible_cids);
-                // Note: the below works with the above 2 as well
-                format!("WITH temptable(column_0) as (VALUES {}) SELECT column_0 as cid FROM temptable LEFT JOIN cnacs ON temptable.column_0 = cnacs.cid WHERE cnacs.cid IS NULL LIMIT {}", insert, len)
-            }
-        };
-
-        let queries: Vec<AnyRow> = sqlx::query(cmd.as_str()).fetch_all(conn).await?;
-
-        possible_cids.clear(); // reuse the alloc
-
-        for query in queries {
-            if let Ok(val) = query.try_get::<String, _>("cid") {
-                let available_cid = u64::from_str(&val)?;
-                possible_cids.push(available_cid);
-            }
-        }
-
-        Ok(possible_cids)
-    }
-
-    async fn find_first_valid_cid(&self, possible_cids: &Vec<u64>) -> Result<Option<u64>, AccountError> {
-        let conn = &(self.get_conn().await?);
-
-        let len = possible_cids.len();
-
-        if len == 0 {
-            return Err(AccountError::Generic("Possible CIDs vector contains no items".to_string()))
-        }
-
-
-        let cmd = match self.variant {
-            SqlVariant::MySQL => {
-                let insert = self.construct_arg_insert_mysql(possible_cids);
-                format!("SELECT Column_0 as cid FROM (SELECT * FROM (VALUES {}) TMP) VALS LEFT JOIN cnacs ON VALS.Column_0 = cnacs.cid WHERE cnacs.cid IS NULL LIMIT 1", insert)
-            },
-
-            SqlVariant::Postgre => {
-                let insert = self.construct_arg_insert_postgre(possible_cids);
-                format!("SELECT Column_0 as cid FROM (SELECT * FROM (VALUES {}) TMP) as VALS(Column_0) LEFT JOIN cnacs ON VALS.Column_0 = cnacs.cid WHERE cnacs.cid IS NULL LIMIT 1", insert)
-            }
-
-            SqlVariant::Sqlite => {
-                let insert = self.construct_arg_insert_sqlite(possible_cids);
-                // Note: the below works with the above 2 as well
-                format!("WITH temptable(column_0) as (VALUES {}) SELECT column_0 as cid FROM temptable LEFT JOIN cnacs ON temptable.column_0 = cnacs.cid WHERE cnacs.cid IS NULL LIMIT 1", insert)
-            }
-        };
-
-        let query: Option<AnyRow> = sqlx::query(cmd.as_str()).fetch_optional(conn).await?;
-
-        match query {
-            Some(val) => {
-                if let Ok(val) = val.try_get::<String, _>("cid") {
-                    let available_cid = u64::from_str(&val)?;
-                    return Ok(Some(available_cid))
-                }
-            }
-
-            _ => {}
-        }
-
-        Ok(None)
-    }
-
-    async fn username_exists(&self, username: &str) -> Result<bool, AccountError> {
-        let conn = &(self.get_conn().await?);
-        let query: AnyRow = sqlx::query(self.format("SELECT COUNT(1) as count FROM cnacs where username = ?").as_str()).bind(username).fetch_one(conn).await?;
-        Ok(query.get::<i64, _>("count") == 1)
-    }
-
-    async fn register_cid_in_nac(&self, _cid: u64, _username: &str) -> Result<(), AccountError> {
-        // we don't register here since we don't need to store inside the local nac
-        Ok(())
-    }
-
     async fn get_registered_impersonal_cids(&self, limit: Option<i32>) -> Result<Option<Vec<u64>>, AccountError> {
         let conn = &(self.get_conn().await?);
         let cmd = limit.map(|limit| format!("SELECT cid FROM cnacs WHERE is_personal = ? LIMIT {}", limit)).unwrap_or_else(|| "SELECT cid FROM cnacs WHERE is_personal = ?".to_string());
@@ -336,17 +223,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         let query: Option<AnyRow> = sqlx::query(self.format("SELECT username FROM cnacs WHERE cid = ? LIMIT 1").as_str()).bind(cid.to_string()).fetch_optional(conn).await?;
         if let Some(row) = query {
             Ok(Some(row.try_get::<String, _>("username").unwrap()))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn get_cid_by_username(&self, username: &str) -> Result<Option<u64>, AccountError> {
-        let conn = &(self.get_conn().await?);
-
-        let query: Option<AnyRow> = sqlx::query(self.format("SELECT cid FROM cnacs WHERE username = ? LIMIT 1").as_str()).bind(username).fetch_optional(conn).await?;
-        if let Some(row) = query {
-            Ok(Some(u64::from_str(&row.try_get::<String, _>("cid")?)?))
         } else {
             Ok(None)
         }
@@ -512,26 +388,6 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         }).collect())
     }
 
-    async fn get_hyperlan_peer_by_username(&self, implicated_cid: u64, username: &str) -> Result<Option<MutualPeer>, AccountError> {
-        let conn = &(self.get_conn().await?);
-        let query: Option<AnyRow> = sqlx::query(self.format("SELECT peer_cid FROM peers WHERE cid = ? AND username = ? LIMIT 1").as_str()).bind(implicated_cid.to_string()).bind(username).fetch_optional(conn).await?;
-
-        if let Some(query) = query {
-            match query.try_get::<String, _>("peer_cid") {
-                Ok(peer_cid) => {
-                    let peer_cid = u64::from_str(peer_cid.as_str())?;
-                    Ok(Some(MutualPeer { username: Some(username.to_string()), parent_icid: HYPERLAN_IDX, cid: peer_cid }))
-                }
-
-                _ => {
-                    Ok(None)
-                }
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
     async fn get_hyperlan_peer_list_as_server(&self, implicated_cid: u64) -> Result<Option<Vec<MutualPeer>>, AccountError> {
         let conn = &(self.get_conn().await?);
         let query: Vec<AnyRow> = sqlx::query(self.format("SELECT peers.peer_cid, peers.username FROM cnacs INNER JOIN peers ON cnacs.cid = peers.cid WHERE peers.cid = ?").as_str()).bind(implicated_cid.to_string()).fetch_all(conn).await?;
@@ -556,7 +412,7 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
     }
 
     // We always return false here, since there's no need for manual saving
-    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<bool, AccountError> {
+    async fn synchronize_hyperlan_peer_list_as_client(&self, cnac: &ClientNetworkAccount<R, Fcm>, peers: Vec<MutualPeer>) -> Result<(), AccountError> {
         log::trace!(target: "lusna", "Synchronizing peer list for {}", cnac.get_cid());
         if !peers.is_empty() {
             let conn = &(self.get_conn().await?);
@@ -570,10 +426,10 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
             }
 
             tx.commit().await?;
-            self.save_cnac(cnac.clone()).await?;
+            //self.save_cnac(cnac.clone()).await?;
         }
 
-        Ok(false)
+        Ok(())
     }
 
     async fn get_byte_map_value(&self, implicated_cid: u64, peer_cid: u64, key: &str, sub_key: &str) -> Result<Option<Vec<u8>>, AccountError> {
@@ -683,8 +539,8 @@ impl<R: Ratchet, Fcm: Ratchet> BackendConnection<R, Fcm> for SqlBackend<R, Fcm> 
         Ok(values)
     }
 
-    fn local_nac(&self) -> &NetworkAccount<R, Fcm> {
-        self.local_nac.as_ref().unwrap()
+    async fn stream_object_to_backend(&self, source: UnboundedReceiver<Vec<u8>>, sink_metadata: Arc<dyn StreamableTargetInformation>, status_tx: UnboundedSender<ObjectTransferStatus>) -> Result<(), AccountError> {
+        no_backend_streaming(source, sink_metadata, status_tx).await
     }
 }
 
@@ -709,8 +565,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
             log::trace!(target: "lusna", "[CNAC-Load] Base64 len: {} | sample: {:?} -> {:?}", bin.len(), &bin.as_str()[..10], &bin.as_str()[(bin.len() - 10)..]);
             let bin = base64::decode(bin)?;
             let cnac_inner = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_owned_vector(bin)?;
-            let pers = self.local_nac.as_ref().unwrap().persistence_handler().unwrap();
-            Ok(Some(ClientNetworkAccount::load_safe(cnac_inner, None, Some(pers))?))
+            Ok(Some(ClientNetworkAccount::load_safe(cnac_inner)?))
         } else {
             Ok(None)
         }
@@ -798,7 +653,7 @@ impl<R: Ratchet, Fcm:Ratchet> TryFrom<BackendType> for SqlBackend<R, Fcm> {
 
         match t {
             BackendType::SQLDatabase(url, opts) => {
-                Ok(Self { url, conn: None, local_nac: None, variant, opts })
+                Ok(Self { url, conn: None, variant, opts, _pd: Default::default() })
             }
 
             _ => Err(())

@@ -45,6 +45,7 @@ impl Method3 {
     /// The initiator must pass a vector correlating to the target endpoints. Each provided socket will attempt to reach out to the target endpoint (1-1)
     ///
     /// Note! The endpoints should be the port-predicted addrs
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     async fn execute_either(&self, socket: &UdpSocket, endpoints: &Vec<SocketAddr>) -> Result<TargettedSocketAddr, FirewallError> {
         let default_ttl = socket.ttl().ok();
         log::trace!(target: "lusna", "Default TTL: {:?}", default_ttl);

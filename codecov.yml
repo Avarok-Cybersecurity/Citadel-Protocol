@@ -2,13 +2,11 @@ comment:
   layout: "reach, diff, flags, files"
   behavior: default
   require_changes: false
-  require_base: no
-  require_head: yes
 
 coverage:
-  range: "70..100"
+  range: "60..100"
   round: down
-  precision: 2
+  precision: 4
   status:
     project:
       default:
@@ -16,6 +14,6 @@ coverage:
         target: 25%
         threshold: 1%
         # advanced settings
-        if_ci_failed: error
+        #if_ci_failed: error
         informational: false
-        only_pulls: false
+        only_pulls: true

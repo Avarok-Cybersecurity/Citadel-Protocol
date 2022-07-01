@@ -4,14 +4,14 @@ members = [
     "lusna_sdk",
     "hyxe_wire",
 	"hyxe_user",
-	"hyxe_fs",
 	"hyxe_crypt",
 	"async_ip",
 	"ez_pqcrypto",
 	"hyxe_net",
     "firebase-rtdb",
     "netbeam",
-	"dpb_kem"
+	"dpb_kem",
+	"lusna_logging"
 ]
 
 exclude = [

@@ -31,15 +31,16 @@ bytes = "1.1.0"
 #circular-queue = { version = "*", features = ["serde_support"], optional = true }
 parking_lot = { version = "0.12.0", features = ["serde"], optional = true }
 log = "0.4.8"
-env_logger = "0.9.0"
 strum = { version = "0.24.0", features = ["derive"] }
 sha3 = "0.10.1"
-#oqs = { version = "0.7.1", default-features = false, features = ["std", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
 oqs = { git = "https://github.com/open-quantum-safe/liboqs-rust.git", default-features = false, features = ["std", "serde", "saber", "kyber", "sidh", "sike", "ntru"] }
+#pqcrypto = { git = "https://github.com/rustpq/pqcrypto.git", default-features = false, features = ["pqcrypto-saber", "pqcrypto-kyber", "pqcrypto-ntru"]}
+#typetag = "0.1.8"
 
 [dev-dependencies]
 rand = "0.8.4"
 criterion = "0.3.5"
+lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 #rust-sike = "0.2.0"
 
 [[bench]]

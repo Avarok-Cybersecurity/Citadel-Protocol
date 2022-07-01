@@ -7,7 +7,8 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["multi-threaded"]
+default = ["multi-threaded", "filesystem"]
+filesystem = ["hyxe_net/filesystem", "dirs2"]
 single-threaded = ["hyxe_net/single-threaded"]
 multi-threaded = ["hyxe_net/multi-threaded"]
 sql = ["hyxe_net/sql"]
@@ -15,7 +16,7 @@ redis = ["hyxe_net/redis"]
 webrtc = ["hyxe_net/webrtc"]
 
 # for testing only
-localhost-testing = ["hyxe_net/localhost-testing"]
+localhost-testing = ["hyxe_net/localhost-testing", "tracing"]
 localhost-testing-assert-no-proxy = ["hyxe_net/localhost-testing-assert-no-proxy"]
 
 [dependencies]
@@ -24,14 +25,15 @@ tokio = { version = "1.19.0", features = ["full"] }
 futures = "0.3.19"
 parking_lot = "0.12.0"
 log = "0.4.8"
-env_logger = "0.9.0"
 lazy_static = "1.4.0"
 uuid = { version = "1.0.0", features = ["v4"] }
+dirs2 = { version = "3.0.1", optional = true }
+tracing = { git = "https://github.com/tokio-rs/tracing.git", branch = "v0.1.x", optional = true }
 
 [dev-dependencies]
 parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
 dirs2 = "3.0.1"
-env_logger = "0.9.0"
+lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 rstest = { git = "https://github.com/la10736/rstest", branch="master" }
 serde = { version = "1.0.137", features = ["derive"] }
 rand = "0.8.5"

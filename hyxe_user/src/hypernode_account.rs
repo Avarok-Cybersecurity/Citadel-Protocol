@@ -3,16 +3,8 @@ use crate::prelude::{ClientNetworkAccount, MutualPeer};
 use crate::misc::AccountError;
 use uuid::Uuid;
 
-/// The file extension for (H)yper(N)ode(A)ccounts (every node has one)
-pub const NAC_SERIALIZED_EXTENSION: &str = "hna";
 /// The file extension for CNACs only
 pub const CNAC_SERIALIZED_EXTENSION: &str = "hca";
-
-/// For obtaniing data from a HyperNode account
-pub trait HyperNodeAccountInformation {
-    /// Returns either the CID or NID
-    fn get_id(&self) -> u64;
-}
 
 /// A convenience wrapper for passing arguments to functions that require searches for a user
 #[derive(Debug, Clone)]

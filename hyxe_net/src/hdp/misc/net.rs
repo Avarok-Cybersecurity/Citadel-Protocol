@@ -17,7 +17,7 @@ use std::path::Path;
 use crate::error::NetworkError;
 use crate::hdp::hdp_node::TlsDomain;
 use serde::{Serialize, Deserialize};
-use hyxe_fs::io::SyncIO;
+use hyxe_user::serialization::SyncIO;
 use hyxe_wire::exports::{SendStream, RecvStream, Endpoint, NewConnection};
 use hyxe_wire::quic::{QuicNode, QuicEndpointListener};
 use crate::hdp::peer::p2p_conn_handler::generic_error;
@@ -194,7 +194,7 @@ impl GenericNetworkListener {
                         FirstPacket::Tcp { external_addr: addr }
                     };
 
-                    let conn = super::write_one_packet(stream, first_packet.serialize_to_vector().map_err(|err| generic_error(err.to_string()))?).await.map_err(|err| generic_error(err.to_string()))?;
+                    let conn = super::write_one_packet(stream, first_packet.serialize_to_vector().map_err(|err| generic_error(err.into_string()))?).await.map_err(|err| generic_error(err.to_string()))?;
                     Ok((GenericNetworkStream::Tcp(conn), addr))
                 }
 
@@ -305,7 +305,7 @@ impl TlsListener {
                 let domain = domain.clone();
 
                 async fn handle_stream_non_terminating(stream: TcpStream, addr: SocketAddr, domain: TlsDomain, is_self_signed: bool, tls_acceptor: &TlsAcceptor) -> std::io::Result<(TlsStream<TcpStream>, SocketAddr)> {
-                    let serialized_first_packet = FirstPacket::Tls { domain, external_addr: addr, is_self_signed }.serialize_to_vector().map_err(|err| generic_error(err.to_string()))?;
+                    let serialized_first_packet = FirstPacket::Tls { domain, external_addr: addr, is_self_signed }.serialize_to_vector().map_err(|err| generic_error(err.into_string()))?;
                     let stream = super::write_one_packet(stream, serialized_first_packet).await.map_err(|err| generic_error(err.into_string()))?;
                     // Upgrade TCP stream to TLS stream
                     tls_acceptor.accept(stream).await.map(|r| (r, addr))

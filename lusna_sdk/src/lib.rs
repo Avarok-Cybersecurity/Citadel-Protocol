@@ -7,7 +7,7 @@
 //!
 //! Authentication to a central node is required before making peer-to-peer connections. There is both device-dependent auth as well as credentialed authentication backed by the argon2id hashing algorithm.
 //!
-//! Client/Peer information is by default synchronized to the local filesystem. If the *enterprise* feature is enabled, a SQL (MySQL, PostgreSQL, SQLite) server or cluster can be used instead.
+//! Client/Peer information is by default synchronized to the local filesystem. If the *redis* and/or *sql* feature is enabled, a redis or SQL (MySQL, PostgreSQL, SQLite) server or cluster can be used instead.
 //!
 //! When messaging is used, perfect forward secrecy (PFS) is an optional mode on a per-session basis. Best-effort mode (BEM) is also available if the security of PFS is not needed, and instead, high throughput
 //! in messaging is required.
@@ -20,10 +20,10 @@
 //! Streaming is also available in this crate. When the use of webrtc is desired for an application, the *webrtc* feature can be enabled to allow interoperability between the [`UdpChannel`] and the [WebRTC.rs](https://webrtc.rs) ecosystem.
 //!
 //! # Feature Flags
-//! - `standard`: Uses a single-threaded !Send executor for the inner protocol
-//! - `plus`: Uses a multi-threaded Send executor for the inner protocol
-//! - `enterprise-lite`: Uses a single-threaded !Send executor for the inner protocol coupled with an optional SQL backend
-//! - `enterprise`: Uses a multi-threaded Send executor for the inner protocol coupled with an optional SQL backend
+//! - `single-threaded`: Uses a single-threaded !Send executor for the inner protocol
+//! - `multi-threaded`: Uses a multi-threaded Send executor for the inner protocol
+//! - `redis`: Enables the use of Redis for the backend
+//! - `sql`: Enables the use of sql for the backend
 //! - `webrtc`: enables *limited* interoperability with webrtc via the [`UdpChannel`] (see: [UdpChannel::into_webrtc_compat](crate::prelude::UdpChannel::into_webrtc_compat))
 //!
 //!

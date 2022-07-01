@@ -72,6 +72,7 @@ impl<'a, F, Fut> PrefabFunctions<'a, Vec<UserIdentifier>> for PeerConnectionKern
         ()
     }
 
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     async fn on_c2s_channel_received(connect_success: ConnectSuccess, cls_remote: ClientServerRemote, peers_to_connect: Vec<UserIdentifier>, f: Self::UserLevelInputFunction, _: ()) -> Result<(), NetworkError> {
         let implicated_cid = connect_success.cid;
         let mut peers_already_registered = vec![];
@@ -143,10 +144,10 @@ mod tests {
     #[case(2)]
     #[case(3)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[tokio::test(flavor="multi_thread")]
     async fn peer_to_peer_connect(#[case] peer_count: usize) {
         assert!(peer_count > 1);
-        crate::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let ref client_success = AtomicUsize::new(0);
@@ -196,10 +197,10 @@ mod tests {
     #[case(2)]
     #[case(3)]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
-    async fn peer_to_peer_connect_passwordless(#[case] peer_count: usize) {
+    #[tokio::test(flavor="multi_thread")]
+    async fn peer_to_peer_connect_passwordless(#[case] peer_count: usize) -> Result<(), Box<dyn std::error::Error>> {
         assert!(peer_count > 1);
-        crate::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
 
         let ref client_success = AtomicUsize::new(0);
@@ -240,7 +241,14 @@ mod tests {
             client_kernels.try_collect::<()>().await.map(|_| ())
         });
 
-        assert!(futures::future::try_select(server, clients).await.is_ok());
+        if let Err(err) = futures::future::try_select(server, clients).await {
+            return match err {
+                futures::future::Either::Left(res) => Err(res.0.into_string().into()),
+                futures::future::Either::Right(res) => Err(res.0.into_string().into()),
+            }
+        }
+
         assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
+        Ok(())
     }
 }
