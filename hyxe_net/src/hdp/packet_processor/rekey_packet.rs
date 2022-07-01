@@ -23,9 +23,8 @@ pub fn process_rekey(session: &HdpSession, packet: HdpPacket, header_drill_vers:
 
     let (header, payload, _, _) = packet.decompose();
     let mut state_container = inner_mut_state!(state_container);
-    let ref cnac_sess = return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded");
 
-    let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header_drill_vers, cnac_sess, &state_container, proxy_cid_info), "Unable to get proper HR");
+    let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header_drill_vers, &state_container, proxy_cid_info), "Unable to get proper HR");
     let (header, payload) = return_if_none!(validation::aead::validate_custom(&hyper_ratchet, &header, payload), "Unable to validate packet");
     let ref header = header;
     let payload = &payload[..];
@@ -40,7 +39,7 @@ pub fn process_rekey(session: &HdpSession, packet: HdpPacket, header_drill_vers:
             match validation::do_drill_update::validate_stage0(payload) {
                 Some(transfer) => {
                     let resp_target_cid = get_resp_target_cid_from_header(header);
-                    let status = return_if_none!(attempt_kem_as_bob(resp_target_cid, header, Some(AliceToBobTransferType::Default(transfer)), &mut state_container.active_virtual_connections, cnac_sess, &hyper_ratchet), "Unable to attempt KEM as Bob");
+                    let status = return_if_none!(attempt_kem_as_bob(resp_target_cid, header, Some(AliceToBobTransferType::Default(transfer)), &mut state_container, &hyper_ratchet), "Unable to attempt KEM as Bob");
                     let packet = hdp_packet_crafter::do_drill_update::craft_stage1(&hyper_ratchet,status, timestamp, resp_target_cid, security_level);
                     Ok(PrimaryProcessorResult::ReplyToSender(packet))
                 }
@@ -67,7 +66,7 @@ pub fn process_rekey(session: &HdpSession, packet: HdpPacket, header_drill_vers:
                     log::trace!(target: "lusna", "Obtained constructor for {}", resp_target_cid);
                     let secrecy_mode = return_if_none!(state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone());
 
-                    let latest_hr = return_if_none!(return_if_none!(attempt_kem_as_alice_finish(secrecy_mode, peer_cid, target_cid, transfer.update_status, &mut state_container.active_virtual_connections, Some(ConstructorType::Default(constructor)), cnac_sess).ok(), "Unable to attempt KEM as alice finish")
+                    let latest_hr = return_if_none!(return_if_none!(attempt_kem_as_alice_finish(secrecy_mode, peer_cid, target_cid, transfer.update_status, &mut *state_container, Some(ConstructorType::Default(constructor))).ok(), "Unable to attempt KEM as alice finish")
                         .unwrap_or(RatchetType::Default(hyper_ratchet)).assume_default());
                     let truncate_packet = hdp_packet_crafter::do_drill_update::craft_truncate(&latest_hr, needs_truncate, resp_target_cid, timestamp, security_level);
                     Ok(PrimaryProcessorResult::ReplyToSender(truncate_packet))
@@ -92,8 +91,9 @@ pub fn process_rekey(session: &HdpSession, packet: HdpPacket, header_drill_vers:
                 let local_cid = header.target_cid.get();
                 (ToolsetUpdate::E2E { crypt, local_cid }, endpoint_container.default_security_settings.secrecy_mode)
             } else {
-                // Cnac
-                (ToolsetUpdate::SessCNAC(cnac_sess), state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone().unwrap())
+                let crypt = &mut state_container.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
+                let local_cid = header.session_cid.get();
+                (ToolsetUpdate::E2E { crypt, local_cid}, state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone().unwrap())
             };
 
             // We optionally deregister at this endpoint to prevent any further packets with this version from being sent
@@ -147,8 +147,9 @@ pub fn process_rekey(session: &HdpSession, packet: HdpPacket, header_drill_vers:
                 let local_cid = header.target_cid.get();
                 (ToolsetUpdate::E2E { crypt, local_cid }, endpoint_container.default_security_settings.secrecy_mode)
             } else {
-                // Cnac
-                (ToolsetUpdate::SessCNAC(cnac_sess), state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone().unwrap())
+                let crypt = &mut state_container.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
+                let local_cid = header.session_cid.get();
+                (ToolsetUpdate::E2E { crypt, local_cid }, state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone().unwrap())
             };
 
             let _ = return_if_none!(method.unlock(true)); // unconditional unlock

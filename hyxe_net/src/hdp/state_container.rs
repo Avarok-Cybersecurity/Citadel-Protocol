@@ -194,13 +194,14 @@ pub struct EndpointChannelContainer<R: Ratchet = HyperRatchet> {
     pub(crate) peer_socket_addr: SocketAddr
 }
 
-pub struct C2SChannelContainer {
+pub struct C2SChannelContainer<R: Ratchet = HyperRatchet> {
     to_channel: OrderedChannel,
     // for UDP
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
     is_active: Arc<AtomicBool>,
     primary_outbound_tx: OutboundPrimaryStreamSender,
-    pub(crate) channel_signal: Option<NodeResult>
+    pub(crate) channel_signal: Option<NodeResult>,
+    pub(crate) peer_session_crypto: PeerSessionCrypto<R>
 }
 
 pub(crate) struct UnorderedChannelContainer {
@@ -641,12 +642,15 @@ impl StateContainerInner {
             to_unordered_channel: None,
             is_active,
             primary_outbound_tx: session.to_primary_stream.clone().unwrap(),
-            channel_signal: None
+            channel_signal: None,
+            peer_session_crypto: cnac.read().crypt_container.new_session()
         };
+
+        let updates_in_progress = c2s.peer_session_crypto.update_in_progress.clone();
 
         self.c2s_channel_container = Some(c2s);
 
-        self.updates_in_progress.insert(0, cnac.visit(|r| r.crypt_container.update_in_progress.clone()));
+        self.updates_in_progress.insert(0, updates_in_progress);
 
         if let Some(udp_alerter) = self.tcp_loaded_status.take() {
             let _ = udp_alerter.send(());
@@ -885,12 +889,12 @@ impl StateContainerInner {
     /// NOTE! object ID is in wave_id for header ACKS
     /// NOTE: If object id != 0, then this header ack belongs to a file transfer and must thus be transmitted via TCP
     #[allow(unused_results)]
-    pub fn on_group_header_ack_received(&mut self, base_session_secrecy_mode: SecrecyMode, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool, cnac_sess: &ClientNetworkAccount) -> bool {
+    pub fn on_group_header_ack_received(&mut self, base_session_secrecy_mode: SecrecyMode, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool) -> bool {
         let key = GroupKey::new(peer_cid, group_id);
 
         if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
             let constructor = outbound_container.ratchet_constructor.take().map(ConstructorType::Default);
-            if attempt_kem_as_alice_finish(base_session_secrecy_mode, peer_cid, target_cid, transfer, &mut self.active_virtual_connections, constructor, cnac_sess).is_err() {
+            if attempt_kem_as_alice_finish(base_session_secrecy_mode, peer_cid, target_cid, transfer, &mut self, constructor).is_err() {
                 return true;
             }
 
@@ -1155,30 +1159,28 @@ impl StateContainerInner {
                 VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
-                    let result = cnac.visit_mut(|mut inner| -> Result<_, NetworkError> {
-                        //let group_id = inner.crypt_container.get_and_increment_group_id();
-                        let latest_hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).cloned().unwrap();
-                        latest_hyper_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_hyper_ratchet.get_default_security_level())))?;
-                        let constructor = inner.crypt_container.get_next_constructor(called_from_poll);
+                    let crypt_container = &mut self.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
+                    let latest_hyper_ratchet = crypt_container.get_hyper_ratchet(None).cloned().unwrap();
+                    latest_hyper_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_hyper_ratchet.get_default_security_level())))?;
+                    let constructor = crypt_container.get_next_constructor(called_from_poll);
 
-                        match secrecy_mode {
-                            SecrecyMode::BestEffort => {
-                                let group_id = inner.crypt_container.get_and_increment_group_id();
-                                Ok(Either::Left((constructor, latest_hyper_ratchet.clone(), group_id, packet)))
-                            }
+                    let result = match secrecy_mode {
+                        SecrecyMode::BestEffort => {
+                            let group_id = crypt_container.get_and_increment_group_id();
+                            Either::Left((constructor, latest_hyper_ratchet.clone(), group_id, packet))
+                        }
 
-                            SecrecyMode::Perfect => {
-                                if constructor.is_some() {
-                                    // we can perform a kex
-                                    let group_id = inner.crypt_container.get_and_increment_group_id();
-                                    Ok(Either::Left((constructor, latest_hyper_ratchet.clone(), group_id, packet)))
-                                } else {
-                                    // kex later
-                                    Ok(Either::Right(packet))
-                                }
+                        SecrecyMode::Perfect => {
+                            if constructor.is_some() {
+                                // we can perform a kex
+                                let group_id = crypt_container.get_and_increment_group_id();
+                                Either::Left((constructor, latest_hyper_ratchet.clone(), group_id, packet))
+                            } else {
+                                // kex later
+                                Either::Right(packet)
                             }
                         }
-                    })?;
+                    };
 
                     match result {
                         Either::Left((alice_constructor, latest_hyper_ratchet, group_id, packet)) => {
@@ -1188,7 +1190,6 @@ impl StateContainerInner {
 
                         Either::Right(packet) => {
                             // store inside hashmap
-                            //let mut enqueued_packets = inner_mut!(this.enqueued_packets);
                             log::trace!(target: "lusna", "[ATC] Enqueuing c2s packet");
                             this.enqueue_packet(C2S_ENCRYPTION_ONLY, ticket, packet, virtual_target, security_level);
                             return Ok(());
@@ -1309,21 +1310,18 @@ impl StateContainerInner {
             return Ok(());
         }
 
-        let cnac = self.cnac.clone().ok_or_else(||NetworkError::InternalError("CNAC not loaded"))?;
         let session_security_settings = self.session_security_settings.clone().unwrap();
         let security_level = session_security_settings.security_level;
         let ref default_primary_stream = self.get_primary_stream().cloned().ok_or_else(||NetworkError::InternalError("Primary stream not loaded"))?;
 
         match virtual_target {
             VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
-                let (ratchet, res) = cnac.visit_mut(|mut inner| {
-                    let ratchet = inner.crypt_container.get_hyper_ratchet(None).cloned().unwrap();
-                    (ratchet, inner.crypt_container.get_next_constructor(false))
-                });
+                let crypt_container = &mut self.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
 
-                match res {
+                match crypt_container.get_next_constructor(false) {
                     Some(alice_constructor) => {
-                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(&ratchet, alice_constructor.stage0_alice(), timestamp, C2S_ENCRYPTION_ONLY, security_level);
+                        let ratchet = crypt_container.get_hyper_ratchet(None).unwrap();
+                        let stage0_packet = hdp_packet_crafter::do_drill_update::craft_stage0(ratchet, alice_constructor.stage0_alice(), timestamp, C2S_ENCRYPTION_ONLY, security_level);
                         self.ratchet_update_state.alice_hyper_ratchet = Some(alice_constructor);
                         let to_primary_stream = self.get_primary_stream().unwrap();
                         let kernel_tx = &self.kernel_tx;

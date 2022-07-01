@@ -40,7 +40,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
         log::trace!(target: "lusna", "RECV PEER CMD packet (proxy: {})", endpoint_cid_info.is_some());
         let state_container = inner_state!(session.state_container);
         let cnac = return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded");
-        let sess_hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header_drill_version, &cnac, &state_container, endpoint_cid_info), "Unable to obtain peer HR (P_CMD_PKT)");
+        let sess_hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header_drill_version, &state_container, endpoint_cid_info), "Unable to obtain peer HR (P_CMD_PKT)");
 
         let (header, payload) = return_if_none!(validation::aead::validate_custom(&sess_hyper_ratchet, &header, payload), "Unable to validate peer CMD packet");
         let security_level = header.security_level.into();

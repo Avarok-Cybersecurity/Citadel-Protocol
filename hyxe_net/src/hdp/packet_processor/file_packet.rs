@@ -18,7 +18,7 @@ pub fn process_file_packet(session: &HdpSession, packet: HdpPacket, proxy_cid_in
     // get the proper pqc
     let header_bytes = &header[..];
     let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to validate header layout") as LayoutVerified<&[u8], HdpHeader>;
-    let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess,&state_container, proxy_cid_info), "Unable to get proper HR");
+    let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), &state_container, proxy_cid_info), "Unable to get proper HR");
     let security_level = header.security_level.into();
     // ALL FILE packets must be authenticated
     match validation::group::validate(&hyper_ratchet, security_level, header_bytes, payload) {

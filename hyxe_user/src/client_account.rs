@@ -130,6 +130,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         write.crypt_container.toolset.get_static_auxiliary_ratchet().clone()
     }
 
+    /// Stores the rtdb config
+    pub fn store_rtdb_config(&self, cfg: RtdbClientConfig) {
+        self.write().client_rtdb_config = Some(cfg);
+    }
+
     /// Returns true if the NAC is a personal type
     pub fn is_personal(&self) -> bool {
         self.inner.is_personal
@@ -387,19 +392,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
     /// Note: if persistence handler is not specified, it will have to be loaded later, before any other program execution
     pub(crate) fn load_safe(inner: ClientNetworkAccountInner<R, Fcm>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         Ok(ClientNetworkAccount::<R, Fcm>::from(inner))
-    }
-
-    /// Visit the inner device
-    pub fn visit<J>(&self, fx: impl FnOnce(RwLockReadGuard<'_, ClientNetworkAccountInner<R, Fcm>>) -> J) -> J {
-        fx(self.read())
-    }
-
-    /// Visit the inner device mutably
-    /// NOTE! The only fields that should be mutated internally are the (fcm) crypt containers. The peer information should
-    /// only be mutated through the persistence handler. In the case of an FCM crypt container, saving should be called after mutating
-    /// TODO: Make visit with restricted input parameter to reflect the above
-    pub fn visit_mut<'a, 'b: 'a, J: 'b>(&'b self, fx: impl FnOnce(RwLockWriteGuard<'a, ClientNetworkAccountInner<R, Fcm>>) -> J) -> J {
-        fx(self.write())
     }
 
     /// Returns the metadata for this CNAC

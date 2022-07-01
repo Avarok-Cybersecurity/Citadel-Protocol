@@ -202,9 +202,7 @@ pub async fn process_connect(sess_ref: &HdpSession, packet: HdpPacket) -> Result
                                         } = rtdb;
 
                                         let client_rtdb_config = RtdbClientConfig { url: base_url, api_key, auth_payload: auth, expire_time, jwt };
-                                        cnac.visit_mut(|mut inner| {
-                                            inner.client_rtdb_config = Some(client_rtdb_config);
-                                        });
+                                        cnac.store_rtdb_config(client_rtdb_config);
 
                                         log::trace!(target: "lusna", "Successfully logged-in to RTDB + stored config inside CNAC ...");
                                     }
