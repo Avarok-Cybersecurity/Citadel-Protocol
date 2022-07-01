@@ -49,7 +49,7 @@ jobs:
       - name: Run cargo-tarpaulin
         uses: actions-rs/tarpaulin@v0.1
         with:
-          args: '--timeout 3600 --packages lusna_sdk,hyxe_user,hyxe_fs,hyxe_crypt,ez_pqcrypto,hyxe_wire --features=redis,sql,localhost-testing -- --test-threads=1 --skip stress_test --skip argon_autotuner'
+          args: '--timeout 4800 --packages lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --features=redis,sql,localhost-testing -- --test-threads=1 --skip argon_autotuner'
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

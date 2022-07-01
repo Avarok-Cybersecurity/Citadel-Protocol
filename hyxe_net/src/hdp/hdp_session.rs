@@ -313,6 +313,7 @@ impl HdpSession {
     ///
     /// `tcp_stream`: this goes to the adjacent HyperNode
     /// `p2p_listener`: This is TCP listener bound to the same local_addr as tcp_stream. Required for TCP hole-punching
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     pub async fn execute(&self, mut primary_stream: GenericNetworkStream, peer_addr: SocketAddr) -> Result<Option<u64>, (NetworkError, Option<u64>)> {
         log::trace!(target: "lusna", "HdpSession is executing ...");
         let this = self.clone();
@@ -418,7 +419,8 @@ impl HdpSession {
         Ok(())
     }
 
-    /// Before going through the usual loopy business, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
+    /// Before going through the usual flow, check to see if we need to initiate either a stage0 REGISTER or CONNECT packet
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     async fn handle_zero_state(zero_packet: Option<BytesMut>, persistence_handler: PersistenceHandler, to_outbound: OutboundPrimaryStreamSender, session: HdpSession, state: SessionState, timestamp: i64, cnac: Option<ClientNetworkAccount>) -> Result<(), NetworkError> {
         if let Some(zero) = zero_packet {
             to_outbound.unbounded_send(zero).map_err(|_| NetworkError::InternalError("Writer stream corrupted"))?;
@@ -615,11 +617,13 @@ impl HdpSession {
         let _ = spawn!(task);
     }
 
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     pub async fn outbound_stream(primary_outbound_rx: OutboundPrimaryStreamReceiver, writer: CleanShutdownSink<GenericNetworkStream, LengthDelimitedCodec, Bytes>) -> Result<(), NetworkError> {
         primary_outbound_rx.0.map(|r| Ok(r.freeze())).forward(writer).map_err(|err| NetworkError::Generic(err.to_string())).await
     }
 
     /// NOTE: We need to have at least one owning/strong reference to the session. Having the inbound stream own a single strong count makes the most sense
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     pub async fn execute_inbound_stream(ref mut reader: CleanShutdownStream<GenericNetworkStream, LengthDelimitedCodec, Bytes>, ref this_main: HdpSession, p2p_handle: Option<P2PInboundHandle>) -> Result<(), NetworkError> {
         log::trace!(target: "lusna", "HdpSession async inbound-stream subroutine executed");
         let (ref remote_peer, ref local_primary_port, ref implicated_cid, ref kernel_tx, ref primary_stream, p2p, is_server) = if let Some(p2p) = p2p_handle {
@@ -694,6 +698,7 @@ impl HdpSession {
         }
     }
 
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     async fn execute_queue_worker(this_main: HdpSession) -> Result<(), NetworkError> {
         log::trace!(target: "lusna", "HdpSession async timer subroutine executed");
 
@@ -823,7 +828,6 @@ impl HdpSession {
                 // the above are the same for all vtarget types. Now, we need to get the proper drill and pqc
 
                 let mut state_container = inner_mut_state!(this.state_container);
-                let cnac = state_container.cnac.clone().ok_or(NetworkError::InvalidRequest("CNAC not loaded"))?;
 
                 log::trace!(target: "lusna", "Transmit file name: {}", &file_name);
                 // the key cid must be differentiated from the target cid because the target_cid needs to be zero if
@@ -832,31 +836,30 @@ impl HdpSession {
                     VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                         // if we are sending this just to the HyperLAN server (in the case of file uploads),
                         // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
-                        cnac.visit_mut(|mut inner| -> Result<_, NetworkError> {
-                            let object_id = inner.crypt_container.get_and_increment_object_id();
-                            let group_id_start = inner.crypt_container.get_and_increment_group_id();
-                            let latest_hr = inner.crypt_container.get_hyper_ratchet(None).cloned().unwrap();
+                        let crypt_container = &mut state_container.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
+                        let object_id = crypt_container.get_and_increment_object_id();
+                        let group_id_start = crypt_container.get_and_increment_group_id();
+                        let latest_hr = crypt_container.get_hyper_ratchet(None).unwrap();
 
-                            let to_primary_stream = this.to_primary_stream.clone().unwrap();
-                            let target_cid = 0;
-                            let (file_size, groups_needed) = scramble_encrypt_source(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_hr.clone(), HDP_HEADER_BYTE_LEN, target_cid, group_id_start, hdp_packet_crafter::group::craft_wave_payload_packet_into)
-                                .map_err(|err| NetworkError::Generic(err.to_string()))?;
+                        let to_primary_stream = this.to_primary_stream.clone().unwrap();
+                        let target_cid = 0;
+                        let (file_size, groups_needed) = scramble_encrypt_source(std_file, max_group_size, object_id, group_sender, stop_rx, security_level, latest_hr.clone(), HDP_HEADER_BYTE_LEN, target_cid, group_id_start, hdp_packet_crafter::group::craft_wave_payload_packet_into)
+                            .map_err(|err| NetworkError::Generic(err.to_string()))?;
 
-                            let file_metadata = VirtualObjectMetadata {
-                                object_id,
-                                name: file_name,
-                                date_created: "".to_string(),
-                                author: inner.auth_store.full_name().to_string(),
-                                plaintext_length: file_size,
-                                group_count: groups_needed,
-                            };
+                        let file_metadata = VirtualObjectMetadata {
+                            object_id,
+                            name: file_name,
+                            date_created: "".to_string(),
+                            author: format!("N/A"),
+                            plaintext_length: file_size,
+                            group_count: groups_needed,
+                        };
 
-                            // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
-                            let amt_to_reserve = groups_needed - 1;
-                            inner.crypt_container.rolling_group_id += amt_to_reserve as u64;
-                            let file_header = hdp_packet_crafter::file::craft_file_header_packet(&latest_hr, group_id_start, ticket, security_level, virtual_target, file_metadata, timestamp);
-                            Ok((to_primary_stream, file_header, object_id, target_cid, implicated_cid, groups_needed))
-                        })?
+                        // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
+                        let amt_to_reserve = groups_needed - 1;
+                        crypt_container.rolling_group_id += amt_to_reserve as u64;
+                        let file_header = hdp_packet_crafter::file::craft_file_header_packet(latest_hr, group_id_start, ticket, security_level, virtual_target, file_metadata, timestamp);
+                        (to_primary_stream, file_header, object_id, target_cid, implicated_cid, groups_needed)
                     }
 
                     VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
@@ -978,11 +981,13 @@ impl HdpSession {
                                     let mut state_container = inner_mut_state!(sess.state_container);
 
                                     let proper_latest_hyper_ratchet = match virtual_target {
-                                        VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => { cnac.get_hyper_ratchet(None) }
+                                        VirtualConnectionType::HyperLANPeerToHyperLANServer(_) => {
+                                            state_container.c2s_channel_container.as_ref().unwrap().peer_session_crypto.get_hyper_ratchet(None)
+                                        }
                                         VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid) => {
                                             match StateContainerInner::get_peer_session_crypto(&mut state_container.active_virtual_connections, peer_cid) {
                                                 Some(peer_sess_crypt) => {
-                                                    peer_sess_crypt.get_hyper_ratchet(None).cloned()
+                                                    peer_sess_crypt.get_hyper_ratchet(None)
                                                 }
 
                                                 None => {
@@ -1143,35 +1148,31 @@ impl HdpSession {
         let mut state_container = inner_mut_state!(this.state_container);
         if let Some(cnac) = state_container.cnac.clone() {
             if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
-                let packet = cnac.visit(|inner| {
-                    let signal_processed = match peer_command {
-                        PeerSignal::DisconnectUDP(v_conn) => {
-                            // disconnect UDP locally
-                            log::trace!(target: "lusna", "Closing UDP subsystem locally ...");
-                            state_container.remove_udp_channel(v_conn.get_target_cid());
-                            PeerSignal::DisconnectUDP(v_conn)
+                let signal_processed = match peer_command {
+                    PeerSignal::DisconnectUDP(v_conn) => {
+                        // disconnect UDP locally
+                        log::trace!(target: "lusna", "Closing UDP subsystem locally ...");
+                        state_container.remove_udp_channel(v_conn.get_target_cid());
+                        PeerSignal::DisconnectUDP(v_conn)
+                    }
+
+                    PeerSignal::PostConnect(a, b, None, d, e) => {
+                        if state_container.outgoing_peer_connect_attempts.contains_key(&a.get_original_target_cid()) {
+                            log::warn!(target: "lusna", "{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
                         }
 
-                        PeerSignal::PostConnect(a, b, None, d, e) => {
-                            if state_container.outgoing_peer_connect_attempts.contains_key(&a.get_original_target_cid()) {
-                                log::warn!(target: "lusna", "{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
-                            }
+                        // in case the ticket gets mapped during simultaneous_connect, store locally
+                        let _ = state_container.outgoing_peer_connect_attempts.insert(a.get_original_target_cid(), ticket);
+                        PeerSignal::PostConnect(a, b, None, d, e)
+                    }
 
-                            // in case the ticket gets mapped during simultaneous_connect, store locally
-                            let _ = state_container.outgoing_peer_connect_attempts.insert(a.get_original_target_cid(), ticket);
-                            PeerSignal::PostConnect(a, b, None, d, e)
-                        }
+                    n => {
+                        n
+                    }
+                };
 
-                        n => {
-                            n
-                        }
-                    };
-
-                    // TODO: move into state container
-                    let hyper_ratchet = inner.crypt_container.get_hyper_ratchet(None).unwrap();
-                    let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
-                    Ok::<_, NetworkError>(packet)
-                })?;
+                let hyper_ratchet = state_container.c2s_channel_container.as_ref().unwrap().peer_session_crypto.get_hyper_ratchet(None).unwrap();
+                let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
 
                 to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string()))
             } else {
