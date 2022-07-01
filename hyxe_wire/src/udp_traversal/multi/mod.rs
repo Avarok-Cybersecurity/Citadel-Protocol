@@ -37,6 +37,7 @@ enum DualStackCandidate {
 
 impl<'a> DualStackUdpHolePuncher<'a> {
     /// `peer_internal_port`: Required for determining the internal socket addr
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, err(Debug)))]
     pub fn new(relative_node_type: RelativeNodeType, encrypted_config_container: EncryptedConfigContainer, mut hole_punch_config: HolePunchConfig, napp: &'a NetworkEndpoint) -> Result<Self, anyhow::Error> {
         let mut hole_punchers = Vec::new();
         let sockets = hole_punch_config.locally_bound_sockets.take().ok_or_else(|| anyhow::Error::msg("sockets already taken"))?;

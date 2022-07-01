@@ -1762,6 +1762,7 @@ dependencies = [
  "rstest 0.14.0",
  "serde",
  "tokio",
+ "tracing 0.1.35",
  "uuid 1.1.2",
 ]
 

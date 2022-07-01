@@ -66,6 +66,7 @@ impl Default for NatType {
 impl NatType {
     /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
     /// `local_bind_addr`: Only relevant for localhost testing
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     pub async fn identify() -> Result<Self, FirewallError> {
         Self::identify_timeout(IDENTIFY_TIMEOUT).await
     }
