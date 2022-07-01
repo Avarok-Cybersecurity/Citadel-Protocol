@@ -38,6 +38,7 @@ impl Future for UdpHolePuncher<'_> {
     }
 }
 
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
 async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     let local_nat_type = &(NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?);
 
@@ -115,21 +116,13 @@ mod tests {
     use netbeam::sync::test_utils::create_streams_with_addrs_and_lag;
     use rstest::rstest;
 
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     #[rstest]
     #[case(0)]
     #[case(50)]
     #[case(100)]
     #[tokio::test]
     async fn dual_hole_puncher(#[case] lag: usize) {
-        setup_log();
+        lusna_logging::setup_log();
 
         let (server_stream, client_stream) = create_streams_with_addrs_and_lag(lag).await;
 

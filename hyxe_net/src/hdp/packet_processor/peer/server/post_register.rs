@@ -7,7 +7,8 @@ use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::drill::SecurityLevel;
 use crate::hdp::peer::peer_layer::{Username, HyperNodePeerLayerInner};
 
-pub async fn handle_response_phase(peer_layer: &mut HyperNodePeerLayerInner, peer_conn_type: PeerConnectionType, username: Username, peer_response: PeerResponse, ticket: Ticket, implicated_cid: u64, target_cid: u64, timestamp: i64, session: &HdpSession, sess_hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session.is_server, implicated_cid = implicated_cid, target_cid = target_cid)))]
+pub async fn handle_response_phase_post_register(peer_layer: &mut HyperNodePeerLayerInner, peer_conn_type: PeerConnectionType, username: Username, peer_response: PeerResponse, ticket: Ticket, implicated_cid: u64, target_cid: u64, timestamp: i64, session: &HdpSession, sess_hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let decline = match &peer_response { PeerResponse::Decline => true, _ => false };
 
     route_signal_response(PeerSignal::PostRegister(peer_conn_type, username, None,Some(ticket), Some(peer_response)), implicated_cid, target_cid, timestamp, ticket, peer_layer, session.clone(), &sess_hyper_ratchet,

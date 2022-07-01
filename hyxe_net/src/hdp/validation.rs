@@ -2,13 +2,13 @@ pub(crate) mod do_connect {
     use hyxe_user::client_account::ClientNetworkAccount;
 
     use crate::error::NetworkError;
-    use hyxe_fs::prelude::SyncIO;
+    use hyxe_user::serialization::SyncIO;
     use crate::hdp::hdp_packet_crafter::do_connect::{DoConnectStage0Packet, DoConnectFinalStatusPacket};
 
     /// Here, Bob receives a payload of the encrypted username + password. We must verify the login data is valid
     pub(crate) async fn validate_stage0_packet(cnac: &ClientNetworkAccount, payload: &[u8]) -> Result<(), NetworkError> {
         // Now, validate the username and password. The payload is already decrypted
-        let payload = DoConnectStage0Packet::deserialize_from_vector(payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let payload = DoConnectStage0Packet::deserialize_from_vector(payload).map_err(|err| NetworkError::Generic(err.into_string()))?;
         cnac.validate_credentials(payload.proposed_credentials).await.map_err(|err| NetworkError::Generic(err.into_string()))?;
         log::trace!(target: "lusna", "Success validating credentials!");
         Ok(())
@@ -44,7 +44,7 @@ pub(crate) mod group {
     use serde::{Serialize, Deserialize};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
-    use hyxe_fs::io::SyncIO;
+    use hyxe_user::serialization::SyncIO;
     use hyxe_crypt::drill::SecurityLevel;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
     use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
@@ -79,7 +79,7 @@ pub(crate) mod group {
     pub(crate) fn validate_message<'a>(payload: &'a mut BytesMut) -> Option<(SecBuffer, Option<AliceToBobTransfer<'a>>)> {
         let message = SecureProtocolPacket::extract_message(payload).ok()?;
         //let deser = bincode2::deserialize(&payload[..]).ok()?;
-        let deser = hyxe_fs::io::SyncIO::deserialize_from_vector(&payload[..]).ok()?;
+        let deser = hyxe_user::serialization::SyncIO::deserialize_from_vector(&payload[..]).ok()?;
         Some((message.into(), deser))
     }
 
@@ -111,36 +111,33 @@ pub(crate) mod do_register {
     use std::net::SocketAddr;
     use zerocopy::LayoutVerified;
 
-    use hyxe_user::network_account::NetworkAccount;
-
     use crate::hdp::hdp_packet::HdpHeader;
     use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use bytes::BytesMut;
-    use hyxe_fs::io::SyncIO;
+    use hyxe_user::serialization::SyncIO;
     use crate::hdp::hdp_packet_crafter::do_register::{DoRegisterStage2Packet, DoRegisterStage0};
-    use hyxe_user::backend::PersistenceHandler;
+    use hyxe_user::prelude::ConnectionInfo;
 
-    pub(crate) fn validate_stage0<'a>(payload: &'a [u8]) -> Option<(AliceToBobTransfer<'a>, Vec<u64>, bool)> {
-        DoRegisterStage0::deserialize_from_vector(payload).ok().map(|r| (r.transfer, r.potential_cids_alice, r.passwordless))
+    pub(crate) fn validate_stage0<'a>(payload: &'a [u8]) -> Option<(AliceToBobTransfer<'a>, bool)> {
+        DoRegisterStage0::deserialize_from_vector(payload).ok().map(|r| (r.transfer, r.passwordless))
     }
 
     /// Returns the decrypted username, password, and full name
-    pub(crate) fn validate_stage2(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, peer_addr: SocketAddr, persistence_handler: &PersistenceHandler) -> Option<(DoRegisterStage2Packet, NetworkAccount)> {
+    pub(crate) fn validate_stage2(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, peer_addr: SocketAddr) -> Option<(DoRegisterStage2Packet, ConnectionInfo)> {
         let (_, plaintext_bytes) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
         let packet = DoRegisterStage2Packet::deserialize_from_vector(&plaintext_bytes[..]).ok()?;
 
         //let proposed_credentials = ProposedCredentials::new_from_hashed(full_name, username, SecVec::new(password.to_vec()), nonce);
-        let adjacent_nid = header.session_cid.get();
-        let adjacent_nac = NetworkAccount::new_from_recent_connection(adjacent_nid, peer_addr,persistence_handler.clone());
-        Some((packet, adjacent_nac))
+        let adjacent_addr = ConnectionInfo { addr: peer_addr };
+        Some((packet, adjacent_addr))
     }
 
     /// Returns the decrypted Toolset text, as well as the welcome message
-    pub(crate) fn validate_success(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr, persistence_handler: &PersistenceHandler) -> Option<(Vec<u8>, NetworkAccount)> {
+    pub(crate) fn validate_success(hyper_ratchet: &HyperRatchet, header: &LayoutVerified<&[u8], HdpHeader>, payload: BytesMut, remote_addr: SocketAddr) -> Option<(Vec<u8>, ConnectionInfo)> {
         let (_, payload) = super::aead::validate_custom(hyper_ratchet, &header.bytes(), payload)?;
-        let adjacent_nac = NetworkAccount::new_from_recent_connection(header.session_cid.get(), remote_addr, persistence_handler.clone());
-        Some((payload.to_vec(), adjacent_nac))
+        let adjacent_addr = ConnectionInfo { addr: remote_addr };
+        Some((payload.to_vec(), adjacent_addr))
     }
 
     /// Returns the error message
@@ -154,7 +151,7 @@ pub(crate) mod do_drill_update {
 
     use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
     use crate::hdp::hdp_packet_crafter::do_drill_update::{TruncatePacket, Stage1UpdatePacket, TruncateAckPacket};
-    use hyxe_fs::io::SyncIO;
+    use hyxe_user::serialization::SyncIO;
 
     pub(crate) fn validate_stage0(payload: &[u8]) -> Option<AliceToBobTransfer<'_>> {
         AliceToBobTransfer::deserialize_from(payload as &[u8])
@@ -183,7 +180,7 @@ pub(crate) mod pre_connect {
     use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
     use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
     use crate::hdp::hdp_packet_crafter::pre_connect::{SynPacket, PreConnectStage0};
-    use hyxe_fs::io::SyncIO;
+    use hyxe_user::serialization::SyncIO;
     use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
     use hyxe_user::prelude::ConnectProtocol;
     use crate::hdp::hdp_session_manager::HdpSessionManager;
@@ -200,7 +197,7 @@ pub(crate) mod pre_connect {
         // After this point, we validate that the other end had the right static symmetric key. This proves device identity, thought not necessarily account identity
         let (header, payload) = super::aead::validate_custom(&static_auxiliary_ratchet, &header, payload).ok_or(NetworkError::InternalError("Unable to validate initial packet"))?;
 
-        let transfer = SynPacket::deserialize_from_vector(&payload).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        let transfer = SynPacket::deserialize_from_vector(&payload).map_err(|err| NetworkError::Generic(err.into_string()))?;
 
         // TODO: Consider adding connect_mode to the HdpSession to sync between both nodes. For now, there's no need
         match transfer.connect_mode {
@@ -284,19 +281,19 @@ pub(crate) mod pre_connect {
 }
 
 pub(crate) mod file {
-    use crate::hdp::file_transfer::VirtualFileMetadata;
+    use hyxe_user::backend::utils::VirtualObjectMetadata;
     use crate::hdp::hdp_packet::HdpHeader;
     use crate::hdp::packet_processor::includes::LayoutVerified;
     use crate::hdp::state_container::VirtualTargetType;
 
-    pub fn validate_file_header(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(VirtualTargetType, VirtualFileMetadata)> {
+    pub fn validate_file_header(header: &LayoutVerified<&[u8], HdpHeader>, payload: &[u8]) -> Option<(VirtualTargetType, VirtualObjectMetadata)> {
         let split_idx = header.wave_id.get() as usize;
         if payload.len() < split_idx {
             None
         } else {
             let (vtarget_bytes, vfm_bytes) = payload.split_at(split_idx);
             let vtarget = VirtualTargetType::deserialize_from(vtarget_bytes)?;
-            let vfm = VirtualFileMetadata::deserialize_from(vfm_bytes)?;
+            let vfm = VirtualObjectMetadata::deserialize_from(vfm_bytes)?;
             Some((vtarget, vfm))
         }
     }

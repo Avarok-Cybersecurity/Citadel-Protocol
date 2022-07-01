@@ -2,107 +2,91 @@
 mod tests {
 
     use hyxe_user::account_manager::AccountManager;
-    use hyxe_fs::hyxe_crypt::hyper_ratchet::HyperRatchet;
-    use std::net::{IpAddr, SocketAddr};
+    use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use std::str::FromStr;
     use hyxe_user::client_account::ClientNetworkAccount;
-    use dirs2::home_dir;
     use hyxe_crypt::hyper_ratchet::constructor::{BobToAliceTransferType, HyperRatchetConstructor};
     use hyxe_user::backend::{BackendType, PersistenceHandler};
-    use rand::random;
     use hyxe_crypt::prelude::{SecBuffer, ConstructorOpts};
-    use tokio::net::TcpListener;
     use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
     use tokio::sync::Mutex;
     use hyxe_user::auth::proposed_credentials::ProposedCredentials;
     use futures::Future;
     
     use hyxe_user::misc::{AccountError, CNACMetadata};
-    use std::sync::Arc;
-    use hyxe_user::prelude::MutualPeer;
+    use hyxe_user::prelude::{MutualPeer, ConnectionInfo};
     use std::collections::HashMap;
+    use std::net::SocketAddr;
 
     static TEST_MUTEX: Mutex<()> = Mutex::const_new(());
 
     #[derive(Clone)]
     struct TestContainer {
         server_acc_mgr: AccountManager,
-        client_acc_mgr: AccountManager,
-        #[allow(dead_code)]
-        // hold the tcp listeners for the duration of the test to ensure no re-binding during parallel tests
-        tcp_listeners: Arc<Mutex<Vec<TcpListener>>>
+        client_acc_mgr: AccountManager
     }
 
     impl TestContainer {
         pub async fn new(server_backend: BackendType, client_backend: BackendType) -> Self {
-            let server_bind = TcpListener::bind((IpAddr::from_str("127.0.0.1").unwrap(), 0)).await.unwrap();
-            let client_bind = TcpListener::bind((IpAddr::from_str("127.0.0.1").unwrap(), 0)).await.unwrap();
-            let server_acc_mgr = acc_mgr(server_bind.local_addr().unwrap(), server_backend).await;
-            let client_acc_mgr = acc_mgr(client_bind.local_addr().unwrap(), client_backend).await;
+            let server_acc_mgr = acc_mgr(server_backend).await;
+            let client_acc_mgr = acc_mgr(client_backend).await;
 
             Self {
                 server_acc_mgr,
-                client_acc_mgr,
-                tcp_listeners: Arc::new(Mutex::new(vec![server_bind, client_bind]))
+                client_acc_mgr
             }
         }
 
         pub async fn create_cnac(&self, username: &str, password: &str, full_name: &str) -> (ClientNetworkAccount, ClientNetworkAccount) {
-            let client_nac = self.client_acc_mgr.get_local_nac().clone();
-            let cid = random::<u64>();
+            let conn_info = ConnectionInfo { addr: SocketAddr::from_str("127.0.0.1:12345").unwrap() };
+            let cid = self.server_acc_mgr.get_persistence_handler().get_cid_by_username(username);
             let (client_hr, server_hr) = gen(cid, 0, None);
-            let server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(cid, client_nac.clone(), ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), server_hr).await.unwrap();
-            let client_vers = self.client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), client_nac).await.unwrap();
+            let server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(conn_info.clone(), ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), server_hr).await.unwrap();
+            let client_vers = self.client_acc_mgr.register_personal_hyperlan_server(client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), conn_info).await.unwrap();
 
             (client_vers, server_vers)
         }
 
         pub async fn create_peer_cnac(&self, username: &str, password: &str, full_name: &str, peer_backend: BackendType) -> (ClientNetworkAccount, TestContainer) {
             // we assume same server node
+            let conn_info = ConnectionInfo { addr: SocketAddr::from_str("127.0.0.1:54321").unwrap() };
             let server_acc_mgr = self.server_acc_mgr.clone();
-            let client_bind = TcpListener::bind((IpAddr::from_str("127.0.0.1").unwrap(), 0)).await.unwrap();
-            let client_acc_mgr = acc_mgr(client_bind.local_addr().unwrap(), peer_backend).await;
+            let client_acc_mgr = acc_mgr(peer_backend).await;
 
-            self.tcp_listeners.lock().await.push(client_bind);
-            let client_nac = client_acc_mgr.get_local_nac().clone();
-            let cid = random::<u64>();
+            let cid = self.server_acc_mgr.get_persistence_handler().get_cid_by_username(username);
             let (client_hr, server_hr) = gen(cid, 0, None);
 
-            let _server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(cid, client_nac.clone(), ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), server_hr).await.unwrap();
-            let client_vers = client_acc_mgr.register_personal_hyperlan_server(cid, client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), client_nac).await.unwrap();
+            let _server_vers = self.server_acc_mgr.register_impersonal_hyperlan_client_network_account(conn_info.clone(), ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), server_hr).await.unwrap();
+            let client_vers = client_acc_mgr.register_personal_hyperlan_server(client_hr, ProposedCredentials::new_register(full_name, username, SecBuffer::from(password)).await.unwrap(), conn_info).await.unwrap();
             let client_test_container = TestContainer {
                 server_acc_mgr,
-                client_acc_mgr,
-                tcp_listeners: self.tcp_listeners.clone()
+                client_acc_mgr
             };
 
             (client_vers, client_test_container)
         }
 
-        async fn deinit(self) {
-            self.server_acc_mgr.purge_home_directory().await.unwrap();
-            self.client_acc_mgr.purge_home_directory().await.unwrap();
-        }
-
-        #[allow(dead_code)]
         async fn purge(&self) {
             self.server_acc_mgr.purge().await.unwrap();
             self.client_acc_mgr.purge().await.unwrap();
         }
     }
 
-    #[allow(unused_must_use)]
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
+    fn generate_random_filesystem_dir() -> BackendType {
+        let mut home = dirs2::home_dir().unwrap();
+        let rand = uuid::Uuid::new_v4().to_string();
+        home.push(format!("tmp/{}/", rand));
+
+        if home.exists() {
+            return generate_random_filesystem_dir()
+        }
+
+        BackendType::new(format!("file:{}", home.display())).unwrap()
     }
 
-    #[cfg(any(feature = "sql", feature = "redis"))]
-    fn get_possible_backends(env: &str, _ty: &str) -> Vec<BackendType> {
-        let mut backends = vec![BackendType::Filesystem];
+    #[cfg(any(feature = "sql", feature = "redis", feature = "filesystem"))]
+    fn get_possible_backends(env: &str, ty: &str) -> Vec<BackendType> {
+        let mut backends = vec![BackendType::InMemory, generate_random_filesystem_dir()];
 
         match std::env::var(&env) {
             Ok(addr) => {
@@ -113,17 +97,21 @@ mod tests {
                 }
             }
             _ => {
-                log::error!(target: "lusna", "Make sure {} is set in the environment", env);
-                std::process::exit(1)
+                if std::env::var("SKIP_EXT_BACKENDS").is_err() {
+                    log::error!(target: "lusna", "Make sure {} is set in the environment", env);
+                    std::process::exit(1)
+                }
             }
         }
+
+        log::info!(target: "lusna", "Backends generated for {}: {:?}", ty, backends);
 
         backends
     }
 
-    #[cfg(not(any(feature = "sql", feature = "redis")))]
+    #[cfg(not(any(feature = "sql", feature = "redis", feature = "filesystem")))]
     fn get_possible_backends(_env: &str, _ty: &str) -> Vec<BackendType> {
-        vec![BackendType::Filesystem]
+        vec![BackendType::InMemory]
     }
 
     fn client_backends() -> Vec<BackendType> {
@@ -137,7 +125,7 @@ mod tests {
     async fn test_harness<T, F>(mut t: T) -> Result<(), AccountError>
         where T: Send + 'static + FnMut(TestContainer, PersistenceHandler, PersistenceHandler) -> F,
         F: Future<Output=Result<(), AccountError>> + Send + 'static {
-        setup_log();
+        lusna_logging::setup_log();
         let _lock = TEST_MUTEX.lock().await;
 
         let client_backends = client_backends();
@@ -150,21 +138,23 @@ mod tests {
             log::info!(target: "lusna", "Trying combination: client={:?} w/ server={:?}", client_backend, server_backend);
             let container = TestContainer::new(server_backend.clone(), client_backend.clone()).await;
             let (pers_cl, pers_se) = (container.client_acc_mgr.get_persistence_handler().clone(), container.server_acc_mgr.get_persistence_handler().clone());
+            log::trace!(target: "lusna", "About to execute test on thread ...");
             let res = tokio::task::spawn((t)(container.clone(), pers_cl, pers_se)).await.map_err(|err| AccountError::Generic(err.to_string()));
             log::info!(target: "lusna", "About to clear test container ...");
             if res.is_err() {
                 log::error!(target: "lusna", "Task failed! {:?}", res);
             }
-            container.deinit().await;
+
+            container.purge().await;
             res?
         }
 
         for client_backend in &client_backends {
-            harness_inner(client_backend, &BackendType::Filesystem, &mut t).await?
+            harness_inner(client_backend, &BackendType::InMemory, &mut t).await?
         }
 
         for server_backend in &server_backends {
-            harness_inner(&BackendType::Filesystem, server_backend, &mut t).await?;
+            harness_inner(&BackendType::InMemory, server_backend, &mut t).await?;
         }
 
         Ok(())
@@ -185,6 +175,68 @@ mod tests {
             .iter().map(|base| (format!("{}.username", base), format!("{}.password", base), format!("{}.full_name", base)))
             .collect()
         };
+    }
+
+    #[tokio::test]
+    // test to make sure persistence works between Account manager loads
+    async fn test_interload_persistence() -> Result<(), AccountError> {
+        lazy_static::lazy_static! {
+            static ref CL_BACKENDS: parking_lot::Mutex<Vec<BackendType>> = parking_lot::Mutex::new(vec![]);
+            static ref SE_BACKENDS: parking_lot::Mutex<Vec<BackendType>> = parking_lot::Mutex::new(vec![]);
+        }
+
+        let client_backends = &client_backends();
+        let server_backends = &server_backends();
+
+        let mut containers = vec![];
+
+        for server_backend in server_backends {
+            // in memory does not persist, so skip them in this specific test
+            if !matches!(server_backend, BackendType::InMemory) {
+                let cont0 = TestContainer::new(server_backend.clone(), BackendType::InMemory).await;
+                for (username, password, full_name) in PEERS.iter() {
+                    let _ = cont0.create_cnac(username, password, full_name).await;
+                }
+
+                assert_eq!(cont0.client_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+                assert_eq!(cont0.server_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+
+                let cont_reloaded = TestContainer::new(server_backend.clone(), BackendType::InMemory).await;
+                assert_eq!(cont_reloaded.client_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), 0); // since in-memory does not persist
+                assert_eq!(cont_reloaded.server_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+                containers.push(cont0);
+            }
+        }
+
+        for container in &containers {
+            container.purge().await;
+        }
+
+        containers.clear();
+
+        for client_backend in client_backends {
+            // in memory does not persist, so skip them in this specific test
+            if !matches!(client_backend, BackendType::InMemory) {
+                let cont0 = TestContainer::new(BackendType::InMemory, client_backend.clone()).await;
+                for (username, password, full_name) in PEERS.iter() {
+                    let _ = cont0.create_cnac(username, password, full_name).await;
+                }
+
+                assert_eq!(cont0.client_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+                assert_eq!(cont0.server_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+
+                let cont_reloaded = TestContainer::new(BackendType::InMemory, client_backend.clone()).await;
+                assert_eq!(cont_reloaded.client_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), PEERS.len());
+                assert_eq!(cont_reloaded.server_acc_mgr.get_persistence_handler().get_clients_metadata(None).await.unwrap().len(), 0); // since in-memory does not persist
+                containers.push(cont0);
+            }
+        }
+
+        for container in &containers {
+            container.purge().await;
+        }
+
+        Ok(())
     }
 
     #[tokio::test]
@@ -308,8 +360,8 @@ mod tests {
             assert_eq!(pers_se.get_username_by_cid(client.get_cid()).await.unwrap().unwrap(), USERNAME);
             assert_eq!(pers_cl.get_username_by_cid(client.get_cid()).await.unwrap().unwrap(), USERNAME);
 
-            assert_eq!(pers_se.get_cid_by_username(USERNAME).await.unwrap().unwrap(), client.get_cid());
-            assert_eq!(pers_cl.get_cid_by_username(USERNAME).await.unwrap().unwrap(), client.get_cid());
+            assert_eq!(pers_se.get_cid_by_username(USERNAME), client.get_cid());
+            assert_eq!(pers_cl.get_cid_by_username(USERNAME), client.get_cid());
 
             let lock_server = se2.write();
             let lock_client = cl2.write();
@@ -345,39 +397,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cid_generation() -> Result<(), AccountError> {
-        test_harness(|container, pers_cl, pers_se| async move {
-            let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
-            let random_cids = vec![client.get_cid(), 999, 456];
-            assert!(pers_se.get_cnac_by_cid(client.get_cid()).await.unwrap().is_some());
-            let value = pers_se.find_first_valid_cid(&random_cids).await.unwrap().unwrap();
-            assert_ne!(value, client.get_cid());
-            assert!(value == 999 || value == 456);
-
-            let value = pers_cl.find_first_valid_cid(&random_cids).await.unwrap().unwrap();
-            assert_ne!(value, client.get_cid());
-            assert!(value == 999 || value == 456);
-
-            let randoms = pers_se.client_only_generate_possible_cids().await.unwrap();
-            for rand in randoms {
-                assert!(pers_se.get_cnac_by_cid(rand).await.unwrap().is_none());
-            }
-
-            let randoms = pers_cl.client_only_generate_possible_cids().await.unwrap();
-            for rand in randoms {
-                assert!(pers_cl.get_cnac_by_cid(rand).await.unwrap().is_none());
-            }
-
-            Ok(())
-        }).await
-    }
-
-    #[tokio::test]
     async fn test_register_p2p() -> Result<(), AccountError> {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let peer = PEERS.get(0).unwrap();
-            let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+            let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::InMemory).await;
             let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
             register_peers(&pers_cl,
                            client.get_cid(),
@@ -443,7 +467,7 @@ mod tests {
             assert!(pers_se.hyperlan_peer_exists(peer_cnac.get_cid(), client.get_cid()).await.unwrap());
             assert!(pers_se.hyperlan_peer_exists(client.get_cid(), peer_cnac.get_cid()).await.unwrap());
 
-            peer_container.client_acc_mgr.purge_home_directory().await?;
+            peer_container.client_acc_mgr.purge().await?;
             Ok(())
         }).await
     }
@@ -453,7 +477,7 @@ mod tests {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let peer = PEERS.get(0).unwrap();
-            let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+            let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::InMemory).await;
             let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
             register_peers(&pers_cl,
                            client.get_cid(),
@@ -494,7 +518,7 @@ mod tests {
             assert!(pers_se.get_hyperlan_peer_by_username(peer_cnac.get_cid(), USERNAME).await.unwrap().is_none());
             assert!(pers_se.get_hyperlan_peer_by_username(client.get_cid(), peer.0.as_str()).await.unwrap().is_none());
 
-            peer_container.client_acc_mgr.purge_home_directory().await?;
+            peer_container.client_acc_mgr.purge().await?;
             Ok(())
         }).await
     }
@@ -513,7 +537,7 @@ mod tests {
         test_harness(|container, pers_cl, pers_se| async move {
             let (client, _server) = container.create_cnac(USERNAME, PASSWORD, FULL_NAME).await;
             let peer = PEERS.get(0).unwrap();
-            let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+            let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::InMemory).await;
             let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
             register_peers(&pers_cl,
                            client.get_cid(),
@@ -539,7 +563,7 @@ mod tests {
             assert!(!pers_cl.username_exists(USERNAME).await.unwrap());
             assert!(!peer_pers.username_exists(peer.0.as_str()).await.unwrap());
 
-            peer_container.client_acc_mgr.purge_home_directory().await?;
+            peer_container.client_acc_mgr.purge().await?;
             Ok(())
         }).await
     }
@@ -553,7 +577,7 @@ mod tests {
             let mut peer_containers = vec![];
 
             for peer in PEERS.iter() {
-                let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+                let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::InMemory).await;
                 assert!(peer_map.insert(peer.0.to_string(), peer_cnac.get_cid()).is_none());
                 let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
                 register_peers(&pers_cl,
@@ -634,7 +658,7 @@ mod tests {
             }
 
             for peer_container in peer_containers {
-                peer_container.client_acc_mgr.purge_home_directory().await?;
+                peer_container.client_acc_mgr.purge().await?;
             }
 
             Ok(())
@@ -649,7 +673,7 @@ mod tests {
             let mut peer_cids = vec![client.get_cid()];
 
             for peer in PEERS.iter() {
-                let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::Filesystem).await;
+                let (peer_cnac, peer_container) = container.create_peer_cnac(peer.0.as_str(), peer.1.as_str(), peer.2.as_str(), BackendType::InMemory).await;
                 let peer_pers = &peer_container.client_acc_mgr.get_persistence_handler().clone();
 
                 peer_cids.push(peer_cnac.get_cid());
@@ -699,7 +723,7 @@ mod tests {
             }
 
             for peer_container in peer_containers {
-                peer_container.client_acc_mgr.purge_home_directory().await?;
+                peer_container.client_acc_mgr.purge().await?;
             }
 
             Ok(())
@@ -732,9 +756,7 @@ mod tests {
         (alice.finish().unwrap(), bob)
     }
 
-    async fn acc_mgr(addr: SocketAddr, backend: BackendType) -> AccountManager {
-        let home_dir = format!("{}/tmp/{}", home_dir().unwrap().to_str().unwrap(), addr.to_string().replace(":", "p"));
-        log::trace!(target: "lusna", "Home dir: {}", &home_dir);
-        AccountManager::new(addr, Some(home_dir), backend, None, None, None).await.unwrap()
+    async fn acc_mgr(backend: BackendType) -> AccountManager {
+        AccountManager::new(backend, None, None, None).await.unwrap()
     }
 }

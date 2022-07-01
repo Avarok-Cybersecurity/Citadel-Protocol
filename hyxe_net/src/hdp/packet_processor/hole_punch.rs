@@ -3,7 +3,8 @@ use crate::hdp::packet_processor::primary_group_packet::{get_resp_target_cid_fro
 use crate::error::NetworkError;
 
 /// This will handle an inbound group packet
-pub fn process(session: &HdpSession, packet: HdpPacket, hr_version: u32, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+pub fn process_hole_punch(session: &HdpSession, packet: HdpPacket, hr_version: u32, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     let (header, payload, _, _) = packet.decompose();
     let state_container = inner_state!(session.state_container);
     let ref cnac = return_if_none!(state_container.cnac.clone(), "CNAC not loaded");

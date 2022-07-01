@@ -7,7 +7,7 @@ use stun::message::{Message, BINDING_REQUEST, Getter};
 use stun::agent::TransactionId;
 use stun::xoraddr::XorMappedAddress;
 use futures::stream::FuturesUnordered;
-use futures::StreamExt;
+use futures::{StreamExt, Future};
 use serde::{Serialize, Deserialize};
 use crate::error::FirewallError;
 use std::time::Duration;
@@ -16,6 +16,7 @@ use crate::socket_helpers::is_ipv6_enabled;
 use std::ops::Sub;
 use itertools::Itertools;
 use std::iter::Sum;
+use std::pin::Pin;
 
 // TODO: Make stun servers configurable
 const STUN_SERVERS: [&str; 3] = ["global.stun.twilio.com:3478",
@@ -65,13 +66,14 @@ impl Default for NatType {
 impl NatType {
     /// Identifies the NAT which the local node is behind. Timeout at the default (5s)
     /// `local_bind_addr`: Only relevant for localhost testing
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     pub async fn identify() -> Result<Self, FirewallError> {
         Self::identify_timeout(IDENTIFY_TIMEOUT).await
     }
 
     /// Identifies the NAT which the local node is behind
     pub async fn identify_timeout(timeout: Duration) -> Result<Self, FirewallError> {
-        tokio::time::timeout(timeout, get_nat_type()).await.map_err(|err| FirewallError::HolePunch(err.to_string()))?.map_err(|err| FirewallError::HolePunch(err.to_string()))
+        tokio::time::timeout(timeout, get_nat_type()).await.map_err(|_| FirewallError::HolePunch("NAT identification elapsed".to_string()))?.map_err(|err| FirewallError::HolePunch(err.to_string()))
     }
 
     /// Returns the NAT traversal type required to access self and other, respectively
@@ -200,10 +202,10 @@ fn average_delta<T: Ord + Copy + Sized + Sub>(vals: &Vec<T>) -> usize
     (average.abs() as usize)
 }
 
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
 async fn get_nat_type() -> Result<NatType, anyhow::Error> {
     let nat_type = async move {
         let mut msg = Message::new();
-        //msg.add(ATTR_CHANGE_REQUEST, b"Hello to the world!!!!!!");
         msg.build(&[
             Box::new(TransactionId::default()),
             Box::new(BINDING_REQUEST)
@@ -324,9 +326,13 @@ async fn get_nat_type() -> Result<NatType, anyhow::Error> {
         }
     };
 
-    let ip_info = async_ip::get_all_multi_concurrent(None);
+    let ip_info_future = if cfg!(feature="localhost-testing") {
+        Box::pin(async move { Ok(async_ip::IpAddressInfo::localhost()) } ) as Pin<Box<dyn Future<Output=Result<IpAddressInfo, async_ip::IpRetrieveError>> + Send>>
+    } else {
+        Box::pin(async_ip::get_all_multi_concurrent(None))
+    };
 
-    let (nat_type, ip_info) = tokio::join!(nat_type, ip_info);
+    let (nat_type, ip_info) = tokio::join!(nat_type, ip_info_future);
     let mut nat_type = nat_type?;
     log::trace!(target: "lusna", "NAT Type: {:?}", nat_type);
     let ip_info = ip_info.map_err(|err| anyhow::Error::msg(err.to_string()))?;
@@ -341,17 +347,9 @@ mod tests {
     use std::net::{IpAddr, SocketAddr};
     use std::str::FromStr;
 
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     #[tokio::test]
     async fn test_identify() {
-        setup_log();
+        lusna_logging::setup_log();
         let nat_type = NatType::identify().await.unwrap();
         let traversal_type = nat_type.traversal_type_required();
         log::trace!(target: "lusna", "NAT Type: {:?} | Reaching this node will require: {:?} NAT traversal | Hypothetical connect scenario", nat_type, traversal_type);

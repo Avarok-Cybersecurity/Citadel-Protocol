@@ -41,15 +41,6 @@ pub mod test_utils {
     use crate::sync::network_endpoint::NetworkEndpoint;
     use std::net::SocketAddr;
 
-    #[cfg(test)]
-    pub(crate) fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
     pub struct TcpCodecFramed {
         sink: Mutex<SplitSink<Framed<TcpStream, LengthDelimitedCodec>, Bytes>>,
         stream: Mutex<SplitStream<Framed<TcpStream, LengthDelimitedCodec>>>,

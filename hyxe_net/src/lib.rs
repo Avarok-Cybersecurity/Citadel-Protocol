@@ -145,8 +145,8 @@ pub mod macros {
 }
 
     macro_rules! to_concurrent_processor {
-        ($executor:expr, $future:expr) => {
-            $executor.send(Box::pin($future)).map(|_| PrimaryProcessorResult::Void).map_err(|_| NetworkError::InternalError("Async concurrent executor died"))
+        ($future:expr) => {
+            return $future.await
         }
     }
 
@@ -299,8 +299,8 @@ pub mod macros {
     }
 
     macro_rules! to_concurrent_processor {
-        ($executor:expr, $future:expr) => {
-            $executor.send(Box::pin($future)).map(|_| PrimaryProcessorResult::Void).map_err(|_| NetworkError::InternalError("Async concurrent executor died"))
+        ($future:expr) => {
+            return $future.await
         }
     }
 
@@ -324,7 +324,6 @@ pub mod macros {
 
 pub mod re_imports {
     pub use async_trait::*;
-    pub use bstr::ByteSlice;
     pub use bytes::BufMut;
     pub use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
     pub use futures::future::try_join3;
@@ -355,7 +354,7 @@ pub mod prelude {
 
     pub use crate::error::NetworkError;
     pub use crate::functional::*;
-    pub use crate::hdp::file_transfer::FileTransferStatus;
+    pub use hyxe_user::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
     pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
     pub use crate::hdp::packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
     pub use crate::hdp::hdp_node::{atexit, NodeRequest, NodeResult, NodeRemote, Remote, SecrecyMode};
@@ -374,11 +373,13 @@ pub mod prelude {
     pub use crate::kernel::{kernel::NetKernel, kernel_executor::KernelExecutor, KernelExecutorSettings};
     pub use crate::re_imports::{async_trait, NodeType};
     pub use crate::hdp::peer::peer_layer::HypernodeConnectionType;
-    pub use crate::hdp::misc::sync_future::*;
-    pub use hyxe_fs::io::SyncIO;
+    pub use hyxe_user::serialization::SyncIO;
     pub use crate::kernel::RuntimeFuture;
     pub use crate::hdp::peer::message_group::{MessageGroupOptions, GroupType};
     pub use crate::hdp::hdp_node::HdpServer;
+
+    #[doc(hidden)]
+    pub use crate::hdp::misc::net::{safe_split_stream, GenericNetworkStream};
 }
 
 /// Contains the streams for creating connections

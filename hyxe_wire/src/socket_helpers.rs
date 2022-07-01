@@ -142,23 +142,13 @@ mod tests {
 
     const TIMEOUT: Duration = Duration::from_millis(2000);
 
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
-
-
     #[rstest]
     #[case("127.0.0.1:0")]
     #[case("[::1]:0")]
     #[trace]
     #[tokio::test]
     async fn test_tcp(#[case] addr: SocketAddr) -> std::io::Result<()> {
-        setup_log();
+        lusna_logging::setup_log();
         if addr.is_ipv6() && !is_ipv6_enabled() {
             log::trace!(target: "lusna", "Skipping IPv6 test since IPv6 is not enabled");
             return Ok(())
@@ -190,7 +180,7 @@ mod tests {
     #[trace]
     #[tokio::test]
     async fn test_udp(#[case] addr: SocketAddr) -> Result<(), anyhow::Error> {
-        setup_log();
+        lusna_logging::setup_log();
         if addr.is_ipv6() && !is_ipv6_enabled() {
             log::trace!(target: "lusna", "Skipping IPv6 test since IPv6 is not enabled");
             return Ok(())

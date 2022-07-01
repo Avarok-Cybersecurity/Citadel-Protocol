@@ -5,7 +5,7 @@ use crate::hdp::hdp_node::Ticket;
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::functional::*;
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
-use hyxe_fs::io::SyncIO;
+use hyxe_user::serialization::SyncIO;
 use crate::error::NetworkError;
 use crate::hdp::peer::group_channel::GroupBroadcastPayload;
 
@@ -53,7 +53,8 @@ pub enum GroupMemberAlterMode {
     Kick
 }
 
-pub async fn process(session_ref: &HdpSession, header: LayoutVerified<&[u8], HdpHeader>, payload: &[u8], sess_hyper_ratchet: &HyperRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session_ref.is_server, src = header.session_cid.get(), target = header.target_cid.get())))]
+pub async fn process_group_broadcast(session_ref: &HdpSession, header: LayoutVerified<&[u8], HdpHeader>, payload: &[u8], sess_hyper_ratchet: &HyperRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = session_ref;
     let signal = return_if_none!(GroupBroadcast::deserialize_from_vector(payload).ok(), "invalid GroupBroadcast packet");
     let timestamp = session.time_tracker.get_global_time_ns();
@@ -304,13 +305,16 @@ fn forward_signal(session: &HdpSession, ticket: Ticket, key: Option<MessageGroup
     if let Some(key) = key {
         // send to the dedicated channel
         if let Some(tx) = inner_mut_state!(session.state_container).group_channels.get(&key) {
-            tx.unbounded_send(broadcast.into()).map_err(|err| NetworkError::Generic(err.to_string()))?;
+            if let Err(err) = tx.unbounded_send(broadcast.into()) {
+                log::error!(target: "lusna", "Unable to forward group broadcast signal. Reason: {:?}", err);
+            }
+
             return Ok(PrimaryProcessorResult::Void)
         }
     }
 
     // send to kernel
-    session.send_to_kernel(NodeResult::GroupEvent(implicated_cid, ticket, broadcast)).map_err(|err| NetworkError::Generic(err.to_string()))?;
+    session.send_to_kernel(NodeResult::GroupEvent(implicated_cid, ticket, broadcast)).map_err(|err| NetworkError::msg(format!("Kernel TX is dead: {:?}", err)))?;
     Ok(PrimaryProcessorResult::Void)
 }
 

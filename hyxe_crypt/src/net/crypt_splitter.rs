@@ -364,10 +364,13 @@ impl GroupReceiver {
     /// The drill is needed in order to get the multiport width (determines max packets per wave)
     #[allow(unused_results)]
     pub fn new(ref cfg: GroupReceiverConfig, wave_timeout_ms: usize, group_timeout_ms: usize) -> Self {
+        use bitvec::prelude::*;
         log::trace!(target: "lusna", "Creating new group receiver. Anticipated plaintext slab length: {}", cfg.plaintext_length);
         let unified_plaintext_slab = vec![0u8; cfg.plaintext_length];
-        let packets_received_order = bitvec::bitvec![0; cfg.packets_needed];
-        let waves_received = bitvec::bitvec![0; cfg.wave_count];
+        let packets_needed = cfg.packets_needed;
+        let wave_count = cfg.wave_count;
+        let packets_received_order = bitvec::bitvec![usize, Lsb0; 0; packets_needed];
+        let waves_received = bitvec::bitvec![usize, Lsb0; 0; wave_count];
         let mut temp_wave_store = HashMap::with_capacity(cfg.wave_count);
         let last_packet_recv_time = Instant::now();
         let max_packets_per_wave = cfg.max_packets_per_wave;
