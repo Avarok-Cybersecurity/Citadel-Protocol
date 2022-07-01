@@ -305,8 +305,8 @@ async fn net_mutex_guard_acquirer<T: NetObject + 'static, S: Subscribable>(mutex
                 let new_data = bincode2::deserialize::<T>(&new_data)?;
                 *value = new_data;
                 // now, send a LockAcquired packet
-                conn.send_serialized(UpdatePacket::ReleasedVerified).await?;
                 conn.send_serialized(UpdatePacket::LockAcquired).await?;
+                conn.send_serialized(UpdatePacket::ReleasedVerified).await?;
                 return Ok(NetMutexGuard { conn: mutex.app.clone(), guard: Some(owned_local_lock) })
             }
 
@@ -351,6 +351,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(channel: &Arc<Inner
         match next_packet {
             UpdatePacket::Released(new_value) => {
                 lock.deref_mut().0 = bincode2::deserialize(&new_value)?;
+                channel.send_serialized(UpdatePacket::LockAcquired).await?;
                 channel.send_serialized(UpdatePacket::ReleasedVerified).await?;
                 return Ok(lock)
             }
@@ -359,7 +360,7 @@ async fn yield_lock<S: Subscribable + 'static, T: NetObject>(channel: &Arc<Inner
                 return Err(anyhow::Error::msg("Halted from background"))
             }
 
-            UpdatePacket::LockAcquired => {
+            UpdatePacket::LockAcquired | UpdatePacket::ReleasedVerified => {
                 // this is received after sending the Released packet. We do nothing here
             }
 
@@ -423,24 +424,18 @@ async fn passive_background_handler<S: Subscribable + 'static, T: NetObject>(cha
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use rstest::rstest;
+    use crate::sync::test_utils::create_streams_with_addrs_and_lag;
 
-    use crate::sync::test_utils::create_streams;
-
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
-
+    #[rstest]
+    #[case(0, 1000)]
+    #[case(5, 50)]
+    #[case(50, 10)]
     #[tokio::test]
-    async fn main() {
-        setup_log();
+    async fn test_net_mutex(#[case] lag: usize, #[case] count: u64) {
+        lusna_logging::setup_log();
 
-        let (server_stream, client_stream) = create_streams().await;
-
-        const COUNT: u64 = 1000;
+        let (server_stream, client_stream) = create_streams_with_addrs_and_lag(lag).await;
 
         let init_value = 1000u64;
         let final_value = 1001u64;
@@ -459,7 +454,7 @@ mod tests {
             log::trace!(target: "lusna", "Server ASSERT_EQ valid");
             std::mem::drop(guard);
 
-            for idx in 1..COUNT {
+            for idx in 1..count {
                 log::trace!(target: "lusna", "Server obtaining lock {}", idx);
                 let mut lock = mutex.lock().await.unwrap();
                 log::trace!(target: "lusna", "****Server obtained lock {} w/val {:?}", idx, &*lock);
@@ -482,7 +477,7 @@ mod tests {
             std::mem::drop(guard);
             client_done_tx.send(()).unwrap();
 
-            for _ in 1..COUNT {
+            for _ in 1..count {
                 let val = mutex.lock().await.unwrap();
                 let loaded = client_ref.load(Ordering::SeqCst);
                 if *val != loaded {

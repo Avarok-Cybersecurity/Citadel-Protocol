@@ -5,20 +5,16 @@ use crate::hdp::packet_processor::peer::peer_cmd_packet;
 use super::includes::*;
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
-use tokio::sync::mpsc::UnboundedSender;
-use std::pin::Pin;
 use futures::Future;
 use crate::macros::ContextRequirements;
 
 pub trait ProcessorFuture: Future<Output=Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements {}
 impl<T: Future<Output=Result<PrimaryProcessorResult, NetworkError>> + ContextRequirements> ProcessorFuture for T {}
 
-pub type ConcurrentProcessorTx = UnboundedSender<Pin<Box<dyn ProcessorFuture>>>;
-
 /// For primary-port packet types. NOT for wave ports
-pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(implicated_cid=this_implicated_cid, is_server=session.is_server)))]
+pub async fn process_raw_packet(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut) -> Result<PrimaryProcessorResult, NetworkError> {
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
-
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
     let (header, _payload) = return_if_none!(packet.parse(), "Unable to parse packet");
     //log::trace!(target: "lusna", "RECV Raw packet: {:?}", &*header);
@@ -34,47 +30,47 @@ pub fn process(this_implicated_cid: Option<u64>, session: &HdpSession, remote_pe
         Some(packet) => {
             match cmd_primary {
                 packet_flags::cmd::primary::DO_REGISTER => {
-                    super::register_packet::process(session, packet, remote_peer, concurrent_processor_tx)
+                    super::register_packet::process_register(session, packet, remote_peer).await
                 }
 
                 packet_flags::cmd::primary::DO_CONNECT => {
-                    super::connect_packet::process(session, packet, concurrent_processor_tx)
+                    super::connect_packet::process_connect(session, packet).await
                 }
 
                 packet_flags::cmd::primary::KEEP_ALIVE => {
-                    super::keep_alive_packet::process(session, packet, concurrent_processor_tx)
+                    super::keep_alive_packet::process_keep_alive(session, packet).await
                 }
 
                 packet_flags::cmd::primary::GROUP_PACKET => {
-                    super::primary_group_packet::process(session, cmd_aux, packet, endpoint_cid_info)
+                    super::primary_group_packet::process_primary_packet(session, cmd_aux, packet, endpoint_cid_info)
                 }
 
                 packet_flags::cmd::primary::DO_DISCONNECT => {
-                    super::disconnect_packet::process(session, packet)
+                    super::disconnect_packet::process_disconnect(session, packet)
                 }
 
                 packet_flags::cmd::primary::DO_DRILL_UPDATE => {
-                    super::drill_update_packet::process(session, packet, header_drill_vers, endpoint_cid_info)
+                    super::rekey_packet::process_rekey(session, packet, header_drill_vers, endpoint_cid_info)
                 }
 
                 packet_flags::cmd::primary::DO_DEREGISTER =>  {
-                    super::deregister_packet::process(session, packet, concurrent_processor_tx)
+                    super::deregister_packet::process_deregister(session, packet).await
                 }
 
                 packet_flags::cmd::primary::DO_PRE_CONNECT => {
-                    super::preconnect_packet::process(session, packet, concurrent_processor_tx)
+                    super::preconnect_packet::process_preconnect(session, packet).await
                 }
 
                 packet_flags::cmd::primary::PEER_CMD => {
-                    peer_cmd_packet::process(session, cmd_aux, packet, header_drill_vers, endpoint_cid_info, concurrent_processor_tx)
+                    peer_cmd_packet::process_peer_cmd(session, cmd_aux, packet, header_drill_vers, endpoint_cid_info).await
                 }
 
                 packet_flags::cmd::primary::FILE => {
-                    super::file_packet::process(session, packet, endpoint_cid_info)
+                    super::file_packet::process_file_packet(session, packet, endpoint_cid_info)
                 }
 
                 packet_flags::cmd::primary::HOLE_PUNCH => {
-                    super::hole_punch::process(session, packet, header_drill_vers, endpoint_cid_info)
+                    super::hole_punch::process_hole_punch(session, packet, header_drill_vers, endpoint_cid_info)
                 }
 
                 _ => {
@@ -132,7 +128,7 @@ pub(crate) fn check_proxy(this_implicated_cid: Option<u64>, cmd_primary: u8, cmd
                                 }
 
                             if let Err(_err) = peer_vconn.sender.as_ref().unwrap().1.unbounded_send(packet.into_packet()) {
-                                log::error!(target: "lusna", "Proxy TrySendError to {}", target_cid);
+                                log::warn!(target: "lusna", "Proxy TrySendError to {}", target_cid);
                             }
                         }
 

@@ -1,4 +1,5 @@
 use bytes::BytesMut;
+use hyxe_user::re_imports::__private::Formatter;
 
 //use crate::hdp::outbound_sender::{SendError, TrySendError};
 //use std::ops::{FromResidual, Try, ControlFlow};
@@ -9,8 +10,6 @@ pub mod includes {
 
     pub use bytes::Bytes;
     pub use log::{trace, warn};
-    pub use rand::prelude::ThreadRng;
-    pub use rand::RngCore;
     pub use tokio::time::{Duration, Instant};
     pub use zerocopy::LayoutVerified;
 
@@ -19,9 +18,7 @@ pub mod includes {
     pub use hyxe_crypt::drill::SecurityLevel;
     pub use hyxe_crypt::prelude::SecBuffer;
     pub use hyxe_user::client_account::ClientNetworkAccount;
-    pub use hyxe_user::hypernode_account::HyperNodeAccountInformation;
     pub use hyxe_user::misc::AccountError;
-    pub use hyxe_user::network_account::NetworkAccount;
 
     pub use crate::constants::KEEP_ALIVE_INTERVAL_MS;
     pub(crate) use crate::hdp::{hdp_packet_crafter, validation};
@@ -38,7 +35,7 @@ pub mod includes {
 ///
 pub mod raw_primary_packet;
 ///
-pub mod drill_update_packet;
+pub mod rekey_packet;
 ///
 pub mod disconnect_packet;
 ///
@@ -72,139 +69,18 @@ pub enum PrimaryProcessorResult {
     ReplyToSender(BytesMut)
 }
 
-
-/*
-impl Try for PrimaryProcessorResult {
-    type Output = Self;
-    type Residual = Self;
-
-    fn from_output(output: Self::Output) -> Self {
-        output
-    }
-
-    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
-        if self != PrimaryProcessorResult::Void {
-            ControlFlow::Continue(self)
-        } else {
-            ControlFlow::Break(self)
-        }
-    }
-}
-
-impl FromResidual<PrimaryProcessorResult> for PrimaryProcessorResult {
-    fn from_residual(residual: PrimaryProcessorResult) -> Self {
-        residual
-    }
-}
-
-impl<T, E: Into<PrimaryProcessorResult>> FromResidual<Result<T, E>> for PrimaryProcessorResult {
-    fn from_residual(residual: Result<T, E>) -> Self {
-        match residual {
-            Err(err) => err.into(),
-            _ => PrimaryProcessorResult::Void
-        }
-    }
-}
-
-impl FromResidual<GroupProcessorResult> for GroupProcessorResult {
-    fn from_residual(residual: GroupProcessorResult) -> Self {
-        residual
-    }
-}
-
-
-impl<T> FromResidual<Option<T>> for PrimaryProcessorResult {
-    fn from_residual(residual: Option<T>) -> Self {
-        match residual {
-            None => {
-                log::warn!(target: "lusna", "[X-03] NoneError [default]");
-                PrimaryProcessorResult::Void
-            }
-
-            _ => {
-                PrimaryProcessorResult::Void
-            }
-        }
-    }
-}
-
-impl<T> From<TrySendError<T>> for PrimaryProcessorResult {
-    fn from(_: TrySendError<T>) -> Self {
-        PrimaryProcessorResult::EndSession("Outbound sender disconnected")
-    }
-}
-
-impl<T> From<SendError<T>> for PrimaryProcessorResult {
-    fn from(_: SendError<T>) -> Self {
-        PrimaryProcessorResult::EndSession("Outbound sender disconnected")
-    }
-}
-
-impl From<Error> for PrimaryProcessorResult {
-    fn from(_: Error) -> Self {
-        PrimaryProcessorResult::Void
-    }
-}
-
-impl From<hyxe_user::misc::AccountError> for PrimaryProcessorResult {
-    fn from(_: AccountError) -> Self {
-        PrimaryProcessorResult::Void
-    }
-}
-
-impl<T: Into<String>> From<hyxe_crypt::misc::CryptError<T>> for PrimaryProcessorResult {
-    fn from(_: hyxe_crypt::misc::CryptError<T>) -> Self {
-        PrimaryProcessorResult::Void
-    }
-}
-
-impl From<NetworkError> for PrimaryProcessorResult {
-    fn from(err: NetworkError) -> Self {
-        log::error!(target: "lusna", "Err occurred in session, will propagate shutdown: {}", &err);
-        PrimaryProcessorResult::EndSession("NetworkError triggered shutdown of session")
-    }
-}
-
-impl Try for GroupProcessorResult {
-    type Output = Self;
-    type Residual = Self;
-
-    fn from_output(output: Self::Output) -> Self {
-        output
-    }
-
-    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
-        if self != GroupProcessorResult::Void {
-            ControlFlow::Continue(self)
-        } else {
-            ControlFlow::Break(self)
-        }
-    }
-}
-
-impl<T> FromResidual<Option<T>> for GroupProcessorResult {
-    fn from_residual(residual: Option<T>) -> Self {
-        match residual {
-            None => {
-                log::warn!(target: "lusna", "[X-03] NoneError");
-                GroupProcessorResult::Void
-            }
-
-            _ => {
-                GroupProcessorResult::Void
-            }
-        }
-    }
-}
-
-impl Into<PrimaryProcessorResult> for GroupProcessorResult {
-    fn into(self) -> PrimaryProcessorResult {
+impl std::fmt::Debug for PrimaryProcessorResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            GroupProcessorResult::Void => PrimaryProcessorResult::Void,
-            GroupProcessorResult::ShutdownSession(_reason) => PrimaryProcessorResult::EndSession("Group processor signalled shutdown"),
-            GroupProcessorResult::ReplyToSender(bytes) => PrimaryProcessorResult::ReplyToSender(bytes),
-            GroupProcessorResult::Error(_err) => PrimaryProcessorResult::EndSession("Group processor signalled shutdown"),
-            _ => PrimaryProcessorResult::Void
+            PrimaryProcessorResult::Void => {
+                write!(f, "PrimaryProcessorResult::Void")
+            }
+            PrimaryProcessorResult::EndSession(reason) => {
+                write!(f, "PrimaryProcessorResult::EndSession({})", reason)
+            }
+            PrimaryProcessorResult::ReplyToSender(packet) => {
+                write!(f, "PrimaryProcessorResult::ReplyToSender(len: {})", packet.len())
+            }
         }
     }
-}*/
+}

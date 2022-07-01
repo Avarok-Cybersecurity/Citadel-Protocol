@@ -4,7 +4,8 @@ use crate::hdp::packet_processor::primary_group_packet::get_proper_hyper_ratchet
 use crate::error::NetworkError;
 use std::sync::atomic::Ordering;
 
-pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+pub fn process_file_packet(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     if session.state.load(Ordering::Relaxed) != SessionState::Connected {
         return Ok(PrimaryProcessorResult::Void)
     }
@@ -30,7 +31,7 @@ pub fn process(session: &HdpSession, packet: HdpPacket, proxy_cid_info: Option<(
                             let object_id = vfm.object_id;
                             let ticket = Ticket(header.context_info.get());
                             let security_level = SecurityLevel::from(header.security_level);
-                            let success =  state_container.on_file_header_received(&header, v_target, vfm, session.account_manager.get_directory_store());
+                            let success =  state_container.on_file_header_received(&header, v_target, vfm, session.account_manager.get_persistence_handler());
                             let (target_cid, v_target_flipped) = match v_target {
                                 VirtualConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid) => {
                                     (implicated_cid, VirtualConnectionType::HyperLANPeerToHyperLANPeer(target_cid, implicated_cid))

@@ -10,7 +10,9 @@ use hyxe_net::auth::AuthenticationRequest;
 use uuid::Uuid;
 
 /// A kernel that connects with the given credentials. If the credentials are not yet registered, then the [`Self::new_register`] function may be used, which will register the account before connecting.
-/// This kernel will only allow outbound communication for the provided account
+/// This kernel will only allow outbound communication for the provided account.
+///
+/// This [`NetKernel`] is the base kernel type for other built-in implementations of [`NetKernel`]
 pub struct SingleClientServerConnectionKernel<F, Fut> {
     handler: Mutex<Option<F>>,
     udp_mode: UdpMode,
@@ -99,6 +101,7 @@ impl<F, Fut> NetKernel for SingleClientServerConnectionKernel<F, Fut>
         Ok(())
     }
 
+    #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
     async fn on_start(&self) -> Result<(), NetworkError> {
         let mut remote = self.remote.clone().unwrap();
         let (auth_info, handler) = {
@@ -149,9 +152,9 @@ mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[tokio::test(flavor="multi_thread")]
     async fn single_connection_registered() {
-        crate::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
 
         let ref client_success = AtomicBool::new(false);
         let (server, server_addr) = server_info();
@@ -179,9 +182,9 @@ mod tests {
 
     #[rstest]
     #[timeout(std::time::Duration::from_secs(90))]
-    #[tokio::test]
+    #[tokio::test(flavor="multi_thread")]
     async fn single_connection_passwordless() {
-        crate::test_common::setup_log();
+        let _ = lusna_logging::setup_log();
 
         let ref client_success = AtomicBool::new(false);
         let (server, server_addr) = server_info();

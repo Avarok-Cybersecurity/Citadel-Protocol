@@ -1,58 +1,16 @@
-use hyxe_fs::prelude::*;
-use hyxe_fs::system_file_manager::{load_file_types_by_ext, read};
-use crate::network_account::NetworkAccount;
 use crate::hypernode_account::CNAC_SERIALIZED_EXTENSION;
 use crate::client_account::ClientNetworkAccountInner;
-use crate::prelude::{ClientNetworkAccount, HyperNodeAccountInformation, NetworkAccountInner};
-use crate::misc::AccountError;
+use crate::prelude::ClientNetworkAccount;
 use std::collections::HashMap;
-use hyxe_fs::env::*;
+use crate::directory_store::*;
 use hyxe_crypt::hyper_ratchet::Ratchet;
-
-/// This is called during the program init. This closure will install a new NAC if one does not
-/// exist locally.
-/// `cnacs_loaded` must also be present in order to validate that the local node's listed clients map to locally-existant CNACs. A "feed two birds with one scone" scenario
-#[allow(unused_results)]
-pub fn load_node_nac<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore) -> Result<NetworkAccount<R, Fcm>, AccountError> {
-    log::trace!(target: "lusna", "[NAC-loader] Detecting local NAC...");
-    // First, set the NAC_NODE_DEFAULT_STORE_LOCATION
-    let file_location = directory_store.inner.read().nac_node_default_store_location.clone();
-
-    let create_nac = |err: String| {
-        if let Ok(nac) = NetworkAccount::<R, Fcm>::new(directory_store) {
-            Ok(nac)
-        } else {
-            Err(AccountError::Generic(format!("[NAC-Loader] Unable to start application. Unable to create this node's NetworkAccount.\nError Message: {}", err)))
-        }
-    };
-
-    match std::fs::File::open(&file_location) {
-        Ok(_) => {
-            log::trace!(target: "lusna", "[NAC-Loader] Detected local NAC. Updating information...");
-            match read::<NetworkAccountInner<R, Fcm>, _>(&file_location).map(NetworkAccount::<R, Fcm>::from){
-                Ok(nac) => {
-                    Ok(nac)
-                }
-
-                Err(err) =>{
-                    create_nac(err.to_string())
-                }
-            }
-        },
-
-        Err(err) => {
-            create_nac(err.to_string())
-        }
-    }
-}
+use crate::misc::AccountError;
 
 /// Loads all locally-stored CNACs, as well as the highest CID (used to update local nac incase improper shutdown)
 #[allow(unused_results)]
-pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStore) -> Result<HashMap<u64, ClientNetworkAccount<R, Fcm>>, FsError<String>> {
-    let read = directory_store.inner.read();
-    let hyxe_nac_dir_impersonal = read.hyxe_nac_dir_impersonal.clone();
-    let hyxe_nac_dir_personal = read.hyxe_nac_dir_personal.clone();
-    std::mem::drop(read);
+pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(ds: &DirectoryStore) -> Result<HashMap<u64, ClientNetworkAccount<R, Fcm>>, AccountError> {
+    let hyxe_nac_dir_impersonal = ds.hyxe_nac_dir_impersonal.as_str();
+    let hyxe_nac_dir_personal = ds.hyxe_nac_dir_personal.as_str();
 
     let cnacs_impersonal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_impersonal)?;
     let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_personal)?;
@@ -60,14 +18,14 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStor
 
     let mut ret = HashMap::with_capacity(cnacs_impersonal.len() + cnacs_personal.len());
     for cnac in cnacs_impersonal.into_iter().chain(cnacs_personal.into_iter()) {
-        match ClientNetworkAccount::<R, Fcm>::load_safe(cnac.0, Some(cnac.1.clone()), None) {
+        match ClientNetworkAccount::<R, Fcm>::load_safe(cnac.0) {
             Ok(cnac) => {
-                ret.insert(cnac.get_id(), cnac);
+                ret.insert(cnac.get_cid(), cnac);
             },
             Err(err) => {
                 log::error!(target: "lusna", "Error converting CNAC-inner into CNAC: {:?}. Deleting CNAC from local storage", err);
                 // delete it. If this doesn't work, it could be because of OS error 13 (bad permissions)
-                if let Err(err) = hyxe_fs::system_file_manager::delete_file_blocking(cnac.1) {
+                if let Err(err) = std::fs::remove_file(cnac.1) {
                     log::warn!(target: "lusna", "Unable to delete file: {}", err.to_string());
                 }
             }
@@ -77,4 +35,52 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(directory_store: &DirectoryStor
     ret.shrink_to_fit();
 
     Ok(ret)
+}
+
+use serde::de::DeserializeOwned;
+use std::path::{Path, PathBuf};
+use crate::serialization::bincode_config;
+
+/// Returns an array of a specific deserialized item types filtered by the extension type.
+/// Returns any possibly existent types that [A] exist within the specific directory (no recursion),
+/// [B] are files, [C] contain the appropriate file extension, and [D] files which are successfully
+/// serialized. Further, it returns the PathBuf associated with the file
+///
+/// Useful for returning NACs
+pub fn load_file_types_by_ext<D: DeserializeOwned, P: AsRef<Path>>(ext: &str, path: P) -> Result<Vec<(D, PathBuf)>, AccountError> {
+    let mut dir = std::fs::read_dir(path.as_ref()).map_err(|err| AccountError::IoError(err.to_string()))?;
+    let mut files = Vec::new();
+    while let Some(Ok(child)) = dir.next() {
+        let path_buf = child.path();
+        if let Some(extension) = path_buf.extension() {
+            if extension == ext && path_buf.is_file() {
+                files.push(path_buf);
+            }
+        }
+    }
+
+    let mut ret = Vec::new();
+
+    for file in files {
+        //log::trace!(target: "lusna", "[SystemFileManager] Checking {}", file.clone().into_os_string().into_string().unwrap());
+        match read::<D, _>(&file) {
+            Ok(val) => {
+                ret.push((val, std::path::PathBuf::from(file.as_path())));
+            },
+
+            Err(err) => {
+                log::error!(target: "lusna", "Error loading: {:?}", err);
+            }
+        }
+    }
+
+    Ok(ret)
+}
+
+/// Reads the given path as the given type, D
+pub fn read<D: DeserializeOwned, P: AsRef<Path>>(path: P) -> Result<D, AccountError> {
+    std::fs::File::open(path.as_ref()).map_err(|err| AccountError::IoError(err.to_string())).and_then(|file| {
+        bincode_config().deserialize_from(std::io::BufReader::new(file))
+            .map_err(|err| AccountError::IoError(err.to_string()))
+    })
 }

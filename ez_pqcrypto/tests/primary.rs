@@ -12,36 +12,15 @@ mod tests {
     use std::iter::FromIterator;
     use std::convert::TryFrom;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
-
-    #[allow(unused_must_use)]
-    fn setup_log() {
-        let _ = env_logger::try_init();
-        log::trace!(target: "lusna", "TRACE enabled");
-        log::trace!(target: "lusna", "INFO enabled");
-        log::warn!(target: "lusna", "WARN enabled");
-        log::error!(target: "lusna", "ERROR enabled");
-    }
+    use lusna_logging::setup_log;
 
     fn gen(kem_algorithm: KemAlgorithm, encryption_algorithm: EncryptionAlgorithm) -> (PostQuantumContainer, PostQuantumContainer) {
-        println!("Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
+        log::trace!(target: "lusna", "Test algorithm {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
         let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm))).unwrap();
         let bob_container = PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm)), alice_container.get_public_key()).unwrap();
         alice_container.alice_on_receive_ciphertext(bob_container.get_ciphertext().unwrap()).unwrap();
         (alice_container, bob_container)
     }
-
-    /*
-        #[test]
-        fn test_oqs() {
-            oqs::init();
-            let alice = oqs::kem::Kem::new(oqs::kem::Algorithm::Firesaber).unwrap();
-            let (public_key, secret_key) = alice.keypair().unwrap();
-
-            let bob = oqs::kem::Kem::new(oqs::kem::Algorithm::Firesaber).unwrap();
-            let (ciphertext, bob_symmetric_key) = bob.encapsulate(public_key.as_ref()).unwrap();
-            let alice_symmetric_key = alice.decapsulate(secret_key.as_ref(), ciphertext.as_ref()).unwrap();
-            assert_eq!(alice_symmetric_key.as_ref(), bob_symmetric_key.as_ref());
-        }*/
 
     #[test]
     fn runit() {
@@ -51,7 +30,7 @@ mod tests {
 
     fn run(algorithm: u8, encryption_algorithm: EncryptionAlgorithm) -> Result<(), Box<dyn std::error::Error>> {
         let kem_algorithm = KemAlgorithm::from_u8(algorithm).unwrap();
-        println!("Test: {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
+        log::trace!(target: "lusna", "Test: {:?} w/ {:?}", kem_algorithm, encryption_algorithm);
         // Alice wants to share data with Bob. She first creates a PostQuantumContainer
         let mut alice_container = PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(kem_algorithm + encryption_algorithm))).unwrap();
         // Then, alice sends her public key to Bob. She must also send the byte value of algorithm_dictionary::BABYBEAR to him
@@ -103,17 +82,17 @@ mod tests {
             buf.put_u8(x as u8);
         }
 
-        println!("[ {} ] {:?}", buf.len(), &buf[..]);
+        log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
         let nonce = Vec::from_iter(0..nonce_len as u8);
         alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
 
-        println!("[ {} ] {:?}", buf.len(), &buf[..]);
+        log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
         let mut header = buf.split_to(HEADER_LEN);
         bob_container.validate_packet_in_place(&header, &mut buf, &nonce).unwrap();
         header.unsplit(buf);
         let buf = header;
 
-        println!("[ {} ] {:?}", buf.len(), &buf[..]);
+        log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
     }
 
     #[test]
@@ -128,7 +107,7 @@ mod tests {
         let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
 
         for y in 0..1 {
-            println!("At {}", y);
+            log::trace!(target: "lusna", "At {}", y);
             let mut buf = BytesMut::with_capacity(TOTAL_LEN);
             for x in 0..TOTAL_LEN {
                 buf.put_u8(x as u8);
@@ -136,7 +115,7 @@ mod tests {
 
             let mut buf2 = buf.clone();
 
-            println!("[ {} ] {:?}", buf.len(), &buf[..]);
+            log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
             let nonce: [u8; NONCE_LENGTH_BYTES] = Default::default();
             alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
             alice_container.protect_packet_in_place(HEADER_LEN, &mut buf2, &nonce).unwrap();
@@ -145,7 +124,7 @@ mod tests {
             let mut intercepted_packet = buf.clone();
 
             // to simulate out-of order delivery, protect a new packet in place and validate that one
-            println!("[ {} ] {:?}", buf2.len(), &buf2[..]);
+            log::trace!(target: "lusna", "[ {} ] {:?}", buf2.len(), &buf2[..]);
             let header2 = buf2.split_to(HEADER_LEN);
             assert!(bob_container.validate_packet_in_place(&header2, &mut buf2, &nonce).is_err());
             // now do them in order
@@ -163,7 +142,7 @@ mod tests {
             header.unsplit(buf);
             let buf = header;
 
-            println!("[ {} ] {:?}", buf.len(), &buf[..]);
+            log::trace!(target: "lusna", "[ {} ] {:?}", buf.len(), &buf[..]);
         }
     }
 
@@ -171,18 +150,16 @@ mod tests {
     // this will work in ordered mode, but panic in unordered
     #[cfg(feature = "unordered")]
     fn in_place_out_of_order_for_unordered_mode() {
+        setup_log();
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;
 
         let kem_algorithm = KemAlgorithm::Firesaber;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
-        let nonce_len = encryption_algorithm.nonce_len();
-
+        let nonce_len = encryption_algorithm.nonce_len() as u8;
         let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);
-
-
-        let mut zeroth = Vec::default();
-        let mut zeroth_nonce = Vec::from_iter(0..nonce_len as u8);
+        let mut zeroth = Vec::<u8>::default();
+        let mut zeroth_nonce = Vec::<u8>::from_iter(0..nonce_len);
         for y in 0..(HISTORY_LEN + 10) {
             let mut buf = Vec::with_capacity(TOTAL_LEN);
             for x in 0..TOTAL_LEN {
@@ -191,8 +168,8 @@ mod tests {
 
             let mut buf2 = buf.clone();
 
-            println!("[{} @ {} ] {:?}", y, buf.len(), &buf[..]);
-            let nonce = Vec::from_iter(0..nonce_len as u8);
+            log::trace!(target: "lusna", "[{} @ {} ] {:?}", y, buf.len(), &buf[..]);
+            let nonce = vec![0; 12];
             alice_container.protect_packet_in_place(HEADER_LEN, &mut buf, &nonce).unwrap();
             alice_container.protect_packet_in_place(HEADER_LEN, &mut buf2, &nonce).unwrap();
 
@@ -204,7 +181,7 @@ mod tests {
             }
 
             // to simulate out-of order delivery, protect a new packet in place and validate that one
-            println!("[{} @ {} ] {:?}", y, buf2.len(), &buf2[..]);
+            log::trace!(target: "lusna", "[{} @ {} ] {:?}", y, buf2.len(), &buf2[..]);
             let header2 = buf2.split_to(HEADER_LEN);
             assert!(bob_container.validate_packet_in_place(&header2, &mut buf2, &nonce).is_ok());
             // now do them in order
@@ -222,7 +199,7 @@ mod tests {
             header.unsplit(buf);
             let buf = header;
 
-            println!("[{} @ {} ] {:?}", y, buf.len(), &buf[..]);
+            log::trace!(target: "lusna", "[{} @ {} ] {:?}", y, buf.len(), &buf[..]);
         }
         let header = zeroth.split_to(HEADER_LEN);
         assert!(bob_container.validate_packet_in_place(header, &mut zeroth, zeroth_nonce).is_err());
@@ -234,7 +211,7 @@ mod tests {
         const HEADER_LEN: usize = 50;
         const TOTAL_LEN: usize = HEADER_LEN + 150;
 
-        setup_log();
+        lusna_logging::setup_log();
 
         let kem_algorithm = KemAlgorithm::Firesaber;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
@@ -269,7 +246,7 @@ mod tests {
         let signed_message = signed_message.as_bytes();
         debug_assert_ne!(signed_message, message);
 
-        println!("Unsigned len: {}\nSigned len: {}", message.len(), signed_message.len());
+        log::trace!(target: "lusna", "Unsigned len: {}\nSigned len: {}", message.len(), signed_message.len());
 
         let signed_message_received = pqcrypto::sign::falcon512::SignedMessage::from_bytes(signed_message).unwrap();
         let opened_message = pqcrypto::sign::falcon512::open(&signed_message_received, &public_key).unwrap();
@@ -278,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_all_kems() {
-        setup_log();
+        lusna_logging::setup_log();
         for algorithm in 0..KEM_ALGORITHM_COUNT {
             log::trace!(target: "lusna", "About to test {:?}", KemAlgorithm::try_from(algorithm).unwrap());
             run(algorithm, EncryptionAlgorithm::AES_GCM_256_SIV).unwrap();
@@ -293,7 +270,7 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize() {
-        setup_log();
+        lusna_logging::setup_log();
         let kem_algorithm = KemAlgorithm::Kyber1024_90s;
         let encryption_algorithm = EncryptionAlgorithm::AES_GCM_256_SIV;
         let (alice_container, bob_container) = gen(kem_algorithm, encryption_algorithm);

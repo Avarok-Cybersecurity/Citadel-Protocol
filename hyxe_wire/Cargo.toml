@@ -9,7 +9,7 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-localhost-testing = []
+localhost-testing = ["tracing"]
 
 [dependencies]
 igd = { version = "^0.12.0", features = ["aio"] }
@@ -31,7 +31,7 @@ bincode2 = "2.0.1"
 async_ip = { path = "../async_ip", version = "0.1.0" }
 itertools = "0.10.3"
 quinn = { version = "0.8.2", features = ["rustls"] }
-webpki = "0.21.0"
+webpki = "0.22.0"
 rustls = { version = "0.20.2", features = ["quic", "dangerous_configuration"] }
 rustls-native-certs = "0.6.1"
 rustls-pemfile = "1.0.0"
@@ -40,17 +40,18 @@ openssl = { version = "0.10.36", features = ["vendored"] }
 either = "1.6.1"
 tokio-rustls = "0.23.2"
 netbeam = { path = "../netbeam", version = "0.1.0" }
-uuid = { version = "0.8.2", features = ["v4", "serde"] }
+uuid = { version = "1.1.2", features = ["v4", "serde"] }
+tracing = { git = "https://github.com/tokio-rs/tracing.git", branch = "v0.1.x", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 whoami = "1.2.1"
 
 [dev-dependencies]
-env_logger = "0.7.1"
+lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 parking_lot = { version = "0.12.0", features = ["deadlock_detection"] }
 rand = "0.8.4"
-tokio-util = "0.6.7"
-rstest = "0.12.0"
+tokio-util = "0.7.3"
+rstest = "0.15.0"
 
 [lib]
 doctest = false

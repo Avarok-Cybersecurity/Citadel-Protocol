@@ -7,7 +7,7 @@ use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTrans
 use hyxe_crypt::hyper_ratchet::HyperRatchet;
 use hyxe_crypt::prelude::ConstructorOpts;
 use hyxe_crypt::toolset::Toolset;
-use hyxe_fs::prelude::SyncIO;
+use hyxe_user::serialization::SyncIO;
 use netbeam::sync::RelativeNodeType;
 
 use crate::error::NetworkError;
@@ -24,12 +24,12 @@ use crate::hdp::peer::peer_crypt::{KeyExchangeProcess, PeerNatInfo};
 use crate::hdp::peer::peer_layer::{HypernodeConnectionType, PeerConnectionType, PeerResponse, PeerSignal, UdpMode, HyperNodePeerLayerInner};
 use crate::hdp::state_subcontainers::peer_kem_state_container::PeerKemStateContainer;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
-use crate::hdp::packet_processor::raw_primary_packet::ConcurrentProcessorTx;
 
 #[allow(unused_results)]
 /// Insofar, there is no use of endpoint-to-endpoint encryption for PEER_CMD packets because they are mediated between the
 /// HyperLAN client and the HyperLAN Server
-pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header_drill_version: u32, endpoint_cid_info: Option<(u64, u64)>, concurrent_processor_tx: &ConcurrentProcessorTx) -> Result<PrimaryProcessorResult, NetworkError> {
+#[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err, fields(is_server = session_orig.is_server, src = packet.parse().unwrap().0.session_cid.get(), target = packet.parse().unwrap().0.target_cid.get())))]
+pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header_drill_version: u32, endpoint_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     // ALL PEER_CMD packets require that the current session contain a CNAC (not anymore since switching to async)
     let session = session_orig.clone();
     let (header, payload, _peer_addr, _) = packet.decompose();
@@ -55,7 +55,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
 
         match aux_cmd {
             packet_flags::cmd::aux::peer_cmd::GROUP_BROADCAST => {
-                group_broadcast::process(session, header, &payload[..], &sess_hyper_ratchet).await
+                group_broadcast::process_group_broadcast(session, header, &payload[..], &sess_hyper_ratchet).await
             }
 
             packet_flags::cmd::aux::peer_cmd::SIGNAL => {
@@ -301,8 +301,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         let app = NetworkEndpoint::register(RelativeNodeType::Initiator, hole_punch_compat_stream).await.map_err(|err| NetworkError::Generic(err.to_string()))?;
                                         //session.kernel_tx.unbounded_send(HdpServerResult::PeerChannelCreated(ticket, channel, udp_rx_opt)).ok()?;
                                         let client_config = session.client_config.clone();
-                                        let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, app, encrypted_config_container, client_config);
-                                        let _ = spawn!(hole_punch_future);
+                                        let _ = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), bob_nat_info.clone(), implicated_cid, kernel_tx, channel_signal, sync_instant, app, encrypted_config_container, client_config).await;
                                     }
 
                                     //let _ = hole_punch_future.await;
@@ -360,8 +359,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
                                         let kernel_tx = session.kernel_tx.clone();
                                         let client_config = session.client_config.clone();
 
-                                        let hole_punch_future = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, app,   encrypted_config_container, client_config);
-                                        let _ = spawn!(hole_punch_future);
+                                        let _ = attempt_simultaneous_hole_punch(conn.reverse(), ticket, session.clone(), alice_nat_info.clone(), implicated_cid, kernel_tx.clone(), channel_signal, sync_instant, app,   encrypted_config_container, client_config).await;
                                     }
 
                                     //let _ = hole_punch_future.await;
@@ -403,7 +401,7 @@ pub fn process(session_orig: &HdpSession, aux_cmd: u8, packet: HdpPacket, header
         }
     };
 
-    to_concurrent_processor!(concurrent_processor_tx, task)
+    to_concurrent_processor!(task)
 }
 
 
@@ -461,18 +459,13 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                     // if the peer response is some, then HyperLAN Client B responded
                     if let Some(peer_response) = peer_response {
                         // the signal is going to be routed from HyperLAN Client B to HyperLAN client A (response phase)
-                        super::server::post_register::handle_response_phase(&mut *session.hypernode_peer_layer.inner.write().await, peer_conn_type, username, peer_response, ticket, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level).await
+                        super::server::post_register::handle_response_phase_post_register(&mut *session.hypernode_peer_layer.inner.write().await, peer_conn_type, username, peer_response, ticket, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level).await
                     } else {
                         // We route the signal from alice to bob. We send directly to Bob if FCM is not specified. If FCM is being used, then will route to target's FCM credentials
                         let target_cid = if let Some(peer_username) = peer_username_opt {
                             // since user did not know the CID, but only the CID, we have to find the cid
                             // here at the server
-                            if let Some(target_cid) = session.account_manager.get_persistence_handler().get_cid_by_username(peer_username.as_str()).await? {
-                                target_cid
-                            } else {
-                                // send error signal (USER DOES NOT EXIST)
-                                return reply_to_sender_err(format!("User {} does not exist!", peer_username), &sess_hyper_ratchet, ticket, timestamp, security_level)
-                            }
+                            session.account_manager.get_persistence_handler().get_cid_by_username(peer_username.as_str())
                         } else {
                             // peer knew the cid, therefore, use target_cid
                             target_cid
@@ -487,7 +480,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         if let Some(ticket_new) = peer_layer.check_simultaneous_register(implicated_cid, target_cid) {
                             log::trace!(target: "lusna", "Simultaneous register detected! Simulating implicated_cid={} sent an accept_register to target={}", implicated_cid, target_cid);
                             // route signal to peer
-                            let _ = super::server::post_register::handle_response_phase(&mut *peer_layer, peer_conn_type, username.clone(), PeerResponse::Accept(Some(username)), ticket_new, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level).await?;
+                            let _ = super::server::post_register::handle_response_phase_post_register(&mut *peer_layer, peer_conn_type, username.clone(), PeerResponse::Accept(Some(username)), ticket_new, implicated_cid, target_cid, timestamp, session, &sess_hyper_ratchet, security_level).await?;
                             // rebound accept packet
                             let username = session.account_manager.get_username_by_cid(target_cid).await?;
                             let accept = PeerResponse::Accept(username.clone());
@@ -521,7 +514,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
 
-                    if cnac.get_id() == implicated_cid {
+                    if cnac.get_cid() == implicated_cid {
                         match account_manager.deregister_hyperlan_p2p_as_server(implicated_cid, target_cid).await {
                             Ok(_) => {
                                 // route the original signal to the other end. If not connected, don't bother
@@ -563,7 +556,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                     const TIMEOUT: Duration = Duration::from_secs(60 * 60);
                     let mut peer_layer = session.hypernode_peer_layer.inner.write().await;
                     if let Some(peer_response) = peer_response {
-                        super::server::post_connect::handle_response_phase(&mut *peer_layer, peer_conn_type, ticket, peer_response, endpoint_security_level, udp_enabled, implicated_cid, target_cid, timestamp, sess_ref, &sess_hyper_ratchet, security_level).await
+                        super::server::post_connect::handle_response_phase_post_connect(&mut *peer_layer, peer_conn_type, ticket, peer_response, endpoint_security_level, udp_enabled, implicated_cid, target_cid, timestamp, sess_ref, &sess_hyper_ratchet, security_level).await
                     } else {
                         // the signal is going to be routed from HyperLAN client A to HyperLAN client B (initiation phase)
                         let to_primary_stream = return_if_none!(session.to_primary_stream.clone());
@@ -573,7 +566,7 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                             log::trace!(target: "lusna", "Simultaneous connect: first_ticket: {} | sender expected ticket: {}", ticket_new, ticket);
                             // NOTE: Packet will rebound to sender, then, sender will locally send
                             // packet to the peer who first attempted a connect request
-                            let _ = super::server::post_connect::handle_response_phase(&mut *peer_layer, peer_conn_type, ticket_new, PeerResponse::Accept(None), endpoint_security_level, udp_enabled, implicated_cid, target_cid, timestamp, sess_ref, &sess_hyper_ratchet, security_level).await?;
+                            let _ = super::server::post_connect::handle_response_phase_post_connect(&mut *peer_layer, peer_conn_type, ticket_new, PeerResponse::Accept(None), endpoint_security_level, udp_enabled, implicated_cid, target_cid, timestamp, sess_ref, &sess_hyper_ratchet, security_level).await?;
                             Ok(PrimaryProcessorResult::Void)
                         } else {
                             route_signal_and_register_ticket_forwards(&mut *peer_layer, PeerSignal::PostConnect(peer_conn_type, Some(ticket), None, endpoint_security_level, udp_enabled), TIMEOUT, implicated_cid, target_cid, timestamp, ticket, &to_primary_stream, &sess_mgr,  &sess_hyper_ratchet, security_level).await
@@ -598,7 +591,6 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                         let last_packet = v_conn.last_delivered_message_timestamp.clone();
                         let state_container_ref = session.state_container.clone();
                         let session_manager = session.session_manager.clone();
-                        let outbound_tx = return_if_none!(session.to_primary_stream.clone(), "Outbound sender not loaded");
 
                         std::mem::drop(state_container);
 
@@ -625,22 +617,10 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                             let signal_to_peer = PeerSignal::Disconnect(PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, target_cid), resp);
                             // now, remove target CID's v_conn to `implicated_cid`
                             std::mem::drop(state_container);
-                            let res = session_manager.disconnect_virtual_conn(implicated_cid, target_cid, move |peer_hyper_ratchet| {
+                            let _ = session_manager.disconnect_virtual_conn(implicated_cid, target_cid, move |peer_hyper_ratchet| {
                                 // send signal to peer
                                 hdp_packet_crafter::peer_cmd::craft_peer_signal(peer_hyper_ratchet, signal_to_peer, ticket, timestamp, security_level)
                             });
-
-                            // now, send a packet back to the source
-                            match res.map_or_else(|err| reply_to_sender_err(err, &sess_hyper_ratchet, ticket, timestamp, security_level),
-                                            |_| reply_to_sender(PeerSignal::Disconnect(peer_conn_type, None), &sess_hyper_ratchet, ticket, timestamp, security_level)) {
-                                Ok(PrimaryProcessorResult::ReplyToSender(packet)) => {
-                                    if let Err(err) = outbound_tx.unbounded_send(packet) {
-                                        log::error!(target: "lusna", "Unable to send to outbound stream: {:?}", err);
-                                    }
-                                }
-
-                                _ => {}
-                            }
                         };
 
                         let _ = spawn!(task);

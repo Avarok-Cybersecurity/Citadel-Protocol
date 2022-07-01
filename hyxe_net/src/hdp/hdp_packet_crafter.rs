@@ -10,7 +10,7 @@ use crate::hdp::outbound_sender::OutboundPrimaryStreamSender;
 use crate::hdp::state_container::VirtualTargetType;
 use crate::error::NetworkError;
 use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
-use hyxe_fs::hyxe_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
+use hyxe_crypt::net::crypt_splitter::oneshot_unencrypted_group_unified;
 use hyxe_crypt::secure_buffer::sec_packet::SecureMessagePacket;
 
 #[derive(Debug)]
@@ -135,7 +135,7 @@ impl GroupTransmitter {
             }
 
             Err(_err) => {
-                log::error!(target: "lusna", "The wavepacket processor stream was unable to generate the sender for group {}. Aborting", group_id);
+                log::error!(target: "lusna", "The udp packet processor stream was unable to generate the sender for group {}. Aborting", group_id);
                 None
             }
         }
@@ -144,7 +144,7 @@ impl GroupTransmitter {
     pub fn transmit_group_header(&mut self, virtual_target: VirtualTargetType) -> Result<(), NetworkError> {
         let header = self.generate_group_header(virtual_target);
         self.to_primary_stream.unbounded_send(header)
-            .map_err(|err| NetworkError::Generic(err.to_string()))
+            .map_err(|err| NetworkError::msg(format!("Unable to transmit group header: {:?}", err)))
     }
 
     /// Generates the group header for this set using the pre-allocated slab. Since the group header is always sent through the primary port,
@@ -200,7 +200,7 @@ pub(crate) mod group {
     use crate::hdp::hdp_node::Ticket;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
-    use hyxe_fs::io::SyncIO;
+    use hyxe_user::serialization::SyncIO;
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
 
     pub(super) fn craft_group_header_packet(processor: &mut GroupTransmitter, virtual_target: VirtualTargetType) -> BytesMut {
@@ -227,7 +227,8 @@ pub(crate) mod group {
             // both the header and payload are now written. Just have to extend the kem info
             let kem = processor.hyper_ratchet_container.base_constructor.as_ref().map(|res| res.stage0_alice());
             let expected_len = kem.serialized_size().unwrap();
-            packet.write_payload_extension(expected_len as _, |slice| kem.serialize_into_slice(slice)).unwrap()
+            packet.write_payload_extension(expected_len as _, |slice|
+                kem.serialize_into_slice(slice).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.into_string()))).unwrap()
         } else {
             let mut packet = BytesMut::with_capacity(packet_sizes::GROUP_HEADER_BASE_LEN);
             header.inscribe_into(&mut packet);
@@ -337,7 +338,7 @@ pub(crate) mod do_connect {
     use crate::hdp::peer::peer_layer::MailboxTransfer;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
-    use hyxe_fs::prelude::SyncIO;
+    use hyxe_user::serialization::SyncIO;
     use serde::{Serialize, Deserialize};
     use hyxe_user::external_services::ServicesObject;
     use hyxe_user::prelude::MutualPeer;
@@ -483,14 +484,13 @@ pub(crate) mod do_register {
     use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer};
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
-    use hyxe_fs::io::SyncIO;
+    use hyxe_user::serialization::SyncIO;
     use serde::{Serialize, Deserialize};
 
     #[derive(Serialize, Deserialize)]
     pub(crate) struct DoRegisterStage0<'a> {
         #[serde(borrow)]
         pub(crate) transfer: AliceToBobTransfer<'a>,
-        pub(crate) potential_cids_alice: Vec<u64>,
         pub(crate) passwordless: bool
     }
 
@@ -499,40 +499,40 @@ pub(crate) mod do_register {
     /// Since this is sent over TCP, the size of the packet can be up to ~64k bytes
     ///
     /// We also use the NID in place of the CID because the CID only exists AFTER registration completes
-    pub(crate) fn craft_stage0(algorithm: u8, timestamp: i64, local_nid: u64, transfer: AliceToBobTransfer<'_>, potential_cids_alice: Vec<u64>, passwordless: bool) -> BytesMut {
+    pub(crate) fn craft_stage0(algorithm: u8, timestamp: i64, transfer: AliceToBobTransfer<'_>, passwordless: bool, proposed_cid: u64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE0,
             algorithm,
             security_level: 0,
-            context_info: U128::new(potential_cids_alice.len() as _),
+            context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(local_nid),
+            session_cid: U64::new(proposed_cid),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)
         };
 
-        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN + potential_cids_alice.len() * 8);
+        let mut packet = BytesMut::with_capacity(HDP_HEADER_BYTE_LEN);
         packet.put(header.into_packet());
 
-        DoRegisterStage0 { transfer, potential_cids_alice, passwordless }.serialize_into_buf(&mut packet).unwrap();
+        DoRegisterStage0 { transfer, passwordless }.serialize_into_buf(&mut packet).unwrap();
 
         packet
     }
 
     /// Bob crafts a packet with the ciphertext
-    pub(crate) fn craft_stage1(algorithm: u8, timestamp: i64, local_nid: u64, transfer: BobToAliceTransfer, reserved_true_cid: u64) -> BytesMut {
+    pub(crate) fn craft_stage1(algorithm: u8, timestamp: i64, transfer: BobToAliceTransfer, proposed_cid: u64) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE1,
             algorithm,
             security_level: 0,
             context_info: U128::new(0),
-            group: U64::new(reserved_true_cid),
+            group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(local_nid),
+            session_cid: U64::new(proposed_cid),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)
@@ -553,7 +553,7 @@ pub(crate) mod do_register {
 
     /// Alice sends this. The stage 3 packet contains the encrypted username, password, and full name of the registering client
     #[allow(unused_results)]
-    pub(crate) fn craft_stage2(hyper_ratchet: &HyperRatchet, algorithm: u8, local_nid: u64, timestamp: i64, credentials: &ProposedCredentials, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_stage2(hyper_ratchet: &HyperRatchet, algorithm: u8, timestamp: i64, credentials: &ProposedCredentials, security_level: SecurityLevel) -> BytesMut {
         let header = HdpHeader {
             cmd_primary: packet_flags::cmd::primary::DO_REGISTER,
             cmd_aux: packet_flags::cmd::aux::do_register::STAGE2,
@@ -562,7 +562,7 @@ pub(crate) mod do_register {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(local_nid),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)
@@ -580,7 +580,7 @@ pub(crate) mod do_register {
     }
 
     /// `success_message`: This is NOT encrypted in this closure. Make sure to encrypt it beforehand if necessary
-    pub(crate) fn craft_success<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, algorithm: u8, local_nid: u64, timestamp: i64, success_message: T, security_level: SecurityLevel) -> BytesMut {
+    pub(crate) fn craft_success<T: AsRef<[u8]>>(hyper_ratchet: &HyperRatchet, algorithm: u8, timestamp: i64, success_message: T, security_level: SecurityLevel) -> BytesMut {
         let success_message = success_message.as_ref();
         let success_message_len = success_message.len();
         let header = HdpHeader {
@@ -591,7 +591,7 @@ pub(crate) mod do_register {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(local_nid),
+            session_cid: U64::new(hyper_ratchet.get_cid()),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)
@@ -608,7 +608,7 @@ pub(crate) mod do_register {
     }
 
     /// No encryption used for this packet
-    pub(crate) fn craft_failure<T: AsRef<[u8]>>(algorithm: u8, local_nid: u64, timestamp: i64, error_message: T) -> BytesMut {
+    pub(crate) fn craft_failure<T: AsRef<[u8]>>(algorithm: u8, timestamp: i64, error_message: T, proposed_cid: u64) -> BytesMut {
         let error_message = error_message.as_ref();
 
         let header = HdpHeader {
@@ -619,7 +619,7 @@ pub(crate) mod do_register {
             context_info: U128::new(0),
             group: U64::new(0),
             wave_id: U32::new(0),
-            session_cid: U64::new(local_nid),
+            session_cid: U64::new(proposed_cid),
             drill_version: U32::new(0),
             timestamp: I64::new(timestamp),
             target_cid: U64::new(0)
@@ -700,7 +700,7 @@ pub(crate) mod do_drill_update {
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::hyper_ratchet::constructor::AliceToBobTransfer;
     use hyxe_crypt::prelude::SecurityLevel;
-    use hyxe_fs::io::SyncIO;
+    use hyxe_user::serialization::SyncIO;
     use serde::{Serialize, Deserialize};
     use hyxe_crypt::endpoint_crypto_container::KemTransferStatus;
 
@@ -893,7 +893,7 @@ pub(crate) mod pre_connect {
     use hyxe_crypt::drill::SecurityLevel;
     use crate::hdp::misc::session_security_settings::SessionSecuritySettings;
     use serde::{Serialize, Deserialize};
-    use hyxe_fs::io::SyncIO;
+    use hyxe_user::serialization::SyncIO;
     use hyxe_user::prelude::ConnectProtocol;
     use crate::hdp::hdp_node::ConnectMode;
     use crate::hdp::peer::peer_layer::UdpMode;
@@ -1087,7 +1087,7 @@ pub(crate) mod peer_cmd {
     use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
     use hyxe_crypt::prelude::SecurityLevel;
-    use hyxe_fs::io::SyncIO;
+    use hyxe_user::serialization::SyncIO;
     use serde::Serialize;
 
     pub(crate) const C2S_ENCRYPTION_ONLY: u64 = 0;
@@ -1207,14 +1207,14 @@ pub(crate) mod file {
     use crate::hdp::packet_processor::includes::{SecurityLevel, HdpHeader, packet_flags};
     use crate::hdp::hdp_node::Ticket;
     use crate::hdp::state_container::VirtualTargetType;
-    use crate::hdp::file_transfer::VirtualFileMetadata;
+    use hyxe_user::backend::utils::VirtualObjectMetadata;
     use zerocopy::{U64, U32, I64, U128};
     use bytes::{BytesMut, BufMut};
     use crate::constants::HDP_HEADER_BYTE_LEN;
     use hyxe_crypt::net::crypt_splitter::AES_GCM_GHASH_OVERHEAD;
     use hyxe_crypt::hyper_ratchet::HyperRatchet;
 
-    pub(crate) fn craft_file_header_packet(hyper_ratchet: &HyperRatchet, group_start: u64, ticket: Ticket, security_level: SecurityLevel, virtual_target: VirtualTargetType, file_metadata: VirtualFileMetadata, timestamp: i64) -> BytesMut {
+    pub(crate) fn craft_file_header_packet(hyper_ratchet: &HyperRatchet, group_start: u64, ticket: Ticket, security_level: SecurityLevel, virtual_target: VirtualTargetType, file_metadata: VirtualObjectMetadata, timestamp: i64) -> BytesMut {
         let metadata_serialized = file_metadata.serialize();
         let serialized_vt = virtual_target.serialize();
         let header = HdpHeader {
