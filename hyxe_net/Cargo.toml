@@ -37,7 +37,7 @@ byteorder = "1.3.4"
 atomic = "0.5.0"
 serde = { version = "^1.0.123", features=["derive"] }
 anyhow = "1.0.57"
-either = "1.5.3"
+either = "1.7.0"
 async-stream = "0.3.2"
 hyxe_crypt = { path = "../hyxe_crypt", version = "0.1.0", default-features=false }
 hyxe_user = { path = "../hyxe_user", version = "0.1.0", default-features=false }
