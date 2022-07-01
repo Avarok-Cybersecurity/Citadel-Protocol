@@ -53,7 +53,7 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket) ->
                             // since the SYN's been validated, the CNACs toolset has been updated
                             let new_session_sec_lvl = transfer.security_level;
 
-                            // TODO: prevent logins if versions out of sync. For now, don't
+                            // TODO: prevent logins if semvers out of sync. For now, don't
                             if proto_version_out_of_sync(adjacent_proto_version) {
                                 log::warn!(target: "lusna", "\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", crate::constants::BUILD_VERSION, adjacent_proto_version);
                             }

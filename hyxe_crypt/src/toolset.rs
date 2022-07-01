@@ -36,6 +36,19 @@ pub struct Toolset<R: Ratchet> {
     static_auxiliary_hyper_ratchet: R
 }
 
+// This clone should only be called in the middle of a session
+impl<R: Ratchet> Clone for Toolset<R> {
+    fn clone(&self) -> Self {
+        Self {
+            cid: self.cid,
+            most_recent_hyper_ratchet_version: self.most_recent_hyper_ratchet_version,
+            oldest_hyper_ratchet_version: self.oldest_hyper_ratchet_version,
+            map: self.map.clone(),
+            static_auxiliary_hyper_ratchet: self.static_auxiliary_hyper_ratchet.clone()
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy)]
 pub enum UpdateStatus {
     // new version has been committed, and the number of HRs is still less than the total max. No E2E synchronization required

@@ -7,8 +7,7 @@ use crate::error::NetworkError;
 pub fn process_hole_punch(session: &HdpSession, packet: HdpPacket, hr_version: u32, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     let (header, payload, _, _) = packet.decompose();
     let state_container = inner_state!(session.state_container);
-    let ref cnac = return_if_none!(state_container.cnac.clone(), "CNAC not loaded");
-    let ref hr = return_if_none!(get_proper_hyper_ratchet(hr_version, cnac, &state_container, proxy_cid_info), "Unable to get proper HR");
+    let ref hr = return_if_none!(get_proper_hyper_ratchet(hr_version, &state_container, proxy_cid_info), "Unable to get proper HR");
 
     let header = header.as_ref();
     let (header, payload) = return_if_none!(super::super::validation::aead::validate_custom(hr, &header, payload), "Unable to validate packet");
