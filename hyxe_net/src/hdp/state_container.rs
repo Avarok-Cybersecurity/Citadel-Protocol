@@ -892,26 +892,28 @@ impl StateContainerInner {
     pub fn on_group_header_ack_received(&mut self, base_session_secrecy_mode: SecrecyMode, peer_cid: u64, target_cid: u64, group_id: u64, next_window: Option<RangeInclusive<u32>>, transfer: KemTransferStatus, fast_msg: bool) -> bool {
         let key = GroupKey::new(peer_cid, group_id);
 
-        if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
-            let constructor = outbound_container.ratchet_constructor.take().map(ConstructorType::Default);
-            if attempt_kem_as_alice_finish(base_session_secrecy_mode, peer_cid, target_cid, transfer, &mut self, constructor).is_err() {
-                return true;
-            }
-
-            if fast_msg {
-                let _ = self.outbound_transmitters.remove(&key);
-                // we don't proceed past here b/c there's no need to send more data
-                return true;
-            }
-
-            outbound_container.waves_in_current_window = next_window.clone().unwrap_or(0..=0).count();
-            // file-transfer, or TCP only mode since next_window is none. Use TCP
-            return outbound_container.burst_transmitter.transmit_tcp_file_transfer();
+        let constructor = if let Some(outbound_container) = self.outbound_transmitters.get_mut(&key) {
+            outbound_container.ratchet_constructor.take().map(ConstructorType::Default)
         } else {
-            log::error!(target: "lusna", "Outbound transmitter for {:?} does not exist", key);
+            log::warn!(target: "lusna", "Key for outbound transmitter absent");
+            return false;
+        };
+
+        if attempt_kem_as_alice_finish(base_session_secrecy_mode, peer_cid, target_cid, transfer, self, constructor).is_err() {
+            return true;
         }
 
-        true
+        if fast_msg {
+            let _ = self.outbound_transmitters.remove(&key);
+            // we don't proceed past here b/c there's no need to send more data
+            return true;
+        }
+
+        let outbound_container = self.outbound_transmitters.get_mut(&key).unwrap();
+
+        outbound_container.waves_in_current_window = next_window.clone().unwrap_or(0..=0).count();
+        // file-transfer, or TCP only mode since next_window is none. Use TCP
+        outbound_container.burst_transmitter.transmit_tcp_file_transfer()
     }
 
     pub fn on_group_payload_received(&mut self, header: &HdpHeader, payload: Bytes, hr: &HyperRatchet) -> Result<PrimaryProcessorResult, NetworkError> {
@@ -1137,7 +1139,6 @@ impl StateContainerInner {
         } else {
             // first, make sure that there aren't already packets in the queue (unless we were called from the poll, in which case, we are getting the latest version)
             let secrecy_mode = this.get_secrecy_mode(virtual_target.get_target_cid()).ok_or(NetworkError::InternalError("Secrecy mode not loaded"))?;
-            let cnac = this.cnac.as_ref().unwrap();
 
             let time_tracker = this.time_tracker.clone();
 
@@ -1159,7 +1160,7 @@ impl StateContainerInner {
                 VirtualTargetType::HyperLANPeerToHyperLANServer(implicated_cid) => {
                     // if we are sending this just to the HyperLAN server (in the case of file uploads),
                     // then, we use this session's pqc, the cnac's latest drill, and 0 for target_cid
-                    let crypt_container = &mut self.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
+                    let crypt_container = &mut this.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
                     let latest_hyper_ratchet = crypt_container.get_hyper_ratchet(None).cloned().unwrap();
                     latest_hyper_ratchet.verify_level(Some(security_level)).map_err(|_err| NetworkError::Generic(format!("Invalid security level. The maximum security level for this session is {:?}", latest_hyper_ratchet.get_default_security_level())))?;
                     let constructor = crypt_container.get_next_constructor(called_from_poll);

@@ -14,7 +14,6 @@ pub fn process_file_packet(session: &HdpSession, packet: HdpPacket, proxy_cid_in
 
     let timestamp = session.time_tracker.get_global_time_ns();
     let mut state_container = inner_mut_state!(session.state_container);
-    let ref cnac_sess = return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded");
     // get the proper pqc
     let header_bytes = &header[..];
     let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to validate header layout") as LayoutVerified<&[u8], HdpHeader>;
