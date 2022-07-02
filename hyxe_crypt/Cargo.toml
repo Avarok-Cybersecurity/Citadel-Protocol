@@ -22,7 +22,6 @@ multi-threaded = ["ez_pqcrypto/unordered"]
 async-trait = "0.1.24"
 bincode2 = "2.0.1"
 serde = { version="1.0.104", features=["rc", "derive"] }
-serde_derive = "1.0.104"
 futures = "0.3.5"
 log = "0.4.8"
 byteorder = "1.3.2"
@@ -51,7 +50,6 @@ libc = "0.2.80"
 kernel32-sys = "0.2.2"
 
 [dev-dependencies]
-criterion = "*"
 lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
 
 
