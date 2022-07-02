@@ -91,9 +91,10 @@ pub fn process_rekey(session: &HdpSession, packet: HdpPacket, header_drill_vers:
                 let local_cid = header.target_cid.get();
                 (ToolsetUpdate::E2E { crypt, local_cid }, endpoint_container.default_security_settings.secrecy_mode)
             } else {
+                let secrecy_mode = state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone().unwrap();
                 let crypt = &mut state_container.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
                 let local_cid = header.session_cid.get();
-                (ToolsetUpdate::E2E { crypt, local_cid}, state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone().unwrap())
+                (ToolsetUpdate::E2E { crypt, local_cid}, secrecy_mode)
             };
 
             // We optionally deregister at this endpoint to prevent any further packets with this version from being sent
@@ -147,9 +148,10 @@ pub fn process_rekey(session: &HdpSession, packet: HdpPacket, header_drill_vers:
                 let local_cid = header.target_cid.get();
                 (ToolsetUpdate::E2E { crypt, local_cid }, endpoint_container.default_security_settings.secrecy_mode)
             } else {
+                let secrecy_mode = state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone().unwrap();
                 let crypt = &mut state_container.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
                 let local_cid = header.session_cid.get();
-                (ToolsetUpdate::E2E { crypt, local_cid }, state_container.session_security_settings.as_ref().map(|r| r.secrecy_mode).clone().unwrap())
+                (ToolsetUpdate::E2E { crypt, local_cid }, secrecy_mode)
             };
 
             let _ = return_if_none!(method.unlock(true)); // unconditional unlock

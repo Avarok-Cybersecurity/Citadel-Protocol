@@ -227,7 +227,7 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket) ->
                     }
 
                     Err(err) => {
-                        log::trace!(target: "lusna", "Hole punch attempt failed ({}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange", err.to_string());
+                        log::warn!(target: "lusna", "Hole punch attempt failed ({}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange", err.to_string());
                         // We await the initiator to choose a method
                         let mut state_container = inner_mut_state!(session.state_container);
                         state_container.udp_mode = UdpMode::Disabled;
