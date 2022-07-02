@@ -839,7 +839,7 @@ impl HdpSession {
                         let crypt_container = &mut state_container.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
                         let object_id = crypt_container.get_and_increment_object_id();
                         let group_id_start = crypt_container.get_and_increment_group_id();
-                        let latest_hr = crypt_container.get_hyper_ratchet(None).unwrap();
+                        let latest_hr = crypt_container.get_hyper_ratchet(None).cloned().unwrap();
 
                         let to_primary_stream = this.to_primary_stream.clone().unwrap();
                         let target_cid = 0;
@@ -858,7 +858,7 @@ impl HdpSession {
                         // if 1 group, we don't need to reserve any more group IDs. If 2, then we reserve just one. 3, then 2
                         let amt_to_reserve = groups_needed - 1;
                         crypt_container.rolling_group_id += amt_to_reserve as u64;
-                        let file_header = hdp_packet_crafter::file::craft_file_header_packet(latest_hr, group_id_start, ticket, security_level, virtual_target, file_metadata, timestamp);
+                        let file_header = hdp_packet_crafter::file::craft_file_header_packet(&latest_hr, group_id_start, ticket, security_level, virtual_target, file_metadata, timestamp);
                         (to_primary_stream, file_header, object_id, target_cid, implicated_cid, groups_needed)
                     }
 
@@ -1146,40 +1146,37 @@ impl HdpSession {
         let timestamp = this.time_tracker.get_global_time_ns();
 
         let mut state_container = inner_mut_state!(this.state_container);
-        if let Some(cnac) = state_container.cnac.clone() {
-            if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
-                let signal_processed = match peer_command {
-                    PeerSignal::DisconnectUDP(v_conn) => {
-                        // disconnect UDP locally
-                        log::trace!(target: "lusna", "Closing UDP subsystem locally ...");
-                        state_container.remove_udp_channel(v_conn.get_target_cid());
-                        PeerSignal::DisconnectUDP(v_conn)
+
+        if let Some(to_primary_stream) = this.to_primary_stream.as_ref() {
+            let signal_processed = match peer_command {
+                PeerSignal::DisconnectUDP(v_conn) => {
+                    // disconnect UDP locally
+                    log::trace!(target: "lusna", "Closing UDP subsystem locally ...");
+                    state_container.remove_udp_channel(v_conn.get_target_cid());
+                    PeerSignal::DisconnectUDP(v_conn)
+                }
+
+                PeerSignal::PostConnect(a, b, None, d, e) => {
+                    if state_container.outgoing_peer_connect_attempts.contains_key(&a.get_original_target_cid()) {
+                        log::warn!(target: "lusna", "{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
                     }
 
-                    PeerSignal::PostConnect(a, b, None, d, e) => {
-                        if state_container.outgoing_peer_connect_attempts.contains_key(&a.get_original_target_cid()) {
-                            log::warn!(target: "lusna", "{} is already attempting to connect to {}", a.get_original_implicated_cid(), a.get_original_target_cid())
-                        }
+                    // in case the ticket gets mapped during simultaneous_connect, store locally
+                    let _ = state_container.outgoing_peer_connect_attempts.insert(a.get_original_target_cid(), ticket);
+                    PeerSignal::PostConnect(a, b, None, d, e)
+                }
 
-                        // in case the ticket gets mapped during simultaneous_connect, store locally
-                        let _ = state_container.outgoing_peer_connect_attempts.insert(a.get_original_target_cid(), ticket);
-                        PeerSignal::PostConnect(a, b, None, d, e)
-                    }
+                n => {
+                    n
+                }
+            };
 
-                    n => {
-                        n
-                    }
-                };
+            let hyper_ratchet = state_container.c2s_channel_container.as_ref().unwrap().peer_session_crypto.get_hyper_ratchet(None).unwrap();
+            let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
 
-                let hyper_ratchet = state_container.c2s_channel_container.as_ref().unwrap().peer_session_crypto.get_hyper_ratchet(None).unwrap();
-                let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
-
-                to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string()))
-            } else {
-                Err(NetworkError::InternalError("Invalid configuration"))
-            }
+            to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string()))
         } else {
-            Err(NetworkError::InternalError("Invalid configuration (no CNAC)"))
+            Err(NetworkError::InternalError("Invalid configuration"))
         }
     }
 

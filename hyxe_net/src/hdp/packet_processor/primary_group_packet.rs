@@ -49,7 +49,6 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
 
     let mut state_container = inner_mut_state!(state_container);
     let udp_mode = state_container.udp_mode;
-    let ref cnac_sess = return_if_none!(state_container.cnac.clone(), "Unable to load CNAC [PGP]");
     // get the proper pqc
     let header_bytes = &header[..];
     let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to load header [PGP]") as LayoutVerified<&[u8], HdpHeader>;
