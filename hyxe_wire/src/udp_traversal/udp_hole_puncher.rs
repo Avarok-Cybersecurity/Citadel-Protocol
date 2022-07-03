@@ -41,10 +41,11 @@ impl Future for UdpHolePuncher<'_> {
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
 async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer) -> Result<HolePunchedUdpSocket, anyhow::Error> {
     log::trace!(target: "lusna", "in driver");
-    let local_nat_type = &(NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?);
-    log::trace!(target: "lusna", "in driver2");
-    // exchange information
+    // create stream
     let stream = &(conn.initiate_subscription().await?);
+    log::trace!(target: "lusna", "in driver2");
+    let local_nat_type = &(NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?);
+
     log::trace!(target: "lusna", "in driver3");
     stream.send_serialized(local_nat_type).await?;
     log::trace!(target: "lusna", "in driver4");

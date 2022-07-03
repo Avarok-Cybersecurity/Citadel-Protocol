@@ -985,7 +985,7 @@ impl HdpSession {
                                             state_container.c2s_channel_container.as_ref().unwrap().peer_session_crypto.get_hyper_ratchet(None)
                                         }
                                         VirtualConnectionType::HyperLANPeerToHyperLANPeer(_, peer_cid) => {
-                                            match StateContainerInner::get_peer_session_crypto(&mut state_container.active_virtual_connections, peer_cid) {
+                                            match state_container.get_peer_session_crypto(peer_cid) {
                                                 Some(peer_sess_crypt) => {
                                                     peer_sess_crypt.get_hyper_ratchet(None)
                                                 }
@@ -1143,6 +1143,9 @@ impl HdpSession {
     pub(crate) async fn dispatch_peer_command(&self, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
         log::trace!(target: "lusna", "Dispatching peer command {:?} ...", peer_command);
         let this = self;
+        if this.state.load(Ordering::Relaxed) != SessionState::Connected {
+            return Err(NetworkError::msg(format!("Session is not connected; cannot send peer command {:?}", peer_command)))
+        }
         let timestamp = this.time_tracker.get_global_time_ns();
 
         let mut state_container = inner_mut_state!(this.state_container);

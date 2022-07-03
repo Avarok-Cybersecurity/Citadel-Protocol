@@ -69,6 +69,7 @@ impl<R: SubscriptionBiStream + ?Sized> ReliableOrderedStreamToTarget for R {
     }
 
     async fn recv(&self) -> std::io::Result<Bytes> {
+        log::trace!(target: "lusna", "recv_reliable_ordered_stream_to_target");
         self.receiver().lock().await.recv().await.map(Bytes::from).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::ConnectionReset, "Receiver died"))
     }
 }
