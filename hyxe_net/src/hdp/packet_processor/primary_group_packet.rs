@@ -328,7 +328,6 @@ pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, state_container: 
             return None;
         }
     } else {
-        // TODO: the c2s channel container is NOT loaded when the below is called for preconnect nat traversal
         // since this was not proxied, use the ordinary pqc and drill
         if state_container.state.load(Ordering::Relaxed) != SessionState::Connected {
             state_container.pre_connect_state.generated_ratchet.clone()

@@ -141,14 +141,18 @@ mod tests {
     use uuid::Uuid;
 
     #[rstest]
-    #[case(2)]
-    #[case(3)]
+    #[case(2, false)]
+    #[case(3, true)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor="multi_thread")]
-    async fn peer_to_peer_connect(#[case] peer_count: usize) {
+    async fn peer_to_peer_connect(#[case] peer_count: usize, #[case] debug_force_nat_timeout: bool) {
         assert!(peer_count > 1);
         let _ = lusna_logging::setup_log();
         TestBarrier::setup(peer_count);
+
+        if debug_force_nat_timeout {
+            std::env::set_var("debug_cause_timeout", "ON");
+        }
 
         let ref client_success = AtomicUsize::new(0);
         let (server, server_addr) = server_info();
@@ -190,6 +194,11 @@ mod tests {
         });
 
         assert!(futures::future::try_select(server, clients).await.is_ok());
+
+        if debug_force_nat_timeout {
+            std::env::remove_var("debug_cause_timeout");
+        }
+
         assert_eq!(client_success.load(Ordering::Relaxed), peer_count);
     }
 
