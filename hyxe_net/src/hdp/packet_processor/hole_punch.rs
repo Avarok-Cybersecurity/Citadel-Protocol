@@ -7,10 +7,9 @@ use crate::error::NetworkError;
 pub fn process_hole_punch(session: &HdpSession, packet: HdpPacket, hr_version: u32, proxy_cid_info: Option<(u64, u64)>) -> Result<PrimaryProcessorResult, NetworkError> {
     let (header, payload, _, _) = packet.decompose();
     let state_container = inner_state!(session.state_container);
-    let ref hr = return_if_none!(get_proper_hyper_ratchet(hr_version, &state_container, proxy_cid_info), "Unable to get proper HR");
-
+    let hr = return_if_none!(get_proper_hyper_ratchet(hr_version, &state_container, proxy_cid_info), "Unable to get proper HR");
     let header = header.as_ref();
-    let (header, payload) = return_if_none!(super::super::validation::aead::validate_custom(hr, &header, payload), "Unable to validate packet");
+    let (header, payload) = return_if_none!(super::super::validation::aead::validate_custom(&hr, &header, payload), "Unable to validate packet");
     log::trace!(target: "lusna", "Success validating hole-punch packet");
     let peer_cid = get_resp_target_cid_from_header(&header);
     return_if_none!(return_if_none!(state_container.hole_puncher_pipes.get(&peer_cid), "Unable to get hole puncher pipe").send(payload.freeze()).ok(), "Unable to forward hole-punch packet through pipe");

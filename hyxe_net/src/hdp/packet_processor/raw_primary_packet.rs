@@ -16,8 +16,8 @@ impl<T: Future<Output=Result<PrimaryProcessorResult, NetworkError>> + ContextReq
 pub async fn process_raw_packet(this_implicated_cid: Option<u64>, session: &HdpSession, remote_peer: SocketAddr, local_primary_port: u16, packet: BytesMut) -> Result<PrimaryProcessorResult, NetworkError> {
     //return_if_none!(header_obfuscator.on_packet_received(&mut packet));
     let packet = HdpPacket::new_recv(packet, remote_peer, local_primary_port);
+    log::trace!(target: "lusna", "RECV Raw packet: {:?}", &packet.parse().unwrap().0);
     let (header, _payload) = return_if_none!(packet.parse(), "Unable to parse packet");
-    //log::trace!(target: "lusna", "RECV Raw packet: {:?}", &*header);
 
     let target_cid = header.target_cid.get();
     let mut endpoint_cid_info = None;

@@ -199,7 +199,7 @@ pub struct C2SChannelContainer<R: Ratchet = HyperRatchet> {
     // for UDP
     pub(crate) to_unordered_channel: Option<UnorderedChannelContainer>,
     is_active: Arc<AtomicBool>,
-    primary_outbound_tx: OutboundPrimaryStreamSender,
+    to_primary_stream: OutboundPrimaryStreamSender,
     pub(crate) channel_signal: Option<NodeResult>,
     pub(crate) peer_session_crypto: PeerSessionCrypto<R>
 }
@@ -641,7 +641,7 @@ impl StateContainerInner {
             to_channel: OrderedChannel::new(channel_tx),
             to_unordered_channel: None,
             is_active,
-            primary_outbound_tx: session.to_primary_stream.clone().unwrap(),
+            to_primary_stream: session.to_primary_stream.clone().unwrap(),
             channel_signal: None,
             peer_session_crypto: cnac.read().crypt_container.new_session()
         };
@@ -676,8 +676,8 @@ impl StateContainerInner {
         log::trace!(target: "lusna", "Vconn {} -> {} established", connection_type.get_implicated_cid(), target_cid);
     }
 
-    pub fn get_peer_session_crypto(active_virtual_connections: &mut HashMap<u64, VirtualConnection>, peer_cid: u64) -> Option<&mut PeerSessionCrypto> {
-        Some(&mut active_virtual_connections.get_mut(&peer_cid)?.endpoint_container.as_mut()?.endpoint_crypto)
+    pub fn get_peer_session_crypto(&self, peer_cid: u64) -> Option<&PeerSessionCrypto> {
+        Some(&self.active_virtual_connections.get(&peer_cid)?.endpoint_container.as_ref()?.endpoint_crypto)
     }
 
     /// When a keep alive is received, this function gets called. Prior to getting called,
@@ -1419,6 +1419,6 @@ impl StateContainerInner {
     }
 
     fn get_primary_stream(&self) -> Option<&OutboundPrimaryStreamSender> {
-        self.c2s_channel_container.as_ref().map(|r| &r.primary_outbound_tx)
+        self.c2s_channel_container.as_ref().map(|r| &r.to_primary_stream)
     }
 }
