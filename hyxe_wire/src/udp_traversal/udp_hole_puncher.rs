@@ -25,7 +25,12 @@ impl<'a> UdpHolePuncher<'a> {
 
     pub fn new_timeout(conn: &'a NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer, timeout: Duration) -> Self {
         Self { driver: Box::pin(async move {
-            tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
+            // for debugging purposes
+            if std::env::var("debug_cause_timeout").unwrap_or_default() != "ON" {
+                tokio::time::timeout(timeout, driver(conn, encrypted_config_container)).await?
+            } else {
+                tokio::time::timeout(Duration::from_millis(1), driver(conn, encrypted_config_container)).await?
+            }
         })}
     }
 }
@@ -40,18 +45,14 @@ impl Future for UdpHolePuncher<'_> {
 
 #[cfg_attr(feature = "localhost-testing", tracing::instrument(target = "lusna", skip_all, ret, err(Debug)))]
 async fn driver(conn: &NetworkEndpoint, encrypted_config_container: EncryptedConfigContainer) -> Result<HolePunchedUdpSocket, anyhow::Error> {
-    log::trace!(target: "lusna", "in driver");
     // create stream
     let stream = &(conn.initiate_subscription().await?);
-    log::trace!(target: "lusna", "in driver2");
     let local_nat_type = &(NatType::identify().await.map_err(|err| anyhow::Error::msg(err.to_string()))?);
 
-    log::trace!(target: "lusna", "in driver3");
     stream.send_serialized(local_nat_type).await?;
-    log::trace!(target: "lusna", "in driver4");
     let peer_nat_type = &(stream.recv_serialized::<NatType>().await?);
 
-    log::trace!(target: "lusna", "[driver] Local NAT type: {:?}", local_nat_type);
+    log::trace!(target: "lusna", "[driver] Local NAT type: {:?} | Peer NAT type: {:?}", local_nat_type, peer_nat_type);
     let local_initial_socket = get_optimal_bind_socket(local_nat_type, peer_nat_type)?;
     let internal_bind_port = local_initial_socket.local_addr()?.port();
 
