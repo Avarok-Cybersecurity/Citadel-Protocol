@@ -149,7 +149,7 @@ fn handle_p2p_stream(mut p2p_stream: GenericNetworkStream, implicated_cid: DualC
         };
 
         if let Err(err) = &res {
-            log::trace!(target: "lusna", "[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
+            log::error!(target: "lusna", "[P2P-stream] P2P stream ending. Reason: {}", err.to_string());
         }
 
         log::trace!(target: "lusna", "[P2P-stream] Dropping tri-joined future");
