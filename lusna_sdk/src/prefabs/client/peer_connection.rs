@@ -80,7 +80,7 @@ impl<'a, F, Fut> PrefabFunctions<'a, Vec<UserIdentifier>> for PeerConnectionKern
         wait_for_peers().await;
 
         for peer in &peers_to_connect {
-            // TODO: optimize this into a single operation
+            // TODO: optimize this into a single concurrent operation
             peers_already_registered.push(peer.search_peer(implicated_cid, cls_remote.inner.account_manager()).await?)
         }
 
@@ -233,6 +233,7 @@ mod tests {
                         break
                     }
                 }
+
 
                 log::trace!(target: "lusna", "***PEER {} CONNECT RESULT: {}***", uuid, success);
                 let _ = client_success.fetch_add(1, Ordering::Relaxed);
