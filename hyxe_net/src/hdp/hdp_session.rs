@@ -1143,9 +1143,12 @@ impl HdpSession {
     pub(crate) async fn dispatch_peer_command(&self, ticket: Ticket, peer_command: PeerSignal, security_level: SecurityLevel) -> Result<(), NetworkError> {
         log::trace!(target: "lusna", "Dispatching peer command {:?} ...", peer_command);
         let this = self;
-        if this.state.load(Ordering::Relaxed) != SessionState::Connected {
-            return Err(NetworkError::msg(format!("Session is not connected; cannot send peer command {:?}", peer_command)))
+        let state = this.state.load(Ordering::SeqCst);
+
+        if state != SessionState::Connected {
+            log::warn!(target: "lusna", "Session is not connected (s={:?}); will still attempt send peer command {:?}", state, peer_command)
         }
+
         let timestamp = this.time_tracker.get_global_time_ns();
 
         let mut state_container = inner_mut_state!(this.state_container);

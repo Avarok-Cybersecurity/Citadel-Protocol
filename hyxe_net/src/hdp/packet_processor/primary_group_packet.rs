@@ -36,7 +36,7 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
     } = session.inner.deref();
 
     if state.load(Ordering::Relaxed) != SessionState::Connected {
-        log::error!(target: "lusna", "Group packet dropped; session not connected");
+        log::warn!(target: "lusna", "Group packet dropped; session not connected");
         return Ok(PrimaryProcessorResult::Void);
     }
 
