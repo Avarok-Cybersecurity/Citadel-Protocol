@@ -1177,7 +1177,7 @@ impl HdpSession {
                 }
             };
 
-            let hyper_ratchet = state_container.c2s_channel_container.as_ref().unwrap().peer_session_crypto.get_hyper_ratchet(None).unwrap();
+            let hyper_ratchet = state_container.c2s_channel_container.as_ref().ok_or_else(||NetworkError::msg(format!("C2S container not loaded; cannot send peer command {:?}", signal_processed)))?.peer_session_crypto.get_hyper_ratchet(None).unwrap();
             let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal_processed, ticket, timestamp, security_level);
 
             to_primary_stream.unbounded_send(packet).map_err(|err| NetworkError::SocketError(err.to_string()))
