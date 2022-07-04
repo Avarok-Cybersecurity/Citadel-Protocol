@@ -387,13 +387,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         Ok(serialized)
     }
 
-    /// This should be called after retrieving a CNAC from a database
-    ///
-    /// Note: if persistence handler is not specified, it will have to be loaded later, before any other program execution
-    pub(crate) fn load_safe(inner: ClientNetworkAccountInner<R, Fcm>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
-        Ok(ClientNetworkAccount::<R, Fcm>::from(inner))
-    }
-
     /// Returns the metadata for this CNAC
     pub(crate) fn get_metadata(&self) -> CNACMetadata {
         let read = self.read();

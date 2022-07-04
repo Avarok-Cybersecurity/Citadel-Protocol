@@ -10,7 +10,6 @@ use hyxe_user::account_manager::AccountManager;
 use crate::error::NetworkError;
 use crate::hdp::packet_processor::includes::Duration;
 use crate::hdp::hdp_node::{HdpServer, NodeRemote, NodeResult};
-use crate::hdp::misc::panic_future::ExplicitPanicFuture;
 use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::kernel::kernel::NetKernel;
@@ -61,6 +60,7 @@ impl<K: NetKernel> KernelExecutor<K> {
             let kernel_future = Self::kernel_inner_loop(&mut kernel, server_to_kernel_rx, server_remote, shutdown_alerter_rx, callback_handler, kernel_executor_settings);
             #[cfg(feature = "multi-threaded")]
                 {
+                    use crate::hdp::misc::panic_future::ExplicitPanicFuture;
                     let hdp_server_future = ExplicitPanicFuture::new(rt.spawn(hdp_server));
                     tokio::select! {
                         ret0 = kernel_future => ret0,
