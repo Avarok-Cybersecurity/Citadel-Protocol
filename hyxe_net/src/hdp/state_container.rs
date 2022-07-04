@@ -63,7 +63,10 @@ impl Debug for StateContainer {
     }
 }
 
-define_outer_struct_wrapper!(StateContainer, StateContainerInner);
+#[derive(Clone)]
+pub struct StateContainer {
+    pub(crate) inner: Arc<parking_lot::RwLock<StateContainerInner>>
+}
 
 /// For keeping track of the stages
 pub struct StateContainerInner {
