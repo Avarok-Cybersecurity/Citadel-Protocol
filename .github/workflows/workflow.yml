@@ -188,7 +188,7 @@ jobs:
       - name: Install Tarpaulin
         run: cargo install cargo-tarpaulin
       - name: Run cargo-tarpaulin
-        run: 'cargo tarpaulin --timeout 4800 --packages lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --features=redis,sql,localhost-testing -- --test-threads=1 --skip argon_autotuner'
+        run: 'cargo tarpaulin --timeout 4800 --packages lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --features=redis,sql,localhost-testing,multi-threaded -- --test-threads=1 --skip argon_autotuner'
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

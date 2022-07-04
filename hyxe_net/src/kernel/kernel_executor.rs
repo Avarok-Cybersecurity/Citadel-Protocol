@@ -52,7 +52,7 @@ impl<K: NetKernel> KernelExecutor<K> {
         let shutdown_alerter_rx = self.shutdown_alerter_rx.take().unwrap();
         let callback_handler = self.callback_handler.take().unwrap();
 
-        let (rt, hdp_server, _localset_opt) = self.context.take().unwrap();
+        let (_rt, hdp_server, _localset_opt) = self.context.take().unwrap();
 
         log::trace!(target: "lusna", "KernelExecutor::execute is now executing ...");
 
@@ -61,7 +61,7 @@ impl<K: NetKernel> KernelExecutor<K> {
             #[cfg(feature = "multi-threaded")]
                 {
                     use crate::hdp::misc::panic_future::ExplicitPanicFuture;
-                    let hdp_server_future = ExplicitPanicFuture::new(rt.spawn(hdp_server));
+                    let hdp_server_future = ExplicitPanicFuture::new(_rt.spawn(hdp_server));
                     tokio::select! {
                         ret0 = kernel_future => ret0,
                         ret1 = hdp_server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?
