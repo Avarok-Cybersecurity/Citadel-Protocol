@@ -111,13 +111,22 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         log::trace!(target: "lusna", "Creating CNAC w/valid cid: {:?}", valid_cid);
         // TODO: move this to validation in hyxe_net (or this may be redunant)
         check_credential_formatting::<_, &str, _>(auth_store.username(), None, auth_store.full_name())?;
+        log::trace!(target: "lusna", "A - {}", valid_cid);
         let creation_date = get_present_formatted_timestamp();
+        log::trace!(target: "lusna", "B - {}", valid_cid);
         let crypt_container = PeerSessionCrypto::<R>::new(Toolset::<R>::new(valid_cid, base_hyper_ratchet), is_personal);
+        log::trace!(target: "lusna", "C - {}", valid_cid);
         let mutuals = MultiMap::new();
-        let byte_map = HashMap::with_capacity(0);
+        log::trace!(target: "lusna", "D - {}", valid_cid);
+        let byte_map = HashMap::default();
+        log::trace!(target: "lusna", "E - {}", valid_cid);
         let client_rtdb_config = None;
+        log::trace!(target: "lusna", "F - {}", valid_cid);
         let inner = ClientNetworkAccountInner::<R, Fcm> { client_rtdb_config, creation_date, cid: valid_cid, auth_store, adjacent_nac, is_local_personal: is_personal, mutuals, crypt_container, byte_map, _pd: Default::default() };
-        Ok(Self::from(inner))
+        log::trace!(target: "lusna", "G - {}", valid_cid);
+        let this = Self::from(inner);
+        log::trace!(target: "lusna", "H - {}", valid_cid);
+        Ok(this)
     }
 
     /// Resets the toolset, if necessary. If the CNAC was freshly serialized, the hyper ratchet
