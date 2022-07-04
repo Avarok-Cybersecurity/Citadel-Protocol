@@ -83,13 +83,15 @@ pub mod macros {
 
     macro_rules! inner_state {
     ($item:expr) => {
-        $item.inner.borrow()
+        //$item.inner.try_read_for(std::time::Duration::from_millis(10)).expect("PANIC ON READ (TIMEOUT)")
+        $item.inner.read()
     };
 }
 
     macro_rules! inner_mut_state {
     ($item:expr) => {
-        $item.inner.borrow_mut()
+        //$item.inner.try_write_for(std::time::Duration::from_millis(10)).expect("PANIC ON WRITE (TIMEOUT)")
+        $item.inner.write()
     };
 }
 
