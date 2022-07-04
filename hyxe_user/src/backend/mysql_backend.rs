@@ -565,7 +565,7 @@ impl<R: Ratchet, Fcm: Ratchet> SqlBackend<R, Fcm> {
             log::trace!(target: "lusna", "[CNAC-Load] Base64 len: {} | sample: {:?} -> {:?}", bin.len(), &bin.as_str()[..10], &bin.as_str()[(bin.len() - 10)..]);
             let bin = base64::decode(bin)?;
             let cnac_inner = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_owned_vector(bin)?;
-            Ok(Some(ClientNetworkAccount::load_safe(cnac_inner)?))
+            Ok(Some(cnac_inner.into()))
         } else {
             Ok(None)
         }

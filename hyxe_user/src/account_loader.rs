@@ -16,25 +16,14 @@ pub fn load_cnac_files<R: Ratchet, Fcm: Ratchet>(ds: &DirectoryStore) -> Result<
     let cnacs_personal = load_file_types_by_ext::<ClientNetworkAccountInner<R, Fcm>, _>(CNAC_SERIALIZED_EXTENSION, hyxe_nac_dir_personal)?;
     log::trace!(target: "lusna", "[CNAC Loader] Impersonal client network accounts loaded: {} | Personal client network accounts loaded: {}", cnacs_impersonal.len(), cnacs_personal.len());
 
-    let mut ret = HashMap::with_capacity(cnacs_impersonal.len() + cnacs_personal.len());
-    for cnac in cnacs_impersonal.into_iter().chain(cnacs_personal.into_iter()) {
-        match ClientNetworkAccount::<R, Fcm>::load_safe(cnac.0) {
-            Ok(cnac) => {
-                ret.insert(cnac.get_cid(), cnac);
-            },
-            Err(err) => {
-                log::error!(target: "lusna", "Error converting CNAC-inner into CNAC: {:?}. Deleting CNAC from local storage", err);
-                // delete it. If this doesn't work, it could be because of OS error 13 (bad permissions)
-                if let Err(err) = std::fs::remove_file(cnac.1) {
-                    log::warn!(target: "lusna", "Unable to delete file: {}", err.to_string());
-                }
-            }
-        }
-    }
-
-    ret.shrink_to_fit();
-
-    Ok(ret)
+    Ok(cnacs_impersonal
+        .into_iter()
+        .chain(cnacs_personal.into_iter())
+        .map(|r| {
+            let cid = r.0.cid;
+            (cid, r.0.into())
+        })
+        .collect())
 }
 
 use serde::de::DeserializeOwned;

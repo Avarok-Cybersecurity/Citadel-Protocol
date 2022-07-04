@@ -1015,7 +1015,7 @@ impl StateContainerInner {
                 if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
                     let _ = next_group_notifier.unbounded_send(());
                     // alert kernel (transmitter side)
-                    log::warn!(target: "lusna", "Notified object sender to begin sending the next group");
+                    log::trace!(target: "lusna", "Notified object sender to begin sending the next group");
                 }
 
                 let file_key = FileKey::new(target_cid, object_id as u32);
@@ -1052,7 +1052,7 @@ impl StateContainerInner {
             if transmitter.is_atleast_fifty_percent_done() {
                 if let Some(next_group_notifier) = transmitter_container.object_notifier.take() {
                     let _ = next_group_notifier.unbounded_send(());
-                    log::warn!(target: "lusna", "Notified object sender to begin sending the next group");
+                    log::trace!(target: "lusna", "Notified object sender to begin sending the next group");
                 }
             }
         } else {

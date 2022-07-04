@@ -23,6 +23,8 @@ pub mod prelude {
     pub use crate::network_account::*;
     #[cfg(feature = "filesystem")]
     pub use hyxe_crypt::streaming_crypt_scrambler::MAX_BYTES_PER_GROUP;
+    #[cfg(not(feature = "filesystem"))]
+    pub use hyxe_crypt::net::crypt_splitter::MAX_BYTES_PER_GROUP;
 }
 
 /// Serde and others
