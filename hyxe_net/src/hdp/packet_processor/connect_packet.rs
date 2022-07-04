@@ -171,16 +171,9 @@ pub async fn process_connect(sess_ref: &HdpSession, packet: HdpPacket) -> Result
                             //session.post_quantum = pqc;
                             let cxn_type = VirtualConnectionType::HyperLANPeerToHyperLANServer(cid);
                             let peers = payload.peers;
-                            session.send_to_kernel(NodeResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type,payload.post_login_object, message, channel, udp_channel_rx))?;
+
 
                             let timestamp = session.time_tracker.get_global_time_ns();
-
-                            //session.needs_close_message = false;
-
-                            //finally, if there are any mailbox items, send them to the kernel for processing
-                            if let Some(mailbox_delivery) = payload.mailbox {
-                                session.send_to_kernel(NodeResult::MailboxDelivery(cid, None, mailbox_delivery))?;
-                            }
 
                             let persistence_handler = session.account_manager.get_persistence_handler().clone();
                             //session.session_manager.clear_provisional_tracker(session.kernel_ticket);
@@ -189,6 +182,11 @@ pub async fn process_connect(sess_ref: &HdpSession, packet: HdpPacket) -> Result
                             let success_ack = hdp_packet_crafter::do_connect::craft_success_ack(&hyper_ratchet, timestamp, security_level);
                             session.send_to_primary_stream(None, success_ack)?;
 
+                            session.send_to_kernel(NodeResult::ConnectSuccess(kernel_ticket, cid, addr, is_personal, cxn_type,payload.post_login_object, message, channel, udp_channel_rx))?;
+                            //finally, if there are any mailbox items, send them to the kernel for processing
+                            if let Some(mailbox_delivery) = payload.mailbox {
+                                session.send_to_kernel(NodeResult::MailboxDelivery(cid, None, mailbox_delivery))?;
+                            }
                             // TODO: Clean this up to prevent multiple saves
                             async move {
                                 let _ = persistence_handler.synchronize_hyperlan_peer_list_as_client(&cnac, peers).await?;
