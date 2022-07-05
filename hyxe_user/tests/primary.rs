@@ -8,7 +8,7 @@ mod tests {
     use hyxe_crypt::hyper_ratchet::constructor::{BobToAliceTransferType, HyperRatchetConstructor};
     use hyxe_user::backend::{BackendType, PersistenceHandler};
     use hyxe_crypt::prelude::{SecBuffer, ConstructorOpts};
-    use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
+    use ez_pqcrypto::algorithm_dictionary::KemAlgorithm;
     use tokio::sync::Mutex;
     use hyxe_user::auth::proposed_credentials::ProposedCredentials;
     use futures::Future;
@@ -17,6 +17,7 @@ mod tests {
     use hyxe_user::prelude::{MutualPeer, ConnectionInfo};
     use std::collections::HashMap;
     use std::net::SocketAddr;
+    use ez_pqcrypto::prelude::algorithm_dictionary::EncryptionAlgorithm;
 
     static TEST_MUTEX: Mutex<()> = Mutex::const_new(());
 
@@ -748,7 +749,7 @@ mod tests {
     }
 
     fn gen(cid: u64, version: u32, endpoint_bob_cid: Option<u64>) -> (HyperRatchet, HyperRatchet) {
-        let opts = ConstructorOpts::new_vec_init(None as Option<CryptoParameters>, 1);
+        let opts = ConstructorOpts::new_vec_init(Some(KemAlgorithm::Lightsaber + EncryptionAlgorithm::AES_GCM_256_SIV), 1);
         let mut alice = HyperRatchetConstructor::new_alice(opts.clone(), cid, version, None).unwrap();
         let bob = HyperRatchetConstructor::new_bob(cid,version, opts,alice.stage0_alice()).unwrap();
         alice.stage1_alice(&BobToAliceTransferType::Default(bob.stage0_bob().unwrap())).unwrap();
