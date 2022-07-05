@@ -38,6 +38,20 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
         Self { toolset, update_in_progress: Arc::new(AtomicBool::new(false)), local_is_initiator, rolling_object_id: 1, rolling_group_id: 0, lock_set_by_alice: None, latest_usable_version: 0 }
     }
 
+    /// Derives a new version of self safe to be used in the protocol
+    /// Changes made to the returned version will not persist
+    pub fn new_session(&self) -> Self {
+        Self {
+            toolset: self.toolset.clone(),
+            update_in_progress: self.update_in_progress.clone(),
+            local_is_initiator: self.local_is_initiator,
+            rolling_object_id: self.rolling_object_id,
+            rolling_group_id: self.rolling_group_id,
+            lock_set_by_alice: self.lock_set_by_alice,
+            latest_usable_version: self.latest_usable_version
+        }
+    }
+
     /// Gets a specific drill version, or, gets the latest version comitted
     pub fn get_hyper_ratchet(&self, version: Option<u32>) -> Option<&R> {
         self.toolset.get_hyper_ratchet(version.unwrap_or(self.latest_usable_version))

@@ -565,7 +565,7 @@ impl<R: Ratchet, Fcm: Ratchet> RedisBackend<R , Fcm> {
 
     fn cnac_bytes_to_cnac(&self, bytes: Vec<u8>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
         let deserialized = ClientNetworkAccountInner::<R, Fcm>::deserialize_from_vector(bytes.as_ref())?;
-        ClientNetworkAccount::<R, Fcm>::load_safe(deserialized)
+        Ok(deserialized.into())
     }
 
     async fn get_conn(&self) -> Result<redis_base::aio::Connection, AccountError> {

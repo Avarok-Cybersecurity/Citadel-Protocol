@@ -7,7 +7,7 @@ license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = ["multi-threaded", "filesystem"]
+default = ["filesystem"]
 filesystem = ["hyxe_net/filesystem", "dirs2"]
 single-threaded = ["hyxe_net/single-threaded"]
 multi-threaded = ["hyxe_net/multi-threaded"]

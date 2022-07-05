@@ -75,3 +75,31 @@ impl TestBarrier {
         let _ = self.inner.wait().await;
     }
 }
+
+#[cfg(feature = "localhost-testing")]
+lazy_static::lazy_static! {
+    static ref DEADLOCK_INIT: () = {
+        let _ = std::thread::spawn(move || {
+            log::info!(target: "lusna", "Executing deadlock detector ...");
+            use std::thread;
+            use std::time::Duration;
+            use parking_lot::deadlock;
+            loop {
+                std::thread::sleep(Duration::from_secs(5));
+                let deadlocks = deadlock::check_deadlock();
+                if deadlocks.is_empty() {
+                    continue;
+                }
+
+                log::error!(target: "lusna", "{} deadlocks detected", deadlocks.len());
+                for (i, threads) in deadlocks.iter().enumerate() {
+                    log::error!(target: "lusna", "Deadlock #{}", i);
+                    for t in threads {
+                        log::info!(target: "lusna", "Thread Id {:#?}", t.thread_id());
+                        log::error!(target: "lusna", "{:#?}", t.backtrace());
+                    }
+                }
+            }
+        });
+    };
+}

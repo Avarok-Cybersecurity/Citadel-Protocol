@@ -111,13 +111,22 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         log::trace!(target: "lusna", "Creating CNAC w/valid cid: {:?}", valid_cid);
         // TODO: move this to validation in hyxe_net (or this may be redunant)
         check_credential_formatting::<_, &str, _>(auth_store.username(), None, auth_store.full_name())?;
+        log::trace!(target: "lusna", "A - {}", valid_cid);
         let creation_date = get_present_formatted_timestamp();
+        log::trace!(target: "lusna", "B - {}", valid_cid);
         let crypt_container = PeerSessionCrypto::<R>::new(Toolset::<R>::new(valid_cid, base_hyper_ratchet), is_personal);
+        log::trace!(target: "lusna", "C - {}", valid_cid);
         let mutuals = MultiMap::new();
-        let byte_map = HashMap::with_capacity(0);
+        log::trace!(target: "lusna", "D - {}", valid_cid);
+        let byte_map = HashMap::default();
+        log::trace!(target: "lusna", "E - {}", valid_cid);
         let client_rtdb_config = None;
+        log::trace!(target: "lusna", "F - {}", valid_cid);
         let inner = ClientNetworkAccountInner::<R, Fcm> { client_rtdb_config, creation_date, cid: valid_cid, auth_store, adjacent_nac, is_local_personal: is_personal, mutuals, crypt_container, byte_map, _pd: Default::default() };
-        Ok(Self::from(inner))
+        log::trace!(target: "lusna", "G - {}", valid_cid);
+        let this = Self::from(inner);
+        log::trace!(target: "lusna", "H - {}", valid_cid);
+        Ok(this)
     }
 
     /// Resets the toolset, if necessary. If the CNAC was freshly serialized, the hyper ratchet
@@ -128,6 +137,11 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         write.crypt_container.toolset.verify_init_state();
         write.crypt_container.refresh_state();
         write.crypt_container.toolset.get_static_auxiliary_ratchet().clone()
+    }
+
+    /// Stores the rtdb config
+    pub fn store_rtdb_config(&self, cfg: RtdbClientConfig) {
+        self.write().client_rtdb_config = Some(cfg);
     }
 
     /// Returns true if the NAC is a personal type
@@ -380,26 +394,6 @@ impl<R: Ratchet, Fcm: Ratchet> ClientNetworkAccount<R, Fcm> {
         let serialized = (&ptr as &ClientNetworkAccountInner<R, Fcm>).serialize_to_vector()?;
 
         Ok(serialized)
-    }
-
-    /// This should be called after retrieving a CNAC from a database
-    ///
-    /// Note: if persistence handler is not specified, it will have to be loaded later, before any other program execution
-    pub(crate) fn load_safe(inner: ClientNetworkAccountInner<R, Fcm>) -> Result<ClientNetworkAccount<R, Fcm>, AccountError> {
-        Ok(ClientNetworkAccount::<R, Fcm>::from(inner))
-    }
-
-    /// Visit the inner device
-    pub fn visit<J>(&self, fx: impl FnOnce(RwLockReadGuard<'_, ClientNetworkAccountInner<R, Fcm>>) -> J) -> J {
-        fx(self.read())
-    }
-
-    /// Visit the inner device mutably
-    /// NOTE! The only fields that should be mutated internally are the (fcm) crypt containers. The peer information should
-    /// only be mutated through the persistence handler. In the case of an FCM crypt container, saving should be called after mutating
-    /// TODO: Make visit with restricted input parameter to reflect the above
-    pub fn visit_mut<'a, 'b: 'a, J: 'b>(&'b self, fx: impl FnOnce(RwLockWriteGuard<'a, ClientNetworkAccountInner<R, Fcm>>) -> J) -> J {
-        fx(self.write())
     }
 
     /// Returns the metadata for this CNAC
