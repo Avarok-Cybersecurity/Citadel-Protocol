@@ -2,10 +2,7 @@ use std::ops::Deref;
 use crate::macros::ContextRequirements;
 
 pub struct DualLateInit<T: ContextRequirements> {
-    #[cfg(feature = "multi-threaded")]
-    inner: once_cell::sync::OnceCell<T>,
-    #[cfg(not(feature = "multi-threaded"))]
-    inner: once_cell::unsync::OnceCell<T>
+    inner: once_cell::sync::OnceCell<T>
 }
 
 impl<T: ContextRequirements> DualLateInit<T> {

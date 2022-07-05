@@ -10,7 +10,6 @@ use hyxe_user::account_manager::AccountManager;
 use crate::error::NetworkError;
 use crate::hdp::packet_processor::includes::Duration;
 use crate::hdp::hdp_node::{HdpServer, NodeRemote, NodeResult};
-use crate::hdp::misc::panic_future::ExplicitPanicFuture;
 use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
 use crate::hdp::outbound_sender::{unbounded, UnboundedReceiver};
 use crate::kernel::kernel::NetKernel;
@@ -53,7 +52,7 @@ impl<K: NetKernel> KernelExecutor<K> {
         let shutdown_alerter_rx = self.shutdown_alerter_rx.take().unwrap();
         let callback_handler = self.callback_handler.take().unwrap();
 
-        let (rt, hdp_server, _localset_opt) = self.context.take().unwrap();
+        let (_rt, hdp_server, _localset_opt) = self.context.take().unwrap();
 
         log::trace!(target: "lusna", "KernelExecutor::execute is now executing ...");
 
@@ -61,7 +60,8 @@ impl<K: NetKernel> KernelExecutor<K> {
             let kernel_future = Self::kernel_inner_loop(&mut kernel, server_to_kernel_rx, server_remote, shutdown_alerter_rx, callback_handler, kernel_executor_settings);
             #[cfg(feature = "multi-threaded")]
                 {
-                    let hdp_server_future = ExplicitPanicFuture::new(rt.spawn(hdp_server));
+                    use crate::hdp::misc::panic_future::ExplicitPanicFuture;
+                    let hdp_server_future = ExplicitPanicFuture::new(_rt.spawn(hdp_server));
                     tokio::select! {
                         ret0 = kernel_future => ret0,
                         ret1 = hdp_server_future => ret1.map_err(|err| NetworkError::Generic(err.to_string()))?

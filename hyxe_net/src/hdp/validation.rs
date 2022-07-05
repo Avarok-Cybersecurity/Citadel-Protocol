@@ -190,7 +190,7 @@ pub(crate) mod pre_connect {
     use hyxe_wire::nat_identification::NatType;
     use crate::hdp::packet_processor::includes::hdp_packet_crafter::pre_connect::SynAckPacket;
 
-    pub(crate) fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType), NetworkError> {
+    pub(crate) fn validate_syn(cnac: &ClientNetworkAccount, packet: HdpPacket, session_manager: &HdpSessionManager) -> Result<(StaticAuxRatchet, BobToAliceTransfer, SessionSecuritySettings, ConnectProtocol, UdpMode, i64, NatType, HyperRatchet), NetworkError> {
         // TODO: NOTE: This can interrupt any active session's. This should be moved up after checking the connect mode
         let static_auxiliary_ratchet = cnac.refresh_static_hyper_ratchet();
         let (header, payload, _, _) = packet.decompose();
@@ -224,10 +224,10 @@ pub(crate) mod pre_connect {
         let new_hyper_ratchet = bob_constructor.finish().ok_or(NetworkError::InternalError("Unable to finish bob constructor"))?;
         let _ = new_hyper_ratchet.verify_level(transfer.security_level.into()).map_err(|err| NetworkError::Generic(err.into_string()))?;
         // below, we need to ensure the hyper ratchet stays constant throughout transformations
-        let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_hyper_ratchet));
+        let toolset = Toolset::from((static_auxiliary_ratchet.clone(), new_hyper_ratchet.clone()));
 
         cnac.replace_toolset(toolset);
-        Ok((static_auxiliary_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type))
+        Ok((static_auxiliary_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type, new_hyper_ratchet))
     }
 
     /// This returns an error if the packet is maliciously invalid (e.g., due to a false packet)

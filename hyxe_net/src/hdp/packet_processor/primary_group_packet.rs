@@ -1,5 +1,5 @@
 use super::includes::*;
-use crate::hdp::state_container::{StateContainerInner, GroupKey, FileKey, VirtualConnection};
+use crate::hdp::state_container::{StateContainerInner, GroupKey, FileKey};
 use crate::constants::GROUP_EXPIRE_TIME_MS;
 use crate::hdp::session_queue_handler::QueueWorkerResult;
 use crate::hdp::validation::group::{GroupHeader, GroupHeaderAck, WaveAck};
@@ -8,7 +8,6 @@ use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransferType, Constructor
 use hyxe_crypt::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus, EndpointRatchetConstructor};
 use crate::hdp::hdp_packet_crafter::peer_cmd::C2S_ENCRYPTION_ONLY;
 use crate::error::NetworkError;
-use std::collections::HashMap;
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
 use crate::hdp::hdp_node::SecrecyMode;
 use crate::functional::IfTrueConditional;
@@ -37,7 +36,7 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
     } = session.inner.deref();
 
     if state.load(Ordering::Relaxed) != SessionState::Connected {
-        log::error!(target: "lusna", "Group packet dropped; session not connected");
+        log::warn!(target: "lusna", "Group packet dropped; session not connected");
         return Ok(PrimaryProcessorResult::Void);
     }
 
@@ -50,11 +49,10 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
 
     let mut state_container = inner_mut_state!(state_container);
     let udp_mode = state_container.udp_mode;
-    let ref cnac_sess = return_if_none!(state_container.cnac.clone(), "Unable to load CNAC [PGP]");
     // get the proper pqc
     let header_bytes = &header[..];
     let header = return_if_none!(LayoutVerified::new(header_bytes), "Unable to load header [PGP]") as LayoutVerified<&[u8], HdpHeader>;
-    let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), cnac_sess, &state_container, proxy_cid_info), "Unable to get proper HyperRatchet [PGP]");
+    let hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header.drill_version.get(), &state_container, proxy_cid_info), "Unable to get proper HyperRatchet [PGP]");
     let security_level = header.security_level.into();
     //log::trace!(target: "lusna", "[Peer HyperRatchet] Obtained version {} w/ CID {} (local CID: {})", hyper_ratchet.version(), hyper_ratchet.get_cid(), header.session_cid.get());
     match header.cmd_aux {
@@ -95,7 +93,7 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                 // we call this to ensure a flood of these packets doesn't cause ordinary groups from being dropped
 
                                 // now, update the keys (if applicable)
-                                let transfer = return_if_none!(attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut state_container.active_virtual_connections, cnac_sess, &hyper_ratchet), "Unable to attempt_kem_as_bob [PGP]");
+                                let transfer = return_if_none!(attempt_kem_as_bob(resp_target_cid, &header, transfer.map(AliceToBobTransferType::Default), &mut *state_container, &hyper_ratchet), "Unable to attempt_kem_as_bob [PGP]");
 
                                 let target_cid = if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
                                     original_implicated_cid
@@ -209,7 +207,7 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
                                         vconn.last_delivered_message_timestamp.store(Some(Instant::now()), Ordering::SeqCst);
                                     }
 
-                                    if state_container.on_group_header_ack_received(secrecy_mode, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg, cnac_sess) {
+                                    if state_container.on_group_header_ack_received(secrecy_mode, peer_cid, target_cid, group_id, initial_wave_window, transfer, fast_msg) {
                                         //std::mem::drop(state_container);
                                         log::trace!(target: "lusna", "[Toolset Update] Needs truncation? {:?}", &needs_truncate);
 
@@ -316,7 +314,7 @@ pub fn process_primary_packet(session_ref: &HdpSession, cmd_aux: u8, packet: Hdp
 }
 
 #[inline]
-pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, sess_cnac: &ClientNetworkAccount, state_container: &dyn ExpectedInnerTarget<StateContainerInner>, proxy_cid_info: Option<(u64, u64)>) -> Option<HyperRatchet> {
+pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, state_container: &dyn ExpectedInnerTarget<StateContainerInner>, proxy_cid_info: Option<(u64, u64)>) -> Option<HyperRatchet> {
     if let Some((original_implicated_cid, _original_target_cid)) = proxy_cid_info {
         // since this conn was proxied, we need to go into the virtual conn layer to get the peer session crypto. HOWEVER:
         // In the case that a packet is proxied back to the source, the adjacent endpoint inscribes this node's cid
@@ -331,9 +329,11 @@ pub(super) fn get_proper_hyper_ratchet(header_drill_vers: u32, sess_cnac: &Clien
         }
     } else {
         // since this was not proxied, use the ordinary pqc and drill
-
-        let hyper_ratchet = sess_cnac.get_hyper_ratchet(Some(header_drill_vers))?;
-        Some(hyper_ratchet)
+        if state_container.state.load(Ordering::Relaxed) != SessionState::Connected {
+            state_container.pre_connect_state.generated_ratchet.clone()
+        } else {
+            state_container.c2s_channel_container.as_ref()?.peer_session_crypto.get_hyper_ratchet(Some(header_drill_vers)).cloned()
+        }
     }
 }
 
@@ -369,26 +369,17 @@ pub fn get_resp_target_cid_from_header(header: &HdpHeader) -> u64 {
 }
 
 #[allow(unused)]
-pub enum ToolsetUpdate<'a, R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
-    E2E { crypt: &'a mut PeerSessionCrypto<R>, local_cid: u64 },
-    SessCNAC(&'a ClientNetworkAccount<R, Fcm>),
-    FCM { fcm_crypt_container: &'a mut PeerSessionCrypto<Fcm>, peer_cid: u64, local_cid: u64 },
+pub enum ToolsetUpdate<'a> {
+    E2E { crypt: &'a mut PeerSessionCrypto<HyperRatchet>, local_cid: u64 },
+    FCM { fcm_crypt_container: &'a mut PeerSessionCrypto<ThinRatchet>, peer_cid: u64, local_cid: u64 },
 }
 
-impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
-    pub(crate) fn update(&mut self, constructor: ConstructorType<R, Fcm>, local_is_alice: bool) -> Result<KemTransferStatus, ()> {
+impl ToolsetUpdate<'_> {
+    pub(crate) fn update(&mut self, constructor: ConstructorType<HyperRatchet, ThinRatchet>, local_is_alice: bool) -> Result<KemTransferStatus, ()> {
         match self {
             ToolsetUpdate::E2E { crypt, local_cid } => {
                 let constructor = constructor.assume_default().ok_or(())?;
                 crypt.update_sync_safe(constructor, local_is_alice, *local_cid)
-            }
-
-            ToolsetUpdate::SessCNAC(cnac) => {
-                let constructor = constructor.assume_default().ok_or(())?;
-                cnac.visit_mut(|mut inner| {
-                    let local_cid = inner.cid;
-                    inner.crypt_container.update_sync_safe(constructor, local_is_alice, local_cid)
-                })
             }
 
             ToolsetUpdate::FCM { fcm_crypt_container, local_cid, .. } => {
@@ -405,12 +396,6 @@ impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
                 crypt.post_alice_stage1_or_post_stage1_bob();
             }
 
-            ToolsetUpdate::SessCNAC(cnac) => {
-                cnac.visit_mut(|mut inner| {
-                    inner.crypt_container.post_alice_stage1_or_post_stage1_bob();
-                })
-            }
-
             ToolsetUpdate::FCM { fcm_crypt_container, .. } => {
                 fcm_crypt_container.post_alice_stage1_or_post_stage1_bob();
             }
@@ -423,10 +408,6 @@ impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
                 crypt.deregister_oldest_hyper_ratchet(version).map_err(|err| NetworkError::Generic(err.to_string()))
             }
 
-            ToolsetUpdate::SessCNAC(cnac) => {
-                cnac.deregister_oldest_hyper_ratchet(version).map_err(|err| NetworkError::Generic(err.to_string()))
-            }
-
             ToolsetUpdate::FCM { fcm_crypt_container, .. } => {
                 fcm_crypt_container.deregister_oldest_hyper_ratchet(version).map_err(|err| NetworkError::Generic(err.to_string()))
             }
@@ -434,18 +415,11 @@ impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
     }
 
     /// Unlocks the internal state, allowing future upgrades to the system. Returns the latest hyper ratchet
-    pub(crate) fn unlock(&mut self, requires_locked_by_alice: bool) -> Option<(RatchetType<R, Fcm>, Option<bool>)> {
+    pub(crate) fn unlock(&mut self, requires_locked_by_alice: bool) -> Option<(RatchetType<HyperRatchet, ThinRatchet>, Option<bool>)> {
         match self {
             ToolsetUpdate::E2E { crypt, .. } => {
                 let lock_src = crypt.lock_set_by_alice.clone();
                 crypt.maybe_unlock(requires_locked_by_alice).map(|r| (RatchetType::Default(r.clone()), lock_src))
-            }
-
-            ToolsetUpdate::SessCNAC(cnac) => {
-                cnac.visit_mut(|mut inner| {
-                    let lock_src = inner.crypt_container.lock_set_by_alice.clone();
-                    inner.crypt_container.maybe_unlock(requires_locked_by_alice).map(|r| (RatchetType::Default(r.clone()), lock_src))
-                })
             }
 
             ToolsetUpdate::FCM { fcm_crypt_container, .. } => {
@@ -458,21 +432,14 @@ impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
     pub(crate) fn get_local_cid(&self) -> u64 {
         match self {
             ToolsetUpdate::E2E { local_cid, .. } => *local_cid,
-            ToolsetUpdate::SessCNAC(cnac) => cnac.get_cid(),
             ToolsetUpdate::FCM { local_cid, .. } => *local_cid
         }
     }
 
-    pub(crate) fn get_latest_ratchet(&self) -> Option<RatchetType<R, Fcm>> {
+    pub(crate) fn get_latest_ratchet(&self) -> Option<RatchetType<HyperRatchet, ThinRatchet>> {
         match self {
             ToolsetUpdate::E2E { crypt, .. } => {
                 crypt.get_hyper_ratchet(None).map(|r| RatchetType::Default(r.clone()))
-            }
-
-            ToolsetUpdate::SessCNAC(cnac) => {
-                cnac.visit(|inner| {
-                    inner.crypt_container.get_hyper_ratchet(None).map(|r| RatchetType::Default(r.clone()))
-                })
             }
 
             ToolsetUpdate::FCM { fcm_crypt_container, .. } => {
@@ -486,13 +453,20 @@ impl<R: Ratchet, Fcm: Ratchet> ToolsetUpdate<'_, R, Fcm> {
 /// target_cid: from header.target_cid
 ///
 /// Returns: Ok(latest_hyper_ratchet)
-pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session_secrecy_mode: SecrecyMode, peer_cid: u64, target_cid: u64, transfer: KemTransferStatus, vconns: &mut HashMap<u64, VirtualConnection<R>>, constructor: Option<ConstructorType<R, Fcm>>, cnac_sess: &ClientNetworkAccount<R, Fcm>) -> Result<Option<RatchetType<R, Fcm>>, ()> {
+pub(crate) fn attempt_kem_as_alice_finish(base_session_secrecy_mode: SecrecyMode,
+                                          peer_cid: u64,
+                                          target_cid: u64,
+                                          transfer: KemTransferStatus,
+                                          state_container: &mut StateContainerInner,
+                                          constructor: Option<ConstructorType<HyperRatchet, ThinRatchet>>) -> Result<Option<RatchetType<HyperRatchet, ThinRatchet>>, ()> {
+
     let (mut toolset_update_method, secrecy_mode) = if target_cid != C2S_ENCRYPTION_ONLY {
-        let endpoint_container = vconns.get_mut(&peer_cid).ok_or(())?.endpoint_container.as_mut().ok_or(())?;
+        let endpoint_container = state_container.active_virtual_connections.get_mut(&peer_cid).ok_or(())?.endpoint_container.as_mut().ok_or(())?;
         let crypt = &mut endpoint_container.endpoint_crypto;
         (ToolsetUpdate::E2E { crypt, local_cid: target_cid }, endpoint_container.default_security_settings.secrecy_mode)
     } else {
-        (ToolsetUpdate::SessCNAC(cnac_sess), base_session_secrecy_mode)
+        let crypt = &mut state_container.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
+        (ToolsetUpdate::E2E { crypt, local_cid: peer_cid }, base_session_secrecy_mode)
     };
 
     //let transfer_ocurred = transfer.has_some();
@@ -567,16 +541,17 @@ pub(crate) fn attempt_kem_as_alice_finish<R: Ratchet, Fcm: Ratchet>(base_session
 }
 
 /// NOTE! Assumes the `hr` passed is the latest version IF the transfer is some
-pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: Option<AliceToBobTransferType<'_>>, vconns: &mut HashMap<u64, VirtualConnection>, cnac_sess: &ClientNetworkAccount, hr: &HyperRatchet) -> Option<KemTransferStatus> {
+pub(crate) fn attempt_kem_as_bob(resp_target_cid: u64, header: &LayoutVerified<&[u8], HdpHeader>, transfer: Option<AliceToBobTransferType<'_>>, state_container: &mut StateContainerInner, hr: &HyperRatchet) -> Option<KemTransferStatus> {
     if let Some(transfer) = transfer {
-        if resp_target_cid != C2S_ENCRYPTION_ONLY {
-            let crypt = &mut vconns.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
-            let method = ToolsetUpdate::E2E { crypt, local_cid: header.target_cid.get() };
-            update_toolset_as_bob(method, transfer, hr)
+        let update = if resp_target_cid != C2S_ENCRYPTION_ONLY {
+            let crypt = &mut state_container.active_virtual_connections.get_mut(&resp_target_cid)?.endpoint_container.as_mut()?.endpoint_crypto;
+            ToolsetUpdate::E2E { crypt, local_cid: header.target_cid.get() }
         } else {
-            let method = ToolsetUpdate::SessCNAC(cnac_sess);
-            update_toolset_as_bob(method, transfer, hr)
-        }
+            let crypt = &mut state_container.c2s_channel_container.as_mut().unwrap().peer_session_crypto;
+            ToolsetUpdate::E2E { crypt, local_cid: header.session_cid.get() }
+        };
+
+        update_toolset_as_bob(update, transfer, hr)
     } else {
         Some(KemTransferStatus::Empty)
     }

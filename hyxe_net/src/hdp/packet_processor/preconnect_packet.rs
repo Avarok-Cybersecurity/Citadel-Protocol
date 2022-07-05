@@ -48,12 +48,13 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket) ->
                     let header_if_err_occurs = header.clone();
 
                     match validation::pre_connect::validate_syn(&cnac, packet, &session.session_manager) {
-                        Ok((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type)) => {
+                        Ok((static_aux_ratchet, transfer, session_security_settings, peer_only_connect_mode, udp_mode, kat, nat_type, new_hyper_ratchet)) => {
                             session.adjacent_nat_type.set_once(Some(nat_type));
+                            state_container.pre_connect_state.generated_ratchet = Some(new_hyper_ratchet);
                             // since the SYN's been validated, the CNACs toolset has been updated
                             let new_session_sec_lvl = transfer.security_level;
 
-                            // TODO: prevent logins if versions out of sync. For now, don't
+                            // TODO: prevent logins if semvers out of sync. For now, don't
                             if proto_version_out_of_sync(adjacent_proto_version) {
                                 log::warn!(target: "lusna", "\nLocal protocol version: {} | Adjacent protocol version: {} | Versions out of sync; program may not function\n", crate::constants::BUILD_VERSION, adjacent_proto_version);
                             }
@@ -121,6 +122,7 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket) ->
                             // The toolset, at this point, has already been updated. The CNAC can be used to
                             //let ref drill = cnac.get_drill_blocking(None)?;
                             session.adjacent_nat_type.set_once(Some(nat_type.clone()));
+                            state_container.pre_connect_state.generated_ratchet = Some(new_hyper_ratchet.clone());
 
                             let local_node_type = session.local_node_type;
                             let timestamp = session.time_tracker.get_global_time_ns();
@@ -227,7 +229,7 @@ pub async fn process_preconnect(session_orig: &HdpSession, packet: HdpPacket) ->
                     }
 
                     Err(err) => {
-                        log::trace!(target: "lusna", "Hole punch attempt failed ({}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange", err.to_string());
+                        log::warn!(target: "lusna", "Hole punch attempt failed ({}). Will fallback to TCP only mode. Will await for adjacent node to continue exchange", err.to_string());
                         // We await the initiator to choose a method
                         let mut state_container = inner_mut_state!(session.state_container);
                         state_container.udp_mode = UdpMode::Disabled;

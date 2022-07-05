@@ -181,10 +181,16 @@ mod tests {
     }
 
     #[rstest]
+    #[case(false)]
+    #[case(true)]
     #[timeout(std::time::Duration::from_secs(90))]
     #[tokio::test(flavor="multi_thread")]
-    async fn single_connection_passwordless() {
+    async fn single_connection_passwordless(#[case] debug_force_nat_timeout: bool) {
         let _ = lusna_logging::setup_log();
+
+        if debug_force_nat_timeout {
+            std::env::set_var("debug_cause_timeout", "ON");
+        }
 
         let ref client_success = AtomicBool::new(false);
         let (server, server_addr) = server_info();
@@ -207,6 +213,10 @@ mod tests {
         tokio::select! {
             res0 = joined => { let _ = res0.unwrap(); },
             res1 = stop_rx => { res1.unwrap(); }
+        }
+
+        if debug_force_nat_timeout {
+            std::env::remove_var("debug_cause_timeout");
         }
 
         assert!(client_success.load(Ordering::Relaxed));

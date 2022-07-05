@@ -7,7 +7,7 @@ workspace = "../"
 license-file = "../LICENSE-COMMERCIAL-USE.pdf"
 
 [features]
-default = ["multi-threaded", "filesystem"]
+default = ["filesystem"]
 filesystem = ["hyxe_user/filesystem"]
 single-threaded = ["ez_pqcrypto/unordered", "hyxe_crypt/single-threaded", "hyxe_user/single-threaded"]
 multi-threaded = ["ez_pqcrypto/unordered", "hyxe_crypt/multi-threaded", "hyxe_user/multi-threaded"]

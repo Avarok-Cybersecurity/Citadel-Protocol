@@ -83,7 +83,7 @@ pub const HOLE_PUNCH_SYNC_TIME_MULTIPLIER: f64 = 2.0f64;
 ///
 pub const TIMED_TICKET_LIFETIME: std::time::Duration = std::time::Duration::from_secs(30);
 /// the preconnect + connect stage will be limited by this duration
-pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from_secs(8);
+pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from_secs(20);
 /// Every 30 minutes, resync the clocks. This was to fix bugs related to long-lasting connections and reconnections
 pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_secs(60*30);
 ///
