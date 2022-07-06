@@ -138,12 +138,6 @@ pub(crate) mod packet_sizes {
 
         pub(crate) const STAGE1: usize = HDP_HEADER_BYTE_LEN + HDP_HEADER_BYTE_LEN;
     }
-
-    pub(crate) mod do_preconnect {
-        use crate::constants::HDP_HEADER_BYTE_LEN;
-
-        pub(crate) const STAGE_SUCCESS_ACK: usize = HDP_HEADER_BYTE_LEN;
-    }
 }
 
 #[derive(Debug, AsBytes, FromBytes, Unaligned, Clone)]

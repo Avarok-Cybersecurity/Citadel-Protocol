@@ -1,5 +1,5 @@
 use super::includes::*;
-use hyxe_crypt::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
+use hyxe_crypt::stacked_ratchet::constructor::{StackedRatchetConstructor, BobToAliceTransfer, BobToAliceTransferType};
 use crate::error::NetworkError;
 use hyxe_crypt::prelude::ConstructorOpts;
 use std::sync::atomic::Ordering;
@@ -48,7 +48,7 @@ pub async fn process_register(session_ref: &HdpSession, packet: HdpPacket, remot
 
                                 async move {
                                     let cid = header.session_cid.get();
-                                    let bob_constructor = HyperRatchetConstructor::new_bob(cid, 0, ConstructorOpts::new_vec_init(Some(transfer.params), (transfer.security_level.value() + 1) as usize), transfer).ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
+                                    let bob_constructor = StackedRatchetConstructor::new_bob(cid, 0, ConstructorOpts::new_vec_init(Some(transfer.params), (transfer.security_level.value() + 1) as usize), transfer).ok_or(NetworkError::InvalidRequest("Bad bob transfer"))?;
                                     let transfer = return_if_none!(bob_constructor.stage0_bob(), "Unable to advance past stage0-bob");
 
                                     let stage1_packet = hdp_packet_crafter::do_register::craft_stage1(algorithm, timestamp, transfer, header.session_cid.get());

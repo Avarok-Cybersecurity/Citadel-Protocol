@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 
 use bytes::BytesMut;
 
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use hyxe_crypt::prelude::SecurityLevel;
 use hyxe_wire::hypernode_type::NodeType;
 use hyxe_wire::nat_identification::NatType;
@@ -601,11 +601,11 @@ impl HdpSessionManager {
             let ref sess = sess.1;
             if let Some(to_primary_stream) = sess.to_primary_stream.as_ref() {
                 let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
-                accessor.borrow_hr(None, |hr, _| {
-                    let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
+                return accessor.borrow_hr(None, |hr, _| {
+                    let packet = super::hdp_packet_crafter::peer_cmd::craft_peer_signal(hr, signal, ticket, timestamp, security_level);
                     to_primary_stream.unbounded_send(packet)
-                        .map_err(|err| NetworkError::msg(err.to_string()))?
-                }).is_ok()
+                        .map_err(|err| err.to_string())
+                }).map(|r| r.is_ok()).unwrap_or(false)
             }
         }
 
@@ -622,7 +622,7 @@ impl HdpSessionManager {
     }
 
     /// Removes a virtual connection `implicated_cid` from `peer_cid`
-    pub fn disconnect_virtual_conn(&self, implicated_cid: u64, peer_cid: u64, on_internal_disconnect: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), String> {
+    pub fn disconnect_virtual_conn(&self, implicated_cid: u64, peer_cid: u64, on_internal_disconnect: impl FnOnce(&StackedRatchet) -> BytesMut) -> Result<(), String> {
         if implicated_cid == peer_cid {
             return Err("Implicated CID cannot equal peer cid".to_string())
         }
@@ -632,21 +632,22 @@ impl HdpSessionManager {
             let ref sess = peer_sess.1;
             let to_primary = sess.to_primary_stream.as_ref().unwrap();
 
-            if state_container.active_virtual_connections.remove(&implicated_cid).is_some() {
-                let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
-                accessor.borrow_hr(None, |hr, _| {
-                    let packet = on_internal_disconnect(peer_latest_hyper_ratchet);
-                    to_primary.unbounded_send(packet).map_err(|err| NetworkError::msg(err.to_string()))?
-                }).map_err(|err| err.into_string())
-            } else {
-                Ok(())
-            }
+            let accessor = EndpointCryptoAccessor::C2S(sess.state_container.clone());
+            accessor.borrow_hr(None, |hr, state_container| {
+                let removed = state_container.active_virtual_connections.remove(&implicated_cid);
+                if removed.is_some() {
+                    let packet = on_internal_disconnect(hr);
+                    to_primary.unbounded_send(packet).map_err(|err| err.to_string())
+                } else {
+                    Ok(())
+                }
+            }).map_err(|err| err.into_string())?
         } else {
             Ok(())
         }
     }
 
-    pub fn route_packet_to(&self, target_cid: u64, packet: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), String> {
+    pub fn route_packet_to(&self, target_cid: u64, packet: impl FnOnce(&StackedRatchet) -> BytesMut) -> Result<(), String> {
         let lock = inner!(self);
         let (_, sess_ref) = lock.sessions.get(&target_cid).ok_or_else(|| format!("Target cid {} does not exist (route err)", target_cid))?;
         let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
@@ -654,14 +655,14 @@ impl HdpSessionManager {
         accessor.borrow_hr(None, |hr, _| {
             log::trace!(target: "lusna", "Routing packet through primary stream -> {}", target_cid);
             let packet = packet(hr);
-            peer_sender.unbounded_send(packet).map_err(|err| NetworkError::msg(err.to_string()))?
-        }).map_err(|err| err.into_string())
+            peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
+        }).map_err(|err| err.into_string())?
     }
 
     /// Stores the `signal` inside the internal timed-queue for `implicated_cid`, and then sends `packet` to `target_cid`.
     /// After `timeout`, the closure `on_timeout` is executed
     #[inline]
-    pub async fn route_signal_primary(&self, peer_layer: &mut HyperNodePeerLayerInner, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&HyperRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
+    pub async fn route_signal_primary(&self, peer_layer: &mut HyperNodePeerLayerInner, implicated_cid: u64, target_cid: u64, ticket: Ticket, signal: PeerSignal, packet: impl FnOnce(&StackedRatchet) -> BytesMut, timeout: Duration, on_timeout: impl Fn(PeerSignal) + SyncContextRequirements) -> Result<(), String> {
         if implicated_cid == target_cid {
             return Err("Target CID cannot be equal to the implicated CID".to_string());
         }
@@ -682,17 +683,13 @@ impl HdpSessionManager {
             if let Some(ref sess_ref) = sess {
                 peer_layer.insert_tracked_posting(implicated_cid, timeout, ticket, signal, on_timeout).await;
                 let peer_sender = sess_ref.to_primary_stream.as_ref().unwrap();
-                let ref peer_cnac = inner_state!(sess_ref.state_container).cnac.clone().ok_or_else(|| String::from("Peer CNAC not loaded"))?;
+                let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
 
-                peer_cnac.borrow_hyper_ratchet(None, |hyper_ratchet_opt| {
-                    if let Some(peer_latest_hyper_ratchet) = hyper_ratchet_opt {
-                        log::trace!(target: "lusna", "Routing packet through primary stream ({} -> {})", implicated_cid, target_cid);
-                        let packet = packet(peer_latest_hyper_ratchet);
-                        peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
-                    } else {
-                        Err(format!("Unable to acquire peer drill for {}", target_cid))
-                    }
-                })
+                accessor.borrow_hr(None, |hr, _| {
+                    log::trace!(target: "lusna", "Routing packet through primary stream ({} -> {})", implicated_cid, target_cid);
+                    let packet = packet(hr);
+                    peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
+                }).map_err(|err| err.into_string())?
             } else {
                 // session is not active, but user is registered (thus offline). Setup return ticket tracker on implicated_cid
                 // and deliver to the mailbox of target_cid, that way target_cid receives mail on connect. TODO: external svc route, if available
@@ -775,7 +772,7 @@ impl HdpSessionManager {
     /// Also returns the [TrackedPosting] that was posted when the signal initially crossed through
     /// the HyperLAN Server
     #[inline]
-    pub async fn route_signal_response_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, peer_layer: &mut HyperNodePeerLayerInner, packet: impl FnOnce(&HyperRatchet) -> BytesMut, post_send: impl FnOnce(&HdpSession, PeerSignal) -> Result<PrimaryProcessorResult, NetworkError>) -> Result<Result<PrimaryProcessorResult, NetworkError>, String> {
+    pub async fn route_signal_response_primary(&self, implicated_cid: u64, target_cid: u64, ticket: Ticket, peer_layer: &mut HyperNodePeerLayerInner, packet: impl FnOnce(&StackedRatchet) -> BytesMut, post_send: impl FnOnce(&HdpSession, PeerSignal) -> Result<PrimaryProcessorResult, NetworkError>) -> Result<Result<PrimaryProcessorResult, NetworkError>, String> {
         // Instead of checking for registration, check the `implicated_cid`'s timed queue for a ticket corresponding to Ticket.
         if let Some(tracked_posting) = peer_layer.remove_tracked_posting_inner(target_cid, ticket) {
             // since the posting was valid, we just need to forward the signal to `implicated_cid`
@@ -788,9 +785,9 @@ impl HdpSessionManager {
                 let accessor = EndpointCryptoAccessor::C2S(sess_ref.state_container.clone());
 
                 accessor.borrow_hr(None, |hr, _| {
-                    let packet = packet(peer_latest_hyper_ratchet);
-                    peer_sender.unbounded_send(packet).map_err(|err| NetworkError::msg(err.to_string()))?
-                }).map_err(|err| err.into_string())?;
+                    let packet = packet(hr);
+                    peer_sender.unbounded_send(packet).map_err(|err| err.to_string())
+                }).map_err(|err| err.into_string())??;
 
                 Ok((post_send)(&sess_ref, tracked_posting))
             } else {
@@ -813,16 +810,16 @@ impl HdpSessionManagerInner {
     }
 
     // for use by the server. This skips the whole ticket-tracking processes intermediate to the routing above
-    pub fn send_signal_to_peer_direct(&self, target_cid: u64, packet: impl FnOnce(&HyperRatchet) -> BytesMut) -> Result<(), NetworkError> {
+    pub fn send_signal_to_peer_direct(&self, target_cid: u64, packet: impl FnOnce(&StackedRatchet) -> BytesMut) -> Result<(), NetworkError> {
         if let Some(peer_sess) = self.sessions.get(&target_cid) {
             let ref peer_sess = peer_sess.1;
             let peer_sender = peer_sess.to_primary_stream.as_ref().ok_or_else(|| NetworkError::InternalError("Peer stream absent"))?;
             let accessor = EndpointCryptoAccessor::C2S(peer_sess.state_container.clone());
 
             accessor.borrow_hr(None, |hr, _| {
-                let packet = packet(peer_hr);
-                peer_sender.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))?
-            })
+                let packet = packet(hr);
+                peer_sender.unbounded_send(packet).map_err(|err| NetworkError::msg(err.to_string()))
+            })?
         } else {
             Err(NetworkError::Generic(format!("unable to find peer sess {}", target_cid)))
         }

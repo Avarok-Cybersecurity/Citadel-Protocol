@@ -6,7 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
-use hyxe_crypt::hyper_ratchet::{HyperRatchet, Ratchet};
+use hyxe_crypt::stacked_ratchet::{StackedRatchet, Ratchet};
 
 #[cfg(feature = "sql")]
 use crate::backend::mysql_backend::SqlConnectionOptions;
@@ -198,7 +198,7 @@ pub trait BackendConnection<R: Ratchet, Fcm: Ratchet>: Send + Sync {
 }
 
 /// This is what every C/NAC gets. This gets called before making I/O operations
-pub struct PersistenceHandler<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct PersistenceHandler<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     inner: Arc<dyn BackendConnection<R, Fcm>>
 }
 

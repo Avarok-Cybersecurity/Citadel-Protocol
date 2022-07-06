@@ -7,12 +7,12 @@ use crate::prelude::ConnectionInfo;
 
 use std::fmt::Formatter;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_crypt::stacked_ratchet::Ratchet;
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
 
 use std::collections::HashMap;
 use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use crate::auth::proposed_credentials::ProposedCredentials;
 use crate::external_services::rtdb::RtdbClientConfig;
 use crate::auth::DeclaredAuthenticationMode;
@@ -53,7 +53,7 @@ impl PartialEq for MutualPeer {
 ///use futures::{TryFutureExt, TryStreamExt};
 #[derive(Serialize, Deserialize)]
 /// Inner device
-pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct ClientNetworkAccountInner<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     /// The client identification number
     pub cid: u64,
     /// While this NAC should be session-oriented, it may be replaced if [PINNED_IP_MODE] is disabled, meaning, a new IP
@@ -90,12 +90,12 @@ pub struct ClientNetworkAccountInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = T
 /// 
 /// SAFETY: The `cid`, `adjacent_nid`, and `is_personal` is private. These values
 /// should NEVER be edited within this source file
-pub struct ClientNetworkAccount<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
+pub struct ClientNetworkAccount<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     /// The inner thread-safe device
     inner: Arc<MetaInner<R, Fcm>>
 }
 
-struct MetaInner<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
+struct MetaInner<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     cid: u64,
     is_personal: bool,
     passwordless: bool,

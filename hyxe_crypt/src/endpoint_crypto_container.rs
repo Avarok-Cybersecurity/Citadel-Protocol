@@ -1,8 +1,8 @@
 #![allow(missing_docs)]
 
 use crate::toolset::{Toolset, UpdateStatus};
-use crate::hyper_ratchet::{HyperRatchet, Ratchet};
-use crate::hyper_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
+use crate::stacked_ratchet::{StackedRatchet, Ratchet};
+use crate::stacked_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
 use crate::misc::CryptError;
 use serde::{Serialize, Deserialize};
 use crate::prelude::SecurityLevel;
@@ -15,7 +15,7 @@ use ez_pqcrypto::constructor_opts::ConstructorOpts;
 /// in tight concurrency situations. It is up to the networking protocol to ensure
 /// that the inner functions are called when appropriate
 #[derive(Serialize, Deserialize)]
-pub struct PeerSessionCrypto<R: Ratchet = HyperRatchet> {
+pub struct PeerSessionCrypto<R: Ratchet = StackedRatchet> {
     #[serde(bound = "")]
     pub toolset: Toolset<R>,
     pub update_in_progress: Arc<AtomicBool>,
@@ -74,13 +74,13 @@ impl<R: Ratchet> PeerSessionCrypto<R> {
 
         let next_hyper_ratchet = newest_version.finish_with_custom_cid(local_cid).ok_or(())?;
         let status = self.toolset.update_from(next_hyper_ratchet).ok_or(())?;
-        log::trace!(target: "lusna", "[E2E] Successfully updated HyperRatchet from v{} to v{}", cur_vers, next_vers);
+        log::trace!(target: "lusna", "[E2E] Successfully updated StackedRatchet from v{} to v{}", cur_vers, next_vers);
         //self.latest_hyper_ratchet_version_committed = next_vers;
 
         Ok((transfer, status))
     }
 
-    /// Deregisters the oldest HyperRatchet version. Requires the version input to ensure program/network consistency for debug purposes
+    /// Deregisters the oldest StackedRatchet version. Requires the version input to ensure program/network consistency for debug purposes
     pub fn deregister_oldest_hyper_ratchet(&mut self, version: u32) -> Result<(), CryptError<String>> {
         self.toolset.deregister_oldest_hyper_ratchet(version)
     }
@@ -260,17 +260,17 @@ impl KemTransferStatus {
 /*
 #[cfg(test)]
 mod tests {
-    use crate::hyper_ratchet::HyperRatchet;
-    use crate::hyper_ratchet::constructor::{HyperRatchetConstructor, BobToAliceTransferType};
+    use crate::hyper_ratchet::StackedRatchet;
+    use crate::hyper_ratchet::constructor::{StackedRatchetConstructor, BobToAliceTransferType};
     use crate::prelude::{ConstructorOpts, Toolset};
     use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
     use crate::drill::SecurityLevel;
     use crate::endpoint_crypto_container::{PeerSessionCrypto, KemTransferStatus};
 
-    fn gen(enx: EncryptionAlgorithm, kem: KemAlgorithm, security_level: SecurityLevel, version: u32, opts: Option<Vec<ConstructorOpts>>) -> (HyperRatchet, HyperRatchet) {
+    fn gen(enx: EncryptionAlgorithm, kem: KemAlgorithm, security_level: SecurityLevel, version: u32, opts: Option<Vec<ConstructorOpts>>) -> (StackedRatchet, StackedRatchet) {
         let opts = opts.unwrap_or_else(||ConstructorOpts::new_vec_init(Some(enx + kem), (security_level.value() + 1) as usize));
-        let mut cx_alice = HyperRatchetConstructor::new_alice(opts.clone(), 0, version, Some(security_level));
-        let cx_bob = HyperRatchetConstructor::new_bob(0, version, opts, cx_alice.stage0_alice()).unwrap();
+        let mut cx_alice = StackedRatchetConstructor::new_alice(opts.clone(), 0, version, Some(security_level));
+        let cx_bob = StackedRatchetConstructor::new_bob(0, version, opts, cx_alice.stage0_alice()).unwrap();
         cx_alice.stage1_alice(&BobToAliceTransferType::Default(cx_bob.stage0_bob().unwrap())).unwrap();
 
         (cx_alice.finish().unwrap(), cx_bob.finish().unwrap())
@@ -291,7 +291,7 @@ mod tests {
                 let alice_hr_cons = endpoint_alice.get_next_constructor(false).unwrap();
                 let transfer = alice_hr_cons.stage0_alice();
 
-                let bob_constructor = HyperRatchetConstructor::new_bob(0, vers as _, )
+                let bob_constructor = StackedRatchetConstructor::new_bob(0, vers as _, )
                 match endpoint_bob.update_sync_safe(next_alice_2_bob, false, 0).unwrap() {
                     KemTransferStatus::Some(transfer, status) => {
                         let

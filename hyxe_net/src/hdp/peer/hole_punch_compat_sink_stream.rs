@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use netbeam::reliable_conn::{ReliableOrderedStreamToTarget, ConnAddr};
 use tokio::sync::Mutex;
 use crate::hdp::state_container::StateContainerInner;
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use hyxe_crypt::drill::SecurityLevel;
 use async_trait::async_trait;
 use crate::hdp::peer::p2p_conn_handler::generic_error;
@@ -15,7 +15,7 @@ pub(crate) struct ReliableOrderedCompatStream {
     from_stream: Mutex<UnboundedReceiver<Bytes>>,
     peer_external_addr: SocketAddr,
     local_bind_addr: SocketAddr,
-    hr: HyperRatchet,
+    hr: StackedRatchet,
     security_level: SecurityLevel,
     target_cid: u64
 }
@@ -24,7 +24,7 @@ impl ReliableOrderedCompatStream {
     /// For C2S, using this is straight forward (set target_cid to 0)
     /// For P2P, using this is not as straight forward. This will use the central node for routing packets. As such, the target_cid must be set to the peers to enable routing. Additionally, this will need to use the p2p ratchet. This implies that
     /// BOTH nodes must already have the ratchets loaded
-    pub(crate) fn new(to_primary_stream: OutboundPrimaryStreamSender, state_container: &mut StateContainerInner, target_cid: u64, hr: HyperRatchet, security_level: SecurityLevel) -> Self {
+    pub(crate) fn new(to_primary_stream: OutboundPrimaryStreamSender, state_container: &mut StateContainerInner, target_cid: u64, hr: StackedRatchet, security_level: SecurityLevel) -> Self {
         let (from_stream_tx, from_stream_rx) = tokio::sync::mpsc::unbounded_channel();
 
         // insert from_stream_tx into state container so that the protocol can deliver packets to the hole puncher

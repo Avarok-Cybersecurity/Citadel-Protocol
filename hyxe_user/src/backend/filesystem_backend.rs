@@ -1,6 +1,6 @@
 use crate::backend::BackendConnection;
 use async_trait::async_trait;
-use hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_crypt::stacked_ratchet::Ratchet;
 use crate::misc::{AccountError, CNACMetadata};
 use crate::client_account::{ClientNetworkAccount, MutualPeer};
 use std::path::PathBuf;

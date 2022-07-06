@@ -131,15 +131,15 @@ pub fn check_credential_formatting<T: AsRef<str>, R: AsRef<str>, V: AsRef<str>>(
 /// For convenience ser/de
 pub mod constructor_map {
     use std::collections::HashMap;
-    use hyxe_crypt::hyper_ratchet::{Ratchet, HyperRatchet};
-    use hyxe_crypt::hyper_ratchet::constructor::ConstructorType;
+    use hyxe_crypt::stacked_ratchet::{Ratchet, StackedRatchet};
+    use hyxe_crypt::stacked_ratchet::constructor::ConstructorType;
     use hyxe_crypt::fcm::fcm_ratchet::ThinRatchet;
     use std::ops::{Deref, DerefMut};
     use serde::{Serialize, Serializer, Deserialize, Deserializer};
     use serde::ser::SerializeMap;
 
     /// A no-serialization container (except for FCM, since we need to preserve them)
-    pub struct ConstructorMap<R: Ratchet = HyperRatchet, Fcm: Ratchet = ThinRatchet> {
+    pub struct ConstructorMap<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
         inner: HashMap<u64, ConstructorType<R, Fcm>>
     }
 

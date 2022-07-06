@@ -1,11 +1,11 @@
 use crate::drill::{Drill, SecurityLevel};
 use ez_pqcrypto::PostQuantumContainer;
 use std::sync::Arc;
-use crate::hyper_ratchet::Ratchet;
+use crate::stacked_ratchet::Ratchet;
 use serde::{Serialize, Deserialize};
 use std::convert::TryFrom;
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
-use crate::hyper_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
+use crate::stacked_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
 use crate::misc::CryptError;
 use crate::net::crypt_splitter::calculate_nonce_version;
 use ez_pqcrypto::bytes_in_place::EzBuffer;

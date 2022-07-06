@@ -10,8 +10,8 @@ use tokio::time::Instant;
 use tokio_util::codec::LengthDelimitedCodec;
 
 use hyxe_crypt::drill::SecurityLevel;
-use hyxe_crypt::hyper_ratchet::constructor::HyperRatchetConstructor;
-use hyxe_crypt::hyper_ratchet::Ratchet;
+use hyxe_crypt::stacked_ratchet::constructor::StackedRatchetConstructor;
+use hyxe_crypt::stacked_ratchet::Ratchet;
 use hyxe_wire::hypernode_type::NodeType;
 use netbeam::time_tracker::TimeTracker;
 use hyxe_wire::udp_traversal::targetted_udp_socket_addr::TargettedSocketAddr;
@@ -435,7 +435,7 @@ impl HdpSession {
                 let proposed_cid = persistence_handler.get_cid_by_username(proposed_username);
                 let passwordless = state_container.register_state.passwordless.clone().ok_or_else(|| NetworkError::InternalError("Passwordless state not loaded"))?;
                 // we supply 0,0 for cid and new drill vers by default, even though it will be reset by bob
-                let alice_constructor = HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), proposed_cid, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
+                let alice_constructor = StackedRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), proposed_cid, 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
 
                 state_container.register_state.last_packet_time = Some(Instant::now());
                 log::trace!(target: "lusna", "Running stage0 alice");
@@ -488,7 +488,7 @@ impl HdpSession {
         let _ = static_aux_hr.verify_level(Some(session_security_settings.security_level)).map_err(|_| NetworkError::InvalidRequest("The specified security setting for the session exceeds the registration security setting"))?;
         let opts = static_aux_hr.get_next_constructor_opts().into_iter().take((session_security_settings.security_level.value() + 1) as usize).collect();
         //static_aux_hr.verify_level(Some(security_level)).map_err(|_| NetworkError::Generic(format!("Invalid security level. Maximum security level for this account is {:?}", static_aux_hr.get_default_security_level())))?;
-        let alice_constructor = HyperRatchetConstructor::new_alice(opts, cnac.get_cid(), 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
+        let alice_constructor = StackedRatchetConstructor::new_alice(opts, cnac.get_cid(), 0, Some(session_security_settings.security_level)).ok_or(NetworkError::InternalError("Unable to construct Alice ratchet"))?;
         let transfer = alice_constructor.stage0_alice();
         // encrypts the entire connect process with the highest possible security level
         let max_usable_level = static_aux_hr.get_default_security_level();
@@ -545,7 +545,6 @@ impl HdpSession {
                         state_container.udp_primary_outbound_tx = Some(udp_sender.clone());
 
                         if let Some(channel) = state_container.insert_udp_channel(C2S_ENCRYPTION_ONLY, v_target, ticket, udp_sender, stopper_tx) {
-                            let cnac = state_container.cnac.clone().ok_or(NetworkError::InternalError("CNAC not loaded (required for UDP socket_loader stage)"))?;
                             if let Some(sender) = state_container.pre_connect_state.udp_channel_oneshot_tx.tx.take() {
                                 sender.send(channel).map_err(|_| NetworkError::InternalError("Unable to send UdpChannel through"))?;
                                 EndpointCryptoAccessor::C2S(sess.state_container.clone())
@@ -1003,7 +1002,7 @@ impl HdpSession {
                                     };
 
                                     if proper_latest_hyper_ratchet.is_none() {
-                                        log::error!(target: "lusna", "Unable to unwrap HyperRatchet (X-05)");
+                                        log::error!(target: "lusna", "Unable to unwrap StackedRatchet (X-05)");
                                         return;
                                     }
 
@@ -1297,9 +1296,9 @@ impl HdpSession {
             let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).clone().unwrap();
             let to_primary_stream = session.to_primary_stream.as_ref().unwrap();
             let ref to_kernel_tx = session.kernel_tx;
-            let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(&hyper_ratchet, ticket, timestamp, security_level);
-            Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket))?
-        }).and_then(|_| Ok(true))
+            let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(hr, ticket, timestamp, security_level);
+            Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket))
+        })?.and_then(|_| Ok(true))
     }
 }
 
@@ -1387,8 +1386,8 @@ impl HdpSessionInner {
             let stage0_packet = hdp_packet_crafter::do_deregister::craft_stage0(hr, timestamp, security_level);
 
             state_container.deregister_state.on_init(timestamp, ticket);
-            self.send_to_primary_stream(Some(ticket), stage0_packet)?
-        })
+            self.send_to_primary_stream(Some(ticket), stage0_packet)
+        })?
     }
 
     pub(crate) fn is_provisional(&self) -> bool {

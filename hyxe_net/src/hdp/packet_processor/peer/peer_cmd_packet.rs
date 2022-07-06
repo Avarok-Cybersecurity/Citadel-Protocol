@@ -3,8 +3,8 @@ use std::sync::atomic::Ordering;
 use bytes::BytesMut;
 
 use hyxe_crypt::endpoint_crypto_container::PeerSessionCrypto;
-use hyxe_crypt::hyper_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer, BobToAliceTransferType, HyperRatchetConstructor};
-use hyxe_crypt::hyper_ratchet::HyperRatchet;
+use hyxe_crypt::stacked_ratchet::constructor::{AliceToBobTransfer, BobToAliceTransfer, BobToAliceTransferType, StackedRatchetConstructor};
+use hyxe_crypt::stacked_ratchet::StackedRatchet;
 use hyxe_crypt::prelude::ConstructorOpts;
 use hyxe_crypt::toolset::Toolset;
 use hyxe_user::serialization::SyncIO;
@@ -118,7 +118,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
                         }
 
                         PeerSignal::DeregistrationSuccess(peer_cid) => {
-                            log::trace!(target: "lusna", "[Deregistration] about to remove peer {} from {} at the endpoint", peer_cid, cnac.get_cid());
+                            log::trace!(target: "lusna", "[Deregistration] about to remove peer {} from {} at the endpoint", peer_cid, implicated_cid);
                             let acc_mgr = &session.account_manager;
                             let kernel_tx = &session.kernel_tx;
 
@@ -126,7 +126,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
                                 log::warn!(target: "lusna", "Unable to remove hyperlan peer {}", peer_cid);
                             }
 
-                            kernel_tx.unbounded_send(NodeResult::PeerEvent(PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(cnac.get_cid(), *peer_cid)), ticket))?;
+                            kernel_tx.unbounded_send(NodeResult::PeerEvent(PeerSignal::Deregister(PeerConnectionType::HyperLANPeerToHyperLANPeer(implicated_cid, *peer_cid)), ticket))?;
                             return Ok(PrimaryProcessorResult::Void)
                         }
 
@@ -168,7 +168,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
                                                 //let peer_cid = conn.get_original_implicated_cid();
                                                 let mut peer_kem_state_container = PeerKemStateContainer::new(*endpoint_security_settings, *udp_enabled == UdpMode::Enabled);
 
-                                                let alice_constructor = return_if_none!(HyperRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(endpoint_security_settings.crypto_params), (endpoint_security_settings.security_level.value() + 1) as usize), conn.get_original_target_cid(), 0, Some(endpoint_security_settings.security_level)));
+                                                let alice_constructor = return_if_none!(StackedRatchetConstructor::new_alice(ConstructorOpts::new_vec_init(Some(endpoint_security_settings.crypto_params), (endpoint_security_settings.security_level.value() + 1) as usize), conn.get_original_target_cid(), 0, Some(endpoint_security_settings.security_level)));
                                                 let transfer = alice_constructor.stage0_alice();
                                                 //log::trace!(target: "lusna", "0. Len: {}, {:?}", alice_pub_key.len(), &alice_pub_key[..10]);
                                                 let msg_bytes = return_if_none!(transfer.serialize_to_vec());
@@ -178,11 +178,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
                                                 // signal: PeerSignal, pqc: &Rc<PostQuantumContainer>, drill: &Drill, ticket: Ticket, timestamp: i64
                                                 let signal = PeerSignal::Kem(PeerConnectionType::HyperLANPeerToHyperLANPeer(*original_target_cid, *original_implicated_cid), KeyExchangeProcess::Stage0(msg_bytes, *endpoint_security_settings, *udp_enabled));
 
-                                                // use the pqc of the session to keep the data protected from here to the central
-                                                // server and to the endpoint
-                                                let hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(None));
-
-                                                let stage0_peer_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(&hyper_ratchet, signal, ticket, timestamp, security_level);
+                                                let stage0_peer_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, signal, ticket, timestamp, security_level);
                                                 log::trace!(target: "lusna", "Sent peer KEM stage 0 outbound");
                                                 // send to central server
                                                 Ok(PrimaryProcessorResult::ReplyToSender(stage0_peer_kem))
@@ -209,7 +205,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
                                     //let this_cid = conn.get_original_target_cid();
                                     let peer_cid = conn.get_original_implicated_cid();
                                     let transfer_deser = return_if_none!(AliceToBobTransfer::deserialize_from(transfer));
-                                    let bob_constructor = return_if_none!(HyperRatchetConstructor::new_bob(conn.get_original_target_cid(), 0, ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), transfer_deser));
+                                    let bob_constructor = return_if_none!(StackedRatchetConstructor::new_bob(conn.get_original_target_cid(), 0, ConstructorOpts::new_vec_init(Some(session_security_settings.crypto_params), (session_security_settings.security_level.value() + 1) as usize), transfer_deser));
                                     let transfer = return_if_none!(bob_constructor.stage0_bob());
 
                                     let bob_transfer = return_if_none!(transfer.serialize_to_vector().ok());
@@ -220,9 +216,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
                                     state_container_kem.constructor = Some(bob_constructor);
                                     inner_mut_state!(session.state_container).peer_kem_states.insert(peer_cid, state_container_kem);
 
-                                    let ref hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(None));
-
-                                    let stage1_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
+                                    let stage1_kem = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, signal, ticket, timestamp, security_level);
                                     log::trace!(target: "lusna", "Sent stage 1 peer KEM");
                                     Ok(PrimaryProcessorResult::ReplyToSender(stage1_kem))
                                 }
@@ -278,8 +272,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
                                         let encrypted_config_container = generate_hole_punch_crypt_container(endpoint_hyper_ratchet, SecurityLevel::LOW, peer_cid);
 
                                         // we need to use the session pqc since this signal needs to get processed by the center node
-                                        let ref sess_hyper_ratchet = return_if_none!(cnac.get_hyper_ratchet(None));
-                                        let stage2_kem_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(sess_hyper_ratchet, signal, ticket, timestamp, security_level);
+                                        let stage2_kem_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, signal, ticket, timestamp, security_level);
                                         log::trace!(target: "lusna", "Sent stage 2 peer KEM");
 
                                         session.send_to_primary_stream(None, stage2_kem_packet)?;
@@ -403,7 +396,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
 }
 
 
-async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSignal, ticket: Ticket, sess_hyper_ratchet: HyperRatchet, header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSignal, ticket: Ticket, sess_hyper_ratchet: StackedRatchet, header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref;
     match signal {
         PeerSignal::Kem(conn, mut kep) => {
@@ -722,21 +715,21 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
 
 #[inline]
 /// This just makes the repeated operation above cleaner. By itself does not send anything; must return the result of this closure directly
-fn reply_to_sender(signal: PeerSignal, hyper_ratchet: &HyperRatchet, ticket: Ticket, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+fn reply_to_sender(signal: PeerSignal, hyper_ratchet: &StackedRatchet, ticket: Ticket, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, signal, ticket, timestamp, security_level);
     Ok(PrimaryProcessorResult::ReplyToSender(packet))
 }
 
-fn reply_to_sender_err<E: ToString>(err: E, hyper_ratchet: &HyperRatchet, ticket: Ticket, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+fn reply_to_sender_err<E: ToString>(err: E, hyper_ratchet: &StackedRatchet, ticket: Ticket, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     Ok(PrimaryProcessorResult::ReplyToSender(construct_error_signal(err, hyper_ratchet, ticket, timestamp, security_level)))
 }
 
-fn construct_error_signal<E: ToString>(err: E, hyper_ratchet: &HyperRatchet, ticket: Ticket, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
+fn construct_error_signal<E: ToString>(err: E, hyper_ratchet: &StackedRatchet, ticket: Ticket, timestamp: i64, security_level: SecurityLevel) -> BytesMut {
     let err_signal = PeerSignal::SignalError(ticket, err.to_string());
     hdp_packet_crafter::peer_cmd::craft_peer_signal(hyper_ratchet, err_signal, ticket, timestamp, security_level)
 }
 
-pub(crate) async fn route_signal_and_register_ticket_forwards(peer_layer: &mut HyperNodePeerLayerInner, signal: PeerSignal, timeout: Duration, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, to_primary_stream: &OutboundPrimaryStreamSender, sess_mgr: &HdpSessionManager, sess_hyper_ratchet: &HyperRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+pub(crate) async fn route_signal_and_register_ticket_forwards(peer_layer: &mut HyperNodePeerLayerInner, signal: PeerSignal, timeout: Duration, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, to_primary_stream: &OutboundPrimaryStreamSender, sess_mgr: &HdpSessionManager, sess_hyper_ratchet: &StackedRatchet, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let sess_hyper_ratchet_2 = sess_hyper_ratchet.clone();
     let to_primary_stream = to_primary_stream.clone();
 
@@ -761,7 +754,7 @@ pub(crate) async fn route_signal_and_register_ticket_forwards(peer_layer: &mut H
 }
 
 // returns (true, status) if the process was a success, or (false, success) otherwise
-pub(crate) async fn route_signal_response(signal: PeerSignal, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, peer_layer: &mut HyperNodePeerLayerInner, session: HdpSession, sess_hyper_ratchet: &HyperRatchet, on_route_finished: impl FnOnce(&HdpSession, &HdpSession, PeerSignal), security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
+pub(crate) async fn route_signal_response(signal: PeerSignal, implicated_cid: u64, target_cid: u64, timestamp: i64, ticket: Ticket, peer_layer: &mut HyperNodePeerLayerInner, session: HdpSession, sess_hyper_ratchet: &StackedRatchet, on_route_finished: impl FnOnce(&HdpSession, &HdpSession, PeerSignal), security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     log::trace!(target: "lusna", "Routing signal {:?} | impl: {} | target: {}", signal, implicated_cid, target_cid);
     let sess_ref = &session;
 

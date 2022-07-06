@@ -1,7 +1,7 @@
 use linked_hash_map::LinkedHashMap;
 use bytes::BytesMut;
 use crate::net::crypt_splitter::calculate_aes_gcm_output_length;
-use crate::hyper_ratchet::Ratchet;
+use crate::stacked_ratchet::Ratchet;
 
 /// Suppose we want to communicate from A -> B -> C -> D
 /// Let definition "KA" => ordinary session key exchange.
