@@ -34,18 +34,18 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
     let session = session_orig.clone();
     let (header, payload, _peer_addr, _) = packet.decompose();
 
-    let (cnac, sess_hyper_ratchet,  payload, security_level) = {
+    let (implicated_cid, sess_hyper_ratchet,  payload, security_level) = {
         // Some PEER_CMD packets get encrypted using the endpoint crypto
 
         log::trace!(target: "lusna", "RECV PEER CMD packet (proxy: {})", endpoint_cid_info.is_some());
         let state_container = inner_state!(session.state_container);
-        let cnac = return_if_none!(state_container.cnac.clone(), "Sess CNAC not loaded");
+        let implicated_cid = return_if_none!(session.implicated_cid.get());
         let sess_hyper_ratchet = return_if_none!(get_proper_hyper_ratchet(header_drill_version, &state_container, endpoint_cid_info), "Unable to obtain peer HR (P_CMD_PKT)");
 
         let (header, payload) = return_if_none!(validation::aead::validate_custom(&sess_hyper_ratchet, &header, payload), "Unable to validate peer CMD packet");
         let security_level = header.security_level.into();
         log::trace!(target: "lusna", "PEER CMD packet authenticated");
-        (cnac, sess_hyper_ratchet, payload, security_level)
+        (implicated_cid, sess_hyper_ratchet, payload, security_level)
     };
 
     let task = async move {
@@ -119,12 +119,10 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
 
                         PeerSignal::DeregistrationSuccess(peer_cid) => {
                             log::trace!(target: "lusna", "[Deregistration] about to remove peer {} from {} at the endpoint", peer_cid, cnac.get_cid());
-                            let acc_mgr = session.account_manager.clone();
-                            let kernel_tx = session.kernel_tx.clone();
-                            let cnac = cnac.clone();
-                            let this_cid = cnac.get_cid();
+                            let acc_mgr = &session.account_manager;
+                            let kernel_tx = &session.kernel_tx;
 
-                            if let None = acc_mgr.get_persistence_handler().deregister_p2p_as_client(this_cid, *peer_cid).await? {
+                            if let None = acc_mgr.get_persistence_handler().deregister_p2p_as_client(implicated_cid, *peer_cid).await? {
                                 log::warn!(target: "lusna", "Unable to remove hyperlan peer {}", peer_cid);
                             }
 
@@ -386,7 +384,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
                     session.kernel_tx.unbounded_send(NodeResult::PeerEvent(signal, ticket))?;
                     Ok(PrimaryProcessorResult::Void)
                 } else {
-                    process_signal_command_as_server(session, signal, ticket, sess_hyper_ratchet, header, timestamp, security_level, cnac).await
+                    process_signal_command_as_server(session, signal, ticket, sess_hyper_ratchet, header, timestamp, security_level).await
                 }
             }
 
@@ -405,7 +403,7 @@ pub async fn process_peer_cmd(session_orig: &HdpSession, aux_cmd: u8, packet: Hd
 }
 
 
-async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSignal, ticket: Ticket, sess_hyper_ratchet: HyperRatchet, header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64, security_level: SecurityLevel, cnac: ClientNetworkAccount) -> Result<PrimaryProcessorResult, NetworkError> {
+async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSignal, ticket: Ticket, sess_hyper_ratchet: HyperRatchet, header: LayoutVerified<&[u8], HdpHeader>, timestamp: i64, security_level: SecurityLevel) -> Result<PrimaryProcessorResult, NetworkError> {
     let session = sess_ref;
     match signal {
         PeerSignal::Kem(conn, mut kep) => {
@@ -514,31 +512,27 @@ async fn process_signal_command_as_server(sess_ref: &HdpSession, signal: PeerSig
                     let account_manager = session.account_manager.clone();
                     let session_manager = session.session_manager.clone();
 
-                    if cnac.get_cid() == implicated_cid {
-                        match account_manager.deregister_hyperlan_p2p_as_server(implicated_cid, target_cid).await {
-                            Ok(_) => {
-                                // route the original signal to the other end. If not connected, don't bother
-                                // FCM note: the endpoint's duty is to send an FCM signal before completing deregistration
-                                let peer_alert_signal = PeerSignal::DeregistrationSuccess(implicated_cid);
-                                if !session_manager.send_signal_to_peer(target_cid, ticket, peer_alert_signal, timestamp, security_level) {
-                                    log::warn!(target: "lusna", "Unable to send packet to {} (maybe not connected)", target_cid);
-                                }
-
-                                // now, send a success packet to the client
-                                let success_cmd = PeerSignal::DeregistrationSuccess(target_cid);
-                                let rebound_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, success_cmd, ticket, timestamp, security_level);
-                                Ok(PrimaryProcessorResult::ReplyToSender(rebound_packet))
+                    match account_manager.deregister_hyperlan_p2p_as_server(implicated_cid, target_cid).await {
+                        Ok(_) => {
+                            // route the original signal to the other end. If not connected, don't bother
+                            // FCM note: the endpoint's duty is to send an FCM signal before completing deregistration
+                            let peer_alert_signal = PeerSignal::DeregistrationSuccess(implicated_cid);
+                            if !session_manager.send_signal_to_peer(target_cid, ticket, peer_alert_signal, timestamp, security_level) {
+                                log::warn!(target: "lusna", "Unable to send packet to {} (maybe not connected)", target_cid);
                             }
 
-                            Err(err) => {
-                                // unable to find the peer
-                                let error_signal = PeerSignal::SignalError(ticket, err.into_string());
-                                let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, error_signal, ticket, timestamp, security_level);
-                                Ok(PrimaryProcessorResult::ReplyToSender(error_packet))
-                            }
+                            // now, send a success packet to the client
+                            let success_cmd = PeerSignal::DeregistrationSuccess(target_cid);
+                            let rebound_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, success_cmd, ticket, timestamp, security_level);
+                            Ok(PrimaryProcessorResult::ReplyToSender(rebound_packet))
                         }
-                    } else {
-                        Ok(PrimaryProcessorResult::Void)
+
+                        Err(err) => {
+                            // unable to find the peer
+                            let error_signal = PeerSignal::SignalError(ticket, err.into_string());
+                            let error_packet = hdp_packet_crafter::peer_cmd::craft_peer_signal(&sess_hyper_ratchet, error_signal, ticket, timestamp, security_level);
+                            Ok(PrimaryProcessorResult::ReplyToSender(error_packet))
+                        }
                     }
                 }
 

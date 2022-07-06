@@ -3,7 +3,7 @@ use hyxe_crypt::drill::SecurityLevel;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use crate::error::NetworkError;
-use crate::hdp::state_container::{VirtualConnectionType, VirtualTargetType};
+use crate::hdp::state_container::VirtualConnectionType;
 use crate::hdp::outbound_sender::{UnboundedReceiver, OutboundUdpSender, Sender};
 use futures::Stream;
 use futures::task::{Context, Poll};
@@ -14,6 +14,7 @@ use hyxe_crypt::prelude::SecBuffer;
 use crate::hdp::packet_processor::raw_primary_packet::ReceivePortType;
 use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
 use hyxe_user::re_imports::__private::Formatter;
+use crate::hdp::hdp_session::SessionRequest;
 
 // 1 peer channel per virtual connection. This enables high-level communication between the [HdpServer] and the API-layer.
 #[derive(Debug)]
@@ -23,7 +24,7 @@ pub struct PeerChannel {
 }
 
 impl PeerChannel {
-    pub(crate) fn new(server_remote: NodeRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>, to_outbound_stream: Sender<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) -> Self {
+    pub(crate) fn new(server_remote: NodeRemote, target_cid: u64, vconn_type: VirtualConnectionType, channel_id: Ticket, security_level: SecurityLevel, is_alive: Arc<AtomicBool>, receiver: UnboundedReceiver<SecBuffer>, to_outbound_stream: Sender<SessionRequest>) -> Self {
         let implicated_cid = vconn_type.get_implicated_cid();
         let recv_type = ReceivePortType::OrderedReliable;
 
@@ -72,22 +73,9 @@ impl PeerChannel {
     }
 }
 
-/*
 #[derive(Clone)]
 pub struct PeerChannelSendHalf {
-    tx: Sender<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>,
-    target_cid: u64,
-    implicated_cid: u64,
-    vconn_type: VirtualConnectionType,
-    channel_id: Ticket,
-    security_level: SecurityLevel,
-    // When the associated virtual conn drops, this gets flipped off, and hence, data won't be sent anymore
-    is_alive: Arc<AtomicBool>
-}*/
-
-#[derive(Clone)]
-pub struct PeerChannelSendHalf {
-    to_outbound_stream: Sender<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>,
+    to_outbound_stream: Sender<SessionRequest>,
     target_cid: u64,
     #[allow(dead_code)]
     implicated_cid: u64,
@@ -109,8 +97,9 @@ impl PeerChannelSendHalf {
 
     /// Sends a message through the channel
     pub async fn send_message(&self, message: SecureProtocolPacket) -> Result<(), NetworkError> {
-        let (ticket, message, v_conn, security_level) = self.get_args(message);
-        self.to_outbound_stream.send((ticket, message, v_conn, security_level)).await
+        let (ticket, packet, target, security_level) = self.get_args(message);
+        let request = SessionRequest::SendMessage { ticket, packet, target, security_level };
+        self.to_outbound_stream.send(request).await
             .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 

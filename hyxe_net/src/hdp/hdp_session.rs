@@ -61,7 +61,7 @@ use crate::hdp::misc::udp_internal_interface::{UdpSplittableTypes, UdpStream};
 use atomic::Atomic;
 use crate::auth::AuthenticationRequest;
 use hyxe_wire::exports::tokio_rustls::rustls;
-use crate::prelude::SecureProtocolPacket;
+use crate::prelude::{SecureProtocolPacket, GroupBroadcast};
 use hyxe_crypt::streaming_crypt_scrambler::scramble_encrypt_source;
 
 //use crate::define_struct;
@@ -371,7 +371,6 @@ impl HdpSession {
             // as such, if it cannot, it will end the future. We do this to ensure there is no deadlocking.
             // We now spawn this future independently in order to fix a deadlocking bug in multi-threaded mode. By spawning a
             // separate task, we solve the issue of re-entrancing of mutex
-            //#[cfg(feature = "multi-threaded")]
             let _ = spawn!(queue_worker_future);
 
             (session_future, handle_zero_state, implicated_cid)
@@ -549,7 +548,7 @@ impl HdpSession {
                             let cnac = state_container.cnac.clone().ok_or(NetworkError::InternalError("CNAC not loaded (required for UDP socket_loader stage)"))?;
                             if let Some(sender) = state_container.pre_connect_state.udp_channel_oneshot_tx.tx.take() {
                                 sender.send(channel).map_err(|_| NetworkError::InternalError("Unable to send UdpChannel through"))?;
-                                EndpointCryptoAccessor::C2S(cnac, sess.state_container.clone())
+                                EndpointCryptoAccessor::C2S(sess.state_container.clone())
                             } else {
                                 log::error!(target: "lusna", "Tried loading UDP channel, but, the state container had no UDP sender");
                                 return Err(NetworkError::InternalError("Tried loading UDP channel, but, the state container had no UDP sender"))
@@ -1109,7 +1108,8 @@ impl HdpSession {
         }
     }
 
-    pub(crate) fn spawn_message_sender_function(this: HdpSession, mut rx: tokio::sync::mpsc::Receiver<(Ticket, SecureProtocolPacket, VirtualTargetType, SecurityLevel)>) {
+    // TODO: Make a generic version to allow requests the ability to bypass the session manager
+    pub(crate) fn spawn_message_sender_function(this: HdpSession, mut rx: tokio::sync::mpsc::Receiver<SessionRequest>) {
         let task = async move {
             let ref this = this;
             let mut stopper_rx = inner!(this.stopper_tx).subscribe();
@@ -1120,10 +1120,22 @@ impl HdpSession {
             };
 
             let receiver = async move {
-                while let Some((ticket, message, v_target, security_level)) = rx.recv().await {
+                while let Some(request) = rx.recv().await {
                     let mut state_container = inner_mut_state!(this.state_container);
-                    if let Err(err) = state_container.process_outbound_message(ticket, message, v_target, security_level, false) {
-                        to_kernel_tx.unbounded_send(NodeResult::InternalServerError(Some(ticket), err.into_string())).map_err(|err| NetworkError::Generic(err.to_string()))?
+
+                    match request {
+                        // (ticket, message, v_target, security_level)
+                        SessionRequest::SendMessage { ticket, packet, target, security_level } => {
+                            if let Err(err) = state_container.process_outbound_message(ticket, packet, target, security_level, false) {
+                                to_kernel_tx.unbounded_send(NodeResult::InternalServerError(Some(ticket), err.into_string())).map_err(|err| NetworkError::Generic(err.to_string()))?
+                            }
+                        },
+
+                        SessionRequest::Group { ticket, broadcast } => {
+                            if let Err(err) = state_container.process_outbound_broadcast_command(ticket, &broadcast) {
+                                to_kernel_tx.unbounded_send(NodeResult::InternalServerError(Some(ticket), err.into_string())).map_err(|err| NetworkError::Generic(err.to_string()))?
+                            }
+                        }
                     }
                 }
 
@@ -1279,18 +1291,15 @@ impl HdpSession {
             log::error!(target: "lusna", "Must be connected to HyperLAN in order to start disconnect")
         }
 
-        let state_container = inner_state!(session.state_container);
-
-        let cnac = state_container.cnac.as_ref().unwrap();
-        let hyper_ratchet = cnac.get_hyper_ratchet(None).unwrap();
-        let timestamp = session.time_tracker.get_global_time_ns();
-        let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).clone().unwrap();
-        let to_primary_stream = session.to_primary_stream.as_ref().unwrap();
-        let ref to_kernel_tx = session.kernel_tx;
-
-        let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(&hyper_ratchet, ticket, timestamp, security_level);
-        Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket))
-            .and_then(|_| Ok(true))
+        let accessor = EndpointCryptoAccessor::C2S(session.state_container.clone());
+        accessor.borrow_hr(None, |hr, state_container| {
+            let timestamp = session.time_tracker.get_global_time_ns();
+            let security_level = state_container.session_security_settings.as_ref().map(|r| r.security_level).clone().unwrap();
+            let to_primary_stream = session.to_primary_stream.as_ref().unwrap();
+            let ref to_kernel_tx = session.kernel_tx;
+            let disconnect_stage0_packet = hdp_packet_crafter::do_disconnect::craft_stage0(&hyper_ratchet, ticket, timestamp, security_level);
+            Self::send_to_primary_stream_closure(to_primary_stream, to_kernel_tx, disconnect_stage0_packet, Some(ticket))?
+        }).and_then(|_| Ok(true))
     }
 }
 
@@ -1371,16 +1380,15 @@ impl HdpSessionInner {
 
     pub(crate) fn initiate_deregister(&self, _virtual_connection_type: VirtualConnectionType, ticket: Ticket) -> Result<(), NetworkError> {
         log::trace!(target: "lusna", "Initiating deregister process ...");
-        let mut state_container = inner_mut_state!(self.state_container);
-        let timestamp = self.time_tracker.get_global_time_ns();
-        let cnac = state_container.cnac.as_ref().ok_or_else(|| NetworkError::InternalError("CNAC not loaded"))?;
-        let security_level = state_container.session_security_settings.clone().map(|r| r.security_level).clone().unwrap();
-        let ref hyper_ratchet = cnac.get_hyper_ratchet(None).unwrap();
+        let accessor = EndpointCryptoAccessor::C2S(self.state_container.clone());
+        accessor.borrow_hr(None, |hr, state_container| {
+            let timestamp = self.time_tracker.get_global_time_ns();
+            let security_level = state_container.session_security_settings.clone().map(|r| r.security_level).clone().unwrap();
+            let stage0_packet = hdp_packet_crafter::do_deregister::craft_stage0(hr, timestamp, security_level);
 
-        let stage0_packet = hdp_packet_crafter::do_deregister::craft_stage0(hyper_ratchet, timestamp, security_level);
-
-        state_container.deregister_state.on_init(timestamp, ticket);
-        self.send_to_primary_stream(Some(ticket), stage0_packet)
+            state_container.deregister_state.on_init(timestamp, ticket);
+            self.send_to_primary_stream(Some(ticket), stage0_packet)?
+        })
     }
 
     pub(crate) fn is_provisional(&self) -> bool {
@@ -1411,5 +1419,20 @@ impl Drop for HdpSessionInner {
         let _ = inner!(self.stopper_tx).send(());
 
         self.send_session_dc_signal(None, false, "Session dropped");
+    }
+}
+
+#[derive(Debug)]
+#[doc(hidden)]
+pub enum SessionRequest {
+    SendMessage {
+        ticket: Ticket,
+        packet: SecureProtocolPacket,
+        target: VirtualTargetType,
+        security_level: SecurityLevel
+    },
+    Group {
+        ticket: Ticket,
+        broadcast: GroupBroadcast
     }
 }

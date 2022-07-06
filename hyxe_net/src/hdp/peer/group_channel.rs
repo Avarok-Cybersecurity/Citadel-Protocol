@@ -1,5 +1,4 @@
 use crate::prelude::{SecBuffer, Ticket, MessageGroupKey};
-use crate::hdp::state_container::StateContainer;
 use futures::Stream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -7,9 +6,10 @@ use crate::hdp::packet_processor::peer::group_broadcast::GroupBroadcast;
 use crate::error::NetworkError;
 use std::fmt::Debug;
 use hyxe_user::re_imports::__private::Formatter;
-use crate::hdp::outbound_sender::UnboundedReceiver;
+use crate::hdp::outbound_sender::{UnboundedReceiver, Sender};
 use std::ops::Deref;
 use tokio_stream::StreamExt;
+use crate::hdp::hdp_session::SessionRequest;
 
 #[derive(Debug)]
 pub struct GroupChannel {
@@ -26,10 +26,10 @@ impl Deref for GroupChannel {
 }
 
 impl GroupChannel {
-    pub fn new(state_container: StateContainer, key: MessageGroupKey, ticket: Ticket, implicated_cid: u64, recv: UnboundedReceiver<GroupBroadcastPayload>) -> Self {
+    pub fn new(tx: Sender<SessionRequest>, key: MessageGroupKey, ticket: Ticket, implicated_cid: u64, recv: UnboundedReceiver<GroupBroadcastPayload>) -> Self {
         Self {
             send_half: GroupChannelSendHalf {
-                state_container: state_container.clone(),
+                tx: tx.clone(),
                 ticket,
                 key,
                 implicated_cid
@@ -37,7 +37,7 @@ impl GroupChannel {
 
             recv_half: GroupChannelRecvHalf {
                 recv,
-                state_container,
+                tx,
                 ticket,
                 implicated_cid,
                 key
@@ -67,7 +67,7 @@ pub enum GroupBroadcastPayload {
 }
 
 pub struct GroupChannelSendHalf {
-    state_container: StateContainer,
+    tx: Sender<SessionRequest>,
     ticket: Ticket,
     key: MessageGroupKey,
     implicated_cid: u64
@@ -82,34 +82,36 @@ impl Debug for GroupChannelSendHalf {
 impl GroupChannelSendHalf {
     /// Broadcasts a message to the group
     pub async fn send_message(&self, message: SecBuffer) -> Result<(), NetworkError> {
-        self.send_group_command(&GroupBroadcast::Message(self.implicated_cid, self.key,  message))?;
-        Ok(())
+        self.send_group_command(GroupBroadcast::Message(self.implicated_cid, self.key,  message)).await
     }
 
     /// Kicks a peer from the group. User must be owner
-    pub fn kick(&self, peer: u64) -> Result<(), NetworkError> {
-        self.kick_all(vec![peer])
+    pub async fn kick(&self, peer: u64) -> Result<(), NetworkError> {
+        self.kick_all(vec![peer]).await
     }
 
     /// Kicks a set of peers from the group. User must be owner
-    pub fn kick_all<T: Into<Vec<u64>>>(&self, peers: T) -> Result<(), NetworkError> {
+    pub async fn kick_all<T: Into<Vec<u64>>>(&self, peers: T) -> Result<(), NetworkError> {
         self.permission_gate()?;
-        self.send_group_command(&GroupBroadcast::Kick(self.key, peers.into()))
+        self.send_group_command(GroupBroadcast::Kick(self.key, peers.into())).await
     }
 
     /// Invites a single user to the group
-    pub fn invite(&self, peer_cid: u64) -> Result<(), NetworkError> {
-        self.invite_all(vec![peer_cid])
+    pub async fn invite(&self, peer_cid: u64) -> Result<(), NetworkError> {
+        self.invite_all(vec![peer_cid]).await
     }
 
     /// Invites all listed members to the group
-    pub fn invite_all<T: Into<Vec<u64>>>(&self, peers: T) -> Result<(), NetworkError> {
+    pub async fn invite_all<T: Into<Vec<u64>>>(&self, peers: T) -> Result<(), NetworkError> {
         self.permission_gate()?;
-        self.send_group_command(&GroupBroadcast::Add(self.key, peers.into()))
+        self.send_group_command(GroupBroadcast::Add(self.key, peers.into())).await
     }
 
-    fn send_group_command(&self, command: &GroupBroadcast) -> Result<(), NetworkError> {
-        inner_mut_state!(self.state_container).process_outbound_broadcast_command(self.ticket, command)
+    async fn send_group_command(&self, broadcast: GroupBroadcast) -> Result<(), NetworkError> {
+        self.tx
+            .send(SessionRequest::Group { ticket: self.ticket, broadcast })
+            .await
+            .map_err(|err| NetworkError::msg(err.to_string()))
     }
 
     fn permission_gate(&self) -> Result<(), NetworkError> {
@@ -123,7 +125,7 @@ impl GroupChannelSendHalf {
 
 pub struct GroupChannelRecvHalf {
     recv: UnboundedReceiver<GroupBroadcastPayload>,
-    state_container: StateContainer,
+    tx: Sender<SessionRequest>,
     ticket: Ticket,
     implicated_cid: u64,
     key: MessageGroupKey
@@ -146,11 +148,11 @@ impl Stream for GroupChannelRecvHalf {
 impl Drop for GroupChannelRecvHalf {
     fn drop(&mut self) {
         log::trace!(target: "lusna", "Dropping group channel recv half for {:?} | {:?}", self.implicated_cid, self.key);
-        let mut state_container = inner_mut_state!(self.state_container);
-        if let Err(err) = state_container.process_outbound_broadcast_command(self.ticket, &GroupBroadcast::LeaveRoom(self.key)) {
-            log::warn!(target: "lusna", "Drop warning: {:?}", err)
-        }
+        let request = SessionRequest::Group { ticket: self.ticket, broadcast: GroupBroadcast::LeaveRoom(self.key) };
 
-        let _ = state_container.group_channels.remove(&self.key);
+        // TODO: remove group channel locally on the inner process in state container
+        if let Err(err) = self.tx.try_send(request) {
+            log::warn!(target: "lusna", "Group channel drop warning: {:?}", err)
+        }
     }
 }
