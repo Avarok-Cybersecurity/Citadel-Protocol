@@ -273,7 +273,7 @@ pub mod none {
 }
 
 #[allow(missing_docs)]
-#[cfg(all(feature = "sql", not(tarpaulin)))]
+#[cfg(feature = "sql")]
 pub mod base64_string {
     use serde::{Deserialize, Deserializer, Serializer};
 

@@ -35,13 +35,7 @@ oqs = { git = "https://github.com/open-quantum-safe/liboqs-rust.git", default-fe
 
 [dev-dependencies]
 rand = "0.8.4"
-criterion = "0.3.5"
 lusna_logging = { path = "../lusna_logging", version = "0.1.0" }
-#rust-sike = "0.2.0"
-
-[[bench]]
-name = "test"
-harness = false
 
 [lib]
 doctest = false

@@ -118,8 +118,8 @@ jobs:
             await github.rest.actions.cancelWorkflowRun({ owner, repo, run_id });
             return 'stop'
           result-encoding: string
-  valgrind_and_release_check:
-    name: valgrind secmem
+  misc_checks:
+    name: Miscellaneous checks
     runs-on: ubuntu-latest
     steps:
       - uses: Avarok-Cybersecurity/gh-actions-deps@alpha04
@@ -139,6 +139,8 @@ jobs:
       - name: Run valgrind secmem_string
         run: valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all ./target/debug/secmem_string_test
       - run: cargo check --package lusna_sdk --release --features=webrtc,sql,redis,multi-threaded
+      - run: cargo check --package lusna_sdk --release --features=webrtc,sql,redis
+      - run: cargo fmt --check
 #      - name: cargo build pq_kems
 #        run: cargo build --bin pq_kems_test
 #      # Run with valgrind
@@ -207,8 +209,9 @@ jobs:
         run: cargo install cargo-tarpaulin
       - name: Run cargo-tarpaulin
         env:
-          SKIP_EXT_BACKENDS: "on"
-        run: 'RUST_LOG=lusna=trace cargo tarpaulin --timeout 4800 --packages lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --features=filesystem,localhost-testing,multi-threaded -- --test-threads=1 --skip argon_autotuner'
+          TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
+          TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
+        run: 'cargo tarpaulin --no-fail-fast --timeout 4800 --packages lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --features=filesystem,localhost-testing,multi-threaded -- --test-threads=1 --skip argon_autotuner'
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

@@ -49,7 +49,7 @@ doctest = false
 #]
 
 # If your crate has a large number of optional dependencies, skip them for speed
-skip_optional_dependencies = false
+skip_optional_dependencies = true
 
 # Add back certain optional dependencies that you want to include in the permutations
 #extra_features = [

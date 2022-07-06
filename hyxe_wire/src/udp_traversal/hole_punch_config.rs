@@ -147,7 +147,7 @@ impl HolePunchConfig {
                         let mut bands = vec![];
 
                         // use the first last external addr, mostly arbitrary
-                        Self::load_alternate_bands(&mut bands, other_addrs.clone(), addrs[0].clone(), peer_declared_internal_port);
+                        Self::load_alternate_bands(&mut bands, other_addrs.clone(), addrs[0], peer_declared_internal_port);
 
                         for _ in 0..4 {
                             // increment the last octet by 1
@@ -379,7 +379,7 @@ mod tests {
         );
         let random_ip_port_preserved_err = &NatType::EDMRandomIPPortPreserved(
             vec![dummy_ip0_ok, dummy_ip1_ok, dummy_ip3_err],
-            ip_addr_info_dummy.clone(),
+            ip_addr_info_dummy,
             true,
         );
 
