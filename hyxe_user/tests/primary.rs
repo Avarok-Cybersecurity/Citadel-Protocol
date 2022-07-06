@@ -9,7 +9,6 @@ mod tests {
     use hyxe_user::backend::{BackendType, PersistenceHandler};
     use hyxe_crypt::prelude::{SecBuffer, ConstructorOpts};
     use ez_pqcrypto::algorithm_dictionary::KemAlgorithm;
-    use tokio::sync::Mutex;
     use hyxe_user::auth::proposed_credentials::ProposedCredentials;
     use futures::Future;
     
@@ -18,8 +17,6 @@ mod tests {
     use std::collections::HashMap;
     use std::net::SocketAddr;
     use ez_pqcrypto::prelude::algorithm_dictionary::EncryptionAlgorithm;
-
-    static TEST_MUTEX: Mutex<()> = Mutex::const_new(());
 
     #[derive(Clone)]
     struct TestContainer {
@@ -127,7 +124,6 @@ mod tests {
         where T: Send + 'static + FnMut(TestContainer, PersistenceHandler, PersistenceHandler) -> F,
         F: Future<Output=Result<(), AccountError>> + Send + 'static {
         lusna_logging::setup_log();
-        let _lock = TEST_MUTEX.lock().await;
 
         let client_backends = client_backends();
         let server_backends = server_backends();
