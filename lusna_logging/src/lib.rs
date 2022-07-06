@@ -1,6 +1,6 @@
-pub use tracing::{self, trace, debug, info, warn, error};
-use tracing_subscriber::fmt::SubscriberBuilder;
+pub use tracing::{self, debug, error, info, trace, warn};
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::fmt::SubscriberBuilder;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 

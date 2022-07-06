@@ -21,41 +21,41 @@ pub mod includes {
     pub use hyxe_user::misc::AccountError;
 
     pub use crate::constants::KEEP_ALIVE_INTERVAL_MS;
-    pub(crate) use crate::hdp::{hdp_packet_crafter, validation};
-    pub use crate::hdp::hdp_packet::{HdpHeader, HdpPacket};
-    pub(crate) use crate::hdp::hdp_packet::packet_flags;
     pub use crate::hdp::hdp_node::NodeResult;
+    pub(crate) use crate::hdp::hdp_packet::packet_flags;
+    pub use crate::hdp::hdp_packet::{HdpHeader, HdpPacket};
     pub use crate::hdp::hdp_session::{HdpSession, HdpSessionInner, SessionState};
+    pub(crate) use crate::hdp::{hdp_packet_crafter, validation};
     pub use crate::inner_arg::{ExpectedInnerTargetMut, InnerParameterMut};
 
-    pub use super::PrimaryProcessorResult;
     pub use super::super::state_container::VirtualConnectionType;
+    pub use super::PrimaryProcessorResult;
 }
 
 ///
-pub mod raw_primary_packet;
-///
-pub mod rekey_packet;
-///
-pub mod disconnect_packet;
-///
 pub mod connect_packet;
-///
-pub mod register_packet;
-///
-pub mod keep_alive_packet;
-///
-pub mod primary_group_packet;
-///
-pub mod udp_packet;
 ///
 pub mod deregister_packet;
 ///
-pub mod preconnect_packet;
+pub mod disconnect_packet;
 ///
 pub mod file_packet;
 ///
+pub mod keep_alive_packet;
+///
 pub mod peer;
+///
+pub mod preconnect_packet;
+///
+pub mod primary_group_packet;
+///
+pub mod raw_primary_packet;
+///
+pub mod register_packet;
+///
+pub mod rekey_packet;
+///
+pub mod udp_packet;
 //
 pub mod hole_punch;
 
@@ -66,7 +66,7 @@ pub enum PrimaryProcessorResult {
     Void,
     EndSession(&'static str),
     /// Returns some data to the sender
-    ReplyToSender(BytesMut)
+    ReplyToSender(BytesMut),
 }
 
 impl std::fmt::Debug for PrimaryProcessorResult {
@@ -79,7 +79,11 @@ impl std::fmt::Debug for PrimaryProcessorResult {
                 write!(f, "PrimaryProcessorResult::EndSession({})", reason)
             }
             PrimaryProcessorResult::ReplyToSender(packet) => {
-                write!(f, "PrimaryProcessorResult::ReplyToSender(len: {})", packet.len())
+                write!(
+                    f,
+                    "PrimaryProcessorResult::ReplyToSender(len: {})",
+                    packet.len()
+                )
             }
         }
     }

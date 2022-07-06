@@ -1,11 +1,11 @@
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
-use tokio::net::TcpStream;
-use std::net::SocketAddr;
-use std::sync::Arc;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
 #[async_trait]
@@ -31,16 +31,20 @@ impl<T: ConnAddr + ReliableOrderedStreamToTarget> ReliableOrderedConnectionToTar
 pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
     async fn recv_serialized<T: DeserializeOwned + Send + Sync>(&self) -> std::io::Result<T> {
         let packet = &self.recv().await?;
-        Ok(bincode2::deserialize(packet).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?)
+        Ok(bincode2::deserialize(packet)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?)
     }
 
     /// Waits until a valid packet gets received, discarding any invalid packets packet
-    async fn recv_until_serialized<T: DeserializeOwned + Send + Sync, F: Fn(&T) -> bool + Send>(&self, f: F) -> std::io::Result<T> {
+    async fn recv_until_serialized<T: DeserializeOwned + Send + Sync, F: Fn(&T) -> bool + Send>(
+        &self,
+        f: F,
+    ) -> std::io::Result<T> {
         loop {
             match self.recv_serialized().await {
                 Ok(packet) => {
                     if (f)(&packet) {
-                        return Ok(packet)
+                        return Ok(packet);
                     }
                 }
 
@@ -52,7 +56,8 @@ pub trait ReliableOrderedStreamToTargetExt: ReliableOrderedStreamToTarget {
     }
 
     async fn send_serialized<T: Serialize + Send + Sync>(&self, t: T) -> std::io::Result<()> {
-        let packet = &bincode2::serialize(&t).map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
+        let packet = &bincode2::serialize(&t)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
         self.send_to_peer(packet).await
     }
 }
@@ -66,9 +71,7 @@ impl ReliableOrderedStreamToTarget for TcpStream {
             self.writable().await?;
 
             match self.try_write(input) {
-                Ok(_) => {
-                    return Ok(())
-                }
+                Ok(_) => return Ok(()),
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     continue;
                 }
@@ -85,13 +88,9 @@ impl ReliableOrderedStreamToTarget for TcpStream {
             self.readable().await?;
 
             match self.try_read_buf(&mut buf) {
-                Ok(0) => {
-                    return Ok(Bytes::new())
-                },
+                Ok(0) => return Ok(Bytes::new()),
 
-                Ok(len) => {
-                    return Ok(buf.split_to(len).freeze())
-                }
+                Ok(len) => return Ok(buf.split_to(len).freeze()),
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     continue;
                 }
@@ -125,12 +124,14 @@ impl<T: ReliableOrderedStreamToTarget + ?Sized> ReliableOrderedStreamToTarget fo
 }
 
 pub struct StreamWrapper<T> {
-    inner: Mutex<T>
+    inner: Mutex<T>,
 }
 
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> From<T> for StreamWrapper<T> {
     fn from(this: T) -> Self {
-        StreamWrapper { inner: Mutex::new(this) }
+        StreamWrapper {
+            inner: Mutex::new(this),
+        }
     }
 }
 
@@ -142,22 +143,29 @@ impl<T: AsyncRead + AsyncWrite + Send + Unpin> ReliableOrderedStreamToTarget for
 
     async fn recv(&self) -> std::io::Result<Bytes> {
         let mut buf = BytesMut::with_capacity(4096);
-        self.inner.lock().await.read_buf(&mut buf).await.map(|r| buf.split_to(r).freeze())
+        self.inner
+            .lock()
+            .await
+            .read_buf(&mut buf)
+            .await
+            .map(|r| buf.split_to(r).freeze())
     }
 }
 
 pub mod simulator {
-    use bytes::Bytes;
+    use crate::reliable_conn::{
+        ConnAddr, ReliableOrderedConnectionToTarget, ReliableOrderedStreamToTarget,
+    };
     use async_trait::async_trait;
+    use bytes::Bytes;
     use rand::Rng;
+    use std::net::SocketAddr;
     use std::sync::Arc;
     use tokio::sync::mpsc::UnboundedSender;
-    use crate::reliable_conn::{ReliableOrderedConnectionToTarget, ConnAddr, ReliableOrderedStreamToTarget};
-    use std::net::SocketAddr;
 
     pub struct NetworkConnSimulator<T> {
         inner: Arc<T>,
-        fwd: UnboundedSender<Vec<u8>>
+        fwd: UnboundedSender<Vec<u8>>,
     }
 
     impl<T: ReliableOrderedConnectionToTarget + 'static> NetworkConnSimulator<T> {
@@ -171,7 +179,7 @@ pub mod simulator {
                     if min_lag != 0 {
                         let rnd = {
                             let mut rng = rand::thread_rng();
-                            let max = 2*min_lag;
+                            let max = 2 * min_lag;
                             rng.gen_range(min_lag..max) // 50 -> 150ms ping
                         };
 
@@ -187,10 +195,14 @@ pub mod simulator {
     }
 
     #[async_trait]
-    impl<T: ReliableOrderedStreamToTarget + 'static> ReliableOrderedStreamToTarget for NetworkConnSimulator<T> {
+    impl<T: ReliableOrderedStreamToTarget + 'static> ReliableOrderedStreamToTarget
+        for NetworkConnSimulator<T>
+    {
         async fn send_to_peer(&self, input: &[u8]) -> std::io::Result<()> {
             let heap = input.to_vec();
-            self.fwd.send(heap).map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))
+            self.fwd
+                .send(heap)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::BrokenPipe, err.to_string()))
         }
 
         async fn recv(&self) -> std::io::Result<Bytes> {

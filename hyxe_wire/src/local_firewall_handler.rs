@@ -10,7 +10,7 @@ impl FirewallProtocol {
     pub fn get_port(&self) -> u16 {
         match self {
             FirewallProtocol::TCP(port) => *port,
-            FirewallProtocol::UDP(port) => *port
+            FirewallProtocol::UDP(port) => *port,
         }
     }
 }
@@ -18,37 +18,37 @@ impl FirewallProtocol {
 impl Display for FirewallProtocol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         #[cfg(target_os = "windows")]
-            {
-                let val = match self {
-                    FirewallProtocol::TCP(_) => "TCP",
-                    FirewallProtocol::UDP(_) => "UDP"
-                };
+        {
+            let val = match self {
+                FirewallProtocol::TCP(_) => "TCP",
+                FirewallProtocol::UDP(_) => "UDP",
+            };
 
-                write!(f, "{}", val)
-            }
+            write!(f, "{}", val)
+        }
         // lowercase for IP Tables input
-        #[cfg(not(target_os="windows"))]
-            {
-                let val = match self {
-                    FirewallProtocol::TCP(_) => "tcp",
-                    FirewallProtocol::UDP(_) => "udp"
-                };
+        #[cfg(not(target_os = "windows"))]
+        {
+            let val = match self {
+                FirewallProtocol::TCP(_) => "tcp",
+                FirewallProtocol::UDP(_) => "udp",
+            };
 
-                write!(f, "{}", val)
-            }
+            write!(f, "{}", val)
+        }
     }
 }
 
 pub fn open_local_firewall_port(protocol: FirewallProtocol) -> std::io::Result<Option<Output>> {
     if can_use_sudo() {
-        #[cfg(not(target_os="windows"))]
-            {
-                linux(protocol).map(Some)
-            }
+        #[cfg(not(target_os = "windows"))]
+        {
+            linux(protocol).map(Some)
+        }
         #[cfg(target_os = "windows")]
-            {
-                windows(protocol).map(Some)
-            }
+        {
+            windows(protocol).map(Some)
+        }
     } else {
         Ok(None)
     }
@@ -62,7 +62,9 @@ fn can_use_sudo() -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn can_use_sudo() -> bool { true }
+fn can_use_sudo() -> bool {
+    true
+}
 
 // source: https://winaero.com/blog/open-port-windows-firewall-windows-10/
 #[allow(unused)]
@@ -120,21 +122,22 @@ fn linux(protocol: FirewallProtocol) -> std::io::Result<Output> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map(|res| res.wait_with_output().unwrap()).and(res_v4)
+        .map(|res| res.wait_with_output().unwrap())
+        .and(res_v4)
 }
 
 #[allow(unused)]
 pub fn remove_firewall_rule(protocol: FirewallProtocol) -> std::io::Result<Option<Output>> {
     if can_use_sudo() {
-        #[cfg(not(target_os="windows"))]
-            {
-                linux_remove(protocol).map(Some)
-            }
+        #[cfg(not(target_os = "windows"))]
+        {
+            linux_remove(protocol).map(Some)
+        }
 
         #[cfg(target_os = "windows")]
-            {
-                windows_remove(protocol).map(Some)
-            }
+        {
+            windows_remove(protocol).map(Some)
+        }
     } else {
         Ok(None)
     }
@@ -193,66 +196,73 @@ fn linux_remove(protocol: FirewallProtocol) -> std::io::Result<Output> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map(|res| res.wait_with_output().unwrap()).and(res_v4)
+        .map(|res| res.wait_with_output().unwrap())
+        .and(res_v4)
 }
 
 /// Will exit if the permissions are not valid
 #[cfg(debug_assertions)]
 pub fn check_permissions() {
     #[cfg(target_os = "windows")]
-        {
-            let output = std::process::Command::new("net")
-                .arg("user")
-                .arg(whoami::username())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap()
-                .stdout;
+    {
+        let output = std::process::Command::new("net")
+            .arg("user")
+            .arg(whoami::username())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
+            .unwrap()
+            .stdout;
 
-            if let Ok(buf) = String::from_utf8(output) {
-                let line = buf.lines().filter(|line| (*line).contains("Local Group Memberships")).collect::<Vec<&str>>();
-                if line.len() == 1 {
-                    if line[0].to_lowercase().contains("administrators") {
-                        return;
-                    }
-
-                    eprintln!("The current user does not have admin rights. Aborting program")
-                } else {
-                    eprintln!("Unable to check command result. Please report to the developers");
+        if let Ok(buf) = String::from_utf8(output) {
+            let line = buf
+                .lines()
+                .filter(|line| (*line).contains("Local Group Memberships"))
+                .collect::<Vec<&str>>();
+            if line.len() == 1 {
+                if line[0].to_lowercase().contains("administrators") {
+                    return;
                 }
 
-                std::process::exit(-1);
-            }
-        }
-
-    #[cfg(not(target_os="windows"))]
-        {
-            let output = std::process::Command::new("sudo")
-                .arg("-v")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap()
-                .wait_with_output()
-                .unwrap()
-                .stdout;
-
-            let buf = String::from_utf8(output).unwrap_or_else(|_|String::from("NULL"));
-            println!("Output: {}", &buf);
-
-            if buf.contains("password for") {
-                eprintln!("Please run this program as sudo. I.e., sudo {}", std::env::args().collect::<Vec<String>>()[0]);
-                std::process::exit(-1);
+                eprintln!("The current user does not have admin rights. Aborting program")
+            } else {
+                eprintln!("Unable to check command result. Please report to the developers");
             }
 
-            if buf.is_empty() {
-                return;
-            }
-
-            eprintln!("The current user does not have elevated privileges");
             std::process::exit(-1);
         }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = std::process::Command::new("sudo")
+            .arg("-v")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap()
+            .wait_with_output()
+            .unwrap()
+            .stdout;
+
+        let buf = String::from_utf8(output).unwrap_or_else(|_| String::from("NULL"));
+        println!("Output: {}", &buf);
+
+        if buf.contains("password for") {
+            eprintln!(
+                "Please run this program as sudo. I.e., sudo {}",
+                std::env::args().collect::<Vec<String>>()[0]
+            );
+            std::process::exit(-1);
+        }
+
+        if buf.is_empty() {
+            return;
+        }
+
+        eprintln!("The current user does not have elevated privileges");
+        std::process::exit(-1);
+    }
 }

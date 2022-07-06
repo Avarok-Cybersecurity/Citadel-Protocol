@@ -11,7 +11,7 @@ pub struct RegisterState {
     pub(crate) constructor: Option<StackedRatchetConstructor>,
     pub(crate) created_hyper_ratchet: Option<StackedRatchet>,
     pub(crate) last_packet_time: Option<Instant>,
-    pub(crate) passwordless: Option<bool>
+    pub(crate) passwordless: Option<bool>,
 }
 
 impl RegisterState {
@@ -30,6 +30,9 @@ impl RegisterState {
 
 impl From<u8> for RegisterState {
     fn from(stage: u8) -> Self {
-        Self { last_stage: stage, ..Default::default() }
+        Self {
+            last_stage: stage,
+            ..Default::default()
+        }
     }
 }

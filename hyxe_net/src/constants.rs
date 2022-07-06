@@ -1,5 +1,5 @@
-use crate::hdp::peer::peer_layer::UdpMode;
 use crate::hdp::hdp_packet::HdpHeader;
+use crate::hdp::peer::peer_layer::UdpMode;
 
 pub const BUILD_VERSION: usize = 7463;
 /// by default, the UDP is not initialized
@@ -21,9 +21,15 @@ pub const HDP_HEADER_BYTE_LEN: usize = std::mem::size_of::<HdpHeader>();
 /// Assuming IPv6, this is the smallest MTU possible
 pub const MTU: usize = 1280;
 /// Total length of a packet's header
-pub const BASE_HEADER_LEN_IPV4: usize = LAYER2_ETHERNET_HEADER_BYTE_LEN + LAYER3_IPV4_HEADER_BYTE_LEN + UDP_HEADER_BYTE_LEN + HDP_HEADER_BYTE_LEN;
+pub const BASE_HEADER_LEN_IPV4: usize = LAYER2_ETHERNET_HEADER_BYTE_LEN
+    + LAYER3_IPV4_HEADER_BYTE_LEN
+    + UDP_HEADER_BYTE_LEN
+    + HDP_HEADER_BYTE_LEN;
 /// Total length of a packet's header
-pub const BASE_HEADER_LEN_IPV6: usize = LAYER2_ETHERNET_HEADER_BYTE_LEN + LAYER3_IPV6_HEADER_BYTE_LEN + UDP_HEADER_BYTE_LEN + HDP_HEADER_BYTE_LEN;
+pub const BASE_HEADER_LEN_IPV6: usize = LAYER2_ETHERNET_HEADER_BYTE_LEN
+    + LAYER3_IPV6_HEADER_BYTE_LEN
+    + UDP_HEADER_BYTE_LEN
+    + HDP_HEADER_BYTE_LEN;
 /// This is the maximum size an IPv4's packet can be
 pub const MAX_PAYLOAD_SIZE_IPV4: usize = MTU - BASE_HEADER_LEN_IPV4;
 /// This is the maximum size an IPv6's packet can be
@@ -85,7 +91,7 @@ pub const TIMED_TICKET_LIFETIME: std::time::Duration = std::time::Duration::from
 /// the preconnect + connect stage will be limited by this duration
 pub const LOGIN_EXPIRATION_TIME: std::time::Duration = std::time::Duration::from_secs(20);
 /// Every 30 minutes, resync the clocks. This was to fix bugs related to long-lasting connections and reconnections
-pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_secs(60*30);
+pub const NTP_RESYNC_FREQUENCY: std::time::Duration = std::time::Duration::from_secs(60 * 30);
 ///
 pub const TCP_CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(4);
 

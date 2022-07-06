@@ -1,7 +1,7 @@
+use crate::error::NetworkError;
 use crate::hdp::outbound_sender::UnboundedSender;
 use hyxe_crypt::prelude::SecBuffer;
 use std::collections::HashMap;
-use crate::error::NetworkError;
 use std::time::Instant;
 
 pub struct OrderedChannel {
@@ -9,17 +9,26 @@ pub struct OrderedChannel {
     map: HashMap<u64, SecBuffer>,
     last_message_received: Option<u64>,
     #[allow(dead_code)]
-    last_message_received_instant: Option<Instant>
+    last_message_received_instant: Option<Instant>,
 }
 
 impl OrderedChannel {
     pub fn new(sink: UnboundedSender<SecBuffer>) -> Self {
-        Self { sink, map: HashMap::new(), last_message_received: None, last_message_received_instant: None }
+        Self {
+            sink,
+            map: HashMap::new(),
+            last_message_received: None,
+            last_message_received_instant: None,
+        }
     }
 
     #[allow(unused_results)]
     pub fn on_packet_received(&mut self, id: u64, packet: SecBuffer) -> Result<(), NetworkError> {
-        let next_expected_message_id = self.last_message_received.clone().map(|r| r.wrapping_add(1)).unwrap_or(0);
+        let next_expected_message_id = self
+            .last_message_received
+            .clone()
+            .map(|r| r.wrapping_add(1))
+            .unwrap_or(0);
         if next_expected_message_id == id {
             // we send this packet, then scan sequentially for any other packets that may have been delivered until hitting discontinuity
             self.send_then_scan(id, packet)?;
@@ -70,7 +79,9 @@ impl OrderedChannel {
     }
 
     fn send_unconditional(&mut self, new_id: u64, packet: SecBuffer) -> Result<(), NetworkError> {
-        self.sink.unbounded_send(packet).map_err(|err| NetworkError::Generic(err.to_string()))?;
+        self.sink
+            .unbounded_send(packet)
+            .map_err(|err| NetworkError::Generic(err.to_string()))?;
         self.set_last_message_received(new_id);
         self.set_last_message_received_instant();
         Ok(())
@@ -79,17 +90,17 @@ impl OrderedChannel {
 
 #[cfg(test)]
 mod tests {
-    use crate::hdp::outbound_sender::unbounded;
     use crate::hdp::misc::ordered_channel::OrderedChannel;
-    use rand::rngs::ThreadRng;
-    use rand::prelude::SliceRandom;
+    use crate::hdp::outbound_sender::unbounded;
+    use futures::StreamExt;
     use hyxe_crypt::prelude::SecBuffer;
+    use rand::prelude::SliceRandom;
+    use rand::rngs::ThreadRng;
+    use rand::Rng;
     use std::error::Error;
     use std::sync::Arc;
-    use tokio::sync::RwLock;
-    use futures::StreamExt;
     use std::time::Duration;
-    use rand::Rng;
+    use tokio::sync::RwLock;
 
     #[tokio::test]
     async fn smoke_ordered() -> Result<(), Box<dyn Error>> {
@@ -97,7 +108,10 @@ mod tests {
         const COUNT: u8 = 100;
         let (tx, mut rx) = unbounded();
         let mut ordered_channel = OrderedChannel::new(tx.clone());
-        let values_ordered = (0..COUNT).into_iter().map(|r| (r as _, SecBuffer::from(&[r] as &[u8]))).collect::<Vec<(u64, SecBuffer)>>();
+        let values_ordered = (0..COUNT)
+            .into_iter()
+            .map(|r| (r as _, SecBuffer::from(&[r] as &[u8])))
+            .collect::<Vec<(u64, SecBuffer)>>();
 
         let recv_task = async move {
             let mut id = 0;
@@ -119,7 +133,6 @@ mod tests {
 
         recv_handle.await?;
 
-
         Ok(())
     }
 
@@ -129,7 +142,15 @@ mod tests {
         const COUNT: usize = 1000;
         let (tx, mut rx) = unbounded();
         let mut ordered_channel = OrderedChannel::new(tx.clone());
-        let mut values_ordered = (0..COUNT).into_iter().map(|r| (r as _, SecBuffer::from(&[(r % (u8::MAX as usize)) as u8] as &[u8]))).collect::<Vec<(u64, SecBuffer)>>();
+        let mut values_ordered = (0..COUNT)
+            .into_iter()
+            .map(|r| {
+                (
+                    r as _,
+                    SecBuffer::from(&[(r % (u8::MAX as usize)) as u8] as &[u8]),
+                )
+            })
+            .collect::<Vec<(u64, SecBuffer)>>();
 
         (&mut values_ordered[..]).shuffle(&mut ThreadRng::default());
 
@@ -164,7 +185,15 @@ mod tests {
         const COUNT: usize = 10000;
         let (tx, mut rx) = unbounded();
         let ordered_channel = OrderedChannel::new(tx.clone());
-        let mut values_ordered = (0..COUNT).into_iter().map(|r| (r as _, SecBuffer::from(&[(r % (u8::MAX as usize)) as u8] as &[u8]))).collect::<Vec<(u64, SecBuffer)>>();
+        let mut values_ordered = (0..COUNT)
+            .into_iter()
+            .map(|r| {
+                (
+                    r as _,
+                    SecBuffer::from(&[(r % (u8::MAX as usize)) as u8] as &[u8]),
+                )
+            })
+            .collect::<Vec<(u64, SecBuffer)>>();
 
         (&mut values_ordered[..]).shuffle(&mut ThreadRng::default());
 
@@ -187,11 +216,17 @@ mod tests {
 
         let recv_handle = tokio::task::spawn(recv_task);
 
-        tokio_stream::iter(values_unordered).for_each_concurrent(None, |(id, packet)| async move {
-            let rnd = ThreadRng::default().gen_range(1..10);
-            tokio::time::sleep(Duration::from_millis(rnd)).await;
-            ordered_channel.write().await.on_packet_received(id, packet).unwrap();
-        }).await;
+        tokio_stream::iter(values_unordered)
+            .for_each_concurrent(None, |(id, packet)| async move {
+                let rnd = ThreadRng::default().gen_range(1..10);
+                tokio::time::sleep(Duration::from_millis(rnd)).await;
+                ordered_channel
+                    .write()
+                    .await
+                    .on_packet_received(id, packet)
+                    .unwrap();
+            })
+            .await;
 
         recv_handle.await?;
 

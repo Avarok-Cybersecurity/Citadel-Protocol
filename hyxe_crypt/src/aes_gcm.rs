@@ -1,10 +1,15 @@
-use futures::Future;
+use crate::prelude::{CryptError, Drill, PostQuantumContainer};
 use futures::task::{Context, Poll};
+use futures::Future;
 use std::pin::Pin;
-use crate::prelude::{Drill, PostQuantumContainer, CryptError};
 
 /// holds the the drill (0), the post quantum container (1), the nonce version (2), as well as the input bytes to be encrypted (3)
-pub struct AesGcmEncryptor<'a, T: AsRef<[u8]> + 'a>(pub &'a Drill, pub &'a PostQuantumContainer, pub usize, pub T);
+pub struct AesGcmEncryptor<'a, T: AsRef<[u8]> + 'a>(
+    pub &'a Drill,
+    pub &'a PostQuantumContainer,
+    pub usize,
+    pub T,
+);
 
 impl<'a, T: AsRef<[u8]> + 'a> Future for AesGcmEncryptor<'a, T> {
     type Output = Result<Vec<u8>, CryptError<String>>;
@@ -16,7 +21,12 @@ impl<'a, T: AsRef<[u8]> + 'a> Future for AesGcmEncryptor<'a, T> {
 }
 
 /// holds the the drill (0), the post quantum container (1), the nonce version (2), as well as the input bytes to be encrypted (3)
-pub struct AesGcmDecryptor<'a, T: AsRef<[u8]> + 'a>(pub &'a Drill, pub &'a PostQuantumContainer, pub usize, pub T);
+pub struct AesGcmDecryptor<'a, T: AsRef<[u8]> + 'a>(
+    pub &'a Drill,
+    pub &'a PostQuantumContainer,
+    pub usize,
+    pub T,
+);
 
 impl<'a, T: AsRef<[u8]> + 'a> Future for AesGcmDecryptor<'a, T> {
     type Output = Result<Vec<u8>, CryptError<String>>;

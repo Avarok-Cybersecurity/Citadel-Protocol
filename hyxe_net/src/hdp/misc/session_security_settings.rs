@@ -1,20 +1,20 @@
-use hyxe_crypt::drill::SecurityLevel;
 use crate::hdp::hdp_node::SecrecyMode;
-use serde::{Serialize, Deserialize};
 use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
+use hyxe_crypt::drill::SecurityLevel;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Default)]
 pub struct SessionSecuritySettings {
     pub security_level: SecurityLevel,
     pub secrecy_mode: SecrecyMode,
-    pub crypto_params: CryptoParameters
+    pub crypto_params: CryptoParameters,
 }
 
 #[derive(Default)]
 pub struct SessionSecuritySettingsBuilder {
     security_level: Option<SecurityLevel>,
     secrecy_mode: Option<SecrecyMode>,
-    crypto_params: Option<CryptoParameters>
+    crypto_params: Option<CryptoParameters>,
 }
 
 impl SessionSecuritySettingsBuilder {
@@ -64,7 +64,7 @@ impl SessionSecuritySettingsBuilder {
         SessionSecuritySettings {
             security_level: self.security_level.unwrap_or(SecurityLevel::LOW),
             secrecy_mode: self.secrecy_mode.unwrap_or(SecrecyMode::BestEffort),
-            crypto_params: self.crypto_params.unwrap_or_default()
+            crypto_params: self.crypto_params.unwrap_or_default(),
         }
     }
 }

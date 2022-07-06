@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::error::NetworkError;
+use async_trait::async_trait;
 
 #[async_trait]
 #[allow(dead_code)]

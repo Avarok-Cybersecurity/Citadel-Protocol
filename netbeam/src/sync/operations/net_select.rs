@@ -1,22 +1,38 @@
-use std::pin::Pin;
-use std::future::Future;
+use crate::multiplex::MultiplexedConnKey;
 use crate::reliable_conn::ReliableOrderedStreamToTarget;
 use crate::sync::operations::net_select_ok::NetSelectOk;
-use futures::{TryFutureExt, FutureExt};
-use std::task::{Context, Poll};
-use crate::sync::RelativeNodeType;
-use crate::multiplex::MultiplexedConnKey;
 use crate::sync::subscription::Subscribable;
+use crate::sync::RelativeNodeType;
+use futures::{FutureExt, TryFutureExt};
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 /// Two endpoints race to produce R. The first endpoint to produce R wins. Includes conflict-resolution synchronization
 pub struct NetSelect<'a, R> {
-    future: Pin<Box<dyn Future<Output=Result<NetSelectResult<R>, anyhow::Error>> + Send + 'a>>,
+    future: Pin<Box<dyn Future<Output = Result<NetSelectResult<R>, anyhow::Error>> + Send + 'a>>,
 }
 
 impl<'a, R: Send + 'a> NetSelect<'a, R> {
-    pub fn new<S: Subscribable<ID=K, UnderlyingConn=Conn>, K: MultiplexedConnKey + 'a, Conn: ReliableOrderedStreamToTarget + 'static, F: Send + 'a>(conn: &'a S, local_node_type: RelativeNodeType, future: F) -> Self
-        where F: Future<Output=R> {
-        Self { future: Box::pin(NetSelectOk::new(conn, local_node_type, future.map(Ok)).map_ok(|r| NetSelectResult { value: r.result })) }
+    pub fn new<
+        S: Subscribable<ID = K, UnderlyingConn = Conn>,
+        K: MultiplexedConnKey + 'a,
+        Conn: ReliableOrderedStreamToTarget + 'static,
+        F: Send + 'a,
+    >(
+        conn: &'a S,
+        local_node_type: RelativeNodeType,
+        future: F,
+    ) -> Self
+    where
+        F: Future<Output = R>,
+    {
+        Self {
+            future: Box::pin(
+                NetSelectOk::new(conn, local_node_type, future.map(Ok))
+                    .map_ok(|r| NetSelectResult { value: r.result }),
+            ),
+        }
     }
 }
 
@@ -29,5 +45,5 @@ impl<R> Future for NetSelect<'_, R> {
 }
 
 pub struct NetSelectResult<R> {
-    pub value: Option<R>
+    pub value: Option<R>,
 }

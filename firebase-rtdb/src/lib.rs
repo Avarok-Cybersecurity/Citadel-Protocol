@@ -1,11 +1,11 @@
 #![allow(non_snake_case)]
 
-use reqwest::{Client, Response};
-use std::time::{Duration, Instant};
-use std::error::Error;
 use reqwest::header::CONTENT_TYPE;
-use serde::{Serialize, Deserialize};
+use reqwest::{Client, Response};
+use serde::{Deserialize, Serialize};
+use std::error::Error;
 use std::str::FromStr;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug)]
 pub struct FirebaseRTDB {
@@ -14,7 +14,7 @@ pub struct FirebaseRTDB {
     pub auth: AuthResponsePayload,
     pub expire_time: Instant,
     pub api_key: String,
-    pub jwt: String
+    pub jwt: String,
 }
 
 pub const DEFAULT_EXPIRE_BUFFER_SECS: Duration = Duration::from_secs(5);
@@ -23,23 +23,25 @@ pub const DEFAULT_EXPIRE_BUFFER_SECS: Duration = Duration::from_secs(5);
 pub struct AuthResponsePayload {
     pub idToken: String,
     pub refreshToken: String,
-    pub expiresIn: String
+    pub expiresIn: String,
 }
 
 pub struct Node<'a> {
     string_builder: String,
     client: &'a Client,
-    token: &'a String
+    token: &'a String,
 }
 
 #[derive(Debug)]
 pub struct RtdbError {
-    pub inner: String
+    pub inner: String,
 }
 
 impl<E: Error> From<E> for RtdbError {
     fn from(err: E) -> Self {
-        Self { inner: err.to_string() }
+        Self {
+            inner: err.to_string(),
+        }
     }
 }
 
@@ -49,7 +51,11 @@ impl FirebaseRTDB {
     /// `project_url`: e.g., https://PROJECT_ID.firebaseio.com/
     ///
     /// This will contact the authorization server in order to get the proper values
-    pub async fn new_from_jwt<T: Into<String>, R: Into<String>, V: AsRef<str>>(project_url: T, jwt: R, api_key: V) -> Result<Self, RtdbError> {
+    pub async fn new_from_jwt<T: Into<String>, R: Into<String>, V: AsRef<str>>(
+        project_url: T,
+        jwt: R,
+        api_key: V,
+    ) -> Result<Self, RtdbError> {
         let jwt = jwt.into();
 
         //let token = resp.get("token").ok_or_else(|| RtdbError { inner: "Payload did not contain token".to_string() })?;
@@ -60,24 +66,58 @@ impl FirebaseRTDB {
         #[derive(Serialize)]
         struct AuthPayload {
             token: String,
-            returnSecureToken: bool
+            returnSecureToken: bool,
         }
 
-        let payload = AuthPayload { token: jwt.clone(), returnSecureToken: true };
+        let payload = AuthPayload {
+            token: jwt.clone(),
+            returnSecureToken: true,
+        };
         // auth first
-        let resp: AuthResponsePayload = client.post(format!("https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={}", api_key)).header(CONTENT_TYPE, "application/json").json(&payload).send().await?.json().await?;
+        let resp: AuthResponsePayload = client
+            .post(format!(
+                "https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={}",
+                api_key
+            ))
+            .header(CONTENT_TYPE, "application/json")
+            .json(&payload)
+            .send()
+            .await?
+            .json()
+            .await?;
         log::trace!(target: "lusna", "RESP AUTH: {:?}", resp);
 
-        let expire_time = Instant::now() + Duration::from_secs(u64::from_str(resp.expiresIn.as_str())?);
+        let expire_time =
+            Instant::now() + Duration::from_secs(u64::from_str(resp.expiresIn.as_str())?);
 
-        Ok(Self { base_url, client, auth: resp, expire_time, api_key: api_key.to_string(), jwt })
+        Ok(Self {
+            base_url,
+            client,
+            auth: resp,
+            expire_time,
+            api_key: api_key.to_string(),
+            jwt,
+        })
     }
 
     /// Use this if authentication already occurred, and the token is still valid
-    pub fn new_from_token<T: Into<String>, R: Into<String>, V: Into<String>>(project_url: T, api_key: R, jwt: V, auth: AuthResponsePayload, expire_time: Instant) -> Result<Self, RtdbError> {
+    pub fn new_from_token<T: Into<String>, R: Into<String>, V: Into<String>>(
+        project_url: T,
+        api_key: R,
+        jwt: V,
+        auth: AuthResponsePayload,
+        expire_time: Instant,
+    ) -> Result<Self, RtdbError> {
         let client = Self::build_client()?;
 
-        Ok(Self { client, base_url: project_url.into(), auth, expire_time, api_key: api_key.into(), jwt: jwt.into() })
+        Ok(Self {
+            client,
+            base_url: project_url.into(),
+            auth,
+            expire_time,
+            api_key: api_key.into(),
+            jwt: jwt.into(),
+        })
     }
 
     /// Unconditionally renews the token. Make sure to update internal client config afterwards as data could have changed
@@ -85,7 +125,7 @@ impl FirebaseRTDB {
         #[derive(Serialize)]
         struct RenewPayload {
             grant_type: String,
-            refresh_token: String
+            refresh_token: String,
         }
 
         #[derive(Deserialize, Debug)]
@@ -98,23 +138,38 @@ impl FirebaseRTDB {
             #[allow(dead_code)]
             user_id: String,
             #[allow(dead_code)]
-            project_id: String
+            project_id: String,
         }
 
         log::trace!(target: "lusna", "[RTDB] About to renew token");
-        let payload = RenewPayload { grant_type: "refresh_token".to_string(), refresh_token: self.auth.refreshToken.clone() };
+        let payload = RenewPayload {
+            grant_type: "refresh_token".to_string(),
+            refresh_token: self.auth.refreshToken.clone(),
+        };
 
-        let resp: RenewResponse = self.client.post(format!("https://securetoken.googleapis.com/v1/token?key={}", self.api_key.as_str())).header(CONTENT_TYPE, "application/x-www-form-urlencoded").json(&payload).send().await?.json().await?;
+        let resp: RenewResponse = self
+            .client
+            .post(format!(
+                "https://securetoken.googleapis.com/v1/token?key={}",
+                self.api_key.as_str()
+            ))
+            .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .json(&payload)
+            .send()
+            .await?
+            .json()
+            .await?;
 
         log::trace!(target: "lusna", "RESP RENEW: {:?}", &resp);
         // update internal value using the new response
-        let expire_time = Instant::now() + Duration::from_secs(u64::from_str(resp.expires_in.as_str())?);
+        let expire_time =
+            Instant::now() + Duration::from_secs(u64::from_str(resp.expires_in.as_str())?);
         self.expire_time = expire_time;
 
         let auth = AuthResponsePayload {
             idToken: resp.id_token,
             refreshToken: resp.refresh_token,
-            expiresIn: resp.expires_in
+            expiresIn: resp.expires_in,
         };
 
         self.auth = auth;
@@ -128,7 +183,11 @@ impl FirebaseRTDB {
     }
 
     fn build_client() -> Result<Client, RtdbError> {
-        Ok(Client::builder().use_native_tls().connect_timeout(CONNECT_TIMEOUT).tcp_nodelay(true).build()?)
+        Ok(Client::builder()
+            .use_native_tls()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .tcp_nodelay(true)
+            .build()?)
     }
 
     /// Updates the token if required
@@ -137,7 +196,11 @@ impl FirebaseRTDB {
             self.renew_token().await?
         }
 
-        Ok(Node { string_builder: self.base_url.clone(), client: &self.client, token: &self.auth.idToken })
+        Ok(Node {
+            string_builder: self.base_url.clone(),
+            client: &self.client,
+            token: &self.auth.idToken,
+        })
     }
 }
 
@@ -157,27 +220,50 @@ impl Node<'_> {
     }
 
     pub async fn get(&self) -> Result<String, RtdbError> {
-        let resp = self.client.get(format!("{}?auth={}", self.string_builder, self.token)).send().await?;
+        let resp = self
+            .client
+            .get(format!("{}?auth={}", self.string_builder, self.token))
+            .send()
+            .await?;
         Self::handle_response(resp).await
     }
 
     pub async fn put<T: Serialize>(&self, ref input: T) -> Result<String, RtdbError> {
-        let resp = self.client.put(format!("{}?auth={}", self.string_builder, self.token)).json(input).send().await?;
+        let resp = self
+            .client
+            .put(format!("{}?auth={}", self.string_builder, self.token))
+            .json(input)
+            .send()
+            .await?;
         Self::handle_response(resp).await
     }
 
     pub async fn post<T: Serialize>(&self, ref input: T) -> Result<String, RtdbError> {
-        let resp = self.client.post(format!("{}?auth={}", self.string_builder, self.token)).json(input).send().await?;
+        let resp = self
+            .client
+            .post(format!("{}?auth={}", self.string_builder, self.token))
+            .json(input)
+            .send()
+            .await?;
         Self::handle_response(resp).await
     }
 
     pub async fn patch<T: Serialize>(&self, ref input: T) -> Result<String, RtdbError> {
-        let resp = self.client.patch(format!("{}?auth={}", self.string_builder, self.token)).json(input).send().await?;
+        let resp = self
+            .client
+            .patch(format!("{}?auth={}", self.string_builder, self.token))
+            .json(input)
+            .send()
+            .await?;
         Self::handle_response(resp).await
     }
 
     pub async fn delete(&self) -> Result<String, RtdbError> {
-        let resp = self.client.delete(format!("{}?auth={}", self.string_builder, self.token)).send().await?;
+        let resp = self
+            .client
+            .delete(format!("{}?auth={}", self.string_builder, self.token))
+            .send()
+            .await?;
         Self::handle_response(resp).await
     }
 
@@ -185,7 +271,9 @@ impl Node<'_> {
         if resp.status().as_u16() == 200 {
             Ok(resp.text().await?)
         } else {
-            Err(RtdbError { inner: resp.text().await? })
+            Err(RtdbError {
+                inner: resp.text().await?,
+            })
         }
     }
 }

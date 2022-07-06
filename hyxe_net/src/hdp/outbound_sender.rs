@@ -1,14 +1,16 @@
 //use futures::channel::mpsc::{UnboundedSender, SendError, UnboundedReceiver, TrySendError};
-pub use tokio::sync::mpsc::{UnboundedSender as UnboundedSenderInner, UnboundedReceiver, error::SendError, error::TrySendError, Sender, Receiver};
-use bytes::{Bytes, BytesMut};
-use futures::Sink;
-use futures::task::{Context, Poll};
-use std::pin::Pin;
 use crate::error::NetworkError;
-use hyxe_user::re_imports::__private::Formatter;
 use crate::hdp::hdp_packet::packet_flags;
+use bytes::{Bytes, BytesMut};
+use futures::task::{Context, Poll};
+use futures::Sink;
+use hyxe_user::re_imports::__private::Formatter;
 use std::net::SocketAddr;
-
+use std::pin::Pin;
+pub use tokio::sync::mpsc::{
+    error::SendError, error::TrySendError, Receiver, Sender, UnboundedReceiver,
+    UnboundedSender as UnboundedSenderInner,
+};
 
 pub struct UnboundedSender<T>(pub(crate) UnboundedSenderInner<T>);
 
@@ -50,7 +52,9 @@ impl From<UnboundedSender<bytes::BytesMut>> for OutboundPrimaryStreamSender {
     }
 }
 
-pub struct OutboundPrimaryStreamReceiver(pub tokio_stream::wrappers::UnboundedReceiverStream<bytes::BytesMut>);
+pub struct OutboundPrimaryStreamReceiver(
+    pub tokio_stream::wrappers::UnboundedReceiverStream<bytes::BytesMut>,
+);
 
 impl From<UnboundedReceiver<bytes::BytesMut>> for OutboundPrimaryStreamReceiver {
     fn from(inner: UnboundedReceiver<BytesMut>) -> Self {
@@ -65,20 +69,35 @@ pub const KEEP_ALIVE: Bytes = Bytes::from_static(b"KA");
 pub struct OutboundUdpSender {
     sender: UnboundedSender<(u8, BytesMut)>,
     local_addr: SocketAddr,
-    remote_addr: SocketAddr
+    remote_addr: SocketAddr,
 }
 
 impl OutboundUdpSender {
-    pub fn new(sender: UnboundedSender<(u8, BytesMut)>, local_addr: SocketAddr, remote_addr: SocketAddr) -> Self {
-        Self { sender, local_addr, remote_addr }
+    pub fn new(
+        sender: UnboundedSender<(u8, BytesMut)>,
+        local_addr: SocketAddr,
+        remote_addr: SocketAddr,
+    ) -> Self {
+        Self {
+            sender,
+            local_addr,
+            remote_addr,
+        }
     }
 
     pub fn unbounded_send(&self, packet: BytesMut) -> Result<(), NetworkError> {
-        self.sender.unbounded_send((packet_flags::cmd::aux::udp::STREAM, packet)).map_err(|err| NetworkError::Generic(err.to_string()))
+        self.sender
+            .unbounded_send((packet_flags::cmd::aux::udp::STREAM, packet))
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     pub fn send_keep_alive(&self) -> bool {
-        self.sender.unbounded_send((packet_flags::cmd::aux::udp::KEEP_ALIVE, BytesMut::from(&KEEP_ALIVE[..]))).is_ok()
+        self.sender
+            .unbounded_send((
+                packet_flags::cmd::aux::udp::KEEP_ALIVE,
+                BytesMut::from(&KEEP_ALIVE[..]),
+            ))
+            .is_ok()
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -90,24 +109,31 @@ impl OutboundUdpSender {
     }
 }
 
-
 impl Sink<BytesMut> for OutboundUdpSender {
     type Error = NetworkError;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.sender).poll_ready(cx).map_err(|err| NetworkError::Generic(err.to_string()))
+        Pin::new(&mut self.sender)
+            .poll_ready(cx)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     fn start_send(mut self: Pin<&mut Self>, item: BytesMut) -> Result<(), Self::Error> {
-        Pin::new(&mut self.sender).start_send((packet_flags::cmd::aux::udp::STREAM, item)).map_err(|err| NetworkError::Generic(err.to_string()))
+        Pin::new(&mut self.sender)
+            .start_send((packet_flags::cmd::aux::udp::STREAM, item))
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.sender).poll_flush(cx).map_err(|err| NetworkError::Generic(err.to_string()))
+        Pin::new(&mut self.sender)
+            .poll_flush(cx)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.sender).poll_close(cx).map_err(|err| NetworkError::Generic(err.to_string()))
+        Pin::new(&mut self.sender)
+            .poll_close(cx)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 }
 
@@ -177,7 +203,9 @@ impl<T> Sink<T> for UnboundedSender<T> {
     }
 
     fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
-        self.0.send(item).map_err(|err| NetworkError::Generic(err.to_string()))
+        self.0
+            .send(item)
+            .map_err(|err| NetworkError::Generic(err.to_string()))
     }
 
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {

@@ -1,9 +1,9 @@
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::hash::{Hasher, BuildHasher};
+use std::hash::{BuildHasher, Hasher};
 use std::marker::PhantomData;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The past HISTORY_LEN packets arrived will be saved to allow out-of-order delivery of packets
 pub const HISTORY_LEN: u64 = 1024;
@@ -21,7 +21,7 @@ pub struct AntiReplayAttackContainer {
     // the first value is the number of packets received
     history: Mutex<(u64, HashSet<u64, NoHashHasher<u64>>)>,
     // used for getting the next unique outbound PID. Each node has a unique counter
-    counter_out: AtomicU64
+    counter_out: AtomicU64,
 }
 
 const ORDERING: Ordering = Ordering::Relaxed;
@@ -74,8 +74,7 @@ impl AntiReplayAttackContainer {
     }
 
     pub fn has_tracked_packets(&self) -> bool {
-        (self.counter_out.load(ORDERING) != 0)
-            || (self.history.lock().0 != 0)
+        (self.counter_out.load(ORDERING) != 0) || (self.history.lock().0 != 0)
     }
 
     pub fn reset(&self) {
@@ -88,10 +87,15 @@ impl AntiReplayAttackContainer {
 
 impl Default for AntiReplayAttackContainer {
     fn default() -> Self {
-        Self { history: Mutex::new((0, HashSet::with_capacity_and_hasher(HISTORY_LEN as usize, Default::default()))), counter_out: AtomicU64::new(0) }
+        Self {
+            history: Mutex::new((
+                0,
+                HashSet::with_capacity_and_hasher(HISTORY_LEN as usize, Default::default()),
+            )),
+            counter_out: AtomicU64::new(0),
+        }
     }
 }
-
 
 struct NoHashHasher<T>(u64, PhantomData<T>);
 
@@ -106,13 +110,17 @@ trait IsEnabled {}
 impl IsEnabled for u64 {}
 
 impl<T: IsEnabled> Hasher for NoHashHasher<T> {
-    fn finish(&self) -> u64 { self.0 }
+    fn finish(&self) -> u64 {
+        self.0
+    }
 
     fn write(&mut self, _: &[u8]) {
         panic!("Invalid use of NoHashHasher")
     }
 
-    fn write_u64(&mut self, n: u64)     { self.0 = n }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = n
+    }
 }
 
 impl<T: IsEnabled> BuildHasher for NoHashHasher<T> {

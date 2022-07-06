@@ -1,36 +1,54 @@
 use crate::drill::{Drill, SecurityLevel};
-use ez_pqcrypto::PostQuantumContainer;
-use std::sync::Arc;
-use crate::stacked_ratchet::Ratchet;
-use serde::{Serialize, Deserialize};
-use std::convert::TryFrom;
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
-use crate::stacked_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
 use crate::misc::CryptError;
 use crate::net::crypt_splitter::calculate_nonce_version;
-use ez_pqcrypto::bytes_in_place::EzBuffer;
-use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
-use ez_pqcrypto::LARGEST_NONCE_LEN;
+use crate::stacked_ratchet::constructor::{AliceToBobTransferType, BobToAliceTransferType};
+use crate::stacked_ratchet::Ratchet;
 use arrayvec::ArrayVec;
+use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
+use ez_pqcrypto::bytes_in_place::EzBuffer;
 use ez_pqcrypto::constructor_opts::ConstructorOpts;
+use ez_pqcrypto::PostQuantumContainer;
+use ez_pqcrypto::LARGEST_NONCE_LEN;
+use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
+use std::sync::Arc;
 
 #[derive(Clone, Serialize, Deserialize)]
 /// A compact ratchet meant for thin protocol messages
 pub struct ThinRatchet {
-    inner: Arc<ThinRatchetInner>
+    inner: Arc<ThinRatchetInner>,
 }
 
 impl ThinRatchet {
     /// decrypts using a custom nonce configuration
-    pub fn decrypt_custom<T: AsRef<[u8]>>(&self, wave_id: u32, group_id: u64, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+    pub fn decrypt_custom<T: AsRef<[u8]>>(
+        &self,
+        wave_id: u32,
+        group_id: u64,
+        contents: T,
+    ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_decrypt(calculate_nonce_version(wave_id as usize, group_id), pqc, contents)
+        drill.aes_gcm_decrypt(
+            calculate_nonce_version(wave_id as usize, group_id),
+            pqc,
+            contents,
+        )
     }
 
     /// Encrypts the data into a Vec<u8>
-    pub fn encrypt_custom<T: AsRef<[u8]>>(&self, wave_id: u32, group: u64, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+    pub fn encrypt_custom<T: AsRef<[u8]>>(
+        &self,
+        wave_id: u32,
+        group: u64,
+        contents: T,
+    ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_encrypt(calculate_nonce_version(wave_id as usize, group), pqc, contents)
+        drill.aes_gcm_encrypt(
+            calculate_nonce_version(wave_id as usize, group),
+            pqc,
+            contents,
+        )
     }
 }
 
@@ -38,7 +56,7 @@ impl ThinRatchet {
 ///
 pub struct ThinRatchetInner {
     drill: Drill,
-    pqc: PostQuantumContainer
+    pqc: PostQuantumContainer,
 }
 
 impl Ratchet for ThinRatchet {
@@ -73,15 +91,28 @@ impl Ratchet for ThinRatchet {
     }
 
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts> {
-        vec![ConstructorOpts::new_from_previous(Some(self.inner.pqc.params), self.inner.pqc.get_chain().unwrap().clone())]
+        vec![ConstructorOpts::new_from_previous(
+            Some(self.inner.pqc.params),
+            self.inner.pqc.get_chain().unwrap().clone(),
+        )]
     }
 
-    fn protect_message_packet<T: EzBuffer>(&self, _security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {
+    fn protect_message_packet<T: EzBuffer>(
+        &self,
+        _security_level: Option<SecurityLevel>,
+        header_len_bytes: usize,
+        packet: &mut T,
+    ) -> Result<(), CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
         drill.protect_packet(pqc, header_len_bytes, packet)
     }
 
-    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(&self, _security_level: Option<SecurityLevel>, ref header: H, packet: &mut T) -> Result<(), CryptError<String>> {
+    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
+        &self,
+        _security_level: Option<SecurityLevel>,
+        ref header: H,
+        packet: &mut T,
+    ) -> Result<(), CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
         drill.validate_packet_in_place_split(pqc, header, packet)
     }
@@ -103,15 +134,25 @@ pub struct ThinRatchetConstructor {
     drill: Option<Drill>,
     nonce: ArrayVec<u8, LARGEST_NONCE_LEN>,
     cid: u64,
-    version: u32
+    version: u32,
 }
 
 impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
-    fn new_alice(mut opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, _security_level: Option<SecurityLevel>) -> Option<Self> {
+    fn new_alice(
+        mut opts: Vec<ConstructorOpts>,
+        cid: u64,
+        new_version: u32,
+        _security_level: Option<SecurityLevel>,
+    ) -> Option<Self> {
         ThinRatchetConstructor::new_alice(cid, new_version, opts.remove(0))
     }
 
-    fn new_bob(_cid: u64, _new_drill_vers: u32, mut opts: Vec<ConstructorOpts>, transfer: AliceToBobTransferType<'_>) -> Option<Self> {
+    fn new_bob(
+        _cid: u64,
+        _new_drill_vers: u32,
+        mut opts: Vec<ConstructorOpts>,
+        transfer: AliceToBobTransferType<'_>,
+    ) -> Option<Self> {
         match transfer {
             AliceToBobTransferType::Fcm(transfer) => {
                 ThinRatchetConstructor::new_bob(opts.remove(0), transfer)
@@ -134,9 +175,7 @@ impl EndpointRatchetConstructor<ThinRatchet> for ThinRatchetConstructor {
 
     fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
         match transfer {
-            BobToAliceTransferType::Fcm(transfer) => {
-                self.stage1_alice(transfer)
-            }
+            BobToAliceTransferType::Fcm(transfer) => self.stage1_alice(transfer),
 
             _ => {
                 log::error!(target: "lusna", "Incompatible Ratchet Type passed! [X-44]");
@@ -167,13 +206,13 @@ pub struct FcmAliceToBobTransfer<'a> {
     /// the declared cid
     pub cid: u64,
     /// the declared version
-    pub version: u32
+    pub version: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FcmBobToAliceTransfer {
     ct: Vec<u8>,
-    encrypted_drill_bytes: Vec<u8>
+    encrypted_drill_bytes: Vec<u8>,
 }
 
 impl ThinRatchetConstructor {
@@ -188,7 +227,7 @@ impl ThinRatchetConstructor {
             drill: None,
             nonce: Drill::generate_public_nonce(params.encryption_algorithm),
             cid,
-            version
+            version,
         })
     }
 
@@ -204,7 +243,7 @@ impl ThinRatchetConstructor {
             drill: Some(drill),
             nonce: transfer.nonce,
             cid: transfer.cid,
-            version: transfer.version
+            version: transfer.version,
         })
     }
 
@@ -216,24 +255,30 @@ impl ThinRatchetConstructor {
             pk,
             nonce: self.nonce.clone(),
             cid: self.cid,
-            version: self.version
+            version: self.version,
         }
     }
 
     ///
     pub fn stage0_bob(&self) -> Option<FcmBobToAliceTransfer> {
-        Some(
-            FcmBobToAliceTransfer {
-                ct: self.pqc.get_ciphertext().ok()?.to_vec(),
-                encrypted_drill_bytes: self.pqc.encrypt(self.drill.as_ref()?.serialize_to_vec().ok()?, &self.nonce).ok()?
-            }
-        )
+        Some(FcmBobToAliceTransfer {
+            ct: self.pqc.get_ciphertext().ok()?.to_vec(),
+            encrypted_drill_bytes: self
+                .pqc
+                .encrypt(self.drill.as_ref()?.serialize_to_vec().ok()?, &self.nonce)
+                .ok()?,
+        })
     }
 
     ///
     pub fn stage1_alice(&mut self, transfer: &FcmBobToAliceTransfer) -> Option<()> {
-        self.pqc.alice_on_receive_ciphertext(transfer.ct.as_slice()).ok()?;
-        let bytes = self.pqc.decrypt(&transfer.encrypted_drill_bytes, &self.nonce).ok()?;
+        self.pqc
+            .alice_on_receive_ciphertext(transfer.ct.as_slice())
+            .ok()?;
+        let bytes = self
+            .pqc
+            .decrypt(&transfer.encrypted_drill_bytes, &self.nonce)
+            .ok()?;
         let drill = Drill::deserialize_from(&bytes[..]).ok()?;
         self.drill = Some(drill);
         Some(())
@@ -266,6 +311,8 @@ impl TryFrom<ThinRatchetConstructor> for ThinRatchet {
         let drill = value.drill.ok_or(())?;
         let pqc = value.pqc;
         let inner = ThinRatchetInner { drill, pqc };
-        Ok(ThinRatchet { inner: Arc::new(inner) })
+        Ok(ThinRatchet {
+            inner: Arc::new(inner),
+        })
     }
 }

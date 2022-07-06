@@ -1,24 +1,24 @@
-use crate::drill::{Drill, SecurityLevel, get_approx_serialized_drill_len};
-use ez_pqcrypto::PostQuantumContainer;
-use std::sync::Arc;
-use crate::stacked_ratchet::constructor::StackedRatchetConstructor;
-use std::convert::TryFrom;
-use bytes::BytesMut;
-use crate::misc::CryptError;
-use serde::{Serialize, Deserialize};
-use crate::net::crypt_splitter::calculate_nonce_version;
+use crate::drill::{get_approx_serialized_drill_len, Drill, SecurityLevel};
 use crate::endpoint_crypto_container::EndpointRatchetConstructor;
 use crate::fcm::fcm_ratchet::ThinRatchet;
+use crate::misc::CryptError;
+use crate::net::crypt_splitter::calculate_nonce_version;
+use crate::stacked_ratchet::constructor::StackedRatchetConstructor;
+use bytes::BytesMut;
 use ez_pqcrypto::bytes_in_place::EzBuffer;
 use ez_pqcrypto::constructor_opts::{ConstructorOpts, RecursiveChain};
+use ez_pqcrypto::PostQuantumContainer;
+use serde::{Deserialize, Serialize};
 use sha3::Digest;
+use std::convert::TryFrom;
+use std::sync::Arc;
 
 /// A container meant to establish perfect forward secrecy AND scrambling w/ an independent key
 /// This is meant for messages, not file transfer. File transfers should use a single key throughout
 /// the entire file
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct StackedRatchet {
-    pub(crate) inner: Arc<StackedRatchetInner>
+    pub(crate) inner: Arc<StackedRatchetInner>,
 }
 
 /// For allowing registration inside the toolset
@@ -35,24 +35,37 @@ pub trait Ratchet: Serialize + for<'a> Deserialize<'a> + Clone + Send + Sync + '
 
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts>;
 
-    fn protect_message_packet<T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>>;
-    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header: H, packet: &mut T) -> Result<(), CryptError<String>>;
+    fn protect_message_packet<T: EzBuffer>(
+        &self,
+        security_level: Option<SecurityLevel>,
+        header_len_bytes: usize,
+        packet: &mut T,
+    ) -> Result<(), CryptError<String>>;
+    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
+        &self,
+        security_level: Option<SecurityLevel>,
+        header: H,
+        packet: &mut T,
+    ) -> Result<(), CryptError<String>>;
 
     fn decrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
     fn encrypt<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>>;
 
     fn next_alice_constructor(&self) -> Option<Self::Constructor> {
-        Self::Constructor::new_alice(self.get_next_constructor_opts(), self.get_cid(), self.version().wrapping_add(1), Some(self.get_default_security_level()))
+        Self::Constructor::new_alice(
+            self.get_next_constructor_opts(),
+            self.get_cid(),
+            self.version().wrapping_add(1),
+            Some(self.get_default_security_level()),
+        )
     }
 }
 
 /// For returning a variable hyper ratchet from a function
 pub enum RatchetType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
     Default(R),
-    Fcm(Fcm)
+    Fcm(Fcm),
 }
-
-
 
 impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
     ///
@@ -95,7 +108,7 @@ impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
     pub fn version(&self) -> u32 {
         match self {
             RatchetType::Default(r) => r.version(),
-            RatchetType::Fcm(r) => r.version()
+            RatchetType::Fcm(r) => r.version(),
         }
     }
 
@@ -103,7 +116,7 @@ impl<R: Ratchet, Fcm: Ratchet> RatchetType<R, Fcm> {
     pub fn get_cid(&self) -> u64 {
         match self {
             RatchetType::Default(r) => r.get_cid(),
-            RatchetType::Fcm(r) => r.get_cid()
+            RatchetType::Fcm(r) => r.get_cid(),
         }
     }
 }
@@ -146,24 +159,47 @@ impl Ratchet for StackedRatchet {
     // This may panic if any of the ratchets are in an incomplete state
     fn get_next_constructor_opts(&self) -> Vec<ConstructorOpts> {
         let mut meta_chain_hasher = sha3::Sha3_256::default();
-        for chain in self.inner.message.inner.iter().map(|r| r.pqc.get_chain().unwrap()) {
+        for chain in self
+            .inner
+            .message
+            .inner
+            .iter()
+            .map(|r| r.pqc.get_chain().unwrap())
+        {
             meta_chain_hasher.update(&chain.chain[..]);
         }
 
         let meta_chain = meta_chain_hasher.finalize();
         //self.inner.message.inner.iter().map(|r| ConstructorOpts::new_from_previous(Some(r.pqc.params), r.pqc.get_chain().unwrap().clone())).collect()
-        self.inner.message.inner.iter().map(|r| {
-            let prev_chain = r.pqc.get_chain().unwrap();
-            let next_chain = RecursiveChain::new(&meta_chain[..], &prev_chain.alice, &prev_chain.bob, false).unwrap();
-            ConstructorOpts::new_from_previous(Some(r.pqc.params), next_chain)
-        }).collect()
+        self.inner
+            .message
+            .inner
+            .iter()
+            .map(|r| {
+                let prev_chain = r.pqc.get_chain().unwrap();
+                let next_chain =
+                    RecursiveChain::new(&meta_chain[..], &prev_chain.alice, &prev_chain.bob, false)
+                        .unwrap();
+                ConstructorOpts::new_from_previous(Some(r.pqc.params), next_chain)
+            })
+            .collect()
     }
 
-    fn protect_message_packet<T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {
+    fn protect_message_packet<T: EzBuffer>(
+        &self,
+        security_level: Option<SecurityLevel>,
+        header_len_bytes: usize,
+        packet: &mut T,
+    ) -> Result<(), CryptError<String>> {
         self.protect_message_packet(security_level, header_len_bytes, packet)
     }
 
-    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(&self, security_level: Option<SecurityLevel>, ref header: H, packet: &mut T) -> Result<(), CryptError<String>> {
+    fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
+        &self,
+        security_level: Option<SecurityLevel>,
+        ref header: H,
+        packet: &mut T,
+    ) -> Result<(), CryptError<String>> {
         self.validate_message_packet(security_level, header, packet)
     }
 
@@ -178,8 +214,7 @@ impl Ratchet for StackedRatchet {
 
 /// Returns the approximate size of each hyper ratchet, assuming LOW security level (default)
 pub const fn get_approx_bytes_per_hyper_ratchet() -> usize {
-    (2 * ez_pqcrypto::get_approx_bytes_per_container()) +
-        (2 * get_approx_serialized_drill_len())
+    (2 * ez_pqcrypto::get_approx_bytes_per_container()) + (2 * get_approx_serialized_drill_len())
 }
 
 impl StackedRatchet {
@@ -204,7 +239,10 @@ impl StackedRatchet {
     #[inline]
     pub fn message_pqc_drill(&self, idx: Option<usize>) -> (&PostQuantumContainer, &Drill) {
         let idx = idx.unwrap_or(0);
-        (&self.inner.message.inner[idx].pqc, &self.inner.message.inner[idx].drill)
+        (
+            &self.inner.message.inner[idx].pqc,
+            &self.inner.message.inner[idx].drill,
+        )
     }
 
     /// returns the message pqc and drill
@@ -214,7 +252,10 @@ impl StackedRatchet {
     }
 
     /// Verifies the target security level, returning the corresponding idx
-    pub fn verify_level(&self, security_level: Option<SecurityLevel>) -> Result<usize, CryptError<String>> {
+    pub fn verify_level(
+        &self,
+        security_level: Option<SecurityLevel>,
+    ) -> Result<usize, CryptError<String>> {
         let security_level = security_level.unwrap_or(SecurityLevel::LOW);
         if security_level.value() as usize >= self.inner.message.inner.len() {
             log::warn!(target: "lusna", "OOB: Security value: {}, max: {} (default: {:?})|| Version: {}", security_level.value() as usize, self.inner.message.inner.len() - 1, self.get_default_security_level(), self.version());
@@ -225,13 +266,22 @@ impl StackedRatchet {
     }
 
     /// Protects the packet, treating the header as AAD, and the payload as the data that gets encrypted
-    pub fn protect_message_packet_with_scrambler(&self, header_len_bytes: usize, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+    pub fn protect_message_packet_with_scrambler(
+        &self,
+        header_len_bytes: usize,
+        packet: &mut BytesMut,
+    ) -> Result<(), CryptError<String>> {
         let (pqc, drill) = self.scramble_pqc_drill();
         drill.protect_packet(pqc, header_len_bytes, packet)
     }
 
     /// Protects the packet, treating the header as AAD, and the payload as the data that gets encrypted
-    pub fn protect_message_packet<T: EzBuffer>(&self, security_level: Option<SecurityLevel>, header_len_bytes: usize, packet: &mut T) -> Result<(), CryptError<String>> {
+    pub fn protect_message_packet<T: EzBuffer>(
+        &self,
+        security_level: Option<SecurityLevel>,
+        header_len_bytes: usize,
+        packet: &mut T,
+    ) -> Result<(), CryptError<String>> {
         let idx = self.verify_level(security_level)?;
 
         for n in 0..=idx {
@@ -243,7 +293,12 @@ impl StackedRatchet {
     }
 
     /// Validates a packet in place
-    pub fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(&self, security_level: Option<SecurityLevel>, ref header: H, packet: &mut T) -> Result<(), CryptError<String>> {
+    pub fn validate_message_packet<H: AsRef<[u8]>, T: EzBuffer>(
+        &self,
+        security_level: Option<SecurityLevel>,
+        ref header: H,
+        packet: &mut T,
+    ) -> Result<(), CryptError<String>> {
         let idx = self.verify_level(security_level)?;
         for n in (0..=idx).rev() {
             let (pqc, drill) = self.message_pqc_drill(Some(n));
@@ -254,13 +309,22 @@ impl StackedRatchet {
     }
 
     /// Validates a packet in place
-    pub fn validate_message_packet_with_scrambler<H: AsRef<[u8]>>(&self, header: H, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+    pub fn validate_message_packet_with_scrambler<H: AsRef<[u8]>>(
+        &self,
+        header: H,
+        packet: &mut BytesMut,
+    ) -> Result<(), CryptError<String>> {
         let (pqc, drill) = self.scramble_pqc_drill();
         drill.validate_packet_in_place_split(pqc, header, packet)
     }
 
     /// Validates in-place when the header + payload have already been split
-    pub fn validate_message_packet_in_place_split<H: AsRef<[u8]>>(&self, security_level: Option<SecurityLevel>, ref header: H, packet: &mut BytesMut) -> Result<(), CryptError<String>> {
+    pub fn validate_message_packet_in_place_split<H: AsRef<[u8]>>(
+        &self,
+        security_level: Option<SecurityLevel>,
+        ref header: H,
+        packet: &mut BytesMut,
+    ) -> Result<(), CryptError<String>> {
         let idx = self.verify_level(security_level)?;
         for n in (0..=idx).rev() {
             let (pqc, drill) = self.message_pqc_drill(Some(n));
@@ -276,20 +340,41 @@ impl StackedRatchet {
     }
 
     /// Encrypts the data into a Vec<u8>
-    pub fn encrypt_custom<T: AsRef<[u8]>>(&self, wave_id: u32, group: u64, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+    pub fn encrypt_custom<T: AsRef<[u8]>>(
+        &self,
+        wave_id: u32,
+        group: u64,
+        contents: T,
+    ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_encrypt(calculate_nonce_version(wave_id as usize, group), pqc, contents)
+        drill.aes_gcm_encrypt(
+            calculate_nonce_version(wave_id as usize, group),
+            pqc,
+            contents,
+        )
     }
 
     /// Encrypts the data into a Vec<u8>
-    pub fn encrypt_scrambler<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+    pub fn encrypt_scrambler<T: AsRef<[u8]>>(
+        &self,
+        contents: T,
+    ) -> Result<Vec<u8>, CryptError<String>> {
         self.encrypt_custom_scrambler(0, 0, contents)
     }
 
     /// Encrypts the data into a Vec<u8>
-    pub fn encrypt_custom_scrambler<T: AsRef<[u8]>>(&self, wave_id: u32, group: u64, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+    pub fn encrypt_custom_scrambler<T: AsRef<[u8]>>(
+        &self,
+        wave_id: u32,
+        group: u64,
+        contents: T,
+    ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.scramble_pqc_drill();
-        drill.aes_gcm_encrypt(calculate_nonce_version(wave_id as usize, group), pqc, contents)
+        drill.aes_gcm_encrypt(
+            calculate_nonce_version(wave_id as usize, group),
+            pqc,
+            contents,
+        )
     }
 
     /// Decrypts the contents into a Vec<u8>
@@ -298,42 +383,87 @@ impl StackedRatchet {
     }
 
     /// decrypts using a custom nonce configuration
-    pub fn decrypt_custom<T: AsRef<[u8]>>(&self, wave_id: u32, group_id: u64, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+    pub fn decrypt_custom<T: AsRef<[u8]>>(
+        &self,
+        wave_id: u32,
+        group_id: u64,
+        contents: T,
+    ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_decrypt(calculate_nonce_version(wave_id as usize, group_id), pqc, contents)
+        drill.aes_gcm_decrypt(
+            calculate_nonce_version(wave_id as usize, group_id),
+            pqc,
+            contents,
+        )
     }
 
     /// Decrypts the contents into a Vec<u8>
-    pub fn decrypt_scrambler<T: AsRef<[u8]>>(&self, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+    pub fn decrypt_scrambler<T: AsRef<[u8]>>(
+        &self,
+        contents: T,
+    ) -> Result<Vec<u8>, CryptError<String>> {
         self.decrypt_custom_scrambler(0, 0, contents)
     }
 
     /// decrypts using a custom nonce configuration
-    pub fn decrypt_custom_scrambler<T: AsRef<[u8]>>(&self, wave_id: u32, group_id: u64, contents: T) -> Result<Vec<u8>, CryptError<String>> {
+    pub fn decrypt_custom_scrambler<T: AsRef<[u8]>>(
+        &self,
+        wave_id: u32,
+        group_id: u64,
+        contents: T,
+    ) -> Result<Vec<u8>, CryptError<String>> {
         let (pqc, drill) = self.scramble_pqc_drill();
-        drill.aes_gcm_decrypt(calculate_nonce_version(wave_id as usize, group_id), pqc, contents)
+        drill.aes_gcm_decrypt(
+            calculate_nonce_version(wave_id as usize, group_id),
+            pqc,
+            contents,
+        )
     }
 
     /// Decrypts the contents into a Vec<u8>
-    pub fn decrypt_in_place<T: AsMut<[u8]>>(&self, contents: &mut T) -> Result<usize, CryptError<String>> {
+    pub fn decrypt_in_place<T: AsMut<[u8]>>(
+        &self,
+        contents: &mut T,
+    ) -> Result<usize, CryptError<String>> {
         self.decrypt_in_place_custom(0, 0, contents)
     }
 
     /// decrypts in place using a custom nonce configuration
-    pub fn decrypt_in_place_custom<T: AsMut<[u8]>>(&self, wave_id: u32, group_id: u64, contents: &mut T) -> Result<usize, CryptError<String>> {
+    pub fn decrypt_in_place_custom<T: AsMut<[u8]>>(
+        &self,
+        wave_id: u32,
+        group_id: u64,
+        contents: &mut T,
+    ) -> Result<usize, CryptError<String>> {
         let (pqc, drill) = self.message_pqc_drill(None);
-        drill.aes_gcm_decrypt_in_place(calculate_nonce_version(wave_id as usize, group_id), pqc, contents)
+        drill.aes_gcm_decrypt_in_place(
+            calculate_nonce_version(wave_id as usize, group_id),
+            pqc,
+            contents,
+        )
     }
 
     /// Decrypts the contents into a Vec<u8>
-    pub fn decrypt_in_place_scrambler<T: AsMut<[u8]>>(&self, contents: &mut T) -> Result<usize, CryptError<String>> {
+    pub fn decrypt_in_place_scrambler<T: AsMut<[u8]>>(
+        &self,
+        contents: &mut T,
+    ) -> Result<usize, CryptError<String>> {
         self.decrypt_in_place_custom_scrambler(0, 0, contents)
     }
 
     /// decrypts in place using a custom nonce configuration
-    pub fn decrypt_in_place_custom_scrambler<T: AsMut<[u8]>>(&self, wave_id: u32, group_id: u64, contents: &mut T) -> Result<usize, CryptError<String>> {
+    pub fn decrypt_in_place_custom_scrambler<T: AsMut<[u8]>>(
+        &self,
+        wave_id: u32,
+        group_id: u64,
+        contents: &mut T,
+    ) -> Result<usize, CryptError<String>> {
         let (pqc, drill) = self.scramble_pqc_drill();
-        drill.aes_gcm_decrypt_in_place(calculate_nonce_version(wave_id as usize, group_id), pqc, contents)
+        drill.aes_gcm_decrypt_in_place(
+            calculate_nonce_version(wave_id as usize, group_id),
+            pqc,
+            contents,
+        )
     }
 
     /// Returns the message drill
@@ -372,49 +502,51 @@ impl StackedRatchet {
 pub struct StackedRatchetInner {
     pub(crate) message: MessageRatchet,
     pub(crate) scramble: ScrambleRatchet,
-    pub(crate) default_security_level: SecurityLevel
+    pub(crate) default_security_level: SecurityLevel,
 }
 
 ///
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct MessageRatchet {
-    inner: Vec<MessageRatchetInner>
+    inner: Vec<MessageRatchetInner>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct MessageRatchetInner {
     pub(crate) drill: Drill,
-    pub(crate) pqc: PostQuantumContainer
+    pub(crate) pqc: PostQuantumContainer,
 }
 
 ///
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct ScrambleRatchet {
     pub(crate) drill: Drill,
-    pub(crate) pqc: PostQuantumContainer
+    pub(crate) pqc: PostQuantumContainer,
 }
 
 impl From<StackedRatchetInner> for StackedRatchet {
     fn from(inner: StackedRatchetInner) -> Self {
-        Self { inner: Arc::new(inner) }
+        Self {
+            inner: Arc::new(inner),
+        }
     }
 }
 
 /// For constructing the StackedRatchet during KEM stage
 pub mod constructor {
     use crate::drill::{Drill, SecurityLevel};
-    use ez_pqcrypto::PostQuantumContainer;
-    use serde::{Serialize, Deserialize};
-    use crate::stacked_ratchet::{StackedRatchet, Ratchet};
-    use std::convert::TryFrom;
-    use bytes::BytesMut;
-    use bytes::BufMut;
     use crate::endpoint_crypto_container::EndpointRatchetConstructor;
-    use crate::fcm::fcm_ratchet::{ThinRatchet, FcmAliceToBobTransfer, FcmBobToAliceTransfer};
-    use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
-    use ez_pqcrypto::LARGEST_NONCE_LEN;
+    use crate::fcm::fcm_ratchet::{FcmAliceToBobTransfer, FcmBobToAliceTransfer, ThinRatchet};
+    use crate::stacked_ratchet::{Ratchet, StackedRatchet};
     use arrayvec::ArrayVec;
+    use bytes::BufMut;
+    use bytes::BytesMut;
+    use ez_pqcrypto::algorithm_dictionary::CryptoParameters;
     use ez_pqcrypto::constructor_opts::ConstructorOpts;
+    use ez_pqcrypto::PostQuantumContainer;
+    use ez_pqcrypto::LARGEST_NONCE_LEN;
+    use serde::{Deserialize, Serialize};
+    use std::convert::TryFrom;
 
     /// Used during the key exchange process
     #[derive(Serialize, Deserialize)]
@@ -426,26 +558,22 @@ pub mod constructor {
         cid: u64,
         new_version: u32,
         security_level: SecurityLevel,
-        params: CryptoParameters
+        params: CryptoParameters,
     }
 
     /// For differentiating between two types when inputting into function parameters
     #[derive(Serialize, Deserialize)]
     pub enum ConstructorType<R: Ratchet = StackedRatchet, Fcm: Ratchet = ThinRatchet> {
         Default(R::Constructor),
-        Fcm(Fcm::Constructor)
+        Fcm(Fcm::Constructor),
     }
 
     impl<R: Ratchet, Fcm: Ratchet> ConstructorType<R, Fcm> {
         pub fn stage1_alice(&mut self, transfer: &BobToAliceTransferType) -> Option<()> {
             match self {
-                ConstructorType::Default(con) => {
-                    con.stage1_alice(transfer)
-                }
+                ConstructorType::Default(con) => con.stage1_alice(transfer),
 
-                ConstructorType::Fcm(con) => {
-                    con.stage1_alice(transfer)
-                }
+                ConstructorType::Fcm(con) => con.stage1_alice(transfer),
             }
         }
 
@@ -484,7 +612,7 @@ pub mod constructor {
         pub fn is_fcm(&self) -> bool {
             match self {
                 Self::Fcm(..) => true,
-                _ => false
+                _ => false,
             }
         }
     }
@@ -495,52 +623,62 @@ pub mod constructor {
         #[serde(borrow)]
         Default(AliceToBobTransfer<'a>),
         #[serde(borrow)]
-        Fcm(FcmAliceToBobTransfer<'a>)
+        Fcm(FcmAliceToBobTransfer<'a>),
     }
 
     impl AliceToBobTransferType<'_> {
         pub fn get_security_opts(&self) -> (CryptoParameters, SecurityLevel) {
             match self {
                 Self::Default(tx) => (tx.params, tx.security_level),
-                Self::Fcm(tx) => (tx.params, SecurityLevel::LOW)
+                Self::Fcm(tx) => (tx.params, SecurityLevel::LOW),
             }
         }
 
         pub fn get_declared_new_version(&self) -> u32 {
             match self {
                 AliceToBobTransferType::Default(tx) => tx.new_version,
-                AliceToBobTransferType::Fcm(tx) => tx.version
+                AliceToBobTransferType::Fcm(tx) => tx.version,
             }
         }
 
         pub fn assume_default(&self) -> Option<&AliceToBobTransfer<'_>> {
             match self {
                 Self::Default(tx) => Some(tx),
-                _ => None
+                _ => None,
             }
         }
 
         pub fn assume_fcm(&self) -> Option<&FcmAliceToBobTransfer<'_>> {
             match self {
                 Self::Fcm(tx) => Some(tx),
-                _ => None
+                _ => None,
             }
         }
 
         pub fn is_fcm(&self) -> bool {
             match self {
                 Self::Fcm(_) => true,
-                _ => false
+                _ => false,
             }
         }
     }
 
     impl EndpointRatchetConstructor<StackedRatchet> for StackedRatchetConstructor {
-        fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Option<Self> {
+        fn new_alice(
+            opts: Vec<ConstructorOpts>,
+            cid: u64,
+            new_version: u32,
+            security_level: Option<SecurityLevel>,
+        ) -> Option<Self> {
             StackedRatchetConstructor::new_alice(opts, cid, new_version, security_level)
         }
 
-        fn new_bob(cid: u64, new_drill_vers: u32, opts: Vec<ConstructorOpts>, transfer: AliceToBobTransferType<'_>) -> Option<Self> {
+        fn new_bob(
+            cid: u64,
+            new_drill_vers: u32,
+            opts: Vec<ConstructorOpts>,
+            transfer: AliceToBobTransferType<'_>,
+        ) -> Option<Self> {
             match transfer {
                 AliceToBobTransferType::Default(transfer) => {
                     StackedRatchetConstructor::new_bob(cid, new_drill_vers, opts, transfer)
@@ -592,7 +730,7 @@ pub mod constructor {
         ///
         pub security_level: SecurityLevel,
         cid: u64,
-        new_version: u32
+        new_version: u32,
     }
 
     #[derive(Serialize, Deserialize)]
@@ -603,28 +741,28 @@ pub mod constructor {
         encrypted_msg_drills: Vec<Vec<u8>>,
         encrypted_scramble_drill: Vec<u8>,
         // the security level
-        pub security_level: SecurityLevel
+        pub security_level: SecurityLevel,
     }
 
     /// for denoting different types
     #[derive(Serialize, Deserialize)]
     pub enum BobToAliceTransferType {
         Default(BobToAliceTransfer),
-        Fcm(FcmBobToAliceTransfer)
+        Fcm(FcmBobToAliceTransfer),
     }
 
     impl BobToAliceTransferType {
         pub fn assume_fcm(self) -> Option<FcmBobToAliceTransfer> {
             match self {
                 Self::Fcm(this) => Some(this),
-                _ => None
+                _ => None,
             }
         }
 
         pub fn assume_default(self) -> Option<BobToAliceTransfer> {
             match self {
                 Self::Default(this) => Some(this),
-                _ => None
+                _ => None,
             }
         }
     }
@@ -681,13 +819,26 @@ pub mod constructor {
 
     impl StackedRatchetConstructor {
         /// Called during the initialization stage
-        pub fn new_alice(opts: Vec<ConstructorOpts>, cid: u64, new_version: u32, security_level: Option<SecurityLevel>) -> Option<Self> {
+        pub fn new_alice(
+            opts: Vec<ConstructorOpts>,
+            cid: u64,
+            new_version: u32,
+            security_level: Option<SecurityLevel>,
+        ) -> Option<Self> {
             let security_level = security_level.unwrap_or(SecurityLevel::LOW);
             log::trace!(target: "lusna", "[ALICE] creating container with {:?} security level", security_level);
             //let count = security_level.value() as usize + 1;
             let len = opts.len();
             let params = opts[0].cryptography.unwrap_or_default();
-            let keys = opts.into_iter().filter_map(|opts| Some(MessageRatchetConstructorInner { drill: None, pqc: PostQuantumContainer::new_alice(opts).ok()? })).collect::<Vec<MessageRatchetConstructorInner>>();
+            let keys = opts
+                .into_iter()
+                .filter_map(|opts| {
+                    Some(MessageRatchetConstructorInner {
+                        drill: None,
+                        pqc: PostQuantumContainer::new_alice(opts).ok()?,
+                    })
+                })
+                .collect::<Vec<MessageRatchetConstructorInner>>();
 
             if keys.len() != len {
                 return None;
@@ -696,21 +847,42 @@ pub mod constructor {
             Some(Self {
                 params,
                 message: MessageRatchetConstructor { inner: keys },
-                scramble: ScrambleRatchetConstructor { drill: None, pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params))).ok()? },
+                scramble: ScrambleRatchetConstructor {
+                    drill: None,
+                    pqc: PostQuantumContainer::new_alice(ConstructorOpts::new_init(Some(params)))
+                        .ok()?,
+                },
                 nonce_message: Drill::generate_public_nonce(params.encryption_algorithm),
                 nonce_scramble: Drill::generate_public_nonce(params.encryption_algorithm),
                 cid,
                 new_version,
-                security_level
+                security_level,
             })
         }
 
         /// Called when bob receives alice's pk's
-        pub fn new_bob(cid: u64, new_drill_vers: u32, opts: Vec<ConstructorOpts>, transfer: AliceToBobTransfer) -> Option<Self> {
+        pub fn new_bob(
+            cid: u64,
+            new_drill_vers: u32,
+            opts: Vec<ConstructorOpts>,
+            transfer: AliceToBobTransfer,
+        ) -> Option<Self> {
             log::trace!(target: "lusna", "[BOB] creating container with {:?} security level", transfer.security_level);
             let count = transfer.security_level.value() as usize + 1;
             let params = transfer.params;
-            let keys: Vec<MessageRatchetConstructorInner> = transfer.pks.into_iter().zip(opts.into_iter()).filter_map(|(pk, opts)| Some(MessageRatchetConstructorInner { drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?), pqc: PostQuantumContainer::new_bob(opts, pk).ok()? })).collect();
+            let keys: Vec<MessageRatchetConstructorInner> = transfer
+                .pks
+                .into_iter()
+                .zip(opts.into_iter())
+                .filter_map(|(pk, opts)| {
+                    Some(MessageRatchetConstructorInner {
+                        drill: Some(
+                            Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?,
+                        ),
+                        pqc: PostQuantumContainer::new_bob(opts, pk).ok()?,
+                    })
+                })
+                .collect();
 
             if keys.len() != count {
                 log::error!(target: "lusna", "[BOB] not all keys parsed correctly. {} != {}", keys.len(), count);
@@ -720,20 +892,30 @@ pub mod constructor {
             Some(Self {
                 params,
                 message: MessageRatchetConstructor { inner: keys },
-                scramble: ScrambleRatchetConstructor { drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?), pqc: PostQuantumContainer::new_bob(ConstructorOpts::new_init(Some(params)), transfer.scramble_alice_pk).ok()? },
+                scramble: ScrambleRatchetConstructor {
+                    drill: Some(Drill::new(cid, new_drill_vers, params.encryption_algorithm).ok()?),
+                    pqc: PostQuantumContainer::new_bob(
+                        ConstructorOpts::new_init(Some(params)),
+                        transfer.scramble_alice_pk,
+                    )
+                    .ok()?,
+                },
                 nonce_message: transfer.msg_nonce,
                 nonce_scramble: transfer.scramble_nonce,
                 cid,
                 new_version: new_drill_vers,
-                security_level: transfer.security_level
+                security_level: transfer.security_level,
             })
         }
 
         /// Generates the public key for the (message_pk, scramble_pk, nonce)
         pub fn stage0_alice(&self) -> AliceToBobTransfer<'_> {
-            let pks = self.message.inner.iter().map(|inner| {
-                inner.pqc.get_public_key()
-            }).collect();
+            let pks = self
+                .message
+                .inner
+                .iter()
+                .map(|inner| inner.pqc.get_public_key())
+                .collect();
 
             let scramble_alice_pk = self.scramble.pqc.get_public_key();
             let msg_nonce = self.nonce_message.clone();
@@ -751,7 +933,7 @@ pub mod constructor {
                 scramble_nonce,
                 security_level,
                 cid,
-                new_version
+                new_version,
             }
         }
 
@@ -759,7 +941,12 @@ pub mod constructor {
         pub fn stage0_bob(&self) -> Option<BobToAliceTransfer> {
             let expected_count = self.message.inner.len();
             let security_level = self.security_level;
-            let msg_bob_cts: Vec<Vec<u8>> = self.message.inner.iter().filter_map(|inner| Some(inner.pqc.get_ciphertext().ok()?.to_vec())).collect();
+            let msg_bob_cts: Vec<Vec<u8>> = self
+                .message
+                .inner
+                .iter()
+                .filter_map(|inner| Some(inner.pqc.get_ciphertext().ok()?.to_vec()))
+                .collect();
             if msg_bob_cts.len() != expected_count {
                 return None;
             }
@@ -769,19 +956,36 @@ pub mod constructor {
             let nonce_msg = &self.nonce_message;
             let nonce_scramble = &self.nonce_scramble;
 
-            let encrypted_msg_drills: Vec<Vec<u8>> = self.message.inner.iter().filter_map(|inner| inner.pqc.encrypt(inner.drill.as_ref()?.serialize_to_vec().ok()?, nonce_msg).ok()).collect();
+            let encrypted_msg_drills: Vec<Vec<u8>> = self
+                .message
+                .inner
+                .iter()
+                .filter_map(|inner| {
+                    inner
+                        .pqc
+                        .encrypt(inner.drill.as_ref()?.serialize_to_vec().ok()?, nonce_msg)
+                        .ok()
+                })
+                .collect();
             if encrypted_msg_drills.len() != expected_count {
                 return None;
             }
 
-            let encrypted_scramble_drill = self.scramble.pqc.encrypt(self.scramble.drill.as_ref()?.serialize_to_vec().ok()?, nonce_scramble).ok()?;
+            let encrypted_scramble_drill = self
+                .scramble
+                .pqc
+                .encrypt(
+                    self.scramble.drill.as_ref()?.serialize_to_vec().ok()?,
+                    nonce_scramble,
+                )
+                .ok()?;
 
             let transfer = BobToAliceTransfer {
                 msg_bob_cts,
                 scramble_bob_ct,
                 encrypted_msg_drills,
                 encrypted_scramble_drill,
-                security_level
+                security_level,
             };
 
             Some(transfer)
@@ -793,24 +997,39 @@ pub mod constructor {
                 let nonce_msg = &self.nonce_message;
 
                 for (idx, container) in self.message.inner.iter_mut().enumerate() {
-                    container.pqc.alice_on_receive_ciphertext(&transfer.msg_bob_cts.get(idx)?[..]).ok()?;
+                    container
+                        .pqc
+                        .alice_on_receive_ciphertext(&transfer.msg_bob_cts.get(idx)?[..])
+                        .ok()?;
                 }
 
                 for (idx, container) in self.message.inner.iter_mut().enumerate() {
                     // now, using the message pqc, decrypt the message drill
-                    let decrypted_msg_drill = container.pqc.decrypt(&transfer.encrypted_msg_drills.get(idx)?[..], nonce_msg).ok()?;
+                    let decrypted_msg_drill = container
+                        .pqc
+                        .decrypt(&transfer.encrypted_msg_drills.get(idx)?[..], nonce_msg)
+                        .ok()?;
                     container.drill = Some(Drill::deserialize_from(&decrypted_msg_drill[..]).ok()?);
                 }
 
-
                 let nonce_scramble = &self.nonce_scramble;
-                self.scramble.pqc.alice_on_receive_ciphertext(&transfer.scramble_bob_ct[..]).ok()?;
+                self.scramble
+                    .pqc
+                    .alice_on_receive_ciphertext(&transfer.scramble_bob_ct[..])
+                    .ok()?;
                 // do the same as above
-                let decrypted_scramble_drill = self.scramble.pqc.decrypt(&transfer.encrypted_scramble_drill[..], nonce_scramble).ok()?;
-                self.scramble.drill = Some(Drill::deserialize_from(&decrypted_scramble_drill[..]).ok()?);
+                let decrypted_scramble_drill = self
+                    .scramble
+                    .pqc
+                    .decrypt(&transfer.encrypted_scramble_drill[..], nonce_scramble)
+                    .ok()?;
+                self.scramble.drill =
+                    Some(Drill::deserialize_from(&decrypted_scramble_drill[..]).ok()?);
 
                 // version check
-                if self.scramble.drill.as_ref()?.version != self.message.inner[0].drill.as_ref()?.version {
+                if self.scramble.drill.as_ref()?.version
+                    != self.message.inner[0].drill.as_ref()?.version
+                {
                     return None;
                 }
 
@@ -858,28 +1077,29 @@ pub mod constructor {
 
     #[derive(Serialize, Deserialize)]
     pub(super) struct MessageRatchetConstructor {
-        pub(super) inner: Vec<MessageRatchetConstructorInner>
+        pub(super) inner: Vec<MessageRatchetConstructorInner>,
     }
 
     #[derive(Serialize, Deserialize)]
     pub(super) struct MessageRatchetConstructorInner {
         pub(super) drill: Option<Drill>,
-        pub(super) pqc: PostQuantumContainer
+        pub(super) pqc: PostQuantumContainer,
     }
 
     #[derive(Serialize, Deserialize)]
     pub(super) struct ScrambleRatchetConstructor {
         pub(super) drill: Option<Drill>,
-        pub(super) pqc: PostQuantumContainer
+        pub(super) pqc: PostQuantumContainer,
     }
-
 }
 
 impl TryFrom<StackedRatchetConstructor> for StackedRatchet {
     type Error = ();
 
     fn try_from(value: StackedRatchetConstructor) -> Result<Self, Self::Error> {
-        let StackedRatchetConstructor { message, scramble, .. } = value;
+        let StackedRatchetConstructor {
+            message, scramble, ..
+        } = value;
         let default_security_level = SecurityLevel::for_value(message.inner.len() - 1).ok_or(())?;
         // make sure the shared secret is loaded
         let _ = scramble.pqc.get_shared_secret().map_err(|_| ())?;
@@ -892,23 +1112,28 @@ impl TryFrom<StackedRatchetConstructor> for StackedRatchet {
             let message_drill = container.drill.ok_or(())?;
 
             if message_drill.version != scramble_drill.version
-                || message_drill.cid != scramble_drill.cid {
-                return Err(())
+                || message_drill.cid != scramble_drill.cid
+            {
+                return Err(());
             }
 
-            inner.push(MessageRatchetInner { drill: message_drill, pqc: container.pqc });
+            inner.push(MessageRatchetInner {
+                drill: message_drill,
+                pqc: container.pqc,
+            });
         }
 
-
-        let message = MessageRatchet {
-            inner
-        };
+        let message = MessageRatchet { inner };
 
         let scramble = ScrambleRatchet {
             drill: scramble_drill,
-            pqc: scramble.pqc
+            pqc: scramble.pqc,
         };
 
-        Ok(StackedRatchet::from(StackedRatchetInner { message, scramble, default_security_level }))
+        Ok(StackedRatchet::from(StackedRatchetInner {
+            message,
+            scramble,
+            default_security_level,
+        }))
     }
 }
