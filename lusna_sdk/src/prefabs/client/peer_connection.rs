@@ -71,7 +71,7 @@ where
     type SharedBundle = ();
 
     fn get_shared_bundle(&mut self) -> Self::SharedBundle {
-        ()
+        
     }
 
     #[cfg_attr(

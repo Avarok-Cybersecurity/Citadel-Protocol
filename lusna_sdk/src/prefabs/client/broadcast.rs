@@ -135,19 +135,17 @@ where
                     .await?;
                 let owner = if let Some(owner) = owner_find {
                     Some(owner)
+                } else if do_peer_register {
+                    let mut handle = remote
+                        .inner
+                        .propose_target(local_user.clone(), owner_orig.clone())
+                        .await?;
+                    let _ = handle.register_to_peer().await?;
+                    owner_orig
+                        .search_peer(implicated_cid, remote.inner.account_manager())
+                        .await?
                 } else {
-                    if do_peer_register {
-                        let mut handle = remote
-                            .inner
-                            .propose_target(local_user.clone(), owner_orig.clone())
-                            .await?;
-                        let _ = handle.register_to_peer().await?;
-                        owner_orig
-                            .search_peer(implicated_cid, remote.inner.account_manager())
-                            .await?
-                    } else {
-                        None
-                    }
+                    None
                 };
 
                 let owner = owner.ok_or_else(|| {
@@ -216,15 +214,11 @@ where
                     return tokio::try_join!((fx)(channel, remote), acceptor_task).map(|_| ());
                 }
 
-                NodeResult::GroupEvent(_, _, evt) => match evt {
-                    GroupBroadcast::CreateResponse(None) => {
-                        return Err(NetworkError::InternalError(
-                            "Unable to create a message group",
-                        ))
-                    }
-
-                    _ => {}
-                },
+                NodeResult::GroupEvent(_, _, GroupBroadcast::CreateResponse(None)) => {
+                    return Err(NetworkError::InternalError(
+                        "Unable to create a message group",
+                    ))
+                }
 
                 _ => {}
             }
@@ -258,18 +252,14 @@ impl<F, Fut> NetKernel for BroadcastKernel<'_, F, Fut> {
     }
 
     async fn on_node_event_received(&self, message: NodeResult) -> Result<(), NetworkError> {
-        match &message {
-            NodeResult::PeerEvent(ps @ PeerSignal::PostRegister(..), _) => {
-                if self.shared.route_registers.load(Ordering::Relaxed) {
-                    return self
-                        .shared
-                        .register_tx
-                        .send(ps.clone())
-                        .map_err(|err| NetworkError::Generic(err.to_string()));
-                }
+        if let NodeResult::PeerEvent(ps @ PeerSignal::PostRegister(..), _) = &message {
+            if self.shared.route_registers.load(Ordering::Relaxed) {
+                return self
+                    .shared
+                    .register_tx
+                    .send(ps.clone())
+                    .map_err(|err| NetworkError::Generic(err.to_string()));
             }
-
-            _ => {}
         }
 
         self.inner_kernel.on_node_event_received(message).await
