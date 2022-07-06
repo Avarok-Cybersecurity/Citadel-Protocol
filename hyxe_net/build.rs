@@ -13,7 +13,7 @@ fn main() {
         if line.contains("pub const BUILD_VERSION") {
             let vers = usize::from_str(
                 line.split('=').collect::<Vec<&str>>()[1]
-                    .replace(";", "")
+                    .replace(';', "")
                     .trim(),
             )
             .unwrap();

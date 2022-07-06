@@ -82,6 +82,7 @@ pub trait PrefabFunctions<'a, Arg: Send + 'a>: Sized {
     }
 
     /// First registers with a central server with the proposed credentials, and thereafter, establishes a connection with custom parameters
+    #[allow(clippy::too_many_arguments)]
     fn new_register<T: Into<String>, R: Into<String>, P: Into<SecBuffer>>(
         full_name: T,
         username: R,
