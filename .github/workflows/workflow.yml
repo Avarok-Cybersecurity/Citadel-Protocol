@@ -211,7 +211,7 @@ jobs:
         env:
           TESTING_SQL_SERVER_ADDR_SERVER: "mysql://root:password@localhost/hyxewave,postgres://nologik:password@localhost/hyxewave,sqlite://file:/home/runner/hyxewave.db,redis://127.0.0.1:6379/1"
           TESTING_SQL_SERVER_ADDR_CLIENT: "mysql://root:password@localhost/hyxewave2,postgres://nologik:password@localhost/hyxewave2,sqlite://file:/home/runner/hyxewave2.db,redis://127.0.0.1:6379/2"
-        run: 'cargo tarpaulin --no-fail-fast --timeout 4800 --packages lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --features=filesystem,localhost-testing,multi-threaded -- --test-threads=1 --skip argon_autotuner'
+        run: 'cargo tarpaulin --no-fail-fast --timeout 4800 --packages lusna_sdk,hyxe_user,hyxe_crypt,ez_pqcrypto,hyxe_wire,netbeam --features=filesystem,localhost-testing,multi-threaded,sql,redis -- --test-threads=1 --skip argon_autotuner'
       - uses: codecov/codecov-action@master
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
