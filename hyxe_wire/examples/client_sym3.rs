@@ -1,22 +1,39 @@
-use tokio::io::{BufReader, AsyncBufReadExt};
-use hyxe_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use hyxe_wire::quic::QuicEndpointConnector;
-use netbeam::sync::RelativeNodeType;
+use hyxe_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
+use netbeam::sync::RelativeNodeType;
 use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[tokio::main]
 async fn main() {
     //lusna_logging::setup_log();
 
-    let server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025").await.unwrap();
+    let server_stream = tokio::net::TcpStream::connect("51.81.86.78:25025")
+        .await
+        .unwrap();
 
     log::trace!(target: "lusna", "Established TCP server connection");
 
-    let hole_punched_socket = UdpHolePuncher::new(&NetworkEndpoint::register(RelativeNodeType::Initiator, server_stream).await.unwrap(), Default::default()).await.unwrap();
+    let hole_punched_socket = UdpHolePuncher::new(
+        &NetworkEndpoint::register(RelativeNodeType::Initiator, server_stream)
+            .await
+            .unwrap(),
+        Default::default(),
+    )
+    .await
+    .unwrap();
     let client_config = Arc::new(hyxe_wire::quic::insecure::rustls_client_config());
     log::trace!(target: "lusna", "Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
-    let (_conn, mut sink, mut stream) = hyxe_wire::quic::QuicClient::new_with_config(hole_punched_socket.socket, client_config).unwrap().connect_biconn(hole_punched_socket.addr.receive_address, "mail.satorisocial.com").await.unwrap();
+    let (_conn, mut sink, mut stream) =
+        hyxe_wire::quic::QuicClient::new_with_config(hole_punched_socket.socket, client_config)
+            .unwrap()
+            .connect_biconn(
+                hole_punched_socket.addr.receive_address,
+                "mail.satorisocial.com",
+            )
+            .await
+            .unwrap();
     log::trace!(target: "lusna", "Successfully obtained QUIC connection ...");
 
     let writer = async move {
@@ -44,7 +61,7 @@ async fn main() {
         res1 = reader => res1
     }
 
-        /*
+    /*
     let writer = async move {
         let mut stdin = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(input)) = stdin.next_line().await {

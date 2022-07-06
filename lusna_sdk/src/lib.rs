@@ -111,30 +111,30 @@
 //! [`NodeType::Peer`]: crate::prelude::NodeType::Peer
 
 #![deny(
-clippy::cognitive_complexity,
-trivial_numeric_casts,
-unused_extern_crates,
-unused_import_braces,
-variant_size_differences,
-unused_features,
-unused_results,
+    clippy::cognitive_complexity,
+    trivial_numeric_casts,
+    unused_extern_crates,
+    unused_import_braces,
+    variant_size_differences,
+    unused_features,
+    unused_results
 )]
 
 /// Convenience import for building applications
 pub mod prelude {
-    pub use hyxe_net::prelude::*;
-    pub use crate::prefabs::client::PrefabFunctions;
     pub use crate::builder::node_builder::*;
+    pub use crate::builder::request_builder::*;
+    pub use crate::prefabs::client::PrefabFunctions;
     pub use crate::remote_ext::*;
     pub use crate::responses;
-    pub use crate::builder::request_builder::*;
+    pub use hyxe_net::prelude::*;
 }
 
-/// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)
-pub mod remote_ext;
+mod builder;
 /// A list of prefabricated kernels designed for common use cases. If a greater degree of control is required for an application, a custom implementation of [NetKernel](crate::prelude::NetKernel) is desirable
 pub mod prefabs;
-mod builder;
+/// Extension implementations endowed upon the [NodeRemote](crate::prelude::NodeRemote)
+pub mod remote_ext;
 /// For easy construction of replies to common message types
 pub mod responses;
 #[doc(hidden)]

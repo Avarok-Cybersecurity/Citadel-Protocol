@@ -2,15 +2,14 @@
 #![forbid(unsafe_code)]
 //! Core networking components for SatoriNET
 #![deny(
-trivial_numeric_casts,
-unused_extern_crates,
-unused_import_braces,
-variant_size_differences,
-unused_features,
-unused_results,
-warnings
+    trivial_numeric_casts,
+    unused_extern_crates,
+    unused_import_braces,
+    variant_size_differences,
+    unused_features,
+    unused_results,
+    warnings
 )]
-
 #![allow(rustdoc::broken_intra_doc_links)]
 
 #[cfg(not(feature = "multi-threaded"))]
@@ -47,7 +46,10 @@ pub mod macros {
     impl<T: 'static> SyncContextRequirements for T {}
 
     #[allow(unused_results, dead_code)]
-    pub fn tokio_spawn_async_then_sync<F: Future>(future: impl FnOnce() -> F + 'static, fx: impl FnOnce(<F as Future>::Output) + 'static) {
+    pub fn tokio_spawn_async_then_sync<F: Future>(
+        future: impl FnOnce() -> F + 'static,
+        fx: impl FnOnce(<F as Future>::Output) + 'static,
+    ) {
         tokio::task::spawn_local(async move { (fx)(future().await) });
     }
 
@@ -55,26 +57,28 @@ pub mod macros {
     pub type SessionBorrow<'a> = std::cell::RefMut<'a, HdpSessionInner>;
 
     pub struct WeakBorrow<T> {
-        pub inner: std::rc::Weak<std::cell::RefCell<T>>
+        pub inner: std::rc::Weak<std::cell::RefCell<T>>,
     }
 
     impl<T> Clone for WeakBorrow<T> {
         fn clone(&self) -> Self {
-            Self { inner: self.inner.clone() }
+            Self {
+                inner: self.inner.clone(),
+            }
         }
     }
 
     macro_rules! inner {
-    ($item:expr) => {
-        $item.inner.borrow()
-    };
-}
+        ($item:expr) => {
+            $item.inner.borrow()
+        };
+    }
 
     macro_rules! inner_mut {
-    ($item:expr) => {
-        $item.inner.borrow_mut()
-    };
-}
+        ($item:expr) => {
+            $item.inner.borrow_mut()
+        };
+    }
 
     macro_rules! inner_state {
     ($item:expr) => {
@@ -90,66 +94,75 @@ pub mod macros {
     };
 }
 
-
     macro_rules! define_outer_struct_wrapper {
-    ($struct_name:ident, $inner:ty) => {
-        #[derive(Clone)]
-        pub struct $struct_name {
-            pub inner: std::rc::Rc<std::cell::RefCell<$inner>>
-        }
-
-        impl $struct_name {
-            #[allow(dead_code)]
-            pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
-                crate::macros::WeakBorrow { inner: std::rc::Rc::downgrade(&self.inner) }
+        ($struct_name:ident, $inner:ty) => {
+            #[derive(Clone)]
+            pub struct $struct_name {
+                pub inner: std::rc::Rc<std::cell::RefCell<$inner>>,
             }
 
-            #[allow(dead_code)]
-            pub fn upgrade_weak(this: &crate::macros::WeakBorrow<$inner>) -> Option<$struct_name> {
-                this.inner.upgrade().map(|inner| Self { inner })
+            impl $struct_name {
+                #[allow(dead_code)]
+                pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
+                    crate::macros::WeakBorrow {
+                        inner: std::rc::Rc::downgrade(&self.inner),
+                    }
+                }
+
+                #[allow(dead_code)]
+                pub fn upgrade_weak(
+                    this: &crate::macros::WeakBorrow<$inner>,
+                ) -> Option<$struct_name> {
+                    this.inner.upgrade().map(|inner| Self { inner })
+                }
+
+                #[allow(dead_code)]
+                pub fn strong_count(&self) -> usize {
+                    std::rc::Rc::strong_count(&self.inner)
+                }
+
+                #[allow(dead_code)]
+                pub fn weak_count(&self) -> usize {
+                    std::rc::Rc::weak_count(&self.inner)
+                }
             }
 
-            #[allow(dead_code)]
-            pub fn strong_count(&self) -> usize {
-                std::rc::Rc::strong_count(&self.inner)
+            impl From<$inner> for $struct_name {
+                fn from(inner: $inner) -> Self {
+                    Self {
+                        inner: create_inner!(inner),
+                    }
+                }
             }
-
-            #[allow(dead_code)]
-            pub fn weak_count(&self) -> usize {
-                std::rc::Rc::weak_count(&self.inner)
-            }
-        }
-
-        impl From<$inner> for $struct_name {
-            fn from(inner: $inner) -> Self {
-                Self { inner: create_inner!(inner) }
-            }
-        }
-    };
-}
+        };
+    }
 
     macro_rules! create_inner {
-    ($item:expr) => {
-        std::rc::Rc::new(std::cell::RefCell::new($item))
-    };
-}
+        ($item:expr) => {
+            std::rc::Rc::new(std::cell::RefCell::new($item))
+        };
+    }
 
     macro_rules! spawn {
-    ($future:expr) => {
-        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local($future))
-    };
+        ($future:expr) => {
+            crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local(
+                $future,
+            ))
+        };
     }
 
     macro_rules! spawn_handle {
-    ($future:expr) => {
-        crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local($future))
-    };
-}
+        ($future:expr) => {
+            crate::hdp::misc::panic_future::ExplicitPanicFuture::new(tokio::task::spawn_local(
+                $future,
+            ))
+        };
+    }
 
     macro_rules! to_concurrent_processor {
         ($future:expr) => {
             return $future.await
-        }
+        };
     }
 
     macro_rules! return_if_none {
@@ -193,7 +206,12 @@ pub mod macros {
     impl<T: Send + Sync + 'static> SyncContextRequirements for T {}
 
     #[allow(unused_results, dead_code)]
-    pub fn tokio_spawn_async_then_sync<F: Future + ContextRequirements>(future: impl FnOnce() -> F + ContextRequirements, fx: impl FnOnce(<F as Future>::Output) + ContextRequirements) where <F as Future>::Output: Send {
+    pub fn tokio_spawn_async_then_sync<F: Future + ContextRequirements>(
+        future: impl FnOnce() -> F + ContextRequirements,
+        fx: impl FnOnce(<F as Future>::Output) + ContextRequirements,
+    ) where
+        <F as Future>::Output: Send,
+    {
         tokio::task::spawn(async move { (fx)(future().await) });
     }
 
@@ -201,12 +219,14 @@ pub mod macros {
     pub type SessionBorrow<'a> = parking_lot::RwLockWriteGuard<'a, HdpSessionInner>;
 
     pub struct WeakBorrow<T> {
-        pub inner: std::sync::Weak<parking_lot::RwLock<T>>
+        pub inner: std::sync::Weak<parking_lot::RwLock<T>>,
     }
 
     impl<T> Clone for WeakBorrow<T> {
         fn clone(&self) -> Self {
-            Self { inner: self.inner.clone() }
+            Self {
+                inner: self.inner.clone(),
+            }
         }
     }
 
@@ -239,48 +259,53 @@ pub mod macros {
 }
 
     macro_rules! define_outer_struct_wrapper {
-    ($struct_name:ident, $inner:ty) => {
-
-        #[derive(Clone)]
-        pub struct $struct_name {
-            pub inner: std::sync::Arc<parking_lot::RwLock<$inner>>
-        }
-
-        impl $struct_name {
-            #[allow(dead_code)]
-            pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
-                crate::macros::WeakBorrow { inner: std::sync::Arc::downgrade(&self.inner) }
+        ($struct_name:ident, $inner:ty) => {
+            #[derive(Clone)]
+            pub struct $struct_name {
+                pub inner: std::sync::Arc<parking_lot::RwLock<$inner>>,
             }
 
-            #[allow(dead_code)]
-            pub fn upgrade_weak(this: &crate::macros::WeakBorrow<$inner>) -> Option<$struct_name> {
-                this.inner.upgrade().map(|inner| Self { inner })
+            impl $struct_name {
+                #[allow(dead_code)]
+                pub fn as_weak(&self) -> crate::macros::WeakBorrow<$inner> {
+                    crate::macros::WeakBorrow {
+                        inner: std::sync::Arc::downgrade(&self.inner),
+                    }
+                }
+
+                #[allow(dead_code)]
+                pub fn upgrade_weak(
+                    this: &crate::macros::WeakBorrow<$inner>,
+                ) -> Option<$struct_name> {
+                    this.inner.upgrade().map(|inner| Self { inner })
+                }
+
+                #[allow(dead_code)]
+                pub fn strong_count(&self) -> usize {
+                    std::sync::Arc::strong_count(&self.inner)
+                }
+
+                #[allow(dead_code)]
+                pub fn weak_count(&self) -> usize {
+                    std::sync::Arc::weak_count(&self.inner)
+                }
             }
 
-            #[allow(dead_code)]
-            pub fn strong_count(&self) -> usize {
-                std::sync::Arc::strong_count(&self.inner)
+            impl From<$inner> for $struct_name {
+                fn from(inner: $inner) -> Self {
+                    Self {
+                        inner: create_inner!(inner),
+                    }
+                }
             }
-
-            #[allow(dead_code)]
-            pub fn weak_count(&self) -> usize {
-                std::sync::Arc::weak_count(&self.inner)
-            }
-        }
-
-        impl From<$inner> for $struct_name {
-            fn from(inner: $inner) -> Self {
-                Self { inner: create_inner!(inner) }
-            }
-        }
-    };
-}
+        };
+    }
 
     macro_rules! create_inner {
-    ($item:expr) => {
-        std::sync::Arc::new(parking_lot::RwLock::new($item))
-    };
-}
+        ($item:expr) => {
+            std::sync::Arc::new(parking_lot::RwLock::new($item))
+        };
+    }
 
     #[allow(unused_results)]
     macro_rules! spawn {
@@ -303,9 +328,8 @@ pub mod macros {
     macro_rules! to_concurrent_processor {
         ($future:expr) => {
             return $future.await
-        }
+        };
     }
-
 
     macro_rules! return_if_none {
         ($opt:expr) => {
@@ -331,18 +355,21 @@ pub mod re_imports {
     pub use futures::future::try_join3;
 
     pub use ez_pqcrypto::build_tag;
-    pub use hyxe_wire::hypernode_type::NodeType;
-    pub use hyxe_wire::exports::ClientConfig as RustlsClientConfig;
-    pub use hyxe_wire::quic::insecure;
     pub use hyxe_wire::exports::openssl;
     pub use hyxe_wire::exports::rustls_pemfile;
-    pub use hyxe_wire::tls::{create_rustls_client_config, load_native_certs_async, cert_vec_to_secure_client_config};
+    pub use hyxe_wire::exports::ClientConfig as RustlsClientConfig;
+    pub use hyxe_wire::hypernode_type::NodeType;
+    pub use hyxe_wire::quic::insecure;
+    pub use hyxe_wire::tls::{
+        cert_vec_to_secure_client_config, create_rustls_client_config, load_native_certs_async,
+    };
 }
-
 
 pub mod prelude {
     pub use ez_pqcrypto::algorithm_dictionary::{EncryptionAlgorithm, KemAlgorithm};
-    pub use hyxe_crypt::argon::{argon_container::ArgonDefaultServerSettings, autotuner::calculate_optimal_argon_params};
+    pub use hyxe_crypt::argon::{
+        argon_container::ArgonDefaultServerSettings, autotuner::calculate_optimal_argon_params,
+    };
     pub use hyxe_crypt::fcm::keys::FcmKeys;
     pub use hyxe_crypt::secure_buffer::{sec_bytes::SecBuffer, sec_string::SecString};
     pub use hyxe_user::account_manager::AccountManager;
@@ -356,44 +383,52 @@ pub mod prelude {
 
     pub use crate::error::NetworkError;
     pub use crate::functional::*;
-    pub use hyxe_user::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
-    pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
-    pub use crate::hdp::packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
-    pub use crate::hdp::hdp_node::{atexit, NodeRequest, NodeResult, NodeRemote, Remote, SecrecyMode};
     pub use crate::hdp::hdp_node::ConnectMode;
+    pub use crate::hdp::hdp_node::HdpServer;
     pub use crate::hdp::hdp_node::Ticket;
+    pub use crate::hdp::hdp_node::{
+        atexit, NodeRemote, NodeRequest, NodeResult, Remote, SecrecyMode,
+    };
+    pub use crate::hdp::hdp_packet_crafter::SecureProtocolPacket;
     pub use crate::hdp::misc::panic_future::ExplicitPanicFuture;
-    pub use crate::hdp::misc::session_security_settings::{SessionSecuritySettings, SessionSecuritySettingsBuilder};
+    pub use crate::hdp::misc::session_security_settings::{
+        SessionSecuritySettings, SessionSecuritySettingsBuilder,
+    };
     pub use crate::hdp::misc::underlying_proto::UnderlyingProtocol;
     pub use crate::hdp::outbound_sender::OutboundUdpSender;
+    pub use crate::hdp::packet_processor::peer::group_broadcast::{GroupBroadcast, MemberState};
     pub use crate::hdp::peer::channel::*;
-    pub use crate::hdp::peer::group_channel::{GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf};
+    pub use crate::hdp::peer::group_channel::{
+        GroupBroadcastPayload, GroupChannel, GroupChannelRecvHalf, GroupChannelSendHalf,
+    };
     pub use crate::hdp::peer::message_group::MessageGroupKey;
-    pub use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
-    pub use crate::hdp::peer::peer_layer::PeerResponse;
-    pub use crate::hdp::state_container::VirtualTargetType;
-    pub use crate::kernel::{kernel::NetKernel, kernel_executor::KernelExecutor, KernelExecutorSettings};
-    pub use crate::re_imports::{async_trait, NodeType};
+    pub use crate::hdp::peer::message_group::{GroupType, MessageGroupOptions};
     pub use crate::hdp::peer::peer_layer::HypernodeConnectionType;
-    pub use hyxe_user::serialization::SyncIO;
+    pub use crate::hdp::peer::peer_layer::PeerResponse;
+    pub use crate::hdp::peer::peer_layer::{PeerConnectionType, PeerSignal, UdpMode};
+    pub use crate::hdp::state_container::VirtualTargetType;
     pub use crate::kernel::RuntimeFuture;
-    pub use crate::hdp::peer::message_group::{MessageGroupOptions, GroupType};
-    pub use crate::hdp::hdp_node::HdpServer;
+    pub use crate::kernel::{
+        kernel::NetKernel, kernel_executor::KernelExecutor, KernelExecutorSettings,
+    };
+    pub use crate::re_imports::{async_trait, NodeType};
+    pub use hyxe_user::backend::utils::{ObjectTransferStatus, VirtualObjectMetadata};
+    pub use hyxe_user::serialization::SyncIO;
 
     #[doc(hidden)]
     pub use crate::hdp::misc::net::{safe_split_stream, GenericNetworkStream};
 }
 
-/// Contains the streams for creating connections
-mod kernel;
-/// The default error type for this crate
-mod error;
+pub mod auth;
 /// Contains the constants used by this crate
 pub mod constants;
-/// The primary module of this crate
-mod hdp;
+/// The default error type for this crate
+mod error;
 /// Functional extras
 mod functional;
+/// The primary module of this crate
+mod hdp;
 /// For handling differential function input types between single/multi-threaded modes
 mod inner_arg;
-pub mod auth;
+/// Contains the streams for creating connections
+mod kernel;

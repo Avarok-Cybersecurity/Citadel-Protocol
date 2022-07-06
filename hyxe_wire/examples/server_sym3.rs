@@ -1,20 +1,37 @@
-use tokio::io::{BufReader, AsyncBufReadExt};
-use hyxe_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use hyxe_wire::quic::QuicEndpointListener;
+use hyxe_wire::udp_traversal::udp_hole_puncher::UdpHolePuncher;
 use netbeam::sync::network_endpoint::NetworkEndpoint;
 use netbeam::sync::RelativeNodeType;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[tokio::main]
 async fn main() {
     //setup_log();
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:25025").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:25025")
+        .await
+        .unwrap();
     let (client_stream, peer_addr) = listener.accept().await.unwrap();
     log::trace!(target: "lusna", "Received client stream from {:?}", peer_addr);
 
-    let hole_punched_socket = UdpHolePuncher::new(&NetworkEndpoint::register(RelativeNodeType::Receiver, client_stream).await.unwrap(), Default::default()).await.unwrap();
+    let hole_punched_socket = UdpHolePuncher::new(
+        &NetworkEndpoint::register(RelativeNodeType::Receiver, client_stream)
+            .await
+            .unwrap(),
+        Default::default(),
+    )
+    .await
+    .unwrap();
     log::trace!(target: "lusna", "Successfully hole-punched socket to peer @ {:?}", hole_punched_socket.addr);
 
-    let (_conn, mut sink, mut stream) = hyxe_wire::quic::QuicServer::new_from_pkcs_12_der_path(hole_punched_socket.socket, "../keys/testing.p12", "mrmoney10").unwrap().next_connection().await.unwrap();
+    let (_conn, mut sink, mut stream) = hyxe_wire::quic::QuicServer::new_from_pkcs_12_der_path(
+        hole_punched_socket.socket,
+        "../keys/testing.p12",
+        "mrmoney10",
+    )
+    .unwrap()
+    .next_connection()
+    .await
+    .unwrap();
     log::trace!(target: "lusna", "Successfully obtained QUIC connection ...");
 
     let writer = async move {

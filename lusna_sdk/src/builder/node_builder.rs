@@ -1,14 +1,14 @@
 use hyxe_net::prelude::*;
 
-use std::ops::{Deref, DerefMut};
-use std::pin::Pin;
 use futures::Future;
-use std::task::{Context, Poll};
-use std::fmt::{Debug, Formatter};
 use hyxe_net::re_imports::RustlsClientConfig;
-use std::path::Path;
-use std::sync::Arc;
+use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
+use std::path::Path;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
 
 #[derive(Default)]
 /// Used to construct a running client/peer or server instance
@@ -20,13 +20,13 @@ pub struct NodeBuilder {
     services: Option<ServicesConfig>,
     server_misc_settings: Option<ServerMiscSettings>,
     client_tls_config: Option<RustlsClientConfig>,
-    kernel_executor_settings: Option<KernelExecutorSettings>
+    kernel_executor_settings: Option<KernelExecutorSettings>,
 }
 
 /// An awaitable future whose return value propagates any internal protocol or kernel-level errors
 pub struct NodeFuture<'a, K> {
-    inner: Pin<Box<dyn Future<Output=Result<K, NetworkError>> + 'a>>,
-    _pd: PhantomData<fn() -> K>
+    inner: Pin<Box<dyn Future<Output = Result<K, NetworkError>> + 'a>>,
+    _pd: PhantomData<fn() -> K>,
 }
 
 #[cfg(feature = "localhost-testing")]
@@ -48,7 +48,7 @@ impl<K> Future for NodeFuture<'_, K> {
 
 /// Enables access to server-only configuration
 pub struct ServerConfigBuilder<'a> {
-    ptr: &'a mut NodeBuilder
+    ptr: &'a mut NodeBuilder,
 }
 
 impl Deref for ServerConfigBuilder<'_> {
@@ -67,7 +67,7 @@ impl DerefMut for ServerConfigBuilder<'_> {
 
 /// Enables access to server-only configuration
 pub struct ClientConfigBuilder<'a> {
-    ptr: &'a mut NodeBuilder
+    ptr: &'a mut NodeBuilder,
 }
 
 impl Deref for ClientConfigBuilder<'_> {
@@ -88,9 +88,13 @@ impl<'a> ClientConfigBuilder<'a> {
     /// Loads the accepted cert chain stored by the local operating system
     /// If a custom set of certs is required, run [`Self::with_custom_certs`]
     /// This is the default if no [`RustlsClientConfig`] is specified
-    pub async fn with_native_certs(&mut self) -> Result<&mut ClientConfigBuilder<'a>, NodeBuilderError> {
+    pub async fn with_native_certs(
+        &mut self,
+    ) -> Result<&mut ClientConfigBuilder<'a>, NodeBuilderError> {
         let certs = hyxe_net::re_imports::load_native_certs_async().await?;
-        self.client_tls_config = Some(hyxe_net::re_imports::cert_vec_to_secure_client_config(&certs)?);
+        self.client_tls_config = Some(hyxe_net::re_imports::cert_vec_to_secure_client_config(
+            &certs,
+        )?);
         Ok(self)
     }
 
@@ -103,14 +107,20 @@ impl<'a> ClientConfigBuilder<'a> {
 
     /// Loads a custom list of certs into the acceptable certificate list. Connections that present server certificates
     /// that are outside of this list during the handshake process are refused
-    pub fn with_custom_certs<T: AsRef<[u8]>>(&mut self, custom_certs: &[T]) -> Result<&mut ClientConfigBuilder<'a>, NodeBuilderError> {
+    pub fn with_custom_certs<T: AsRef<[u8]>>(
+        &mut self,
+        custom_certs: &[T],
+    ) -> Result<&mut ClientConfigBuilder<'a>, NodeBuilderError> {
         let cfg = hyxe_net::re_imports::create_rustls_client_config(custom_certs)?;
         self.client_tls_config = Some(cfg);
         Ok(self)
     }
 
     /// The file should be a DER formatted certificate
-    pub async fn with_pem_file<P: AsRef<Path>>(&mut self, path: P) -> Result<&mut ClientConfigBuilder<'a>, NodeBuilderError> {
+    pub async fn with_pem_file<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<&mut ClientConfigBuilder<'a>, NodeBuilderError> {
         let mut der = std::io::Cursor::new(tokio::fs::read(path).await?);
         let certs = hyxe_net::re_imports::rustls_pemfile::certs(&mut der)?;
         self.client_tls_config = Some(hyxe_net::re_imports::create_rustls_client_config(&certs)?);
@@ -124,7 +134,7 @@ pub enum NodeBuilderError {
     /// Denotes that the supplied configuration was invalid
     InvalidConfiguration(&'static str),
     /// Denotes any other error during the building process
-    Other(String)
+    Other(String),
 }
 
 impl<T: ToString> From<T> for NodeBuilderError {
@@ -135,7 +145,10 @@ impl<T: ToString> From<T> for NodeBuilderError {
 
 impl ServerConfigBuilder<'_> {
     /// Attaches custom Argon settings for password hashing at the server
-    pub fn with_server_argon_settings(&mut self, settings: ArgonDefaultServerSettings) -> &mut Self {
+    pub fn with_server_argon_settings(
+        &mut self,
+        settings: ArgonDefaultServerSettings,
+    ) -> &mut Self {
         self.ptr.server_argon_settings = Some(settings);
         self
     }
@@ -155,9 +168,16 @@ impl ServerConfigBuilder<'_> {
 
     /// Creates a Google Realtime Database configuration given the project URL and API Key. Requires the use of [`Self::with_google_services_json_path`] to allow minting of JsonWebTokens
     /// at the central server
-    pub fn with_google_realtime_database_config<T: Into<String>, R: Into<String>>(&mut self, url: T, api_key: R) -> &mut Self {
+    pub fn with_google_realtime_database_config<T: Into<String>, R: Into<String>>(
+        &mut self,
+        url: T,
+        api_key: R,
+    ) -> &mut Self {
         let cfg = self.get_or_create_services();
-        cfg.google_rtdb = Some(RtdbConfig { url: url.into(), api_key: api_key.into()});
+        cfg.google_rtdb = Some(RtdbConfig {
+            url: url.into(),
+            api_key: api_key.into(),
+        });
         self
     }
 
@@ -181,15 +201,18 @@ impl ServerConfigBuilder<'_> {
 
 impl NodeBuilder {
     /// Returns a future that represents the both the protocol and kernel execution
-    pub fn build<'a, 'b: 'a, K: NetKernel + 'b>(&'a mut self, kernel: K) -> Result<NodeFuture<'b, K>, NodeBuilderError> {
+    pub fn build<'a, 'b: 'a, K: NetKernel + 'b>(
+        &'a mut self,
+        kernel: K,
+    ) -> Result<NodeFuture<'b, K>, NodeBuilderError> {
         self.check()?;
         let hypernode_type = self.hypernode_type.take().unwrap_or_default();
-        let backend_type = self.backend_type.take().unwrap_or_else(||{
+        let backend_type = self.backend_type.take().unwrap_or_else(|| {
             if cfg!(feature = "filesystem") {
                 // set the home dir for fs type to the home directory
                 let mut home_dir = dirs2::home_dir().unwrap();
                 home_dir.push(format!(".lusna/{}", uuid::Uuid::new_v4().as_u128()));
-                return BackendType::Filesystem(home_dir.to_str().unwrap().to_string())
+                return BackendType::Filesystem(home_dir.to_str().unwrap().to_string());
             }
 
             BackendType::InMemory
@@ -204,21 +227,38 @@ impl NodeBuilder {
             proto
         } else {
             // default to TLS self-signed to enforce hybrid cryptography
-            UnderlyingProtocol::new_tls_self_signed().map_err(|err| NodeBuilderError::Other(err.into_string()))?
+            UnderlyingProtocol::new_tls_self_signed()
+                .map_err(|err| NodeBuilderError::Other(err.into_string()))?
         };
 
         Ok(NodeFuture {
             _pd: Default::default(),
             inner: Box::pin(async move {
                 log::trace!(target: "lusna", "[NodeBuilder] Checking Tokio runtime ...");
-                let rt = tokio::runtime::Handle::try_current().map_err(|err| NetworkError::Generic(err.to_string()))?;
+                let rt = tokio::runtime::Handle::try_current()
+                    .map_err(|err| NetworkError::Generic(err.to_string()))?;
                 log::trace!(target: "lusna", "[NodeBuilder] Creating account manager ...");
-                let account_manager = AccountManager::new(backend_type, server_argon_settings, server_services_cfg, server_misc_settings).await?;
+                let account_manager = AccountManager::new(
+                    backend_type,
+                    server_argon_settings,
+                    server_services_cfg,
+                    server_misc_settings,
+                )
+                .await?;
                 log::trace!(target: "lusna", "[NodeBuilder] Creating KernelExecutor ...");
-                let kernel_executor = KernelExecutor::new(rt, hypernode_type, account_manager, kernel, underlying_proto, client_config, kernel_executor_settings).await?;
+                let kernel_executor = KernelExecutor::new(
+                    rt,
+                    hypernode_type,
+                    account_manager,
+                    kernel,
+                    underlying_proto,
+                    client_config,
+                    kernel_executor_settings,
+                )
+                .await?;
                 log::trace!(target: "lusna", "[NodeBuilder] Executing kernel");
                 kernel_executor.execute().await
-            })
+            }),
         })
     }
 
@@ -255,7 +295,10 @@ impl NodeBuilder {
     }
 
     /// Sets the desired settings for the [`KernelExecutor`]
-    pub fn with_kernel_executor_settings(&mut self, kernel_executor_settings: KernelExecutorSettings) -> &mut Self {
+    pub fn with_kernel_executor_settings(
+        &mut self,
+        kernel_executor_settings: KernelExecutorSettings,
+    ) -> &mut Self {
         self.kernel_executor_settings = Some(kernel_executor_settings);
         self
     }
@@ -263,7 +306,9 @@ impl NodeBuilder {
     fn check(&self) -> Result<(), NodeBuilderError> {
         if let Some(svc) = self.services.as_ref() {
             if svc.google_rtdb.is_some() && svc.google_services_json_path.is_none() {
-                return Err(NodeBuilderError::InvalidConfiguration("Google realtime database is enabled, yet, a services path is not provided"))
+                return Err(NodeBuilderError::InvalidConfiguration(
+                    "Google realtime database is enabled, yet, a services path is not provided",
+                ));
             }
         }
 
@@ -278,11 +323,20 @@ mod tests {
 
     #[test]
     fn okay_config() {
-        let _ = NodeBuilder::default().server_config().with_google_realtime_database_config("123", "456").with_google_services_json_path("abc").build(EmptyKernel::default()).unwrap();
+        let _ = NodeBuilder::default()
+            .server_config()
+            .with_google_realtime_database_config("123", "456")
+            .with_google_services_json_path("abc")
+            .build(EmptyKernel::default())
+            .unwrap();
     }
 
     #[test]
     fn bad_config() {
-        assert!(NodeBuilder::default().server_config().with_google_realtime_database_config("123", "456").build(EmptyKernel::default()).is_err());
+        assert!(NodeBuilder::default()
+            .server_config()
+            .with_google_realtime_database_config("123", "456")
+            .build(EmptyKernel::default())
+            .is_err());
     }
 }

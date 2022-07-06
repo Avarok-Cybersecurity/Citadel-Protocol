@@ -10,9 +10,8 @@ pub enum EzError {
     /// Failed to decrypt the data
     AesGcmDecryptionFailure,
     /// For all other error types
-    Generic(&'static str)
+    Generic(&'static str),
 }
-
 
 impl Display for EzError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -20,7 +19,7 @@ impl Display for EzError {
             EzError::SharedSecretNotLoaded => "Shared secret not loaded",
             EzError::AesGcmEncryptionFailure => "AES-GCM Encryption Failure",
             EzError::AesGcmDecryptionFailure => "AES-GCM Decryption Failure",
-            EzError::Generic(val) => val
+            EzError::Generic(val) => val,
         };
 
         write!(f, "{}", val)
